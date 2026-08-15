@@ -124,7 +124,9 @@ impl DriverSession {
                     status: SessionStatus::Active,
                     ..self.clone()
                 },
-                Vec::new(),
+                vec![SessionEffect::SessionStarted {
+                    provider_session_id: session_id.into(),
+                }],
             ),
             SessionStatus::Active if self.session_id.as_deref() == Some(session_id) => {
                 self.diagnostic("duplicateSessionId")
@@ -240,9 +242,20 @@ pub enum SessionInput {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SessionEffect {
-    Normalized { event: NormalizedProviderEvent },
-    Terminal { reason: String },
-    StartAttempt { attempt: u32 },
+    /// Binds a validated provider-native identity through the daemon-owned lifecycle ingress.
+    SessionStarted {
+        #[serde(rename = "providerSessionId")]
+        provider_session_id: String,
+    },
+    Normalized {
+        event: NormalizedProviderEvent,
+    },
+    Terminal {
+        reason: String,
+    },
+    StartAttempt {
+        attempt: u32,
+    },
 }
 
 /// A state/effect pair, making each input independently testable.

@@ -36,6 +36,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Dormant authority-gated provider-effect ingress persists a stable, secret-free source event
       before daemon-owned session binding, decision settlement, or run projection reduction; it
       rejects source-ID substitution and all observer-mode calls, and is not composed by `gentd`.
+- [x] A dormant adapter maps validated public-driver session effects into that daemon-owned
+      ingress; process-local retry effects are never persisted and observer mode remains denied.
 - [x] Protocol-only CLI status/events/submit and filesystem-only read-only doctor discovery;
       it does not execute provider binaries, including version probes, in observer mode.
 - [x] `gent deps` requires explicit consent, then invokes only fixed, shell-free vendor installer

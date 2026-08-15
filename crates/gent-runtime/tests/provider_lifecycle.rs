@@ -1,6 +1,8 @@
+use gent_drivers::SessionEffect;
 use gent_ports::{Ledger, RunLease, RunProjectionLedger, RunRecord};
 use gent_runtime::{
-    Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
+    Coordinator, ProviderEffectDispatcher, ProviderLifecycleEffect, ProviderLifecycleIngress,
+    ProviderRunAuthority,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -162,4 +164,65 @@ fn provider_settlement_is_daemon_owned_and_observer_is_hard_disabled() {
         ledger.find_decision("decision-a").unwrap().unwrap().phase,
         DecisionSettlementPhase::Settled
     );
+}
+
+#[test]
+fn dispatcher_persists_reduced_driver_facts_but_ignores_process_local_retries() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    prepare(&ledger);
+    let dispatcher = ProviderEffectDispatcher::new(
+        Coordinator::new(ledger.clone(), CapabilitySet::default()),
+        ProviderRunAuthority::PublicDrivers,
+    );
+    assert_eq!(
+        dispatcher
+            .record(
+                "ignored-retry".into(),
+                "run-a".into(),
+                "daemon-a",
+                HostEpoch(1),
+                &SessionEffect::StartAttempt { attempt: 2 },
+            )
+            .unwrap(),
+        None
+    );
+    dispatcher
+        .record(
+            "driver-session".into(),
+            "run-a".into(),
+            "daemon-a",
+            HostEpoch(1),
+            &SessionEffect::SessionStarted {
+                provider_session_id: "native-session".into(),
+            },
+        )
+        .unwrap();
+    let status = dispatcher
+        .record(
+            "driver-turn".into(),
+            "run-a".into(),
+            "daemon-a",
+            HostEpoch(1),
+            &SessionEffect::Normalized {
+                event: NormalizedProviderEvent::TurnStarted {
+                    turn_id: "turn-a".into(),
+                },
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(status.status.snapshot_cursor, 2);
+    assert_eq!(
+        ledger
+            .find_run_session_binding("run-a")
+            .unwrap()
+            .unwrap()
+            .provider_session_id,
+        "native-session"
+    );
+    let EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
+        panic!("driver facts must remain cursor-resumable");
+    };
+    assert_eq!(events.len(), 2);
+    assert!(!events[0].payload.to_string().contains("native-session"));
 }

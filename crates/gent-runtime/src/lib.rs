@@ -6,6 +6,7 @@ pub mod catalog;
 mod conversations;
 mod decisions;
 mod dependency_actions;
+mod driver_effects;
 mod events;
 mod git_operations;
 mod legacy_observer;
@@ -18,6 +19,7 @@ mod tool_sources;
 mod workspaces;
 pub use attachments::AttachmentService;
 pub use dependency_actions::DependencyActionService;
+pub use driver_effects::ProviderEffectDispatcher;
 use gent_core::{Run, switch_provider};
 use gent_ports::{
     HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,
@@ -128,7 +130,6 @@ impl<L: Ledger> Coordinator<L> {
     pub fn create_run(&self, run: Run) -> Result<(), RuntimeError> {
         Ok(self.ledger.create_run(&to_record(&run))?)
     }
-
     /// Persists the immutable executable identity to be rechecked before run resume.
     ///
     /// # Errors
@@ -154,7 +155,6 @@ impl<L: Ledger> Coordinator<L> {
         self.ledger.create_run(&to_record(&child))?;
         Ok(child)
     }
-
     /// Atomically claims the coordinator role for a durable run.
     ///
     /// # Errors
