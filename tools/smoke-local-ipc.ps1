@@ -4,11 +4,31 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $dataDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gent-smoke-" + [guid]::NewGuid())
 $daemon = $null
+$gent = $null
 
 function Assert-Equal([object]$actual, [object]$expected, [string]$label) {
     if ($actual -ne $expected) {
         throw "${label}: expected '$expected', got '$actual'"
     }
+}
+
+function Invoke-Gent([string]$label, [string[]]$arguments) {
+    $stdout = Join-Path $dataDir "${label}.stdout"
+    $stderr = Join-Path $dataDir "${label}.stderr"
+    $process = Start-Process -FilePath $gent -ArgumentList $arguments -PassThru -NoNewWindow `
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    if (-not $process.WaitForExit(10000)) {
+        Stop-Process -Id $process.Id -Force
+        $daemonLog = Join-Path $dataDir "gentd.stderr"
+        $details = if (Test-Path $daemonLog) { Get-Content -Raw $daemonLog } else { "no daemon log" }
+        throw "${label} timed out; daemon stderr: $details"
+    }
+    $output = if (Test-Path $stdout) { Get-Content -Raw $stdout } else { "" }
+    if ($process.ExitCode -ne 0) {
+        $errors = if (Test-Path $stderr) { Get-Content -Raw $stderr } else { "no stderr" }
+        throw "${label} failed with exit $($process.ExitCode): $errors"
+    }
+    return $output
 }
 
 try {
@@ -17,20 +37,25 @@ try {
     cargo build --quiet -p gentd -p gent-cli
     $gentd = Join-Path $root "target\debug\gentd.exe"
     $gent = Join-Path $root "target\debug\gent.exe"
-    $daemon = Start-Process -FilePath $gentd -ArgumentList @("--data-dir", $dataDir) -PassThru
+    $daemon = Start-Process -FilePath $gentd -ArgumentList @("--data-dir", $dataDir) -PassThru `
+        -RedirectStandardOutput (Join-Path $dataDir "gentd.stdout") `
+        -RedirectStandardError (Join-Path $dataDir "gentd.stderr")
 
     for ($attempt = 0; $attempt -lt 40; $attempt++) {
-        $statusJson = & $gent --data-dir $dataDir status 2>$null
-        if ($LASTEXITCODE -eq 0) { break }
+        try {
+            $statusJson = Invoke-Gent "status" @("--data-dir", $dataDir, "status")
+            break
+        } catch {
+            if ($attempt -eq 39) { throw }
+        }
         Start-Sleep -Milliseconds 50
     }
-    if ($LASTEXITCODE -ne 0) { throw "gentd did not become ready" }
 
     $status = $statusJson | ConvertFrom-Json
-    $receipt = & $gent --data-dir $dataDir submit --kind ping --payload '{"message":"smoke"}' | ConvertFrom-Json
-    $events = & $gent --data-dir $dataDir events | ConvertFrom-Json
-    $decision = & $gent --data-dir $dataDir decision submit --decision-id smoke-decision --idempotency-key smoke-key | ConvertFrom-Json
-    $terminal = & $gent --data-dir $dataDir decision unprovable --decision-id smoke-decision | ConvertFrom-Json
+    $receipt = Invoke-Gent "receipt" @("--data-dir", $dataDir, "submit", "--kind", "ping") | ConvertFrom-Json
+    $events = Invoke-Gent "events" @("--data-dir", $dataDir, "events") | ConvertFrom-Json
+    $decision = Invoke-Gent "decision" @("--data-dir", $dataDir, "decision", "submit", "--decision-id", "smoke-decision", "--idempotency-key", "smoke-key") | ConvertFrom-Json
+    $terminal = Invoke-Gent "terminal" @("--data-dir", $dataDir, "decision", "unprovable", "--decision-id", "smoke-decision") | ConvertFrom-Json
 
     Assert-Equal $status.type "status" "status frame"
     Assert-Equal $receipt.body.status "settled" "receipt status"
