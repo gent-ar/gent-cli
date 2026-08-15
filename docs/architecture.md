@@ -72,7 +72,9 @@ staged; activation must drain or durably hand off work, pass a local health
 handshake and read-only probe, and retain a safe rollback path. A forward-only
 migration, revoked build, failed health probe, or incompatible app range must
 instead leave ingress closed in a clear read-only/update-required state.
-Distribution, artifact staging, binary swap, and observer update APIs remain
+The runtime coordinates trusted staging, health, and bootstrapper handoff only
+through fakeable ports behind a separately approved authority profile. Concrete
+distribution adapters, a real binary swap, and observer update APIs remain
 deliberately unimplemented and unadvertised.
 
 Device pairing, LAN transport, relay hosting, and application automations stay

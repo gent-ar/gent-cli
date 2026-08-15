@@ -231,3 +231,18 @@ fn forward_only_update_refuses_rollback_and_invalid_events_are_noops() {
     );
     assert!(!noop.changed);
 }
+
+#[test]
+fn staging_failure_does_not_close_an_unchanged_running_host() {
+    let available = reduce_runtime_update(
+        RuntimeUpdateStatus::default(),
+        RuntimeUpdateEvent::Discovered(RuntimeUpdateEligibility::Eligible),
+        Some(&release()),
+    );
+    let failed = reduce_runtime_update(available.status, RuntimeUpdateEvent::StagingFailed, None);
+    assert_eq!(
+        failed.status.failure,
+        Some(RuntimeUpdateFailure::StagingFailed)
+    );
+    assert_eq!(failed.ingress, RuntimeUpdateIngress::Unchanged);
+}

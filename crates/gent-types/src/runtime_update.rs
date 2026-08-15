@@ -87,7 +87,9 @@ pub enum RuntimeUpdateFailure {
     IncompatibleProtocol,
     IncompatibleSchema,
     IncompatibleApp,
+    StagingFailed,
     HealthCheckFailed,
+    ActivationFailed,
     ForwardOnlyRollback,
     IngressNotClosed,
 }

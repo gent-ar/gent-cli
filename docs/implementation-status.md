@@ -106,8 +106,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       shape validation, and an atomically stored offline cache revalidate every read. Durable attempt
       checkpoints and fakeable source/staging/health/bootstrapper ports exist. An uncomposed,
       authority-gated planner makes observer mode a no-op and closes ingress before persisting an
-      incompatible release as read-only; no live release source, artifact staging, binary swap, or
-      observer update API exists yet.
+      incompatible release as read-only. Its uncomposed executor persists staging, health, and
+      bootstrapper-handoff transitions, refuses to replay incomplete effects after restart, and
+      keeps ingress closed after health or activation begins; no live release source, platform
+      staging adapter, binary swap, or observer update API exists yet.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not

@@ -31,10 +31,12 @@ pub enum RuntimeUpdateEligibility {
 pub enum RuntimeUpdateEvent {
     Discovered(RuntimeUpdateEligibility),
     Staged,
+    StagingFailed,
     HealthCheckStarted,
     HealthCheckPassed,
     HealthCheckFailed,
     ActivationRequested { ingress_closed: bool },
+    ActivationFailed,
     RollbackRequested,
 }
 
@@ -112,6 +114,12 @@ pub fn reduce_runtime_update(
             None,
             RuntimeUpdateIngress::Unchanged,
         ),
+        RuntimeUpdateEvent::StagingFailed => transition(
+            status,
+            RuntimeUpdateStage::Failed,
+            Some(RuntimeUpdateFailure::StagingFailed),
+            RuntimeUpdateIngress::Unchanged,
+        ),
         RuntimeUpdateEvent::HealthCheckStarted if status.stage == RuntimeUpdateStage::Staged => {
             transition(
                 status,
@@ -145,6 +153,9 @@ pub fn reduce_runtime_update(
         }
         RuntimeUpdateEvent::ActivationRequested { .. } => {
             failed(status, RuntimeUpdateFailure::IngressNotClosed)
+        }
+        RuntimeUpdateEvent::ActivationFailed => {
+            failed(status, RuntimeUpdateFailure::ActivationFailed)
         }
         RuntimeUpdateEvent::RollbackRequested if status.forward_only_schema => {
             failed(status, RuntimeUpdateFailure::ForwardOnlyRollback)
