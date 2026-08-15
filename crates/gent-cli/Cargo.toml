@@ -11,6 +11,7 @@ clap.workspace = true
 directories.workspace = true
 gent-protocol = { path = "../gent-protocol" }
 gent-types = { path = "../gent-types" }
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

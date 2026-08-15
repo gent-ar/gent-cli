@@ -401,6 +401,7 @@ dependencies = [
  "directories",
  "gent-protocol",
  "gent-types",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

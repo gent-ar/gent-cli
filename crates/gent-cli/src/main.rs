@@ -1,19 +1,16 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use gent_protocol::{
-    DependencyAction, DependencyActionRequest, DependencyPlanRequest, DependencyProvider, WireFrame,
-};
-use gent_types::{Command, ReceiptId};
-use serde_json::Value;
+use gent_protocol::{DependencyAction, DependencyProvider};
 
+mod command_execution;
 mod conversation_status;
 mod conversation_timeline;
 mod decision;
+mod event_stream;
 mod local_ipc;
 
-use crate::decision::{DecisionCommandLine, decision_frame};
-use crate::local_ipc::request;
+use crate::decision::DecisionCommandLine;
 
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
@@ -58,6 +55,9 @@ enum CommandLine {
     Events {
         #[arg(long, default_value_t = 0)]
         after_cursor: u64,
+        /// Keep the local IPC connection open and print cursor-ordered live batches.
+        #[arg(long)]
+        follow: bool,
     },
 }
 
@@ -97,135 +97,7 @@ enum ConversationCommand {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
-    match args.command {
-        CommandLine::Doctor => println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &request(args.data_dir, args.no_autostart, WireFrame::DoctorRequest).await?,
-            )?
-        ),
-        CommandLine::Deps { action } => {
-            let frame = dependency_frame(&action);
-            println!(
-                "{}",
-                serde_json::to_string_pretty(
-                    &request(args.data_dir, args.no_autostart, frame).await?
-                )?
-            );
-        }
-        CommandLine::Decision { action } => println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &request(args.data_dir, args.no_autostart, decision_frame(&action)).await?,
-            )?
-        ),
-        CommandLine::Conversation { action } => match action {
-            ConversationCommand::Status { conversation_id } => println!(
-                "{}",
-                serde_json::to_string_pretty(
-                    &conversation_status::request(
-                        args.data_dir,
-                        args.no_autostart,
-                        conversation_id
-                    )
-                    .await?,
-                )?
-            ),
-            ConversationCommand::Timeline { conversation_id } => println!(
-                "{}",
-                serde_json::to_string_pretty(
-                    &conversation_timeline::request(
-                        args.data_dir,
-                        args.no_autostart,
-                        conversation_id
-                    )
-                    .await?,
-                )?
-            ),
-        },
-        CommandLine::Status => println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &request(args.data_dir, args.no_autostart, WireFrame::StatusRequest).await?,
-            )?
-        ),
-        CommandLine::Submit {
-            kind,
-            payload,
-            idempotency_key,
-        } => {
-            let status = request(
-                args.data_dir.clone(),
-                args.no_autostart,
-                WireFrame::StatusRequest,
-            )
-            .await?;
-            let WireFrame::Status(status) = status else {
-                return Err("daemon did not return host status".into());
-            };
-            let payload: Value = serde_json::from_str(&payload)?;
-            let command = Command {
-                receipt_id: ReceiptId::new(),
-                idempotency_key: idempotency_key.unwrap_or_else(|| ReceiptId::new().0),
-                host_epoch: status.host_epoch,
-                kind,
-                payload,
-            };
-            println!(
-                "{}",
-                serde_json::to_string_pretty(
-                    &request(
-                        args.data_dir,
-                        args.no_autostart,
-                        WireFrame::Command(command)
-                    )
-                    .await?
-                )?
-            );
-        }
-        CommandLine::Events { after_cursor } => println!(
-            "{}",
-            serde_json::to_string_pretty(
-                &request(
-                    args.data_dir,
-                    args.no_autostart,
-                    WireFrame::Subscribe { after_cursor },
-                )
-                .await?
-            )?
-        ),
-    }
-    Ok(())
-}
-
-fn dependency_frame(action: &DependencyCommand) -> WireFrame {
-    match action {
-        DependencyCommand::Plan { action, provider } => {
-            WireFrame::DependencyPlanRequest(DependencyPlanRequest {
-                provider: *provider,
-                action: *action,
-            })
-        }
-        DependencyCommand::Install { provider, consent } => {
-            dependency_action(*provider, DependencyAction::Install, *consent)
-        }
-        DependencyCommand::Update { provider, consent } => {
-            dependency_action(*provider, DependencyAction::Update, *consent)
-        }
-    }
-}
-
-fn dependency_action(
-    provider: DependencyProvider,
-    action: DependencyAction,
-    consent_granted: bool,
-) -> WireFrame {
-    WireFrame::DependencyActionRequest(DependencyActionRequest {
-        provider,
-        action,
-        consent_granted,
-    })
+    command_execution::execute(Args::parse()).await
 }
 
 #[cfg(test)]
@@ -233,7 +105,8 @@ mod tests {
     use clap::Parser;
     use gent_protocol::{DependencyAction, DependencyProvider, WireFrame};
 
-    use super::{Args, CommandLine, ConversationCommand, DependencyCommand, dependency_frame};
+    use super::{Args, CommandLine, ConversationCommand, DependencyCommand};
+    use crate::command_execution::dependency_frame;
 
     #[test]
     fn dependency_plan_is_read_only() {

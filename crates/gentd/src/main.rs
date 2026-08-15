@@ -1,8 +1,13 @@
 mod api;
 mod dependency_catalog;
+mod event_stream;
 mod host_lock;
 mod public_runs;
 mod transport;
+#[cfg(test)]
+mod transport_event_tests;
+#[cfg(test)]
+mod transport_stream_tests;
 #[cfg(test)]
 mod transport_tests;
 #[cfg(test)]

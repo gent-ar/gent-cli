@@ -2,8 +2,8 @@
 
 use gent_protocol::{
     CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, ConversationStatusFrame,
-    ConversationTimelineFrame, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
-    write_json_frame,
+    ConversationTimelineFrame, EVENT_STREAM_CAPABILITY, EventStreamFrame, WireFrame, negotiate,
+    read_frame, read_json_frame, write_frame, write_json_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
@@ -20,6 +20,7 @@ pub(crate) fn observed_capabilities() -> CapabilitySet {
     let mut capabilities = capability_set([
         RuntimeCapability::Decisions,
         RuntimeCapability::EventResync,
+        RuntimeCapability::EventStream,
         RuntimeCapability::Events,
         RuntimeCapability::HostEpoch,
         RuntimeCapability::Receipts,
@@ -62,10 +63,23 @@ where
     };
     loop {
         let raw: Value = read_json_frame(&mut stream).await?;
-        if dispatch_extension(&mut stream, &runtime, extensions, &raw).await? {
+        if extensions.supports(EVENT_STREAM_CAPABILITY) {
+            if let Ok(EventStreamFrame::Attach { after_cursor }) =
+                serde_json::from_value(raw.clone())
+            {
+                return crate::event_stream::serve(
+                    stream,
+                    runtime,
+                    after_cursor,
+                    extensions.supports("event-resync"),
+                )
+                .await;
+            }
+        }
+        if dispatch_extension(&mut stream, &runtime, &extensions, &raw).await? {
             continue;
         }
-        let frame = command_frame(&runtime, raw, extensions.event_resync);
+        let frame = command_frame(&runtime, raw, extensions.supports("event-resync"));
         match frame {
             Ok(frame) => write_frame(&mut stream, &frame).await?,
             Err(message) => write_error(&mut stream, "invalidCommand", &message).await?,
@@ -99,13 +113,7 @@ where
     };
     let extensions = match negotiate(&hello, PROTOCOL_MIN, PROTOCOL_MAX, &capabilities) {
         Ok(answer) => {
-            let supported =
-                |capability| answer.capabilities.0.iter().any(|item| item == capability);
-            let flags = ExtensionSupport {
-                event_resync: supported("event-resync"),
-                conversation_status: supported(CONVERSATION_STATUS_CAPABILITY),
-                conversation_timeline: supported(CONVERSATION_TIMELINE_CAPABILITY),
-            };
+            let flags = ExtensionSupport(answer.capabilities.clone());
             write_frame(&mut stream, &WireFrame::Negotiated(answer)).await?;
             flags
         }
@@ -121,21 +129,21 @@ where
 async fn dispatch_extension<S, R>(
     stream: &mut S,
     runtime: &R,
-    extensions: ExtensionSupport,
+    extensions: &ExtensionSupport,
     raw: &Value,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>
 where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    if extensions.conversation_status {
+    if extensions.supports(CONVERSATION_STATUS_CAPABILITY) {
         if let Ok(ConversationStatusFrame::Request { conversation_id }) =
             serde_json::from_value(raw.clone())
         {
             return write_conversation_status(stream, runtime, &conversation_id).await;
         }
     }
-    if extensions.conversation_timeline {
+    if extensions.supports(CONVERSATION_TIMELINE_CAPABILITY) {
         if let Ok(ConversationTimelineFrame::TimelineRequest { conversation_id }) =
             serde_json::from_value(raw.clone())
         {
@@ -219,14 +227,19 @@ fn command_frame<R: RuntimeApi>(
     }
 }
 
-#[derive(Clone, Copy)]
-struct ExtensionSupport {
-    event_resync: bool,
-    conversation_status: bool,
-    conversation_timeline: bool,
+#[derive(Clone)]
+struct ExtensionSupport(CapabilitySet);
+
+impl ExtensionSupport {
+    fn supports(&self, capability: &str) -> bool {
+        self.0.0.iter().any(|item| item == capability)
+    }
 }
 
-fn event_frame(resume: EventResume, client_supports_resync: bool) -> Result<WireFrame, String> {
+pub(crate) fn event_frame(
+    resume: EventResume,
+    client_supports_resync: bool,
+) -> Result<WireFrame, String> {
     match resume {
         EventResume::Delta { events } => Ok(WireFrame::Events { events }),
         EventResume::Resync { snapshot, events } if client_supports_resync => {
@@ -253,30 +266,4 @@ where
     )
     .await?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use gent_types::{EventResume, EventSnapshot, HostEpoch};
-    use serde_json::json;
-
-    use super::event_frame;
-
-    #[test]
-    fn stale_event_feeds_require_the_explicit_resync_capability() {
-        let resume = EventResume::Resync {
-            snapshot: EventSnapshot {
-                cursor: 4,
-                host_epoch: HostEpoch(1),
-                schema_version: 1,
-                payload: json!({ "safe": true }),
-            },
-            events: Vec::new(),
-        };
-        assert!(event_frame(resume.clone(), false).is_err());
-        assert!(matches!(
-            event_frame(resume, true),
-            Ok(gent_protocol::WireFrame::EventResync { .. })
-        ));
-    }
 }

@@ -1,7 +1,9 @@
 //! Capability-catalog reconciliation is pure: declarations must match observed behavior.
 
 use gent_ports::CapabilityCatalogLedger;
-use gent_protocol::{CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY};
+use gent_protocol::{
+    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
+};
 use gent_types::{CapabilityCatalogRecord, CapabilitySet};
 
 use crate::Coordinator;
@@ -12,6 +14,7 @@ use crate::RuntimeError;
 pub enum RuntimeCapability {
     Decisions,
     EventResync,
+    EventStream,
     Events,
     HostEpoch,
     Receipts,
@@ -22,6 +25,7 @@ impl RuntimeCapability {
         match self {
             Self::Decisions => "decisions",
             Self::EventResync => "event-resync",
+            Self::EventStream => EVENT_STREAM_CAPABILITY,
             Self::Events => "events",
             Self::HostEpoch => "host-epoch",
             Self::Receipts => "receipts",
@@ -29,9 +33,10 @@ impl RuntimeCapability {
     }
 }
 
-const DECLARED: [RuntimeCapability; 5] = [
+const DECLARED: [RuntimeCapability; 6] = [
     RuntimeCapability::Decisions,
     RuntimeCapability::EventResync,
+    RuntimeCapability::EventStream,
     RuntimeCapability::Events,
     RuntimeCapability::HostEpoch,
     RuntimeCapability::Receipts,

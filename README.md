@@ -50,6 +50,7 @@ cargo run -p gent-cli -- doctor
 cargo run -p gent-cli -- status
 cargo run -p gent-cli -- submit --kind ping --payload '{"message":"hello"}'
 cargo run -p gent-cli -- events
+cargo run -p gent-cli -- events --follow
 ```
 
 The default data directory is platform-specific. Set `GENT_DATA_DIR` to an
