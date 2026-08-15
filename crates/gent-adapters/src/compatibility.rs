@@ -74,6 +74,30 @@ impl TrustedKeySet {
         lock: &RunVersionLock,
         now: u64,
     ) -> Result<(), CompatibilityError> {
+        self.verify_manifest(manifest, now)?;
+        let matched = manifest.payload.entries.iter().any(|entry| {
+            entry.id == lock.compatibility_entry
+                && entry.provider == lock.provider
+                && entry.version == lock.version
+                && !entry.revoked
+        });
+        matched
+            .then_some(())
+            .ok_or_else(|| CompatibilityError::Unsupported {
+                provider: lock.provider.clone(),
+                version: lock.version.clone(),
+            })
+    }
+
+    /// Verifies signer trust, signature, and expiry before a manifest may enter cache.
+    ///
+    /// # Errors
+    /// Returns an error when the signing key is absent, revoked, or the manifest is invalid.
+    pub fn verify_manifest(
+        &self,
+        manifest: &SignedCompatibilityManifest,
+        now: u64,
+    ) -> Result<(), CompatibilityError> {
         if self.revoked_key_ids.contains(&manifest.key_id) {
             return Err(CompatibilityError::RevokedKey(manifest.key_id.clone()));
         }
@@ -81,7 +105,7 @@ impl TrustedKeySet {
             .keys
             .get(&manifest.key_id)
             .ok_or_else(|| CompatibilityError::UnknownKey(manifest.key_id.clone()))?;
-        manifest.verify_lock(key, lock, now)
+        manifest.verify_signature_and_expiry(key, now)
     }
 }
 
@@ -96,16 +120,7 @@ impl SignedCompatibilityManifest {
         lock: &RunVersionLock,
         now: u64,
     ) -> Result<(), CompatibilityError> {
-        let payload = serde_json::to_vec(&self.payload)?;
-        let encoded =
-            hex::decode(&self.signature_hex).map_err(|_| CompatibilityError::InvalidSignature)?;
-        let signature =
-            Signature::from_slice(&encoded).map_err(|_| CompatibilityError::InvalidSignature)?;
-        key.verify(&payload, &signature)
-            .map_err(|_| CompatibilityError::SignatureMismatch)?;
-        if self.payload.expires_at_unix_seconds < now {
-            return Err(CompatibilityError::Expired);
-        }
+        self.verify_signature_and_expiry(key, now)?;
         let matched = self.payload.entries.iter().any(|entry| {
             entry.id == lock.compatibility_entry
                 && entry.provider == lock.provider
@@ -118,6 +133,28 @@ impl SignedCompatibilityManifest {
                 provider: lock.provider.clone(),
                 version: lock.version.clone(),
             })
+    }
+
+    /// Verifies only the signed manifest envelope and fixed expiry.
+    ///
+    /// # Errors
+    /// Returns an error when the signature is malformed, does not verify, or has expired.
+    pub fn verify_signature_and_expiry(
+        &self,
+        key: &VerifyingKey,
+        now: u64,
+    ) -> Result<(), CompatibilityError> {
+        let payload = serde_json::to_vec(&self.payload)?;
+        let encoded =
+            hex::decode(&self.signature_hex).map_err(|_| CompatibilityError::InvalidSignature)?;
+        let signature =
+            Signature::from_slice(&encoded).map_err(|_| CompatibilityError::InvalidSignature)?;
+        key.verify(&payload, &signature)
+            .map_err(|_| CompatibilityError::SignatureMismatch)?;
+        if self.payload.expires_at_unix_seconds < now {
+            return Err(CompatibilityError::Expired);
+        }
+        Ok(())
     }
 }
 
