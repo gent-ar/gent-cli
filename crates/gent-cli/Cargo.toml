@@ -1,0 +1,24 @@
+[package]
+name = "gent-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap.workspace = true
+directories.workspace = true
+gent-protocol = { path = "../gent-protocol" }
+gent-types = { path = "../gent-types" }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[[bin]]
+name = "gent"
+path = "src/main.rs"
+
+[lints]
+workspace = true

@@ -1,0 +1,23 @@
+[package]
+name = "gent-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gent-adapters = { path = "../gent-adapters" }
+gent-core = { path = "../gent-core" }
+gent-drivers = { path = "../gent-drivers" }
+gent-ports = { path = "../gent-ports" }
+gent-protocol = { path = "../gent-protocol" }
+gent-types = { path = "../gent-types" }
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+gent-store = { path = "../gent-store" }
+
+[lints]
+workspace = true

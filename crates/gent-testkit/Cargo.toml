@@ -1,0 +1,24 @@
+[package]
+name = "gent-testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+clap.workspace = true
+gent-ports = { path = "../gent-ports" }
+gent-protocol = { path = "../gent-protocol" }
+gent-types = { path = "../gent-types" }
+serde.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+
+[[bin]]
+name = "validate-coverage-manifest"
+path = "src/bin/validate-coverage-manifest.rs"
+
+[lints]
+workspace = true

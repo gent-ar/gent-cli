@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+set -eu
+exec cargo run --quiet -p gent-testkit --bin validate-coverage-manifest -- "$@"

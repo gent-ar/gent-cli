@@ -1,0 +1,36 @@
+[package]
+name = "gentd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap.workspace = true
+directories.workspace = true
+gent-adapters = { path = "../gent-adapters" }
+gent-automations = { path = "../gent-automations" }
+gent-core = { path = "../gent-core" }
+gent-drivers = { path = "../gent-drivers" }
+gent-git = { path = "../gent-git" }
+gent-mcp = { path = "../gent-mcp" }
+gent-pairing = { path = "../gent-pairing" }
+gent-ports = { path = "../gent-ports" }
+gent-protocol = { path = "../gent-protocol" }
+gent-runtime = { path = "../gent-runtime" }
+gent-store = { path = "../gent-store" }
+gent-types = { path = "../gent-types" }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[bin]]
+name = "gentd"
+path = "src/main.rs"
+
+[lints]
+workspace = true

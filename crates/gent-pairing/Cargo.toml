@@ -1,0 +1,14 @@
+[package]
+name = "gent-pairing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gent-protocol = { path = "../gent-protocol" }
+gent-types = { path = "../gent-types" }
+
+[lints]
+workspace = true
