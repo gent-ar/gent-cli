@@ -54,6 +54,24 @@ pub struct WorktreeLease {
     pub host_epoch: HostEpoch,
 }
 
+/// Durable ownership claim preventing two coordinators from driving one run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunLease {
+    pub run_id: String,
+    pub coordinator_id: String,
+    pub host_epoch: HostEpoch,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RunLeaseClaim {
+    Acquired(RunLease),
+    Contended(RunLease),
+    Recovered {
+        previous: RunLease,
+        current: RunLease,
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LeaseClaim {
     Acquired(WorktreeLease),
@@ -135,6 +153,16 @@ pub trait Ledger: Send + Sync {
     /// # Errors
     /// Returns an error when the run cannot be read.
     fn find_run(&self, run_id: &str) -> Result<Option<RunRecord>, LedgerError>;
+    /// Atomically obtains a coordinator lease for one durable run.
+    ///
+    /// # Errors
+    /// Returns an error when the requesting epoch or run is invalid, or persistence fails.
+    fn claim_run_lease(&self, requested: &RunLease) -> Result<RunLeaseClaim, LedgerError>;
+    /// Reads the coordinator currently holding a run, if any.
+    ///
+    /// # Errors
+    /// Returns an error when the lease cannot be read.
+    fn find_run_lease(&self, run_id: &str) -> Result<Option<RunLease>, LedgerError>;
     /// Atomically obtains a worktree lease or reports its durable owner.
     ///
     /// # Errors

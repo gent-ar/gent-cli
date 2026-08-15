@@ -9,6 +9,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Fifteen-crate Rust workspace with enforced dependency law.
 - [x] Protocol negotiation and bounded length-prefixed JSON local IPC.
 - [x] SQLite receipt/event ledger, idempotency, event cursors, and epoch checks.
+- [x] Durable run and worktree lease arbitration with separate-connection contention tests.
 - [x] Pure run-lineage and live-status reducers.
 - [x] Protocol-only CLI status/events/submit and read-only doctor discovery.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
@@ -17,6 +18,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, and process fakes.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation for authority-transfer invocations.
+- [x] macOS/Linux CI matrix for the supported Unix-socket host targets.
 
 ## Intentionally not claimed
 

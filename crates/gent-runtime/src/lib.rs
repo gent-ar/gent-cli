@@ -4,7 +4,8 @@ pub mod catalog;
 
 use gent_core::{Run, switch_provider};
 use gent_ports::{
-    HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunRecord, WorktreeLease,
+    HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,
+    WorktreeLease,
 };
 use gent_types::{
     CapabilitySet, Command, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptStatus,
@@ -116,6 +117,14 @@ impl<L: Ledger> Coordinator<L> {
         let child = switch_provider(run, child_id, provider);
         self.ledger.create_run(&to_record(child.clone()))?;
         Ok(child)
+    }
+
+    /// Atomically claims the coordinator role for a durable run.
+    ///
+    /// # Errors
+    /// Returns an error when the run is unknown, the epoch is stale, or persistence fails.
+    pub fn claim_run_lease(&self, lease: &RunLease) -> Result<RunLeaseClaim, RuntimeError> {
+        Ok(self.ledger.claim_run_lease(lease)?)
     }
 
     /// Atomically acquires, reports contention, or recovers a stale worktree lease.

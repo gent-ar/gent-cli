@@ -1,13 +1,15 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use gent_ports::{
-    HostIngress, IngressMode, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunRecord,
-    WorktreeLease,
+    HostIngress, IngressMode, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease,
+    RunLeaseClaim, RunRecord, WorktreeLease,
 };
 use gent_types::{Command, Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus};
 use rusqlite::{Connection, OptionalExtension, params};
 
+mod leases;
 mod queries;
 use queries::{
     append_event, decode_ingress, decode_status, encode_status, events_after, find_lease, find_run,
@@ -35,6 +37,9 @@ impl SqliteLedger {
         Self::from_connection(Connection::open_in_memory().map_err(storage_error)?)
     }
     fn from_connection(connection: Connection) -> Result<Self, LedgerError> {
+        connection
+            .busy_timeout(Duration::from_secs(3))
+            .map_err(storage_error)?;
         let ledger = Self {
             connection: Arc::new(Mutex::new(connection)),
         };
@@ -49,6 +54,7 @@ impl SqliteLedger {
             CREATE TABLE IF NOT EXISTS receipts (idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, host_epoch INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS events (cursor INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, receipt_id TEXT NOT NULL, host_epoch INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY NOT NULL, parent_run_id TEXT REFERENCES runs(run_id), provider TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS run_leases (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), coordinator_id TEXT NOT NULL, host_epoch INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS worktree_leases (worktree_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id), lease_token TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL);")
             .map_err(storage_error)?;
         if !has_column(&connection, "host_state", "ingress")? {
@@ -205,6 +211,13 @@ impl Ledger for SqliteLedger {
         let connection = self.lock()?;
         find_run(&connection, run_id)
     }
+    fn claim_run_lease(&self, requested: &RunLease) -> Result<RunLeaseClaim, LedgerError> {
+        leases::claim_run(self, requested)
+    }
+    fn find_run_lease(&self, run_id: &str) -> Result<Option<RunLease>, LedgerError> {
+        let connection = self.lock()?;
+        queries::find_run_lease(&connection, run_id)
+    }
     fn claim_worktree_lease(&self, requested: &WorktreeLease) -> Result<LeaseClaim, LedgerError> {
         let mut connection = self.lock()?;
         let transaction = connection.transaction().map_err(storage_error)?;
@@ -245,7 +258,7 @@ fn has_column(connection: &Connection, table: &str, column: &str) -> Result<bool
         .map_err(storage_error)?;
     Ok(columns.filter_map(Result::ok).any(|name| name == column))
 }
-fn host_ingress(connection: &Connection) -> Result<HostIngress, LedgerError> {
+pub(super) fn host_ingress(connection: &Connection) -> Result<HostIngress, LedgerError> {
     connection
         .query_row(
             "SELECT epoch, ingress FROM host_state WHERE singleton = 1",
@@ -259,7 +272,7 @@ fn host_ingress(connection: &Connection) -> Result<HostIngress, LedgerError> {
         )
         .map_err(storage_error)
 }
-fn require_epoch(command: HostEpoch, active: HostEpoch) -> Result<(), LedgerError> {
+pub(super) fn require_epoch(command: HostEpoch, active: HostEpoch) -> Result<(), LedgerError> {
     if command == active {
         Ok(())
     } else {

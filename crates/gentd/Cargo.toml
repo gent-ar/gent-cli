@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 clap.workspace = true
 directories.workspace = true
+fs2.workspace = true
 gent-adapters = { path = "../gent-adapters" }
 gent-automations = { path = "../gent-automations" }
 gent-core = { path = "../gent-core" }

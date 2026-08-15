@@ -18,6 +18,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 gent-store = { path = "../gent-store" }
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -1,4 +1,5 @@
 mod dependency_catalog;
+mod host_lock;
 mod transport;
 
 use std::path::PathBuf;
@@ -32,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
     std::fs::create_dir_all(&data_dir)?;
+    let _host_lock = host_lock::acquire(&data_dir)?;
     let socket = args.socket.unwrap_or_else(|| data_dir.join("gentd.sock"));
     let listener = UnixListener::bind(socket)?;
     let runtime = RuntimeFacade {

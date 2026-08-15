@@ -1,4 +1,4 @@
-use gent_ports::{IngressMode, LedgerError, RunRecord, WorktreeLease};
+use gent_ports::{IngressMode, LedgerError, RunLease, RunRecord, WorktreeLease};
 use gent_types::{Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus};
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -51,6 +51,49 @@ pub(super) fn find_run(
             },
         )
         .optional()
+        .map_err(storage_error)
+}
+pub(super) fn find_run_lease(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<RunLease>, LedgerError> {
+    connection
+        .query_row(
+            "SELECT run_id, coordinator_id, host_epoch FROM run_leases WHERE run_id = ?1",
+            [id],
+            |row| {
+                Ok(RunLease {
+                    run_id: row.get(0)?,
+                    coordinator_id: row.get(1)?,
+                    host_epoch: HostEpoch(row.get(2)?),
+                })
+            },
+        )
+        .optional()
+        .map_err(storage_error)
+}
+pub(super) fn insert_run_lease(
+    connection: &Connection,
+    lease: &RunLease,
+) -> Result<(), LedgerError> {
+    connection
+        .execute(
+            "INSERT INTO run_leases (run_id, coordinator_id, host_epoch) VALUES (?1, ?2, ?3)",
+            params![lease.run_id, lease.coordinator_id, lease.host_epoch.0],
+        )
+        .map(|_| ())
+        .map_err(storage_error)
+}
+pub(super) fn replace_run_lease(
+    connection: &Connection,
+    lease: &RunLease,
+) -> Result<(), LedgerError> {
+    connection
+        .execute(
+            "UPDATE run_leases SET coordinator_id = ?1, host_epoch = ?2 WHERE run_id = ?3",
+            params![lease.coordinator_id, lease.host_epoch.0, lease.run_id],
+        )
+        .map(|_| ())
         .map_err(storage_error)
 }
 pub(super) fn find_lease(
