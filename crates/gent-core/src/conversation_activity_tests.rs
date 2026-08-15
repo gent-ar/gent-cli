@@ -153,3 +153,109 @@ fn terminal_turn_cannot_be_started_again_by_a_late_fact() {
     assert_eq!(state.snapshot().active_turn_id.as_deref(), Some("new"));
     assert_eq!(state.snapshot().cursor, 3);
 }
+
+#[test]
+fn terminal_work_cannot_be_revived_by_a_late_live_fact() {
+    let state = project(vec![
+        ConversationActivityFact::TurnStarted {
+            scope: scope(1, "turn"),
+        },
+        ConversationActivityFact::WorkPhase {
+            scope: scope(2, "turn"),
+            work_id: "child".into(),
+            kind: ActivityWorkKind::Subagent,
+            phase: WorkPhase::Running,
+        },
+        ConversationActivityFact::WorkPhase {
+            scope: scope(3, "turn"),
+            work_id: "child".into(),
+            kind: ActivityWorkKind::Subagent,
+            phase: WorkPhase::Done,
+        },
+        ConversationActivityFact::WorkPhase {
+            scope: scope(4, "turn"),
+            work_id: "child".into(),
+            kind: ActivityWorkKind::Subagent,
+            phase: WorkPhase::Running,
+        },
+    ]);
+
+    assert_eq!(state.snapshot().state, ConversationActivityState::Thinking);
+    assert_eq!(state.snapshot().work[0].phase, WorkPhase::Done);
+    assert_eq!(state.snapshot().cursor, 4);
+}
+
+#[test]
+fn restored_projection_keeps_terminal_work_terminal() {
+    let state = project(vec![
+        ConversationActivityFact::TurnStarted {
+            scope: scope(1, "turn"),
+        },
+        ConversationActivityFact::WorkPhase {
+            scope: scope(2, "turn"),
+            work_id: "command".into(),
+            kind: ActivityWorkKind::Command,
+            phase: WorkPhase::Interrupted,
+        },
+    ]);
+    let update = project_conversation_activity(
+        ConversationActivityProjection::from_record(state.record()),
+        &ConversationActivityFact::WorkPhase {
+            scope: scope(3, "turn"),
+            work_id: "command".into(),
+            kind: ActivityWorkKind::Command,
+            phase: WorkPhase::Running,
+        },
+    );
+
+    assert_eq!(
+        update.projection.snapshot().work[0].phase,
+        WorkPhase::Interrupted
+    );
+    assert_eq!(
+        update.projection.snapshot().state,
+        ConversationActivityState::Thinking
+    );
+}
+
+#[test]
+fn decision_wins_interrupt_and_terminal_races_until_it_settles() {
+    let state = project(vec![
+        ConversationActivityFact::TurnStarted {
+            scope: scope(1, "turn"),
+        },
+        ConversationActivityFact::WorkPhase {
+            scope: scope(2, "turn"),
+            work_id: "command".into(),
+            kind: ActivityWorkKind::Command,
+            phase: WorkPhase::Running,
+        },
+        ConversationActivityFact::DecisionPending {
+            scope: scope(3, "turn"),
+            decision_id: "decision".into(),
+        },
+        ConversationActivityFact::InterruptRequested {
+            scope: scope(4, "turn"),
+        },
+        ConversationActivityFact::Terminal {
+            scope: scope(5, "turn"),
+            phase: TurnPhase::Interrupted,
+        },
+    ]);
+    assert_eq!(
+        state.snapshot().state,
+        ConversationActivityState::AwaitingUser
+    );
+
+    let settled = project_conversation_activity(
+        state,
+        &ConversationActivityFact::DecisionSettled {
+            scope: scope(6, "turn"),
+            decision_id: "decision".into(),
+        },
+    );
+    assert_eq!(
+        settled.projection.snapshot().state,
+        ConversationActivityState::WaitingForCommand
+    );
+}

@@ -1,12 +1,10 @@
 //! Pure, conversation-scoped activity state machine for future authoritative hosts.
-
-use std::collections::BTreeSet;
-
 use gent_types::{
     ActivityWork, ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivity,
     ConversationActivityFact, ConversationActivityRecord, ConversationActivityScope,
     ConversationActivityState, HostEpoch, RootActivity, TurnPhase, WorkPhase,
 };
+use std::collections::BTreeSet;
 /// Pure state retained while applying ordered coordinator facts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConversationActivityProjection {
@@ -21,7 +19,6 @@ pub struct ConversationActivityUpdate {
     pub projection: ConversationActivityProjection,
     pub applied: bool,
 }
-
 impl ConversationActivityProjection {
     /// Creates an empty projection for one immutable conversation/run lineage node.
     #[must_use]
@@ -47,13 +44,11 @@ impl ConversationActivityProjection {
             transition: None,
         }
     }
-
     /// Returns the current content-free activity snapshot.
     #[must_use]
     pub fn snapshot(&self) -> &ConversationActivity {
         &self.snapshot
     }
-
     /// Exports the exact reducer state needed for restart-safe persistence.
     #[must_use]
     pub fn record(&self) -> ConversationActivityRecord {
@@ -64,7 +59,6 @@ impl ConversationActivityProjection {
             transition: self.transition,
         }
     }
-
     /// Restores a previously persisted reducer state without replaying old facts.
     #[must_use]
     pub fn from_record(record: ConversationActivityRecord) -> Self {
@@ -76,7 +70,6 @@ impl ConversationActivityProjection {
         }
     }
 }
-
 /// Applies a strictly newer, same-lineage coordinator fact.
 ///
 /// Terminal root facts dominate later activity for the same turn. A newer turn
@@ -109,7 +102,6 @@ pub fn project_conversation_activity(
         applied: true,
     }
 }
-
 fn scope(fact: &ConversationActivityFact) -> &ConversationActivityScope {
     match fact {
         ConversationActivityFact::TurnStarted { scope }
@@ -123,7 +115,6 @@ fn scope(fact: &ConversationActivityFact) -> &ConversationActivityScope {
         | ConversationActivityFact::Terminal { scope, .. } => scope,
     }
 }
-
 fn matches_lineage(
     projection: &ConversationActivityProjection,
     scope: &ConversationActivityScope,
@@ -132,7 +123,6 @@ fn matches_lineage(
         && projection.snapshot.run_id == scope.run_id
         && projection.snapshot.host_epoch == scope.host_epoch
 }
-
 fn is_old_turn(
     projection: &ConversationActivityProjection,
     scope: &ConversationActivityScope,
@@ -148,7 +138,6 @@ fn is_old_turn(
                 .as_deref()
                 .is_some_and(|turn| turn != scope.turn_id))
 }
-
 fn reduce(
     projection: &mut ConversationActivityProjection,
     fact: &ConversationActivityFact,
@@ -210,7 +199,6 @@ fn reduce(
             .iter()
             .any(|work| work.phase == WorkPhase::Failed);
 }
-
 fn start_turn(projection: &mut ConversationActivityProjection, turn_id: &str) {
     projection.snapshot.active_turn_id = Some(turn_id.into());
     projection.snapshot.root_phase = TurnPhase::Processing;
@@ -219,7 +207,6 @@ fn start_turn(projection: &mut ConversationActivityProjection, turn_id: &str) {
     projection.snapshot.work.clear();
     projection.transition = None;
 }
-
 fn active_and_open(
     projection: &ConversationActivityProjection,
     scope: &ConversationActivityScope,
@@ -227,7 +214,6 @@ fn active_and_open(
     projection.snapshot.active_turn_id.as_deref() == Some(&scope.turn_id)
         && !projection.terminal_turns.contains(&scope.turn_id)
 }
-
 fn set_work(
     projection: &mut ConversationActivityProjection,
     work_id: &str,
@@ -240,6 +226,9 @@ fn set_work(
         .iter_mut()
         .find(|work| work.id == work_id)
     {
+        if !work.phase.is_live() {
+            return;
+        }
         work.kind = kind;
         work.phase = phase;
     } else {
@@ -254,7 +243,6 @@ fn set_work(
         .work
         .sort_by(|left, right| left.id.cmp(&right.id));
 }
-
 fn derive_state(projection: &ConversationActivityProjection) -> ConversationActivityState {
     if projection.snapshot.pending_decision_id.is_some() {
         return ConversationActivityState::AwaitingUser;
@@ -294,7 +282,6 @@ fn derive_state(projection: &ConversationActivityProjection) -> ConversationActi
     }
     ConversationActivityState::Idle
 }
-
 #[cfg(test)]
 #[path = "conversation_activity_tests.rs"]
 mod tests;
