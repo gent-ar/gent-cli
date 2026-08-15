@@ -1,5 +1,5 @@
-use gent_ports::{IngressMode, LedgerError, RunLease, RunRecord, WorktreeLease};
-use gent_types::{Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus};
+use gent_ports::{HostIngress, IngressMode, LedgerError, RunLease, RunRecord, WorktreeLease};
+use gent_types::{Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus, RunVersionLock};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub(super) fn insert_receipt(
@@ -34,6 +34,40 @@ pub(super) fn events_after(
         .map_err(storage_error)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)
 }
+pub(super) fn host_ingress(connection: &Connection) -> Result<HostIngress, LedgerError> {
+    connection
+        .query_row(
+            "SELECT epoch, ingress FROM host_state WHERE singleton = 1",
+            [],
+            |row| {
+                Ok(HostIngress {
+                    epoch: HostEpoch(row.get(0)?),
+                    mode: decode_ingress(&row.get::<_, String>(1)?)?,
+                })
+            },
+        )
+        .map_err(storage_error)
+}
+pub(super) fn find_receipt(
+    connection: &Connection,
+    key: &str,
+) -> Result<Option<Receipt>, LedgerError> {
+    connection
+        .query_row(
+            "SELECT receipt_id, status, host_epoch FROM receipts WHERE idempotency_key = ?1",
+            [key],
+            |row| {
+                Ok(Receipt {
+                    receipt_id: ReceiptId(row.get(0)?),
+                    idempotency_key: key.into(),
+                    status: decode_status(&row.get::<_, String>(1)?)?,
+                    host_epoch: HostEpoch(row.get(2)?),
+                })
+            },
+        )
+        .optional()
+        .map_err(storage_error)
+}
 pub(super) fn find_run(
     connection: &Connection,
     id: &str,
@@ -47,6 +81,37 @@ pub(super) fn find_run(
                     run_id: row.get(0)?,
                     parent_run_id: row.get(1)?,
                     provider: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(storage_error)
+}
+pub(super) fn save_run_version_lock(
+    connection: &Connection,
+    run_id: &str,
+    lock: &RunVersionLock,
+) -> Result<(), LedgerError> {
+    connection
+        .execute(
+            "INSERT INTO run_version_locks (run_id, provider, canonical_path, file_identity, digest_sha256, version, compatibility_entry) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![run_id, lock.provider, lock.canonical_path, lock.file_identity, lock.digest_sha256, lock.version, lock.compatibility_entry],
+        )
+        .map(|_| ())
+        .map_err(storage_error)
+}
+pub(super) fn find_run_version_lock(
+    connection: &Connection,
+    run_id: &str,
+) -> Result<Option<RunVersionLock>, LedgerError> {
+    connection
+        .query_row(
+            "SELECT provider, canonical_path, file_identity, digest_sha256, version, compatibility_entry FROM run_version_locks WHERE run_id = ?1",
+            [run_id],
+            |row| {
+                Ok(RunVersionLock {
+                    provider: row.get(0)?, canonical_path: row.get(1)?, file_identity: row.get(2)?,
+                    digest_sha256: row.get(3)?, version: row.get(4)?, compatibility_entry: row.get(5)?,
                 })
             },
         )

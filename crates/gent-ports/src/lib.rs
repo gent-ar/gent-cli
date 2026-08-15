@@ -1,7 +1,9 @@
 //! Ports implemented by infrastructure or private integrations.
 
 use async_trait::async_trait;
-use gent_types::{Command, Event, HostEpoch, ProviderEvent, Receipt, ReceiptStatus};
+use gent_types::{
+    Command, Event, HostEpoch, ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
@@ -153,6 +155,17 @@ pub trait Ledger: Send + Sync {
     /// # Errors
     /// Returns an error when the run cannot be read.
     fn find_run(&self, run_id: &str) -> Result<Option<RunRecord>, LedgerError>;
+    /// Persists the immutable executable identity attributed to a run.
+    ///
+    /// # Errors
+    /// Returns an error if the run does not exist, already has a lock, or persistence fails.
+    fn save_run_version_lock(&self, run_id: &str, lock: &RunVersionLock)
+    -> Result<(), LedgerError>;
+    /// Reads the immutable executable identity attributed to a run.
+    ///
+    /// # Errors
+    /// Returns an error when the lock cannot be read.
+    fn find_run_version_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, LedgerError>;
     /// Atomically obtains a coordinator lease for one durable run.
     ///
     /// # Errors

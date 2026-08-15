@@ -6,14 +6,15 @@ use gent_ports::{
     HostIngress, IngressMode, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease,
     RunLeaseClaim, RunRecord, WorktreeLease,
 };
-use gent_types::{Command, Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus};
-use rusqlite::{Connection, OptionalExtension, params};
+use gent_types::{Command, Event, HostEpoch, Receipt, ReceiptStatus, RunVersionLock};
+use rusqlite::{Connection, params};
 
 mod leases;
 mod queries;
 use queries::{
-    append_event, decode_ingress, decode_status, encode_status, events_after, find_lease, find_run,
-    insert_lease, insert_receipt, replace_lease, storage_error,
+    append_event, encode_status, events_after, find_lease, find_receipt, find_run,
+    find_run_version_lock, host_ingress, insert_lease, insert_receipt, replace_lease,
+    save_run_version_lock, storage_error,
 };
 
 #[derive(Clone, Debug)]
@@ -54,6 +55,7 @@ impl SqliteLedger {
             CREATE TABLE IF NOT EXISTS receipts (idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, host_epoch INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS events (cursor INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, receipt_id TEXT NOT NULL, host_epoch INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY NOT NULL, parent_run_id TEXT REFERENCES runs(run_id), provider TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS run_version_locks (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), provider TEXT NOT NULL, canonical_path TEXT NOT NULL, file_identity TEXT NOT NULL, digest_sha256 TEXT NOT NULL, version TEXT NOT NULL, compatibility_entry TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS run_leases (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), coordinator_id TEXT NOT NULL, host_epoch INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS worktree_leases (worktree_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id), lease_token TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL);")
             .map_err(storage_error)?;
@@ -211,6 +213,18 @@ impl Ledger for SqliteLedger {
         let connection = self.lock()?;
         find_run(&connection, run_id)
     }
+    fn save_run_version_lock(
+        &self,
+        run_id: &str,
+        lock: &RunVersionLock,
+    ) -> Result<(), LedgerError> {
+        let connection = self.lock()?;
+        save_run_version_lock(&connection, run_id, lock)
+    }
+    fn find_run_version_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, LedgerError> {
+        let connection = self.lock()?;
+        find_run_version_lock(&connection, run_id)
+    }
     fn claim_run_lease(&self, requested: &RunLease) -> Result<RunLeaseClaim, LedgerError> {
         leases::claim_run(self, requested)
     }
@@ -258,41 +272,10 @@ fn has_column(connection: &Connection, table: &str, column: &str) -> Result<bool
         .map_err(storage_error)?;
     Ok(columns.filter_map(Result::ok).any(|name| name == column))
 }
-pub(super) fn host_ingress(connection: &Connection) -> Result<HostIngress, LedgerError> {
-    connection
-        .query_row(
-            "SELECT epoch, ingress FROM host_state WHERE singleton = 1",
-            [],
-            |row| {
-                Ok(HostIngress {
-                    epoch: HostEpoch(row.get(0)?),
-                    mode: decode_ingress(&row.get::<_, String>(1)?)?,
-                })
-            },
-        )
-        .map_err(storage_error)
-}
 pub(super) fn require_epoch(command: HostEpoch, active: HostEpoch) -> Result<(), LedgerError> {
     if command == active {
         Ok(())
     } else {
         Err(LedgerError::StaleEpoch { command, active })
     }
-}
-fn find_receipt(connection: &Connection, key: &str) -> Result<Option<Receipt>, LedgerError> {
-    connection
-        .query_row(
-            "SELECT receipt_id, status, host_epoch FROM receipts WHERE idempotency_key = ?1",
-            [key],
-            |row| {
-                Ok(Receipt {
-                    receipt_id: ReceiptId(row.get(0)?),
-                    idempotency_key: key.into(),
-                    status: decode_status(&row.get::<_, String>(1)?)?,
-                    host_epoch: HostEpoch(row.get(2)?),
-                })
-            },
-        )
-        .optional()
-        .map_err(storage_error)
 }

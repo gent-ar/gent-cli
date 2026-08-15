@@ -2,10 +2,10 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 use gent_core::Run;
-use gent_ports::{LeaseClaim, RunLease, RunLeaseClaim, WorktreeLease};
+use gent_ports::{LeaseClaim, Ledger, RunLease, RunLeaseClaim, WorktreeLease};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, Command, HostEpoch, ReceiptId};
+use gent_types::{CapabilitySet, Command, HostEpoch, ReceiptId, RunVersionLock};
 use serde_json::json;
 
 fn coordinator() -> Coordinator<SqliteLedger> {
@@ -128,4 +128,31 @@ fn concurrent_command_retries_produce_one_receipt_and_event_pair() {
     let receipts = receipts.map(|thread| thread.join().unwrap());
     assert_eq!(receipts[0], receipts[1]);
     assert_eq!(coordinator.events_after(0).unwrap().len(), 2);
+}
+
+#[test]
+fn run_version_lock_is_immutable_and_durable() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
+    coordinator
+        .create_run(Run {
+            id: "run".into(),
+            parent_run_id: None,
+            provider: "claude".into(),
+        })
+        .unwrap();
+    let lock = RunVersionLock {
+        provider: "claude".into(),
+        canonical_path: "/tool/claude".into(),
+        file_identity: "identity".into(),
+        digest_sha256: "digest".into(),
+        version: "1.0".into(),
+        compatibility_entry: "claude-1".into(),
+    };
+    coordinator.lock_run_version("run", &lock).unwrap();
+    assert_eq!(
+        ledger.find_run_version_lock("run").unwrap(),
+        Some(lock.clone())
+    );
+    assert!(coordinator.lock_run_version("run", &lock).is_err());
 }

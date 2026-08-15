@@ -9,6 +9,7 @@ use gent_ports::{
 };
 use gent_types::{
     CapabilitySet, Command, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptStatus,
+    RunVersionLock,
 };
 
 #[derive(Clone, Debug)]
@@ -102,6 +103,18 @@ impl<L: Ledger> Coordinator<L> {
     /// Returns an error when the run already exists or persistence fails.
     pub fn create_run(&self, run: Run) -> Result<(), RuntimeError> {
         Ok(self.ledger.create_run(&to_record(run))?)
+    }
+
+    /// Persists the immutable executable identity to be rechecked before run resume.
+    ///
+    /// # Errors
+    /// Returns an error when the run is unknown, already locked, or persistence fails.
+    pub fn lock_run_version(
+        &self,
+        run_id: &str,
+        lock: &RunVersionLock,
+    ) -> Result<(), RuntimeError> {
+        Ok(self.ledger.save_run_version_lock(run_id, lock)?)
     }
 
     /// Persists a provider-switch child instead of mutating the source run.
