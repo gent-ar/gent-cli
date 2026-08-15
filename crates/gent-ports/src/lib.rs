@@ -195,7 +195,10 @@ pub trait Ledger: Send + Sync {
     ///
     /// # Errors
     /// Returns an error when the event cannot be read.
-    fn find_event(&self, event_id: &str) -> Result<Option<Event>, LedgerError>;
+    fn find_event(&self, event_id: &str) -> Result<Option<Event>, LedgerError> {
+        let _ = event_id;
+        Err(LedgerError::Invariant("event lookup is unavailable".into()))
+    }
     /// Safely resumes an event feed, returning a replacement snapshot for stale cursors.
     ///
     /// # Errors
