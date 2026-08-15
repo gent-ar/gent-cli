@@ -1,8 +1,9 @@
 use gent_protocol::{
     CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DependencyAction,
-    DependencyPlanRequest, DependencyProvider, Hello, MAX_FRAME_BYTES, PublicRunOutcome,
-    PublicRunResponse, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
-    write_json_frame,
+    DependencyPlanRequest, DependencyProvider, EXTERNAL_PROVIDER_BRIDGE_CAPABILITY,
+    ExternalProviderBridgeFrame, ExternalProviderBridgeHello, Hello, MAX_FRAME_BYTES,
+    PublicRunOutcome, PublicRunResponse, WireFrame, negotiate, read_frame, read_json_frame,
+    write_frame, write_json_frame,
 };
 use gent_types::CapabilitySet;
 use tokio::io::{AsyncWriteExt, duplex};
@@ -63,6 +64,25 @@ async fn additive_conversation_frames_share_the_bounded_json_framing() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn private_bridge_frames_share_bounded_framing_without_public_wire_variants() {
+    let (mut writer, mut reader) = duplex(1024);
+    let frame = ExternalProviderBridgeFrame::Hello(ExternalProviderBridgeHello {
+        protocol_min: 1,
+        protocol_max: 1,
+        capabilities: CapabilitySet(vec![EXTERNAL_PROVIDER_BRIDGE_CAPABILITY.into()]),
+    });
+
+    write_json_frame(&mut writer, &frame).await.unwrap();
+    assert_eq!(
+        read_json_frame::<_, ExternalProviderBridgeFrame>(&mut reader)
+            .await
+            .unwrap(),
+        frame
+    );
+    assert!(!serde_json::to_string(&frame).unwrap().contains("claurst"));
 }
 
 #[test]

@@ -1,22 +1,12 @@
 //! Credential-free boundary for the private external-provider bridge.
 
 use async_trait::async_trait;
-use gent_types::{CapabilitySet, Command, DecisionCommand, ProviderEvent};
+use gent_types::{
+    CapabilitySet, Command, DecisionCommand, ExternalProviderSession, ExternalProviderTerminal,
+    ProviderEvent,
+};
 
 use crate::PortError;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExternalProviderSession {
-    pub run_id: String,
-    pub opaque_session: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExternalProviderTerminal {
-    Completed,
-    Interrupted,
-    Failed { message: String },
-}
 
 #[async_trait]
 pub trait ExternalProviderBridge: Send + Sync {

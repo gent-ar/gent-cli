@@ -20,9 +20,8 @@ pub use automation_execution_ledger::{AutomationExecutionLedger, AutomationExecu
 pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
-pub use external_provider_bridge::{
-    ExternalProviderBridge, ExternalProviderSession, ExternalProviderTerminal,
-};
+pub use external_provider_bridge::ExternalProviderBridge;
+pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use policy_ledger::PolicyLedger;
 pub use run_checkpoint_ledger::RunCheckpointLedger;

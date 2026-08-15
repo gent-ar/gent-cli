@@ -15,11 +15,16 @@ pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 mod conversation_status;
 mod conversation_timeline;
 mod decision;
+mod external_provider_bridge;
 mod runs;
 
 pub use conversation_status::{CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame};
 pub use conversation_timeline::{CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame};
 pub use decision::{DecisionEvidence, DecisionSubmission};
+pub use external_provider_bridge::{
+    EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame, ExternalProviderBridgeHello,
+    ExternalProviderBridgeNegotiated,
+};
 pub use runs::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
     PublicRunStartRequest,

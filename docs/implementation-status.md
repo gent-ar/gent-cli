@@ -17,6 +17,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
 - [x] Durable SQLite decision settlement with restart-safe terminal outcomes and optimistic contention handling.
 - [x] Protocol-only CLI status/events/submit and read-only doctor discovery.
+- [x] Credential-free private external-provider bridge DTOs and dedicated handshake/lifecycle
+      wire frames; no private bridge endpoint or implementation is composed by `gentd`.
 - [x] End-to-end local-IPC smoke tests for Unix sockets and Windows named pipes,
       including daemon, client, receipt, decision, and event ordering.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
