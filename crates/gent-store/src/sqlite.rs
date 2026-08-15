@@ -25,6 +25,8 @@ mod policies;
 mod policy_ledger;
 mod projections;
 mod queries;
+mod run_checkpoint_ledger;
+mod run_checkpoints;
 mod runs;
 mod snapshots;
 mod tool_source_ledger;
@@ -36,12 +38,10 @@ use queries::{
     find_run_version_lock, host_ingress, insert_lease, insert_receipt, replace_lease,
     save_run_session_binding, save_run_version_lock, storage_error,
 };
-
 #[derive(Clone, Debug)]
 pub struct SqliteLedger {
     connection: Arc<Mutex<Connection>>,
 }
-
 impl SqliteLedger {
     /// Opens or creates a durable ledger at `path`.
     ///

@@ -7,6 +7,7 @@ mod events;
 mod git_operations;
 mod policies;
 mod public_runs;
+mod run_checkpoints;
 mod run_projections;
 mod tool_sources;
 mod workspaces;
@@ -26,7 +27,6 @@ pub struct Coordinator<L> {
     ledger: L,
     capabilities: CapabilitySet,
 }
-
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error(transparent)]

@@ -11,6 +11,7 @@ mod conversation_ledger;
 mod external_provider_bridge;
 mod git_operation_ledger;
 mod policy_ledger;
+mod run_checkpoint_ledger;
 mod run_projections;
 mod run_sessions;
 mod tool_source_ledger;
@@ -24,6 +25,7 @@ pub use external_provider_bridge::{
 };
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use policy_ledger::PolicyLedger;
+pub use run_checkpoint_ledger::RunCheckpointLedger;
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
 pub use tool_source_ledger::ToolSourceLedger;
@@ -119,7 +121,6 @@ pub struct RunLease {
     pub coordinator_id: String,
     pub host_epoch: HostEpoch,
 }
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RunLeaseClaim {
     Acquired(RunLease),
@@ -129,7 +130,6 @@ pub enum RunLeaseClaim {
         current: RunLease,
     },
 }
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LeaseClaim {
     Acquired(WorktreeLease),

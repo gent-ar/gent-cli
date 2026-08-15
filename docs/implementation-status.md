@@ -35,6 +35,8 @@ not claim provider or app compatibility evidence that has not been recorded.
       declarations contain no credentials/endpoints and cannot connect or spawn a source.
 - [x] Durable workspace automation-execution records with duplicate-trigger prevention and
       terminal-safe transitions; scheduler, webhook, and process execution remain disabled.
+- [x] Durable ordered run checkpoints with monotonic event cursors and digest-only state references;
+      checkpoint persistence cannot resume or leave a provider process running.
 - [x] Durable, append-only workspace provider-permission policy revisions with canonical secret-free allow-lists.
 - [x] Read-only conversation status derivation from durable lineage and run projections, with no provider session disclosure.
 - [x] Durable title/recap provenance records: source turns, provider/model version, input digest,

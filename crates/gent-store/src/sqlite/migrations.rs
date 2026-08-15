@@ -98,13 +98,24 @@ CREATE TABLE IF NOT EXISTS automation_executions (
 );
 ";
 
+const RUN_CHECKPOINTS: &str = "
+CREATE TABLE IF NOT EXISTS run_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY NOT NULL,
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    event_cursor INTEGER NOT NULL,
+    state_digest_sha256 TEXT NOT NULL,
+    UNIQUE (run_id, sequence)
+);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 11] = [
+const MIGRATIONS: [Migration; 12] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -148,6 +159,10 @@ const MIGRATIONS: [Migration; 11] = [
     Migration {
         version: 11,
         sql: AUTOMATION_EXECUTIONS,
+    },
+    Migration {
+        version: 12,
+        sql: RUN_CHECKPOINTS,
     },
 ];
 
