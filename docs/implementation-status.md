@@ -123,7 +123,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
 - [ ] MCP hosting, Git execution/worktree operations, automation execution, pairing
       transport, and provider process lifecycle ownership in a live daemon.
-- [ ] Observer-mode comparison with the legacy host.
+- [ ] A phase-4 legacy-observer host profile: it must consume a `LegacyEventTap`
+      without Rust durable writes, mutation APIs, or worktree leases. The current
+      standalone daemon's hard public-provider observer guard does not claim this.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
 
 The coverage manifest blocks an authority-transfer invocation while its real

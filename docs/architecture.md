@@ -30,6 +30,11 @@ transcripts, observer parity, public-driver evidence, app compatibility and
 the fence-aware legacy release all pass. In particular, this project does not
 currently replace any Flutter application behavior.
 
+The current daemon hard-disables public provider lifecycle work in observer
+mode, but that is not the phase-4 legacy observer profile. That later profile
+must consume a legacy event tap without opening a Rust ledger, exposing a
+mutation API, or acquiring a worktree lease.
+
 ## Verification scope
 
 The 90% line-coverage gate applies to production library source. The `gentd`
