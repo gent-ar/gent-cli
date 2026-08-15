@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{TurnPhase, WorkPhase};
+use crate::{RootActivity, TurnPhase, WorkPhase};
 
 /// A provider-neutral lifecycle fact with no transcript or provider-session content.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -10,6 +10,9 @@ use crate::{TurnPhase, WorkPhase};
 pub enum NormalizedLifecycleSignal {
     RootPhase {
         phase: TurnPhase,
+    },
+    RootActivity {
+        activity: RootActivity,
     },
     ChildPhase {
         child_id: String,

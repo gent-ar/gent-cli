@@ -28,6 +28,9 @@ pub fn project_lifecycle_signal(
 fn lifecycle_event(signal: &NormalizedLifecycleSignal) -> LifecycleEvent {
     match signal {
         NormalizedLifecycleSignal::RootPhase { phase } => LifecycleEvent::RootPhase(phase.clone()),
+        NormalizedLifecycleSignal::RootActivity { activity } => {
+            LifecycleEvent::RootActivity(*activity)
+        }
         NormalizedLifecycleSignal::ChildPhase { child_id, phase } => LifecycleEvent::ChildPhase {
             child_id: child_id.clone(),
             phase: phase.clone(),
@@ -45,7 +48,7 @@ fn lifecycle_event(signal: &NormalizedLifecycleSignal) -> LifecycleEvent {
 
 #[cfg(test)]
 mod tests {
-    use gent_types::{NormalizedLifecycleSignal, TurnPhase, WorkPhase};
+    use gent_types::{NormalizedLifecycleSignal, RootActivity, TurnPhase, WorkPhase};
 
     use super::project_lifecycle_signal;
     use crate::{LifecycleProjection, projected_live_status};
@@ -71,8 +74,17 @@ mod tests {
         )
         .state;
         assert!(projected_live_status(&command).has_live_command_work);
+        let waiting = project_lifecycle_signal(
+            command,
+            3,
+            &NormalizedLifecycleSignal::RootActivity {
+                activity: RootActivity::Waiting,
+            },
+        )
+        .state;
+        assert!(projected_live_status(&waiting).is_waiting_for_command);
         let attention =
-            project_lifecycle_signal(command, 3, &NormalizedLifecycleSignal::AttentionRequired)
+            project_lifecycle_signal(waiting, 4, &NormalizedLifecycleSignal::AttentionRequired)
                 .state;
         assert!(projected_live_status(&attention).needs_attention);
     }

@@ -58,8 +58,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Capability-gated, same-socket `gent conversation status` transport; it creates no receipt and does not use command or event frames.
 - [x] Capability-gated `gent conversation timeline` transport for ordered run/turn lineage and
       title/recap provenance metadata; it excludes artifact text and provider-native sessions.
-- [x] Additive normalized lifecycle signals for root thinking/waiting/compacting states,
+- [x] Additive normalized lifecycle signals for root phase and explicit generation activity,
       subagent and command work, and attention; lease-owned durable projections preserve them.
+      Waiting work is derived from activity rather than inferred from root phase.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, process fakes,
       locked public-process launching, and minimal Claude stream-JSON/Codex app-server launch specifications.

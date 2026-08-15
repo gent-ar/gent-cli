@@ -1,13 +1,12 @@
 //! Pure runtime policy and reducer rules. This crate never opens a database or process.
-use std::collections::BTreeMap;
-
-use gent_types::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
+use gent_types::HostEpoch;
 mod attachment_transfer;
 mod automation_execution;
 mod decision_settlement;
 mod git_operation;
 mod lifecycle_projection;
 mod lifecycle_signal;
+mod lifecycle_state;
 mod observer_comparison;
 mod projection_snapshot;
 mod turn_lifecycle;
@@ -22,6 +21,7 @@ pub use lifecycle_projection::{
     LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,
 };
 pub use lifecycle_signal::project_lifecycle_signal;
+pub use lifecycle_state::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 pub use observer_comparison::{ObserverComparison, ObserverProjection, compare_legacy_tap};
 pub use projection_snapshot::{restore_projection, snapshot_projection};
 pub use turn_lifecycle::permits_turn_transition;
@@ -140,87 +140,6 @@ pub fn resolve_lease(
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LifecycleState {
-    pub root_phase: TurnPhase,
-    pub children: BTreeMap<String, WorkPhase>,
-    pub commands: BTreeMap<String, WorkPhase>,
-    pub needs_attention: bool,
-    pub has_error: bool,
-}
-
-impl Default for LifecycleState {
-    fn default() -> Self {
-        Self {
-            root_phase: TurnPhase::Ready,
-            children: BTreeMap::new(),
-            commands: BTreeMap::new(),
-            needs_attention: false,
-            has_error: false,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LifecycleEvent {
-    RootPhase(TurnPhase),
-    ChildPhase {
-        child_id: String,
-        phase: WorkPhase,
-    },
-    CommandPhase {
-        command_id: String,
-        phase: WorkPhase,
-    },
-    AttentionRequired,
-    AttentionCleared,
-    ErrorRaised,
-    ErrorCleared,
-}
-
-/// Pure lifecycle reducer: no persistence, clock, process, or presentation dependency.
-#[must_use]
-pub fn reduce_lifecycle(mut state: LifecycleState, event: LifecycleEvent) -> LifecycleState {
-    match event {
-        LifecycleEvent::RootPhase(phase) => state.root_phase = phase,
-        LifecycleEvent::ChildPhase { child_id, phase } => {
-            state.children.insert(child_id, phase);
-        }
-        LifecycleEvent::CommandPhase { command_id, phase } => {
-            state.commands.insert(command_id, phase);
-        }
-        LifecycleEvent::AttentionRequired => state.needs_attention = true,
-        LifecycleEvent::AttentionCleared => state.needs_attention = false,
-        LifecycleEvent::ErrorRaised => state.has_error = true,
-        LifecycleEvent::ErrorCleared => state.has_error = false,
-    }
-    state
-}
-
-#[must_use]
-pub fn live_status(state: &LifecycleState, snapshot_cursor: u64) -> ConversationLiveStatus {
-    let has_live_subagent_work = state.children.values().any(WorkPhase::is_live);
-    let has_live_command_work = state.commands.values().any(WorkPhase::is_live);
-    let is_processing = matches!(
-        state.root_phase,
-        TurnPhase::Processing
-            | TurnPhase::WaitingPermission
-            | TurnPhase::WaitingQuestion
-            | TurnPhase::Compacting
-    );
-    ConversationLiveStatus {
-        snapshot_cursor,
-        is_processing,
-        is_waiting_for_subagents: !is_processing && has_live_subagent_work,
-        has_live_subagent_work,
-        is_waiting_for_command: !is_processing && has_live_command_work,
-        has_live_command_work,
-        needs_attention: state.needs_attention,
-        has_error: state.has_error
-            || matches!(state.root_phase, TurnPhase::Dead | TurnPhase::Failed),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,21 +199,5 @@ mod tests {
         };
         let child = switch_provider(&parent, "run-b".into(), "codex".into());
         assert_eq!(child.parent_run_id.as_deref(), Some("run-a"));
-    }
-
-    #[test]
-    fn terminal_root_does_not_hide_live_detached_subagent_work() {
-        let state = reduce_lifecycle(
-            LifecycleState::default(),
-            LifecycleEvent::ChildPhase {
-                child_id: "child".into(),
-                phase: WorkPhase::Running,
-            },
-        );
-        let status = live_status(
-            &reduce_lifecycle(state, LifecycleEvent::RootPhase(TurnPhase::Ready)),
-            12,
-        );
-        assert!(status.is_waiting_for_subagents);
     }
 }

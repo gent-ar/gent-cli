@@ -15,6 +15,7 @@ mod event_resume;
 mod external_provider_bridge;
 mod git_operations;
 mod lifecycle_signal;
+mod lifecycle_state;
 mod observer_tap;
 mod policies;
 mod run_checkpoints;
@@ -43,6 +44,7 @@ pub use event_resume::{EventResume, EventSnapshot};
 pub use external_provider_bridge::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord};
 pub use lifecycle_signal::NormalizedLifecycleSignal;
+pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use policies::{PolicyRecord, PolicyScope};
 pub use run_checkpoints::RunCheckpointRecord;
@@ -184,6 +186,9 @@ pub enum NormalizedProviderEvent {
     TurnEnded {
         turn_id: String,
     },
+    RootActivity {
+        activity: RootActivity,
+    },
     ChildStarted {
         child_id: String,
         parent_tool_use_id: String,
@@ -210,56 +215,6 @@ pub enum ProviderEvent {
     Output { text: String },
     DecisionSettled { decision_id: String },
     Terminal { reason: String },
-}
-
-/// Durable root-turn state. Detached work never changes this state to completed.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum TurnPhase {
-    Processing,
-    WaitingPermission,
-    WaitingQuestion,
-    Compacting,
-    Ready,
-    Interrupted,
-    Dead,
-    Failed,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkPhase {
-    Pending,
-    Running,
-    WaitingPermission,
-    Done,
-    Failed,
-    Interrupted,
-}
-
-impl WorkPhase {
-    #[must_use]
-    pub const fn is_live(&self) -> bool {
-        matches!(
-            self,
-            Self::Pending | Self::Running | Self::WaitingPermission
-        )
-    }
-}
-
-/// A complete volatile snapshot sent over status transport, never transcript content.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(clippy::struct_excessive_bools)] // The wire contract intentionally transports independent UI facts.
-pub struct ConversationLiveStatus {
-    pub snapshot_cursor: u64,
-    pub is_processing: bool,
-    pub is_waiting_for_subagents: bool,
-    pub has_live_subagent_work: bool,
-    pub is_waiting_for_command: bool,
-    pub has_live_command_work: bool,
-    pub needs_attention: bool,
-    pub has_error: bool,
 }
 
 #[cfg(test)]

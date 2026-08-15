@@ -11,6 +11,7 @@ pub fn snapshot_projection(state: &LifecycleProjection) -> RunLifecycleProjectio
         cursor: state.last_cursor.unwrap_or_default(),
         active_turn_id: state.active_turn_id.clone(),
         root_phase: state.lifecycle.root_phase.clone(),
+        root_activity: state.lifecycle.root_activity,
         children: state.lifecycle.children.clone(),
         commands: state.lifecycle.commands.clone(),
         needs_attention: state.lifecycle.needs_attention,
@@ -24,6 +25,7 @@ pub fn restore_projection(snapshot: &RunLifecycleProjection) -> LifecycleProject
     LifecycleProjection {
         lifecycle: LifecycleState {
             root_phase: snapshot.root_phase.clone(),
+            root_activity: snapshot.root_activity,
             children: snapshot.children.clone(),
             commands: snapshot.commands.clone(),
             needs_attention: snapshot.needs_attention,
@@ -36,10 +38,10 @@ pub fn restore_projection(snapshot: &RunLifecycleProjection) -> LifecycleProject
 
 #[cfg(test)]
 mod tests {
-    use gent_types::NormalizedProviderEvent;
+    use gent_types::{NormalizedProviderEvent, TurnPhase};
 
     use super::{restore_projection, snapshot_projection};
-    use crate::{LifecycleProjection, TurnPhase, project_normalized_event};
+    use crate::{LifecycleProjection, project_normalized_event};
 
     #[test]
     fn snapshot_restores_active_turn_and_work_for_following_events() {

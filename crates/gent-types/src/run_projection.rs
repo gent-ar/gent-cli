@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
+use crate::{ConversationLiveStatus, HostEpoch, RootActivity, TurnPhase, WorkPhase};
 
 /// The complete pure lifecycle state required to resume a run projection after a restart.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -13,6 +13,7 @@ pub struct RunLifecycleProjection {
     pub cursor: u64,
     pub active_turn_id: Option<String>,
     pub root_phase: TurnPhase,
+    pub root_activity: RootActivity,
     pub children: BTreeMap<String, WorkPhase>,
     pub commands: BTreeMap<String, WorkPhase>,
     pub needs_attention: bool,
@@ -25,6 +26,7 @@ impl Default for RunLifecycleProjection {
             cursor: 0,
             active_turn_id: None,
             root_phase: TurnPhase::Ready,
+            root_activity: RootActivity::Idle,
             children: BTreeMap::new(),
             commands: BTreeMap::new(),
             needs_attention: false,

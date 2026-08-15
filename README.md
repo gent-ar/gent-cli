@@ -34,7 +34,8 @@ than a second copy of application logic. The implemented vertical slice is:
   intentionally exclude credentials, provider endpoints, and bridge configuration.
 - Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question
   waits, subagent work, command work, and attention; these are durable status foundations, not
-  a claim that a live provider is attached to the daemon.
+  a claim that a live provider is attached to the daemon. Root generation activity is explicit,
+  so waiting on detached work is never inferred from a root turn phase alone.
 
 Claude, Codex, MCP, pairing, Git, automations and the private Claurst bridge
 are deliberately not routed through `gentd` in this milestone. The public

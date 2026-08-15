@@ -1,6 +1,8 @@
 //! Provider-event projection into the pure conversation lifecycle reducer.
 
-use gent_types::{ConversationLiveStatus, NormalizedProviderEvent, TurnPhase, WorkPhase};
+use gent_types::{
+    ConversationLiveStatus, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+};
 
 use crate::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 
@@ -78,10 +80,17 @@ fn lifecycle_events(
     match event {
         NormalizedProviderEvent::TurnStarted { .. } => vec![
             LifecycleEvent::ErrorCleared,
+            LifecycleEvent::RootActivity(RootActivity::Generating),
             LifecycleEvent::RootPhase(TurnPhase::Processing),
         ],
         NormalizedProviderEvent::TurnEnded { turn_id } if active_turn_id.is_none() => {
-            vec![LifecycleEvent::RootPhase(TurnPhase::Ready)]
+            vec![
+                LifecycleEvent::RootActivity(RootActivity::Idle),
+                LifecycleEvent::RootPhase(TurnPhase::Ready),
+            ]
+        }
+        NormalizedProviderEvent::RootActivity { activity } => {
+            vec![LifecycleEvent::RootActivity(*activity)]
         }
         NormalizedProviderEvent::ChildStarted { child_id, .. } => {
             vec![LifecycleEvent::ChildPhase {
@@ -120,10 +129,10 @@ fn terminal_events(event: LifecycleEvent, phase: &WorkPhase) -> Vec<LifecycleEve
 
 #[cfg(test)]
 mod tests {
-    use gent_types::{NormalizedProviderEvent, WorkPhase};
+    use gent_types::{NormalizedProviderEvent, TurnPhase, WorkPhase};
 
     use super::{LifecycleProjection, project_normalized_event, projected_live_status};
-    use crate::{LifecycleEvent, LifecycleState, TurnPhase, reduce_lifecycle};
+    use crate::{LifecycleEvent, LifecycleState, reduce_lifecycle};
 
     #[test]
     fn projection_ignores_duplicate_and_stale_cursors() {
