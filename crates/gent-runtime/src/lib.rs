@@ -20,6 +20,7 @@ mod run_checkpoints;
 mod run_projections;
 mod runtime_release_cache;
 mod runtime_release_trust;
+mod runtime_update_planner;
 mod tool_sources;
 mod workspaces;
 pub use attachments::AttachmentService;
@@ -42,6 +43,10 @@ pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
 pub use runtime_release_cache::{CachedRuntimeRelease, RuntimeReleaseCacheError};
 pub use runtime_release_trust::{RuntimeReleaseTrust, RuntimeReleaseTrustError};
+pub use runtime_update_planner::{
+    RuntimeUpdateAuthority, RuntimeUpdatePlan, RuntimeUpdatePlanner, RuntimeUpdatePlannerError,
+    RuntimeUpdatePlanningResult, RuntimeUpdateRequest,
+};
 #[derive(Clone, Debug)]
 pub struct Coordinator<L> {
     ledger: L,

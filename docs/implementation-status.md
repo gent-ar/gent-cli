@@ -104,8 +104,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       preserves a closed-ingress boundary for health, activation, and failure, and refuses rollback
       after a forward-only schema release. Runtime-owned Ed25519 trust, signer revocation, manifest
       shape validation, and an atomically stored offline cache revalidate every read. Durable attempt
-      checkpoints and fakeable source/staging/health/bootstrapper ports exist; no live release source,
-      artifact staging, binary swap, or observer update API exists yet.
+      checkpoints and fakeable source/staging/health/bootstrapper ports exist. An uncomposed,
+      authority-gated planner makes observer mode a no-op and closes ingress before persisting an
+      incompatible release as read-only; no live release source, artifact staging, binary swap, or
+      observer update API exists yet.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not
