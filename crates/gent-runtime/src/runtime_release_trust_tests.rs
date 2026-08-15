@@ -123,6 +123,12 @@ fn rejects_unsupported_and_malformed_signed_manifest_fields() {
     let mut artifact = release(&key);
     artifact.payload.artifact.size_bytes = 0;
     assert_invalid_signed_manifest(&key, artifact);
+    let mut protocol_range = release(&key);
+    protocol_range.payload.protocol_min = 3;
+    assert_invalid_signed_manifest(&key, protocol_range);
+    let mut schema_range = release(&key);
+    schema_range.payload.schema_min = 3;
+    assert_invalid_signed_manifest(&key, schema_range);
 }
 
 fn assert_invalid_signed_manifest(key: &SigningKey, mut release: SignedRuntimeRelease) {

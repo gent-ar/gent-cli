@@ -213,3 +213,34 @@ fn incompatible_approved_plan_closes_ingress_before_checkpointing_read_only_stat
         RuntimeUpdateStage::ReadOnlyUpdateRequired
     );
 }
+
+#[test]
+fn approved_planner_rejects_a_signed_release_for_another_target_without_checkpointing() {
+    let key = SigningKey::from_bytes(&[4; 32]);
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let mut release = signed_release(
+        &key,
+        RuntimeVersion {
+            major: 1,
+            minor: 0,
+            patch: 0,
+        },
+    );
+    release.payload.artifact.target = "x86_64-unknown-linux-gnu".into();
+    release.signature_hex = hex::encode(
+        key.sign(&serde_json::to_vec(&release.payload).unwrap())
+            .to_bytes(),
+    );
+    let planner = planner(
+        RuntimeUpdateAuthority::Approved,
+        Source {
+            release,
+            calls: Arc::new(Mutex::new(0)),
+        },
+        ledger.clone(),
+        &key,
+    );
+    assert!(planner.plan(&request()).is_err());
+    assert!(ledger.find_runtime_update("attempt-1").unwrap().is_none());
+    assert_eq!(ledger.host_ingress().unwrap().mode, IngressMode::Open);
+}

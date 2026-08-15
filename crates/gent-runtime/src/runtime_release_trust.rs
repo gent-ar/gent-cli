@@ -33,6 +33,8 @@ pub enum RuntimeReleaseTrustError {
     InvalidRollout,
     #[error("runtime release artifact metadata is invalid")]
     InvalidArtifact,
+    #[error("runtime release compatibility range is invalid")]
+    InvalidCompatibilityRange,
     #[error("runtime release artifact digest is not a SHA-256 hex digest")]
     InvalidDigest,
 }
@@ -101,6 +103,9 @@ fn validate_manifest(
     }
     if manifest.rollout_percent > 100 {
         return Err(RuntimeReleaseTrustError::InvalidRollout);
+    }
+    if manifest.protocol_min > manifest.protocol_max || manifest.schema_min > manifest.schema_max {
+        return Err(RuntimeReleaseTrustError::InvalidCompatibilityRange);
     }
     if manifest.artifact.target.trim().is_empty()
         || manifest.artifact.archive_name.trim().is_empty()

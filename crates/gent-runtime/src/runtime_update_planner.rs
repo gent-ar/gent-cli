@@ -61,6 +61,8 @@ pub enum RuntimeUpdatePlannerError {
     Trust(#[from] RuntimeReleaseTrustError),
     #[error("runtime update attempt id and target are required")]
     InvalidRequest,
+    #[error("signed runtime release target does not match the requested target")]
+    TargetMismatch,
 }
 
 /// Selects one signed release and durably records its pure safety disposition.
@@ -119,6 +121,9 @@ impl<L: Ledger + RuntimeUpdateJournal, S: RuntimeReleaseSource> RuntimeUpdatePla
             .fetch_release(request.context.selected_channel, &request.target)?;
         self.trust
             .verify_release(&release, request.context.now_unix_seconds)?;
+        if release.payload.artifact.target != request.target {
+            return Err(RuntimeUpdatePlannerError::TargetMismatch);
+        }
         let eligibility = assess_runtime_update(
             &release.payload,
             RuntimeUpdateContext {
