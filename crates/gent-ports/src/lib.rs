@@ -6,8 +6,10 @@ use gent_types::{
     EventSnapshot, HostEpoch, ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
 };
 
+mod run_projections;
 mod run_sessions;
 
+pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
 
 #[derive(Debug, thiserror::Error)]
@@ -160,12 +162,10 @@ pub trait Ledger: Send + Sync {
     /// Returns an error when durable state cannot be read.
     fn host_ingress(&self) -> Result<HostIngress, LedgerError>;
     /// Closes ingress if and only if `epoch` is still authoritative.
-    ///
     /// # Errors
     /// Returns an error when the epoch is stale or durable state cannot be updated.
     fn close_ingress(&self, epoch: HostEpoch) -> Result<HostIngress, LedgerError>;
     /// Atomically creates the next host epoch and opens it for its new writer.
-    ///
     /// # Errors
     /// Returns an error when ingress is not closed, the epoch is stale, or persistence fails.
     fn fence_and_open(&self, epoch: HostEpoch) -> Result<HostIngress, LedgerError>;

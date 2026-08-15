@@ -6,6 +6,7 @@ use gent_types::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
 
 mod decision_settlement;
 mod lifecycle_projection;
+mod projection_snapshot;
 
 pub use decision_settlement::{
     DecisionCommandOutcome, DecisionCommandUpdate, DecisionEvidence, DecisionEvidenceUpdate,
@@ -14,6 +15,7 @@ pub use decision_settlement::{
 pub use lifecycle_projection::{
     LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,
 };
+pub use projection_snapshot::{restore_projection, snapshot_projection};
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum CoreError {

@@ -18,13 +18,17 @@ const RUN_SESSION_BINDINGS: &str = "
 CREATE TABLE IF NOT EXISTS run_session_bindings (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), provider_session_id TEXT NOT NULL);
 ";
 
+const RUN_PROJECTIONS: &str = "
+CREATE TABLE IF NOT EXISTS run_projections (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), host_epoch INTEGER NOT NULL, cursor INTEGER NOT NULL, payload TEXT NOT NULL);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 2] = [
+const MIGRATIONS: [Migration; 3] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -32,6 +36,10 @@ const MIGRATIONS: [Migration; 2] = [
     Migration {
         version: 2,
         sql: RUN_SESSION_BINDINGS,
+    },
+    Migration {
+        version: 3,
+        sql: RUN_PROJECTIONS,
     },
 ];
 

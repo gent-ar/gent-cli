@@ -7,6 +7,7 @@ use uuid::Uuid;
 mod decision;
 mod doctor;
 mod event_resume;
+mod run_projection;
 
 pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
 pub use doctor::{
@@ -14,6 +15,7 @@ pub use doctor::{
     PrivateBridgeAvailability, PublicProviderStatus,
 };
 pub use event_resume::{EventResume, EventSnapshot};
+pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
 
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;

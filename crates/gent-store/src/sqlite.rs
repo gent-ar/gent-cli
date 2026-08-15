@@ -15,6 +15,7 @@ use rusqlite::{Connection, params};
 mod decisions;
 mod leases;
 mod migrations;
+mod projections;
 mod queries;
 mod runs;
 mod snapshots;

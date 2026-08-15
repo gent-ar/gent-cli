@@ -4,8 +4,10 @@ pub mod catalog;
 mod decisions;
 mod events;
 mod public_runs;
+mod run_projections;
 
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
+pub use run_projections::RunProjectionService;
 
 use gent_core::{Run, switch_provider};
 use gent_ports::{
