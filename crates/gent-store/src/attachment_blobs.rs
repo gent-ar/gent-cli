@@ -2,7 +2,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gent_ports::{AttachmentBlobStore, LedgerError};
 use sha2::{Digest, Sha256};
@@ -108,12 +108,20 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
         let staging = self.staging(key)?;
         let final_path = self.final_path(key)?;
         if final_path.exists() {
+            verify_digest(&final_path, digest(key)?)?;
             if staging.exists() {
                 fs::remove_file(staging).map_err(io_error)?;
             }
             return Ok(());
         }
-        fs::rename(staging, final_path).map_err(io_error)
+        match fs::hard_link(&staging, &final_path) {
+            Ok(()) => fs::remove_file(staging).map_err(io_error),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                verify_digest(&final_path, digest(key)?)?;
+                fs::remove_file(staging).map_err(io_error)
+            }
+            Err(error) => Err(io_error(error)),
+        }
     }
 }
 
@@ -132,6 +140,25 @@ fn digest(key: &str) -> Result<&str, LedgerError> {
     } else {
         Err(LedgerError::Invariant(
             "attachment storage key has an invalid digest".into(),
+        ))
+    }
+}
+fn verify_digest(path: &Path, expected: &str) -> Result<(), LedgerError> {
+    let mut file = File::open(path).map_err(io_error)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).map_err(io_error)?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    if format!("{:x}", digest.finalize()) == expected {
+        Ok(())
+    } else {
+        Err(LedgerError::Invariant(
+            "existing attachment blob digest differs from its key".into(),
         ))
     }
 }
