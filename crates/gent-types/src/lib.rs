@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+mod capability_catalog;
 mod conversation_artifact;
 mod conversations;
 mod decision;
@@ -11,6 +12,7 @@ mod doctor;
 mod event_resume;
 mod run_projection;
 
+pub use capability_catalog::CapabilityCatalogRecord;
 pub use conversation_artifact::{
     ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
 };

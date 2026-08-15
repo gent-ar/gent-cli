@@ -5,12 +5,13 @@ use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
-
+mod capability_catalog;
 mod conversation_artifacts;
 mod conversation_ledger;
 mod external_provider_bridge;
 mod run_projections;
 mod run_sessions;
+pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
 pub use external_provider_bridge::{

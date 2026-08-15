@@ -62,3 +62,17 @@ impl gent_ports::ConversationArtifactLedger for SqliteLedger {
         super::conversation_artifacts::list(self, conversation_id)
     }
 }
+
+impl gent_ports::CapabilityCatalogLedger for SqliteLedger {
+    fn save_capability_catalog(
+        &self,
+        catalog: &gent_types::CapabilityCatalogRecord,
+    ) -> Result<(), LedgerError> {
+        super::capability_catalog::save(self, catalog)
+    }
+    fn capability_catalog(
+        &self,
+    ) -> Result<Option<gent_types::CapabilityCatalogRecord>, LedgerError> {
+        super::capability_catalog::load(self)
+    }
+}

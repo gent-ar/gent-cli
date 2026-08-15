@@ -45,13 +45,17 @@ CREATE TABLE IF NOT EXISTS conversation_artifacts (
 CREATE INDEX IF NOT EXISTS conversation_artifacts_by_conversation ON conversation_artifacts (conversation_id);
 ";
 
+const CAPABILITY_CATALOG: &str = "
+CREATE TABLE IF NOT EXISTS capability_catalog (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), schema_version INTEGER NOT NULL, capabilities TEXT NOT NULL);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 5] = [
+const MIGRATIONS: [Migration; 6] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -71,6 +75,10 @@ const MIGRATIONS: [Migration; 5] = [
     Migration {
         version: 5,
         sql: CONVERSATION_ARTIFACTS,
+    },
+    Migration {
+        version: 6,
+        sql: CAPABILITY_CATALOG,
     },
 ];
 
