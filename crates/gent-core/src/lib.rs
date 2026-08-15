@@ -4,6 +4,12 @@ use std::collections::BTreeMap;
 
 use gent_types::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
 
+mod lifecycle_projection;
+
+pub use lifecycle_projection::{
+    LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,
+};
+
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum CoreError {
     #[error("stale host epoch: command {command:?}, active {active:?}")]
@@ -154,6 +160,8 @@ pub enum LifecycleEvent {
     },
     AttentionRequired,
     AttentionCleared,
+    ErrorRaised,
+    ErrorCleared,
 }
 
 /// Pure lifecycle reducer: no persistence, clock, process, or presentation dependency.
@@ -169,6 +177,8 @@ pub fn reduce_lifecycle(mut state: LifecycleState, event: LifecycleEvent) -> Lif
         }
         LifecycleEvent::AttentionRequired => state.needs_attention = true,
         LifecycleEvent::AttentionCleared => state.needs_attention = false,
+        LifecycleEvent::ErrorRaised => state.has_error = true,
+        LifecycleEvent::ErrorCleared => state.has_error = false,
     }
     state
 }
