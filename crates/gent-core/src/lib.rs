@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 use gent_types::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
 
+mod attachment_transfer;
 mod automation_execution;
 mod decision_settlement;
 mod git_operation;
@@ -10,6 +11,7 @@ mod lifecycle_projection;
 mod lifecycle_signal;
 mod projection_snapshot;
 mod turn_lifecycle;
+pub use attachment_transfer::*;
 pub use automation_execution::permits_automation_execution_transition;
 pub use decision_settlement::{
     DecisionCommandOutcome, DecisionCommandUpdate, DecisionEvidence, DecisionEvidenceUpdate,
@@ -49,7 +51,6 @@ pub struct IngressState {
 }
 
 /// Pure fence validation used by every mutating ingress adapter.
-///
 /// # Errors
 /// Returns a stale-epoch or closed-ingress error when mutation is not permitted.
 pub fn validate_ingress(command: HostEpoch, state: IngressState) -> Result<(), CoreError> {
@@ -72,7 +73,6 @@ pub const fn next_epoch(epoch: HostEpoch) -> HostEpoch {
 }
 
 /// Rejects commands issued by a superseded writer.
-///
 /// # Errors
 /// Returns [`CoreError::StaleEpoch`] when the command does not carry the active epoch.
 pub fn require_current_epoch(command: HostEpoch, active: HostEpoch) -> Result<(), CoreError> {
