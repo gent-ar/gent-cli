@@ -15,7 +15,8 @@ function Assert-Equal([object]$actual, [object]$expected, [string]$label) {
 function Invoke-Gent([string]$label, [string[]]$arguments) {
     $stdout = Join-Path $dataDir "${label}.stdout"
     $stderr = Join-Path $dataDir "${label}.stderr"
-    $process = Start-Process -FilePath $gent -ArgumentList (@("--no-autostart") + $arguments) -PassThru -NoNewWindow `
+    $fullArguments = @("--no-autostart") + $arguments
+    $process = Start-Process -FilePath $gent -ArgumentList $fullArguments -PassThru -NoNewWindow `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     if (-not $process.WaitForExit(10000)) {
         Stop-Process -Id $process.Id -Force
@@ -23,6 +24,7 @@ function Invoke-Gent([string]$label, [string[]]$arguments) {
         $details = if (Test-Path $daemonLog) { Get-Content -Raw $daemonLog } else { "no daemon log" }
         throw "${label} timed out; daemon stderr: $details"
     }
+    $process.Refresh()
     $output = if (Test-Path $stdout) { Get-Content -Raw $stdout } else { "" }
     if ($process.ExitCode -ne 0) {
         $errors = if (Test-Path $stderr) { Get-Content -Raw $stderr } else { "no stderr" }
@@ -68,7 +70,7 @@ try {
 finally {
     if ($null -ne $daemon -and -not $daemon.HasExited) {
         Stop-Process -Id $daemon.Id -Force
-        $daemon.WaitForExit(5000)
+        $null = $daemon.WaitForExit(5000)
     }
     if (Test-Path $dataDir) {
         try {
