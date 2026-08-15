@@ -37,7 +37,7 @@ pub fn replay_public_frames(provider: PublicProvider, frames: &[Value]) -> Vec<P
 fn claude(frame: &Value) -> Vec<PublicWireFact> {
     match string(frame, "type") {
         Some("system") if string(frame, "subtype") == Some("init") => {
-            session(frame, "malformedClaudeInit")
+            session(frame, "session_id", "malformedClaudeInit")
         }
         Some("assistant") => claude_assistant(frame),
         Some("result") => claude_result(frame),
@@ -45,8 +45,8 @@ fn claude(frame: &Value) -> Vec<PublicWireFact> {
     }
 }
 
-fn session(frame: &Value, invalid: &str) -> Vec<PublicWireFact> {
-    string(frame, "session_id")
+fn session(frame: &Value, field: &str, invalid: &str) -> Vec<PublicWireFact> {
+    string(frame, field)
         .filter(|id| !id.is_empty())
         .map_or_else(
             || diagnostic(invalid),
@@ -111,6 +111,7 @@ fn codex(frame: &Value) -> Vec<PublicWireFact> {
     match string(frame, "method") {
         Some("thread/started") => session(
             frame.pointer("/params/thread").unwrap_or(frame),
+            "id",
             "malformedCodexThread",
         ),
         Some("turn/started") => turn(frame, true),
