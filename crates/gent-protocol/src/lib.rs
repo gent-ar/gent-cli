@@ -1,8 +1,9 @@
 //! Versioned wire DTOs and length-prefixed JSON framing shared by every transport.
 
 use std::io;
+use std::str::FromStr;
 
-use gent_types::{CapabilitySet, Command, Event, HostStatus, Receipt};
+use gent_types::{CapabilitySet, Command, DoctorReport, Event, HostStatus, Receipt};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -24,6 +25,89 @@ pub struct Negotiated {
     pub capabilities: CapabilitySet,
 }
 
+/// A publicly installable provider. Private bridges are intentionally excluded.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DependencyProvider {
+    Claude,
+    Codex,
+}
+
+impl FromStr for DependencyProvider {
+    type Err = ProtocolError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "claude" => Ok(Self::Claude),
+            "codex" => Ok(Self::Codex),
+            _ => Err(ProtocolError::UnsupportedProvider(value.into())),
+        }
+    }
+}
+
+/// An explicit action a user may request for a public provider dependency.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DependencyAction {
+    Install,
+    Update,
+}
+
+impl FromStr for DependencyAction {
+    type Err = ProtocolError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "install" => Ok(Self::Install),
+            "update" => Ok(Self::Update),
+            _ => Err(ProtocolError::UnsupportedDependencyAction(value.into())),
+        }
+    }
+}
+
+/// A read-only request for a dependency action plan.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyPlanRequest {
+    pub provider: DependencyProvider,
+    pub action: DependencyAction,
+}
+
+/// An explicit confirmation to act on a prior plan.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyActionRequest {
+    pub provider: DependencyProvider,
+    pub action: DependencyAction,
+    pub consent_granted: bool,
+}
+
+/// Human-readable, vendor-directed plan. Gent never embeds a provider installer.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyPlan {
+    pub provider: DependencyProvider,
+    pub action: DependencyAction,
+    pub instruction: String,
+    pub consent_required: bool,
+}
+
+/// Result of evaluating an explicit dependency action request.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DependencyActionState {
+    ConsentRequired,
+    InstallerNotConfigured,
+}
+
+/// The daemon's non-mutating dependency-action result for this milestone.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyActionResult {
+    pub plan: DependencyPlan,
+    pub state: DependencyActionState,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", content = "body", rename_all = "camelCase")]
 pub enum WireFrame {
@@ -33,6 +117,12 @@ pub enum WireFrame {
     Receipt(Receipt),
     StatusRequest,
     Status(HostStatus),
+    DoctorRequest,
+    DoctorReport(DoctorReport),
+    DependencyPlanRequest(DependencyPlanRequest),
+    DependencyPlan(DependencyPlan),
+    DependencyActionRequest(DependencyActionRequest),
+    DependencyActionResult(DependencyActionResult),
     Subscribe { after_cursor: u64 },
     Events { events: Vec<Event> },
     Error { code: String, message: String },
@@ -40,6 +130,10 @@ pub enum WireFrame {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
+    #[error("unsupported public provider: {0}")]
+    UnsupportedProvider(String),
+    #[error("unsupported dependency action: {0}")]
+    UnsupportedDependencyAction(String),
     #[error(
         "protocol ranges do not overlap: client {client_min}..={client_max}, server {server_min}..={server_max}"
     )]
@@ -115,7 +209,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Hello, WireFrame, negotiate, read_frame, write_frame};
+    use super::{
+        DependencyAction, DependencyPlanRequest, DependencyProvider, Hello, WireFrame, negotiate,
+        read_frame, write_frame,
+    };
     use gent_types::CapabilitySet;
     use tokio::io::duplex;
 
@@ -151,5 +248,20 @@ mod tests {
         let body = br#"{"type":"hello","body":{"protocolMin":1,"protocolMax":1,"capabilities":[],"futureField":true}}"#;
         let parsed: WireFrame = serde_json::from_slice(body).unwrap();
         assert_eq!(parsed, frame);
+    }
+
+    #[test]
+    fn public_dependency_commands_are_typed_and_exclude_private_bridges() {
+        assert!(matches!("claude".parse(), Ok(DependencyProvider::Claude)));
+        assert!(matches!("update".parse(), Ok(DependencyAction::Update)));
+        assert!("claurst".parse::<DependencyProvider>().is_err());
+
+        let frame = WireFrame::DependencyPlanRequest(DependencyPlanRequest {
+            provider: DependencyProvider::Codex,
+            action: DependencyAction::Install,
+        });
+        let encoded = serde_json::to_string(&frame).unwrap();
+        assert!(encoded.contains("dependencyPlanRequest"));
+        assert!(encoded.contains("codex"));
     }
 }

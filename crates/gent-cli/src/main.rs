@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 use clap::{Parser, Subcommand};
-use gent_protocol::{Hello, WireFrame, read_frame, write_frame};
-use gent_types::{
-    CapabilitySet, Command, DependencyStatus, DoctorReport, PROTOCOL_MAX, PROTOCOL_MIN, ReceiptId,
+use gent_protocol::{
+    DependencyAction, DependencyActionRequest, DependencyPlanRequest, DependencyProvider, Hello,
+    WireFrame, read_frame, write_frame,
 };
+use gent_types::{CapabilitySet, Command, PROTOCOL_MAX, PROTOCOL_MIN, ReceiptId};
 use serde_json::Value;
 use tokio::net::UnixStream;
 
@@ -20,8 +21,13 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum CommandLine {
-    /// Read-only dependency discovery; it never installs or configures a provider.
+    /// Read-only dependency discovery through the local daemon.
     Doctor,
+    /// Review or explicitly consent to a public provider dependency action.
+    Deps {
+        #[command(subcommand)]
+        action: DependencyCommand,
+    },
     Status,
     Submit {
         #[arg(long)]
@@ -37,11 +43,42 @@ enum CommandLine {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum DependencyCommand {
+    /// Show a read-only install or update plan.
+    Plan {
+        action: DependencyAction,
+        provider: DependencyProvider,
+    },
+    /// Confirm an install plan. No installer is started until this capability is configured.
+    Install {
+        provider: DependencyProvider,
+        #[arg(long)]
+        consent: bool,
+    },
+    /// Confirm an update plan. No updater is started until this capability is configured.
+    Update {
+        provider: DependencyProvider,
+        #[arg(long)]
+        consent: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     match args.command {
-        CommandLine::Doctor => println!("{}", serde_json::to_string_pretty(&doctor().await)?),
+        CommandLine::Doctor => println!(
+            "{}",
+            serde_json::to_string_pretty(&request(args.data_dir, WireFrame::DoctorRequest).await?)?
+        ),
+        CommandLine::Deps { action } => {
+            let frame = dependency_frame(&action);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&request(args.data_dir, frame).await?)?
+            );
+        }
         CommandLine::Status => println!(
             "{}",
             serde_json::to_string_pretty(&request(args.data_dir, WireFrame::StatusRequest).await?)?
@@ -78,6 +115,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     }
     Ok(())
+}
+
+fn dependency_frame(action: &DependencyCommand) -> WireFrame {
+    match action {
+        DependencyCommand::Plan { action, provider } => {
+            WireFrame::DependencyPlanRequest(DependencyPlanRequest {
+                provider: *provider,
+                action: *action,
+            })
+        }
+        DependencyCommand::Install { provider, consent } => {
+            dependency_action(*provider, DependencyAction::Install, *consent)
+        }
+        DependencyCommand::Update { provider, consent } => {
+            dependency_action(*provider, DependencyAction::Update, *consent)
+        }
+    }
+}
+
+fn dependency_action(
+    provider: DependencyProvider,
+    action: DependencyAction,
+    consent_granted: bool,
+) -> WireFrame {
+    WireFrame::DependencyActionRequest(DependencyActionRequest {
+        provider,
+        action,
+        consent_granted,
+    })
 }
 
 async fn request(
@@ -153,42 +219,31 @@ fn default_data_dir() -> PathBuf {
     )
 }
 
-async fn doctor() -> DoctorReport {
-    let mut dependencies = Vec::new();
-    for (name, remediation) in [
-        (
-            "claude",
-            "Install explicitly with `gent deps install claude` or the vendor installer.",
-        ),
-        (
-            "codex",
-            "Install explicitly with `gent deps install codex` or the vendor installer.",
-        ),
-        (
-            "node",
-            "Install Node.js explicitly before enabling MCP features.",
-        ),
-    ] {
-        let version = tokio::process::Command::new(name)
-            .arg("--version")
-            .output()
-            .await
-            .ok()
-            .and_then(|output| {
-                output.status.success().then(|| {
-                    String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .next()
-                        .unwrap_or_default()
-                        .to_owned()
-                })
-            });
-        dependencies.push(DependencyStatus {
-            name: name.into(),
-            present: version.is_some(),
-            version,
-            remediation: remediation.into(),
-        });
+#[cfg(test)]
+mod tests {
+    use gent_protocol::{DependencyAction, DependencyProvider, WireFrame};
+
+    use super::{DependencyCommand, dependency_frame};
+
+    #[test]
+    fn dependency_plan_is_read_only() {
+        assert!(matches!(
+            dependency_frame(&DependencyCommand::Plan {
+                action: DependencyAction::Install,
+                provider: DependencyProvider::Claude,
+            }),
+            WireFrame::DependencyPlanRequest(_)
+        ));
     }
-    DoctorReport { dependencies }
+
+    #[test]
+    fn dependency_install_requires_explicit_consent_flag() {
+        assert!(matches!(
+            dependency_frame(&DependencyCommand::Install {
+                provider: DependencyProvider::Codex,
+                consent: false,
+            }),
+            WireFrame::DependencyActionRequest(request) if !request.consent_granted
+        ));
+    }
 }

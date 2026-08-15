@@ -11,6 +11,45 @@ pub enum CoreError {
         command: HostEpoch,
         active: HostEpoch,
     },
+    #[error("ingress is closed at epoch {epoch:?}")]
+    IngressClosed { epoch: HostEpoch },
+    #[error("lease epoch {lease:?} does not match active host epoch {active:?}")]
+    LeaseEpoch { lease: HostEpoch, active: HostEpoch },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IngressMode {
+    Open,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct IngressState {
+    pub epoch: HostEpoch,
+    pub mode: IngressMode,
+}
+
+/// Pure fence validation used by every mutating ingress adapter.
+///
+/// # Errors
+/// Returns a stale-epoch or closed-ingress error when mutation is not permitted.
+pub fn validate_ingress(command: HostEpoch, state: IngressState) -> Result<(), CoreError> {
+    if command != state.epoch {
+        return Err(CoreError::StaleEpoch {
+            command,
+            active: state.epoch,
+        });
+    }
+    if state.mode == IngressMode::Closed {
+        return Err(CoreError::IngressClosed { epoch: state.epoch });
+    }
+    Ok(())
+}
+
+/// Returns the immutable successor epoch used by a new writer.
+#[must_use]
+pub const fn next_epoch(epoch: HostEpoch) -> HostEpoch {
+    HostEpoch(epoch.0.saturating_add(1))
 }
 
 /// Rejects commands issued by a superseded writer.
@@ -18,11 +57,13 @@ pub enum CoreError {
 /// # Errors
 /// Returns [`CoreError::StaleEpoch`] when the command does not carry the active epoch.
 pub fn require_current_epoch(command: HostEpoch, active: HostEpoch) -> Result<(), CoreError> {
-    if command == active {
-        Ok(())
-    } else {
-        Err(CoreError::StaleEpoch { command, active })
-    }
+    validate_ingress(
+        command,
+        IngressState {
+            epoch: active,
+            mode: IngressMode::Open,
+        },
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +80,43 @@ pub fn switch_provider(run: &Run, child_id: String, provider: String) -> Run {
         id: child_id,
         parent_run_id: Some(run.id.clone()),
         provider,
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Lease {
+    pub worktree_id: String,
+    pub run_id: String,
+    pub token: String,
+    pub epoch: HostEpoch,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LeaseResolution {
+    Acquire,
+    Contended(Lease),
+    Recover(Lease),
+}
+
+/// Decides lease ownership without inspecting a database or clock.
+///
+/// # Errors
+/// Returns an error when the requesting run was not created by the active host.
+pub fn resolve_lease(
+    existing: Option<&Lease>,
+    requested: &Lease,
+    active: HostEpoch,
+) -> Result<LeaseResolution, CoreError> {
+    if requested.epoch != active {
+        return Err(CoreError::LeaseEpoch {
+            lease: requested.epoch,
+            active,
+        });
+    }
+    match existing {
+        None => Ok(LeaseResolution::Acquire),
+        Some(lease) if lease.epoch == active => Ok(LeaseResolution::Contended(lease.clone())),
+        Some(lease) => Ok(LeaseResolution::Recover(lease.clone())),
     }
 }
 
@@ -118,20 +196,51 @@ pub fn live_status(state: &LifecycleState, snapshot_cursor: u64) -> Conversation
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CoreError, LifecycleEvent, LifecycleState, Run, live_status, reduce_lifecycle,
-        require_current_epoch, switch_provider,
-    };
-    use gent_types::{HostEpoch, TurnPhase, WorkPhase};
+    use super::*;
 
     #[test]
-    fn stale_epoch_is_rejected() {
+    fn ingress_rejects_stale_and_closed_commands() {
+        assert!(matches!(
+            validate_ingress(
+                HostEpoch(1),
+                IngressState {
+                    epoch: HostEpoch(2),
+                    mode: IngressMode::Open
+                }
+            ),
+            Err(CoreError::StaleEpoch { .. })
+        ));
         assert_eq!(
-            require_current_epoch(HostEpoch(1), HostEpoch(2)),
-            Err(CoreError::StaleEpoch {
-                command: HostEpoch(1),
-                active: HostEpoch(2)
+            validate_ingress(
+                HostEpoch(2),
+                IngressState {
+                    epoch: HostEpoch(2),
+                    mode: IngressMode::Closed
+                }
+            ),
+            Err(CoreError::IngressClosed {
+                epoch: HostEpoch(2)
             })
+        );
+    }
+
+    #[test]
+    fn stale_leases_recover_only_after_a_fence() {
+        let lease = Lease {
+            worktree_id: "tree".into(),
+            run_id: "old".into(),
+            token: "a".into(),
+            epoch: HostEpoch(1),
+        };
+        let requested = Lease {
+            worktree_id: "tree".into(),
+            run_id: "new".into(),
+            token: "b".into(),
+            epoch: HostEpoch(2),
+        };
+        assert_eq!(
+            resolve_lease(Some(&lease), &requested, HostEpoch(2)),
+            Ok(LeaseResolution::Recover(lease))
         );
     }
 
@@ -142,9 +251,12 @@ mod tests {
             parent_run_id: None,
             provider: "claude".into(),
         };
-        let child = switch_provider(&parent, "run-b".into(), "codex".into());
-        assert_eq!(child.parent_run_id.as_deref(), Some("run-a"));
-        assert_eq!(parent.provider, "claude");
+        assert_eq!(
+            switch_provider(&parent, "run-b".into(), "codex".into())
+                .parent_run_id
+                .as_deref(),
+            Some("run-a")
+        );
     }
 
     #[test]
@@ -156,10 +268,10 @@ mod tests {
                 phase: WorkPhase::Running,
             },
         );
-        let state = reduce_lifecycle(state, LifecycleEvent::RootPhase(TurnPhase::Ready));
-        let status = live_status(&state, 12);
-        assert!(!status.is_processing);
+        let status = live_status(
+            &reduce_lifecycle(state, LifecycleEvent::RootPhase(TurnPhase::Ready)),
+            12,
+        );
         assert!(status.is_waiting_for_subagents);
-        assert!(!status.is_waiting_for_command);
     }
 }

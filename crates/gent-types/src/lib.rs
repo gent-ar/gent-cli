@@ -37,7 +37,7 @@ pub enum ReceiptStatus {
     Rejected,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Receipt {
     pub receipt_id: ReceiptId,

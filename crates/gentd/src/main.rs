@@ -1,12 +1,18 @@
+mod dependency_catalog;
 mod transport;
 
 use std::path::PathBuf;
 
 use clap::Parser;
+use gent_protocol::{
+    DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
+};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, Command, Event, HostStatus, Receipt};
+use gent_types::{CapabilitySet, Command, DoctorReport, Event, HostStatus, Receipt};
 use tokio::net::UnixListener;
+
+use crate::dependency_catalog::DependencyCatalog;
 
 const CAPABILITIES: &[&str] = &["events", "host-epoch", "receipts"];
 
@@ -28,27 +34,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&data_dir)?;
     let socket = args.socket.unwrap_or_else(|| data_dir.join("gentd.sock"));
     let listener = UnixListener::bind(socket)?;
-    let runtime = RuntimeFacade(Coordinator::new(
-        SqliteLedger::open(data_dir.join("gent.db"))?,
-        CapabilitySet(CAPABILITIES.iter().map(ToString::to_string).collect()),
-    ));
+    let runtime = RuntimeFacade {
+        coordinator: Coordinator::new(
+            SqliteLedger::open(data_dir.join("gent.db"))?,
+            CapabilitySet(CAPABILITIES.iter().map(ToString::to_string).collect()),
+        ),
+        dependencies: DependencyCatalog,
+    };
     transport::serve(listener, runtime).await
 }
 
 #[derive(Clone, Debug)]
-struct RuntimeFacade(Coordinator<SqliteLedger>);
+struct RuntimeFacade {
+    coordinator: Coordinator<SqliteLedger>,
+    dependencies: DependencyCatalog,
+}
 
 impl transport::RuntimeApi for RuntimeFacade {
     fn status(&self) -> Result<HostStatus, String> {
-        self.0.status().map_err(|error| error.to_string())
+        self.coordinator.status().map_err(|error| error.to_string())
     }
     fn submit(&self, command: Command) -> Result<Receipt, String> {
-        self.0.submit(command).map_err(|error| error.to_string())
+        self.coordinator
+            .submit(&command)
+            .map_err(|error| error.to_string())
     }
     fn events_after(&self, cursor: u64) -> Result<Vec<Event>, String> {
-        self.0
+        self.coordinator
             .events_after(cursor)
             .map_err(|error| error.to_string())
+    }
+    fn doctor(&self) -> DoctorReport {
+        self.dependencies.doctor()
+    }
+    fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
+        self.dependencies.plan(request)
+    }
+    fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult {
+        self.dependencies.act(request)
     }
 }
 
