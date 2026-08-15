@@ -1,6 +1,6 @@
 use gent_ports::ExternalProviderBridge;
 use gent_testkit::{FakeExternalProviderBridge, FakeProcess, FakeProcessSignal};
-use gent_types::{Command, HostEpoch, ProviderEvent, ReceiptId};
+use gent_types::{CapabilitySet, Command, HostEpoch, ProviderEvent, ReceiptId};
 use serde_json::json;
 
 fn command() -> Command {
@@ -30,6 +30,18 @@ async fn bridge_consumes_its_script_in_order_and_records_sessions() {
     ));
     assert!(bridge.next_event("session-a").await.is_err());
     assert!(bridge.next_event("session-a").await.unwrap().is_none());
+    bridge.set_capabilities(CapabilitySet(vec!["private-bridge".into()]));
+    assert_eq!(
+        bridge.register_capabilities().await.unwrap().0,
+        ["private-bridge"]
+    );
+    assert_eq!(
+        bridge.start_run("run-a").await.unwrap().opaque_session,
+        "bridge-run-a"
+    );
+    assert_eq!(bridge.resume_run("run-a").await.unwrap().run_id, "run-a");
+    bridge.interrupt("session-a").await.unwrap();
+    assert!(bridge.terminal_state("session-a").await.unwrap().is_none());
 }
 
 #[test]
