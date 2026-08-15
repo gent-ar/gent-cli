@@ -21,6 +21,8 @@ than a second copy of application logic. The implemented vertical slice is:
   only through the capability-gated read protocol in `gentd`.
 - Durable workspace → repository → worktree identities, stored independently from worktree
   leases and any future Git execution.
+- Durable worktree-scoped Git-operation lifecycle records with optimistic, terminal-safe transitions;
+  recording an operation never starts a Git process.
 - Versioned, append-only provider-permission policy records with canonical allow-lists; they
   intentionally exclude credentials, provider endpoints, and bridge configuration.
 - Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question

@@ -3,11 +3,11 @@ pub mod catalog;
 mod conversations;
 mod decisions;
 mod events;
+mod git_operations;
 mod policies;
 mod public_runs;
 mod run_projections;
 mod workspaces;
-
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
 
