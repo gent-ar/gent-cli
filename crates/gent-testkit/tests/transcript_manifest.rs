@@ -171,3 +171,42 @@ fn strict_mode_accepts_complete_reasoned_live_probe_matrix() {
     let path = write_manifest(&directory, &recorded_absent_cells(&directory));
     assert!(validate_public_driver_manifest(&path, true).is_ok());
 }
+
+#[test]
+fn rejects_missing_files_and_invalid_live_provenance() {
+    let directory = tempfile::tempdir().unwrap();
+    let bad = live_metadata(
+        "claude",
+        "tool_error",
+        r#","status":"recorded","captureOrigin":"live_cli""#,
+    )
+    .replacen("sha256:aaaa", "not-a-digest", 1);
+    write_fixture(&directory, "bad.jsonl", &bad, true);
+    let mut cells = all_cells("capture_required");
+    cells = cells.replacen(
+        "{ vendor: claude, scenario: full_turn, state: capture_required }",
+        "{ vendor: claude, scenario: full_turn, state: recorded, path: missing.jsonl }",
+        1,
+    );
+    cells = cells.replacen(
+        "{ vendor: claude, scenario: tool_use, state: capture_required }",
+        "{ vendor: claude, scenario: tool_use, state: recorded }",
+        1,
+    );
+    cells = cells.replacen(
+        "{ vendor: claude, scenario: tool_error, state: capture_required }",
+        "{ vendor: claude, scenario: tool_error, state: recorded, path: bad.jsonl }",
+        1,
+    );
+    cells = cells.replacen(
+        "{ vendor: claude, scenario: thinking, state: capture_required }",
+        "{ vendor: claude, scenario: thinking, state: recorded, path: invalid.txt }",
+        1,
+    );
+    let error =
+        validate_public_driver_manifest(&write_manifest(&directory, &cells), false).unwrap_err();
+    assert!(error.contains("could not resolve fixture"));
+    assert!(error.contains("fixture path is required"));
+    assert!(error.contains("fixture path must be repository-relative"));
+    assert!(error.contains("invalid or missing executableDigest"));
+}

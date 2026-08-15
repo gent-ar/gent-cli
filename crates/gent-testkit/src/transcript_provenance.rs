@@ -13,9 +13,7 @@ pub(super) fn validate_live_provenance(
     require(metadata, "captureOrigin", cell, errors, |value| {
         value == "live_cli"
     });
-    require(metadata, "executablePath", cell, errors, |value| {
-        std::path::Path::new(value).is_absolute()
-    });
+    require(metadata, "executablePath", cell, errors, canonical_path);
     require(metadata, "executableDigest", cell, errors, sha256_digest);
     require(metadata, "platform", cell, errors, supported_platform);
     require(metadata, "transport", cell, errors, supported_transport);
@@ -55,6 +53,15 @@ fn sha256_digest(value: &str) -> bool {
         return false;
     };
     digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn canonical_path(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    value.starts_with('/')
+        || (bytes.len() > 2
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'/' | b'\\'))
 }
 
 fn supported_platform(value: &str) -> bool {
