@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::time::UNIX_EPOCH;
 
 use gent_types::RunVersionLock;
 use sha2::{Digest, Sha256};
@@ -35,7 +36,7 @@ pub fn capture(
             metadata.len(),
             metadata
                 .modified()?
-                .elapsed()
+                .duration_since(UNIX_EPOCH)
                 .map_or(0, |duration| duration.as_nanos())
         ),
         digest_sha256: hex::encode(Sha256::digest(bytes)),

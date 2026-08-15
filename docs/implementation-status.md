@@ -14,13 +14,16 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
 - [x] Signed compatibility-entry verification and executable run-version locks.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
+- [x] Fixture-tested driver session recovery, output bounds, interrupt policy, and process fakes.
+- [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
+- [x] Fail-closed evidence-record validation for authority-transfer invocations.
 
 ## Intentionally not claimed
 
 - [ ] Real Claude/Codex recordings and installed-provider integration evidence.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
-- [ ] MCP hosting, Git/worktrees, automations, pairing transport, and provider
-      process lifecycle ownership.
+- [ ] MCP hosting, Git execution/worktree operations, automation execution, pairing
+      transport, and provider process lifecycle ownership in a live daemon.
 - [ ] Observer-mode comparison with the legacy host.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
 
