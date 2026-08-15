@@ -4,10 +4,9 @@ use std::collections::BTreeSet;
 
 use gent_types::{
     ActivityWork, ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivity,
-    ConversationActivityFact, ConversationActivityScope, ConversationActivityState, HostEpoch,
-    RootActivity, TurnPhase, WorkPhase,
+    ConversationActivityFact, ConversationActivityRecord, ConversationActivityScope,
+    ConversationActivityState, HostEpoch, RootActivity, TurnPhase, WorkPhase,
 };
-
 /// Pure state retained while applying ordered coordinator facts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConversationActivityProjection {
@@ -16,7 +15,6 @@ pub struct ConversationActivityProjection {
     terminal_turns: BTreeSet<String>,
     transition: Option<ConversationActivityState>,
 }
-
 /// Result of applying one conversation-scoped fact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConversationActivityUpdate {
@@ -54,6 +52,28 @@ impl ConversationActivityProjection {
     #[must_use]
     pub fn snapshot(&self) -> &ConversationActivity {
         &self.snapshot
+    }
+
+    /// Exports the exact reducer state needed for restart-safe persistence.
+    #[must_use]
+    pub fn record(&self) -> ConversationActivityRecord {
+        ConversationActivityRecord {
+            activity: self.snapshot.clone(),
+            root_activity: self.root_activity,
+            terminal_turn_ids: self.terminal_turns.iter().cloned().collect(),
+            transition: self.transition,
+        }
+    }
+
+    /// Restores a previously persisted reducer state without replaying old facts.
+    #[must_use]
+    pub fn from_record(record: ConversationActivityRecord) -> Self {
+        Self {
+            snapshot: record.activity,
+            root_activity: record.root_activity,
+            terminal_turns: record.terminal_turn_ids.into_iter().collect(),
+            transition: record.transition,
+        }
     }
 }
 
@@ -118,12 +138,15 @@ fn is_old_turn(
     scope: &ConversationActivityScope,
     fact: &ConversationActivityFact,
 ) -> bool {
-    !matches!(fact, ConversationActivityFact::TurnStarted { .. })
-        && projection
-            .snapshot
-            .active_turn_id
-            .as_deref()
-            .is_some_and(|turn| turn != scope.turn_id)
+    let is_restarted_terminal = matches!(fact, ConversationActivityFact::TurnStarted { .. })
+        && projection.terminal_turns.contains(&scope.turn_id);
+    is_restarted_terminal
+        || (!matches!(fact, ConversationActivityFact::TurnStarted { .. })
+            && projection
+                .snapshot
+                .active_turn_id
+                .as_deref()
+                .is_some_and(|turn| turn != scope.turn_id))
 }
 
 fn reduce(

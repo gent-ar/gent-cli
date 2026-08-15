@@ -107,3 +107,49 @@ fn facts_from_a_superseded_host_epoch_are_rejected() {
     assert!(!update.applied);
     assert_eq!(update.projection.snapshot().cursor, 0);
 }
+
+#[test]
+fn durable_record_restores_terminal_dominance() {
+    let state = project(vec![
+        ConversationActivityFact::TurnStarted {
+            scope: scope(1, "turn"),
+        },
+        ConversationActivityFact::Terminal {
+            scope: scope(2, "turn"),
+            phase: TurnPhase::Ready,
+        },
+    ]);
+    let restored = ConversationActivityProjection::from_record(state.record());
+    let update = project_conversation_activity(
+        restored,
+        &ConversationActivityFact::RootActivity {
+            scope: scope(3, "turn"),
+            activity: RootActivity::Generating,
+        },
+    );
+    assert_eq!(
+        update.projection.snapshot().state,
+        ConversationActivityState::Idle
+    );
+}
+
+#[test]
+fn terminal_turn_cannot_be_started_again_by_a_late_fact() {
+    let state = project(vec![
+        ConversationActivityFact::TurnStarted {
+            scope: scope(1, "old"),
+        },
+        ConversationActivityFact::Terminal {
+            scope: scope(2, "old"),
+            phase: TurnPhase::Ready,
+        },
+        ConversationActivityFact::TurnStarted {
+            scope: scope(3, "new"),
+        },
+        ConversationActivityFact::TurnStarted {
+            scope: scope(4, "old"),
+        },
+    ]);
+    assert_eq!(state.snapshot().active_turn_id.as_deref(), Some("new"));
+    assert_eq!(state.snapshot().cursor, 3);
+}

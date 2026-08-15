@@ -8,6 +8,7 @@ mod attachments;
 mod automation_executions;
 mod capability_catalog;
 mod conversation_activity;
+mod conversation_activity_record;
 mod conversation_artifact;
 mod conversation_content;
 mod conversation_prompts;
@@ -38,6 +39,7 @@ pub use conversation_activity::{
     ActivityWork, ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivity,
     ConversationActivityFact, ConversationActivityScope, ConversationActivityState,
 };
+pub use conversation_activity_record::ConversationActivityRecord;
 pub use conversation_artifact::{
     ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
 };
