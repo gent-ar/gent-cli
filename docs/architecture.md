@@ -17,6 +17,9 @@ The public crate dependency rules are encoded in the workspace layout:
 | `gentd` | Composition and local IPC server |
 | `gent-cli` | Protocol-only command-line client |
 
+Driver-to-runtime conversion is composed only at the `gentd` edge. `gent-runtime` receives
+protocol, type, and port values rather than importing another product domain.
+
 The remaining domain crates (`gent-adapters`, `gent-drivers`, `gent-git`,
 `gent-mcp`, `gent-automations`, `gent-pairing`, and `gent-testkit`) exist as
 explicit ownership boundaries. They cannot obtain write authority or launch
