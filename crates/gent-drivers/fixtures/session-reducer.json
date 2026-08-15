@@ -1,0 +1,45 @@
+[
+  {
+    "name": "crash before session id can restart",
+    "inputs": [
+      { "exit": 9 },
+      { "restart": true },
+      { "frame": { "type": "session_started", "session_id": "second" } }
+    ],
+    "status": "active",
+    "attempt": 2,
+    "sessionId": "second",
+    "effects": [
+      { "type": "normalized", "event": { "type": "transportDiagnostic", "classification": "providerExitedBeforeSessionId" } },
+      { "type": "startAttempt", "attempt": 2 }
+    ]
+  },
+  {
+    "name": "malformed and unknown frames are diagnostics",
+    "inputs": [
+      { "raw": "not-json" },
+      { "frame": { "type": "turn_started" } },
+      { "frame": { "type": "future/frame" } }
+    ],
+    "status": "awaitingSessionId",
+    "attempt": 1,
+    "effects": [
+      { "type": "normalized", "event": { "type": "transportDiagnostic", "classification": "malformedProviderFrame" } },
+      { "type": "normalized", "event": { "type": "transportDiagnostic", "classification": "malformedProviderFrame" } },
+      { "type": "normalized", "event": { "type": "transportDiagnostic", "classification": "unknownProviderFrame" } }
+    ]
+  },
+  {
+    "name": "terminal frame is normalized after identity",
+    "inputs": [
+      { "frame": { "type": "session_started", "session_id": "alive" } },
+      { "frame": { "type": "terminal", "reason": "completed" } }
+    ],
+    "status": "terminal",
+    "attempt": 1,
+    "sessionId": "alive",
+    "effects": [
+      { "type": "terminal", "reason": "completed" }
+    ]
+  }
+]

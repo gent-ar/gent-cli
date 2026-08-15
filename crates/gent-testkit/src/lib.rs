@@ -1,39 +1,16 @@
-//! Public fakes and fixture helpers for Gent contract tests.
+//! Public fakes and safe recorded-fixture helpers for Gent contract tests.
+//!
+//! This crate deliberately contains no production process implementation and no
+//! provider credentials. Its fixture loader rejects unredacted secrets before a
+//! transcript can become test evidence.
 
-use async_trait::async_trait;
-use gent_ports::{ExternalProviderBridge, PortError};
-use gent_types::{Command, ProviderEvent};
-use std::sync::Mutex;
+mod fake_bridge;
+mod fake_process;
+mod transcript;
 
-#[derive(Debug, Default)]
-pub struct FakeExternalProviderBridge {
-    submitted: Mutex<Vec<Command>>,
-}
-
-impl FakeExternalProviderBridge {
-    /// Returns all commands observed by the fake.
-    ///
-    /// # Panics
-    /// Panics only if a prior holder poisoned the test fake's mutex.
-    pub fn submitted(&self) -> Vec<Command> {
-        self.submitted
-            .lock()
-            .expect("fake bridge mutex poisoned")
-            .clone()
-    }
-}
-
-#[async_trait]
-impl ExternalProviderBridge for FakeExternalProviderBridge {
-    async fn submit(&self, _opaque_session: &str, command: Command) -> Result<(), PortError> {
-        self.submitted
-            .lock()
-            .expect("fake bridge mutex poisoned")
-            .push(command);
-        Ok(())
-    }
-
-    async fn next_event(&self, _opaque_session: &str) -> Result<Option<ProviderEvent>, PortError> {
-        Ok(None)
-    }
-}
+pub use fake_bridge::{BridgeSubmission, FakeExternalProviderBridge};
+pub use fake_process::{FakeProcess, FakeProcessSignal};
+pub use transcript::{
+    PublicDriverFixture, PublicDriverFrame, TranscriptError, load_public_driver_fixture,
+    load_public_driver_fixtures,
+};

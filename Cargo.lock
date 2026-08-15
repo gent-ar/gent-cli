@@ -411,6 +411,7 @@ dependencies = [
  "gent-ports",
  "gent-types",
  "hex",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -499,8 +500,11 @@ dependencies = [
  "gent-protocol",
  "gent-types",
  "serde",
+ "serde_json",
  "serde_yaml",
+ "tempfile",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

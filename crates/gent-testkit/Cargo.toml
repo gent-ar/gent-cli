@@ -13,8 +13,13 @@ gent-ports = { path = "../gent-ports" }
 gent-protocol = { path = "../gent-protocol" }
 gent-types = { path = "../gent-types" }
 serde.workspace = true
+serde_json.workspace = true
 serde_yaml.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
 
 [[bin]]
 name = "validate-coverage-manifest"
