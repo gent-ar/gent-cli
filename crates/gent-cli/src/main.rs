@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use gent_protocol::{DependencyAction, DependencyProvider};
 
 mod command_execution;
+mod conversation_activity;
 mod conversation_content;
 mod conversation_index;
 mod conversation_status;
@@ -108,6 +109,15 @@ enum ConversationCommand {
     Timeline {
         #[arg(long)]
         conversation_id: String,
+    },
+    /// Read one future authority-gated activity snapshot or ordered delta.
+    Activity {
+        #[arg(long)]
+        conversation_id: String,
+        #[arg(long)]
+        run_id: String,
+        #[arg(long, default_value_t = 0)]
+        after_cursor: u64,
     },
     /// Read a bounded page of locally stored user prompts from protected IPC.
     Content {
@@ -214,6 +224,28 @@ mod tests {
             Some(CommandLine::Conversation {
                 action: ConversationCommand::Timeline { conversation_id }
             }) if conversation_id == "conversation-1"
+        ));
+    }
+
+    #[test]
+    fn conversation_activity_parses_its_cursor_bound_identity() {
+        let args = Args::try_parse_from([
+            "gent",
+            "conversation",
+            "activity",
+            "--conversation-id",
+            "conversation-1",
+            "--run-id",
+            "run-1",
+            "--after-cursor",
+            "9",
+        ])
+        .unwrap();
+        assert!(matches!(
+            args.command,
+            Some(CommandLine::Conversation {
+                action: ConversationCommand::Activity { conversation_id, run_id, after_cursor }
+            }) if conversation_id == "conversation-1" && run_id == "run-1" && after_cursor == 9
         ));
     }
 
