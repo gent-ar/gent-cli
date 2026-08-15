@@ -10,6 +10,7 @@ mod conversations;
 mod decision;
 mod doctor;
 mod event_resume;
+mod git_operations;
 mod lifecycle_signal;
 mod policies;
 mod run_projection;
@@ -28,6 +29,7 @@ pub use doctor::{
     PrivateBridgeAvailability, PublicProviderStatus,
 };
 pub use event_resume::{EventResume, EventSnapshot};
+pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord};
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use policies::{PolicyRecord, PolicyScope};
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};

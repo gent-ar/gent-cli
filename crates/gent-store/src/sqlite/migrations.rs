@@ -66,13 +66,23 @@ CREATE TABLE IF NOT EXISTS policies (
 );
 ";
 
+const GIT_OPERATIONS: &str = "
+CREATE TABLE IF NOT EXISTS git_operations (
+    operation_id TEXT PRIMARY KEY NOT NULL,
+    worktree_id TEXT NOT NULL REFERENCES worktrees(worktree_id),
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    kind TEXT NOT NULL,
+    phase TEXT NOT NULL
+);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 8] = [
+const MIGRATIONS: [Migration; 9] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -104,6 +114,10 @@ const MIGRATIONS: [Migration; 8] = [
     Migration {
         version: 8,
         sql: POLICIES,
+    },
+    Migration {
+        version: 9,
+        sql: GIT_OPERATIONS,
     },
 ];
 

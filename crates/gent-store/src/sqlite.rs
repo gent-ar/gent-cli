@@ -17,6 +17,8 @@ mod conversation_artifacts;
 mod conversation_ledger;
 mod conversations;
 mod decisions;
+mod git_operation_ledger;
+mod git_operations;
 mod leases;
 mod migrations;
 mod policies;

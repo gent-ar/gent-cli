@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use gent_types::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
 
 mod decision_settlement;
+mod git_operation;
 mod lifecycle_projection;
 mod lifecycle_signal;
 mod projection_snapshot;
@@ -12,6 +13,7 @@ pub use decision_settlement::{
     DecisionCommandOutcome, DecisionCommandUpdate, DecisionEvidence, DecisionEvidenceUpdate,
     DecisionSettlementState, apply_decision_evidence, submit_decision,
 };
+pub use git_operation::permits_git_operation_transition;
 pub use lifecycle_projection::{
     LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,
 };

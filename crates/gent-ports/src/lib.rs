@@ -8,6 +8,7 @@ mod capability_catalog;
 mod conversation_artifacts;
 mod conversation_ledger;
 mod external_provider_bridge;
+mod git_operation_ledger;
 mod policy_ledger;
 mod run_projections;
 mod run_sessions;
@@ -18,6 +19,7 @@ pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
 pub use external_provider_bridge::{
     ExternalProviderBridge, ExternalProviderSession, ExternalProviderTerminal,
 };
+pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use policy_ledger::PolicyLedger;
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
@@ -76,13 +78,11 @@ pub struct HostIngress {
     pub epoch: HostEpoch,
     pub mode: IngressMode,
 }
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReceiptClaim {
     Existing(Receipt),
     Accepted(Receipt),
 }
-
 /// Result of atomically creating or locating a decision by either stable identifier.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DecisionClaim {
