@@ -76,6 +76,7 @@ async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
 }
 
 #[cfg(windows)]
+#[allow(clippy::unused_async)] // Keeps the shared call site transport-agnostic.
 async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
     ClientOptions::new().open(pipe_name(data_dir))
 }
