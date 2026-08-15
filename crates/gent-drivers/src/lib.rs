@@ -8,6 +8,7 @@ pub mod normalize;
 pub mod process;
 pub mod run_runner;
 pub mod session;
+mod session_frames;
 pub mod supervisor;
 
 pub use discovery::PublicProvider;

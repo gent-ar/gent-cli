@@ -1,6 +1,6 @@
 use gent_drivers::normalize::normalize;
 use gent_drivers::{DriverSession, OutputLimits, SessionEffect, SessionInput, SessionStatus};
-use gent_types::{NormalizedProviderEvent, WorkPhase};
+use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase, WorkPhase};
 use serde_json::json;
 
 fn raw(value: &str) -> SessionInput {
@@ -107,6 +107,33 @@ fn session_rejects_invalid_identity_output_and_terminal_ordering() {
         apply(&terminal, SessionInput::ProcessExited { code: None }).effects,
         Vec::new()
     );
+}
+
+#[test]
+fn active_sessions_surface_lifecycle_signals_without_content_effects() {
+    let awaiting = DriverSession::new(OutputLimits::new(8, 16));
+    let raw_signal = br#"{"type":"root_phase","phase":"waiting_question"}"#;
+    assert_eq!(awaiting.lifecycle_signal(raw_signal), None);
+    let active = apply(
+        &awaiting,
+        raw(r#"{"type":"session_started","session_id":"one"}"#),
+    )
+    .state;
+    assert_eq!(
+        active.lifecycle_signal(raw_signal),
+        Some(NormalizedLifecycleSignal::RootPhase {
+            phase: TurnPhase::WaitingQuestion,
+        })
+    );
+    assert!(
+        apply(
+            &active,
+            raw(r#"{"type":"root_phase","phase":"waiting_question"}"#)
+        )
+        .effects
+        .is_empty()
+    );
+    assert_eq!(active.lifecycle_signal(b"not-json"), None);
 }
 
 #[test]

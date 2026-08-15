@@ -1,10 +1,11 @@
 //! Pure public-provider session reducer. The process owner performs its effects.
 
-use gent_types::NormalizedProviderEvent;
+use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::normalize::normalize;
+use crate::normalize::{normalize, normalize_lifecycle};
+use crate::session_frames::{known_lifecycle_frame, non_empty, valid_lifecycle_frame};
 
 /// Hard bounds for output accepted from a single provider session.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,6 +74,20 @@ impl DriverSession {
         }
     }
 
+    /// Extracts a validated lifecycle signal from an active session frame.
+    ///
+    /// The process owner records the returned signal through the separate lifecycle-projection
+    /// path. It deliberately does not alter the stable [`SessionEffect::Normalized`] contract.
+    #[must_use]
+    pub fn lifecycle_signal(&self, raw: &[u8]) -> Option<NormalizedLifecycleSignal> {
+        if self.status != SessionStatus::Active {
+            return None;
+        }
+        serde_json::from_slice::<Value>(raw)
+            .ok()
+            .and_then(|frame| normalize_lifecycle(&frame))
+    }
+
     fn reduce_raw_frame(&self, raw: &[u8]) -> SessionTransition {
         let Ok(frame) = serde_json::from_slice::<Value>(raw) else {
             return self.diagnostic("malformedProviderFrame");
@@ -87,6 +102,9 @@ impl DriverSession {
             "session_started" => self.reduce_session_started(&frame),
             "terminal" => self.reduce_terminal(&frame),
             "output" => self.reduce_output(&frame),
+            _ if kind != "decision_settled" && normalize_lifecycle(&frame).is_some() => {
+                SessionTransition::new(self.clone(), Vec::new())
+            }
             _ if valid_lifecycle_frame(kind, &frame) => self.emit(normalize(&frame)),
             _ if known_lifecycle_frame(kind) => self.diagnostic("malformedProviderFrame"),
             _ => self.emit(normalize(&frame)),
@@ -235,40 +253,6 @@ pub struct SessionTransition {
 impl SessionTransition {
     const fn new(state: DriverSession, effects: Vec<SessionEffect>) -> Self {
         Self { state, effects }
-    }
-}
-
-fn non_empty<'a>(frame: &'a Value, field: &str) -> Option<&'a str> {
-    frame.get(field)?.as_str().filter(|value| !value.is_empty())
-}
-
-fn known_lifecycle_frame(kind: &str) -> bool {
-    matches!(
-        kind,
-        "turn_started"
-            | "turn_ended"
-            | "child_started"
-            | "child_terminal"
-            | "command_terminal"
-            | "decision_settled"
-    )
-}
-
-fn valid_lifecycle_frame(kind: &str, frame: &Value) -> bool {
-    match kind {
-        "turn_started" | "turn_ended" => non_empty(frame, "turn_id").is_some(),
-        "child_started" => {
-            non_empty(frame, "child_id").is_some()
-                && non_empty(frame, "parent_tool_use_id").is_some()
-        }
-        "child_terminal" => {
-            non_empty(frame, "child_id").is_some() && non_empty(frame, "phase").is_some()
-        }
-        "command_terminal" => {
-            non_empty(frame, "command_id").is_some() && non_empty(frame, "phase").is_some()
-        }
-        "decision_settled" => non_empty(frame, "decision_id").is_some(),
-        _ => false,
     }
 }
 
