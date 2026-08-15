@@ -17,7 +17,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, and process fakes.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
-- [x] Fail-closed evidence-record validation for authority-transfer invocations.
+- [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux CI matrix for the supported Unix-socket host targets.
 
 ## Intentionally not claimed

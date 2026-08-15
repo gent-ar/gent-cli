@@ -56,3 +56,33 @@ evidence_records:
             .contains("missing cutover evidence")
     );
 }
+
+#[test]
+fn expired_temporarily_unavailable_exception_is_rejected() {
+    let fixture = r"
+schema_version: 3
+dimensions: { providers: [claude, codex, claurst, copilot], transports: [local_ipc, paired_mux], platforms: [macos, linux, windows] }
+provider_implementation: { claude: rust_native_driver, codex: rust_native_driver, claurst: private_external_provider_bridge, copilot: unsupported }
+required_evidence: [baseline]
+features: { example: { state: temporarily_unavailable, evidence: required, legacy_owner: owner, exception_expiry: 2999-01-01 } }
+evidence_records:
+  - id: expired
+    feature: example
+    state: temporarily_unavailable
+    provider: claude
+    provider_version: 1
+    platform: macos
+    transport: local_ipc
+    status: recorded_absent
+    provider_implementation: rust_native_driver
+    evidence_paths: { baseline: Cargo.toml }
+    ci_artifact: signed:test
+    exception_expiry: 1970-01-01
+";
+    let value: Value = serde_yaml::from_str(fixture).unwrap();
+    assert!(
+        validate(&value, Path::new("."), false)
+            .unwrap_err()
+            .contains("has expired")
+    );
+}

@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::BTreeSet,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde_yaml::{Mapping, Value};
 
@@ -100,7 +104,8 @@ fn validate_record(
         ));
     }
     if state == "temporarily_unavailable" {
-        let _ = non_empty(record, "exception_expiry")?;
+        let expiry = non_empty(record, "exception_expiry")?;
+        validate_exception_expiry(&expiry)?;
     }
     if state == "not_applicable" {
         let _ = non_empty(record, "rationale")?;
@@ -116,6 +121,59 @@ fn validate_record(
         let _ = non_empty(record, "removal_release")?;
     }
     Ok(())
+}
+
+fn validate_exception_expiry(value: &str) -> Result<(), String> {
+    let expiry_days = iso_date_days(value)
+        .ok_or_else(|| "exception_expiry must use the YYYY-MM-DD format".to_owned())?;
+    let now_days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system time is before the Unix epoch".to_owned())?
+        .as_secs()
+        / 86_400;
+    if expiry_days < now_days {
+        return Err(format!("exception_expiry {value} has expired"));
+    }
+    Ok(())
+}
+
+fn iso_date_days(value: &str) -> Option<u64> {
+    let mut parts = value.split('-');
+    let year = parts.next()?;
+    let month = parts.next()?;
+    let day = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if year.len() != 4 || month.len() != 2 || day.len() != 2 {
+        return None;
+    }
+    let year = year.parse::<u64>().ok()?;
+    let month = month.parse::<u64>().ok()?;
+    let day = day.parse::<u64>().ok()?;
+    if year < 1970 || !(1..=12).contains(&month) || day == 0 || day > month_days(year, month) {
+        return None;
+    }
+    let prior_years = (1970..year)
+        .map(|candidate| if leap_year(candidate) { 366 } else { 365 })
+        .sum::<u64>();
+    let prior_months = (1..month)
+        .map(|candidate| month_days(year, candidate))
+        .sum::<u64>();
+    Some(prior_years + prior_months + day - 1)
+}
+
+const fn leap_year(year: u64) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+const fn month_days(year: u64, month: u64) -> u64 {
+    match month {
+        2 if leap_year(year) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
 }
 
 fn validate_coverage(
