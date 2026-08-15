@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::RunLiveStatus;
+
 /// Immutable conversation identity. Content and presentation metadata live in separate domains.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,4 +40,23 @@ pub struct TurnRecord {
     pub run_id: String,
     pub sequence: u64,
     pub phase: DurableTurnPhase,
+}
+
+/// One immutable run in a read-only conversation status response.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationRunStatus {
+    pub run_id: String,
+    pub parent_run_id: Option<String>,
+    pub provider: String,
+    pub active_turn_id: Option<String>,
+    pub live_status: Option<RunLiveStatus>,
+}
+
+/// Read-only durable conversation hierarchy with optional lifecycle projections.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationStatus {
+    pub conversation_id: String,
+    pub runs: Vec<ConversationRunStatus>,
 }

@@ -1,8 +1,13 @@
 //! Coordinator orchestration for the durable conversation → run → turn hierarchy.
 
-use gent_core::permits_turn_transition;
-use gent_ports::{ConversationLedger, Ledger, LedgerError, RunRecord, TurnPhaseUpdate};
-use gent_types::{ConversationRecord, DurableTurnPhase, TurnRecord};
+use gent_core::{permits_turn_transition, projected_live_status, restore_projection};
+use gent_ports::{
+    ConversationLedger, Ledger, LedgerError, RunProjectionLedger, RunRecord, TurnPhaseUpdate,
+};
+use gent_types::{
+    ConversationRecord, ConversationRunStatus, ConversationStatus, DurableTurnPhase, RunLiveStatus,
+    TurnRecord,
+};
 
 use crate::{Coordinator, RuntimeError, to_record};
 
@@ -64,5 +69,44 @@ where
     /// Returns an error when durable state cannot be read.
     pub fn run_turns(&self, run_id: &str) -> Result<Vec<TurnRecord>, RuntimeError> {
         Ok(self.ledger.list_run_turns(run_id)?)
+    }
+}
+
+impl<L> Coordinator<L>
+where
+    L: Ledger + ConversationLedger + RunProjectionLedger,
+{
+    /// Resolves durable conversation lineage and optional run projections without side effects.
+    ///
+    /// # Errors
+    /// Returns an error when the durable hierarchy or a projection cannot be read.
+    pub fn conversation_status(
+        &self,
+        conversation_id: &str,
+    ) -> Result<ConversationStatus, RuntimeError> {
+        let runs = self.ledger.list_conversation_runs(conversation_id)?;
+        let mut statuses = Vec::with_capacity(runs.len());
+        for run in runs {
+            let live = self.ledger.find_run_projection(&run.run_id)?;
+            let active_turn_id = live
+                .as_ref()
+                .and_then(|record| record.projection.active_turn_id.clone());
+            let live_status = live.map(|record| RunLiveStatus {
+                run_id: record.run_id,
+                host_epoch: record.host_epoch,
+                status: projected_live_status(&restore_projection(&record.projection)),
+            });
+            statuses.push(ConversationRunStatus {
+                run_id: run.run_id,
+                parent_run_id: run.parent_run_id,
+                provider: run.provider,
+                active_turn_id,
+                live_status,
+            });
+        }
+        Ok(ConversationStatus {
+            conversation_id: conversation_id.into(),
+            runs: statuses,
+        })
     }
 }

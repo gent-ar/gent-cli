@@ -10,7 +10,9 @@ mod doctor;
 mod event_resume;
 mod run_projection;
 
-pub use conversations::{ConversationRecord, DurableTurnPhase, TurnRecord};
+pub use conversations::{
+    ConversationRecord, ConversationRunStatus, ConversationStatus, DurableTurnPhase, TurnRecord,
+};
 pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
 pub use doctor::{
     CompatibilityTrust, DoctorNextAction, ExecutableIdentity, McpDoctorStatus, McpPermissionStatus,

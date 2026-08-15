@@ -1,8 +1,11 @@
 use gent_core::Run;
-use gent_ports::TurnPhaseUpdate;
+use gent_ports::{RunProjectionLedger, TurnPhaseUpdate};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, ConversationRecord, DurableTurnPhase, TurnRecord};
+use gent_types::{
+    CapabilitySet, ConversationRecord, DurableTurnPhase, HostEpoch, RunLifecycleProjection,
+    RunProjectionRecord, TurnRecord,
+};
 
 fn coordinator() -> Coordinator<SqliteLedger> {
     Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default())
@@ -104,4 +107,40 @@ fn stale_turn_transition_preserves_durable_state() {
             ..
         })
     ));
+}
+
+#[test]
+fn status_never_exposes_provider_sessions_and_keeps_projection_identity() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
+    coordinator
+        .create_conversation_run(
+            &ConversationRecord {
+                conversation_id: "conversation-a".into(),
+            },
+            &Run {
+                id: "run-root".into(),
+                parent_run_id: None,
+                provider: "claude".into(),
+            },
+        )
+        .unwrap();
+    ledger
+        .save_run_projection(&RunProjectionRecord {
+            run_id: "run-root".into(),
+            host_epoch: HostEpoch(3),
+            projection: RunLifecycleProjection {
+                cursor: 8,
+                active_turn_id: Some("turn-1".into()),
+                ..RunLifecycleProjection::default()
+            },
+        })
+        .unwrap();
+    let status = coordinator.conversation_status("conversation-a").unwrap();
+    assert_eq!(status.runs.len(), 1);
+    assert_eq!(status.runs[0].active_turn_id.as_deref(), Some("turn-1"));
+    assert_eq!(
+        status.runs[0].live_status.as_ref().unwrap().host_epoch,
+        HostEpoch(3)
+    );
 }
