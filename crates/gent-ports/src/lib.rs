@@ -33,7 +33,7 @@ pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
 pub use automation_execution_ledger::{AutomationExecutionLedger, AutomationExecutionUpdate};
 pub use capability_catalog::CapabilityCatalogLedger;
-pub use conversation_activity_ledger::ConversationActivityLedger;
+pub use conversation_activity_ledger::*;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_content::ConversationContentReader;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};

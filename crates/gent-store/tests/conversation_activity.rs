@@ -80,6 +80,27 @@ fn activity_projection_retries_are_idempotent_and_ordered() {
         ledger.save_conversation_activity(&conflict),
         Err(LedgerError::Invariant(_))
     ));
+    assert_eq!(
+        ledger
+            .resume_conversation_activity("conversation", "run", 0)
+            .unwrap(),
+        vec![record(2)]
+    );
+}
+
+#[test]
+fn activity_projection_resume_returns_ordered_checkpoints_after_cursor() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    create_conversation(&ledger);
+    ledger.save_conversation_activity(&record(1)).unwrap();
+    ledger.save_conversation_activity(&record(2)).unwrap();
+    ledger.save_conversation_activity(&record(3)).unwrap();
+    assert_eq!(
+        ledger
+            .resume_conversation_activity("conversation", "run", 1)
+            .unwrap(),
+        vec![record(2), record(3)]
+    );
 }
 
 #[test]

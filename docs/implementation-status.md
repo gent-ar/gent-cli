@@ -97,8 +97,9 @@ not claim provider or app compatibility evidence that has not been recorded.
       Waiting work is derived from activity rather than inferred from root phase.
 - [x] Versioned, content-free `ConversationActivity` DTOs and a pure conversation-scoped reducer
       with epoch/cursor fencing, terminal dominance, decision priority, descendant liveness, and
-      stale-turn rejection. Complete reducer checkpoints are journaled per conversation/run; the
-      projection remains intentionally unadvertised and uncomposed by the observer daemon.
+      stale-turn rejection. Complete reducer checkpoints are journaled and cursor-resumable per
+      conversation/run; the projection remains intentionally unadvertised and uncomposed by the
+      observer daemon.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not

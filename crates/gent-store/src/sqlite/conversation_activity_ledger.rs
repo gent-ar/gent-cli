@@ -1,6 +1,8 @@
 //! `SQLite` persistence for complete conversation activity reducer state.
 
-use gent_ports::{ConversationActivityLedger, LedgerError};
+use gent_ports::{
+    ConversationActivityLedger, LedgerError, MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS,
+};
 use gent_types::ConversationActivityRecord;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
@@ -44,6 +46,16 @@ impl ConversationActivityLedger for SqliteLedger {
     ) -> Result<Option<ConversationActivityRecord>, LedgerError> {
         let connection = self.lock()?;
         find(&connection, conversation_id, run_id)
+    }
+
+    fn resume_conversation_activity(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+        after_cursor: u64,
+    ) -> Result<Vec<ConversationActivityRecord>, LedgerError> {
+        let connection = self.lock()?;
+        resume(&connection, conversation_id, run_id, after_cursor)
     }
 }
 
@@ -110,17 +122,7 @@ fn find(
         .query_row(
             "SELECT payload FROM conversation_activity_projection_journal WHERE conversation_id = ?1 AND run_id = ?2 ORDER BY cursor DESC LIMIT 1",
             params![conversation_id, run_id],
-            |row| {
-                let payload = row.get::<_, String>(0)?;
-                serde_json::from_str::<ConversationActivityRecord>(&payload)
-                    .map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            0,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })
-            },
+            |row| decode_payload(&row.get::<_, String>(0)?),
         )
         .optional()
         .map_err(storage_error)
@@ -134,19 +136,41 @@ fn find_at_cursor(
         .query_row(
             "SELECT payload FROM conversation_activity_projection_journal WHERE conversation_id = ?1 AND run_id = ?2 AND cursor = ?3",
             params![record.activity.conversation_id, record.activity.run_id, record.activity.cursor],
-            |row| {
-                let payload = row.get::<_, String>(0)?;
-                serde_json::from_str(&payload).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        0,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })
-            },
+            |row| decode_payload(&row.get::<_, String>(0)?),
         )
         .optional()
         .map_err(storage_error)
+}
+
+fn resume(
+    connection: &Connection,
+    conversation_id: &str,
+    run_id: &str,
+    after_cursor: u64,
+) -> Result<Vec<ConversationActivityRecord>, LedgerError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT payload FROM conversation_activity_projection_journal WHERE conversation_id = ?1 AND run_id = ?2 AND cursor > ?3 ORDER BY cursor LIMIT ?4",
+        )
+        .map_err(storage_error)?;
+    let rows = statement
+        .query_map(
+            params![
+                conversation_id,
+                run_id,
+                after_cursor,
+                MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS
+            ],
+            |row| decode_payload(&row.get::<_, String>(0)?),
+        )
+        .map_err(storage_error)?;
+    rows.collect::<Result<_, _>>().map_err(storage_error)
+}
+
+fn decode_payload(payload: &str) -> rusqlite::Result<ConversationActivityRecord> {
+    serde_json::from_str(payload).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+    })
 }
 
 fn encode(record: &ConversationActivityRecord) -> Result<String, LedgerError> {
