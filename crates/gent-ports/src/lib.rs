@@ -12,6 +12,7 @@ mod conversation_artifacts;
 mod conversation_ledger;
 mod external_provider_bridge;
 mod git_operation_ledger;
+mod legacy_event_tap;
 mod policy_ledger;
 mod run_checkpoint_ledger;
 mod run_projections;
@@ -27,6 +28,7 @@ pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
 pub use external_provider_bridge::ExternalProviderBridge;
 pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
+pub use legacy_event_tap::LegacyEventTap;
 pub use policy_ledger::PolicyLedger;
 pub use run_checkpoint_ledger::RunCheckpointLedger;
 pub use run_projections::RunProjectionLedger;
@@ -54,7 +56,6 @@ pub trait ProviderDriver: Send + Sync {
     async fn submit(&self, command: Command) -> Result<(), PortError>;
 }
 /// Daemon-owned public provider lifecycle boundary.
-///
 /// Implementations may only receive locks derived from Claude or Codex. Private bridges are
 /// represented separately by [`ExternalProviderBridge`] and cannot enter this lifecycle.
 pub trait PublicProviderRunner: Send + Sync {
@@ -193,8 +194,6 @@ pub trait Ledger: Send + Sync {
     /// # Errors
     /// Returns an error when the decision cannot be persisted or read.
     fn claim_decision(&self, command: &DecisionCommand) -> Result<DecisionClaim, LedgerError>;
-    /// Reads one durable decision settlement state.
-    ///
     /// # Errors
     /// Returns an error when the decision cannot be read.
     fn find_decision(&self, decision_id: &str) -> Result<Option<DecisionSettlement>, LedgerError>;
