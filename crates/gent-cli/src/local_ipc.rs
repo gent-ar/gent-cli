@@ -139,7 +139,7 @@ mod tests {
     use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX};
     use tokio::net::UnixListener;
 
-    use super::request;
+    use super::{default_daemon_binary, default_data_dir, request, wait_for_connection};
 
     fn status() -> WireFrame {
         WireFrame::Status(HostStatus {
@@ -260,5 +260,24 @@ mod tests {
             .to_string()
             .contains("denied")
         );
+    }
+
+    #[test]
+    fn defaults_resolve_to_non_empty_local_paths() {
+        assert!(default_daemon_binary().file_name().is_some());
+        assert!(!default_data_dir().as_os_str().is_empty());
+    }
+
+    #[tokio::test]
+    async fn wait_for_connection_retries_until_a_listener_is_ready() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("gentd.sock");
+        let listener = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let _listener = UnixListener::bind(socket).unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+        });
+        assert!(wait_for_connection(directory.path()).await.is_ok());
+        listener.await.unwrap();
     }
 }
