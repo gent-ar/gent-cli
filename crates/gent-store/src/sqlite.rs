@@ -7,8 +7,8 @@ use gent_ports::{
     ReceiptClaim, RunLease, RunLeaseClaim, RunRecord, WorktreeLease,
 };
 use gent_types::{
-    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, HostEpoch,
-    Receipt, ReceiptStatus, RunVersionLock,
+    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
+    EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
 use rusqlite::{Connection, params};
 
@@ -16,10 +16,11 @@ mod decisions;
 mod leases;
 mod queries;
 mod runs;
+mod snapshots;
 use queries::{
-    append_event, encode_status, events_after, find_lease, find_receipt, find_run,
-    find_run_version_lock, host_ingress, insert_lease, insert_receipt, replace_lease,
-    save_run_version_lock, storage_error,
+    append_event, encode_status, find_lease, find_receipt, find_run, find_run_version_lock,
+    host_ingress, insert_lease, insert_receipt, replace_lease, save_run_version_lock,
+    storage_error,
 };
 
 #[derive(Clone, Debug)]
@@ -60,12 +61,13 @@ impl SqliteLedger {
             CREATE TABLE IF NOT EXISTS receipts (idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, host_epoch INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS decisions (decision_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, phase TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS events (cursor INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, receipt_id TEXT NOT NULL, host_epoch INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS event_snapshots (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), cursor INTEGER NOT NULL, host_epoch INTEGER NOT NULL, schema_version INTEGER NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY NOT NULL, parent_run_id TEXT REFERENCES runs(run_id), provider TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS run_version_locks (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), provider TEXT NOT NULL, canonical_path TEXT NOT NULL, file_identity TEXT NOT NULL, digest_sha256 TEXT NOT NULL, version TEXT NOT NULL, compatibility_entry TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS run_leases (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), coordinator_id TEXT NOT NULL, host_epoch INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS worktree_leases (worktree_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id), lease_token TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL);")
             .map_err(storage_error)?;
-        if !has_column(&connection, "host_state", "ingress")? {
+        if !queries::has_column(&connection, "host_state", "ingress")? {
             connection
                 .execute(
                     "ALTER TABLE host_state ADD COLUMN ingress TEXT NOT NULL DEFAULT 'open'",
@@ -210,9 +212,13 @@ impl Ledger for SqliteLedger {
         let connection = self.lock()?;
         append_event(&connection, event)
     }
-    fn events_after(&self, cursor: u64) -> Result<Vec<Event>, LedgerError> {
+    fn resume_events(&self, cursor: u64) -> Result<EventResume, LedgerError> {
         let connection = self.lock()?;
-        events_after(&connection, cursor)
+        snapshots::resume(&connection, cursor)
+    }
+    fn compact_events(&self, snapshot: &EventSnapshot) -> Result<(), LedgerError> {
+        let mut connection = self.lock()?;
+        snapshots::compact(&mut connection, snapshot)
     }
     fn create_run(&self, run: &RunRecord) -> Result<(), LedgerError> {
         runs::create(self, run)
@@ -279,15 +285,6 @@ impl Ledger for SqliteLedger {
     }
 }
 
-fn has_column(connection: &Connection, table: &str, column: &str) -> Result<bool, LedgerError> {
-    let mut statement = connection
-        .prepare(&format!("PRAGMA table_info({table})"))
-        .map_err(storage_error)?;
-    let columns = statement
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(storage_error)?;
-    Ok(columns.filter_map(Result::ok).any(|name| name == column))
-}
 pub(super) fn require_epoch(command: HostEpoch, active: HostEpoch) -> Result<(), LedgerError> {
     if command == active {
         Ok(())

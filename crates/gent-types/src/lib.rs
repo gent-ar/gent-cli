@@ -6,12 +6,14 @@ use uuid::Uuid;
 
 mod decision;
 mod doctor;
+mod event_resume;
 
 pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
 pub use doctor::{
     CompatibilityTrust, DoctorNextAction, ExecutableIdentity, McpDoctorStatus, McpPermissionStatus,
     PrivateBridgeAvailability, PublicProviderStatus,
 };
+pub use event_resume::{EventResume, EventSnapshot};
 
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;

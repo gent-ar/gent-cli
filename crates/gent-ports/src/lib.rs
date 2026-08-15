@@ -2,8 +2,8 @@
 
 use async_trait::async_trait;
 use gent_types::{
-    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, HostEpoch,
-    ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
+    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
+    EventSnapshot, HostEpoch, ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -213,11 +213,16 @@ pub trait Ledger: Send + Sync {
     /// # Errors
     /// Returns an error when the event cannot be persisted.
     fn append_event(&self, event: &Event) -> Result<Event, LedgerError>;
-    /// Reads all events strictly after a cursor.
+    /// Safely resumes an event feed, returning a replacement snapshot for stale cursors.
     ///
     /// # Errors
     /// Returns an error when events cannot be read.
-    fn events_after(&self, cursor: u64) -> Result<Vec<Event>, LedgerError>;
+    fn resume_events(&self, cursor: u64) -> Result<EventResume, LedgerError>;
+    /// Atomically persists a newer projection snapshot and retires its covered event prefix.
+    ///
+    /// # Errors
+    /// Returns an error if the snapshot regresses, exceeds the durable event head, or cannot commit.
+    fn compact_events(&self, snapshot: &EventSnapshot) -> Result<(), LedgerError>;
     /// Creates an immutable lineage node. A child must name an existing parent.
     ///
     /// # Errors

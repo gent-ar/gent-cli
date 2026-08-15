@@ -6,6 +6,7 @@ use gent_types::CapabilitySet;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeCapability {
     Decisions,
+    EventResync,
     Events,
     HostEpoch,
     Receipts,
@@ -15,6 +16,7 @@ impl RuntimeCapability {
     const fn wire_name(self) -> &'static str {
         match self {
             Self::Decisions => "decisions",
+            Self::EventResync => "event-resync",
             Self::Events => "events",
             Self::HostEpoch => "host-epoch",
             Self::Receipts => "receipts",
@@ -22,8 +24,9 @@ impl RuntimeCapability {
     }
 }
 
-const DECLARED: [RuntimeCapability; 4] = [
+const DECLARED: [RuntimeCapability; 5] = [
     RuntimeCapability::Decisions,
+    RuntimeCapability::EventResync,
     RuntimeCapability::Events,
     RuntimeCapability::HostEpoch,
     RuntimeCapability::Receipts,

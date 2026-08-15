@@ -13,7 +13,8 @@ than a second copy of application logic. The implemented vertical slice is:
   named pipe on Windows.
 - `gent`: a protocol-only client that starts a local daemon on demand.
 - Version negotiation, capability intersection, host-epoch fences,
-  idempotent command receipts and cursor-ordered durable events.
+  idempotent command receipts, cursor-ordered durable events, and explicit
+  snapshot-backed resync after event compaction.
 - SQLite-backed host state and a read-only `gent doctor` dependency report.
 
 Claude, Codex, MCP, pairing, Git, automations and the private Claurst bridge

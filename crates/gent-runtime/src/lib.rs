@@ -2,6 +2,7 @@
 
 pub mod catalog;
 mod decisions;
+mod events;
 mod public_runs;
 
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
@@ -162,14 +163,6 @@ impl<L: Ledger> Coordinator<L> {
     pub fn claim_worktree_lease(&self, lease: &WorktreeLease) -> Result<LeaseClaim, RuntimeError> {
         Ok(self.ledger.claim_worktree_lease(lease)?)
     }
-
-    /// Resumes the durable event feed after `cursor`.
-    ///
-    /// # Errors
-    /// Returns an error when events cannot be read.
-    pub fn events_after(&self, cursor: u64) -> Result<Vec<Event>, RuntimeError> {
-        Ok(self.ledger.events_after(cursor)?)
-    }
 }
 
 fn terminal_status(kind: &str) -> ReceiptStatus {
@@ -222,7 +215,10 @@ mod tests {
             first,
             coordinator.submit(&command("once", 1, "ping")).unwrap()
         );
-        assert_eq!(ledger.events_after(0).unwrap().len(), 2);
+        assert!(matches!(
+            ledger.resume_events(0).unwrap(),
+            gent_types::EventResume::Delta { events } if events.len() == 2
+        ));
     }
 
     #[test]

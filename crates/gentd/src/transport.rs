@@ -7,8 +7,8 @@ use gent_protocol::{
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{
-    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
-    PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
+    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
+    HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(unix)]
@@ -18,7 +18,7 @@ pub trait RuntimeApi: Clone + Send + Sync + 'static {
     fn capabilities(&self) -> Result<CapabilitySet, String>;
     fn status(&self) -> Result<HostStatus, String>;
     fn submit(&self, command: Command) -> Result<Receipt, String>;
-    fn events_after(&self, cursor: u64) -> Result<Vec<Event>, String>;
+    fn resume_events(&self, cursor: u64) -> Result<EventResume, String>;
     fn doctor(&self) -> DoctorReport;
     fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan;
     fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult;
@@ -45,6 +45,7 @@ pub trait RuntimeApi: Clone + Send + Sync + 'static {
 pub(crate) fn observed_capabilities() -> CapabilitySet {
     capability_set([
         RuntimeCapability::Decisions,
+        RuntimeCapability::EventResync,
         RuntimeCapability::Events,
         RuntimeCapability::HostEpoch,
         RuntimeCapability::Receipts,
@@ -87,10 +88,19 @@ where
         Ok(capabilities) => capabilities,
         Err(message) => return write_error(&mut stream, "capabilityUnavailable", &message).await,
     };
-    match negotiate(&hello, PROTOCOL_MIN, PROTOCOL_MAX, &capabilities) {
-        Ok(answer) => write_frame(&mut stream, &WireFrame::Negotiated(answer)).await?,
+    let client_supports_resync = match negotiate(&hello, PROTOCOL_MIN, PROTOCOL_MAX, &capabilities)
+    {
+        Ok(answer) => {
+            let supported = answer
+                .capabilities
+                .0
+                .iter()
+                .any(|item| item == "event-resync");
+            write_frame(&mut stream, &WireFrame::Negotiated(answer)).await?;
+            supported
+        }
         Err(error) => return write_error(&mut stream, "upgradeRequired", &error.to_string()).await,
-    }
+    };
     loop {
         let frame = match read_frame(&mut stream).await? {
             WireFrame::StatusRequest => runtime.status().map(WireFrame::Status),
@@ -121,14 +131,24 @@ where
                 .map(WireFrame::PublicRunResponse),
             WireFrame::Command(command) => runtime.submit(command).map(WireFrame::Receipt),
             WireFrame::Subscribe { after_cursor } => runtime
-                .events_after(after_cursor)
-                .map(|events| WireFrame::Events { events }),
+                .resume_events(after_cursor)
+                .and_then(|resume| event_frame(resume, client_supports_resync)),
             _ => Err("frame is not valid after negotiation".into()),
         };
         match frame {
             Ok(frame) => write_frame(&mut stream, &frame).await?,
             Err(message) => write_error(&mut stream, "invalidCommand", &message).await?,
         }
+    }
+}
+
+fn event_frame(resume: EventResume, client_supports_resync: bool) -> Result<WireFrame, String> {
+    match resume {
+        EventResume::Delta { events } => Ok(WireFrame::Events { events }),
+        EventResume::Resync { snapshot, events } if client_supports_resync => {
+            Ok(WireFrame::EventResync { snapshot, events })
+        }
+        EventResume::Resync { .. } => Err("event resync requires an upgraded client".into()),
     }
 }
 
@@ -149,4 +169,30 @@ where
     )
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use gent_types::{EventResume, EventSnapshot, HostEpoch};
+    use serde_json::json;
+
+    use super::event_frame;
+
+    #[test]
+    fn stale_event_feeds_require_the_explicit_resync_capability() {
+        let resume = EventResume::Resync {
+            snapshot: EventSnapshot {
+                cursor: 4,
+                host_epoch: HostEpoch(1),
+                schema_version: 1,
+                payload: json!({ "safe": true }),
+            },
+            events: Vec::new(),
+        };
+        assert!(event_frame(resume.clone(), false).is_err());
+        assert!(matches!(
+            event_frame(resume, true),
+            Ok(gent_protocol::WireFrame::EventResync { .. })
+        ));
+    }
 }

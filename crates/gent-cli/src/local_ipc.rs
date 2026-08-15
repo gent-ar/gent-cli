@@ -24,6 +24,7 @@ pub(crate) async fn request(
             protocol_max: PROTOCOL_MAX,
             capabilities: CapabilitySet(vec![
                 "decisions".into(),
+                "event-resync".into(),
                 "events".into(),
                 "host-epoch".into(),
                 "receipts".into(),

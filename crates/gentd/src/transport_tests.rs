@@ -16,7 +16,7 @@ struct FakeRuntime;
 
 impl RuntimeApi for FakeRuntime {
     fn capabilities(&self) -> Result<CapabilitySet, String> {
-        Ok(CapabilitySet(vec!["events".into()]))
+        Ok(CapabilitySet(vec!["event-resync".into(), "events".into()]))
     }
 
     fn status(&self) -> Result<HostStatus, String> {
@@ -30,8 +30,8 @@ impl RuntimeApi for FakeRuntime {
     fn submit(&self, _: gent_types::Command) -> Result<gent_types::Receipt, String> {
         Err("not used".into())
     }
-    fn events_after(&self, _: u64) -> Result<Vec<gent_types::Event>, String> {
-        Ok(Vec::new())
+    fn resume_events(&self, _: u64) -> Result<gent_types::EventResume, String> {
+        Ok(gent_types::EventResume::Delta { events: Vec::new() })
     }
     fn doctor(&self) -> DoctorReport {
         DoctorReport::empty()
@@ -122,7 +122,7 @@ fn hello() -> WireFrame {
     WireFrame::Hello(Hello {
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        capabilities: CapabilitySet(vec!["events".into()]),
+        capabilities: CapabilitySet(vec!["event-resync".into(), "events".into()]),
     })
 }
 
@@ -146,7 +146,7 @@ async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
     write_frame(&mut client, &hello()).await.unwrap();
     assert!(matches!(
         read_frame(&mut client).await.unwrap(),
-        WireFrame::Negotiated(answer) if answer.capabilities == CapabilitySet(vec!["events".into()])
+        WireFrame::Negotiated(answer) if answer.capabilities == CapabilitySet(vec!["event-resync".into(), "events".into()])
     ));
     write_frame(
         &mut client,

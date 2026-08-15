@@ -4,8 +4,8 @@ use std::io;
 use std::str::FromStr;
 
 use gent_types::{
-    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
-    Receipt,
+    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event,
+    EventSnapshot, HostStatus, Receipt,
 };
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -161,6 +161,10 @@ pub enum WireFrame {
         after_cursor: u64,
     },
     Events {
+        events: Vec<Event>,
+    },
+    EventResync {
+        snapshot: EventSnapshot,
         events: Vec<Event>,
     },
     Error {

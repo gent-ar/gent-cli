@@ -209,3 +209,16 @@ fn json_error(error: serde_json::Error) -> rusqlite::Error {
 pub(super) fn storage_error(error: impl std::fmt::Display) -> LedgerError {
     LedgerError::Storage(error.to_string())
 }
+pub(super) fn has_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<bool, LedgerError> {
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(storage_error)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(storage_error)?;
+    Ok(columns.filter_map(Result::ok).any(|name| name == column))
+}

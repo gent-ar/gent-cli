@@ -20,8 +20,8 @@ use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{Coordinator, ProviderRunAuthority};
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
-    Receipt,
+    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
+    HostStatus, Receipt,
 };
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -123,9 +123,9 @@ impl transport::RuntimeApi for RuntimeFacade {
             .submit(&command)
             .map_err(|error| error.to_string())
     }
-    fn events_after(&self, cursor: u64) -> Result<Vec<Event>, String> {
+    fn resume_events(&self, cursor: u64) -> Result<EventResume, String> {
         self.coordinator
-            .events_after(cursor)
+            .resume_events(cursor)
             .map_err(|error| error.to_string())
     }
     fn doctor(&self) -> DoctorReport {

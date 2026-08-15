@@ -499,6 +499,7 @@ dependencies = [
  "gent-types",
  "rusqlite",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 
