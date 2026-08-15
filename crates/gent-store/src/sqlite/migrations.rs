@@ -87,13 +87,24 @@ CREATE TABLE IF NOT EXISTS tool_sources (
 );
 ";
 
+const AUTOMATION_EXECUTIONS: &str = "
+CREATE TABLE IF NOT EXISTS automation_executions (
+    execution_id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+    automation_id TEXT NOT NULL,
+    trigger_key TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    UNIQUE (workspace_id, automation_id, trigger_key)
+);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 10] = [
+const MIGRATIONS: [Migration; 11] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -133,6 +144,10 @@ const MIGRATIONS: [Migration; 10] = [
     Migration {
         version: 10,
         sql: TOOL_SOURCES,
+    },
+    Migration {
+        version: 11,
+        sql: AUTOMATION_EXECUTIONS,
     },
 ];
 

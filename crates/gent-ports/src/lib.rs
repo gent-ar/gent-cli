@@ -4,6 +4,7 @@ use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
+mod automation_execution_ledger;
 mod capability_catalog;
 mod conversation_artifacts;
 mod conversation_ledger;
@@ -14,6 +15,7 @@ mod run_projections;
 mod run_sessions;
 mod tool_source_ledger;
 mod workspace_ledger;
+pub use automation_execution_ledger::{AutomationExecutionLedger, AutomationExecutionUpdate};
 pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
@@ -103,7 +105,6 @@ pub struct RunRecord {
     pub parent_run_id: Option<String>,
     pub provider: String,
 }
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorktreeLease {
     pub worktree_id: String,
@@ -111,7 +112,6 @@ pub struct WorktreeLease {
     pub lease_token: String,
     pub host_epoch: HostEpoch,
 }
-
 /// Durable ownership claim preventing two coordinators from driving one run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunLease {

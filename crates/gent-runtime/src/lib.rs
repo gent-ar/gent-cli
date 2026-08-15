@@ -1,4 +1,5 @@
 //! Coordinator orchestration over pure policy and durable ports.
+mod automation_executions;
 pub mod catalog;
 mod conversations;
 mod decisions;
@@ -20,7 +21,6 @@ use gent_types::{
 };
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
-
 #[derive(Clone, Debug)]
 pub struct Coordinator<L> {
     ledger: L,

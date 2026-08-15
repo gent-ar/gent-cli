@@ -25,6 +25,8 @@ than a second copy of application logic. The implemented vertical slice is:
   recording an operation never starts a Git process.
 - Durable credential-free tool-source declarations for MCP, built-in, and host integrations;
   declaring one neither connects to nor starts a tool source.
+- Durable workspace-scoped automation-execution records with trigger deduplication and terminal-safe
+  transitions; recording one neither evaluates a schedule nor starts automation work.
 - Versioned, append-only provider-permission policy records with canonical allow-lists; they
   intentionally exclude credentials, provider endpoints, and bridge configuration.
 - Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question

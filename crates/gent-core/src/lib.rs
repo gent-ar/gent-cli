@@ -3,12 +3,14 @@ use std::collections::BTreeMap;
 
 use gent_types::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
 
+mod automation_execution;
 mod decision_settlement;
 mod git_operation;
 mod lifecycle_projection;
 mod lifecycle_signal;
 mod projection_snapshot;
 mod turn_lifecycle;
+pub use automation_execution::permits_automation_execution_transition;
 pub use decision_settlement::{
     DecisionCommandOutcome, DecisionCommandUpdate, DecisionEvidence, DecisionEvidenceUpdate,
     DecisionSettlementState, apply_decision_evidence, submit_decision,

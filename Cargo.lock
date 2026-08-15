@@ -389,6 +389,7 @@ dependencies = [
 name = "gent-automations"
 version = "0.1.0"
 dependencies = [
+ "gent-types",
  "sha2",
 ]
 

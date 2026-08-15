@@ -3,6 +3,7 @@
 //! The executor, clock, persistence, and webhook transport deliberately live outside
 //! this crate. In observer mode every trigger is rejected before it can have effects.
 
+use gent_types::AutomationExecutionPhase;
 use sha2::{Digest, Sha256};
 
 /// Authority state supplied by the daemon composition root.
@@ -31,21 +32,8 @@ pub const fn scheduler_state(mode: AutomationMode) -> SchedulerState {
 }
 
 /// One durable run's state as viewed by the pure policy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AutomationRunState {
-    Queued,
-    Running,
-    Succeeded,
-    Failed,
-    Interrupted,
-}
-
-impl AutomationRunState {
-    #[must_use]
-    pub const fn occupies_slot(self) -> bool {
-        matches!(self, Self::Queued | Self::Running)
-    }
-}
+/// Compatibility name for the durable execution phase shared with the ledger.
+pub type AutomationRunState = AutomationExecutionPhase;
 
 /// Minimal durable projection required for concurrency and recovery decisions.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -93,7 +81,7 @@ pub fn admit_run<'a>(
     }
     let active = existing
         .iter()
-        .filter(|run| run.automation_id == candidate.automation_id && run.state.occupies_slot())
+        .filter(|run| run.automation_id == candidate.automation_id && occupies_slot(run.state))
         .count();
     let active = u16::try_from(active).unwrap_or(u16::MAX);
     if active >= limit.0 {
@@ -101,6 +89,13 @@ pub fn admit_run<'a>(
     } else {
         RunAdmission::Start
     }
+}
+
+const fn occupies_slot(state: AutomationRunState) -> bool {
+    matches!(
+        state,
+        AutomationRunState::Queued | AutomationRunState::Running
+    )
 }
 
 /// Declared response to cron occurrences that were missed while the host was down.
