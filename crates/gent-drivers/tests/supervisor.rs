@@ -144,6 +144,34 @@ fn supervised_process_uses_bounded_frames_and_tree_interrupts() {
 }
 
 #[test]
+fn stdout_chunks_reach_the_existing_session_reducer_in_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("claude");
+    fs::write(&executable, "public").unwrap();
+    let mut supervisor = supervisor(&executable);
+    let launcher = launcher();
+    supervisor.spawn(&launcher, vec!["--json".into()]).unwrap();
+
+    assert_eq!(
+        supervisor.offer_output_chunk(br#"{"type":"session_started","session"#),
+        Ok(ReadDirective::Continue)
+    );
+    assert_eq!(
+        supervisor.offer_output_chunk(
+            br#"_id":"s"}
+{"type":"output","text":"ok"}
+"#
+        ),
+        Ok(ReadDirective::Pause)
+    );
+    assert!(supervisor.drain_frame().0.is_empty());
+    assert!(matches!(
+        supervisor.drain_frame().0.as_slice(),
+        [SessionEffect::Normalized { .. }]
+    ));
+}
+
+#[test]
 fn private_provider_names_are_rejected_before_launch() {
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("private");

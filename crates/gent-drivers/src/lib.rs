@@ -8,6 +8,7 @@ pub mod lock;
 pub mod message_encoding;
 pub mod ndjson;
 pub mod normalize;
+pub mod output_pump;
 pub mod process;
 pub mod run_runner;
 pub mod session;
@@ -15,6 +16,7 @@ mod session_frames;
 pub mod supervisor;
 
 pub use discovery::PublicProvider;
+pub use output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 pub use process::{CapturedStream, ProcessOutput, SystemLauncher, SystemProcess};
 pub use run_runner::DriverRunRunner;
 pub use session::{DriverSession, OutputLimits, SessionEffect, SessionInput, SessionStatus};

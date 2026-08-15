@@ -29,22 +29,30 @@ impl NdjsonFramer {
     pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<Vec<u8>>, NdjsonError> {
         let mut frames = Vec::new();
         for &byte in chunk {
-            if byte == b'\n' {
-                if self.partial.last() == Some(&b'\r') {
-                    self.partial.pop();
-                }
-                if !self.partial.is_empty() {
-                    frames.push(std::mem::take(&mut self.partial));
-                }
-                continue;
+            if let Some(frame) = self.push_byte(byte)? {
+                frames.push(frame);
             }
-            if self.partial.len() == self.max_frame_bytes {
-                self.partial.clear();
-                return Err(NdjsonError::FrameTooLarge);
-            }
-            self.partial.push(byte);
         }
         Ok(frames)
+    }
+
+    /// Adds one byte and returns a completed non-empty frame, if one ended at this byte.
+    ///
+    /// # Errors
+    /// Returns an error and discards the partial line when it exceeds the configured limit.
+    pub fn push_byte(&mut self, byte: u8) -> Result<Option<Vec<u8>>, NdjsonError> {
+        if byte == b'\n' {
+            if self.partial.last() == Some(&b'\r') {
+                self.partial.pop();
+            }
+            return Ok((!self.partial.is_empty()).then(|| std::mem::take(&mut self.partial)));
+        }
+        if self.partial.len() == self.max_frame_bytes {
+            self.partial.clear();
+            return Err(NdjsonError::FrameTooLarge);
+        }
+        self.partial.push(byte);
+        Ok(None)
     }
 
     /// Returns the currently retained partial-frame length for observability and tests.

@@ -8,12 +8,13 @@ use std::path::PathBuf;
 
 use gent_types::RunVersionLock;
 
-use crate::buffering::{BufferPolicy, FrameBuffer, OfferResult, ReadDirective};
+use crate::buffering::{BufferPolicy, OfferResult, ReadDirective};
 use crate::interrupt::{
     InterruptEvent, InterruptPolicy, InterruptState, ProcessTreeControl, ProcessTreeError,
     transition,
 };
 use crate::lock::{LockError, recheck};
+use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 use crate::session::{DriverSession, OutputLimits, SessionEffect, SessionInput};
 
 pub use crate::launch_spec::LaunchIntent;
@@ -70,19 +71,24 @@ pub enum SupervisorError {
 pub struct ProviderSupervisor<P: ProviderProcess> {
     lock: RunVersionLock,
     session: DriverSession,
-    frames: FrameBuffer,
+    output: ProviderOutputPump,
     interrupt: InterruptState,
     process: Option<P>,
 }
 
 impl<P: ProviderProcess> ProviderSupervisor<P> {
     /// Creates a supervisor without inspecting or starting a provider.
+    ///
+    /// # Panics
+    /// Panics only if an internal fixed output-pump limit or a previously validated
+    /// [`BufferPolicy`] becomes invalid.
     #[must_use]
     pub fn new(lock: RunVersionLock, limits: OutputLimits, policy: BufferPolicy) -> Self {
         Self {
             lock,
             session: DriverSession::new(limits),
-            frames: FrameBuffer::new(policy),
+            output: ProviderOutputPump::new(MAX_OUTPUT_CHUNK_BYTES, policy.max_bytes, policy)
+                .expect("fixed non-zero output chunk limit and validated buffer policy"),
             interrupt: InterruptState::Running,
             process: None,
         }
@@ -115,13 +121,21 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
 
     /// Offers one complete provider frame; the caller retains it on backpressure.
     pub fn offer_frame(&mut self, frame: Vec<u8>) -> OfferResult {
-        self.frames.offer(frame)
+        self.output.offer_frame(frame)
+    }
+
+    /// Frames one bounded stdout chunk and directs the process reader to continue or pause.
+    ///
+    /// # Errors
+    /// Returns an error for an oversized, malformed, or prematurely delivered chunk.
+    pub fn offer_output_chunk(&mut self, chunk: &[u8]) -> Result<ReadDirective, OutputPumpError> {
+        self.output.accept_chunk(chunk)
     }
 
     /// Reduces one buffered frame and returns normalized effects for the persistence edge.
     #[must_use]
     pub fn drain_frame(&mut self) -> (Vec<SessionEffect>, Option<ReadDirective>) {
-        let (frame, directive) = self.frames.take();
+        let (frame, directive) = self.output.take_frame();
         let effects = frame.map_or_else(Vec::new, |raw| self.apply(SessionInput::RawFrame(raw)));
         (effects, directive)
     }

@@ -53,8 +53,9 @@ not claim provider or app compatibility evidence that has not been recorded.
       app-server user-message frames; it validates only and does not write to a provider process.
 - [x] Locked process ownership includes explicit standard-input frame delivery, tested against a
       local process; observer-mode `gentd` does not expose or invoke this driver edge.
-- [x] Bounded, chunk-tolerant NDJSON framing for public-provider output, ready to feed the
-      existing bounded frame buffer and pure session reducer without retaining oversized lines.
+- [x] Bounded stdout output pump connects chunk-tolerant NDJSON framing to the existing
+      supervisor frame buffer and pure session reducer, retaining FIFO frames across backpressure
+      without retaining oversized reads or lines.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
@@ -69,7 +70,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [ ] Real Claude/Codex recordings and installed-provider integration evidence.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
 - [ ] MCP hosting, Git execution/worktree operations, automation execution, pairing
-      transport, and provider process lifecycle ownership in a live daemon.
+      transport, and provider process lifecycle ownership in a live daemon (including attaching
+      the verified stdout pump to a real process reader).
 - [ ] Observer-mode comparison with the legacy host.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
 
