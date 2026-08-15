@@ -121,6 +121,39 @@ pub struct RunVersionLock {
     pub compatibility_entry: String,
 }
 
+/// Provider-neutral events suitable for persistence and client projection.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum NormalizedProviderEvent {
+    Output {
+        text: String,
+    },
+    TurnStarted {
+        turn_id: String,
+    },
+    TurnEnded {
+        turn_id: String,
+    },
+    ChildStarted {
+        child_id: String,
+        parent_tool_use_id: String,
+    },
+    ChildTerminal {
+        child_id: String,
+        phase: WorkPhase,
+    },
+    CommandTerminal {
+        command_id: String,
+        phase: WorkPhase,
+    },
+    DecisionSettled {
+        decision_id: String,
+    },
+    TransportDiagnostic {
+        classification: String,
+    },
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderEvent {
