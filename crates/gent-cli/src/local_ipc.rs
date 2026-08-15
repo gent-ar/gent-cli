@@ -49,8 +49,11 @@ type LocalStream = UnixStream;
 type LocalStream = NamedPipeClient;
 
 async fn connect_or_start(data_dir: &Path) -> Result<LocalStream, Box<dyn std::error::Error>> {
-    if let Ok(stream) = connect(data_dir).await {
-        return Ok(stream);
+    match connect(data_dir).await {
+        Ok(stream) => return Ok(stream),
+        #[cfg(windows)]
+        Err(error) if pipe_is_busy(&error) => return wait_for_connection(data_dir).await,
+        Err(_) => {}
     }
     std::fs::create_dir_all(data_dir)?;
     let daemon = std::env::var_os("GENTD_BIN").map_or_else(default_daemon_binary, PathBuf::from);
@@ -61,6 +64,10 @@ async fn connect_or_start(data_dir: &Path) -> Result<LocalStream, Box<dyn std::e
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
+    wait_for_connection(data_dir).await
+}
+
+async fn wait_for_connection(data_dir: &Path) -> Result<LocalStream, Box<dyn std::error::Error>> {
     for _ in 0..40 {
         if let Ok(stream) = connect(data_dir).await {
             return Ok(stream);
@@ -79,6 +86,12 @@ async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
 #[allow(clippy::unused_async)] // Keeps the shared call site transport-agnostic.
 async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
     ClientOptions::new().open(pipe_name(data_dir))
+}
+
+#[cfg(windows)]
+fn pipe_is_busy(error: &std::io::Error) -> bool {
+    // ERROR_PIPE_BUSY from the Win32 API. Tokio's client docs prescribe retrying it.
+    error.raw_os_error() == Some(231)
 }
 
 fn default_daemon_binary() -> PathBuf {
