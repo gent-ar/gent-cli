@@ -378,8 +378,7 @@ dependencies = [
 name = "gent-automations"
 version = "0.1.0"
 dependencies = [
- "gent-ports",
- "gent-types",
+ "sha2",
 ]
 
 [[package]]
@@ -431,8 +430,6 @@ dependencies = [
 name = "gent-mcp"
 version = "0.1.0"
 dependencies = [
- "gent-ports",
- "gent-types",
  "thiserror",
 ]
 
@@ -442,6 +439,8 @@ version = "0.1.0"
 dependencies = [
  "gent-protocol",
  "gent-types",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

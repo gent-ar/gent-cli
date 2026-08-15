@@ -7,8 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gent-ports = { path = "../gent-ports" }
-gent-types = { path = "../gent-types" }
 thiserror.workspace = true
 
 [lints]

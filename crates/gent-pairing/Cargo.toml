@@ -9,6 +9,10 @@ repository.workspace = true
 [dependencies]
 gent-protocol = { path = "../gent-protocol" }
 gent-types = { path = "../gent-types" }
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true

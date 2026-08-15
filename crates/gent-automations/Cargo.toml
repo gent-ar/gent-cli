@@ -7,8 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gent-ports = { path = "../gent-ports" }
-gent-types = { path = "../gent-types" }
+sha2.workspace = true
 
 [lints]
 workspace = true

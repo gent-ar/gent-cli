@@ -1,7 +1,16 @@
-//! MCP boundary. The daemon does not spawn MCP processes in this milestone.
+//! MCP domain policy and registry validation.
+//!
+//! This crate is deliberately free of process and network implementations.
+//! `gentd` may compose its pure transitions with future transport ports only
+//! after the relevant authority gate has passed.
 
-#[derive(Debug, thiserror::Error)]
-pub enum McpError {
-    #[error("MCP support is not enabled")]
-    Disabled,
-}
+pub mod lifecycle;
+pub mod registry;
+
+pub use lifecycle::{
+    McpEffect, McpEvent, McpMode, McpState, McpTransition, initial_state, transition,
+};
+pub use registry::{
+    ConnectorDefinition, ConnectorId, IdentifierError, QualifiedToolId, RegistryError,
+    ToolDefinition, ToolName, ToolReference, ToolRegistry,
+};
