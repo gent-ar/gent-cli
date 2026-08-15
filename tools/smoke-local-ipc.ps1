@@ -7,7 +7,7 @@ $daemon = $null
 
 function Assert-Equal([object]$actual, [object]$expected, [string]$label) {
     if ($actual -ne $expected) {
-        throw "$label: expected '$expected', got '$actual'"
+        throw "${label}: expected '$expected', got '$actual'"
     }
 }
 
