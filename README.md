@@ -87,6 +87,9 @@ The repository’s architectural rules and phased migration decision record are
 in [docs/architecture.md](docs/architecture.md). The Flutter app is not a
 dependency of this workspace and is not modified by this repository.
 
+Standalone setup and signed-release verification are documented in
+[docs/onboarding.md](docs/onboarding.md) and [docs/releases.md](docs/releases.md).
+
 ## Code architecture
 
 `main` is the only composition root: it wires ports, infrastructure, and the

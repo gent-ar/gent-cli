@@ -1,0 +1,110 @@
+name: Signed release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: release prerequisites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require a semantic version tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python -c "import os,re,sys; sys.exit(not bool(re.fullmatch(r'v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?', os.environ['RELEASE_TAG'])))"
+      - run: cargo fmt --check
+      - run: python tools/check-architecture.py
+      - run: python tools/test-release-tools.py
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-features
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            suffix: ""
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            suffix: ""
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            suffix: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            suffix: .exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Derive deterministic package timestamp
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      - name: Build release binaries
+        run: cargo build --locked --release -p gent-cli -p gentd
+      - name: Package binaries
+        run: >-
+          python tools/package-release.py --target-dir target/release --out-dir dist
+          --version "${{ github.ref_name }}" --target "${{ matrix.target }}"
+          --format "${{ matrix.archive }}" --suffix "${{ matrix.suffix }}"
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Keylessly sign every published artifact
+        shell: bash
+        run: |
+          for artifact in dist/*; do
+            cosign sign-blob --yes --bundle "${artifact}.sigstore.json" "$artifact"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      - name: Publish signed artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mapfile -d '' artifacts < <(find release-artifacts -type f -print0 | sort -z)
+          test "${#artifacts[@]}" -gt 0
+          gh release create "$RELEASE_TAG" "${artifacts[@]}" --generate-notes

@@ -47,6 +47,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
 - [x] Enforced 90% workspace line-coverage gate.
+- [x] Deterministic release packaging, checksum/manifest verification, and tag-only
+      GitHub OIDC keyless-signing workflow for `gent` and `gentd` artifacts.
+- [x] Standalone discovery-first onboarding documentation with explicit dependency consent.
 
 ## Intentionally not claimed
 
