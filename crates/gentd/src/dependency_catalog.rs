@@ -1,9 +1,5 @@
 //! Read-only public dependency discovery and explicit-action planning.
-
-use std::env;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
+use crate::compatibility_assessment::CompatibilityAssessment;
 use gent_drivers::lock::capture;
 use gent_protocol::{
     DependencyActionRequest, DependencyActionResult, DependencyActionState, DependencyPlan,
@@ -13,30 +9,35 @@ use gent_types::{
     CompatibilityTrust, DependencyStatus, DoctorNextAction, DoctorReport, ExecutableIdentity,
     McpDoctorStatus, McpPermissionStatus, PrivateBridgeAvailability, PublicProviderStatus,
 };
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct DependencyCatalog;
-
+use std::env;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+#[derive(Clone, Debug, Default)]
+pub struct DependencyCatalog {
+    compatibility: CompatibilityAssessment,
+}
 impl DependencyCatalog {
+    #[must_use]
+    pub(crate) fn with_compatibility(compatibility: CompatibilityAssessment) -> Self {
+        Self { compatibility }
+    }
     #[allow(clippy::unused_self)]
     #[must_use]
-    pub fn doctor(self) -> DoctorReport {
+    pub fn doctor(&self) -> DoctorReport {
         let providers = [DependencyProvider::Claude, DependencyProvider::Codex]
             .into_iter()
-            .map(observe_provider)
+            .map(|provider| observe_provider(provider, &self.compatibility))
             .collect::<Vec<_>>();
         doctor_report(providers, discover_node())
     }
-
     #[allow(clippy::unused_self, clippy::needless_pass_by_value)]
     #[must_use]
-    pub fn plan(self, request: DependencyPlanRequest) -> DependencyPlan {
+    pub fn plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
         plan(request.provider, request.action)
     }
-
     #[allow(clippy::unused_self, clippy::needless_pass_by_value)]
     #[must_use]
-    pub fn act(self, request: DependencyActionRequest) -> DependencyActionResult {
+    pub fn act(&self, request: DependencyActionRequest) -> DependencyActionResult {
         let plan = plan(request.provider, request.action);
         let state = if request.consent_granted {
             DependencyActionState::InstallerNotConfigured
@@ -46,7 +47,6 @@ impl DependencyCatalog {
         DependencyActionResult { plan, state }
     }
 }
-
 fn doctor_report(
     providers: Vec<(DependencyStatus, PublicProviderStatus)>,
     node: DependencyStatus,
@@ -81,8 +81,10 @@ fn doctor_report(
         next_action,
     }
 }
-
-fn observe_provider(provider: DependencyProvider) -> (DependencyStatus, PublicProviderStatus) {
+fn observe_provider(
+    provider: DependencyProvider,
+    compatibility: &CompatibilityAssessment,
+) -> (DependencyStatus, PublicProviderStatus) {
     let (name, remediation) = provider_details(provider);
     let executable = find_executable(name);
     let version = executable.as_deref().and_then(probe_version);
@@ -96,10 +98,15 @@ fn observe_provider(provider: DependencyProvider) -> (DependencyStatus, PublicPr
         version: version.clone(),
         remediation: remediation.into(),
     };
+    let trust = identity
+        .as_ref()
+        .map_or(CompatibilityTrust::NotConfigured, |identity| {
+            compatibility.assess(name, identity)
+        });
     let provider = PublicProviderStatus {
         provider: name.into(),
         executable: identity,
-        compatibility: CompatibilityTrust::NotConfigured,
+        compatibility: trust,
         remediation: if present {
             "A public executable was observed, but no signed compatibility manifest is configured."
                 .into()
@@ -109,7 +116,6 @@ fn observe_provider(provider: DependencyProvider) -> (DependencyStatus, PublicPr
     };
     (dependency, provider)
 }
-
 fn provider_details(provider: DependencyProvider) -> (&'static str, &'static str) {
     match provider {
         DependencyProvider::Claude => (
@@ -273,7 +279,7 @@ mod tests {
 
     #[test]
     fn plans_are_read_only_and_private_providers_are_unrepresentable() {
-        let plan = DependencyCatalog.plan(DependencyPlanRequest {
+        let plan = DependencyCatalog::default().plan(DependencyPlanRequest {
             provider: DependencyProvider::Claude,
             action: DependencyAction::Install,
         });
@@ -283,7 +289,7 @@ mod tests {
 
     #[test]
     fn consent_never_silently_starts_an_installer() {
-        let result = DependencyCatalog.act(DependencyActionRequest {
+        let result = DependencyCatalog::default().act(DependencyActionRequest {
             provider: DependencyProvider::Codex,
             action: DependencyAction::Update,
             consent_granted: true,

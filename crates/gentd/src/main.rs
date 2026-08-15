@@ -1,4 +1,5 @@
 mod api;
+mod compatibility_assessment;
 mod dependency_catalog;
 mod event_stream;
 mod host_lock;
@@ -35,6 +36,7 @@ use gent_types::{
 #[cfg(unix)]
 use tokio::net::UnixListener;
 
+use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::dependency_catalog::DependencyCatalog;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 
@@ -71,7 +73,7 @@ fn build_runtime(
     Ok(RuntimeFacade {
         public_runs: observer_service(coordinator.clone()),
         coordinator,
-        dependencies: DependencyCatalog,
+        dependencies: DependencyCatalog::with_compatibility(CompatibilityAssessment::default()),
     })
 }
 
