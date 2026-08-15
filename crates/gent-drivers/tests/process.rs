@@ -15,6 +15,7 @@ fn shell_launch(script: &str) -> ProviderLaunch {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn captures_each_stream_without_exceeding_its_limit() {
     let launcher = SystemLauncher::new(5);
