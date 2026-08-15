@@ -134,11 +134,7 @@ fn parse_metadata(path: &Path, line: &str) -> Result<BTreeMap<String, Value>, Tr
         return invalid(path, 1, "meta header cannot contain frame fields");
     }
     for required in REQUIRED_META {
-        if metadata
-            .get(required)
-            .and_then(Value::as_str)
-            .is_none_or(str::is_empty)
-        {
+        if !valid_metadata_value(metadata.get(required), required) {
             return invalid(
                 path,
                 1,
@@ -158,6 +154,13 @@ fn parse_metadata(path: &Path, line: &str) -> Result<BTreeMap<String, Value>, Tr
         );
     }
     Ok(metadata.clone().into_iter().collect())
+}
+
+fn valid_metadata_value(value: Option<&Value>, field: &str) -> bool {
+    value
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty())
+        || (field == "adapterSpecVersion" && value.and_then(Value::as_i64).is_some())
 }
 
 fn parse_frame(

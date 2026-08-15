@@ -49,6 +49,23 @@ cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 90
 bash tools/smoke-local-ipc.sh
 ```
 
+## Public-driver evidence inventory
+
+The phase-0 manifest lists every required Claude/Codex scenario without
+inventing recordings. CI validates that inventory structurally:
+
+```sh
+cargo run -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
+```
+
+Use `--require-live` only at the real-provider evidence gate. It deliberately
+fails until every cell is a redacted live recording or a reasoned recorded
+absence; synthetic fixtures never satisfy that gate. A claimed live capture
+also requires canonical executable identity and SHA-256, provider transport,
+platform, RFC3339 capture time, run identifier, and attestation digest.
+These are structural provenance checks, not a substitute for the planned
+signed real-provider artifact and normalized-event replay gate.
+
 The repository’s architectural rules and phased migration decision record are
 in [docs/architecture.md](docs/architecture.md). The Flutter app is not a
 dependency of this workspace and is not modified by this repository.

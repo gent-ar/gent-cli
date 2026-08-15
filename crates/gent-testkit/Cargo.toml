@@ -25,5 +25,9 @@ tokio.workspace = true
 name = "validate-coverage-manifest"
 path = "src/bin/validate-coverage-manifest.rs"
 
+[[bin]]
+name = "validate-public-driver-manifest"
+path = "src/bin/validate-public-driver-manifest.rs"
+
 [lints]
 workspace = true

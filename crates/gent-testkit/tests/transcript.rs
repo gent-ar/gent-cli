@@ -24,6 +24,19 @@ fn loads_a_realistically_shaped_redacted_recording() {
 }
 
 #[test]
+fn accepts_the_documented_numeric_adapter_spec_version() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("numeric-version.jsonl");
+    let content = HEADER.replacen(
+        "\"adapterSpecVersion\":\"28\"",
+        "\"adapterSpecVersion\":28",
+        1,
+    );
+    fs::write(&path, content).unwrap();
+    assert!(load_public_driver_fixture(path).is_ok());
+}
+
+#[test]
 fn rejects_missing_provenance_and_unredacted_tokens_without_echoing_them() {
     let directory = TempDir::new().unwrap();
     let missing = directory.path().join("missing.jsonl");
