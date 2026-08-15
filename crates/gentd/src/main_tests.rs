@@ -2,12 +2,10 @@ use gent_core::DecisionCommandOutcome;
 use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
     DecisionEvidence, DependencyAction, DependencyActionRequest, DependencyPlanRequest,
-    DependencyProvider, PublicRunOutcome, PublicRunStartRequest,
+    DependencyProvider, PublicRunInterruptRequest, PublicRunOutcome, PublicRunResumeRequest,
+    PublicRunStartRequest,
 };
-use gent_runtime::{
-    ProviderRunAuthority,
-    catalog::{CatalogError, declared_capabilities},
-};
+use gent_runtime::catalog::{CatalogError, declared_capabilities};
 use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase,
     EventResume, HostEpoch, McpPermissionStatus, ReceiptId,
@@ -16,9 +14,7 @@ use serde_json::json;
 
 use crate::api::RuntimeApi;
 
-use super::{
-    RuntimeFacade, build_runtime, decision_evidence, decision_submission, provider_run_denied,
-};
+use super::{RuntimeFacade, build_runtime, decision_evidence, decision_submission};
 
 fn runtime() -> (tempfile::TempDir, RuntimeFacade) {
     let directory = tempfile::tempdir().unwrap();
@@ -114,6 +110,29 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
     );
     assert_eq!(
         runtime
+            .resume_public_run(PublicRunResumeRequest {
+                run_id: "missing-run".into(),
+                coordinator_id: "test".into(),
+                host_epoch: status.host_epoch,
+                session_id: "ignored".into(),
+            })
+            .unwrap()
+            .outcome,
+        PublicRunOutcome::Denied
+    );
+    assert_eq!(
+        runtime
+            .interrupt_public_run(PublicRunInterruptRequest {
+                run_id: "missing-run".into(),
+                coordinator_id: "test".into(),
+                host_epoch: status.host_epoch,
+            })
+            .unwrap()
+            .outcome,
+        PublicRunOutcome::Denied
+    );
+    assert_eq!(
+        runtime
             .conversation_status("missing")
             .unwrap()
             .conversation_id,
@@ -191,11 +210,4 @@ fn helper_mappings_preserve_all_public_outcomes() {
         decision_evidence(DecisionEvidence::RecoveryRequired),
         gent_core::DecisionEvidence::RecoveryRequired
     );
-    assert_eq!(
-        provider_run_denied(ProviderRunAuthority::Observer, "run".into())
-            .unwrap()
-            .outcome,
-        PublicRunOutcome::Denied
-    );
-    assert!(provider_run_denied(ProviderRunAuthority::PublicDrivers, "run".into()).is_err());
 }

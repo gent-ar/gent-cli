@@ -54,7 +54,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Pure, session-bound NDJSON command encoding for documented Claude stream-JSON and Codex
       app-server user-message frames; it validates only and does not write to a provider process.
 - [x] Locked process ownership includes explicit standard-input frame delivery, tested against a
-      local process; observer-mode `gentd` does not expose or invoke this driver edge.
+      local process; observer-mode `gentd` does not invoke this driver edge.
+- [x] `gentd` composes the public-run service only in hard-coded observer mode; every lifecycle
+      request is denied before executable inspection, lock capture, or process launch.
 - [x] Bounded stdout output pump connects chunk-tolerant NDJSON framing to the existing
       supervisor frame buffer and pure session reducer, retaining FIFO frames across backpressure
       without retaining oversized reads or lines.

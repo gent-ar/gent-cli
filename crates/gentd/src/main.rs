@@ -1,6 +1,7 @@
 mod api;
 mod dependency_catalog;
 mod host_lock;
+mod public_runs;
 mod transport;
 #[cfg(test)]
 mod transport_tests;
@@ -19,8 +20,8 @@ use gent_protocol::{
     DecisionEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
     DependencyPlan, DependencyPlanRequest,
 };
+use gent_runtime::Coordinator;
 use gent_runtime::catalog::validate_observed_capabilities;
-use gent_runtime::{Coordinator, ProviderRunAuthority};
 use gent_store::SqliteLedger;
 use gent_types::{
     CapabilitySet, Command, ConversationStatus, ConversationTimeline, DecisionCommand,
@@ -30,6 +31,7 @@ use gent_types::{
 use tokio::net::UnixListener;
 
 use crate::dependency_catalog::DependencyCatalog;
+use crate::public_runs::{DaemonPublicRuns, observer_service};
 
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
@@ -62,9 +64,9 @@ fn build_runtime(
     let coordinator = Coordinator::new(SqliteLedger::open(data_dir.join("gent.db"))?, capabilities);
     coordinator.persist_capability_catalog()?;
     Ok(RuntimeFacade {
+        public_runs: observer_service(coordinator.clone()),
         coordinator,
         dependencies: DependencyCatalog,
-        provider_run_authority: ProviderRunAuthority::Observer,
     })
 }
 
@@ -109,7 +111,7 @@ fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
 struct RuntimeFacade {
     coordinator: Coordinator<SqliteLedger>,
     dependencies: DependencyCatalog,
-    provider_run_authority: ProviderRunAuthority,
+    public_runs: DaemonPublicRuns,
 }
 
 impl api::RuntimeApi for RuntimeFacade {
@@ -161,19 +163,25 @@ impl api::RuntimeApi for RuntimeFacade {
         &self,
         request: gent_protocol::PublicRunStartRequest,
     ) -> Result<gent_protocol::PublicRunResponse, String> {
-        provider_run_denied(self.provider_run_authority, request.run_id)
+        self.public_runs
+            .start(request)
+            .map_err(|error| error.to_string())
     }
     fn resume_public_run(
         &self,
         request: gent_protocol::PublicRunResumeRequest,
     ) -> Result<gent_protocol::PublicRunResponse, String> {
-        provider_run_denied(self.provider_run_authority, request.run_id)
+        self.public_runs
+            .resume(request)
+            .map_err(|error| error.to_string())
     }
     fn interrupt_public_run(
         &self,
         request: gent_protocol::PublicRunInterruptRequest,
     ) -> Result<gent_protocol::PublicRunResponse, String> {
-        provider_run_denied(self.provider_run_authority, request.run_id)
+        self.public_runs
+            .interrupt(request)
+            .map_err(|error| error.to_string())
     }
     fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String> {
         self.coordinator
@@ -185,19 +193,6 @@ impl api::RuntimeApi for RuntimeFacade {
             .conversation_timeline(conversation_id)
             .map_err(|error| error.to_string())
     }
-}
-
-fn provider_run_denied(
-    authority: ProviderRunAuthority,
-    run_id: String,
-) -> Result<gent_protocol::PublicRunResponse, String> {
-    if authority == ProviderRunAuthority::Observer {
-        return Ok(gent_protocol::PublicRunResponse {
-            run_id,
-            outcome: gent_protocol::PublicRunOutcome::Denied,
-        });
-    }
-    Err("public provider authority requires a configured process runner".into())
 }
 
 fn decision_submission(outcome: DecisionCommandOutcome) -> DecisionSubmission {
