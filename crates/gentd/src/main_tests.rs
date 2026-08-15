@@ -93,13 +93,22 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
             })
             .consent_required
     );
+    assert_observer_operations(&runtime, status.host_epoch);
+}
+
+fn assert_observer_operations(runtime: &RuntimeFacade, epoch: HostEpoch) {
     assert_eq!(
         runtime
             .dependency_action(DependencyActionRequest {
                 provider: DependencyProvider::Codex,
                 action: DependencyAction::Update,
                 consent_granted: false,
+                receipt_id: ReceiptId("dependency".into()),
+                idempotency_key: "dependency".into(),
+                host_epoch: epoch,
+                reviewed_plan_digest: "reviewed".into(),
             })
+            .unwrap()
             .state,
         gent_protocol::DependencyActionState::ConsentRequired
     );
@@ -108,7 +117,7 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
             .start_public_run(PublicRunStartRequest {
                 run_id: "run".into(),
                 coordinator_id: "test".into(),
-                host_epoch: status.host_epoch,
+                host_epoch: epoch,
                 provider: DependencyProvider::Claude,
                 executable: "not-used".into(),
                 version: "1".into(),
@@ -123,7 +132,7 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
             .resume_public_run(PublicRunResumeRequest {
                 run_id: "missing-run".into(),
                 coordinator_id: "test".into(),
-                host_epoch: status.host_epoch,
+                host_epoch: epoch,
                 session_id: "ignored".into(),
             })
             .unwrap()
@@ -135,7 +144,7 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
             .interrupt_public_run(PublicRunInterruptRequest {
                 run_id: "missing-run".into(),
                 coordinator_id: "test".into(),
-                host_epoch: status.host_epoch,
+                host_epoch: epoch,
             })
             .unwrap()
             .outcome,

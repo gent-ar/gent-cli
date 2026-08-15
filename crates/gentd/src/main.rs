@@ -27,12 +27,13 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use gent_core::{DecisionCommandOutcome, DecisionEvidence as CoreDecisionEvidence};
+use gent_drivers::installer::SystemDependencyInstaller;
 use gent_protocol::{
     AttachmentFrame, DecisionEvidence, DecisionSubmission, DependencyActionRequest,
     DependencyActionResult, DependencyPlan, DependencyPlanRequest,
 };
 use gent_runtime::catalog::validate_observed_capabilities;
-use gent_runtime::{AttachmentService, Coordinator};
+use gent_runtime::{AttachmentService, Coordinator, DependencyActionService};
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::{
     CapabilitySet, Command, ConversationStatus, ConversationTimeline, DecisionCommand,
@@ -42,6 +43,7 @@ use gent_types::{
 use tokio::net::UnixListener;
 
 use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::dependency_actions::SystemDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 
@@ -90,13 +92,17 @@ fn build_runtime(
         ledger.clone(),
         FileAttachmentBlobs::open(data_dir.join("attachments"))?,
     );
-    let coordinator = Coordinator::new(ledger, capabilities);
+    let coordinator = Coordinator::new(ledger.clone(), capabilities);
     coordinator.persist_capability_catalog()?;
     Ok(RuntimeFacade {
         public_runs: observer_service(coordinator.clone(), compatibility.clone()),
         attachments,
         coordinator,
         dependencies: DependencyCatalog::with_compatibility(compatibility),
+        dependency_actions: DependencyActionService::new(
+            ledger,
+            SystemDependencyExecutor::new(SystemDependencyInstaller),
+        ),
     })
 }
 
@@ -142,6 +148,8 @@ struct RuntimeFacade {
     attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
     coordinator: Coordinator<SqliteLedger>,
     dependencies: DependencyCatalog,
+    dependency_actions:
+        DependencyActionService<SqliteLedger, SystemDependencyExecutor<SystemDependencyInstaller>>,
     public_runs: DaemonPublicRuns,
 }
 
@@ -172,8 +180,17 @@ impl api::RuntimeApi for RuntimeFacade {
     fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
         self.dependencies.plan(request)
     }
-    fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult {
-        self.dependencies.act(&request)
+    fn dependency_action(
+        &self,
+        request: DependencyActionRequest,
+    ) -> Result<DependencyActionResult, String> {
+        let plan = self.dependencies.plan(DependencyPlanRequest {
+            provider: request.provider,
+            action: request.action,
+        });
+        self.dependency_actions
+            .execute(&request, &plan)
+            .map_err(|error| error.to_string())
     }
     fn attachment(&self, frame: AttachmentFrame) -> Result<AttachmentFrame, String> {
         attachment_api::handle(&self.attachments, frame)

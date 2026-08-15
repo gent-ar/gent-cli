@@ -1,5 +1,5 @@
 use gent_protocol::{
-    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DependencyAction,
+    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DependencyAction, DependencyPlan,
     DependencyPlanRequest, DependencyProvider, EXTERNAL_PROVIDER_BRIDGE_CAPABILITY,
     ExternalProviderBridgeFrame, ExternalProviderBridgeHello, Hello, MAX_FRAME_BYTES,
     PublicRunOutcome, PublicRunResponse, WireFrame, negotiate, read_frame, read_json_frame,
@@ -112,4 +112,22 @@ fn public_provider_frames_exclude_private_bridges() {
         serde_json::from_str::<WireFrame>(&serde_json::to_string(&response).unwrap()).unwrap(),
         response
     );
+}
+
+#[test]
+fn reviewed_dependency_plan_digest_binds_every_visible_plan_field() {
+    let plan = DependencyPlan::reviewed(
+        DependencyProvider::Claude,
+        DependencyAction::Install,
+        "review vendor installer",
+        true,
+    );
+    let changed = DependencyPlan::reviewed(
+        DependencyProvider::Claude,
+        DependencyAction::Update,
+        "review vendor installer",
+        true,
+    );
+    assert_eq!(plan.reviewed_plan_digest.len(), 64);
+    assert_ne!(plan.reviewed_plan_digest, changed.reviewed_plan_digest);
 }

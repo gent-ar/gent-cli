@@ -205,9 +205,9 @@ fn command_frame<R: RuntimeApi>(
         Ok(WireFrame::DependencyPlanRequest(request)) => {
             Ok(WireFrame::DependencyPlan(runtime.dependency_plan(request)))
         }
-        Ok(WireFrame::DependencyActionRequest(request)) => Ok(WireFrame::DependencyActionResult(
-            runtime.dependency_action(request),
-        )),
+        Ok(WireFrame::DependencyActionRequest(request)) => runtime
+            .dependency_action(request)
+            .map(WireFrame::DependencyActionResult),
         Ok(WireFrame::DecisionSubmit(command)) => runtime
             .submit_decision(command)
             .map(WireFrame::DecisionSubmission),

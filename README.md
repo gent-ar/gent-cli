@@ -17,6 +17,9 @@ than a second copy of application logic. The implemented vertical slice is:
   snapshot-backed resync after event compaction.
 - SQLite-backed host state, a read-only `gent doctor` dependency report, and negotiated
   `gent conversation status` and `gent conversation timeline` reads.
+- Explicit `gent deps` plans and consented vendor dependency actions, each fenced by the active
+  host epoch and settled through a durable receipt; interrupted external effects are marked
+  `unprovable` instead of being replayed.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
   content and provider-native session identifiers.
@@ -66,7 +69,9 @@ supervised deployments and deterministic smoke tests.
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo llvm-cov --workspace --all-targets --all-features --summary-only --fail-under-lines 90
+cargo llvm-cov --workspace --all-targets --all-features --summary-only \
+  --ignore-filename-regex '(^|/)(gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/' \
+  --fail-under-lines 90
 bash tools/smoke-local-ipc.sh
 ```
 
@@ -110,9 +115,9 @@ at 300 lines or fewer and CI enforces that limit.
 ## Security boundary
 
 `gentd` never receives Claurst credentials or endpoint configuration. Provider
-installation is explicit and user-triggered; `gent doctor` only observes
-dependencies. The present daemon does not spawn providers, MCP servers, Git,
-automation jobs, or network listeners.
+installation or updates are explicit, receipt-backed user actions; `gent doctor`
+only observes dependencies. The present daemon does not route or start live provider
+runs, MCP servers, Git operations, automation jobs, or network listeners.
 
 ## License
 

@@ -24,7 +24,7 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
             print(request(data_dir, no_autostart, WireFrame::DoctorRequest).await?)?;
         }
         CommandLine::Deps { action } => {
-            print(request(data_dir, no_autostart, dependency_frame(&action)).await?)?;
+            dependency(data_dir, no_autostart, action).await?;
         }
         CommandLine::Decision { action } => {
             print(request(data_dir, no_autostart, decision_frame(&action)).await?)?;
@@ -93,31 +93,96 @@ fn print(value: impl serde::Serialize) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-pub(crate) fn dependency_frame(action: &DependencyCommand) -> WireFrame {
-    match action {
-        DependencyCommand::Plan { action, provider } => {
-            WireFrame::DependencyPlanRequest(DependencyPlanRequest {
-                provider: *provider,
-                action: *action,
-            })
+async fn dependency(
+    data_dir: Option<std::path::PathBuf>,
+    no_autostart: bool,
+    command: DependencyCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        DependencyCommand::Plan { action, provider } => print(
+            request(
+                data_dir,
+                no_autostart,
+                dependency_plan_frame(provider, action),
+            )
+            .await?,
+        ),
+        DependencyCommand::Install {
+            provider,
+            consent,
+            idempotency_key,
+        } => {
+            dependency_action(
+                data_dir,
+                no_autostart,
+                provider,
+                DependencyAction::Install,
+                consent,
+                idempotency_key,
+            )
+            .await
         }
-        DependencyCommand::Install { provider, consent } => {
-            dependency_action(*provider, DependencyAction::Install, *consent)
-        }
-        DependencyCommand::Update { provider, consent } => {
-            dependency_action(*provider, DependencyAction::Update, *consent)
+        DependencyCommand::Update {
+            provider,
+            consent,
+            idempotency_key,
+        } => {
+            dependency_action(
+                data_dir,
+                no_autostart,
+                provider,
+                DependencyAction::Update,
+                consent,
+                idempotency_key,
+            )
+            .await
         }
     }
 }
 
-fn dependency_action(
+pub(crate) fn dependency_plan_frame(
+    provider: DependencyProvider,
+    action: DependencyAction,
+) -> WireFrame {
+    WireFrame::DependencyPlanRequest(DependencyPlanRequest { provider, action })
+}
+
+async fn dependency_action(
+    data_dir: Option<std::path::PathBuf>,
+    no_autostart: bool,
     provider: DependencyProvider,
     action: DependencyAction,
     consent_granted: bool,
-) -> WireFrame {
-    WireFrame::DependencyActionRequest(DependencyActionRequest {
+    idempotency_key: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plan = request(
+        data_dir.clone(),
+        no_autostart,
+        dependency_plan_frame(provider, action),
+    )
+    .await?;
+    let WireFrame::DependencyPlan(plan) = plan else {
+        return Err("daemon did not return a dependency plan".into());
+    };
+    let status = request(data_dir.clone(), no_autostart, WireFrame::StatusRequest).await?;
+    let WireFrame::Status(status) = status else {
+        return Err("daemon did not return host status".into());
+    };
+    let action = DependencyActionRequest {
         provider,
         action,
         consent_granted,
-    })
+        receipt_id: ReceiptId::new(),
+        idempotency_key: idempotency_key.unwrap_or_else(|| ReceiptId::new().0),
+        host_epoch: status.host_epoch,
+        reviewed_plan_digest: plan.reviewed_plan_digest,
+    };
+    print(
+        request(
+            data_dir,
+            no_autostart,
+            WireFrame::DependencyActionRequest(action),
+        )
+        .await?,
+    )
 }

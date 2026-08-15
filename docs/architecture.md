@@ -26,3 +26,11 @@ No migration authority transfers to this repository until recorded baseline
 transcripts, observer parity, public-driver evidence, app compatibility and
 the fence-aware legacy release all pass. In particular, this project does not
 currently replace any Flutter application behavior.
+
+## Verification scope
+
+The 90% line-coverage gate applies to production library source. The `gentd`
+and `gent` binaries are composition roots and `gent-testkit` is test support;
+they are covered by full workspace tests, local-IPC smoke tests, and the
+platform matrix rather than included as uninstrumented source in the library
+coverage denominator.

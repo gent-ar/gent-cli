@@ -6,7 +6,7 @@ use gent_protocol::{
 };
 use gent_types::{
     CapabilitySet, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, DoctorReport,
-    HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN,
+    HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptId, ReceiptStatus,
 };
 use tokio::io::duplex;
 
@@ -43,18 +43,18 @@ impl RuntimeApi for FakeRuntime {
         DoctorReport::empty()
     }
     fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
-        DependencyPlan {
-            provider: request.provider,
-            action: request.action,
-            instruction: "review vendor installer".into(),
-            consent_required: true,
-        }
+        DependencyPlan::reviewed(
+            request.provider,
+            request.action,
+            "review vendor installer",
+            true,
+        )
     }
     fn dependency_action(
         &self,
         request: DependencyActionRequest,
-    ) -> gent_protocol::DependencyActionResult {
-        gent_protocol::DependencyActionResult {
+    ) -> Result<gent_protocol::DependencyActionResult, String> {
+        Ok(gent_protocol::DependencyActionResult {
             plan: self.dependency_plan(DependencyPlanRequest {
                 provider: request.provider,
                 action: request.action,
@@ -64,8 +64,14 @@ impl RuntimeApi for FakeRuntime {
             } else {
                 DependencyActionState::ConsentRequired
             },
+            receipt: Receipt {
+                receipt_id: ReceiptId("fake".into()),
+                idempotency_key: request.idempotency_key,
+                status: ReceiptStatus::Rejected,
+                host_epoch: request.host_epoch,
+            },
             detail: None,
-        }
+        })
     }
     fn submit_decision(
         &self,
@@ -240,6 +246,10 @@ async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
             provider: DependencyProvider::Claude,
             action: DependencyAction::Install,
             consent_granted: false,
+            receipt_id: ReceiptId("fake".into()),
+            idempotency_key: "fake".into(),
+            host_epoch: HostEpoch(1),
+            reviewed_plan_digest: "fake".into(),
         }),
     )
     .await

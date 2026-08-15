@@ -44,7 +44,10 @@ impl RuntimeApi for TimelineRuntime {
         unreachable!("not used")
     }
 
-    fn dependency_action(&self, _: DependencyActionRequest) -> DependencyActionResult {
+    fn dependency_action(
+        &self,
+        _: DependencyActionRequest,
+    ) -> Result<DependencyActionResult, String> {
         unreachable!("not used")
     }
 

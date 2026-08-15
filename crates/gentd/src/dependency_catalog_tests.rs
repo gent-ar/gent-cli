@@ -1,32 +1,9 @@
-use gent_drivers::installer::{DependencyInstaller, InstallerError, InstallerInvocation};
-use gent_protocol::{
-    DependencyAction, DependencyActionRequest, DependencyActionState, DependencyPlanRequest,
-    DependencyProvider,
-};
+use crate::dependency_catalog::{DependencyCatalog, doctor_report};
+use gent_protocol::{DependencyAction, DependencyPlanRequest, DependencyProvider};
 use gent_types::{
     CompatibilityTrust, DependencyStatus, ExecutableIdentity, McpPermissionStatus,
     PrivateBridgeAvailability, PublicProviderStatus,
 };
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
-
-use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::dependency_catalog::{DependencyCatalog, doctor_report};
-
-#[derive(Clone, Debug)]
-struct TestInstaller {
-    result: Result<(), InstallerError>,
-    calls: Arc<AtomicUsize>,
-}
-
-impl DependencyInstaller for TestInstaller {
-    fn execute(&self, _: &InstallerInvocation) -> Result<(), InstallerError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        self.result.clone()
-    }
-}
 
 fn provider(present: bool) -> (DependencyStatus, PublicProviderStatus) {
     (
@@ -98,50 +75,4 @@ fn plans_are_read_only_and_private_providers_are_unrepresentable() {
     });
     assert!(plan.consent_required);
     assert!(plan.instruction.contains("Anthropic"));
-}
-
-#[test]
-fn consent_controls_the_only_installer_execution_path() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let catalog = DependencyCatalog::with_installer(
-        CompatibilityAssessment::default(),
-        TestInstaller {
-            result: Ok(()),
-            calls: calls.clone(),
-        },
-    );
-    let mut request = DependencyActionRequest {
-        provider: DependencyProvider::Codex,
-        action: DependencyAction::Update,
-        consent_granted: false,
-    };
-    assert_eq!(
-        catalog.act(&request).state,
-        DependencyActionState::ConsentRequired
-    );
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
-    request.consent_granted = true;
-    assert_eq!(
-        catalog.act(&request).state,
-        DependencyActionState::Completed
-    );
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn installer_failure_is_terminal_and_actionable() {
-    let catalog = DependencyCatalog::with_installer(
-        CompatibilityAssessment::default(),
-        TestInstaller {
-            result: Err(InstallerError::Failed("exit status: 1".into())),
-            calls: Arc::new(AtomicUsize::new(0)),
-        },
-    );
-    let result = catalog.act(&DependencyActionRequest {
-        provider: DependencyProvider::Claude,
-        action: DependencyAction::Install,
-        consent_granted: true,
-    });
-    assert_eq!(result.state, DependencyActionState::Failed);
-    assert!(result.detail.unwrap().contains("exit status"));
 }

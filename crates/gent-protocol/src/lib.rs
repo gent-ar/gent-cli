@@ -1,13 +1,11 @@
 //! Versioned wire DTOs and length-prefixed JSON framing shared by every transport.
 
-use std::io;
-use std::str::FromStr;
-
 use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event,
     EventSnapshot, HostStatus, Receipt,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -16,6 +14,7 @@ mod attachments;
 mod conversation_status;
 mod conversation_timeline;
 mod decision;
+mod dependencies;
 mod event_stream;
 mod external_provider_bridge;
 mod runs;
@@ -24,6 +23,10 @@ pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
 pub use conversation_status::{CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame};
 pub use conversation_timeline::{CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame};
 pub use decision::{DecisionEvidence, DecisionSubmission};
+pub use dependencies::{
+    DependencyAction, DependencyActionRequest, DependencyActionResult, DependencyActionState,
+    DependencyPlan, DependencyPlanRequest, DependencyProvider, dependency_plan_digest,
+};
 pub use event_stream::{EVENT_STREAM_CAPABILITY, EventStreamFrame};
 pub use external_provider_bridge::{
     EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame, ExternalProviderBridgeHello,
@@ -48,103 +51,6 @@ pub struct Hello {
 pub struct Negotiated {
     pub protocol: u16,
     pub capabilities: CapabilitySet,
-}
-
-/// A publicly installable provider. Private bridges are intentionally excluded.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum DependencyProvider {
-    Claude,
-    Codex,
-}
-
-impl DependencyProvider {
-    /// Returns the stable public provider identifier used in durable locks.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-        }
-    }
-}
-
-impl FromStr for DependencyProvider {
-    type Err = ProtocolError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "claude" => Ok(Self::Claude),
-            "codex" => Ok(Self::Codex),
-            _ => Err(ProtocolError::UnsupportedProvider(value.into())),
-        }
-    }
-}
-
-/// An explicit action a user may request for a public provider dependency.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum DependencyAction {
-    Install,
-    Update,
-}
-
-impl FromStr for DependencyAction {
-    type Err = ProtocolError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "install" => Ok(Self::Install),
-            "update" => Ok(Self::Update),
-            _ => Err(ProtocolError::UnsupportedDependencyAction(value.into())),
-        }
-    }
-}
-
-/// A read-only request for a dependency action plan.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DependencyPlanRequest {
-    pub provider: DependencyProvider,
-    pub action: DependencyAction,
-}
-
-/// An explicit confirmation to act on a prior plan.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DependencyActionRequest {
-    pub provider: DependencyProvider,
-    pub action: DependencyAction,
-    pub consent_granted: bool,
-}
-
-/// Human-readable, vendor-directed plan. Gent never embeds a provider installer.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DependencyPlan {
-    pub provider: DependencyProvider,
-    pub action: DependencyAction,
-    pub instruction: String,
-    pub consent_required: bool,
-}
-
-/// Result of evaluating an explicit dependency action request.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum DependencyActionState {
-    ConsentRequired,
-    Completed,
-    Failed,
-}
-
-/// Terminal result of an explicit dependency action.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DependencyActionResult {
-    pub plan: DependencyPlan,
-    pub state: DependencyActionState,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

@@ -17,7 +17,10 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     fn resume_events(&self, cursor: u64) -> Result<EventResume, String>;
     fn doctor(&self) -> DoctorReport;
     fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan;
-    fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult;
+    fn dependency_action(
+        &self,
+        request: DependencyActionRequest,
+    ) -> Result<DependencyActionResult, String>;
     /// Handles a capability-gated attachment transfer frame.
     fn attachment(&self, _: AttachmentFrame) -> Result<AttachmentFrame, String> {
         Err("attachments are unavailable for this runtime".into())

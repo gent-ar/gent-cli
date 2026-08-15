@@ -5,6 +5,7 @@ mod automation_executions;
 pub mod catalog;
 mod conversations;
 mod decisions;
+mod dependency_actions;
 mod events;
 mod git_operations;
 mod legacy_observer;
@@ -15,6 +16,7 @@ mod run_projections;
 mod tool_sources;
 mod workspaces;
 pub use attachments::AttachmentService;
+pub use dependency_actions::DependencyActionService;
 use gent_core::{Run, switch_provider};
 use gent_ports::{
     HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,

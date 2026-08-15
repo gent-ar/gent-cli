@@ -67,7 +67,7 @@ impl RuntimeApi for StreamRuntime {
     fn dependency_action(
         &self,
         _: gent_protocol::DependencyActionRequest,
-    ) -> gent_protocol::DependencyActionResult {
+    ) -> Result<gent_protocol::DependencyActionResult, String> {
         unreachable!("not used")
     }
     fn submit_decision(

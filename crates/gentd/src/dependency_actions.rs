@@ -1,12 +1,19 @@
 //! Provider-specific installation commands with no shell interpolation.
 
+use gent_drivers::installer::DependencyInstaller;
 use gent_drivers::installer::InstallerInvocation;
-use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
+use gent_ports::{
+    DependencyActionExecutor, DependencyActionExecutorError, DependencyActionOperation,
+};
+use gent_protocol::{DependencyAction, DependencyProvider};
 
 /// Returns the exact vendor-supported command selected by an explicit request.
 #[must_use]
-pub(crate) fn invocation(request: &DependencyActionRequest) -> InstallerInvocation {
-    let (executable, arguments) = match (request.provider, request.action) {
+pub(crate) fn invocation(
+    provider: DependencyProvider,
+    action: DependencyAction,
+) -> InstallerInvocation {
+    let (executable, arguments) = match (provider, action) {
         (DependencyProvider::Claude, DependencyAction::Install) => (
             "npm",
             vec!["install", "--global", "@anthropic-ai/claude-code"],
@@ -23,9 +30,52 @@ pub(crate) fn invocation(request: &DependencyActionRequest) -> InstallerInvocati
     }
 }
 
+/// Shell-free daemon adapter from the runtime action port to the public installer driver.
+#[derive(Clone, Debug)]
+pub(crate) struct SystemDependencyExecutor<I> {
+    installer: I,
+}
+
+impl<I> SystemDependencyExecutor<I> {
+    #[must_use]
+    pub(crate) fn new(installer: I) -> Self {
+        Self { installer }
+    }
+}
+
+impl<I: DependencyInstaller> DependencyActionExecutor for SystemDependencyExecutor<I> {
+    fn execute(
+        &self,
+        operation: &DependencyActionOperation,
+    ) -> Result<(), DependencyActionExecutorError> {
+        let provider =
+            operation
+                .provider
+                .parse()
+                .map_err(
+                    |error: gent_protocol::ProtocolError| DependencyActionExecutorError {
+                        message: error.to_string(),
+                    },
+                )?;
+        let action = operation
+            .action
+            .parse()
+            .map_err(
+                |error: gent_protocol::ProtocolError| DependencyActionExecutorError {
+                    message: error.to_string(),
+                },
+            )?;
+        self.installer
+            .execute(&invocation(provider, action))
+            .map_err(|error| DependencyActionExecutorError {
+                message: error.to_string(),
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
+    use gent_protocol::{DependencyAction, DependencyProvider};
 
     use super::invocation;
 
@@ -58,11 +108,7 @@ mod tests {
             ),
         ];
         for (provider, action, executable, arguments) in cases {
-            let command = invocation(&DependencyActionRequest {
-                provider,
-                action,
-                consent_granted: true,
-            });
+            let command = invocation(provider, action);
             assert_eq!(command.executable, executable);
             assert_eq!(command.arguments, arguments);
         }

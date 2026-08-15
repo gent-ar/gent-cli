@@ -9,6 +9,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Fifteen-crate Rust workspace with enforced dependency law.
 - [x] Protocol negotiation and bounded length-prefixed JSON local IPC.
 - [x] SQLite receipt/event ledger, idempotency, event cursors, and epoch checks.
+- [x] Explicit public dependency actions are daemon-owned, plan-digest reviewed,
+      epoch-fenced, receipt-backed, and never replay an ambiguous accepted external effect.
 - [x] Durable local attachment staging with per-transfer opaque staging keys, fenced progress,
       and receipt-bound follow-up operations,
       retry-safe final content promotion, and content-addressed deduplication; it is not exposed

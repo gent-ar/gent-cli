@@ -1,12 +1,7 @@
 //! Read-only public dependency discovery and explicit-action planning.
 use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::dependency_actions::invocation;
-use gent_drivers::installer::{DependencyInstaller, SystemDependencyInstaller};
 use gent_drivers::lock::capture;
-use gent_protocol::{
-    DependencyActionRequest, DependencyActionResult, DependencyActionState, DependencyPlan,
-    DependencyPlanRequest, DependencyProvider,
-};
+use gent_protocol::{DependencyAction, DependencyPlan, DependencyPlanRequest, DependencyProvider};
 use gent_types::{
     CompatibilityTrust, DependencyStatus, DoctorNextAction, DoctorReport, ExecutableIdentity,
     McpDoctorStatus, McpPermissionStatus, PrivateBridgeAvailability, PublicProviderStatus,
@@ -14,9 +9,8 @@ use gent_types::{
 use std::env;
 use std::path::{Path, PathBuf};
 #[derive(Clone, Debug)]
-pub struct DependencyCatalog<I = SystemDependencyInstaller> {
+pub struct DependencyCatalog {
     compatibility: CompatibilityAssessment,
-    installer: I,
 }
 impl Default for DependencyCatalog {
     fn default() -> Self {
@@ -27,21 +21,11 @@ impl Default for DependencyCatalog {
 impl DependencyCatalog {
     #[must_use]
     pub(crate) fn with_compatibility(compatibility: CompatibilityAssessment) -> Self {
-        Self {
-            compatibility,
-            installer: SystemDependencyInstaller,
-        }
+        Self { compatibility }
     }
 }
 
-impl<I: DependencyInstaller> DependencyCatalog<I> {
-    #[cfg(test)]
-    pub(crate) fn with_installer(compatibility: CompatibilityAssessment, installer: I) -> Self {
-        Self {
-            compatibility,
-            installer,
-        }
-    }
+impl DependencyCatalog {
     #[allow(clippy::unused_self)]
     #[must_use]
     pub fn doctor(&self) -> DoctorReport {
@@ -55,23 +39,6 @@ impl<I: DependencyInstaller> DependencyCatalog<I> {
     #[must_use]
     pub fn plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
         plan(request.provider, request.action)
-    }
-    #[must_use]
-    pub fn act(&self, request: &DependencyActionRequest) -> DependencyActionResult {
-        let plan = plan(request.provider, request.action);
-        let (state, detail) = if request.consent_granted {
-            match self.installer.execute(&invocation(request)) {
-                Ok(()) => (DependencyActionState::Completed, None),
-                Err(error) => (DependencyActionState::Failed, Some(error.to_string())),
-            }
-        } else {
-            (DependencyActionState::ConsentRequired, None)
-        };
-        DependencyActionResult {
-            plan,
-            state,
-            detail,
-        }
     }
 }
 pub(crate) fn doctor_report(
@@ -192,7 +159,7 @@ fn discover_node() -> DependencyStatus {
     }
 }
 
-fn plan(provider: DependencyProvider, action: gent_protocol::DependencyAction) -> DependencyPlan {
+fn plan(provider: DependencyProvider, action: DependencyAction) -> DependencyPlan {
     let instruction = match (provider, action) {
         (DependencyProvider::Claude, gent_protocol::DependencyAction::Install) => {
             "Use Anthropic's supported Claude Code installer after reviewing its terms."
@@ -207,10 +174,5 @@ fn plan(provider: DependencyProvider, action: gent_protocol::DependencyAction) -
             "Use OpenAI's supported Codex updater after reviewing its terms."
         }
     };
-    DependencyPlan {
-        provider,
-        action,
-        instruction: instruction.into(),
-        consent_required: true,
-    }
+    DependencyPlan::reviewed(provider, action, instruction, true)
 }

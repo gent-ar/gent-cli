@@ -73,12 +73,18 @@ enum DependencyCommand {
         provider: DependencyProvider,
         #[arg(long)]
         consent: bool,
+        /// Reuse this key to safely retry the exact action after an interrupted client session.
+        #[arg(long)]
+        idempotency_key: Option<String>,
     },
     /// Confirm and run a reviewed public-provider updater.
     Update {
         provider: DependencyProvider,
         #[arg(long)]
         consent: bool,
+        /// Reuse this key to safely retry the exact action after an interrupted client session.
+        #[arg(long)]
+        idempotency_key: Option<String>,
     },
 }
 
@@ -106,27 +112,33 @@ mod tests {
     use gent_protocol::{DependencyAction, DependencyProvider, WireFrame};
 
     use super::{Args, CommandLine, ConversationCommand, DependencyCommand};
-    use crate::command_execution::dependency_frame;
+    use crate::command_execution::dependency_plan_frame;
 
     #[test]
     fn dependency_plan_is_read_only() {
         assert!(matches!(
-            dependency_frame(&DependencyCommand::Plan {
-                action: DependencyAction::Install,
-                provider: DependencyProvider::Claude,
-            }),
+            dependency_plan_frame(DependencyProvider::Claude, DependencyAction::Install),
             WireFrame::DependencyPlanRequest(_)
         ));
     }
 
     #[test]
-    fn dependency_install_requires_explicit_consent_flag() {
+    fn dependency_install_parses_a_retry_key() {
+        let args = Args::try_parse_from([
+            "gent",
+            "deps",
+            "install",
+            "codex",
+            "--consent",
+            "--idempotency-key",
+            "retry-1",
+        ])
+        .unwrap();
         assert!(matches!(
-            dependency_frame(&DependencyCommand::Install {
-                provider: DependencyProvider::Codex,
-                consent: false,
-            }),
-            WireFrame::DependencyActionRequest(request) if !request.consent_granted
+            args.command,
+            CommandLine::Deps {
+                action: DependencyCommand::Install { idempotency_key: Some(key), .. }
+            } if key == "retry-1"
         ));
     }
 

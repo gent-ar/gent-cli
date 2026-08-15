@@ -3,8 +3,11 @@
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-use gent_protocol::{Hello, Negotiated, WireFrame, read_frame, write_frame};
-use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX};
+use gent_protocol::{
+    DependencyActionResult, DependencyActionState, DependencyPlan, Hello, Negotiated, WireFrame,
+    read_frame, write_frame,
+};
+use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX, Receipt, ReceiptStatus};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
 
@@ -38,8 +41,37 @@ fn server(directory: &TempDir, connections: usize) -> Arc<Mutex<Vec<WireFrame>>>
             .await
             .unwrap();
             let request = read_frame(&mut stream).await.unwrap();
-            saved.lock().unwrap().push(request);
-            write_frame(&mut stream, &status()).await.unwrap();
+            saved.lock().unwrap().push(request.clone());
+            let response = match request {
+                WireFrame::DependencyPlanRequest(ref request) => {
+                    WireFrame::DependencyPlan(DependencyPlan::reviewed(
+                        request.provider,
+                        request.action,
+                        "review the vendor installer",
+                        true,
+                    ))
+                }
+                WireFrame::DependencyActionRequest(ref request) => {
+                    WireFrame::DependencyActionResult(DependencyActionResult {
+                        plan: DependencyPlan::reviewed(
+                            request.provider,
+                            request.action,
+                            "review the vendor installer",
+                            true,
+                        ),
+                        state: DependencyActionState::ConsentRequired,
+                        receipt: Receipt {
+                            receipt_id: request.receipt_id.clone(),
+                            idempotency_key: request.idempotency_key.clone(),
+                            status: ReceiptStatus::Rejected,
+                            host_epoch: request.host_epoch,
+                        },
+                        detail: None,
+                    })
+                }
+                _ => status(),
+            };
+            write_frame(&mut stream, &response).await.unwrap();
         }
     });
     received
@@ -60,13 +92,13 @@ fn run(directory: &TempDir, args: &[&str]) {
         "gent failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("hostEpoch"));
+    assert!(!output.stdout.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
     let directory = tempfile::tempdir().unwrap();
-    let received = server(&directory, 13);
+    let received = server(&directory, 17);
     for args in [
         &["doctor"][..],
         &["deps", "plan", "install", "claude"],
@@ -101,24 +133,28 @@ async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
     let received = received.lock().unwrap();
     assert!(matches!(received[0], WireFrame::DoctorRequest));
     assert!(matches!(received[1], WireFrame::DependencyPlanRequest(_)));
+    assert!(matches!(received[2], WireFrame::DependencyPlanRequest(_)));
+    assert!(matches!(received[3], WireFrame::StatusRequest));
     assert!(
-        matches!(received[2], WireFrame::DependencyActionRequest(ref request) if !request.consent_granted)
+        matches!(received[4], WireFrame::DependencyActionRequest(ref request) if !request.consent_granted && request.host_epoch == HostEpoch(7))
     );
+    assert!(matches!(received[5], WireFrame::DependencyPlanRequest(_)));
+    assert!(matches!(received[6], WireFrame::StatusRequest));
     assert!(
-        matches!(received[3], WireFrame::DependencyActionRequest(ref request) if request.consent_granted)
+        matches!(received[7], WireFrame::DependencyActionRequest(ref request) if request.consent_granted && request.host_epoch == HostEpoch(7))
     );
-    assert!(matches!(received[4], WireFrame::StatusRequest));
+    assert!(matches!(received[8], WireFrame::StatusRequest));
     assert!(matches!(
-        received[5],
+        received[9],
         WireFrame::Subscribe { after_cursor: 2 }
     ));
-    assert!(matches!(received[6], WireFrame::DecisionSubmit(_)));
-    for frame in &received[7..11] {
+    assert!(matches!(received[10], WireFrame::DecisionSubmit(_)));
+    for frame in &received[11..15] {
         assert!(matches!(frame, WireFrame::DecisionEvidence { .. }));
     }
-    assert!(matches!(received[11], WireFrame::StatusRequest));
+    assert!(matches!(received[15], WireFrame::StatusRequest));
     assert!(matches!(
-        received[12],
+        received[16],
         WireFrame::Command(ref command)
             if command.host_epoch == HostEpoch(7)
                 && command.idempotency_key == "submit-key"

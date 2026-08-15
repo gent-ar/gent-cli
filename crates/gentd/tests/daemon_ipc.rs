@@ -269,6 +269,10 @@ async fn observer_daemon_exposes_only_read_only_doctor_and_dependency_plans() {
                 provider: DependencyProvider::Codex,
                 action: DependencyAction::Update,
                 consent_granted: false,
+                receipt_id: gent_types::ReceiptId("dependency".into()),
+                idempotency_key: "dependency".into(),
+                host_epoch: HostEpoch(1),
+                reviewed_plan_digest: "reviewed".into(),
             }),
         )
         .await,
