@@ -68,7 +68,14 @@ try {
 finally {
     if ($null -ne $daemon -and -not $daemon.HasExited) {
         Stop-Process -Id $daemon.Id -Force
+        $daemon.WaitForExit(5000)
     }
-    if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+    if (Test-Path $dataDir) {
+        try {
+            Remove-Item -Recurse -Force $dataDir
+        } catch {
+            Write-Warning "could not remove smoke data directory: $dataDir"
+        }
+    }
     Pop-Location -ErrorAction SilentlyContinue
 }
