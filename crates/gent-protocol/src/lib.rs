@@ -7,14 +7,16 @@ use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event,
     EventSnapshot, HostStatus, Receipt,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
+mod conversation_status;
 mod decision;
 mod runs;
 
+pub use conversation_status::{CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame};
 pub use decision::{DecisionEvidence, DecisionSubmission};
 pub use runs::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
@@ -224,6 +226,21 @@ pub async fn write_frame<W>(writer: &mut W, frame: &WireFrame) -> io::Result<()>
 where
     W: AsyncWrite + Unpin,
 {
+    write_json_frame(writer, frame).await
+}
+
+/// Encodes and writes one bounded length-prefixed JSON value.
+///
+/// This is the generic framing primitive for additive local protocol endpoints. [`WireFrame`]
+/// retains its stable command/receipt/event contract through [`write_frame`].
+///
+/// # Errors
+/// Returns an I/O error when serialization or writing fails.
+pub async fn write_json_frame<W, T>(writer: &mut W, frame: &T) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+    T: Serialize,
+{
     let body = serde_json::to_vec(frame).map_err(io::Error::other)?;
     let length = u32::try_from(body.len()).map_err(|_| io::Error::other("frame too large"))?;
     writer.write_u32(length).await?;
@@ -238,6 +255,18 @@ where
 pub async fn read_frame<R>(reader: &mut R) -> io::Result<WireFrame>
 where
     R: AsyncRead + Unpin,
+{
+    read_json_frame(reader).await
+}
+
+/// Reads and decodes one bounded length-prefixed JSON value.
+///
+/// # Errors
+/// Returns an I/O error for malformed, oversized, or incomplete frames.
+pub async fn read_json_frame<R, T>(reader: &mut R) -> io::Result<T>
+where
+    R: AsyncRead + Unpin,
+    T: DeserializeOwned,
 {
     let length = reader.read_u32().await?;
     let length = usize::try_from(length).map_err(|_| io::Error::other("invalid frame length"))?;

@@ -1,7 +1,8 @@
 use gent_protocol::{
-    DecisionEvidence, DependencyAction, DependencyActionRequest, DependencyActionState,
-    DependencyPlan, DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome,
-    PublicRunResponse, PublicRunStartRequest, WireFrame, read_frame, write_frame,
+    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DecisionEvidence, DependencyAction,
+    DependencyActionRequest, DependencyActionState, DependencyPlan, DependencyPlanRequest,
+    DependencyProvider, Hello, PublicRunOutcome, PublicRunResponse, PublicRunStartRequest,
+    WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
 };
 use gent_types::{
     CapabilitySet, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, DoctorReport,
@@ -9,14 +10,19 @@ use gent_types::{
 };
 use tokio::io::duplex;
 
-use crate::transport::{RuntimeApi, serve_connection};
+use crate::api::RuntimeApi;
+use crate::transport::serve_connection;
 
 #[derive(Clone, Debug)]
 struct FakeRuntime;
 
 impl RuntimeApi for FakeRuntime {
     fn capabilities(&self) -> Result<CapabilitySet, String> {
-        Ok(CapabilitySet(vec!["event-resync".into(), "events".into()]))
+        Ok(CapabilitySet(vec![
+            CONVERSATION_STATUS_CAPABILITY.into(),
+            "event-resync".into(),
+            "events".into(),
+        ]))
     }
 
     fn status(&self) -> Result<HostStatus, String> {
@@ -116,6 +122,15 @@ impl RuntimeApi for FakeRuntime {
             outcome: PublicRunOutcome::Denied,
         })
     }
+    fn conversation_status(
+        &self,
+        conversation_id: &str,
+    ) -> Result<gent_types::ConversationStatus, String> {
+        Ok(gent_types::ConversationStatus {
+            conversation_id: conversation_id.into(),
+            runs: Vec::new(),
+        })
+    }
 }
 
 fn hello() -> WireFrame {
@@ -123,6 +138,14 @@ fn hello() -> WireFrame {
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
         capabilities: CapabilitySet(vec!["event-resync".into(), "events".into()]),
+    })
+}
+
+fn conversation_hello() -> WireFrame {
+    WireFrame::Hello(Hello {
+        protocol_min: PROTOCOL_MIN,
+        protocol_max: PROTOCOL_MAX,
+        capabilities: CapabilitySet(vec![CONVERSATION_STATUS_CAPABILITY.into()]),
     })
 }
 
@@ -137,6 +160,58 @@ async fn handshake_is_mandatory_before_requests() {
         matches!(read_frame(&mut client).await.unwrap(), WireFrame::Error { code, .. } if code == "handshakeRequired")
     );
     task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn conversation_status_uses_the_negotiated_extension_without_a_receipt() {
+    let (mut client, server) = duplex(1024);
+    let task = tokio::spawn(serve_connection(server, FakeRuntime));
+    write_frame(&mut client, &conversation_hello())
+        .await
+        .unwrap();
+    assert!(matches!(
+        read_frame(&mut client).await.unwrap(),
+        WireFrame::Negotiated(answer)
+            if answer.capabilities.0 == vec![CONVERSATION_STATUS_CAPABILITY]
+    ));
+    write_json_frame(
+        &mut client,
+        &ConversationStatusFrame::Request {
+            conversation_id: "conversation-1".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        read_json_frame::<_, ConversationStatusFrame>(&mut client)
+            .await
+            .unwrap(),
+        ConversationStatusFrame::Status(status) if status.conversation_id == "conversation-1"
+    ));
+    drop(client);
+    assert!(task.await.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn conversation_status_is_rejected_without_its_negotiated_capability() {
+    let (mut client, server) = duplex(1024);
+    let task = tokio::spawn(serve_connection(server, FakeRuntime));
+    write_frame(&mut client, &hello()).await.unwrap();
+    let _ = read_frame(&mut client).await.unwrap();
+    write_json_frame(
+        &mut client,
+        &ConversationStatusFrame::Request {
+            conversation_id: "conversation-1".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        read_frame(&mut client).await.unwrap(),
+        WireFrame::Error { code, .. } if code == "invalidCommand"
+    ));
+    drop(client);
+    assert!(task.await.unwrap().is_err());
 }
 
 #[tokio::test]

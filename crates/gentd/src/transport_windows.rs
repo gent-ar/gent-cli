@@ -2,7 +2,8 @@
 
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
-use crate::transport::{RuntimeApi, serve_connection};
+use crate::api::RuntimeApi;
+use crate::transport::serve_connection;
 
 /// Serves local named-pipe clients with one listener instance per pending client.
 pub(crate) async fn serve_named_pipe<R: RuntimeApi>(

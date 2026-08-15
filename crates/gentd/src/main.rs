@@ -1,3 +1,4 @@
+mod api;
 mod dependency_catalog;
 mod host_lock;
 mod transport;
@@ -20,8 +21,8 @@ use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{Coordinator, ProviderRunAuthority};
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
-    HostStatus, Receipt,
+    CapabilitySet, Command, ConversationStatus, DecisionCommand, DecisionSettlement, DoctorReport,
+    EventResume, HostStatus, Receipt,
 };
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -107,7 +108,7 @@ struct RuntimeFacade {
     provider_run_authority: ProviderRunAuthority,
 }
 
-impl transport::RuntimeApi for RuntimeFacade {
+impl api::RuntimeApi for RuntimeFacade {
     fn capabilities(&self) -> Result<CapabilitySet, String> {
         self.coordinator
             .status()
@@ -169,6 +170,11 @@ impl transport::RuntimeApi for RuntimeFacade {
         request: gent_protocol::PublicRunInterruptRequest,
     ) -> Result<gent_protocol::PublicRunResponse, String> {
         provider_run_denied(self.provider_run_authority, request.run_id)
+    }
+    fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String> {
+        self.coordinator
+            .conversation_status(conversation_id)
+            .map_err(|error| error.to_string())
     }
 }
 

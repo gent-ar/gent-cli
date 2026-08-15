@@ -29,6 +29,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Lease- and session-bound durable run lifecycle projections, with cursor-monotonic restart recovery.
 - [x] Durable immutable conversation → run → turn identity, provider-switch lineage, and monotonic turn lifecycle transitions.
 - [x] Read-only conversation status derivation from durable lineage and run projections, with no provider session disclosure.
+- [x] Capability-gated, same-socket `gent conversation status` transport; it creates no receipt and does not use command or event frames.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, process fakes, and locked public-process launching.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.

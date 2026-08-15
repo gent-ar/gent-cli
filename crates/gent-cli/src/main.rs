@@ -7,6 +7,7 @@ use gent_protocol::{
 use gent_types::{Command, ReceiptId};
 use serde_json::Value;
 
+mod conversation_status;
 mod decision;
 mod local_ipc;
 
@@ -38,6 +39,11 @@ enum CommandLine {
     Decision {
         #[command(subcommand)]
         action: DecisionCommandLine,
+    },
+    /// Read durable conversation, run, and active-turn status.
+    Conversation {
+        #[command(subcommand)]
+        action: ConversationCommand,
     },
     Status,
     Submit {
@@ -75,6 +81,14 @@ enum DependencyCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum ConversationCommand {
+    Status {
+        #[arg(long)]
+        conversation_id: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -100,6 +114,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &request(args.data_dir, args.no_autostart, decision_frame(&action)).await?,
             )?
         ),
+        CommandLine::Conversation { action } => match action {
+            ConversationCommand::Status { conversation_id } => println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &conversation_status::request(
+                        args.data_dir,
+                        args.no_autostart,
+                        conversation_id
+                    )
+                    .await?,
+                )?
+            ),
+        },
         CommandLine::Status => println!(
             "{}",
             serde_json::to_string_pretty(
@@ -186,9 +213,10 @@ fn dependency_action(
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
     use gent_protocol::{DependencyAction, DependencyProvider, WireFrame};
 
-    use super::{DependencyCommand, dependency_frame};
+    use super::{Args, CommandLine, ConversationCommand, DependencyCommand, dependency_frame};
 
     #[test]
     fn dependency_plan_is_read_only() {
@@ -209,6 +237,24 @@ mod tests {
                 consent: false,
             }),
             WireFrame::DependencyActionRequest(request) if !request.consent_granted
+        ));
+    }
+
+    #[test]
+    fn conversation_status_is_a_dedicated_read_only_command() {
+        let args = Args::try_parse_from([
+            "gent",
+            "conversation",
+            "status",
+            "--conversation-id",
+            "conversation-1",
+        ])
+        .unwrap();
+        assert!(matches!(
+            args.command,
+            CommandLine::Conversation {
+                action: ConversationCommand::Status { conversation_id }
+            } if conversation_id == "conversation-1"
         ));
     }
 }

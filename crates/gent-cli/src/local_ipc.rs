@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use gent_protocol::{Hello, WireFrame, read_frame, write_frame};
+use gent_protocol::{CONVERSATION_STATUS_CAPABILITY, Hello, WireFrame, read_frame, write_frame};
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -22,13 +22,7 @@ pub(crate) async fn request(
         &WireFrame::Hello(Hello {
             protocol_min: PROTOCOL_MIN,
             protocol_max: PROTOCOL_MAX,
-            capabilities: CapabilitySet(vec![
-                "decisions".into(),
-                "event-resync".into(),
-                "events".into(),
-                "host-epoch".into(),
-                "receipts".into(),
-            ]),
+            capabilities: client_capabilities(),
         }),
     )
     .await?;
@@ -45,12 +39,24 @@ pub(crate) async fn request(
     Ok(response)
 }
 
+#[must_use]
+pub(crate) fn client_capabilities() -> CapabilitySet {
+    CapabilitySet(vec![
+        CONVERSATION_STATUS_CAPABILITY.into(),
+        "decisions".into(),
+        "event-resync".into(),
+        "events".into(),
+        "host-epoch".into(),
+        "receipts".into(),
+    ])
+}
+
 #[cfg(unix)]
 type LocalStream = UnixStream;
 #[cfg(windows)]
 type LocalStream = NamedPipeClient;
 
-async fn connect_or_start(
+pub(crate) async fn connect_or_start(
     data_dir: &Path,
     no_autostart: bool,
 ) -> Result<LocalStream, Box<dyn std::error::Error>> {

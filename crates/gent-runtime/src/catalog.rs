@@ -1,5 +1,6 @@
 //! Capability-catalog reconciliation is pure: declarations must match observed behavior.
 
+use gent_protocol::CONVERSATION_STATUS_CAPABILITY;
 use gent_types::CapabilitySet;
 
 /// A capability the runtime may advertise after its transport proves a handler exists.
@@ -61,7 +62,11 @@ pub fn reconcile(declared: &CapabilitySet, observed: &CapabilitySet) -> Result<(
 /// Returns the one runtime-owned catalog eligible for wire advertisement.
 #[must_use]
 pub fn declared_capabilities() -> CapabilitySet {
-    capability_set(DECLARED)
+    let mut capabilities = capability_set(DECLARED);
+    capabilities
+        .0
+        .push(CONVERSATION_STATUS_CAPABILITY.to_owned());
+    capabilities
 }
 
 /// Converts typed handler observations into their stable wire representation.

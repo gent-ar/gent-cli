@@ -1,9 +1,11 @@
 use gent_protocol::{
-    DependencyAction, DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome,
-    PublicRunResponse, WireFrame, negotiate, read_frame, write_frame,
+    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DependencyAction,
+    DependencyPlanRequest, DependencyProvider, Hello, MAX_FRAME_BYTES, PublicRunOutcome,
+    PublicRunResponse, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
+    write_json_frame,
 };
 use gent_types::CapabilitySet;
-use tokio::io::duplex;
+use tokio::io::{AsyncWriteExt, duplex};
 
 #[test]
 fn negotiation_intersects_capabilities() {
@@ -35,6 +37,37 @@ async fn frames_round_trip_and_ignore_additive_fields() {
     assert_eq!(read_frame(&mut reader).await.unwrap(), frame);
     let body = br#"{"type":"hello","body":{"protocolMin":1,"protocolMax":1,"capabilities":[],"futureField":true}}"#;
     assert_eq!(serde_json::from_slice::<WireFrame>(body).unwrap(), frame);
+}
+
+#[tokio::test]
+async fn additive_conversation_frames_share_the_bounded_json_framing() {
+    let (mut writer, mut reader) = duplex(1024);
+    let frame = ConversationStatusFrame::Request {
+        conversation_id: "conversation-1".into(),
+    };
+    write_json_frame(&mut writer, &frame).await.unwrap();
+    assert_eq!(
+        read_json_frame::<_, ConversationStatusFrame>(&mut reader)
+            .await
+            .unwrap(),
+        frame
+    );
+
+    let (mut writer, mut reader) = duplex(16);
+    writer
+        .write_u32(u32::try_from(MAX_FRAME_BYTES + 1).unwrap())
+        .await
+        .unwrap();
+    assert!(
+        read_json_frame::<_, ConversationStatusFrame>(&mut reader)
+            .await
+            .is_err()
+    );
+}
+
+#[test]
+fn conversation_status_capability_is_an_explicit_wire_contract() {
+    assert_eq!(CONVERSATION_STATUS_CAPABILITY, "conversation-status-v1");
 }
 
 #[test]

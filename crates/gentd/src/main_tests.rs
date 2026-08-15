@@ -13,7 +13,7 @@ use gent_types::{
 };
 use serde_json::json;
 
-use crate::transport::RuntimeApi;
+use crate::api::RuntimeApi;
 
 use super::{
     RuntimeFacade, build_runtime, decision_evidence, decision_submission, provider_run_denied,
@@ -100,6 +100,13 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
             .unwrap()
             .outcome,
         PublicRunOutcome::Denied
+    );
+    assert_eq!(
+        runtime
+            .conversation_status("missing")
+            .unwrap()
+            .conversation_id,
+        "missing"
     );
 }
 
