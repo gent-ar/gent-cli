@@ -213,6 +213,20 @@ fn dispatcher_persists_reduced_driver_facts_but_ignores_process_local_retries() 
         .unwrap();
     assert_eq!(status.status.snapshot_cursor, 2);
     assert_eq!(
+        dispatcher
+            .record(
+                "driver-terminal".into(),
+                "run-a".into(),
+                "daemon-a",
+                HostEpoch(1),
+                &SessionEffect::Terminal {
+                    reason: "completed".into(),
+                },
+            )
+            .unwrap(),
+        None
+    );
+    assert_eq!(
         ledger
             .find_run_session_binding("run-a")
             .unwrap()
@@ -223,6 +237,6 @@ fn dispatcher_persists_reduced_driver_facts_but_ignores_process_local_retries() 
     let EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
         panic!("driver facts must remain cursor-resumable");
     };
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 3);
     assert!(!events[0].payload.to_string().contains("native-session"));
 }

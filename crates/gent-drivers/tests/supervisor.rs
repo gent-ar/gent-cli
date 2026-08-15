@@ -121,7 +121,10 @@ fn supervised_process_uses_bounded_frames_and_tree_interrupts() {
         supervisor.offer_frame(br#"{"type":"session_started","session_id":"s"}"#.to_vec()),
         OfferResult::Queued(ReadDirective::Continue)
     );
-    assert!(supervisor.drain_frame().0.is_empty());
+    assert!(matches!(
+        supervisor.drain_frame().0.as_slice(),
+        [SessionEffect::SessionStarted { provider_session_id }] if provider_session_id == "s"
+    ));
     assert_eq!(
         supervisor.offer_frame(br#"{"type":"output","text":"ok"}"#.to_vec()),
         OfferResult::Queued(ReadDirective::Continue)
@@ -166,7 +169,10 @@ fn stdout_chunks_reach_the_existing_session_reducer_in_order() {
         ),
         Ok(ReadDirective::Pause)
     );
-    assert!(supervisor.drain_frame().0.is_empty());
+    assert!(matches!(
+        supervisor.drain_frame().0.as_slice(),
+        [SessionEffect::SessionStarted { provider_session_id }] if provider_session_id == "s"
+    ));
     assert!(matches!(
         supervisor.drain_frame().0.as_slice(),
         [SessionEffect::Normalized { .. }]
@@ -207,7 +213,8 @@ fn system_stdout_reaches_the_reducer_through_the_bounded_process_queue() {
     }
     assert!(matches!(
         effects.as_slice(),
-        [SessionEffect::Normalized { .. }]
+        [SessionEffect::SessionStarted { provider_session_id }, SessionEffect::Normalized { .. }]
+            if provider_session_id == "s"
     ));
 }
 

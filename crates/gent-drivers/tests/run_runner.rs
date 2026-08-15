@@ -10,7 +10,7 @@ use gent_drivers::interrupt::{
 use gent_drivers::lock::capture;
 use gent_drivers::{
     DriverRunRunner, LaunchIntent, OutputLimits, ProcessLauncher, ProviderLaunch, ProviderProcess,
-    SupervisorError,
+    SessionEffect, SupervisorError,
 };
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
 use gent_testkit::{FakeProcess, FakeProcessSignal};
@@ -247,7 +247,12 @@ fn runner_polls_stdout_through_its_owned_supervisor() {
         br#"{"type":"session_started","session_id":"s"}
 "#,
     );
-    assert_eq!(runner.poll_stdout("output").unwrap(), Some(Vec::new()));
+    assert_eq!(
+        runner.poll_stdout("output").unwrap(),
+        Some(vec![SessionEffect::SessionStarted {
+            provider_session_id: "s".into(),
+        }])
+    );
     process.push_stdout(
         br#"{"type":"output","text":"ok"}
 "#,
