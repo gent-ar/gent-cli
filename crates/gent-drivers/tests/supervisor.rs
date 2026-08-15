@@ -12,8 +12,10 @@ use gent_drivers::interrupt::{
 use gent_drivers::lock::capture;
 use gent_drivers::{
     OutputLimits, ProcessLauncher, ProviderLaunch, ProviderProcess, ProviderSupervisor,
-    SessionEffect, SupervisorError, SystemLauncher, SystemProcess,
+    SessionEffect, SupervisorError,
 };
+#[cfg(unix)]
+use gent_drivers::{SystemLauncher, SystemProcess};
 
 #[derive(Debug, Default)]
 struct FakeProcess {
