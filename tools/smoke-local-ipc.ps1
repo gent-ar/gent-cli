@@ -13,21 +13,29 @@ function Assert-Equal([object]$actual, [object]$expected, [string]$label) {
 }
 
 function Invoke-Gent([string]$label, [string[]]$arguments) {
-    $stdout = Join-Path $dataDir "${label}.stdout"
-    $stderr = Join-Path $dataDir "${label}.stderr"
     $fullArguments = @("--no-autostart") + $arguments
-    $process = Start-Process -FilePath $gent -ArgumentList $fullArguments -PassThru -NoNewWindow `
-        -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $gent
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $fullArguments) {
+        $null = $startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $null = $process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
     if (-not $process.WaitForExit(10000)) {
-        Stop-Process -Id $process.Id -Force
+        $process.Kill($true)
         $daemonLog = Join-Path $dataDir "gentd.stderr"
         $details = if (Test-Path $daemonLog) { Get-Content -Raw $daemonLog } else { "no daemon log" }
         throw "${label} timed out; daemon stderr: $details"
     }
-    $process.Refresh()
-    $output = if (Test-Path $stdout) { Get-Content -Raw $stdout } else { "" }
+    $output = $stdoutTask.GetAwaiter().GetResult()
+    $errors = $stderrTask.GetAwaiter().GetResult()
     if ($process.ExitCode -ne 0) {
-        $errors = if (Test-Path $stderr) { Get-Content -Raw $stderr } else { "no stderr" }
         throw "${label} failed with exit $($process.ExitCode): $errors"
     }
     return $output
