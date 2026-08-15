@@ -1,5 +1,7 @@
 //! Coordinator orchestration over pure policy and durable ports.
 
+pub mod catalog;
+
 use gent_core::{Run, switch_provider};
 use gent_ports::{
     HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunRecord, WorktreeLease,
