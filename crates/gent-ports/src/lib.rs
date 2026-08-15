@@ -45,12 +45,10 @@ pub trait ProviderDriver: Send + Sync {
 /// represented separately by [`ExternalProviderBridge`] and cannot enter this lifecycle.
 pub trait PublicProviderRunner: Send + Sync {
     /// Starts a new process only after the caller has durably reserved its run.
-    ///
     /// # Errors
     /// Returns a changed-binary or launcher failure without silently substituting a provider.
     fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError>;
     /// Resumes a process only after the caller has re-established durable ownership.
-    ///
     /// # Errors
     /// Returns a changed-binary or launcher failure without silently substituting a provider.
     fn resume(
@@ -60,7 +58,6 @@ pub trait PublicProviderRunner: Send + Sync {
         session_id: &str,
     ) -> Result<(), PublicProviderRunError>;
     /// Interrupts the complete process tree currently owned by `run_id`.
-    ///
     /// # Errors
     /// Returns an error when no process is active or process-tree interruption fails.
     fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
@@ -159,7 +156,6 @@ pub enum LedgerError {
 /// Persistence boundary used by the coordinator. Implementations own durability, not policy.
 pub trait Ledger: Send + Sync {
     /// Returns the durable fence and whether it currently accepts mutation ingress.
-    ///
     /// # Errors
     /// Returns an error when durable state cannot be read.
     fn host_ingress(&self) -> Result<HostIngress, LedgerError>;
@@ -261,6 +257,9 @@ pub trait Ledger: Send + Sync {
     fn find_run_version_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, LedgerError>;
     /// Persists a provider-native session reported by the daemon for a durable run.
     /// It is idempotent only when identical; a conflicting binding is rejected.
+    ///
+    /// # Errors
+    /// Returns an error when binding persistence is unsupported or fails.
     fn save_run_session_binding(&self, binding: &RunSessionBinding) -> Result<(), LedgerError> {
         let _ = binding;
         Err(LedgerError::Invariant(
@@ -268,6 +267,9 @@ pub trait Ledger: Send + Sync {
         ))
     }
     /// Reads the daemon-owned provider session identity to use for resume.
+    ///
+    /// # Errors
+    /// Returns an error when the binding cannot be read.
     fn find_run_session_binding(
         &self,
         run_id: &str,
