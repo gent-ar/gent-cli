@@ -98,8 +98,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Versioned, content-free `ConversationActivity` DTOs and a pure conversation-scoped reducer
       with epoch/cursor fencing, terminal dominance, decision priority, descendant liveness, and
       stale-turn rejection. Complete reducer checkpoints are journaled and cursor-resumable per
-      conversation/run; the projection remains intentionally unadvertised and uncomposed by the
-      observer daemon.
+      conversation/run. An authority-gated runtime service fences facts before reduction and
+      persists exact reducer checkpoints; it remains intentionally unadvertised and uncomposed by
+      the observer daemon.
 - [x] Dedicated `conversation-activity-v1` snapshot/delta protocol frames bind reads to a
       conversation, run, and durable cursor. The observer daemon does not advertise or serve the
       capability because it has no authoritative provider fact ingress.

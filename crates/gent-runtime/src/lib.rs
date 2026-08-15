@@ -3,6 +3,7 @@ mod attachment_receipts;
 mod attachments;
 mod automation_executions;
 pub mod catalog;
+mod conversation_activity;
 mod conversation_content;
 mod conversation_prompts;
 mod conversations;
@@ -25,6 +26,9 @@ mod runtime_update_planner;
 mod tool_sources;
 mod workspaces;
 pub use attachments::AttachmentService;
+pub use conversation_activity::{
+    ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
+};
 pub use conversation_prompts::*;
 pub use dependency_actions::DependencyActionService;
 use gent_core::{Run, switch_provider};
