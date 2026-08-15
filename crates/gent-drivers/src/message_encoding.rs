@@ -25,7 +25,7 @@ pub fn encode_codex_handshake(request_id: u64) -> Result<Vec<Vec<u8>>, MessageEn
         return Err(MessageEncodingError::InvalidCodexRequestId);
     }
     Ok(vec![
-        encode_frame(json!({
+        encode_frame(&json!({
             "jsonrpc": "2.0",
             "id": request_id,
             "method": "initialize",
@@ -34,7 +34,7 @@ pub fn encode_codex_handshake(request_id: u64) -> Result<Vec<Vec<u8>>, MessageEn
                 "capabilities": {}
             }
         }))?,
-        encode_frame(json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}))?,
+        encode_frame(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}))?,
     ])
 }
 
@@ -64,7 +64,7 @@ pub fn encode_user_message(
         }
         _ => return Err(MessageEncodingError::SessionProviderMismatch),
     };
-    encode_frame(frame)
+    encode_frame(&frame)
 }
 
 fn prompt(command: &Command) -> Result<&str, MessageEncodingError> {
@@ -95,9 +95,8 @@ fn codex_frame(prompt: &str, thread_id: &str, request_id: u64) -> Value {
     })
 }
 
-fn encode_frame(frame: Value) -> Result<Vec<u8>, MessageEncodingError> {
-    let mut encoded =
-        serde_json::to_vec(&frame).map_err(|_| MessageEncodingError::Serialization)?;
+fn encode_frame(frame: &Value) -> Result<Vec<u8>, MessageEncodingError> {
+    let mut encoded = serde_json::to_vec(frame).map_err(|_| MessageEncodingError::Serialization)?;
     encoded.push(b'\n');
     Ok(encoded)
 }

@@ -63,9 +63,11 @@ fn claude_assistant(frame: &Value) -> Vec<PublicWireFact> {
         return diagnostic("malformedClaudeAssistant");
     };
     let facts: Vec<_> = content.iter().flat_map(claude_content).collect();
-    (!facts.is_empty())
-        .then_some(facts)
-        .unwrap_or_else(|| diagnostic("emptyClaudeAssistant"))
+    if facts.is_empty() {
+        diagnostic("emptyClaudeAssistant")
+    } else {
+        facts
+    }
 }
 
 fn claude_content(block: &Value) -> Vec<PublicWireFact> {
