@@ -145,6 +145,11 @@ only observes dependencies. The present daemon does not route or start live prov
 runs, MCP servers, Git operations, or network listeners. Pairing and automation
 execution are deliberately outside its protocol surface.
 
+On macOS and Linux, `gentd` creates its data directory with owner-only permissions
+and accepts a Unix socket only beneath that directory; the socket itself is also
+owner-only. This protects any future locally readable conversation content before it
+can be added to the protocol.
+
 ## License
 
 Apache-2.0. Gent is a trademark of its respective owner; this license grants

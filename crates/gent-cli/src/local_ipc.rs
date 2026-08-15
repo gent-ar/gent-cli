@@ -84,7 +84,6 @@ pub(crate) async fn connect_or_start(
     if no_autostart {
         return Err("gentd is unavailable and --no-autostart was requested".into());
     }
-    std::fs::create_dir_all(data_dir)?;
     let daemon = std::env::var_os("GENTD_BIN").map_or_else(default_daemon_binary, PathBuf::from);
     tokio::process::Command::new(daemon)
         .arg("--data-dir")

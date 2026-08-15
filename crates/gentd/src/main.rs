@@ -11,11 +11,14 @@ mod dependency_catalog;
 mod dependency_catalog_tests;
 mod event_stream;
 mod host_lock;
+#[cfg(unix)]
+mod private_paths;
 mod provider_effects;
 mod provider_resolver;
 #[cfg(test)]
 mod provider_resolver_tests;
 mod public_runs;
+mod startup;
 mod transport;
 #[cfg(test)]
 mod transport_decision_tests;
@@ -50,8 +53,6 @@ use gent_types::{
     DecisionSettlement, DoctorReport, EventResume, HostStatus, Receipt,
 };
 use std::path::PathBuf;
-#[cfg(unix)]
-use tokio::net::UnixListener;
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
 struct Args {
@@ -73,14 +74,20 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let data_dir = args.data_dir.clone().unwrap_or_else(default_data_dir);
+    let data_dir = args
+        .data_dir
+        .clone()
+        .unwrap_or_else(startup::default_data_dir);
+    #[cfg(unix)]
+    private_paths::prepare_data_dir(&data_dir)?;
+    #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
     let observed_capabilities = transport::observed_capabilities();
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
         &args.compatibility_keys,
-        unix_seconds(),
+        startup::unix_seconds(),
     );
     let runtime = build_runtime(&data_dir, &observed_capabilities, compatibility)?;
     serve_local(runtime, &args, &data_dir).await
@@ -121,7 +128,7 @@ async fn serve_local(
         .socket
         .clone()
         .unwrap_or_else(|| data_dir.join("gentd.sock"));
-    transport::serve(UnixListener::bind(socket)?, runtime).await
+    transport::serve(private_paths::bind_socket(data_dir, &socket)?, runtime).await
 }
 
 #[cfg(windows)]
@@ -280,19 +287,6 @@ const fn decision_recovery(evidence: DecisionRecoveryEvidence) -> CoreDecisionEv
         }
         DecisionRecoveryEvidence::RecoveryRequired => CoreDecisionEvidence::RecoveryRequired,
     }
-}
-
-fn default_data_dir() -> PathBuf {
-    directories::ProjectDirs::from("ar", "Gent", "Gent").map_or_else(
-        || PathBuf::from(".gent"),
-        |directories| directories.data_local_dir().to_path_buf(),
-    )
-}
-
-fn unix_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
 }
 
 #[cfg(test)]

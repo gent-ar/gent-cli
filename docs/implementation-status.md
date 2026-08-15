@@ -87,6 +87,8 @@ not claim provider or app compatibility evidence that has not been recorded.
       and run counts; it is content-free discovery for a future terminal conversation browser.
 - [x] `gent` / `gent --conversations` read-only terminal shell with content-free local discovery,
       selection, disabled composer, and unavailable model/effort/mode controls in observer mode.
+- [x] Unix local-host privacy boundary: a non-symlink, owner-only daemon data directory and an
+      owner-only Unix socket constrained beneath it before the ledger is opened.
 - [x] Additive normalized lifecycle signals for root phase and explicit generation activity,
       subagent and command work, and attention; lease-owned durable projections preserve them.
       Waiting work is derived from activity rather than inferred from root phase.
@@ -152,6 +154,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       without Rust durable writes, mutation APIs, or worktree leases. The current
       standalone daemon's hard public-provider observer guard does not claim this.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
+- [ ] Versioned public `ConversationActivity` projection with durable activity sequence,
+      revision/cursor resume, app-compatible fallback, and complete lifecycle race coverage.
+- [ ] Signed, staged, health-checked `gentd` self-update with compatibility ranges, safe
+      rollback boundaries, and update-under-load recovery evidence.
 
 The coverage manifest blocks an authority-transfer invocation while its real
 evidence records are absent. This is deliberate: recorded provider evidence
