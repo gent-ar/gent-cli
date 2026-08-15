@@ -9,6 +9,7 @@ use gent_types::{
     PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(unix)]
 use tokio::net::UnixListener;
 
 const CAPABILITIES: &[&str] = &["decisions", "events", "host-epoch", "receipts"];
@@ -28,6 +29,7 @@ pub trait RuntimeApi: Clone + Send + Sync + 'static {
     ) -> Result<DecisionSettlement, String>;
 }
 
+#[cfg(unix)]
 pub async fn serve<R: RuntimeApi>(
     listener: UnixListener,
     runtime: R,
@@ -43,7 +45,7 @@ pub async fn serve<R: RuntimeApi>(
     }
 }
 
-async fn serve_connection<S, R>(
+pub(crate) async fn serve_connection<S, R>(
     mut stream: S,
     runtime: R,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>

@@ -1,6 +1,10 @@
 mod dependency_catalog;
 mod host_lock;
 mod transport;
+#[cfg(windows)]
+mod transport_windows;
+#[cfg(all(test, windows))]
+mod transport_windows_tests;
 
 use std::path::PathBuf;
 
@@ -16,6 +20,7 @@ use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
     Receipt,
 };
+#[cfg(unix)]
 use tokio::net::UnixListener;
 
 use crate::dependency_catalog::DependencyCatalog;
@@ -25,10 +30,11 @@ const CAPABILITIES: &[&str] = &["decisions", "events", "host-epoch", "receipts"]
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
 struct Args {
-    /// Directory containing the socket and durable `SQLite` ledger.
+    /// Directory containing the local IPC endpoint and durable `SQLite` ledger.
     #[arg(long, env = "GENT_DATA_DIR")]
     data_dir: Option<PathBuf>,
-    /// Explicit Unix socket path, primarily for supervised launches and tests.
+    /// Explicit Unix socket path, primarily for supervised Unix launches and tests.
+    #[cfg(unix)]
     #[arg(long)]
     socket: Option<PathBuf>,
 }
@@ -36,11 +42,9 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
+    let data_dir = args.data_dir.clone().unwrap_or_else(default_data_dir);
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
-    let socket = args.socket.unwrap_or_else(|| data_dir.join("gentd.sock"));
-    let listener = UnixListener::bind(socket)?;
     let runtime = RuntimeFacade {
         coordinator: Coordinator::new(
             SqliteLedger::open(data_dir.join("gent.db"))?,
@@ -48,7 +52,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         dependencies: DependencyCatalog,
     };
-    transport::serve(listener, runtime).await
+    serve_local(runtime, &args, &data_dir).await
+}
+
+#[cfg(unix)]
+async fn serve_local(
+    runtime: RuntimeFacade,
+    args: &Args,
+    data_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let socket = args
+        .socket
+        .clone()
+        .unwrap_or_else(|| data_dir.join("gentd.sock"));
+    transport::serve(UnixListener::bind(socket)?, runtime).await
+}
+
+#[cfg(windows)]
+async fn serve_local(
+    runtime: RuntimeFacade,
+    _: &Args,
+    data_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    transport_windows::serve_named_pipe(&pipe_name(data_dir), runtime).await
+}
+
+#[cfg(windows)]
+fn pipe_name(data_dir: &std::path::Path) -> String {
+    format!(r"\\.\pipe\gentd-{:016x}", endpoint_hash(data_dir))
+}
+
+#[cfg(windows)]
+fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
+    data_dir
+        .to_string_lossy()
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
 }
 
 #[derive(Clone, Debug)]

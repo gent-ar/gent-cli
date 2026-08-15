@@ -9,7 +9,8 @@ and a thin `gent` command-line client.
 The repository is intentionally beginning with the runtime boundary, rather
 than a second copy of application logic. The implemented vertical slice is:
 
-- `gentd`: a supervised local daemon using a Unix socket on macOS/Linux.
+- `gentd`: a supervised local daemon using a Unix socket on macOS/Linux and a
+  named pipe on Windows.
 - `gent`: a protocol-only client that starts a local daemon on demand.
 - Version negotiation, capability intersection, host-epoch fences,
   idempotent command receipts and cursor-ordered durable events.

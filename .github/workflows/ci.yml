@@ -14,8 +14,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows needs its named-pipe transport before it can be a supported host target.
-        os: [macos-latest, ubuntu-latest]
+        include:
+          - os: macos-latest
+            smoke: bash tools/smoke-local-ipc.sh
+          - os: ubuntu-latest
+            smoke: bash tools/smoke-local-ipc.sh
+          - os: windows-latest
+            smoke: powershell -ExecutionPolicy Bypass -File tools/smoke-local-ipc.ps1
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -27,4 +32,4 @@ jobs:
       - run: cargo run --quiet -p gent-testkit --bin validate-coverage-manifest -- fixtures/coverage-manifest.yml
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
-      - run: bash tools/smoke-local-ipc.sh
+      - run: ${{ matrix.smoke }}
