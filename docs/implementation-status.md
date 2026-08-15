@@ -19,6 +19,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Pure run-lineage, cursor-deduplicated lifecycle projection, and live-status reducers.
 - [x] Pure, content-safe legacy lifecycle shadow comparator and a read-only legacy-tap port;
       it is not composed into `gentd` and has no legacy-host or provider evidence yet.
+- [x] Ephemeral read-only legacy-tap polling service that blocks further projection advancement
+      at the first divergence; it owns no SQLite ledger, IPC mutation surface, or process work.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
 - [x] Durable SQLite decision settlement with restart-safe terminal outcomes and optimistic contention handling.
 - [x] Protocol-only CLI status/events/submit and read-only doctor discovery.

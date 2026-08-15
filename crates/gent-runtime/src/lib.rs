@@ -6,6 +6,7 @@ mod conversations;
 mod decisions;
 mod events;
 mod git_operations;
+mod legacy_observer;
 mod policies;
 mod public_runs;
 mod run_checkpoints;
@@ -22,6 +23,7 @@ use gent_types::{
     CapabilitySet, Command, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptStatus,
     RunVersionLock,
 };
+pub use legacy_observer::{LegacyObserver, ObserverPoll};
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
 #[derive(Clone, Debug)]
@@ -43,6 +45,8 @@ pub enum RuntimeError {
     ProviderRun(#[from] gent_ports::PublicProviderRunError),
     #[error(transparent)]
     Core(#[from] gent_core::CoreError),
+    #[error(transparent)]
+    Port(#[from] gent_ports::PortError),
 }
 impl<L: Ledger> Coordinator<L> {
     #[must_use]
@@ -52,7 +56,6 @@ impl<L: Ledger> Coordinator<L> {
             capabilities,
         }
     }
-
     /// Returns the negotiated host state.
     /// # Errors
     /// Returns an error when the durable host state cannot be read.
@@ -64,7 +67,6 @@ impl<L: Ledger> Coordinator<L> {
             capabilities: self.capabilities.clone(),
         })
     }
-
     /// Atomically accepts one command, or returns the already durable receipt for its key.
     /// # Errors
     /// Returns an error when the host fence rejects ingress or durable persistence fails.
@@ -97,14 +99,12 @@ impl<L: Ledger> Coordinator<L> {
             .ledger
             .settle_receipt(&receipt.idempotency_key, status, &terminal)?)
     }
-
     /// Closes mutation ingress as the first half of an authority transfer.
     /// # Errors
     /// Returns an error when the caller no longer owns the active epoch.
     pub fn close_ingress(&self, epoch: gent_types::HostEpoch) -> Result<HostIngress, RuntimeError> {
         Ok(self.ledger.close_ingress(epoch)?)
     }
-
     /// Fences the old writer and opens the successor epoch in one durable operation.
     ///
     /// # Errors
