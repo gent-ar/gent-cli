@@ -40,13 +40,17 @@ async fn daemon() -> Daemon {
         .spawn()
         .unwrap();
     let socket = directory.path().join("gentd.sock");
-    for _ in 0..40 {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
         if UnixStream::connect(&socket).await.is_ok() {
             return Daemon {
                 child,
                 _directory: directory,
                 socket,
             };
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("gentd exited before creating its local socket: {status}");
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }

@@ -3,7 +3,7 @@ use std::fs;
 use serde_yaml::{Mapping, Value};
 use tempfile::TempDir;
 
-use super::driver_link::validate_record_link;
+use super::driver_link::{manifest_path, validate_record_link};
 use crate::{PUBLIC_PROVIDERS, REQUIRED_SCENARIOS};
 
 fn live_metadata(vendor: &str, scenario: &str, status: &str) -> String {
@@ -105,4 +105,52 @@ fn authority_record_rejects_absent_or_mismatched_transcripts() {
             .unwrap_err()
             .contains("cliVersion does not match")
     );
+}
+
+#[test]
+fn links_reject_missing_manifests_and_unsafe_transcript_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let manifest = write_inventory(&directory);
+    assert!(
+        validate_record_link(
+            &record("claude-full_turn.jsonl"),
+            "run",
+            directory.path(),
+            None
+        )
+        .unwrap_err()
+        .contains("has no public-driver manifest")
+    );
+    for path in ["../outside.jsonl", "/tmp/outside.jsonl", "missing.jsonl"] {
+        assert!(
+            validate_record_link(&record(path), "run", directory.path(), Some(&manifest)).is_err()
+        );
+    }
+}
+
+#[test]
+fn links_reject_metadata_mismatches_and_manifest_escape_attempts() {
+    let directory = tempfile::tempdir().unwrap();
+    let manifest = write_inventory(&directory);
+    for (field, value, expected) in [
+        ("provider", "codex", "vendor does not match"),
+        ("platform", "linux", "platform does not match"),
+        ("driver_transport", "json_rpc", "transport does not match"),
+    ] {
+        let mut changed = record("claude-full_turn.jsonl");
+        changed.insert(Value::String(field.into()), Value::String(value.into()));
+        assert!(
+            validate_record_link(&changed, "run", directory.path(), Some(&manifest))
+                .unwrap_err()
+                .contains(expected)
+        );
+    }
+    let empty = Mapping::new();
+    assert_eq!(manifest_path(&empty, directory.path()).unwrap(), None);
+    for path in ["../manifest.yml", "/tmp/manifest.yml", "missing.yml"] {
+        let pointer =
+            serde_yaml::from_str::<Value>(&format!("public_driver_transcript_manifest: {path}"))
+                .unwrap();
+        assert!(manifest_path(pointer.as_mapping().unwrap(), directory.path()).is_err());
+    }
 }

@@ -242,3 +242,7 @@ fn validate_paths(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../evidence_manifest_records_coverage_tests.rs"]
+mod coverage_tests;
