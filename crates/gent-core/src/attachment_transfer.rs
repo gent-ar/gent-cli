@@ -51,6 +51,25 @@ pub fn validate_attachment(metadata: &AttachmentMetadata) -> Result<(), Attachme
     Ok(())
 }
 
+/// Validates the transfer-owned staging identity separately from the final content address.
+///
+/// # Errors
+/// Returns an error when the staging identity is not a compact opaque token.
+pub fn validate_staging_key(value: &str) -> Result<(), AttachmentError> {
+    let Some(token) = value.strip_prefix("staging/") else {
+        return Err(AttachmentError::Metadata("staging key"));
+    };
+    if token.is_empty()
+        || token.len() > 128
+        || !token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err(AttachmentError::Metadata("staging key"));
+    }
+    Ok(())
+}
+
 /// Checks one sequential chunk without inspecting its bytes.
 ///
 /// # Errors
@@ -125,7 +144,7 @@ mod tests {
         AttachmentMetadata, AttachmentState, AttachmentTransfer, HostEpoch, ReceiptId,
     };
 
-    use super::{AttachmentError, accept_chunk, commit, validate_attachment};
+    use super::{AttachmentError, accept_chunk, commit, validate_attachment, validate_staging_key};
 
     fn transfer() -> AttachmentTransfer {
         AttachmentTransfer {
@@ -137,6 +156,7 @@ mod tests {
                 digest_sha256: "a".repeat(64),
                 storage_key: format!("sha256/{}", "a".repeat(64)),
             },
+            staging_key: "staging/attachment-1".into(),
             receipt_id: ReceiptId("receipt-1".into()),
             idempotency_key: "attachment-1".into(),
             host_epoch: HostEpoch(1),
@@ -153,6 +173,8 @@ mod tests {
         value.display_name = "notes.txt".into();
         value.storage_key = "tmp/notes".into();
         assert!(validate_attachment(&value).is_err());
+        assert!(validate_staging_key("/tmp/notes").is_err());
+        assert!(validate_staging_key("staging/attachment-1").is_ok());
     }
 
     #[test]

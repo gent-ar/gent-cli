@@ -26,7 +26,7 @@ impl FileAttachmentBlobs {
     }
 
     fn staging(&self, key: &str) -> Result<PathBuf, LedgerError> {
-        Ok(self.root.join("staging").join(digest(key)?))
+        Ok(self.root.join("staging").join(staging_name(key)?))
     }
     fn final_path(&self, key: &str) -> Result<PathBuf, LedgerError> {
         Ok(self.root.join("blobs").join(digest(key)?))
@@ -36,11 +36,11 @@ impl FileAttachmentBlobs {
 impl AttachmentBlobStore for FileAttachmentBlobs {
     fn append_attachment_chunk(
         &self,
-        key: &str,
+        staging_key: &str,
         offset: u64,
         bytes: &[u8],
     ) -> Result<(), LedgerError> {
-        let path = self.staging(key)?;
+        let path = self.staging(staging_key)?;
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -77,12 +77,16 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
         file.sync_data().map_err(io_error)
     }
 
-    fn attachment_digest(&self, key: &str) -> Result<(u64, String), LedgerError> {
-        let staging = self.staging(key)?;
+    fn attachment_digest(
+        &self,
+        staging_key: &str,
+        storage_key: &str,
+    ) -> Result<(u64, String), LedgerError> {
+        let staging = self.staging(staging_key)?;
         let path = if staging.exists() {
             staging
         } else {
-            self.final_path(key)?
+            self.final_path(storage_key)?
         };
         let mut file = File::open(path).map_err(io_error)?;
         let mut digest = Sha256::new();
@@ -104,11 +108,15 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
         Ok((size, format!("{:x}", digest.finalize())))
     }
 
-    fn commit_attachment_blob(&self, key: &str) -> Result<(), LedgerError> {
-        let staging = self.staging(key)?;
-        let final_path = self.final_path(key)?;
+    fn commit_attachment_blob(
+        &self,
+        staging_key: &str,
+        storage_key: &str,
+    ) -> Result<(), LedgerError> {
+        let staging = self.staging(staging_key)?;
+        let final_path = self.final_path(storage_key)?;
         if final_path.exists() {
-            verify_digest(&final_path, digest(key)?)?;
+            verify_digest(&final_path, digest(storage_key)?)?;
             if staging.exists() {
                 fs::remove_file(staging).map_err(io_error)?;
             }
@@ -117,12 +125,26 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
         match fs::hard_link(&staging, &final_path) {
             Ok(()) => fs::remove_file(staging).map_err(io_error),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                verify_digest(&final_path, digest(key)?)?;
+                verify_digest(&final_path, digest(storage_key)?)?;
                 fs::remove_file(staging).map_err(io_error)
             }
             Err(error) => Err(io_error(error)),
         }
     }
+}
+
+fn staging_name(key: &str) -> Result<&str, LedgerError> {
+    if let Some(name) = key.strip_prefix("staging/")
+        && !name.is_empty()
+        && name.len() <= 128
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Ok(name);
+    }
+    // Migration 14 preserves the v13 address for interrupted legacy transfers.
+    digest(key)
 }
 
 fn digest(key: &str) -> Result<&str, LedgerError> {
@@ -180,11 +202,12 @@ mod tests {
         let digest = format!("{:x}", Sha256::digest(bytes));
         let key = format!("sha256/{digest}");
         let store = FileAttachmentBlobs::open(directory.path()).unwrap();
-        store.append_attachment_chunk(&key, 0, b"he").unwrap();
-        store.append_attachment_chunk(&key, 0, b"he").unwrap();
-        store.append_attachment_chunk(&key, 2, b"llo").unwrap();
-        assert_eq!(store.attachment_digest(&key).unwrap(), (5, digest));
-        store.commit_attachment_blob(&key).unwrap();
+        let staging = "staging/attachment-1";
+        store.append_attachment_chunk(staging, 0, b"he").unwrap();
+        store.append_attachment_chunk(staging, 0, b"he").unwrap();
+        store.append_attachment_chunk(staging, 2, b"llo").unwrap();
+        assert_eq!(store.attachment_digest(staging, &key).unwrap(), (5, digest));
+        store.commit_attachment_blob(staging, &key).unwrap();
         assert!(directory.path().join("blobs").join(&key[7..]).exists());
     }
 }

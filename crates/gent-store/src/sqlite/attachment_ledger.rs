@@ -33,8 +33,8 @@ impl AttachmentLedger for SqliteLedger {
             };
         }
         connection.execute(
-            "INSERT INTO attachments (attachment_id, idempotency_key, receipt_id, host_epoch, state, received_bytes, display_name, media_type, byte_len, digest_sha256, storage_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![transfer.metadata.attachment_id, transfer.idempotency_key, transfer.receipt_id.0, transfer.host_epoch.0, state(transfer.state), transfer.received_bytes, transfer.metadata.display_name, transfer.metadata.media_type, transfer.metadata.byte_len, transfer.metadata.digest_sha256, transfer.metadata.storage_key],
+            "INSERT INTO attachments (attachment_id, idempotency_key, receipt_id, host_epoch, state, received_bytes, display_name, media_type, byte_len, digest_sha256, storage_key, staging_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![transfer.metadata.attachment_id, transfer.idempotency_key, transfer.receipt_id.0, transfer.host_epoch.0, state(transfer.state), transfer.received_bytes, transfer.metadata.display_name, transfer.metadata.media_type, transfer.metadata.byte_len, transfer.metadata.digest_sha256, transfer.metadata.storage_key, transfer.staging_key],
         ).map_err(storage_error)?;
         Ok(AttachmentClaim::Created(transfer.clone()))
     }
@@ -46,6 +46,7 @@ impl AttachmentLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         if expected.metadata != next.metadata
             || expected.receipt_id != next.receipt_id
+            || expected.staging_key != next.staging_key
             || expected.idempotency_key != next.idempotency_key
             || expected.host_epoch != next.host_epoch
         {
@@ -111,13 +112,13 @@ fn find(
     connection: &rusqlite::Connection,
     attachment_id: &str,
 ) -> Result<Option<AttachmentTransfer>, LedgerError> {
-    connection.query_row("SELECT attachment_id, display_name, media_type, byte_len, digest_sha256, storage_key, receipt_id, idempotency_key, host_epoch, state, received_bytes FROM attachments WHERE attachment_id = ?1", [attachment_id], decode).optional().map_err(storage_error)
+    connection.query_row("SELECT attachment_id, display_name, media_type, byte_len, digest_sha256, storage_key, staging_key, receipt_id, idempotency_key, host_epoch, state, received_bytes FROM attachments WHERE attachment_id = ?1", [attachment_id], decode).optional().map_err(storage_error)
 }
 fn find_by_key(
     connection: &rusqlite::Connection,
     key: &str,
 ) -> Result<Option<AttachmentTransfer>, LedgerError> {
-    connection.query_row("SELECT attachment_id, display_name, media_type, byte_len, digest_sha256, storage_key, receipt_id, idempotency_key, host_epoch, state, received_bytes FROM attachments WHERE idempotency_key = ?1", [key], decode).optional().map_err(storage_error)
+    connection.query_row("SELECT attachment_id, display_name, media_type, byte_len, digest_sha256, storage_key, staging_key, receipt_id, idempotency_key, host_epoch, state, received_bytes FROM attachments WHERE idempotency_key = ?1", [key], decode).optional().map_err(storage_error)
 }
 fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentTransfer> {
     Ok(AttachmentTransfer {
@@ -129,21 +130,23 @@ fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentTransfer> {
             digest_sha256: row.get(4)?,
             storage_key: row.get(5)?,
         },
-        receipt_id: ReceiptId(row.get(6)?),
-        idempotency_key: row.get(7)?,
-        host_epoch: HostEpoch(row.get(8)?),
-        state: match row.get::<_, String>(9)?.as_str() {
+        staging_key: row.get(6)?,
+        receipt_id: ReceiptId(row.get(7)?),
+        idempotency_key: row.get(8)?,
+        host_epoch: HostEpoch(row.get(9)?),
+        state: match row.get::<_, String>(10)?.as_str() {
             "uploading" => AttachmentState::Uploading,
             "available" => AttachmentState::Available,
             "rejected" => AttachmentState::Rejected,
             _ => return Err(rusqlite::Error::InvalidQuery),
         },
-        received_bytes: row.get(10)?,
+        received_bytes: row.get(11)?,
     })
 }
 fn same_identity(left: &AttachmentTransfer, right: &AttachmentTransfer) -> bool {
     left.metadata == right.metadata
         && left.receipt_id == right.receipt_id
+        && left.staging_key == right.staging_key
         && left.idempotency_key == right.idempotency_key
         && left.host_epoch == right.host_epoch
 }

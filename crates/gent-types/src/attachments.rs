@@ -32,6 +32,8 @@ pub struct AttachmentMetadata {
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentTransfer {
     pub metadata: AttachmentMetadata,
+    /// Opaque, transfer-owned staging identity; it is never a local path.
+    pub staging_key: String,
     pub receipt_id: ReceiptId,
     pub idempotency_key: String,
     pub host_epoch: HostEpoch,

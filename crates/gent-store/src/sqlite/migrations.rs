@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS automation_executions (
 
 const RUN_CHECKPOINTS: &str = include_str!("run_checkpoints.sql");
 const ATTACHMENTS: &str = include_str!("attachments.sql");
+const ATTACHMENT_TRANSFER_KEYS: &str = include_str!("attachment_transfer_keys.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -107,7 +108,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 13] = [
+const MIGRATIONS: [Migration; 14] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -159,6 +160,10 @@ const MIGRATIONS: [Migration; 13] = [
     Migration {
         version: 13,
         sql: ATTACHMENTS,
+    },
+    Migration {
+        version: 14,
+        sql: ATTACHMENT_TRANSFER_KEYS,
     },
 ];
 

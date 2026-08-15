@@ -9,6 +9,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Fifteen-crate Rust workspace with enforced dependency law.
 - [x] Protocol negotiation and bounded length-prefixed JSON local IPC.
 - [x] SQLite receipt/event ledger, idempotency, event cursors, and epoch checks.
+- [x] Durable local attachment staging with per-transfer opaque staging keys, fenced progress,
+      retry-safe final content promotion, and content-addressed deduplication; it is not exposed
+      through observer-mode `gentd` and does not imply provider attachment support.
 - [x] Durable event snapshots and transactional compaction with explicit stale-cursor resync.
 - [x] Versioned, checksummed, transactional SQLite migrations with legacy-ledger upgrade tests.
 - [x] Durable run and worktree lease arbitration with separate-connection contention tests.

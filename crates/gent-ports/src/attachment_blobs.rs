@@ -10,7 +10,7 @@ pub trait AttachmentBlobStore: Send + Sync {
     /// Returns an error for an out-of-order write, I/O failure, or unsafe opaque key.
     fn append_attachment_chunk(
         &self,
-        storage_key: &str,
+        staging_key: &str,
         offset: u64,
         bytes: &[u8],
     ) -> Result<(), LedgerError>;
@@ -19,11 +19,19 @@ pub trait AttachmentBlobStore: Send + Sync {
     ///
     /// # Errors
     /// Returns an error when the staged content does not exist or cannot be read.
-    fn attachment_digest(&self, storage_key: &str) -> Result<(u64, String), LedgerError>;
+    fn attachment_digest(
+        &self,
+        staging_key: &str,
+        storage_key: &str,
+    ) -> Result<(u64, String), LedgerError>;
 
     /// Atomically promotes checked staged content to its content-addressed immutable location.
     ///
     /// # Errors
     /// Returns an error when promotion cannot complete safely.
-    fn commit_attachment_blob(&self, storage_key: &str) -> Result<(), LedgerError>;
+    fn commit_attachment_blob(
+        &self,
+        staging_key: &str,
+        storage_key: &str,
+    ) -> Result<(), LedgerError>;
 }

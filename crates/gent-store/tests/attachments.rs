@@ -14,6 +14,7 @@ fn transfer() -> AttachmentTransfer {
             digest_sha256: "a".repeat(64),
             storage_key: format!("sha256/{}", "a".repeat(64)),
         },
+        staging_key: "staging/attachment-1".into(),
         receipt_id: ReceiptId("receipt-1".into()),
         idempotency_key: "attachment-1".into(),
         host_epoch: HostEpoch(1),

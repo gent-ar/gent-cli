@@ -2,7 +2,7 @@
 
 use gent_core::{
     IngressMode as CoreIngressMode, IngressState, accept_chunk, commit, validate_attachment,
-    validate_ingress,
+    validate_ingress, validate_staging_key,
 };
 use gent_ports::{AttachmentBlobStore, AttachmentClaim, AttachmentLedger, IngressMode, Ledger};
 use gent_types::{AttachmentState, AttachmentTransfer};
@@ -32,6 +32,8 @@ where
     /// Returns an error before writing bytes when metadata, epoch, or ingress is invalid.
     pub fn begin(&self, transfer: &AttachmentTransfer) -> Result<AttachmentTransfer, RuntimeError> {
         validate_attachment(&transfer.metadata)
+            .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
+        validate_staging_key(&transfer.staging_key)
             .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
         if transfer.state != AttachmentState::Uploading || transfer.received_bytes != 0 {
             return Err(gent_ports::LedgerError::Invariant(
@@ -66,13 +68,13 @@ where
             .map_err(|_| gent_ports::LedgerError::Invariant("chunk length overflow".into()))?;
         if offset.checked_add(byte_len) == Some(current.received_bytes) {
             self.blobs
-                .append_attachment_chunk(&current.metadata.storage_key, offset, bytes)?;
+                .append_attachment_chunk(&current.staging_key, offset, bytes)?;
             return Ok(current);
         }
         let next = accept_chunk(&current, offset, byte_len)
             .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
         self.blobs
-            .append_attachment_chunk(&current.metadata.storage_key, offset, bytes)?;
+            .append_attachment_chunk(&current.staging_key, offset, bytes)?;
         self.ledger.replace_attachment(&current, &next)?;
         Ok(next)
     }
@@ -91,7 +93,7 @@ where
         self.ensure_ingress(&current)?;
         let (size, digest) = self
             .blobs
-            .attachment_digest(&current.metadata.storage_key)?;
+            .attachment_digest(&current.staging_key, &current.metadata.storage_key)?;
         if size != current.received_bytes {
             return Err(gent_ports::LedgerError::Invariant(
                 "staged attachment size differs from durable progress".into(),
@@ -101,7 +103,7 @@ where
         let next = commit(&current, &digest)
             .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
         self.blobs
-            .commit_attachment_blob(&current.metadata.storage_key)?;
+            .commit_attachment_blob(&current.staging_key, &current.metadata.storage_key)?;
         self.ledger.replace_attachment(&current, &next)?;
         Ok(next)
     }

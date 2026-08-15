@@ -93,3 +93,44 @@ fn checksum_tampering_is_rejected_before_the_ledger_opens() {
 
     assert!(SqliteLedger::open(&path).is_err());
 }
+
+#[test]
+fn v13_attachment_uploads_gain_a_transfer_owned_staging_key() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("attachments-v13.db");
+    drop(SqliteLedger::open(&path).unwrap());
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE turn_attachments;
+             DROP TABLE attachments;
+             DELETE FROM schema_migrations WHERE version = 14;
+             CREATE TABLE attachments (
+                 attachment_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+                 receipt_id TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL, state TEXT NOT NULL,
+                 received_bytes INTEGER NOT NULL, display_name TEXT NOT NULL, media_type TEXT NOT NULL,
+                 byte_len INTEGER NOT NULL, digest_sha256 TEXT NOT NULL UNIQUE, storage_key TEXT NOT NULL UNIQUE
+             );
+             CREATE TABLE turn_attachments (
+                 turn_id TEXT NOT NULL REFERENCES turns(turn_id), attachment_id TEXT NOT NULL REFERENCES attachments(attachment_id),
+                 PRIMARY KEY (turn_id, attachment_id)
+             );
+             INSERT INTO attachments VALUES ('attachment-1', 'key-1', 'receipt-1', 1, 'uploading', 0,
+                 'notes.txt', 'text/plain', 4, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                 'sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');",
+        )
+        .unwrap();
+    drop(connection);
+    drop(SqliteLedger::open(&path).unwrap());
+    let reopened = Connection::open(path).unwrap();
+    assert_eq!(
+        reopened
+            .query_row(
+                "SELECT staging_key FROM attachments WHERE attachment_id = 'attachment-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+}
