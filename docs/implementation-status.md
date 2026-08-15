@@ -105,7 +105,7 @@ not claim provider or app compatibility evidence that has not been recorded.
       conversation, run, and durable cursor, with a bounded-delta snapshot fallback. A dedicated
       daemon adapter and protocol-only `gent conversation activity` reader exist, but the observer
       daemon does not advertise or serve the capability because it has no authoritative provider
-      fact ingress.
+      fact ingress. The reader rejects mixed-run, regressing, or internally inconsistent deltas.
 - [x] Content-free runtime-release metadata and a pure update eligibility/lifecycle reducer. It
       preserves a closed-ingress boundary for health, activation, and failure, and refuses rollback
       after a forward-only schema release. Runtime-owned Ed25519 trust, signer revocation, manifest

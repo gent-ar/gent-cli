@@ -55,23 +55,82 @@ pub(crate) async fn request(
     write_json_frame(
         &mut stream,
         &ConversationActivityFrame::Request {
-            conversation_id,
-            run_id,
+            conversation_id: conversation_id.clone(),
+            run_id: run_id.clone(),
             after_cursor,
         },
     )
     .await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(ConversationActivityFrame::Snapshot(activity)) = serde_json::from_value(raw.clone()) {
-        return Ok(ActivityRead::Snapshot(activity));
-    }
-    if let Ok(ConversationActivityFrame::Delta(activities)) = serde_json::from_value(raw.clone()) {
-        return Ok(ActivityRead::Delta(activities));
+    if let Ok(frame) = serde_json::from_value(raw.clone()) {
+        return decode(frame, &conversation_id, &run_id, after_cursor).map_err(Into::into);
     }
     if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
         return Err(message.into());
     }
     Err("daemon did not return conversation activity".into())
+}
+
+fn decode(
+    frame: ConversationActivityFrame,
+    conversation_id: &str,
+    run_id: &str,
+    after_cursor: u64,
+) -> Result<ActivityRead, String> {
+    match frame {
+        ConversationActivityFrame::Snapshot(activity) => {
+            validate_activity(&activity, conversation_id, run_id)?;
+            if activity.cursor < after_cursor {
+                return Err("daemon returned a stale activity snapshot".into());
+            }
+            Ok(ActivityRead::Snapshot(activity))
+        }
+        ConversationActivityFrame::Delta(activities) => {
+            validate_delta(&activities, conversation_id, run_id, after_cursor)?;
+            Ok(ActivityRead::Delta(activities))
+        }
+        ConversationActivityFrame::Request { .. } => {
+            Err("daemon returned an activity request instead of a response".into())
+        }
+    }
+}
+
+fn validate_delta(
+    activities: &[ConversationActivity],
+    conversation_id: &str,
+    run_id: &str,
+    after_cursor: u64,
+) -> Result<(), String> {
+    let mut cursor = after_cursor;
+    let mut previous: Option<&ConversationActivity> = None;
+    for activity in activities {
+        validate_activity(activity, conversation_id, run_id)?;
+        if activity.cursor <= cursor {
+            return Err("daemon returned non-monotonic activity cursors".into());
+        }
+        if let Some(previous) = previous {
+            if activity.revision <= previous.revision
+                || activity.activity_sequence <= previous.activity_sequence
+                || activity.host_epoch != previous.host_epoch
+            {
+                return Err("daemon returned an inconsistent activity delta".into());
+            }
+        }
+        cursor = activity.cursor;
+        previous = Some(activity);
+    }
+    Ok(())
+}
+
+fn validate_activity(
+    activity: &ConversationActivity,
+    conversation_id: &str,
+    run_id: &str,
+) -> Result<(), String> {
+    if activity.conversation_id != conversation_id || activity.run_id != run_id {
+        return Err("daemon returned activity for another conversation run".into());
+    }
+    Ok(())
 }
 
 fn default_data_dir() -> PathBuf {
@@ -180,6 +239,59 @@ mod tests {
             error
                 .to_string()
                 .contains("authoritative conversation activity")
+        );
+    }
+
+    #[test]
+    fn delta_requires_one_identity_and_strictly_increasing_activity_state() {
+        let first = activity();
+        let mut second = activity();
+        second.cursor = 10;
+        second.revision = 3;
+        second.activity_sequence = 3;
+        assert!(matches!(
+            decode(
+                ConversationActivityFrame::Delta(vec![first.clone(), second]),
+                "conversation-1",
+                "run-1",
+                8,
+            ),
+            Ok(ActivityRead::Delta(items)) if items.len() == 2
+        ));
+
+        assert!(
+            decode(
+                ConversationActivityFrame::Delta(vec![first, activity()]),
+                "conversation-1",
+                "run-1",
+                8,
+            )
+            .is_err()
+        );
+
+        let mut wrong_run = activity();
+        wrong_run.run_id = "other".into();
+        assert!(
+            decode(
+                ConversationActivityFrame::Delta(vec![wrong_run]),
+                "conversation-1",
+                "run-1",
+                8,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn snapshot_cannot_regress_the_client_cursor() {
+        assert!(
+            decode(
+                ConversationActivityFrame::Snapshot(activity()),
+                "conversation-1",
+                "run-1",
+                10,
+            )
+            .is_err()
         );
     }
 }
