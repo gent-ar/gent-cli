@@ -65,13 +65,15 @@ disabled. No client can use the future projection to bypass receipts, cursor
 resume, epoch fencing, or capability negotiation.
 
 The standalone release design may later let a compatible `gentd` self-update
-without rebuilding an app: only a signed, digest-verified, protocol/schema/
-app-range-compatible artifact may be staged; activation must drain or durably
-hand off work, pass a local health handshake and read-only probe, and retain a
-safe rollback path. A forward-only migration, revoked build, failed health
-probe, or incompatible app range must instead leave ingress closed in a clear
-read-only/update-required state. This is deliberately not implemented or
-advertised by the current observer daemon.
+without rebuilding an app: the runtime already verifies a versioned, signed
+release manifest and revalidates its offline cache before every use. Only a
+signed, digest-verified, protocol/schema/app-range-compatible artifact may be
+staged; activation must drain or durably hand off work, pass a local health
+handshake and read-only probe, and retain a safe rollback path. A forward-only
+migration, revoked build, failed health probe, or incompatible app range must
+instead leave ingress closed in a clear read-only/update-required state.
+Distribution, artifact staging, binary swap, and observer update APIs remain
+deliberately unimplemented and unadvertised.
 
 Device pairing, LAN transport, relay hosting, and application automations stay
 Flutter-app-owned. They do not grant a second coordinator or become `gentd`

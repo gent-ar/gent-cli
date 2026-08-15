@@ -1,0 +1,120 @@
+//! Runtime-owned verification for signed Gent release metadata.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use gent_types::{RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseManifest, SignedRuntimeRelease};
+
+/// Keyring and explicit signer-revocation state for runtime release verification.
+#[derive(Clone, Debug, Default)]
+pub struct RuntimeReleaseTrust {
+    trusted_keys: BTreeMap<String, VerifyingKey>,
+    revoked_keys: BTreeSet<String>,
+}
+
+/// Failure to establish runtime-release trust.
+#[derive(Debug, thiserror::Error)]
+pub enum RuntimeReleaseTrustError {
+    #[error("runtime release signer is not trusted")]
+    UnknownSigner,
+    #[error("runtime release signer has been revoked")]
+    RevokedSigner,
+    #[error("runtime release signature is malformed or invalid")]
+    InvalidSignature,
+    #[error("runtime release manifest serialization failed")]
+    Serialization(#[from] serde_json::Error),
+    #[error("runtime release manifest has expired")]
+    Expired,
+    #[error("runtime release manifest has been revoked")]
+    RevokedRelease,
+    #[error("runtime release manifest version is unsupported")]
+    UnsupportedManifestVersion,
+    #[error("runtime release rollout percentage is invalid")]
+    InvalidRollout,
+    #[error("runtime release artifact metadata is invalid")]
+    InvalidArtifact,
+    #[error("runtime release artifact digest is not a SHA-256 hex digest")]
+    InvalidDigest,
+}
+
+impl RuntimeReleaseTrust {
+    /// Builds a trust store from an explicit, public verification-key map.
+    #[must_use]
+    pub fn new(trusted_keys: BTreeMap<String, VerifyingKey>) -> Self {
+        Self {
+            trusted_keys,
+            revoked_keys: BTreeSet::new(),
+        }
+    }
+
+    /// Revokes a signer immediately, including previously cached releases.
+    pub fn revoke_signer(&mut self, key_id: impl Into<String>) {
+        self.revoked_keys.insert(key_id.into());
+    }
+
+    /// Verifies the envelope, signer, expiry, and safe manifest shape.
+    ///
+    /// # Errors
+    /// Returns an error when a release cannot be trusted for staging or activation.
+    pub fn verify_release(
+        &self,
+        release: &SignedRuntimeRelease,
+        now_unix_seconds: u64,
+    ) -> Result<(), RuntimeReleaseTrustError> {
+        let key = self
+            .trusted_keys
+            .get(&release.key_id)
+            .ok_or(RuntimeReleaseTrustError::UnknownSigner)?;
+        if self.revoked_keys.contains(&release.key_id) {
+            return Err(RuntimeReleaseTrustError::RevokedSigner);
+        }
+        verify_signature(key, release)?;
+        validate_manifest(&release.payload, now_unix_seconds)
+    }
+}
+
+fn verify_signature(
+    key: &VerifyingKey,
+    release: &SignedRuntimeRelease,
+) -> Result<(), RuntimeReleaseTrustError> {
+    let bytes = hex::decode(&release.signature_hex)
+        .map_err(|_| RuntimeReleaseTrustError::InvalidSignature)?;
+    let signature =
+        Signature::from_slice(&bytes).map_err(|_| RuntimeReleaseTrustError::InvalidSignature)?;
+    let payload = serde_json::to_vec(&release.payload)?;
+    key.verify(&payload, &signature)
+        .map_err(|_| RuntimeReleaseTrustError::InvalidSignature)
+}
+
+fn validate_manifest(
+    manifest: &RuntimeReleaseManifest,
+    now_unix_seconds: u64,
+) -> Result<(), RuntimeReleaseTrustError> {
+    if manifest.manifest_version != RUNTIME_RELEASE_MANIFEST_VERSION {
+        return Err(RuntimeReleaseTrustError::UnsupportedManifestVersion);
+    }
+    if manifest.expires_at_unix_seconds < now_unix_seconds {
+        return Err(RuntimeReleaseTrustError::Expired);
+    }
+    if manifest.revoked {
+        return Err(RuntimeReleaseTrustError::RevokedRelease);
+    }
+    if manifest.rollout_percent > 100 {
+        return Err(RuntimeReleaseTrustError::InvalidRollout);
+    }
+    if manifest.artifact.target.trim().is_empty()
+        || manifest.artifact.archive_name.trim().is_empty()
+        || manifest.artifact.size_bytes == 0
+    {
+        return Err(RuntimeReleaseTrustError::InvalidArtifact);
+    }
+    let digest = &manifest.artifact.digest_sha256;
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(RuntimeReleaseTrustError::InvalidDigest);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "runtime_release_trust_tests.rs"]
+mod tests;

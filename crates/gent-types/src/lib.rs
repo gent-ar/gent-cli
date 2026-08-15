@@ -71,9 +71,9 @@ pub use policies::{PolicyRecord, PolicyScope};
 pub use run_checkpoints::RunCheckpointRecord;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
 pub use runtime_update::{
-    RuntimeReleaseArtifact, RuntimeReleaseChannel, RuntimeReleaseManifest, RuntimeStagingReceipt,
-    RuntimeUpdateFailure, RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus,
-    RuntimeVersion, SignedRuntimeRelease,
+    RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseArtifact, RuntimeReleaseChannel,
+    RuntimeReleaseManifest, RuntimeStagingReceipt, RuntimeUpdateFailure, RuntimeUpdateRecord,
+    RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion, SignedRuntimeRelease,
 };
 pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};

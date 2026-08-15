@@ -2,6 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The only runtime release-manifest contract understood by this build.
+pub const RUNTIME_RELEASE_MANIFEST_VERSION: u16 = 1;
+
 /// A three-part Gent runtime or app version.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]

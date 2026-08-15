@@ -603,16 +603,20 @@ dependencies = [
 name = "gent-runtime"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
  "gent-core",
  "gent-drivers",
  "gent-ports",
  "gent-protocol",
  "gent-store",
  "gent-types",
+ "hex",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
