@@ -100,6 +100,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       stale-turn rejection. Complete reducer checkpoints are journaled and cursor-resumable per
       conversation/run; the projection remains intentionally unadvertised and uncomposed by the
       observer daemon.
+- [x] Content-free runtime-release metadata and a pure update eligibility/lifecycle reducer. It
+      requires a separately verified manifest, preserves a closed-ingress boundary for health,
+      activation, and failure, and refuses rollback after a forward-only schema release; it does
+      not yet verify signatures, stage artifacts, swap binaries, or advertise an update API.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not

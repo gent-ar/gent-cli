@@ -10,6 +10,7 @@ mod lifecycle_signal;
 mod lifecycle_state;
 mod observer_comparison;
 mod projection_snapshot;
+mod runtime_update;
 mod tool_classification;
 mod turn_lifecycle;
 pub use attachment_transfer::*;
@@ -29,6 +30,10 @@ pub use lifecycle_signal::project_lifecycle_signal;
 pub use lifecycle_state::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 pub use observer_comparison::{ObserverComparison, ObserverProjection, compare_legacy_tap};
 pub use projection_snapshot::{restore_projection, snapshot_projection};
+pub use runtime_update::{
+    RuntimeUpdateContext, RuntimeUpdateEligibility, RuntimeUpdateEvent, RuntimeUpdateIngress,
+    RuntimeUpdateTransition, assess_runtime_update, reduce_runtime_update,
+};
 pub use tool_classification::ToolCatalog;
 pub use turn_lifecycle::permits_turn_transition;
 
