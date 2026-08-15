@@ -28,6 +28,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Immutable, restart-safe provider-native session bindings; resume ignores the legacy client wire value.
 - [x] Lease- and session-bound durable run lifecycle projections, with cursor-monotonic restart recovery.
 - [x] Durable immutable conversation → run → turn identity, provider-switch lineage, and monotonic turn lifecycle transitions.
+- [x] Durable workspace → repository → worktree identities, deliberately separate from lease arbitration and Git execution.
 - [x] Read-only conversation status derivation from durable lineage and run projections, with no provider session disclosure.
 - [x] Durable title/recap provenance records: source turns, provider/model version, input digest,
       immutable lineage, and atomic supersession.

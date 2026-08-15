@@ -23,6 +23,8 @@ mod projections;
 mod queries;
 mod runs;
 mod snapshots;
+mod workspace_ledger;
+mod workspaces;
 use queries::{
     append_event, encode_status, find_lease, find_receipt, find_run, find_run_session_binding,
     find_run_version_lock, host_ingress, insert_lease, insert_receipt, replace_lease,

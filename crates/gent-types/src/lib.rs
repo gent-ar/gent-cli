@@ -12,6 +12,7 @@ mod doctor;
 mod event_resume;
 mod lifecycle_signal;
 mod run_projection;
+mod workspaces;
 
 pub use capability_catalog::CapabilityCatalogRecord;
 pub use conversation_artifact::{
@@ -28,6 +29,7 @@ pub use doctor::{
 pub use event_resume::{EventResume, EventSnapshot};
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
+pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;

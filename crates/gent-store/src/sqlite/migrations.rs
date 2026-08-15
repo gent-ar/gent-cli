@@ -49,13 +49,19 @@ const CAPABILITY_CATALOG: &str = "
 CREATE TABLE IF NOT EXISTS capability_catalog (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), schema_version INTEGER NOT NULL, capabilities TEXT NOT NULL);
 ";
 
+const WORKSPACE_HIERARCHY: &str = "
+CREATE TABLE IF NOT EXISTS workspaces (workspace_id TEXT PRIMARY KEY NOT NULL, canonical_path TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS repositories (repository_id TEXT PRIMARY KEY NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id), canonical_path TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS worktrees (worktree_id TEXT PRIMARY KEY NOT NULL, repository_id TEXT NOT NULL REFERENCES repositories(repository_id), canonical_path TEXT NOT NULL UNIQUE);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 6] = [
+const MIGRATIONS: [Migration; 7] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -79,6 +85,10 @@ const MIGRATIONS: [Migration; 6] = [
     Migration {
         version: 6,
         sql: CAPABILITY_CATALOG,
+    },
+    Migration {
+        version: 7,
+        sql: WORKSPACE_HIERARCHY,
     },
 ];
 

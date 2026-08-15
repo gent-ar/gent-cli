@@ -6,6 +6,7 @@ mod decisions;
 mod events;
 mod public_runs;
 mod run_projections;
+mod workspaces;
 
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;

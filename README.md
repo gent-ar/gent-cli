@@ -19,6 +19,8 @@ than a second copy of application logic. The implemented vertical slice is:
   `gent conversation status --conversation-id <id>` reads.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`.
+- Durable workspace → repository → worktree identities, stored independently from worktree
+  leases and any future Git execution.
 - Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question
   waits, subagent work, command work, and attention; these are durable status foundations, not
   a claim that a live provider is attached to the daemon.

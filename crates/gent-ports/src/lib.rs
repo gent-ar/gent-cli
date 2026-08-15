@@ -1,5 +1,4 @@
 //! Ports implemented by infrastructure or private integrations.
-
 use async_trait::async_trait;
 use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
@@ -11,6 +10,7 @@ mod conversation_ledger;
 mod external_provider_bridge;
 mod run_projections;
 mod run_sessions;
+mod workspace_ledger;
 pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
@@ -19,6 +19,7 @@ pub use external_provider_bridge::{
 };
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
+pub use workspace_ledger::WorkspaceLedger;
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
     #[error("provider bridge failure: {0}")]
@@ -40,7 +41,6 @@ pub enum PublicProviderRunError {
 pub trait ProviderDriver: Send + Sync {
     async fn submit(&self, command: Command) -> Result<(), PortError>;
 }
-
 /// Daemon-owned public provider lifecycle boundary.
 ///
 /// Implementations may only receive locks derived from Claude or Codex. Private bridges are
