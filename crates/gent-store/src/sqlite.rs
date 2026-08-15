@@ -14,6 +14,7 @@ use rusqlite::{Connection, params};
 
 mod decisions;
 mod leases;
+mod migrations;
 mod queries;
 mod runs;
 mod snapshots;
@@ -43,39 +44,17 @@ impl SqliteLedger {
     pub fn in_memory() -> Result<Self, LedgerError> {
         Self::from_connection(Connection::open_in_memory().map_err(storage_error)?)
     }
-    fn from_connection(connection: Connection) -> Result<Self, LedgerError> {
+    fn from_connection(mut connection: Connection) -> Result<Self, LedgerError> {
         connection
             .busy_timeout(Duration::from_secs(3))
             .map_err(storage_error)?;
-        let ledger = Self {
-            connection: Arc::new(Mutex::new(connection)),
-        };
-        ledger.initialize()?;
-        Ok(ledger)
-    }
-    fn initialize(&self) -> Result<(), LedgerError> {
-        let connection = self.lock()?;
-        connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;
-            CREATE TABLE IF NOT EXISTS host_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), epoch INTEGER NOT NULL, ingress TEXT NOT NULL DEFAULT 'open');
-            INSERT OR IGNORE INTO host_state (singleton, epoch, ingress) VALUES (1, 1, 'open');
-            CREATE TABLE IF NOT EXISTS receipts (idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, host_epoch INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS decisions (decision_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, phase TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS events (cursor INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, receipt_id TEXT NOT NULL, host_epoch INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS event_snapshots (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), cursor INTEGER NOT NULL, host_epoch INTEGER NOT NULL, schema_version INTEGER NOT NULL, payload TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY NOT NULL, parent_run_id TEXT REFERENCES runs(run_id), provider TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS run_version_locks (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), provider TEXT NOT NULL, canonical_path TEXT NOT NULL, file_identity TEXT NOT NULL, digest_sha256 TEXT NOT NULL, version TEXT NOT NULL, compatibility_entry TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS run_leases (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), coordinator_id TEXT NOT NULL, host_epoch INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS worktree_leases (worktree_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id), lease_token TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL);")
+        connection
+            .execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
             .map_err(storage_error)?;
-        if !queries::has_column(&connection, "host_state", "ingress")? {
-            connection
-                .execute(
-                    "ALTER TABLE host_state ADD COLUMN ingress TEXT NOT NULL DEFAULT 'open'",
-                    [],
-                )
-                .map_err(storage_error)?;
-        }
-        Ok(())
+        migrations::apply(&mut connection)?;
+        Ok(Self {
+            connection: Arc::new(Mutex::new(connection)),
+        })
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, LedgerError> {
         self.connection
