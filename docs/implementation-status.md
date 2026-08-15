@@ -47,6 +47,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, process fakes,
       locked public-process launching, and minimal Claude stream-JSON/Codex app-server launch specifications.
+- [x] Pure, session-bound NDJSON command encoding for documented Claude stream-JSON and Codex
+      app-server user-message frames; it validates only and does not write to a provider process.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
