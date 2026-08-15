@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use gent_protocol::{
-    CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
+    CONVERSATION_CONTENT_CAPABILITY, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, Hello, WireFrame, read_frame,
     write_frame,
 };
@@ -53,7 +53,7 @@ pub(crate) async fn connect_and_negotiate(
 
 #[must_use]
 pub(crate) fn client_capabilities() -> CapabilitySet {
-    CapabilitySet(vec![
+    let mut capabilities = vec![
         CONVERSATION_INDEX_CAPABILITY.into(),
         CONVERSATION_STATUS_CAPABILITY.into(),
         CONVERSATION_TIMELINE_CAPABILITY.into(),
@@ -63,7 +63,10 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         "events".into(),
         "host-epoch".into(),
         "receipts".into(),
-    ])
+    ];
+    #[cfg(unix)]
+    capabilities.push(CONVERSATION_CONTENT_CAPABILITY.into());
+    CapabilitySet(capabilities)
 }
 
 #[cfg(unix)]

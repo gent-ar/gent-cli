@@ -6,9 +6,9 @@ use gent_protocol::{
     PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
 };
 use gent_types::{
-    CapabilitySet, Command, ConversationListItem, ConversationStatus, ConversationTimeline,
-    DecisionCommand, DecisionSettlement, DoctorReport, EventResume, HostStatus, OnboardingState,
-    Receipt,
+    CapabilitySet, Command, ConversationContentCursor, ConversationContentPage,
+    ConversationListItem, ConversationStatus, ConversationTimeline, DecisionCommand,
+    DecisionSettlement, DoctorReport, EventResume, HostStatus, OnboardingState, Receipt,
 };
 
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
@@ -50,4 +50,12 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         Err("conversation discovery is unavailable for this runtime".into())
     }
     fn conversation_timeline(&self, conversation_id: &str) -> Result<ConversationTimeline, String>;
+    fn conversation_content(
+        &self,
+        _: &str,
+        _: Option<ConversationContentCursor>,
+        _: u16,
+    ) -> Result<ConversationContentPage, String> {
+        Err("conversation content is unavailable for this runtime".into())
+    }
 }

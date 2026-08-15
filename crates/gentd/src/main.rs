@@ -5,6 +5,7 @@ mod compatibility_assessment;
 #[cfg(test)]
 mod compatibility_lock_tests;
 mod conversation_transport;
+mod decision_mapping;
 mod dependency_actions;
 mod dependency_catalog;
 #[cfg(test)]
@@ -39,7 +40,6 @@ use crate::dependency_actions::SystemDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use clap::Parser;
-use gent_core::{DecisionCommandOutcome, DecisionEvidence as CoreDecisionEvidence};
 use gent_drivers::installer::SystemDependencyInstaller;
 use gent_protocol::{
     AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest,
@@ -49,8 +49,9 @@ use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{AttachmentService, Coordinator, DependencyActionService};
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::{
-    CapabilitySet, Command, ConversationStatus, ConversationTimeline, DecisionCommand,
-    DecisionSettlement, DoctorReport, EventResume, HostStatus, Receipt,
+    CapabilitySet, Command, ConversationContentCursor, ConversationContentPage, ConversationStatus,
+    ConversationTimeline, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
+    HostStatus, Receipt,
 };
 use std::path::PathBuf;
 #[derive(Debug, Parser)]
@@ -210,7 +211,7 @@ impl api::RuntimeApi for RuntimeFacade {
     fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String> {
         self.coordinator
             .submit_decision(command)
-            .map(decision_submission)
+            .map(decision_mapping::submission)
             .map_err(|error| error.to_string())
     }
     fn apply_decision_recovery(
@@ -219,7 +220,7 @@ impl api::RuntimeApi for RuntimeFacade {
         evidence: DecisionRecoveryEvidence,
     ) -> Result<DecisionSettlement, String> {
         self.coordinator
-            .apply_decision_evidence(&decision_id, decision_recovery(evidence))
+            .apply_decision_evidence(&decision_id, decision_mapping::recovery(evidence))
             .map_err(|error| error.to_string())
     }
     fn start_public_run(
@@ -261,34 +262,17 @@ impl api::RuntimeApi for RuntimeFacade {
             .conversation_timeline(conversation_id)
             .map_err(|error| error.to_string())
     }
-}
-
-fn decision_submission(outcome: DecisionCommandOutcome) -> DecisionSubmission {
-    match outcome {
-        DecisionCommandOutcome::Accepted(decision) => DecisionSubmission::Accepted(decision),
-        DecisionCommandOutcome::Duplicate(decision) => DecisionSubmission::Duplicate(decision),
-        DecisionCommandOutcome::IdempotencyConflict {
-            existing_decision_id,
-        } => DecisionSubmission::IdempotencyConflict {
-            existing_decision_id,
-        },
-        DecisionCommandOutcome::DecisionIdConflict {
-            existing_idempotency_key,
-        } => DecisionSubmission::DecisionIdConflict {
-            existing_idempotency_key,
-        },
+    fn conversation_content(
+        &self,
+        conversation_id: &str,
+        before: Option<ConversationContentCursor>,
+        limit: u16,
+    ) -> Result<ConversationContentPage, String> {
+        self.coordinator
+            .conversation_content(conversation_id, before.as_ref(), limit)
+            .map_err(|error| error.to_string())
     }
 }
-
-const fn decision_recovery(evidence: DecisionRecoveryEvidence) -> CoreDecisionEvidence {
-    match evidence {
-        DecisionRecoveryEvidence::AcknowledgementUnprovable => {
-            CoreDecisionEvidence::AcknowledgementUnprovable
-        }
-        DecisionRecoveryEvidence::RecoveryRequired => CoreDecisionEvidence::RecoveryRequired,
-    }
-}
-
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;

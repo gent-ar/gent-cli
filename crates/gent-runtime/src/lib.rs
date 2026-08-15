@@ -3,6 +3,7 @@ mod attachment_receipts;
 mod attachments;
 mod automation_executions;
 pub mod catalog;
+mod conversation_content;
 mod conversation_prompts;
 mod conversations;
 mod decisions;
@@ -212,7 +213,6 @@ mod tests {
             payload: json!({ "example": true }),
         }
     }
-
     #[test]
     fn acceptance_and_terminal_events_are_idempotent() {
         let ledger = SqliteLedger::in_memory().unwrap();

@@ -1,9 +1,9 @@
 //! Capability-gated, content-free conversation read extensions.
 
 use gent_protocol::{
-    CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
-    CONVERSATION_TIMELINE_CAPABILITY, ConversationIndexFrame, ConversationStatusFrame,
-    ConversationTimelineFrame, write_json_frame,
+    CONVERSATION_CONTENT_CAPABILITY, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
+    CONVERSATION_TIMELINE_CAPABILITY, ConversationContentFrame, ConversationIndexFrame,
+    ConversationStatusFrame, ConversationTimelineFrame, write_json_frame,
 };
 use gent_types::CapabilitySet;
 use serde_json::Value;
@@ -44,7 +44,35 @@ where
             return write_timeline(stream, runtime, &conversation_id).await;
         }
     }
+    if supports(capabilities, CONVERSATION_CONTENT_CAPABILITY) {
+        if let Ok(ConversationContentFrame::Request {
+            conversation_id,
+            before,
+            limit,
+        }) = serde_json::from_value(raw.clone())
+        {
+            return write_content(stream, runtime, &conversation_id, before, limit).await;
+        }
+    }
     Ok(false)
+}
+
+async fn write_content<S, R>(
+    stream: &mut S,
+    runtime: &R,
+    conversation_id: &str,
+    before: Option<gent_types::ConversationContentCursor>,
+    limit: u16,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>
+where
+    S: AsyncWrite + Unpin,
+    R: RuntimeApi,
+{
+    match runtime.conversation_content(conversation_id, before, limit) {
+        Ok(page) => write_json_frame(stream, &ConversationContentFrame::Page(page)).await?,
+        Err(message) => write_error(stream, "invalidRequest", &message).await?,
+    }
+    Ok(true)
 }
 
 async fn write_index<S, R>(

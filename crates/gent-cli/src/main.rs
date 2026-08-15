@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use gent_protocol::{DependencyAction, DependencyProvider};
 
 mod command_execution;
+mod conversation_content;
 mod conversation_index;
 mod conversation_status;
 mod conversation_timeline;
@@ -107,6 +108,15 @@ enum ConversationCommand {
     Timeline {
         #[arg(long)]
         conversation_id: String,
+    },
+    /// Read a bounded page of locally stored user prompts from protected IPC.
+    Content {
+        #[arg(long)]
+        conversation_id: String,
+        #[arg(long)]
+        before: Option<gent_types::ConversationContentCursor>,
+        #[arg(long, default_value_t = 50)]
+        limit: u16,
     },
 }
 

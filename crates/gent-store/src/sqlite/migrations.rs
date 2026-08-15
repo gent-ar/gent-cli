@@ -130,6 +130,8 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE INDEX IF NOT EXISTS conversation_messages_by_run ON conversation_messages (run_id);
 ";
 
+const CONVERSATION_CONTENT_ORDINALS: &str = include_str!("conversation_content_ordinals.sql");
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
@@ -140,7 +142,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 17] = [
+const MIGRATIONS: [Migration; 18] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -158,6 +160,7 @@ const MIGRATIONS: [Migration; 17] = [
     migration(15, RECEIPT_FINGERPRINTS),
     migration(16, MCP_CONNECTORS),
     migration(17, CONVERSATION_MESSAGES),
+    migration(18, CONVERSATION_CONTENT_ORDINALS),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

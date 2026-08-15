@@ -1,5 +1,9 @@
-use gent_ports::{ConversationLedger, ConversationPromptLedger, Ledger, ReceiptClaim};
-use gent_runtime::{ConversationPromptRequest, ConversationPromptService, ConversationPromptState};
+use gent_ports::{
+    ConversationContentReader, ConversationLedger, ConversationPromptLedger, Ledger, ReceiptClaim,
+};
+use gent_runtime::{
+    ConversationPromptRequest, ConversationPromptService, ConversationPromptState, Coordinator,
+};
 use gent_store::SqliteLedger;
 use gent_types::{Command, ConversationPrompt, ConversationRecord, Event, HostEpoch, ReceiptId};
 use serde_json::json;
@@ -124,5 +128,33 @@ fn invalid_hierarchy_rejects_without_message_or_turn() {
             .find_conversation_message("message-invalid")
             .unwrap()
             .is_none()
+    );
+}
+
+#[test]
+fn content_pages_are_newest_first_and_bound_to_one_conversation() {
+    let ledger = ledger_with_conversation();
+    let service = ConversationPromptService::new(ledger.clone(), true);
+    for (key, message, text) in [
+        ("one", "message-one", "first"),
+        ("two", "message-two", "second"),
+    ] {
+        service.submit(&request(key, message, text)).unwrap();
+    }
+    let page = ledger
+        .read_conversation_content("conversation", None, 1)
+        .unwrap();
+    assert_eq!(page.entries[0].text, "second");
+    let cursor = page.next_before.as_ref().unwrap();
+    let coordinator = Coordinator::new(ledger, gent_types::CapabilitySet::default());
+    let next = coordinator
+        .conversation_content("conversation", Some(cursor), 1)
+        .unwrap();
+    assert_eq!(next.entries[0].text, "first");
+    assert!(next.next_before.is_none());
+    assert!(
+        coordinator
+            .conversation_content("other", Some(cursor), 1)
+            .is_err()
     );
 }

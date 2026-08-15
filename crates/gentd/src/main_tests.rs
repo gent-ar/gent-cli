@@ -14,7 +14,8 @@ use serde_json::json;
 
 use crate::api::RuntimeApi;
 
-use super::{RuntimeFacade, build_runtime, decision_recovery, decision_submission};
+use super::{RuntimeFacade, build_runtime};
+use crate::decision_mapping::{recovery as decision_recovery, submission as decision_submission};
 
 fn runtime() -> (tempfile::TempDir, RuntimeFacade) {
     let directory = tempfile::tempdir().unwrap();

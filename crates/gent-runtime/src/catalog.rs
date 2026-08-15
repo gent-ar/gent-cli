@@ -2,8 +2,8 @@
 
 use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
-    ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
-    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
+    ATTACHMENTS_CAPABILITY, CONVERSATION_CONTENT_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
+    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
 };
 use gent_types::{CapabilityCatalogRecord, CapabilitySet};
 
@@ -85,6 +85,10 @@ pub fn declared_capabilities() -> CapabilitySet {
     capabilities
         .0
         .push(CONVERSATION_TIMELINE_CAPABILITY.to_owned());
+    #[cfg(unix)]
+    capabilities
+        .0
+        .push(CONVERSATION_CONTENT_CAPABILITY.to_owned());
     capabilities
 }
 
