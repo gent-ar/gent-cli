@@ -7,6 +7,8 @@ use gent_types::{
     TurnPhase, WorkPhase,
 };
 use serde::{Deserialize, Serialize};
+
+pub use crate::manifest_validation::ManifestError;
 use serde_json::Value;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -17,46 +19,13 @@ pub struct DeclarativeAdapterManifest {
     pub event_map: BTreeMap<String, String>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ManifestError {
-    #[error("manifest requires a non-empty id")]
-    EmptyId,
-    #[error("manifest maps {frame_type} to unsupported normalized event {target}")]
-    UnsupportedEvent { frame_type: String, target: String },
-}
-
 impl DeclarativeAdapterManifest {
     /// Validates the portable subset before an adapter is registered.
     ///
     /// # Errors
     /// Returns an error for missing identity or unsupported event mappings.
     pub fn validate(&self) -> Result<(), ManifestError> {
-        if self.id.is_empty() {
-            return Err(ManifestError::EmptyId);
-        }
-        for (source, target) in &self.event_map {
-            if ![
-                "output",
-                "turnStarted",
-                "turnEnded",
-                "decisionSettled",
-                "rootPhase",
-                "rootActivity",
-                "childPhase",
-                "commandPhase",
-                "toolActivity",
-                "attentionRequired",
-                "attentionCleared",
-            ]
-            .contains(&target.as_str())
-            {
-                return Err(ManifestError::UnsupportedEvent {
-                    frame_type: source.clone(),
-                    target: target.clone(),
-                });
-            }
-        }
-        Ok(())
+        crate::manifest_validation::validate(self)
     }
 
     /// Interprets a provider frame without process, persistence, or product-policy access.
