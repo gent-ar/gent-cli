@@ -1,9 +1,9 @@
 use gent_protocol::{
-    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DependencyAction, DependencyPlan,
-    DependencyPlanRequest, DependencyProvider, EXTERNAL_PROVIDER_BRIDGE_CAPABILITY,
-    ExternalProviderBridgeFrame, ExternalProviderBridgeHello, Hello, MAX_FRAME_BYTES,
-    PublicRunOutcome, PublicRunResponse, WireFrame, negotiate, read_frame, read_json_frame,
-    write_frame, write_json_frame,
+    CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY, ConversationIndexFrame,
+    ConversationStatusFrame, DependencyAction, DependencyPlan, DependencyPlanRequest,
+    DependencyProvider, EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame,
+    ExternalProviderBridgeHello, Hello, MAX_FRAME_BYTES, PublicRunOutcome, PublicRunResponse,
+    WireFrame, negotiate, read_frame, read_json_frame, write_frame, write_json_frame,
 };
 use gent_types::CapabilitySet;
 use tokio::io::{AsyncWriteExt, duplex};
@@ -72,6 +72,23 @@ async fn additive_conversation_frames_share_the_bounded_json_framing() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn conversation_index_is_an_explicit_content_free_extension() {
+    let (mut writer, mut reader) = duplex(1024);
+    let frame = ConversationIndexFrame::Index(vec![gent_types::ConversationListItem {
+        conversation_id: "conversation-1".into(),
+        run_count: 1,
+    }]);
+    write_json_frame(&mut writer, &frame).await.unwrap();
+    assert_eq!(
+        read_json_frame::<_, ConversationIndexFrame>(&mut reader)
+            .await
+            .unwrap(),
+        frame
+    );
+    assert_eq!(CONVERSATION_INDEX_CAPABILITY, "conversation-index-v1");
 }
 
 #[tokio::test]

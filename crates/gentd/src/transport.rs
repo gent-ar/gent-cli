@@ -1,10 +1,9 @@
 //! Local IPC adapter. It only knows the `RuntimeApi` port, never persistence or providers.
 
 use gent_protocol::{
-    ATTACHMENTS_CAPABILITY, AttachmentFrame, CONVERSATION_STATUS_CAPABILITY,
-    CONVERSATION_TIMELINE_CAPABILITY, ConversationStatusFrame, ConversationTimelineFrame,
-    EVENT_STREAM_CAPABILITY, EventStreamFrame, WireFrame, negotiate, read_frame, read_json_frame,
-    write_frame, write_json_frame,
+    ATTACHMENTS_CAPABILITY, AttachmentFrame, CONVERSATION_INDEX_CAPABILITY,
+    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
+    EventStreamFrame, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
@@ -30,6 +29,9 @@ pub(crate) fn observed_capabilities() -> CapabilitySet {
     capabilities
         .0
         .push(CONVERSATION_STATUS_CAPABILITY.to_owned());
+    capabilities
+        .0
+        .push(CONVERSATION_INDEX_CAPABILITY.to_owned());
     capabilities
         .0
         .push(CONVERSATION_TIMELINE_CAPABILITY.to_owned());
@@ -138,60 +140,15 @@ where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    if extensions.supports(CONVERSATION_STATUS_CAPABILITY) {
-        if let Ok(ConversationStatusFrame::Request { conversation_id }) =
-            serde_json::from_value(raw.clone())
-        {
-            return write_conversation_status(stream, runtime, &conversation_id).await;
-        }
+    if crate::conversation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
     }
     if extensions.supports(ATTACHMENTS_CAPABILITY) {
         if let Ok(frame) = serde_json::from_value::<AttachmentFrame>(raw.clone()) {
             return crate::attachment_transport::write(stream, runtime, frame).await;
         }
     }
-    if extensions.supports(CONVERSATION_TIMELINE_CAPABILITY) {
-        if let Ok(ConversationTimelineFrame::TimelineRequest { conversation_id }) =
-            serde_json::from_value(raw.clone())
-        {
-            return write_conversation_timeline(stream, runtime, &conversation_id).await;
-        }
-    }
     Ok(false)
-}
-
-async fn write_conversation_status<S, R>(
-    stream: &mut S,
-    runtime: &R,
-    conversation_id: &str,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>
-where
-    S: AsyncWrite + Unpin,
-    R: RuntimeApi,
-{
-    match runtime.conversation_status(conversation_id) {
-        Ok(status) => write_json_frame(stream, &ConversationStatusFrame::Status(status)).await?,
-        Err(message) => write_error(stream, "invalidRequest", &message).await?,
-    }
-    Ok(true)
-}
-
-async fn write_conversation_timeline<S, R>(
-    stream: &mut S,
-    runtime: &R,
-    conversation_id: &str,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>
-where
-    S: AsyncWrite + Unpin,
-    R: RuntimeApi,
-{
-    match runtime.conversation_timeline(conversation_id) {
-        Ok(timeline) => {
-            write_json_frame(stream, &ConversationTimelineFrame::Timeline(timeline)).await?;
-        }
-        Err(message) => write_error(stream, "invalidRequest", &message).await?,
-    }
-    Ok(true)
 }
 
 fn command_frame<R: RuntimeApi>(
@@ -260,7 +217,7 @@ pub(crate) fn event_frame(
     }
 }
 
-async fn write_error<S>(
+pub(crate) async fn write_error<S>(
     stream: &mut S,
     code: &str,
     message: &str,

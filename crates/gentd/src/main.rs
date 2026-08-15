@@ -4,6 +4,7 @@ mod attachment_transport;
 mod compatibility_assessment;
 #[cfg(test)]
 mod compatibility_lock_tests;
+mod conversation_transport;
 mod dependency_actions;
 mod dependency_catalog;
 #[cfg(test)]
@@ -30,9 +31,10 @@ mod transport_timeline_tests;
 mod transport_windows;
 #[cfg(all(test, windows))]
 mod transport_windows_tests;
-
-use std::path::PathBuf;
-
+use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::dependency_actions::SystemDependencyExecutor;
+use crate::dependency_catalog::DependencyCatalog;
+use crate::public_runs::{DaemonPublicRuns, observer_service};
 use clap::Parser;
 use gent_core::{DecisionCommandOutcome, DecisionEvidence as CoreDecisionEvidence};
 use gent_drivers::installer::SystemDependencyInstaller;
@@ -47,14 +49,9 @@ use gent_types::{
     CapabilitySet, Command, ConversationStatus, ConversationTimeline, DecisionCommand,
     DecisionSettlement, DoctorReport, EventResume, HostStatus, Receipt,
 };
+use std::path::PathBuf;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-
-use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::dependency_actions::SystemDependencyExecutor;
-use crate::dependency_catalog::DependencyCatalog;
-use crate::public_runs::{DaemonPublicRuns, observer_service};
-
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
 struct Args {
@@ -245,6 +242,11 @@ impl api::RuntimeApi for RuntimeFacade {
     fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String> {
         self.coordinator
             .conversation_status(conversation_id)
+            .map_err(|error| error.to_string())
+    }
+    fn conversations(&self) -> Result<Vec<gent_types::ConversationListItem>, String> {
+        self.coordinator
+            .conversations()
             .map_err(|error| error.to_string())
     }
     fn conversation_timeline(&self, conversation_id: &str) -> Result<ConversationTimeline, String> {

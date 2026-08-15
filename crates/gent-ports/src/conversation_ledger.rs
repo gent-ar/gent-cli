@@ -1,6 +1,6 @@
 //! Durable identity and lifecycle boundary for conversations and turns.
 
-use gent_types::{ConversationRecord, DurableTurnPhase, TurnRecord};
+use gent_types::{ConversationListItem, ConversationRecord, DurableTurnPhase, TurnRecord};
 
 use crate::{LedgerError, RunRecord};
 
@@ -13,6 +13,12 @@ pub enum TurnPhaseUpdate {
 
 /// Persistence boundary for the immutable conversation → run → turn hierarchy.
 pub trait ConversationLedger: Send + Sync {
+    /// Lists conversations in reverse creation order without returning message content.
+    ///
+    /// # Errors
+    /// Returns an error when durable state cannot be read.
+    fn list_conversations(&self) -> Result<Vec<ConversationListItem>, LedgerError>;
+
     /// Atomically creates a conversation and its root run.
     ///
     /// # Errors

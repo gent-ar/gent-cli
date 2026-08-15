@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use gent_protocol::{DependencyAction, DependencyProvider};
 
 mod command_execution;
+mod conversation_index;
 mod conversation_status;
 mod conversation_timeline;
 mod decision;
@@ -92,6 +93,8 @@ enum DependencyCommand {
 
 #[derive(Debug, Subcommand)]
 enum ConversationCommand {
+    /// List durable conversation identities and run counts without exposing messages.
+    List,
     Status {
         #[arg(long)]
         conversation_id: String,
@@ -159,6 +162,17 @@ mod tests {
             CommandLine::Conversation {
                 action: ConversationCommand::Status { conversation_id }
             } if conversation_id == "conversation-1"
+        ));
+    }
+
+    #[test]
+    fn conversation_list_is_a_dedicated_read_only_command() {
+        let args = Args::try_parse_from(["gent", "conversation", "list"]).unwrap();
+        assert!(matches!(
+            args.command,
+            CommandLine::Conversation {
+                action: ConversationCommand::List
+            }
         ));
     }
 

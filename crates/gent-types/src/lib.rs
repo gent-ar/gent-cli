@@ -37,8 +37,9 @@ pub use conversation_artifact::{
 };
 pub use conversation_prompts::{ConversationMessage, ConversationPrompt};
 pub use conversations::{
-    ConversationArtifactSummary, ConversationRecord, ConversationRunStatus, ConversationStatus,
-    ConversationTimeline, ConversationTimelineRun, DurableTurnPhase, TurnRecord,
+    ConversationArtifactSummary, ConversationListItem, ConversationRecord, ConversationRunStatus,
+    ConversationStatus, ConversationTimeline, ConversationTimelineRun, DurableTurnPhase,
+    TurnRecord,
 };
 pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
 pub use doctor::{

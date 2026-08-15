@@ -1,7 +1,7 @@
 //! `SQLite` implementation of immutable conversation, run, and turn relationships.
 
 use gent_ports::{LedgerError, RunRecord, TurnPhaseUpdate};
-use gent_types::{ConversationRecord, DurableTurnPhase, TurnRecord};
+use gent_types::{ConversationListItem, ConversationRecord, DurableTurnPhase, TurnRecord};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::SqliteLedger;
@@ -47,6 +47,25 @@ pub(super) fn find_conversation(
             },
         )
         .optional()
+        .map_err(storage_error)
+}
+
+pub(super) fn list_conversations(
+    ledger: &SqliteLedger,
+) -> Result<Vec<ConversationListItem>, LedgerError> {
+    let connection = ledger.lock()?;
+    let mut statement = connection.prepare(
+        "SELECT c.conversation_id, COUNT(r.run_id) FROM conversations c LEFT JOIN runs r ON r.conversation_id = c.conversation_id GROUP BY c.conversation_id ORDER BY c.rowid DESC, c.conversation_id",
+    ).map_err(storage_error)?;
+    statement
+        .query_map([], |row| {
+            Ok(ConversationListItem {
+                conversation_id: row.get(0)?,
+                run_count: row.get(1)?,
+            })
+        })
+        .map_err(storage_error)?
+        .collect::<Result<_, _>>()
         .map_err(storage_error)
 }
 

@@ -9,8 +9,8 @@ use serde_json::Value;
 use crate::decision::decision_frame;
 use crate::local_ipc::request;
 use crate::{
-    Args, CommandLine, ConversationCommand, DependencyCommand, conversation_status,
-    conversation_timeline, event_stream,
+    Args, CommandLine, ConversationCommand, DependencyCommand, conversation_index,
+    conversation_status, conversation_timeline, event_stream,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -33,6 +33,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
             print(request(data_dir, no_autostart, decision_frame(&action)).await?)?;
         }
         CommandLine::Conversation { action } => match action {
+            ConversationCommand::List => {
+                print(conversation_index::request(data_dir, no_autostart).await?)?;
+            }
             ConversationCommand::Status { conversation_id } => {
                 print(
                     conversation_status::request(data_dir, no_autostart, conversation_id).await?,

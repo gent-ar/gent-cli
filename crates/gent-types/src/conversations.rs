@@ -11,6 +11,14 @@ pub struct ConversationRecord {
     pub conversation_id: String,
 }
 
+/// Content-free item for selecting a durable conversation in a local client.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationListItem {
+    pub conversation_id: String,
+    pub run_count: u32,
+}
+
 /// Durable lifecycle state for one user-visible turn.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

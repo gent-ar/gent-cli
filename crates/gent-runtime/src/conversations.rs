@@ -6,9 +6,9 @@ use gent_ports::{
     RunRecord, TurnPhaseUpdate,
 };
 use gent_types::{
-    ConversationArtifact, ConversationArtifactSummary, ConversationRecord, ConversationRunStatus,
-    ConversationStatus, ConversationTimeline, ConversationTimelineRun, DurableTurnPhase,
-    RunLiveStatus, TurnRecord,
+    ConversationArtifact, ConversationArtifactSummary, ConversationListItem, ConversationRecord,
+    ConversationRunStatus, ConversationStatus, ConversationTimeline, ConversationTimelineRun,
+    DurableTurnPhase, RunLiveStatus, TurnRecord,
 };
 
 use crate::{Coordinator, RuntimeError, to_record};
@@ -17,6 +17,13 @@ impl<L> Coordinator<L>
 where
     L: Ledger + ConversationLedger,
 {
+    /// Lists content-free conversations for local selection.
+    ///
+    /// # Errors
+    /// Returns an error when durable hierarchy state cannot be read.
+    pub fn conversations(&self) -> Result<Vec<ConversationListItem>, RuntimeError> {
+        Ok(self.ledger.list_conversations()?)
+    }
     /// Atomically creates a conversation and its immutable root run.
     ///
     /// # Errors

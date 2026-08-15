@@ -72,6 +72,30 @@ fn provider_switch_retains_conversation_and_turns_are_monotonic() {
 }
 
 #[test]
+fn conversation_index_exposes_only_identity_and_run_count() {
+    let coordinator = coordinator();
+    coordinator
+        .create_conversation_run(
+            &ConversationRecord {
+                conversation_id: "conversation-a".into(),
+            },
+            &Run {
+                id: "run-root".into(),
+                parent_run_id: None,
+                provider: "claude".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        coordinator.conversations().unwrap(),
+        vec![gent_types::ConversationListItem {
+            conversation_id: "conversation-a".into(),
+            run_count: 1,
+        }]
+    );
+}
+
+#[test]
 fn stale_turn_transition_preserves_durable_state() {
     let coordinator = coordinator();
     coordinator

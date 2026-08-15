@@ -157,6 +157,7 @@ fn assert_observer_operations(runtime: &RuntimeFacade, epoch: HostEpoch) {
             .conversation_id,
         "missing"
     );
+    assert!(runtime.conversations().unwrap().is_empty());
 }
 
 #[test]

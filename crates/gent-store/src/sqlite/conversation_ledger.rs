@@ -1,11 +1,14 @@
 //! Adapter joining the conversation ledger port to `SQLite` relationship queries.
 
 use gent_ports::{ConversationLedger, LedgerError, RunRecord, TurnPhaseUpdate};
-use gent_types::{ConversationRecord, DurableTurnPhase, TurnRecord};
+use gent_types::{ConversationListItem, ConversationRecord, DurableTurnPhase, TurnRecord};
 
 use super::{SqliteLedger, conversations};
 
 impl ConversationLedger for SqliteLedger {
+    fn list_conversations(&self) -> Result<Vec<ConversationListItem>, LedgerError> {
+        conversations::list_conversations(self)
+    }
     fn create_conversation_run(
         &self,
         conversation: &ConversationRecord,

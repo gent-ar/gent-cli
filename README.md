@@ -16,7 +16,7 @@ than a second copy of application logic. The implemented vertical slice is:
   idempotent command receipts, cursor-ordered durable events, and explicit
   snapshot-backed resync after event compaction.
 - SQLite-backed host state, a read-only `gent doctor` dependency report, and negotiated
-  `gent conversation status` and `gent conversation timeline` reads.
+  `gent conversation list`, `gent conversation status`, and `gent conversation timeline` reads.
 - Explicit `gent deps` plans and consented vendor dependency actions, each fenced by the active
   host epoch and settled through a durable receipt; interrupted external effects are marked
   `unprovable` instead of being replayed.
@@ -67,6 +67,7 @@ until the migration plan's evidence, observer, and cutover gates are satisfied.
 ```sh
 cargo run -p gent-cli -- doctor
 cargo run -p gent-cli -- status
+cargo run -p gent-cli -- conversation list
 cargo run -p gent-cli -- submit --kind ping --payload '{"message":"hello"}'
 cargo run -p gent-cli -- events
 cargo run -p gent-cli -- events --follow

@@ -105,3 +105,42 @@ fn hierarchy_is_immutable_and_turn_sequences_are_unique() {
         Err(LedgerError::Invariant(_))
     ));
 }
+
+#[test]
+fn conversation_index_counts_runs_and_orders_newest_first() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    for (conversation_id, run_id) in [("older", "run-older"), ("newer", "run-newer")] {
+        ledger
+            .create_conversation_run(
+                &ConversationRecord {
+                    conversation_id: conversation_id.into(),
+                },
+                &RunRecord {
+                    run_id: run_id.into(),
+                    parent_run_id: None,
+                    provider: "claude".into(),
+                },
+            )
+            .unwrap();
+    }
+    ledger
+        .create_run(&RunRecord {
+            run_id: "run-newer-child".into(),
+            parent_run_id: Some("run-newer".into()),
+            provider: "codex".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        ledger.list_conversations().unwrap(),
+        vec![
+            gent_types::ConversationListItem {
+                conversation_id: "newer".into(),
+                run_count: 2,
+            },
+            gent_types::ConversationListItem {
+                conversation_id: "older".into(),
+                run_count: 1,
+            },
+        ]
+    );
+}
