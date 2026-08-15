@@ -5,6 +5,7 @@ use gent_types::{ConversationLiveStatus, HostEpoch, TurnPhase, WorkPhase};
 
 mod decision_settlement;
 mod lifecycle_projection;
+mod lifecycle_signal;
 mod projection_snapshot;
 mod turn_lifecycle;
 pub use decision_settlement::{
@@ -14,6 +15,7 @@ pub use decision_settlement::{
 pub use lifecycle_projection::{
     LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,
 };
+pub use lifecycle_signal::project_lifecycle_signal;
 pub use projection_snapshot::{restore_projection, snapshot_projection};
 pub use turn_lifecycle::permits_turn_transition;
 

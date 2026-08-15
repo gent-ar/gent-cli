@@ -10,6 +10,7 @@ mod conversations;
 mod decision;
 mod doctor;
 mod event_resume;
+mod lifecycle_signal;
 mod run_projection;
 
 pub use capability_catalog::CapabilityCatalogRecord;
@@ -25,6 +26,7 @@ pub use doctor::{
     PrivateBridgeAvailability, PublicProviderStatus,
 };
 pub use event_resume::{EventResume, EventSnapshot};
+pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
 
 pub const PROTOCOL_MIN: u16 = 1;

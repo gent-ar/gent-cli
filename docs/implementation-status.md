@@ -32,6 +32,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Durable title/recap provenance records: source turns, provider/model version, input digest,
       immutable lineage, and atomic supersession.
 - [x] Capability-gated, same-socket `gent conversation status` transport; it creates no receipt and does not use command or event frames.
+- [x] Additive normalized lifecycle signals for root thinking/waiting/compacting states,
+      subagent and command work, and attention; lease-owned durable projections preserve them.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, process fakes, and locked public-process launching.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use gent_types::NormalizedProviderEvent;
+use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase, WorkPhase};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -32,7 +32,18 @@ impl DeclarativeAdapterManifest {
             return Err(ManifestError::EmptyId);
         }
         for (source, target) in &self.event_map {
-            if !["output", "turnStarted", "turnEnded", "decisionSettled"].contains(&target.as_str())
+            if ![
+                "output",
+                "turnStarted",
+                "turnEnded",
+                "decisionSettled",
+                "rootPhase",
+                "childPhase",
+                "commandPhase",
+                "attentionRequired",
+                "attentionCleared",
+            ]
+            .contains(&target.as_str())
             {
                 return Err(ManifestError::UnsupportedEvent {
                     frame_type: source.clone(),
@@ -68,6 +79,33 @@ impl DeclarativeAdapterManifest {
             },
         }
     }
+
+    /// Interprets declared lifecycle facts without changing the content-event API.
+    #[must_use]
+    pub fn interpret_lifecycle(&self, frame: &Value) -> Option<NormalizedLifecycleSignal> {
+        match self.target(frame)? {
+            "rootPhase" => Some(NormalizedLifecycleSignal::RootPhase {
+                phase: root_phase(&string(frame, "phase"))?,
+            }),
+            "childPhase" => Some(NormalizedLifecycleSignal::ChildPhase {
+                child_id: non_empty(frame, "child_id")?,
+                phase: work_phase(&string(frame, "phase")),
+            }),
+            "commandPhase" => Some(NormalizedLifecycleSignal::CommandPhase {
+                command_id: non_empty(frame, "command_id")?,
+                phase: work_phase(&string(frame, "phase")),
+            }),
+            "attentionRequired" => Some(NormalizedLifecycleSignal::AttentionRequired),
+            "attentionCleared" => Some(NormalizedLifecycleSignal::AttentionCleared),
+            _ => None,
+        }
+    }
+
+    fn target<'a>(&'a self, frame: &Value) -> Option<&'a str> {
+        self.event_map
+            .get(frame.get("type")?.as_str()?)
+            .map(String::as_str)
+    }
 }
 
 fn string(frame: &Value, field: &str) -> String {
@@ -78,10 +116,40 @@ fn string(frame: &Value, field: &str) -> String {
         .into()
 }
 
+fn non_empty(frame: &Value, field: &str) -> Option<String> {
+    let value = string(frame, field);
+    (!value.is_empty()).then_some(value)
+}
+
+fn work_phase(value: &str) -> WorkPhase {
+    match value {
+        "pending" => WorkPhase::Pending,
+        "waitingPermission" => WorkPhase::WaitingPermission,
+        "done" => WorkPhase::Done,
+        "failed" => WorkPhase::Failed,
+        "interrupted" => WorkPhase::Interrupted,
+        _ => WorkPhase::Running,
+    }
+}
+
+fn root_phase(value: &str) -> Option<TurnPhase> {
+    match value {
+        "processing" => Some(TurnPhase::Processing),
+        "waitingPermission" => Some(TurnPhase::WaitingPermission),
+        "waitingQuestion" => Some(TurnPhase::WaitingQuestion),
+        "compacting" => Some(TurnPhase::Compacting),
+        "ready" => Some(TurnPhase::Ready),
+        "interrupted" => Some(TurnPhase::Interrupted),
+        "dead" => Some(TurnPhase::Dead),
+        "failed" => Some(TurnPhase::Failed),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::DeclarativeAdapterManifest;
-    use gent_types::NormalizedProviderEvent;
+    use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -101,5 +169,20 @@ mod tests {
             manifest.interpret(&json!({ "type": "other" })),
             NormalizedProviderEvent::TransportDiagnostic { .. }
         ));
+    }
+
+    #[test]
+    fn manifest_interprets_declared_lifecycle_facts() {
+        let manifest = DeclarativeAdapterManifest {
+            id: "fixture".into(),
+            protocol_version: 1,
+            event_map: BTreeMap::from([("state".into(), "rootPhase".into())]),
+        };
+        assert_eq!(
+            manifest.interpret_lifecycle(&json!({ "type": "state", "phase": "compacting" })),
+            Some(NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Compacting
+            })
+        );
     }
 }

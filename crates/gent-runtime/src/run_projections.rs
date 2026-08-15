@@ -1,10 +1,14 @@
 //! Internal daemon orchestration for durable, lease-owned run lifecycle projections.
 
 use gent_core::{
-    project_normalized_event, projected_live_status, restore_projection, snapshot_projection,
+    project_lifecycle_signal, project_normalized_event, projected_live_status, restore_projection,
+    snapshot_projection,
 };
 use gent_ports::{IngressMode, Ledger, RunProjectionLedger};
-use gent_types::{HostEpoch, NormalizedProviderEvent, RunLiveStatus, RunProjectionRecord};
+use gent_types::{
+    HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, RunLiveStatus,
+    RunProjectionRecord,
+};
 
 use crate::{Coordinator, RuntimeError};
 
@@ -51,6 +55,48 @@ where
             .map(|record| restore_projection(&record.projection))
             .unwrap_or_default();
         let update = project_normalized_event(current, cursor, event);
+        let status = projected_live_status(&update.state);
+        if update.applied {
+            self.coordinator
+                .ledger
+                .save_run_projection(&RunProjectionRecord {
+                    run_id: run_id.clone(),
+                    host_epoch,
+                    projection: snapshot_projection(&update.state),
+                })?;
+        }
+        Ok(RunLiveStatus {
+            run_id,
+            host_epoch,
+            status,
+        })
+    }
+
+    /// Applies one adapter lifecycle signal at a durable cursor.
+    ///
+    /// It has the same ownership and session prerequisites as a content event.
+    ///
+    /// # Errors
+    /// Returns an error when the cursor is invalid, the host is fenced, or ownership is absent.
+    pub fn record_lifecycle_signal(
+        &self,
+        run_id: String,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        cursor: u64,
+        signal: &NormalizedLifecycleSignal,
+    ) -> Result<RunLiveStatus, RuntimeError> {
+        if cursor == 0 {
+            return Err(invariant("provider signals require a durable cursor"));
+        }
+        self.require_owner(&run_id, coordinator_id, host_epoch)?;
+        let current = self
+            .coordinator
+            .ledger
+            .find_run_projection(&run_id)?
+            .map(|record| restore_projection(&record.projection))
+            .unwrap_or_default();
+        let update = project_lifecycle_signal(current, cursor, signal);
         let status = projected_live_status(&update.state);
         if update.applied {
             self.coordinator

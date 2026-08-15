@@ -1,7 +1,9 @@
 use gent_ports::{Ledger, RunLease, RunProjectionLedger, RunRecord, RunSessionBinding};
 use gent_runtime::{Coordinator, RunProjectionService, RuntimeError};
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, HostEpoch, NormalizedProviderEvent};
+use gent_types::{
+    CapabilitySet, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase,
+};
 
 fn service(ledger: SqliteLedger) -> RunProjectionService<SqliteLedger> {
     RunProjectionService::new(Coordinator::new(ledger, CapabilitySet::default()))
@@ -87,6 +89,35 @@ fn owned_session_bound_events_persist_a_replay_safe_live_status() {
     assert!(stale.status.has_live_subagent_work);
     assert_eq!(service.live_status("run-a").unwrap(), Some(status));
     assert!(ledger.find_run_projection("run-a").unwrap().is_some());
+}
+
+#[test]
+fn owned_lifecycle_signals_persist_waiting_and_attention_status() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    prepare(&ledger);
+    let service = service(ledger);
+    let waiting = service
+        .record_lifecycle_signal(
+            "run-a".into(),
+            "daemon-a",
+            HostEpoch(1),
+            1,
+            &NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::WaitingQuestion,
+            },
+        )
+        .unwrap();
+    assert!(waiting.status.is_processing);
+    let attention = service
+        .record_lifecycle_signal(
+            "run-a".into(),
+            "daemon-a",
+            HostEpoch(1),
+            2,
+            &NormalizedLifecycleSignal::AttentionRequired,
+        )
+        .unwrap();
+    assert!(attention.status.needs_attention);
 }
 
 #[test]

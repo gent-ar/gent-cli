@@ -1,0 +1,79 @@
+//! Pure projection of additive lifecycle signals from a provider adapter.
+
+use gent_types::NormalizedLifecycleSignal;
+
+use crate::{LifecycleEvent, LifecycleProjection, ProjectionUpdate, reduce_lifecycle};
+
+/// Applies a strictly newer lifecycle signal cursor to a run projection.
+#[must_use]
+pub fn project_lifecycle_signal(
+    mut state: LifecycleProjection,
+    cursor: u64,
+    signal: &NormalizedLifecycleSignal,
+) -> ProjectionUpdate {
+    if state.last_cursor.is_some_and(|last| cursor <= last) {
+        return ProjectionUpdate {
+            state,
+            applied: false,
+        };
+    }
+    state.lifecycle = reduce_lifecycle(state.lifecycle, lifecycle_event(signal));
+    state.last_cursor = Some(cursor);
+    ProjectionUpdate {
+        state,
+        applied: true,
+    }
+}
+
+fn lifecycle_event(signal: &NormalizedLifecycleSignal) -> LifecycleEvent {
+    match signal {
+        NormalizedLifecycleSignal::RootPhase { phase } => LifecycleEvent::RootPhase(phase.clone()),
+        NormalizedLifecycleSignal::ChildPhase { child_id, phase } => LifecycleEvent::ChildPhase {
+            child_id: child_id.clone(),
+            phase: phase.clone(),
+        },
+        NormalizedLifecycleSignal::CommandPhase { command_id, phase } => {
+            LifecycleEvent::CommandPhase {
+                command_id: command_id.clone(),
+                phase: phase.clone(),
+            }
+        }
+        NormalizedLifecycleSignal::AttentionRequired => LifecycleEvent::AttentionRequired,
+        NormalizedLifecycleSignal::AttentionCleared => LifecycleEvent::AttentionCleared,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gent_types::{NormalizedLifecycleSignal, TurnPhase, WorkPhase};
+
+    use super::project_lifecycle_signal;
+    use crate::{LifecycleProjection, projected_live_status};
+
+    #[test]
+    fn waiting_and_attention_signals_project_without_provider_content() {
+        let waiting = project_lifecycle_signal(
+            LifecycleProjection::default(),
+            1,
+            &NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::WaitingQuestion,
+            },
+        )
+        .state;
+        assert!(projected_live_status(&waiting).is_processing);
+        let command = project_lifecycle_signal(
+            waiting,
+            2,
+            &NormalizedLifecycleSignal::CommandPhase {
+                command_id: "command-1".into(),
+                phase: WorkPhase::WaitingPermission,
+            },
+        )
+        .state;
+        assert!(projected_live_status(&command).has_live_command_work);
+        let attention =
+            project_lifecycle_signal(command, 3, &NormalizedLifecycleSignal::AttentionRequired)
+                .state;
+        assert!(projected_live_status(&attention).needs_attention);
+    }
+}

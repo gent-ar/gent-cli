@@ -19,6 +19,9 @@ than a second copy of application logic. The implemented vertical slice is:
   `gent conversation status --conversation-id <id>` reads.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`.
+- Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question
+  waits, subagent work, command work, and attention; these are durable status foundations, not
+  a claim that a live provider is attached to the daemon.
 
 Claude, Codex, MCP, pairing, Git, automations and the private Claurst bridge
 are deliberately not routed through `gentd` in this milestone. The public
