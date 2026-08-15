@@ -22,7 +22,9 @@ mod runs;
 pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
 pub use conversation_status::{CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame};
 pub use conversation_timeline::{CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame};
-pub use decision::{DecisionEvidence, DecisionSubmission};
+pub use decision::{
+    DecisionEvidence, DecisionRecoveryEvidence, DecisionSubmission, ProviderDecisionEvidence,
+};
 pub use dependencies::{
     DependencyAction, DependencyActionRequest, DependencyActionResult, DependencyActionState,
     DependencyPlan, DependencyPlanRequest, DependencyProvider, dependency_plan_digest,
@@ -73,6 +75,13 @@ pub enum WireFrame {
     DecisionEvidence {
         decision_id: String,
         evidence: DecisionEvidence,
+    },
+    /// Compatibility tombstone for provider evidence from older public clients.
+    ///
+    /// The daemon deliberately rejects this frame: provider acknowledgement is lifecycle-owned.
+    DecisionRecovery {
+        decision_id: String,
+        evidence: DecisionRecoveryEvidence,
     },
     DecisionSettlement(DecisionSettlement),
     PublicRunStart(PublicRunStartRequest),

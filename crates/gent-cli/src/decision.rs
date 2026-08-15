@@ -1,7 +1,7 @@
 //! Decision command parsing and frame construction; socket orchestration stays in `main`.
 
 use clap::Subcommand;
-use gent_protocol::{DecisionEvidence, WireFrame};
+use gent_protocol::{DecisionRecoveryEvidence, WireFrame};
 use gent_types::DecisionCommand;
 
 /// Explicit client actions over one durable decision record.
@@ -13,16 +13,6 @@ pub enum DecisionCommandLine {
         decision_id: String,
         #[arg(long)]
         idempotency_key: String,
-    },
-    /// Record an acknowledgement supplied by an external bridge or recovery process.
-    Ack {
-        #[arg(long)]
-        decision_id: String,
-    },
-    /// Record successful provider settlement supplied by an external bridge.
-    Settle {
-        #[arg(long)]
-        decision_id: String,
     },
     /// Terminally record that provider acknowledgement cannot be proven.
     Unprovable {
@@ -47,23 +37,18 @@ pub fn decision_frame(action: &DecisionCommandLine) -> WireFrame {
             decision_id: decision_id.clone(),
             idempotency_key: idempotency_key.clone(),
         }),
-        DecisionCommandLine::Ack { decision_id } => {
-            evidence(decision_id, DecisionEvidence::ProviderAcknowledged)
-        }
-        DecisionCommandLine::Settle { decision_id } => {
-            evidence(decision_id, DecisionEvidence::ProviderSettled)
-        }
-        DecisionCommandLine::Unprovable { decision_id } => {
-            evidence(decision_id, DecisionEvidence::AcknowledgementUnprovable)
-        }
+        DecisionCommandLine::Unprovable { decision_id } => recovery(
+            decision_id,
+            DecisionRecoveryEvidence::AcknowledgementUnprovable,
+        ),
         DecisionCommandLine::Recovery { decision_id } => {
-            evidence(decision_id, DecisionEvidence::RecoveryRequired)
+            recovery(decision_id, DecisionRecoveryEvidence::RecoveryRequired)
         }
     }
 }
 
-fn evidence(decision_id: &str, evidence: DecisionEvidence) -> WireFrame {
-    WireFrame::DecisionEvidence {
+fn recovery(decision_id: &str, evidence: DecisionRecoveryEvidence) -> WireFrame {
+    WireFrame::DecisionRecovery {
         decision_id: decision_id.into(),
         evidence,
     }
@@ -71,7 +56,7 @@ fn evidence(decision_id: &str, evidence: DecisionEvidence) -> WireFrame {
 
 #[cfg(test)]
 mod tests {
-    use gent_protocol::{DecisionEvidence, WireFrame};
+    use gent_protocol::{DecisionRecoveryEvidence, WireFrame};
 
     use super::{DecisionCommandLine, decision_frame};
 
@@ -93,8 +78,8 @@ mod tests {
             decision_frame(&DecisionCommandLine::Unprovable {
                 decision_id: "ask-1".into(),
             }),
-            WireFrame::DecisionEvidence {
-                evidence: DecisionEvidence::AcknowledgementUnprovable,
+            WireFrame::DecisionRecovery {
+                evidence: DecisionRecoveryEvidence::AcknowledgementUnprovable,
                 ..
             }
         ));
@@ -102,8 +87,8 @@ mod tests {
             decision_frame(&DecisionCommandLine::Recovery {
                 decision_id: "ask-1".into(),
             }),
-            WireFrame::DecisionEvidence {
-                evidence: DecisionEvidence::RecoveryRequired,
+            WireFrame::DecisionRecovery {
+                evidence: DecisionRecoveryEvidence::RecoveryRequired,
                 ..
             }
         ));

@@ -1,7 +1,7 @@
 //! Focused transport test for the additive non-content conversation timeline.
 
 use gent_protocol::{
-    CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame, DecisionEvidence,
+    CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame, DecisionRecoveryEvidence,
     DecisionSubmission, DependencyActionRequest, DependencyActionResult, DependencyPlan,
     DependencyPlanRequest, Hello, PublicRunInterruptRequest, PublicRunResponse,
     PublicRunResumeRequest, PublicRunStartRequest, WireFrame, read_frame, read_json_frame,
@@ -55,10 +55,10 @@ impl RuntimeApi for TimelineRuntime {
         Err("not used".into())
     }
 
-    fn apply_decision_evidence(
+    fn apply_decision_recovery(
         &self,
         _: String,
-        _: DecisionEvidence,
+        _: DecisionRecoveryEvidence,
     ) -> Result<DecisionSettlement, String> {
         Err("not used".into())
     }

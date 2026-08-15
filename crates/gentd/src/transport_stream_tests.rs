@@ -76,10 +76,10 @@ impl RuntimeApi for StreamRuntime {
     ) -> Result<gent_protocol::DecisionSubmission, String> {
         Err("not used".into())
     }
-    fn apply_decision_evidence(
+    fn apply_decision_recovery(
         &self,
         _: String,
-        _: gent_protocol::DecisionEvidence,
+        _: gent_protocol::DecisionRecoveryEvidence,
     ) -> Result<DecisionSettlement, String> {
         Err("not used".into())
     }

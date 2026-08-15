@@ -30,6 +30,9 @@ not claim provider or app compatibility evidence that has not been recorded.
       at the first divergence; it owns no SQLite ledger, IPC mutation surface, or process work.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
 - [x] Durable SQLite decision settlement with restart-safe terminal outcomes and optimistic contention handling.
+- [x] Public clients can submit a decision or explicitly mark recovery outcomes, but cannot assert
+      provider acknowledgement or settlement; those lifecycle facts are accepted only behind a
+      daemon-owned ingress, with legacy wire evidence rejected after negotiation.
 - [x] Protocol-only CLI status/events/submit and filesystem-only read-only doctor discovery;
       it does not execute provider binaries, including version probes, in observer mode.
 - [x] `gent deps` requires explicit consent, then invokes only fixed, shell-free vendor installer

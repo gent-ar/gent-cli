@@ -98,7 +98,7 @@ fn run(directory: &TempDir, args: &[&str]) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
     let directory = tempfile::tempdir().unwrap();
-    let received = server(&directory, 17);
+    let received = server(&directory, 15);
     for args in [
         &["doctor"][..],
         &["deps", "plan", "install", "claude"],
@@ -114,8 +114,6 @@ async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
             "--idempotency-key",
             "i1",
         ],
-        &["decision", "ack", "--decision-id", "d1"],
-        &["decision", "settle", "--decision-id", "d1"],
         &["decision", "unprovable", "--decision-id", "d1"],
         &["decision", "recovery", "--decision-id", "d1"],
         &[
@@ -149,12 +147,12 @@ async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
         WireFrame::Subscribe { after_cursor: 2 }
     ));
     assert!(matches!(received[10], WireFrame::DecisionSubmit(_)));
-    for frame in &received[11..15] {
-        assert!(matches!(frame, WireFrame::DecisionEvidence { .. }));
+    for frame in &received[11..13] {
+        assert!(matches!(frame, WireFrame::DecisionRecovery { .. }));
     }
-    assert!(matches!(received[15], WireFrame::StatusRequest));
+    assert!(matches!(received[13], WireFrame::StatusRequest));
     assert!(matches!(
-        received[16],
+        received[14],
         WireFrame::Command(ref command)
             if command.host_epoch == HostEpoch(7)
                 && command.idempotency_key == "submit-key"

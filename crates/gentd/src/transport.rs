@@ -211,12 +211,15 @@ fn command_frame<R: RuntimeApi>(
         Ok(WireFrame::DecisionSubmit(command)) => runtime
             .submit_decision(command)
             .map(WireFrame::DecisionSubmission),
-        Ok(WireFrame::DecisionEvidence {
+        Ok(WireFrame::DecisionRecovery {
             decision_id,
             evidence,
         }) => runtime
-            .apply_decision_evidence(decision_id, evidence)
+            .apply_decision_recovery(decision_id, evidence)
             .map(WireFrame::DecisionSettlement),
+        Ok(WireFrame::DecisionEvidence { .. }) => {
+            Err("provider decision evidence is restricted to daemon-owned lifecycle inputs".into())
+        }
         Ok(WireFrame::PublicRunStart(request)) => runtime
             .start_public_run(request)
             .map(WireFrame::PublicRunResponse),

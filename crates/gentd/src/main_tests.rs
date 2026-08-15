@@ -1,7 +1,7 @@
 use gent_core::DecisionCommandOutcome;
 use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
-    DecisionEvidence, DependencyAction, DependencyActionRequest, DependencyPlanRequest,
+    DecisionRecoveryEvidence, DependencyAction, DependencyActionRequest, DependencyPlanRequest,
     DependencyProvider, PublicRunInterruptRequest, PublicRunOutcome, PublicRunResumeRequest,
     PublicRunStartRequest,
 };
@@ -14,7 +14,7 @@ use serde_json::json;
 
 use crate::api::RuntimeApi;
 
-use super::{RuntimeFacade, build_runtime, decision_evidence, decision_submission};
+use super::{RuntimeFacade, build_runtime, decision_recovery, decision_submission};
 
 fn runtime() -> (tempfile::TempDir, RuntimeFacade) {
     let directory = tempfile::tempdir().unwrap();
@@ -176,9 +176,9 @@ fn facade_decisions_are_idempotent_and_terminal() {
     ));
     assert_eq!(
         runtime
-            .apply_decision_evidence(
+            .apply_decision_recovery(
                 "decision".into(),
-                DecisionEvidence::AcknowledgementUnprovable
+                DecisionRecoveryEvidence::AcknowledgementUnprovable
             )
             .unwrap()
             .phase,
@@ -214,19 +214,11 @@ fn helper_mappings_preserve_all_public_outcomes() {
         gent_protocol::DecisionSubmission::DecisionIdConflict { .. }
     ));
     assert_eq!(
-        decision_evidence(DecisionEvidence::ProviderAcknowledged),
-        gent_core::DecisionEvidence::ProviderAcknowledged
-    );
-    assert_eq!(
-        decision_evidence(DecisionEvidence::ProviderSettled),
-        gent_core::DecisionEvidence::ProviderSettled
-    );
-    assert_eq!(
-        decision_evidence(DecisionEvidence::AcknowledgementUnprovable),
+        decision_recovery(DecisionRecoveryEvidence::AcknowledgementUnprovable),
         gent_core::DecisionEvidence::AcknowledgementUnprovable
     );
     assert_eq!(
-        decision_evidence(DecisionEvidence::RecoveryRequired),
+        decision_recovery(DecisionRecoveryEvidence::RecoveryRequired),
         gent_core::DecisionEvidence::RecoveryRequired
     );
 }

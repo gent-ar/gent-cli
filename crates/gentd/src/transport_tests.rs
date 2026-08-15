@@ -1,8 +1,8 @@
 use gent_protocol::{
-    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DecisionEvidence, DependencyAction,
-    DependencyActionRequest, DependencyActionState, DependencyPlan, DependencyPlanRequest,
-    DependencyProvider, Hello, PublicRunOutcome, PublicRunResponse, PublicRunStartRequest,
-    WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
+    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DecisionRecoveryEvidence,
+    DependencyAction, DependencyActionRequest, DependencyActionState, DependencyPlan,
+    DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome, PublicRunResponse,
+    PublicRunStartRequest, WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
 };
 use gent_types::{
     CapabilitySet, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, DoctorReport,
@@ -14,7 +14,7 @@ use crate::api::RuntimeApi;
 use crate::transport::serve_connection;
 
 #[derive(Clone, Debug)]
-struct FakeRuntime;
+pub(crate) struct FakeRuntime;
 
 impl RuntimeApi for FakeRuntime {
     fn capabilities(&self) -> Result<CapabilitySet, String> {
@@ -85,16 +85,16 @@ impl RuntimeApi for FakeRuntime {
             },
         ))
     }
-    fn apply_decision_evidence(
+    fn apply_decision_recovery(
         &self,
         decision_id: String,
-        evidence: DecisionEvidence,
+        evidence: DecisionRecoveryEvidence,
     ) -> Result<DecisionSettlement, String> {
         let phase = match evidence {
-            DecisionEvidence::ProviderAcknowledged => DecisionSettlementPhase::Acknowledged,
-            DecisionEvidence::ProviderSettled => DecisionSettlementPhase::Settled,
-            DecisionEvidence::AcknowledgementUnprovable => DecisionSettlementPhase::Unprovable,
-            DecisionEvidence::RecoveryRequired => DecisionSettlementPhase::RecoveryRequired,
+            DecisionRecoveryEvidence::AcknowledgementUnprovable => {
+                DecisionSettlementPhase::Unprovable
+            }
+            DecisionRecoveryEvidence::RecoveryRequired => DecisionSettlementPhase::RecoveryRequired,
         };
         Ok(DecisionSettlement {
             decision_id,
@@ -150,7 +150,7 @@ impl RuntimeApi for FakeRuntime {
     }
 }
 
-fn hello() -> WireFrame {
+pub(crate) fn hello() -> WireFrame {
     WireFrame::Hello(Hello {
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
@@ -256,43 +256,6 @@ async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
     .unwrap();
     assert!(
         matches!(read_frame(&mut client).await.unwrap(), WireFrame::DependencyActionResult(result) if result.state == DependencyActionState::ConsentRequired)
-    );
-    drop(client);
-    assert!(task.await.unwrap().is_err());
-}
-
-#[tokio::test]
-async fn decision_and_provider_lifecycle_are_routed_after_handshake() {
-    let (mut client, server) = duplex(1024);
-    let task = tokio::spawn(serve_connection(server, FakeRuntime));
-    write_frame(&mut client, &hello()).await.unwrap();
-    let _ = read_frame(&mut client).await.unwrap();
-    write_frame(
-        &mut client,
-        &WireFrame::DecisionEvidence {
-            decision_id: "decision-1".into(),
-            evidence: DecisionEvidence::AcknowledgementUnprovable,
-        },
-    )
-    .await
-    .unwrap();
-    assert!(
-        matches!(read_frame(&mut client).await.unwrap(), WireFrame::DecisionSettlement(decision) if decision.phase == DecisionSettlementPhase::Unprovable)
-    );
-    let run = PublicRunStartRequest {
-        run_id: "run".into(),
-        coordinator_id: "host".into(),
-        host_epoch: HostEpoch(1),
-        provider: DependencyProvider::Claude,
-        executable: "/tmp/claude".into(),
-        version: "1".into(),
-        compatibility_entry: "fixture".into(),
-    };
-    write_frame(&mut client, &WireFrame::PublicRunStart(run))
-        .await
-        .unwrap();
-    assert!(
-        matches!(read_frame(&mut client).await.unwrap(), WireFrame::PublicRunResponse(response) if response.outcome == PublicRunOutcome::Denied)
     );
     drop(client);
     assert!(task.await.unwrap().is_err());

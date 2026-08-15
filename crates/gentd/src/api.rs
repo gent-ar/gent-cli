@@ -1,7 +1,7 @@
 //! Daemon-facing runtime port. Transport adapters depend only on this boundary.
 
 use gent_protocol::{
-    AttachmentFrame, DecisionEvidence, DecisionSubmission, DependencyActionRequest,
+    AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest,
     DependencyActionResult, DependencyPlan, DependencyPlanRequest, PublicRunInterruptRequest,
     PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
 };
@@ -26,10 +26,10 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         Err("attachments are unavailable for this runtime".into())
     }
     fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String>;
-    fn apply_decision_evidence(
+    fn apply_decision_recovery(
         &self,
         decision_id: String,
-        evidence: DecisionEvidence,
+        evidence: DecisionRecoveryEvidence,
     ) -> Result<DecisionSettlement, String>;
     fn start_public_run(&self, request: PublicRunStartRequest)
     -> Result<PublicRunResponse, String>;

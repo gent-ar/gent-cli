@@ -16,6 +16,8 @@ mod provider_resolver_tests;
 mod public_runs;
 mod transport;
 #[cfg(test)]
+mod transport_decision_tests;
+#[cfg(test)]
 mod transport_event_tests;
 #[cfg(test)]
 mod transport_stream_tests;
@@ -34,7 +36,7 @@ use clap::Parser;
 use gent_core::{DecisionCommandOutcome, DecisionEvidence as CoreDecisionEvidence};
 use gent_drivers::installer::SystemDependencyInstaller;
 use gent_protocol::{
-    AttachmentFrame, DecisionEvidence, DecisionSubmission, DependencyActionRequest,
+    AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest,
     DependencyActionResult, DependencyPlan, DependencyPlanRequest,
 };
 use gent_runtime::catalog::validate_observed_capabilities;
@@ -206,13 +208,13 @@ impl api::RuntimeApi for RuntimeFacade {
             .map(decision_submission)
             .map_err(|error| error.to_string())
     }
-    fn apply_decision_evidence(
+    fn apply_decision_recovery(
         &self,
         decision_id: String,
-        evidence: DecisionEvidence,
+        evidence: DecisionRecoveryEvidence,
     ) -> Result<DecisionSettlement, String> {
         self.coordinator
-            .apply_decision_evidence(&decision_id, decision_evidence(evidence))
+            .apply_decision_evidence(&decision_id, decision_recovery(evidence))
             .map_err(|error| error.to_string())
     }
     fn start_public_run(
@@ -268,14 +270,12 @@ fn decision_submission(outcome: DecisionCommandOutcome) -> DecisionSubmission {
     }
 }
 
-const fn decision_evidence(evidence: DecisionEvidence) -> CoreDecisionEvidence {
+const fn decision_recovery(evidence: DecisionRecoveryEvidence) -> CoreDecisionEvidence {
     match evidence {
-        DecisionEvidence::ProviderAcknowledged => CoreDecisionEvidence::ProviderAcknowledged,
-        DecisionEvidence::ProviderSettled => CoreDecisionEvidence::ProviderSettled,
-        DecisionEvidence::AcknowledgementUnprovable => {
+        DecisionRecoveryEvidence::AcknowledgementUnprovable => {
             CoreDecisionEvidence::AcknowledgementUnprovable
         }
-        DecisionEvidence::RecoveryRequired => CoreDecisionEvidence::RecoveryRequired,
+        DecisionRecoveryEvidence::RecoveryRequired => CoreDecisionEvidence::RecoveryRequired,
     }
 }
 
