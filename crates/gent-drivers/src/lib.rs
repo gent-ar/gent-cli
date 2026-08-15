@@ -12,6 +12,7 @@ pub mod normalize;
 pub mod output_pump;
 pub mod process;
 mod process_streams;
+pub mod public_protocol;
 pub mod run_runner;
 pub mod session;
 mod session_frames;
