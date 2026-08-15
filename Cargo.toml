@@ -21,6 +21,7 @@ anyhow = "1.0.100"
 async-trait = "0.1.89"
 clap = { version = "4.5.53", features = ["derive", "env"] }
 directories = "6.0.0"
+ed25519-dalek = "2.2.0"
 hex = "0.4.3"
 rusqlite = { version = "0.37.0", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }

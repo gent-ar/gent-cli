@@ -109,6 +109,18 @@ pub struct DoctorReport {
     pub dependencies: Vec<DependencyStatus>,
 }
 
+/// Immutable provenance captured before a public-provider process is allowed to start.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunVersionLock {
+    pub provider: String,
+    pub canonical_path: String,
+    pub file_identity: String,
+    pub digest_sha256: String,
+    pub version: String,
+    pub compatibility_entry: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderEvent {
