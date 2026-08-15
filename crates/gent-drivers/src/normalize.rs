@@ -1,7 +1,8 @@
 //! Pure normalization of supported public-driver frames; no process or persistence access.
 
 use gent_types::{
-    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, ToolActivity, ToolPhase,
+    TurnPhase, WorkPhase,
 };
 use serde_json::Value;
 
@@ -62,6 +63,14 @@ pub fn normalize_lifecycle(frame: &Value) -> Option<NormalizedLifecycleSignal> {
             command_id: field(frame, "command_id")?.into(),
             phase: work_phase(field(frame, "phase")),
         }),
+        Some("tool_activity") => Some(NormalizedLifecycleSignal::ToolActivity {
+            activity: ToolActivity {
+                tool_use_id: field(frame, "tool_use_id")?.into(),
+                tool_name: field(frame, "tool_name")?.into(),
+                phase: tool_phase(field(frame, "phase"))?,
+                output_digest: field(frame, "output_digest").map(Into::into),
+            },
+        }),
         Some("decision_requested") => Some(NormalizedLifecycleSignal::AttentionRequired),
         Some("decision_settled") => Some(NormalizedLifecycleSignal::AttentionCleared),
         _ => None,
@@ -106,10 +115,21 @@ fn root_activity(value: Option<&str>) -> Option<RootActivity> {
     }
 }
 
+fn tool_phase(value: Option<&str>) -> Option<ToolPhase> {
+    match value {
+        Some("started") => Some(ToolPhase::Started),
+        Some("waiting_permission") => Some(ToolPhase::WaitingPermission),
+        Some("completed") => Some(ToolPhase::Completed),
+        Some("failed") => Some(ToolPhase::Failed),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gent_types::{
-        NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+        NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, ToolActivity, ToolPhase,
+        TurnPhase, WorkPhase,
     };
     use serde_json::json;
 
@@ -203,5 +223,19 @@ mod tests {
             None
         );
         assert_eq!(normalize_lifecycle(&json!({ "type": "child_phase" })), None);
+        assert_eq!(
+            normalize_lifecycle(&json!({
+                "type": "tool_activity", "tool_use_id": "tool-1", "tool_name": "read_file",
+                "phase": "completed", "output_digest": "sha256:abc"
+            })),
+            Some(NormalizedLifecycleSignal::ToolActivity {
+                activity: ToolActivity {
+                    tool_use_id: "tool-1".into(),
+                    tool_name: "read_file".into(),
+                    phase: ToolPhase::Completed,
+                    output_digest: Some("sha256:abc".into()),
+                }
+            })
+        );
     }
 }

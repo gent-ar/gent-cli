@@ -69,13 +69,16 @@ pub fn reduce_lifecycle(mut state: LifecycleState, event: LifecycleEvent) -> Lif
 pub fn live_status(state: &LifecycleState, snapshot_cursor: u64) -> ConversationLiveStatus {
     let has_live_subagent_work = state.children.values().any(WorkPhase::is_live);
     let has_live_command_work = state.commands.values().any(WorkPhase::is_live);
-    let is_processing = matches!(
-        state.root_phase,
-        TurnPhase::Processing
-            | TurnPhase::WaitingPermission
-            | TurnPhase::WaitingQuestion
-            | TurnPhase::Compacting
-    );
+    // Adapters may report a generation fact before the corresponding turn-phase update arrives.
+    // Keep a loading indicator truthful during that ordered, durable transition.
+    let is_processing = state.root_activity.is_generating()
+        || matches!(
+            state.root_phase,
+            TurnPhase::Processing
+                | TurnPhase::WaitingPermission
+                | TurnPhase::WaitingQuestion
+                | TurnPhase::Compacting
+        );
     ConversationLiveStatus {
         snapshot_cursor,
         is_processing,
@@ -142,5 +145,17 @@ mod tests {
             },
         );
         assert!(live_status(&state, 1).is_waiting_for_command);
+    }
+
+    #[test]
+    fn explicit_generation_keeps_loading_true_before_a_phase_update() {
+        let state = reduce_lifecycle(
+            LifecycleState::default(),
+            LifecycleEvent::RootActivity(RootActivity::Generating),
+        );
+        let status = live_status(&state, 1);
+        assert!(status.is_processing);
+        assert!(!status.is_waiting_for_subagents);
+        assert!(!status.is_waiting_for_command);
     }
 }

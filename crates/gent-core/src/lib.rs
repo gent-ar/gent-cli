@@ -9,6 +9,7 @@ mod lifecycle_signal;
 mod lifecycle_state;
 mod observer_comparison;
 mod projection_snapshot;
+mod tool_classification;
 mod turn_lifecycle;
 pub use attachment_transfer::*;
 pub use automation_execution::permits_automation_execution_transition;
@@ -24,6 +25,7 @@ pub use lifecycle_signal::project_lifecycle_signal;
 pub use lifecycle_state::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 pub use observer_comparison::{ObserverComparison, ObserverProjection, compare_legacy_tap};
 pub use projection_snapshot::{restore_projection, snapshot_projection};
+pub use tool_classification::ToolCatalog;
 pub use turn_lifecycle::permits_turn_transition;
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]

@@ -21,6 +21,7 @@ pub(super) fn known_lifecycle_frame(kind: &str) -> bool {
             | "root_activity"
             | "child_phase"
             | "command_phase"
+            | "tool_activity"
             | "decision_requested"
     )
 }
@@ -37,6 +38,12 @@ pub(super) fn valid_lifecycle_frame(kind: &str, frame: &Value) -> bool {
         }
         "command_terminal" | "command_phase" => {
             non_empty(frame, "command_id").is_some() && non_empty(frame, "phase").is_some()
+        }
+        "tool_activity" => {
+            non_empty(frame, "tool_use_id").is_some()
+                && non_empty(frame, "tool_name").is_some()
+                && non_empty(frame, "phase").is_some()
+                && normalize_lifecycle(frame).is_some()
         }
         "decision_settled" => non_empty(frame, "decision_id").is_some(),
         "root_phase" | "root_activity" => normalize_lifecycle(frame).is_some(),

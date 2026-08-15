@@ -21,6 +21,7 @@ mod onboarding;
 mod policies;
 mod run_checkpoints;
 mod run_projection;
+mod tool_activity;
 mod tool_sources;
 mod workspaces;
 
@@ -51,6 +52,7 @@ pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, 
 pub use policies::{PolicyRecord, PolicyScope};
 pub use run_checkpoints::RunCheckpointRecord;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
+pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 

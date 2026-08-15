@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use gent_types::{
-    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, ToolActivity, ToolPhase,
+    TurnPhase, WorkPhase,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -43,6 +44,7 @@ impl DeclarativeAdapterManifest {
                 "rootActivity",
                 "childPhase",
                 "commandPhase",
+                "toolActivity",
                 "attentionRequired",
                 "attentionCleared",
             ]
@@ -101,6 +103,14 @@ impl DeclarativeAdapterManifest {
                 command_id: non_empty(frame, "command_id")?,
                 phase: work_phase(&string(frame, "phase")),
             }),
+            "toolActivity" => Some(NormalizedLifecycleSignal::ToolActivity {
+                activity: ToolActivity {
+                    tool_use_id: non_empty(frame, "tool_use_id")?,
+                    tool_name: non_empty(frame, "tool_name")?,
+                    phase: tool_phase(&string(frame, "phase"))?,
+                    output_digest: non_empty(frame, "output_digest"),
+                },
+            }),
             "attentionRequired" => Some(NormalizedLifecycleSignal::AttentionRequired),
             "attentionCleared" => Some(NormalizedLifecycleSignal::AttentionCleared),
             _ => None,
@@ -157,6 +167,16 @@ fn root_activity(value: &str) -> Option<RootActivity> {
         "generating" => Some(RootActivity::Generating),
         "waiting" => Some(RootActivity::Waiting),
         "idle" => Some(RootActivity::Idle),
+        _ => None,
+    }
+}
+
+fn tool_phase(value: &str) -> Option<ToolPhase> {
+    match value {
+        "started" => Some(ToolPhase::Started),
+        "waitingPermission" => Some(ToolPhase::WaitingPermission),
+        "completed" => Some(ToolPhase::Completed),
+        "failed" => Some(ToolPhase::Failed),
         _ => None,
     }
 }

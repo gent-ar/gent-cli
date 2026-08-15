@@ -87,6 +87,8 @@ not claim provider or app compatibility evidence that has not been recorded.
       subagent and command work, and attention; lease-owned durable projections preserve them.
       Waiting work is derived from activity rather than inferred from root phase.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
+- [x] Content-safe normalized tool-activity facts and an immutable, exact-match Gent tool
+      taxonomy; provider payloads cannot choose a presentation category or retain tool I/O.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, process fakes,
       locked public-process launching, and minimal Claude stream-JSON/Codex app-server launch specifications.
 - [x] Pure, session-bound NDJSON command encoding for documented Claude stream-JSON and Codex

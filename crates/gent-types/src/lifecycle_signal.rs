@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{RootActivity, TurnPhase, WorkPhase};
+use crate::{RootActivity, ToolActivity, TurnPhase, WorkPhase};
 
 /// A provider-neutral lifecycle fact with no transcript or provider-session content.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -21,6 +21,9 @@ pub enum NormalizedLifecycleSignal {
     CommandPhase {
         command_id: String,
         phase: WorkPhase,
+    },
+    ToolActivity {
+        activity: ToolActivity,
     },
     AttentionRequired,
     AttentionCleared,
