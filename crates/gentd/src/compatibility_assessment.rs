@@ -5,6 +5,7 @@ use std::path::Path;
 use ed25519_dalek::VerifyingKey;
 use gent_adapters::compatibility::TrustedKeySet;
 use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
+use gent_ports::{PublicProviderRunError, RunVersionAuthorizer};
 use gent_types::{CompatibilityTrust, ExecutableIdentity, RunVersionLock};
 
 /// A verified cache and trusted key set injected by the daemon composition root.
@@ -116,6 +117,18 @@ impl CompatibilityAssessment {
     }
 }
 
+impl RunVersionAuthorizer for CompatibilityAssessment {
+    fn authorize(&self, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
+        let Some(cached) = &self.cached else {
+            return Err(PublicProviderRunError::CompatibilityDenied);
+        };
+        cached
+            .revalidate(&self.keys, self.now)
+            .and_then(|()| self.keys.verify_lock(&cached.manifest, lock, self.now))
+            .map_err(|_| PublicProviderRunError::CompatibilityDenied)
+    }
+}
+
 impl CompatibilityAssessment {
     fn untrusted(now: u64) -> Self {
         Self {
@@ -145,7 +158,8 @@ mod tests {
         CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest,
     };
     use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
-    use gent_types::{CompatibilityTrust, ExecutableIdentity};
+    use gent_ports::RunVersionAuthorizer;
+    use gent_types::{CompatibilityTrust, ExecutableIdentity, RunVersionLock};
 
     use super::{CompatibilityAssessment, TrustedKeySet};
 
@@ -219,6 +233,36 @@ mod tests {
             CompatibilityAssessment::load(None, &["bad-key".into()], 10)
                 .assess("claude", &identity(Some("1.0"))),
             CompatibilityTrust::Untrusted
+        );
+    }
+
+    #[test]
+    fn authorization_fails_closed_without_an_active_signed_entry() {
+        let lock = RunVersionLock {
+            provider: "claude".into(),
+            canonical_path: "/public/claude".into(),
+            file_identity: "1:2".into(),
+            digest_sha256: "digest".into(),
+            version: "1.0".into(),
+            compatibility_entry: "claude-1".into(),
+        };
+        assert!(CompatibilityAssessment::default().authorize(&lock).is_err());
+        assert!(assessment(9, false).authorize(&lock).is_err());
+        assert!(assessment(20, true).authorize(&lock).is_err());
+
+        let wrong_entry = RunVersionLock {
+            compatibility_entry: "other".into(),
+            ..lock
+        };
+        assert!(assessment(20, false).authorize(&wrong_entry).is_err());
+        assert!(
+            assessment(20, false)
+                .authorize(&RunVersionLock {
+                    version: "2.0".into(),
+                    compatibility_entry: "claude-1".into(),
+                    ..wrong_entry
+                })
+                .is_err()
         );
     }
 }

@@ -5,7 +5,7 @@ use std::path::Path;
 use gent_drivers::lock::capture;
 use gent_ports::{
     Ledger, PublicProviderRunError, PublicProviderRunner, RunLease, RunLeaseClaim, RunRecord,
-    RunSessionBinding,
+    RunSessionBinding, RunVersionAuthorizer,
 };
 use gent_protocol::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
@@ -26,23 +26,31 @@ pub enum ProviderRunAuthority {
 
 /// Owns the durable-before-spawn ordering while delegating process effects through one port.
 #[derive(Debug)]
-pub struct PublicRunService<L, D> {
+pub struct PublicRunService<L, D, A> {
     coordinator: Coordinator<L>,
     runner: D,
+    authorizer: A,
     authority: ProviderRunAuthority,
 }
 
-impl<L, D> PublicRunService<L, D>
+impl<L, D, A> PublicRunService<L, D, A>
 where
     L: Ledger,
     D: PublicProviderRunner,
+    A: RunVersionAuthorizer,
 {
     /// Constructs a service. `Observer` is the safe default used by the shipped daemon.
     #[must_use]
-    pub fn new(coordinator: Coordinator<L>, runner: D, authority: ProviderRunAuthority) -> Self {
+    pub fn new(
+        coordinator: Coordinator<L>,
+        runner: D,
+        authorizer: A,
+        authority: ProviderRunAuthority,
+    ) -> Self {
         Self {
             coordinator,
             runner,
+            authorizer,
             authority,
         }
     }
@@ -61,6 +69,9 @@ where
             &request.version,
             &request.compatibility_entry,
         )?;
+        if self.authorizer.authorize(&lock).is_err() {
+            return Ok(denied(request.run_id));
+        }
         let run = RunRecord {
             run_id: request.run_id.clone(),
             parent_run_id: None,
@@ -113,6 +124,9 @@ where
                 Ok(response(request.run_id, PublicRunOutcome::LeaseContended))
             }
             RunLeaseClaim::Acquired(_) | RunLeaseClaim::Recovered { .. } => {
+                if self.authorizer.authorize(&lock).is_err() {
+                    return Ok(denied(request.run_id));
+                }
                 match self
                     .runner
                     .resume(&request.run_id, &lock, &session.provider_session_id)

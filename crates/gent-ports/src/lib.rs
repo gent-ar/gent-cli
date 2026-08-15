@@ -14,9 +14,11 @@ mod external_provider_bridge;
 mod git_operation_ledger;
 mod legacy_event_tap;
 mod policy_ledger;
+mod public_provider_runner;
 mod run_checkpoint_ledger;
 mod run_projections;
 mod run_sessions;
+mod run_version_authorizer;
 mod tool_source_ledger;
 mod workspace_ledger;
 pub use attachment_blobs::AttachmentBlobStore;
@@ -30,9 +32,11 @@ pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use legacy_event_tap::LegacyEventTap;
 pub use policy_ledger::PolicyLedger;
+pub use public_provider_runner::{PublicProviderRunError, PublicProviderRunner};
 pub use run_checkpoint_ledger::RunCheckpointLedger;
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
+pub use run_version_authorizer::RunVersionAuthorizer;
 pub use tool_source_ledger::ToolSourceLedger;
 pub use workspace_ledger::WorkspaceLedger;
 #[derive(Debug, thiserror::Error)]
@@ -42,40 +46,9 @@ pub enum PortError {
     #[error("provider bridge operation is unavailable: {0}")]
     Unavailable(String),
 }
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
-pub enum PublicProviderRunError {
-    #[error("provider executable changed before spawn or resume")]
-    ProviderChanged,
-    #[error("provider run is not active")]
-    NotActive,
-    #[error("provider lifecycle failed: {0}")]
-    Failed(String),
-}
 #[async_trait]
 pub trait ProviderDriver: Send + Sync {
     async fn submit(&self, command: Command) -> Result<(), PortError>;
-}
-/// Daemon-owned public provider lifecycle boundary.
-/// Implementations may only receive locks derived from Claude or Codex. Private bridges are
-/// represented separately by [`ExternalProviderBridge`] and cannot enter this lifecycle.
-pub trait PublicProviderRunner: Send + Sync {
-    /// Starts a new process only after the caller has durably reserved its run.
-    /// # Errors
-    /// Returns a changed-binary or launcher failure without silently substituting a provider.
-    fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError>;
-    /// Resumes a process only after the caller has re-established durable ownership.
-    /// # Errors
-    /// Returns a changed-binary or launcher failure without silently substituting a provider.
-    fn resume(
-        &self,
-        run_id: &str,
-        lock: &RunVersionLock,
-        session_id: &str,
-    ) -> Result<(), PublicProviderRunError>;
-    /// Interrupts the complete process tree currently owned by `run_id`.
-    /// # Errors
-    /// Returns an error when no process is active or process-tree interruption fails.
-    fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IngressMode {

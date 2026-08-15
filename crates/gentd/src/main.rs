@@ -93,7 +93,7 @@ fn build_runtime(
     let coordinator = Coordinator::new(ledger, capabilities);
     coordinator.persist_capability_catalog()?;
     Ok(RuntimeFacade {
-        public_runs: observer_service(coordinator.clone()),
+        public_runs: observer_service(coordinator.clone(), compatibility.clone()),
         attachments,
         coordinator,
         dependencies: DependencyCatalog::with_compatibility(compatibility),
