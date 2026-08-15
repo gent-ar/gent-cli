@@ -19,9 +19,9 @@ function Invoke-Gent([string]$label, [string[]]$arguments) {
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($argument in $fullArguments) {
-        $null = $startInfo.ArgumentList.Add($argument)
-    }
+    $startInfo.Arguments = ($fullArguments | ForEach-Object {
+        '"' + $_.Replace('"', '\"') + '"'
+    }) -join ' '
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     $null = $process.Start()
