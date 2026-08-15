@@ -44,7 +44,7 @@ def check_dependencies() -> list[str]:
 
 def check_file_lengths() -> list[str]:
     errors = []
-    for source in ROOT.glob("crates/**/src/**/*.rs"):
+    for source in (ROOT / "crates").glob("**/*.rs"):
         count = len(source.read_text().splitlines())
         if count > 300:
             errors.append(f"{source.relative_to(ROOT)} has {count} lines (maximum is 300)")
