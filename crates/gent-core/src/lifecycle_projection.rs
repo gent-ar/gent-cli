@@ -10,6 +10,7 @@ use crate::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 pub struct LifecycleProjection {
     pub lifecycle: LifecycleState,
     pub last_cursor: Option<u64>,
+    pub active_turn_id: Option<String>,
 }
 
 /// Result of attempting to apply one durable provider event.
@@ -39,7 +40,8 @@ pub fn project_normalized_event(
         };
     }
 
-    for lifecycle_event in lifecycle_events(event) {
+    update_active_turn(&mut state, event);
+    for lifecycle_event in lifecycle_events(state.active_turn_id.as_deref(), event) {
         state.lifecycle = reduce_lifecycle(state.lifecycle, lifecycle_event);
     }
     state.last_cursor = Some(cursor);
@@ -55,13 +57,30 @@ pub fn projected_live_status(state: &LifecycleProjection) -> ConversationLiveSta
     live_status(&state.lifecycle, state.last_cursor.unwrap_or_default())
 }
 
-fn lifecycle_events(event: &NormalizedProviderEvent) -> Vec<LifecycleEvent> {
+fn update_active_turn(state: &mut LifecycleProjection, event: &NormalizedProviderEvent) {
+    match event {
+        NormalizedProviderEvent::TurnStarted { turn_id } => {
+            state.active_turn_id = Some(turn_id.clone());
+        }
+        NormalizedProviderEvent::TurnEnded { turn_id }
+            if state.active_turn_id.as_deref() == Some(turn_id) =>
+        {
+            state.active_turn_id = None;
+        }
+        _ => {}
+    }
+}
+
+fn lifecycle_events(
+    active_turn_id: Option<&str>,
+    event: &NormalizedProviderEvent,
+) -> Vec<LifecycleEvent> {
     match event {
         NormalizedProviderEvent::TurnStarted { .. } => vec![
             LifecycleEvent::ErrorCleared,
             LifecycleEvent::RootPhase(TurnPhase::Processing),
         ],
-        NormalizedProviderEvent::TurnEnded { .. } => {
+        NormalizedProviderEvent::TurnEnded { turn_id } if active_turn_id.is_none() => {
             vec![LifecycleEvent::RootPhase(TurnPhase::Ready)]
         }
         NormalizedProviderEvent::ChildStarted { child_id, .. } => {
@@ -85,7 +104,8 @@ fn lifecycle_events(event: &NormalizedProviderEvent) -> Vec<LifecycleEvent> {
             phase,
         ),
         NormalizedProviderEvent::DecisionSettled { .. } => vec![LifecycleEvent::AttentionCleared],
-        NormalizedProviderEvent::Output { .. }
+        NormalizedProviderEvent::TurnEnded { .. }
+        | NormalizedProviderEvent::Output { .. }
         | NormalizedProviderEvent::TransportDiagnostic { .. } => Vec::new(),
     }
 }
@@ -176,6 +196,7 @@ mod tests {
         let state = LifecycleProjection {
             lifecycle,
             last_cursor: Some(10),
+            active_turn_id: None,
         };
         let diagnostic = project_normalized_event(
             state,
@@ -196,5 +217,53 @@ mod tests {
         )
         .state;
         assert!(!projected_live_status(&settled).needs_attention);
+    }
+
+    #[test]
+    fn stale_turn_terminal_cannot_end_the_new_active_turn() {
+        let first = project_normalized_event(
+            LifecycleProjection::default(),
+            1,
+            &NormalizedProviderEvent::TurnStarted {
+                turn_id: "a".into(),
+            },
+        )
+        .state;
+        let second = project_normalized_event(
+            first,
+            2,
+            &NormalizedProviderEvent::TurnStarted {
+                turn_id: "b".into(),
+            },
+        )
+        .state;
+        let state = project_normalized_event(
+            second,
+            3,
+            &NormalizedProviderEvent::TurnEnded {
+                turn_id: "a".into(),
+            },
+        )
+        .state;
+        assert_eq!(state.active_turn_id.as_deref(), Some("b"));
+        assert!(projected_live_status(&state).is_processing);
+    }
+
+    #[test]
+    fn waiting_roots_remain_processing_while_detached_work_waits_only_when_ready() {
+        for phase in [TurnPhase::WaitingPermission, TurnPhase::WaitingQuestion] {
+            let lifecycle =
+                reduce_lifecycle(LifecycleState::default(), LifecycleEvent::RootPhase(phase));
+            assert!(crate::live_status(&lifecycle, 1).is_processing);
+        }
+        let lifecycle = reduce_lifecycle(
+            LifecycleState::default(),
+            LifecycleEvent::ChildPhase {
+                child_id: "child".into(),
+                phase: WorkPhase::Running,
+            },
+        );
+        let lifecycle = reduce_lifecycle(lifecycle, LifecycleEvent::RootPhase(TurnPhase::Ready));
+        assert!(crate::live_status(&lifecycle, 2).is_waiting_for_subagents);
     }
 }

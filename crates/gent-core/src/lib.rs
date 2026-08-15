@@ -194,7 +194,10 @@ pub fn live_status(state: &LifecycleState, snapshot_cursor: u64) -> Conversation
     let has_live_command_work = state.commands.values().any(WorkPhase::is_live);
     let is_processing = matches!(
         state.root_phase,
-        TurnPhase::Processing | TurnPhase::Compacting
+        TurnPhase::Processing
+            | TurnPhase::WaitingPermission
+            | TurnPhase::WaitingQuestion
+            | TurnPhase::Compacting
     );
     ConversationLiveStatus {
         snapshot_cursor,
