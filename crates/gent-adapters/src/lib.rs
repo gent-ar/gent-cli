@@ -1,6 +1,7 @@
 //! Home for public declarative provider manifests. No processes are started here.
 
 pub mod compatibility;
+pub mod manifest;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdapterManifest {
