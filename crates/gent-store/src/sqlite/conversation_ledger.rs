@@ -46,3 +46,19 @@ impl ConversationLedger for SqliteLedger {
         conversations::replace_turn_phase(self, turn_id, expected, next)
     }
 }
+
+impl gent_ports::ConversationArtifactLedger for SqliteLedger {
+    fn create_conversation_artifact(
+        &self,
+        artifact: &gent_types::ConversationArtifact,
+    ) -> Result<(), LedgerError> {
+        super::conversation_artifacts::create(self, artifact)
+    }
+
+    fn list_conversation_artifacts(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<gent_types::ConversationArtifact>, LedgerError> {
+        super::conversation_artifacts::list(self, conversation_id)
+    }
+}

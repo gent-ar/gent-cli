@@ -12,6 +12,7 @@ use gent_types::{
 };
 use rusqlite::{Connection, params};
 
+mod conversation_artifacts;
 mod conversation_ledger;
 mod conversations;
 mod decisions;

@@ -6,13 +6,14 @@ use gent_types::{
     EventSnapshot, HostEpoch, ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
 };
 
+mod conversation_artifacts;
 mod conversation_ledger;
 mod run_projections;
 mod run_sessions;
+pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
-
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
     #[error("provider bridge failure: {0}")]

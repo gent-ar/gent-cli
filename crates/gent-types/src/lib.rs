@@ -4,12 +4,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+mod conversation_artifact;
 mod conversations;
 mod decision;
 mod doctor;
 mod event_resume;
 mod run_projection;
 
+pub use conversation_artifact::{
+    ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
+};
 pub use conversations::{
     ConversationRecord, ConversationRunStatus, ConversationStatus, DurableTurnPhase, TurnRecord,
 };

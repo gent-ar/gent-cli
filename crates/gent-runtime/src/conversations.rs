@@ -2,11 +2,12 @@
 
 use gent_core::{permits_turn_transition, projected_live_status, restore_projection};
 use gent_ports::{
-    ConversationLedger, Ledger, LedgerError, RunProjectionLedger, RunRecord, TurnPhaseUpdate,
+    ConversationArtifactLedger, ConversationLedger, Ledger, LedgerError, RunProjectionLedger,
+    RunRecord, TurnPhaseUpdate,
 };
 use gent_types::{
-    ConversationRecord, ConversationRunStatus, ConversationStatus, DurableTurnPhase, RunLiveStatus,
-    TurnRecord,
+    ConversationArtifact, ConversationRecord, ConversationRunStatus, ConversationStatus,
+    DurableTurnPhase, RunLiveStatus, TurnRecord,
 };
 
 use crate::{Coordinator, RuntimeError, to_record};
@@ -69,6 +70,33 @@ where
     /// Returns an error when durable state cannot be read.
     pub fn run_turns(&self, run_id: &str) -> Result<Vec<TurnRecord>, RuntimeError> {
         Ok(self.ledger.list_run_turns(run_id)?)
+    }
+}
+
+impl<L> Coordinator<L>
+where
+    L: Ledger + ConversationArtifactLedger,
+{
+    /// Persists provenance for one title or recap generation attempt.
+    ///
+    /// # Errors
+    /// Returns an error when the artifact lacks valid durable provenance.
+    pub fn create_conversation_artifact(
+        &self,
+        artifact: &ConversationArtifact,
+    ) -> Result<(), RuntimeError> {
+        Ok(self.ledger.create_conversation_artifact(artifact)?)
+    }
+
+    /// Lists immutable title and recap generation attempts for one conversation.
+    ///
+    /// # Errors
+    /// Returns an error when durable state cannot be read.
+    pub fn conversation_artifacts(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<ConversationArtifact>, RuntimeError> {
+        Ok(self.ledger.list_conversation_artifacts(conversation_id)?)
     }
 }
 

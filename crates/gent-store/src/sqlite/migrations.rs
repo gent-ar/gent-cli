@@ -29,13 +29,29 @@ CREATE TABLE IF NOT EXISTS turns (turn_id TEXT PRIMARY KEY NOT NULL, conversatio
 CREATE INDEX IF NOT EXISTS turns_by_run_sequence ON turns (run_id, sequence);
 ";
 
+const CONVERSATION_ARTIFACTS: &str = "
+CREATE TABLE IF NOT EXISTS conversation_artifacts (
+    artifact_id TEXT PRIMARY KEY NOT NULL,
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    kind TEXT NOT NULL,
+    source_turn_ids TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model_version TEXT NOT NULL,
+    input_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    text TEXT,
+    supersedes_artifact_id TEXT REFERENCES conversation_artifacts(artifact_id)
+);
+CREATE INDEX IF NOT EXISTS conversation_artifacts_by_conversation ON conversation_artifacts (conversation_id);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 4] = [
+const MIGRATIONS: [Migration; 5] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -51,6 +67,10 @@ const MIGRATIONS: [Migration; 4] = [
     Migration {
         version: 4,
         sql: CONVERSATIONS_AND_TURNS,
+    },
+    Migration {
+        version: 5,
+        sql: CONVERSATION_ARTIFACTS,
     },
 ];
 

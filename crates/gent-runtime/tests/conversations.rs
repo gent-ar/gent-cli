@@ -3,8 +3,9 @@ use gent_ports::{RunProjectionLedger, TurnPhaseUpdate};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, ConversationRecord, DurableTurnPhase, HostEpoch, RunLifecycleProjection,
-    RunProjectionRecord, TurnRecord,
+    CapabilitySet, ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
+    ConversationRecord, DurableTurnPhase, HostEpoch, RunLifecycleProjection, RunProjectionRecord,
+    TurnRecord,
 };
 
 fn coordinator() -> Coordinator<SqliteLedger> {
@@ -107,6 +108,44 @@ fn stale_turn_transition_preserves_durable_state() {
             ..
         })
     ));
+}
+
+#[test]
+fn title_and_recap_provenance_is_durable_and_read_only() {
+    let coordinator = coordinator();
+    coordinator
+        .create_conversation_run(
+            &ConversationRecord {
+                conversation_id: "conversation-a".into(),
+            },
+            &Run {
+                id: "run-root".into(),
+                parent_run_id: None,
+                provider: "claude".into(),
+            },
+        )
+        .unwrap();
+    coordinator
+        .create_conversation_artifact(&ConversationArtifact {
+            artifact_id: "title-1".into(),
+            conversation_id: "conversation-a".into(),
+            kind: ConversationArtifactKind::Title,
+            source_turn_ids: vec!["turn-1".into()],
+            provider: "claude".into(),
+            model_version: "1".into(),
+            input_digest: "sha256:input".into(),
+            status: ConversationArtifactStatus::Completed,
+            text: Some("A title".into()),
+            supersedes_artifact_id: None,
+        })
+        .unwrap();
+    assert_eq!(
+        coordinator
+            .conversation_artifacts("conversation-a")
+            .unwrap()[0]
+            .text,
+        Some("A title".into())
+    );
 }
 
 #[test]
