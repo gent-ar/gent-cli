@@ -10,6 +10,9 @@ mod dependency_catalog;
 mod dependency_catalog_tests;
 mod event_stream;
 mod host_lock;
+mod provider_resolver;
+#[cfg(test)]
+mod provider_resolver_tests;
 mod public_runs;
 mod transport;
 #[cfg(test)]

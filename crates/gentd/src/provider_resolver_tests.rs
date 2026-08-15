@@ -1,0 +1,100 @@
+use std::path::{Path, PathBuf};
+
+use ed25519_dalek::{Signer, SigningKey};
+use gent_adapters::compatibility::{
+    CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest, TrustedKeySet,
+};
+use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
+use gent_drivers::discovery::{DiscoveryError, ExecutableDiscovery, ProbeError, VersionProbe};
+use gent_drivers::lock::capture;
+use gent_ports::{PublicProviderResolver, PublicProviderRunError};
+
+use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::provider_resolver::DaemonProviderResolver;
+
+#[derive(Clone, Debug)]
+struct Found(PathBuf);
+
+impl ExecutableDiscovery for Found {
+    fn find(&self, _: &str) -> Result<Option<PathBuf>, DiscoveryError> {
+        Ok(Some(self.0.clone()))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Version(&'static str);
+
+impl VersionProbe for Version {
+    fn probe(&self, _: &Path, argument: &str) -> Result<String, ProbeError> {
+        assert_eq!(argument, "--version");
+        Ok(self.0.into())
+    }
+}
+
+fn assessment(path: &Path, version: &str) -> CompatibilityAssessment {
+    let observed = capture("claude", path, version, "unbound").unwrap();
+    let key = SigningKey::from_bytes(&[8; 32]);
+    let payload = CompatibilityManifest {
+        manifest_version: 1,
+        expires_at_unix_seconds: 20,
+        entries: vec![CompatibilityEntry {
+            id: "claude-test".into(),
+            provider: "claude".into(),
+            version: version.into(),
+            digest_sha256: observed.digest_sha256,
+            revoked: false,
+        }],
+    };
+    let manifest = SignedCompatibilityManifest {
+        key_id: "test".into(),
+        signature_hex: hex::encode(key.sign(&serde_json::to_vec(&payload).unwrap()).to_bytes()),
+        payload,
+    };
+    let mut keys = TrustedKeySet::default();
+    keys.trust("test", key.verifying_key());
+    let cached = CachedCompatibilityManifest::verify(manifest, &keys, 1).unwrap();
+    CompatibilityAssessment::configured(keys, cached, 10)
+}
+
+#[test]
+fn resolver_captures_and_binds_only_daemon_observed_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("claude");
+    std::fs::write(&executable, "public provider binary").unwrap();
+    let resolver = DaemonProviderResolver::new(
+        assessment(&executable, "1.0"),
+        Found(executable.clone()),
+        Version("1.0"),
+    );
+    let lock = resolver.resolve("claude").unwrap();
+    assert_eq!(lock.compatibility_entry, "claude-test");
+    assert_eq!(lock.version, "1.0");
+    assert_eq!(
+        lock.canonical_path,
+        std::fs::canonicalize(executable)
+            .unwrap()
+            .display()
+            .to_string()
+    );
+}
+
+#[test]
+fn resolver_rejects_private_or_changed_provider_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("claude");
+    std::fs::write(&executable, "before").unwrap();
+    let resolver = DaemonProviderResolver::new(
+        assessment(&executable, "1.0"),
+        Found(executable.clone()),
+        Version("1.0"),
+    );
+    assert_eq!(
+        resolver.resolve("claurst"),
+        Err(PublicProviderRunError::CompatibilityDenied)
+    );
+    std::fs::write(executable, "after").unwrap();
+    assert_eq!(
+        resolver.resolve("claude"),
+        Err(PublicProviderRunError::CompatibilityDenied)
+    );
+}
