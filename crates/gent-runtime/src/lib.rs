@@ -1,4 +1,5 @@
 //! Coordinator orchestration over pure policy and durable ports.
+mod attachments;
 mod automation_executions;
 pub mod catalog;
 mod conversations;
@@ -11,6 +12,7 @@ mod run_checkpoints;
 mod run_projections;
 mod tool_sources;
 mod workspaces;
+pub use attachments::AttachmentService;
 use gent_core::{Run, switch_provider};
 use gent_ports::{
     HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,
@@ -39,8 +41,9 @@ pub enum RuntimeError {
     ProviderLock(#[from] gent_drivers::lock::LockError),
     #[error(transparent)]
     ProviderRun(#[from] gent_ports::PublicProviderRunError),
+    #[error(transparent)]
+    Core(#[from] gent_core::CoreError),
 }
-
 impl<L: Ledger> Coordinator<L> {
     #[must_use]
     pub fn new(ledger: L, capabilities: CapabilitySet) -> Self {
@@ -51,7 +54,6 @@ impl<L: Ledger> Coordinator<L> {
     }
 
     /// Returns the negotiated host state.
-    ///
     /// # Errors
     /// Returns an error when the durable host state cannot be read.
     pub fn status(&self) -> Result<HostStatus, RuntimeError> {
@@ -64,7 +66,6 @@ impl<L: Ledger> Coordinator<L> {
     }
 
     /// Atomically accepts one command, or returns the already durable receipt for its key.
-    ///
     /// # Errors
     /// Returns an error when the host fence rejects ingress or durable persistence fails.
     #[allow(clippy::needless_pass_by_value)] // The coordinator owns the wire command boundary.
@@ -98,7 +99,6 @@ impl<L: Ledger> Coordinator<L> {
     }
 
     /// Closes mutation ingress as the first half of an authority transfer.
-    ///
     /// # Errors
     /// Returns an error when the caller no longer owns the active epoch.
     pub fn close_ingress(&self, epoch: gent_types::HostEpoch) -> Result<HostIngress, RuntimeError> {

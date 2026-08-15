@@ -1,11 +1,11 @@
 //! Adapter joining opaque attachment transfer metadata to `SQLite`.
 
-use gent_ports::{AttachmentClaim, AttachmentLedger, LedgerError};
+use gent_ports::{AttachmentClaim, AttachmentLedger, IngressMode, LedgerError};
 use gent_types::{AttachmentState, AttachmentTransfer, HostEpoch, ReceiptId, TurnAttachment};
 use rusqlite::{OptionalExtension, params};
 
 use super::SqliteLedger;
-use super::queries::storage_error;
+use super::queries::{host_ingress, storage_error};
 
 impl AttachmentLedger for SqliteLedger {
     fn claim_attachment(
@@ -13,8 +13,9 @@ impl AttachmentLedger for SqliteLedger {
         transfer: &AttachmentTransfer,
     ) -> Result<AttachmentClaim, LedgerError> {
         let connection = self.lock()?;
+        guard_ingress(&connection, transfer.host_epoch)?;
         if let Some(existing) = find(&connection, &transfer.metadata.attachment_id)? {
-            return if existing == *transfer {
+            return if same_identity(&existing, transfer) {
                 Ok(AttachmentClaim::Existing(existing))
             } else {
                 Err(LedgerError::Invariant(
@@ -23,7 +24,7 @@ impl AttachmentLedger for SqliteLedger {
             };
         }
         if let Some(existing) = find_by_key(&connection, &transfer.idempotency_key)? {
-            return if existing == *transfer {
+            return if same_identity(&existing, transfer) {
                 Ok(AttachmentClaim::Existing(existing))
             } else {
                 Err(LedgerError::Invariant(
@@ -53,6 +54,7 @@ impl AttachmentLedger for SqliteLedger {
             ));
         }
         let connection = self.lock()?;
+        guard_ingress(&connection, expected.host_epoch)?;
         let changed = connection.execute(
             "UPDATE attachments SET state = ?1, received_bytes = ?2 WHERE attachment_id = ?3 AND state = ?4 AND received_bytes = ?5",
             params![state(next.state), next.received_bytes, expected.metadata.attachment_id, state(expected.state), expected.received_bytes],
@@ -132,6 +134,25 @@ fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentTransfer> {
         },
         received_bytes: row.get(10)?,
     })
+}
+fn same_identity(left: &AttachmentTransfer, right: &AttachmentTransfer) -> bool {
+    left.metadata == right.metadata
+        && left.receipt_id == right.receipt_id
+        && left.idempotency_key == right.idempotency_key
+        && left.host_epoch == right.host_epoch
+}
+fn guard_ingress(connection: &rusqlite::Connection, epoch: HostEpoch) -> Result<(), LedgerError> {
+    let ingress = host_ingress(connection)?;
+    if ingress.epoch != epoch {
+        return Err(LedgerError::StaleEpoch {
+            command: epoch,
+            active: ingress.epoch,
+        });
+    }
+    if ingress.mode == IngressMode::Closed {
+        return Err(LedgerError::IngressClosed { epoch });
+    }
+    Ok(())
 }
 const fn state(state: AttachmentState) -> &'static str {
     match state {

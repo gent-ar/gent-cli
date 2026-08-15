@@ -37,6 +37,10 @@ fn transfer_progress_is_optimistic_idempotent_and_restart_safe() {
     let mut progressed = initial.clone();
     progressed.received_bytes = 4;
     ledger.replace_attachment(&initial, &progressed).unwrap();
+    assert!(matches!(
+        ledger.claim_attachment(&initial).unwrap(),
+        AttachmentClaim::Existing(found) if found == progressed
+    ));
     assert!(ledger.replace_attachment(&initial, &progressed).is_err());
     drop(ledger);
     assert_eq!(

@@ -48,7 +48,26 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
             .truncate(false)
             .open(path)
             .map_err(io_error)?;
-        if file.metadata().map_err(io_error)?.len() != offset {
+        let actual = file.metadata().map_err(io_error)?.len();
+        if actual
+            == offset.saturating_add(
+                u64::try_from(bytes.len()).map_err(|_| {
+                    LedgerError::Invariant("attachment chunk length overflow".into())
+                })?,
+            )
+        {
+            let mut existing = vec![0; bytes.len()];
+            file.seek(SeekFrom::Start(offset)).map_err(io_error)?;
+            file.read_exact(&mut existing).map_err(io_error)?;
+            return if existing == bytes {
+                Ok(())
+            } else {
+                Err(LedgerError::Invariant(
+                    "attachment retry bytes differ from staged content".into(),
+                ))
+            };
+        }
+        if actual != offset {
             return Err(LedgerError::Invariant(
                 "attachment blob offset differs from staged length".into(),
             ));
@@ -58,8 +77,14 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
         file.sync_data().map_err(io_error)
     }
 
-    fn staged_attachment_digest(&self, key: &str) -> Result<(u64, String), LedgerError> {
-        let mut file = File::open(self.staging(key)?).map_err(io_error)?;
+    fn attachment_digest(&self, key: &str) -> Result<(u64, String), LedgerError> {
+        let staging = self.staging(key)?;
+        let path = if staging.exists() {
+            staging
+        } else {
+            self.final_path(key)?
+        };
+        let mut file = File::open(path).map_err(io_error)?;
         let mut digest = Sha256::new();
         let mut buffer = [0_u8; 8192];
         let mut size = 0_u64;
@@ -83,7 +108,9 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
         let staging = self.staging(key)?;
         let final_path = self.final_path(key)?;
         if final_path.exists() {
-            fs::remove_file(staging).map_err(io_error)?;
+            if staging.exists() {
+                fs::remove_file(staging).map_err(io_error)?;
+            }
             return Ok(());
         }
         fs::rename(staging, final_path).map_err(io_error)
@@ -127,9 +154,9 @@ mod tests {
         let key = format!("sha256/{digest}");
         let store = FileAttachmentBlobs::open(directory.path()).unwrap();
         store.append_attachment_chunk(&key, 0, b"he").unwrap();
-        assert!(store.append_attachment_chunk(&key, 0, b"he").is_err());
+        store.append_attachment_chunk(&key, 0, b"he").unwrap();
         store.append_attachment_chunk(&key, 2, b"llo").unwrap();
-        assert_eq!(store.staged_attachment_digest(&key).unwrap(), (5, digest));
+        assert_eq!(store.attachment_digest(&key).unwrap(), (5, digest));
         store.commit_attachment_blob(&key).unwrap();
         assert!(directory.path().join("blobs").join(&key[7..]).exists());
     }

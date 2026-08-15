@@ -15,11 +15,11 @@ pub trait AttachmentBlobStore: Send + Sync {
         bytes: &[u8],
     ) -> Result<(), LedgerError>;
 
-    /// Returns the staged byte count and lowercase SHA-256 digest.
+    /// Returns the byte count and lowercase SHA-256 digest for staged or committed content.
     ///
     /// # Errors
     /// Returns an error when the staged content does not exist or cannot be read.
-    fn staged_attachment_digest(&self, storage_key: &str) -> Result<(u64, String), LedgerError>;
+    fn attachment_digest(&self, storage_key: &str) -> Result<(u64, String), LedgerError>;
 
     /// Atomically promotes checked staged content to its content-addressed immutable location.
     ///
