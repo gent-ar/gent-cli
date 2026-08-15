@@ -17,11 +17,14 @@ trap cleanup EXIT
 cargo run --quiet -p gentd -- --data-dir "$data_dir" >"$data_dir/gentd.log" 2>&1 &
 daemon_pid="$!"
 
-for _ in $(seq 1 40); do
+for _ in $(seq 1 120); do
   [[ -S "$data_dir/gentd.sock" ]] && break
   sleep 0.05
 done
-[[ -S "$data_dir/gentd.sock" ]]
+if [[ ! -S "$data_dir/gentd.sock" ]]; then
+  cat "$data_dir/gentd.log" >&2 || true
+  exit 1
+fi
 
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- status >"$data_dir/status.json"
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- submit --kind ping --payload '{"message":"smoke"}' >"$data_dir/receipt.json"
