@@ -117,6 +117,19 @@ CREATE TABLE IF NOT EXISTS mcp_connector_leases (
 );
 ";
 
+const CONVERSATION_MESSAGES: &str = "
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    message_id TEXT PRIMARY KEY NOT NULL,
+    turn_id TEXT NOT NULL UNIQUE REFERENCES turns(turn_id),
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    text TEXT NOT NULL,
+    text_digest_sha256 TEXT NOT NULL,
+    byte_len INTEGER NOT NULL CHECK (byte_len > 0)
+);
+CREATE INDEX IF NOT EXISTS conversation_messages_by_run ON conversation_messages (run_id);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
@@ -127,7 +140,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 16] = [
+const MIGRATIONS: [Migration; 17] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -144,6 +157,7 @@ const MIGRATIONS: [Migration; 16] = [
     migration(14, ATTACHMENT_TRANSFER_KEYS),
     migration(15, RECEIPT_FINGERPRINTS),
     migration(16, MCP_CONNECTORS),
+    migration(17, CONVERSATION_MESSAGES),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

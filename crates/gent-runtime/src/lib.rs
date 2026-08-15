@@ -3,6 +3,7 @@ mod attachment_receipts;
 mod attachments;
 mod automation_executions;
 pub mod catalog;
+mod conversation_prompts;
 mod conversations;
 mod decisions;
 mod dependency_actions;
@@ -19,6 +20,7 @@ mod run_projections;
 mod tool_sources;
 mod workspaces;
 pub use attachments::AttachmentService;
+pub use conversation_prompts::*;
 pub use dependency_actions::DependencyActionService;
 use gent_core::{Run, switch_provider};
 use gent_ports::{
@@ -63,7 +65,6 @@ impl<L: Ledger> Coordinator<L> {
             capabilities,
         }
     }
-    /// Returns the negotiated host state.
     /// # Errors
     /// Returns an error when the durable host state cannot be read.
     pub fn status(&self) -> Result<HostStatus, RuntimeError> {
@@ -74,7 +75,6 @@ impl<L: Ledger> Coordinator<L> {
             capabilities: self.capabilities.clone(),
         })
     }
-    /// Atomically accepts one command, or returns the already durable receipt for its key.
     /// # Errors
     /// Returns an error when the host fence rejects ingress or durable persistence fails.
     #[allow(clippy::needless_pass_by_value)] // The coordinator owns the wire command boundary.

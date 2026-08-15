@@ -14,6 +14,8 @@ mod automation_executions;
 mod capability_catalog;
 mod conversation_artifacts;
 mod conversation_ledger;
+mod conversation_prompt_ledger;
+mod conversation_prompts;
 mod conversations;
 mod decisions;
 mod epoch;
@@ -48,14 +50,11 @@ pub struct SqliteLedger {
     connection: Arc<Mutex<Connection>>,
 }
 impl SqliteLedger {
-    /// Opens or creates a durable ledger at `path`.
     /// # Errors
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         Self::from_connection(Connection::open(path).map_err(storage_error)?)
     }
-    /// Creates an isolated in-memory ledger for deterministic tests.
     /// # Errors
-    /// Returns an error when `SQLite` cannot initialize the database.
     pub fn in_memory() -> Result<Self, LedgerError> {
         Self::from_connection(Connection::open_in_memory().map_err(storage_error)?)
     }

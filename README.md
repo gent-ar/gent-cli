@@ -23,6 +23,8 @@ than a second copy of application logic. The implemented vertical slice is:
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
   content and provider-native session identifiers.
+- A dormant receipt-backed user-prompt ledger that atomically assigns an active turn and retains
+  text outside receipt/event payloads; it is not yet exposed by observer-mode `gentd`.
 - Durable workspace → repository → worktree identities, stored independently from worktree
   leases and any future Git execution.
 - Durable worktree-scoped Git-operation lifecycle records with optimistic, terminal-safe transitions;

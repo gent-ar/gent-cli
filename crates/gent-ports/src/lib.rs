@@ -10,6 +10,7 @@ mod automation_execution_ledger;
 mod capability_catalog;
 mod conversation_artifacts;
 mod conversation_ledger;
+mod conversation_prompt_ledger;
 mod dependency_action_executor;
 mod external_provider_bridge;
 mod git_executor;
@@ -32,6 +33,7 @@ pub use automation_execution_ledger::{AutomationExecutionLedger, AutomationExecu
 pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
+pub use conversation_prompt_ledger::{ConversationPromptLedger, ConversationPromptSave};
 pub use dependency_action_executor::{
     DependencyActionExecutor, DependencyActionExecutorError, DependencyActionOperation,
 };

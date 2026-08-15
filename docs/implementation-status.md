@@ -115,6 +115,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       state, and never replays an accepted receipt after restart. It is uncomposed by `gentd`
       and has no process or network executor implementation; observer mode returns before a
       receipt, lease, connector record, or executor call.
+- [x] Receipt-backed user conversation-prompt persistence. Prompt text is stored only in a
+      dedicated SQLite message ledger while receipt/event payloads retain only identities,
+      digest, byte length, and assigned sequence. Recovery safely retries its one idempotent
+      database transaction; it is uncomposed by observer-mode `gentd` and never starts a provider.
 - [x] Worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.

@@ -8,6 +8,7 @@ mod attachments;
 mod automation_executions;
 mod capability_catalog;
 mod conversation_artifact;
+mod conversation_prompts;
 mod conversations;
 mod decision;
 mod doctor;
@@ -34,6 +35,7 @@ pub use capability_catalog::CapabilityCatalogRecord;
 pub use conversation_artifact::{
     ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
 };
+pub use conversation_prompts::{ConversationMessage, ConversationPrompt};
 pub use conversations::{
     ConversationArtifactSummary, ConversationRecord, ConversationRunStatus, ConversationStatus,
     ConversationTimeline, ConversationTimelineRun, DurableTurnPhase, TurnRecord,
