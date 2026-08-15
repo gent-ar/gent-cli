@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 clap.workspace = true
 directories.workspace = true
+ed25519-dalek.workspace = true
 fs2.workspace = true
 gent-adapters = { path = "../gent-adapters" }
 gent-automations = { path = "../gent-automations" }
@@ -22,13 +23,12 @@ gent-protocol = { path = "../gent-protocol" }
 gent-runtime = { path = "../gent-runtime" }
 gent-store = { path = "../gent-store" }
 gent-types = { path = "../gent-types" }
+hex.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-ed25519-dalek.workspace = true
-hex.workspace = true
 tempfile.workspace = true
 
 [[bin]]

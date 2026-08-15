@@ -50,6 +50,12 @@ struct Args {
     #[cfg(unix)]
     #[arg(long)]
     socket: Option<PathBuf>,
+    /// Read-only cache of a previously verified signed compatibility manifest.
+    #[arg(long, env = "GENT_COMPATIBILITY_CACHE")]
+    compatibility_cache: Option<PathBuf>,
+    /// Trusted public key as `key-id:lowercase-hex`; may be passed more than once.
+    #[arg(long = "compatibility-key", env = "GENT_COMPATIBILITY_KEY")]
+    compatibility_keys: Vec<String>,
 }
 
 #[tokio::main]
@@ -59,13 +65,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
     let observed_capabilities = transport::observed_capabilities();
-    let runtime = build_runtime(&data_dir, &observed_capabilities)?;
+    let compatibility = CompatibilityAssessment::load(
+        args.compatibility_cache.as_deref(),
+        &args.compatibility_keys,
+        unix_seconds(),
+    );
+    let runtime = build_runtime(&data_dir, &observed_capabilities, compatibility)?;
     serve_local(runtime, &args, &data_dir).await
 }
 
 fn build_runtime(
     data_dir: &std::path::Path,
     observed_capabilities: &CapabilitySet,
+    compatibility: CompatibilityAssessment,
 ) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
     let capabilities = validate_observed_capabilities(observed_capabilities)?;
     let coordinator = Coordinator::new(SqliteLedger::open(data_dir.join("gent.db"))?, capabilities);
@@ -73,7 +85,7 @@ fn build_runtime(
     Ok(RuntimeFacade {
         public_runs: observer_service(coordinator.clone()),
         coordinator,
-        dependencies: DependencyCatalog::with_compatibility(CompatibilityAssessment::default()),
+        dependencies: DependencyCatalog::with_compatibility(compatibility),
     })
 }
 
@@ -235,6 +247,12 @@ fn default_data_dir() -> PathBuf {
         || PathBuf::from(".gent"),
         |directories| directories.data_local_dir().to_path_buf(),
     )
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
 }
 
 #[cfg(test)]

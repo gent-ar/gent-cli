@@ -18,7 +18,12 @@ use super::{RuntimeFacade, build_runtime, decision_evidence, decision_submission
 
 fn runtime() -> (tempfile::TempDir, RuntimeFacade) {
     let directory = tempfile::tempdir().unwrap();
-    let runtime = build_runtime(directory.path(), &declared_capabilities()).unwrap();
+    let runtime = build_runtime(
+        directory.path(),
+        &declared_capabilities(),
+        super::CompatibilityAssessment::default(),
+    )
+    .unwrap();
     (directory, runtime)
 }
 
@@ -27,7 +32,12 @@ fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
     let directory = tempfile::tempdir().unwrap();
     let mut observed = declared_capabilities();
     observed.0.push("future-handler".into());
-    let error = build_runtime(directory.path(), &observed).unwrap_err();
+    let error = build_runtime(
+        directory.path(),
+        &observed,
+        super::CompatibilityAssessment::default(),
+    )
+    .unwrap_err();
 
     assert_eq!(
         error.downcast_ref::<CatalogError>(),

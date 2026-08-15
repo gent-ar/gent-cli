@@ -106,16 +106,12 @@ fn observe_provider(
     let provider = PublicProviderStatus {
         provider: name.into(),
         executable: identity,
-        compatibility: trust,
-        remediation: if present {
-            "A public executable was observed, but no signed compatibility manifest is configured."
-                .into()
-        } else {
-            remediation.into()
-        },
+        compatibility: trust.clone(),
+        remediation: CompatibilityAssessment::remediation(present, &trust, remediation),
     };
     (dependency, provider)
 }
+
 fn provider_details(provider: DependencyProvider) -> (&'static str, &'static str) {
     match provider {
         DependencyProvider::Claude => (

@@ -1,5 +1,8 @@
 //! Read-only compatibility assessment for `gent doctor`.
 
+use std::path::Path;
+
+use ed25519_dalek::VerifyingKey;
 use gent_adapters::compatibility::TrustedKeySet;
 use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_types::{CompatibilityTrust, ExecutableIdentity, RunVersionLock};
@@ -10,10 +13,10 @@ pub(crate) struct CompatibilityAssessment {
     keys: TrustedKeySet,
     cached: Option<CachedCompatibilityManifest>,
     now: u64,
+    configured: bool,
 }
 
 impl CompatibilityAssessment {
-    #[cfg(test)]
     #[must_use]
     pub(crate) fn configured(
         keys: TrustedKeySet,
@@ -24,6 +27,29 @@ impl CompatibilityAssessment {
             keys,
             cached: Some(cached),
             now,
+            configured: true,
+        }
+    }
+
+    /// Loads only local, previously verified cache state. Invalid configuration is untrusted.
+    #[must_use]
+    pub(crate) fn load(path: Option<&Path>, key_specs: &[String], now: u64) -> Self {
+        if path.is_none() && key_specs.is_empty() {
+            return Self::default();
+        }
+        let mut keys = TrustedKeySet::default();
+        if key_specs
+            .iter()
+            .any(|spec| add_key(&mut keys, spec).is_err())
+        {
+            return Self::untrusted(now);
+        }
+        let Some(path) = path else {
+            return Self::untrusted(now);
+        };
+        match CachedCompatibilityManifest::load(path, &keys, now) {
+            Ok(cached) => Self::configured(keys, cached, now),
+            Err(_) => Self::untrusted(now),
         }
     }
 
@@ -33,7 +59,11 @@ impl CompatibilityAssessment {
         identity: &ExecutableIdentity,
     ) -> CompatibilityTrust {
         let Some(cached) = &self.cached else {
-            return CompatibilityTrust::NotConfigured;
+            return if self.configured {
+                CompatibilityTrust::Untrusted
+            } else {
+                CompatibilityTrust::NotConfigured
+            };
         };
         let Some(version) = &identity.version else {
             return CompatibilityTrust::Untrusted;
@@ -62,6 +92,50 @@ impl CompatibilityAssessment {
             CompatibilityTrust::Untrusted
         }
     }
+
+    pub(crate) fn remediation(
+        present: bool,
+        trust: &CompatibilityTrust,
+        missing_remediation: &str,
+    ) -> String {
+        if !present {
+            return missing_remediation.into();
+        }
+        match trust {
+            CompatibilityTrust::Verified => {
+                "Signed compatibility evidence matches this executable.".into()
+            }
+            CompatibilityTrust::Untrusted => {
+                "Configured signed compatibility evidence does not trust this executable.".into()
+            }
+            CompatibilityTrust::NotConfigured => {
+                "A public executable was observed, but no signed compatibility manifest is configured."
+                    .into()
+            }
+        }
+    }
+}
+
+impl CompatibilityAssessment {
+    fn untrusted(now: u64) -> Self {
+        Self {
+            keys: TrustedKeySet::default(),
+            cached: None,
+            now,
+            configured: true,
+        }
+    }
+}
+
+fn add_key(keys: &mut TrustedKeySet, spec: &str) -> Result<(), ()> {
+    let Some((id, encoded)) = spec.split_once(':') else {
+        return Err(());
+    };
+    let bytes = hex::decode(encoded).map_err(|_| ())?;
+    let key =
+        VerifyingKey::from_bytes(bytes.as_slice().try_into().map_err(|_| ())?).map_err(|_| ())?;
+    keys.trust(id, key);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -135,6 +209,15 @@ mod tests {
         );
         assert_eq!(
             assessment(20, false).assess("claude", &identity(None)),
+            CompatibilityTrust::Untrusted
+        );
+    }
+
+    #[test]
+    fn malformed_or_incomplete_source_is_configured_but_untrusted() {
+        assert_eq!(
+            CompatibilityAssessment::load(None, &["bad-key".into()], 10)
+                .assess("claude", &identity(Some("1.0"))),
             CompatibilityTrust::Untrusted
         );
     }
