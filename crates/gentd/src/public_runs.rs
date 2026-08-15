@@ -5,8 +5,10 @@ use std::sync::Arc;
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::interrupt::InterruptPolicy;
 use gent_drivers::{DriverRunRunner, OutputLimits, SystemLauncher, SystemProcess};
+use gent_ports::{PublicProviderResolver, PublicProviderRunError};
 use gent_runtime::{Coordinator, ProviderRunAuthority, PublicRunService};
 use gent_store::SqliteLedger;
+use gent_types::RunVersionLock;
 
 use crate::compatibility_assessment::CompatibilityAssessment;
 
@@ -18,12 +20,23 @@ const BUFFERED_BYTES: usize = 256 * 1024;
 const INTERRUPT_GRACE_MS: u64 = 5_000;
 const TERMINATE_GRACE_MS: u64 = 5_000;
 
+/// Shipped observer daemon resolver. It deliberately never discovers or probes a provider.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ObserverProviderResolver;
+
+impl PublicProviderResolver for ObserverProviderResolver {
+    fn resolve(&self, _: &str) -> Result<RunVersionLock, PublicProviderRunError> {
+        Err(PublicProviderRunError::CompatibilityDenied)
+    }
+}
+
 /// The daemon's process-capable lifecycle service. The configured instance remains observer-only.
 pub(crate) type DaemonPublicRuns = Arc<
     PublicRunService<
         SqliteLedger,
         DriverRunRunner<SystemLauncher, SystemProcess>,
         CompatibilityAssessment,
+        ObserverProviderResolver,
     >,
 >;
 
@@ -47,6 +60,7 @@ pub(crate) fn observer_service(
         coordinator,
         runner,
         compatibility,
+        ObserverProviderResolver,
         ProviderRunAuthority::Observer,
     ))
 }

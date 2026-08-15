@@ -118,14 +118,10 @@ impl CompatibilityAssessment {
 }
 
 impl RunVersionAuthorizer for CompatibilityAssessment {
-    fn authorize(&self, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
-        let Some(cached) = &self.cached else {
-            return Err(PublicProviderRunError::CompatibilityDenied);
-        };
-        cached
-            .revalidate(&self.keys, self.now)
-            .and_then(|()| self.keys.verify_lock(&cached.manifest, lock, self.now))
-            .map_err(|_| PublicProviderRunError::CompatibilityDenied)
+    fn authorize(&self, _: &RunVersionLock) -> Result<(), PublicProviderRunError> {
+        // The existing signed manifest names only provider/version. It does not bind the captured
+        // SHA-256 digest, so it is discovery evidence only and cannot authorize process work.
+        Err(PublicProviderRunError::CompatibilityDenied)
     }
 }
 

@@ -1,11 +1,8 @@
 //! Durable public-provider run orchestration. The default observer authority never launches.
 
-use std::path::Path;
-
-use gent_drivers::lock::capture;
 use gent_ports::{
-    Ledger, PublicProviderRunError, PublicProviderRunner, RunLease, RunLeaseClaim, RunRecord,
-    RunSessionBinding, RunVersionAuthorizer,
+    Ledger, PublicProviderResolver, PublicProviderRunError, PublicProviderRunner, RunLease,
+    RunLeaseClaim, RunRecord, RunSessionBinding, RunVersionAuthorizer,
 };
 use gent_protocol::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
@@ -26,18 +23,20 @@ pub enum ProviderRunAuthority {
 
 /// Owns the durable-before-spawn ordering while delegating process effects through one port.
 #[derive(Debug)]
-pub struct PublicRunService<L, D, A> {
+pub struct PublicRunService<L, D, A, R> {
     coordinator: Coordinator<L>,
     runner: D,
     authorizer: A,
+    resolver: R,
     authority: ProviderRunAuthority,
 }
 
-impl<L, D, A> PublicRunService<L, D, A>
+impl<L, D, A, R> PublicRunService<L, D, A, R>
 where
     L: Ledger,
     D: PublicProviderRunner,
     A: RunVersionAuthorizer,
+    R: PublicProviderResolver,
 {
     /// Constructs a service. `Observer` is the safe default used by the shipped daemon.
     #[must_use]
@@ -45,30 +44,29 @@ where
         coordinator: Coordinator<L>,
         runner: D,
         authorizer: A,
+        resolver: R,
         authority: ProviderRunAuthority,
     ) -> Self {
         Self {
             coordinator,
             runner,
             authorizer,
+            resolver,
             authority,
         }
     }
 
-    /// Captures and durably reserves a new root run before invoking the process owner.
+    /// Resolves and durably reserves a new root run before invoking the process owner.
     ///
     /// # Errors
-    /// Returns an error when lock capture or the all-or-nothing durable reservation fails.
+    /// Returns an error when durable reservation fails after daemon-owned resolution succeeds.
     pub fn start(&self, request: PublicRunStartRequest) -> Result<PublicRunResponse, RuntimeError> {
         if !self.is_authoritative() {
             return Ok(denied(request.run_id));
         }
-        let lock = capture(
-            request.provider.as_str(),
-            Path::new(&request.executable),
-            &request.version,
-            &request.compatibility_entry,
-        )?;
+        let Ok(lock) = self.resolver.resolve(request.provider.as_str()) else {
+            return Ok(denied(request.run_id));
+        };
         if self.authorizer.authorize(&lock).is_err() {
             return Ok(denied(request.run_id));
         }
