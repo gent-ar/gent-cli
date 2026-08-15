@@ -76,13 +76,24 @@ CREATE TABLE IF NOT EXISTS git_operations (
 );
 ";
 
+const TOOL_SOURCES: &str = "
+CREATE TABLE IF NOT EXISTS tool_sources (
+    tool_source_id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+    kind TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    declared_tools TEXT NOT NULL,
+    UNIQUE (workspace_id, source_name)
+);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 9] = [
+const MIGRATIONS: [Migration; 10] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -118,6 +129,10 @@ const MIGRATIONS: [Migration; 9] = [
     Migration {
         version: 9,
         sql: GIT_OPERATIONS,
+    },
+    Migration {
+        version: 10,
+        sql: TOOL_SOURCES,
     },
 ];
 

@@ -31,6 +31,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Durable workspace → repository → worktree identities, deliberately separate from lease arbitration and Git execution.
 - [x] Durable worktree-scoped Git-operation records with optimistic, terminal-safe lifecycle transitions;
       no Git process execution is enabled.
+- [x] Durable workspace tool-source declarations for MCP, built-in, and host integrations;
+      declarations contain no credentials/endpoints and cannot connect or spawn a source.
 - [x] Durable, append-only workspace provider-permission policy revisions with canonical secret-free allow-lists.
 - [x] Read-only conversation status derivation from durable lineage and run projections, with no provider session disclosure.
 - [x] Durable title/recap provenance records: source turns, provider/model version, input digest,

@@ -7,10 +7,8 @@ mod git_operations;
 mod policies;
 mod public_runs;
 mod run_projections;
+mod tool_sources;
 mod workspaces;
-pub use public_runs::{ProviderRunAuthority, PublicRunService};
-pub use run_projections::RunProjectionService;
-
 use gent_core::{Run, switch_provider};
 use gent_ports::{
     HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,
@@ -20,6 +18,8 @@ use gent_types::{
     CapabilitySet, Command, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptStatus,
     RunVersionLock,
 };
+pub use public_runs::{ProviderRunAuthority, PublicRunService};
+pub use run_projections::RunProjectionService;
 
 #[derive(Clone, Debug)]
 pub struct Coordinator<L> {

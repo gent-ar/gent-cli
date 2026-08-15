@@ -23,6 +23,8 @@ than a second copy of application logic. The implemented vertical slice is:
   leases and any future Git execution.
 - Durable worktree-scoped Git-operation lifecycle records with optimistic, terminal-safe transitions;
   recording an operation never starts a Git process.
+- Durable credential-free tool-source declarations for MCP, built-in, and host integrations;
+  declaring one neither connects to nor starts a tool source.
 - Versioned, append-only provider-permission policy records with canonical allow-lists; they
   intentionally exclude credentials, provider endpoints, and bridge configuration.
 - Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question

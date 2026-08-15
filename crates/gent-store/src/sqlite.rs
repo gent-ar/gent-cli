@@ -27,6 +27,8 @@ mod projections;
 mod queries;
 mod runs;
 mod snapshots;
+mod tool_source_ledger;
+mod tool_sources;
 mod workspace_ledger;
 mod workspaces;
 use queries::{

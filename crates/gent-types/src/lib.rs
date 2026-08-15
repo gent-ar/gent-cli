@@ -14,6 +14,7 @@ mod git_operations;
 mod lifecycle_signal;
 mod policies;
 mod run_projection;
+mod tool_sources;
 mod workspaces;
 
 pub use capability_catalog::CapabilityCatalogRecord;
@@ -33,6 +34,7 @@ pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use policies::{PolicyRecord, PolicyScope};
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
+pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 
 pub const PROTOCOL_MIN: u16 = 1;

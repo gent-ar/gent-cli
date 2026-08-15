@@ -12,6 +12,7 @@ mod git_operation_ledger;
 mod policy_ledger;
 mod run_projections;
 mod run_sessions;
+mod tool_source_ledger;
 mod workspace_ledger;
 pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
@@ -23,6 +24,7 @@ pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use policy_ledger::PolicyLedger;
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
+pub use tool_source_ledger::ToolSourceLedger;
 pub use workspace_ledger::WorkspaceLedger;
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
@@ -89,14 +91,12 @@ pub enum DecisionClaim {
     Created(DecisionSettlement),
     Existing(DecisionSettlement),
 }
-
 /// Result of an optimistic phase update. `Current` preserves a concurrent writer's state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DecisionPhaseUpdate {
     Applied(DecisionSettlement),
     Current(DecisionSettlement),
 }
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunRecord {
     pub run_id: String,
