@@ -55,13 +55,24 @@ CREATE TABLE IF NOT EXISTS repositories (repository_id TEXT PRIMARY KEY NOT NULL
 CREATE TABLE IF NOT EXISTS worktrees (worktree_id TEXT PRIMARY KEY NOT NULL, repository_id TEXT NOT NULL REFERENCES repositories(repository_id), canonical_path TEXT NOT NULL UNIQUE);
 ";
 
+const POLICIES: &str = "
+CREATE TABLE IF NOT EXISTS policies (
+    policy_id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+    scope TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    allowed_tools TEXT NOT NULL,
+    UNIQUE (workspace_id, scope, revision)
+);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 7] = [
+const MIGRATIONS: [Migration; 8] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -89,6 +100,10 @@ const MIGRATIONS: [Migration; 7] = [
     Migration {
         version: 7,
         sql: WORKSPACE_HIERARCHY,
+    },
+    Migration {
+        version: 8,
+        sql: POLICIES,
     },
 ];
 

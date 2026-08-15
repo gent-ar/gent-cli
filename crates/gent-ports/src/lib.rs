@@ -8,6 +8,7 @@ mod capability_catalog;
 mod conversation_artifacts;
 mod conversation_ledger;
 mod external_provider_bridge;
+mod policy_ledger;
 mod run_projections;
 mod run_sessions;
 mod workspace_ledger;
@@ -17,6 +18,7 @@ pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
 pub use external_provider_bridge::{
     ExternalProviderBridge, ExternalProviderSession, ExternalProviderTerminal,
 };
+pub use policy_ledger::PolicyLedger;
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
 pub use workspace_ledger::WorkspaceLedger;
@@ -64,13 +66,11 @@ pub trait PublicProviderRunner: Send + Sync {
     /// Returns an error when no process is active or process-tree interruption fails.
     fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IngressMode {
     Open,
     Closed,
 }
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HostIngress {
     pub epoch: HostEpoch,

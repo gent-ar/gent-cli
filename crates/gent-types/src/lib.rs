@@ -11,6 +11,7 @@ mod decision;
 mod doctor;
 mod event_resume;
 mod lifecycle_signal;
+mod policies;
 mod run_projection;
 mod workspaces;
 
@@ -28,6 +29,7 @@ pub use doctor::{
 };
 pub use event_resume::{EventResume, EventSnapshot};
 pub use lifecycle_signal::NormalizedLifecycleSignal;
+pub use policies::{PolicyRecord, PolicyScope};
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 

@@ -21,6 +21,8 @@ than a second copy of application logic. The implemented vertical slice is:
   only through the capability-gated read protocol in `gentd`.
 - Durable workspace → repository → worktree identities, stored independently from worktree
   leases and any future Git execution.
+- Versioned, append-only provider-permission policy records with canonical allow-lists; they
+  intentionally exclude credentials, provider endpoints, and bridge configuration.
 - Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question
   waits, subagent work, command work, and attention; these are durable status foundations, not
   a claim that a live provider is attached to the daemon.

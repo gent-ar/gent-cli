@@ -1,9 +1,9 @@
 //! Coordinator orchestration over pure policy and durable ports.
-
 pub mod catalog;
 mod conversations;
 mod decisions;
 mod events;
+mod policies;
 mod public_runs;
 mod run_projections;
 mod workspaces;
