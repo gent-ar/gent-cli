@@ -40,6 +40,20 @@ def verify(archive: Path) -> None:
     )
 
 
+def rejects_tampered_archive(archive: Path) -> None:
+    archive.write_bytes(archive.read_bytes() + b"tampered")
+    result = subprocess.run(
+        [
+            sys.executable, str(VERIFIER), str(archive), "--manifest", f"{archive}.manifest.json",
+            "--checksum", f"{archive}.sha256",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "verification failed" in result.stderr
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -53,6 +67,7 @@ def main() -> None:
         verify(first)
         manifest = json.loads(Path(f"{first}.manifest.json").read_text())
         assert manifest["binaries"] == ["gent", "gentd"]
+        rejects_tampered_archive(second)
         (target / "gent.exe").write_bytes(b"gent windows fixture\n")
         (target / "gentd.exe").write_bytes(b"gentd windows fixture\n")
         windows = package(target, root / "windows", "zip", ".exe")
