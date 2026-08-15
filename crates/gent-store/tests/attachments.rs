@@ -1,4 +1,4 @@
-use gent_ports::{AttachmentClaim, AttachmentLedger};
+use gent_ports::{AttachmentClaim, AttachmentLedger, Ledger};
 use gent_store::SqliteLedger;
 use gent_types::{AttachmentMetadata, AttachmentState, AttachmentTransfer, HostEpoch, ReceiptId};
 
@@ -60,4 +60,11 @@ fn conflicting_idempotency_metadata_is_rejected() {
     let mut conflict = initial;
     conflict.metadata.display_name = "other.txt".into();
     assert!(ledger.claim_attachment(&conflict).is_err());
+}
+
+#[test]
+fn closed_or_fenced_host_rejects_attachment_progress() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    ledger.close_ingress(HostEpoch(1)).unwrap();
+    assert!(ledger.claim_attachment(&transfer()).is_err());
 }
