@@ -6,16 +6,21 @@ use std::{
 
 use serde_yaml::{Mapping, Value};
 
-use super::{mapping, member, non_empty, required, scalar, strings};
+use super::{driver_link, mapping, member, non_empty, required, scalar, strings};
+
+pub(super) struct RecordContext<'a> {
+    pub(super) required_evidence: &'a [String],
+    pub(super) manifest_dir: &'a Path,
+    pub(super) transcript_manifest: Option<&'a Path>,
+    pub(super) authority_transfer: bool,
+}
 
 pub(super) fn validate_records(
     value: &Value,
     features: &Mapping,
     dimensions: &Mapping,
     provider_implementation: &Mapping,
-    required_evidence: &[String],
-    manifest_dir: &Path,
-    authority_transfer: bool,
+    context: &RecordContext<'_>,
 ) -> Result<(), String> {
     let records = value
         .as_sequence()
@@ -48,18 +53,10 @@ pub(super) fn validate_records(
         let platform = member(record, "platform", &platforms)?;
         let transport = member(record, "transport", &transports)?;
         let expected_implementation = non_empty(provider_implementation, &provider)?;
-        validate_record(
-            record,
-            &id,
-            &state,
-            &expected_implementation,
-            required_evidence,
-            manifest_dir,
-            authority_transfer,
-        )?;
+        validate_record(record, &id, &state, &expected_implementation, context)?;
         covered.insert((feature, provider, platform, transport));
     }
-    if authority_transfer {
+    if context.authority_transfer {
         validate_coverage(features, &providers, &platforms, &transports, &covered)?;
     }
     Ok(())
@@ -70,9 +67,7 @@ fn validate_record(
     id: &str,
     state: &str,
     expected_implementation: &str,
-    required_evidence: &[String],
-    manifest_dir: &Path,
-    authority_transfer: bool,
+    context: &RecordContext<'_>,
 ) -> Result<(), String> {
     let version = non_empty(record, "provider_version")?;
     if version == "not_applicable" && state != "not_applicable" {
@@ -84,7 +79,7 @@ fn validate_record(
     if !["passed", "recorded_absent", "failed"].contains(&status.as_str()) {
         return Err(format!("evidence record {id} has unknown status {status}"));
     }
-    validate_paths(record, id, required_evidence, manifest_dir)?;
+    validate_paths(record, id, context.required_evidence, context.manifest_dir)?;
     if non_empty(record, "provider_implementation")? != expected_implementation {
         return Err(format!(
             "evidence record {id} has the wrong provider implementation"
@@ -110,7 +105,7 @@ fn validate_record(
     if state == "not_applicable" {
         let _ = non_empty(record, "rationale")?;
     }
-    if authority_transfer {
+    if context.authority_transfer {
         if status != "passed" {
             return Err(format!(
                 "authority transfer is blocked: evidence record {id} is {status}"
@@ -119,6 +114,14 @@ fn validate_record(
         let _ = non_empty(record, "legacy_path")?;
         let _ = non_empty(record, "removal_approval")?;
         let _ = non_empty(record, "removal_release")?;
+        if matches!(non_empty(record, "provider")?.as_str(), "claude" | "codex") {
+            driver_link::validate_record_link(
+                record,
+                id,
+                context.manifest_dir,
+                context.transcript_manifest,
+            )?;
+        }
     }
     Ok(())
 }

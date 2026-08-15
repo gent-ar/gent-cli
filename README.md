@@ -52,7 +52,10 @@ bash tools/smoke-local-ipc.sh
 ## Public-driver evidence inventory
 
 The phase-0 manifest lists every required Claude/Codex scenario without
-inventing recordings. CI validates that inventory structurally:
+inventing recordings. The coverage manifest links to that inventory, so an
+authority-evidence record for Claude or Codex must name a recorded transcript
+whose provider/version/platform/driver transport agree with the record. CI
+validates both manifests structurally:
 
 ```sh
 cargo run -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml

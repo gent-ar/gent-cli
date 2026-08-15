@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_yaml::Value;
 
-use super::validate;
+use super::{validate, validate_evidence_manifest};
 
 #[test]
 fn rejects_unknown_feature_state() {
@@ -18,11 +18,10 @@ features: { example: { state: invented, evidence: required, legacy_owner: owner 
 
 #[test]
 fn baseline_is_valid_but_cannot_transfer_authority_without_real_evidence() {
-    let value: Value =
-        serde_yaml::from_str(include_str!("../../../fixtures/coverage-manifest.yml")).unwrap();
-    assert!(validate(&value, Path::new("."), false).is_ok());
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/coverage-manifest.yml");
+    assert!(validate_evidence_manifest(&path, false).is_ok());
     assert!(
-        validate(&value, Path::new("."), true)
+        validate_evidence_manifest(&path, true)
             .unwrap_err()
             .contains("evidence_records are absent")
     );

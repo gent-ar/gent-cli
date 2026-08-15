@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde_yaml::{Mapping, Value};
 
+mod driver_link;
 mod evidence_records;
 
 /// Validates declared coverage and recorded evidence without inventing any evidence.
@@ -51,21 +52,31 @@ fn validate(manifest: &Value, manifest_dir: &Path, authority_transfer: bool) -> 
     }
     let features = mapping(required(root, "features")?, "features")?;
     validate_features(features)?;
+    let transcript_manifest = driver_link::manifest_path(root, manifest_dir)?;
     let records = root.get(Value::String("evidence_records".into()));
     if let Some(records) = records {
+        let context = evidence_records::RecordContext {
+            required_evidence: &required_evidence,
+            manifest_dir,
+            transcript_manifest: transcript_manifest.as_deref(),
+            authority_transfer,
+        };
         evidence_records::validate_records(
             records,
             features,
             dimensions,
             provider_implementation,
-            &required_evidence,
-            manifest_dir,
-            authority_transfer,
-        )
+            &context,
+        )?;
     } else if authority_transfer {
-        Err("authority transfer is blocked: phase-0 evidence_records are absent; real provider evidence must be recorded, never fabricated".into())
-    } else {
-        Ok(())
+        return Err("authority transfer is blocked: phase-0 evidence_records are absent; real provider evidence must be recorded, never fabricated".into());
+    }
+    match transcript_manifest {
+        Some(path) => crate::validate_public_driver_manifest(&path, authority_transfer),
+        None if authority_transfer => {
+            Err("authority transfer is blocked: public_driver_transcript_manifest is absent".into())
+        }
+        None => Ok(()),
     }
 }
 
@@ -173,3 +184,7 @@ mod tests;
 #[cfg(test)]
 #[path = "evidence_manifest_records_tests.rs"]
 mod records_tests;
+
+#[cfg(test)]
+#[path = "evidence_manifest_driver_link_tests.rs"]
+mod driver_link_tests;

@@ -224,6 +224,6 @@ fn authority_transfer_requires_terminal_records_and_legacy_fields() {
     assert!(
         validate_text(&fixture, true)
             .unwrap_err()
-            .contains("missing evidence")
+            .contains("has no public-driver manifest")
     );
 }

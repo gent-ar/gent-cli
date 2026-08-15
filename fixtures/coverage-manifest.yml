@@ -1,5 +1,6 @@
 schema_version: 3
 purpose: cutover_evidence_graph
+public_driver_transcript_manifest: public-driver-transcripts/manifest.yml
 # schema_version 3 folds in 08-AUDIT-FINDINGS.md (2026-08-14): split rows that
 # conflated real legacy behavior with nonexistent/incomplete behavior, added
 # 14 UI-visible features that were previously unrepresented, added terminals
