@@ -158,3 +158,32 @@ fn content_pages_are_newest_first_and_bound_to_one_conversation() {
             .is_err()
     );
 }
+
+#[test]
+fn content_page_is_byte_bounded_without_skipping_messages() {
+    let ledger = ledger_with_conversation();
+    let service = ConversationPromptService::new(ledger.clone(), true);
+    for index in 0..5 {
+        let key = format!("large-{index}");
+        let message_id = format!("message-large-{index}");
+        let text = "x".repeat(64 * 1024);
+        service.submit(&request(&key, &message_id, &text)).unwrap();
+    }
+    let first = ledger
+        .read_conversation_content("conversation", None, 100)
+        .unwrap();
+    assert!(serde_json::to_vec(&first).unwrap().len() <= 256 * 1024);
+    assert_eq!(first.entries.len(), 3);
+    let next = ledger
+        .read_conversation_content(
+            "conversation",
+            first
+                .next_before
+                .as_ref()
+                .map(|cursor| cursor.ordinal_for("conversation").unwrap()),
+            100,
+        )
+        .unwrap();
+    assert_eq!(next.entries.len(), 2);
+    assert!(next.next_before.is_none());
+}

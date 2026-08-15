@@ -22,7 +22,10 @@ mod external_provider_bridge;
 mod runs;
 
 pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
-pub use conversation_content::{CONVERSATION_CONTENT_CAPABILITY, ConversationContentFrame};
+pub use conversation_content::{
+    CONVERSATION_CONTENT_CAPABILITY, ContentPageError, ConversationContentFrame,
+    MAX_CONVERSATION_CONTENT_PAGE_BYTES, bound_content_page,
+};
 pub use conversation_index::{CONVERSATION_INDEX_CAPABILITY, ConversationIndexFrame};
 pub use conversation_status::{CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame};
 pub use conversation_timeline::{CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame};

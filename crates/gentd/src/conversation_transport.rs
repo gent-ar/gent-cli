@@ -3,7 +3,7 @@
 use gent_protocol::{
     CONVERSATION_CONTENT_CAPABILITY, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY, ConversationContentFrame, ConversationIndexFrame,
-    ConversationStatusFrame, ConversationTimelineFrame, write_json_frame,
+    ConversationStatusFrame, ConversationTimelineFrame, bound_content_page, write_json_frame,
 };
 use gent_types::CapabilitySet;
 use serde_json::Value;
@@ -69,7 +69,10 @@ where
     R: RuntimeApi,
 {
     match runtime.conversation_content(conversation_id, before, limit) {
-        Ok(page) => write_json_frame(stream, &ConversationContentFrame::Page(page)).await?,
+        Ok(page) => match bound_content_page(page) {
+            Ok(page) => write_json_frame(stream, &ConversationContentFrame::Page(page)).await?,
+            Err(error) => write_error(stream, "responseTooLarge", &error.to_string()).await?,
+        },
         Err(message) => write_error(stream, "invalidRequest", &message).await?,
     }
     Ok(true)

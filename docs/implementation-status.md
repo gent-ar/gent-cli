@@ -87,6 +87,9 @@ not claim provider or app compatibility evidence that has not been recorded.
       and run counts; it is content-free discovery for a future terminal conversation browser.
 - [x] `gent` / `gent --conversations` read-only terminal shell with content-free local discovery,
       selection, disabled composer, and unavailable model/effort/mode controls in observer mode.
+- [x] Unix-only `gent conversation content` reads of user-authored prompts, with conversation-bound
+      keyset cursors, a SQLite page budget, and an exact protocol-frame budget; no provider output
+      or observer-mode write path is exposed.
 - [x] Unix local-host privacy boundary: a non-symlink, owner-only daemon data directory and an
       owner-only Unix socket constrained beneath it before the ledger is opened.
 - [x] Additive normalized lifecycle signals for root phase and explicit generation activity,

@@ -16,15 +16,17 @@ than a second copy of application logic. The implemented vertical slice is:
   idempotent command receipts, cursor-ordered durable events, and explicit
   snapshot-backed resync after event compaction.
 - SQLite-backed host state, a read-only `gent doctor` dependency report, and negotiated
-  `gent conversation list`, `gent conversation status`, and `gent conversation timeline` reads.
+  `gent conversation list`, `gent conversation status`, `gent conversation timeline`, and Unix-only
+  `gent conversation content` reads.
 - Explicit `gent deps` plans and consented vendor dependency actions, each fenced by the active
   host epoch and settled through a durable receipt; interrupted external effects are marked
   `unprovable` instead of being replayed.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
   content and provider-native session identifiers.
-- A dormant receipt-backed user-prompt ledger that atomically assigns an active turn and retains
-  text outside receipt/event payloads; it is not yet exposed by observer-mode `gentd`.
+- A receipt-backed user-prompt ledger that atomically assigns an active turn and retains text outside
+  receipt/event payloads. Unix-only content reads are cursor-bound, page-byte-bounded, and limited
+  to user-authored prompt text; no provider output is exposed in this observer milestone.
 - Durable workspace → repository → worktree identities, stored independently from worktree
   leases and any future Git execution.
 - Durable worktree-scoped Git-operation lifecycle records with optimistic, terminal-safe transitions;
@@ -147,8 +149,8 @@ execution are deliberately outside its protocol surface.
 
 On macOS and Linux, `gentd` creates its data directory with owner-only permissions
 and accepts a Unix socket only beneath that directory; the socket itself is also
-owner-only. This protects any future locally readable conversation content before it
-can be added to the protocol.
+owner-only. This protects the capability-gated, locally readable user-prompt content
+surface, which remains unavailable on Windows until its named-pipe ACL boundary is hardened.
 
 ## License
 

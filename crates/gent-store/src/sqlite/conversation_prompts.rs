@@ -13,6 +13,7 @@ use super::conversations::conversation_id_for_run;
 use super::queries::{find_run, storage_error};
 
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
+const MAX_CONTENT_PAGE_BYTES: usize = 256 * 1024;
 
 pub(super) fn save(
     ledger: &SqliteLedger,
@@ -67,7 +68,7 @@ pub(super) fn content(
          ORDER BY o.ordinal DESC LIMIT ?3",
     ).map_err(storage_error)?;
     let requested = usize::from(limit.clamp(1, 100));
-    let mut entries = statement
+    let entries = statement
         .query_map(
             params![
                 conversation_id,
@@ -83,19 +84,50 @@ pub(super) fn content(
         .map_err(storage_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(storage_error)?;
-    let more = entries.len() > requested;
-    entries.truncate(requested);
+    let candidate_count = entries.len();
+    let mut page_entries = Vec::with_capacity(requested.min(candidate_count));
+    for (index, entry) in entries.into_iter().enumerate() {
+        if index == requested {
+            break;
+        }
+        page_entries.push(entry);
+        let more = index + 1 < candidate_count;
+        if !fits_content_budget(&page(conversation_id, &page_entries, more))? {
+            page_entries.pop();
+            break;
+        }
+    }
+    if page_entries.is_empty() && candidate_count > 0 {
+        return Err(LedgerError::Invariant(
+            "conversation content entry exceeds page byte budget".into(),
+        ));
+    }
+    let more = page_entries.len() < candidate_count;
+    Ok(page(conversation_id, &page_entries, more))
+}
+
+fn page(
+    conversation_id: &str,
+    entries: &[ConversationContentEntry],
+    more: bool,
+) -> ConversationContentPage {
     let next_before = more.then(|| {
         ConversationContentCursor::new(
             conversation_id,
             entries.last().expect("nonempty page").ordinal,
         )
     });
-    Ok(ConversationContentPage {
+    ConversationContentPage {
         conversation_id: conversation_id.into(),
-        entries,
+        entries: entries.to_vec(),
         next_before,
-    })
+    }
+}
+
+fn fits_content_budget(page: &ConversationContentPage) -> Result<bool, LedgerError> {
+    serde_json::to_vec(page)
+        .map(|encoded| encoded.len() <= MAX_CONTENT_PAGE_BYTES)
+        .map_err(|error| LedgerError::Invariant(format!("content page encoding failed: {error}")))
 }
 
 pub(super) fn find(
