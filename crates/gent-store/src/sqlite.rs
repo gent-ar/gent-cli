@@ -10,6 +10,7 @@ use rusqlite::{Connection, params};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+mod attachment_ledger;
 mod automation_execution_ledger;
 mod automation_executions;
 mod capability_catalog;
@@ -75,7 +76,6 @@ impl SqliteLedger {
             .map_err(|error| LedgerError::Storage(error.to_string()))
     }
 }
-
 impl Ledger for SqliteLedger {
     fn host_ingress(&self) -> Result<HostIngress, LedgerError> {
         let connection = self.lock()?;
