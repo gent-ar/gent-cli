@@ -11,6 +11,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 mod attachments;
+mod conversation_activity;
 mod conversation_content;
 mod conversation_index;
 mod conversation_status;
@@ -22,6 +23,7 @@ mod external_provider_bridge;
 mod runs;
 
 pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
+pub use conversation_activity::{CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame};
 pub use conversation_content::{
     CONVERSATION_CONTENT_CAPABILITY, ContentPageError, ConversationContentFrame,
     MAX_CONVERSATION_CONTENT_PAGE_BYTES, bound_content_page,
