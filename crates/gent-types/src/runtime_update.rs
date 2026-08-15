@@ -99,6 +99,24 @@ pub struct RuntimeUpdateStatus {
     pub failure: Option<RuntimeUpdateFailure>,
 }
 
+/// Opaque receipt for a digest-verified staged runtime archive.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeStagingReceipt {
+    pub attempt_id: String,
+    pub artifact_digest_sha256: String,
+}
+
+/// One append-only durable checkpoint in a runtime-update attempt.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateRecord {
+    pub attempt_id: String,
+    pub revision: u64,
+    pub artifact_digest_sha256: String,
+    pub status: RuntimeUpdateStatus,
+}
+
 impl Default for RuntimeUpdateStatus {
     fn default() -> Self {
         Self {
@@ -114,7 +132,7 @@ impl Default for RuntimeUpdateStatus {
 mod tests {
     use serde_json::json;
 
-    use super::{RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion};
+    use super::{RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion};
 
     #[test]
     fn status_uses_a_stable_content_free_camel_case_contract() {
@@ -137,5 +155,16 @@ mod tests {
                 "failure": null,
             })
         );
+    }
+
+    #[test]
+    fn update_record_keeps_attempt_order_separate_from_release_state() {
+        let record = RuntimeUpdateRecord {
+            attempt_id: "attempt-1".into(),
+            revision: 2,
+            artifact_digest_sha256: "a".repeat(64),
+            status: RuntimeUpdateStatus::default(),
+        };
+        assert_eq!(serde_json::to_value(record).unwrap()["revision"], 2);
     }
 }

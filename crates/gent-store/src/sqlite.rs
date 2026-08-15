@@ -33,6 +33,7 @@ mod queries;
 mod run_checkpoint_ledger;
 mod run_checkpoints;
 mod runs;
+mod runtime_update_journal;
 mod snapshots;
 mod tool_source_ledger;
 mod tool_sources;
@@ -45,7 +46,6 @@ use queries::{
     receipt_matches_command, replace_lease, save_run_session_binding, save_run_version_lock,
     storage_error,
 };
-
 #[derive(Clone, Debug)]
 pub struct SqliteLedger {
     connection: Arc<Mutex<Connection>>,

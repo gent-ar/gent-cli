@@ -132,6 +132,7 @@ CREATE INDEX IF NOT EXISTS conversation_messages_by_run ON conversation_messages
 
 const CONVERSATION_CONTENT_ORDINALS: &str = include_str!("conversation_content_ordinals.sql");
 const CONVERSATION_ACTIVITY: &str = include_str!("conversation_activity.sql");
+const RUNTIME_UPDATE: &str = include_str!("runtime_update.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -143,7 +144,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 19] = [
+const MIGRATIONS: [Migration; 20] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -163,6 +164,7 @@ const MIGRATIONS: [Migration; 19] = [
     migration(17, CONVERSATION_MESSAGES),
     migration(18, CONVERSATION_CONTENT_ORDINALS),
     migration(19, CONVERSATION_ACTIVITY),
+    migration(20, RUNTIME_UPDATE),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

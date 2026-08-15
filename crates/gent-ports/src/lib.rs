@@ -27,6 +27,7 @@ mod run_checkpoint_ledger;
 mod run_projections;
 mod run_sessions;
 mod run_version_authorizer;
+pub mod runtime_update;
 mod tool_source_ledger;
 mod workspace_ledger;
 pub use attachment_blobs::AttachmentBlobStore;
@@ -149,7 +150,6 @@ pub enum LedgerError {
     #[error("ledger failure: {0}")]
     Storage(String),
 }
-/// Persistence boundary used by the coordinator. Implementations own durability, not policy.
 pub trait Ledger: Send + Sync {
     /// Returns the durable fence and whether it currently accepts mutation ingress.
     /// # Errors

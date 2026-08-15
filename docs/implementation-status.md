@@ -102,8 +102,9 @@ not claim provider or app compatibility evidence that has not been recorded.
       observer daemon.
 - [x] Content-free runtime-release metadata and a pure update eligibility/lifecycle reducer. It
       requires a separately verified manifest, preserves a closed-ingress boundary for health,
-      activation, and failure, and refuses rollback after a forward-only schema release; it does
-      not yet verify signatures, stage artifacts, swap binaries, or advertise an update API.
+      activation, and failure, and refuses rollback after a forward-only schema release. Durable
+      attempt checkpoints and fakeable source/staging/health/bootstrapper ports exist; no live
+      signature verifier, artifact staging, binary swap, or observer update API exists yet.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not
