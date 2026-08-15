@@ -12,10 +12,11 @@ use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 
 pub(crate) async fn request(
     data_dir: Option<PathBuf>,
+    no_autostart: bool,
     frame: WireFrame,
 ) -> Result<WireFrame, Box<dyn std::error::Error>> {
     let data_dir = data_dir.unwrap_or_else(default_data_dir);
-    let mut stream = connect_or_start(&data_dir).await?;
+    let mut stream = connect_or_start(&data_dir, no_autostart).await?;
     write_frame(
         &mut stream,
         &WireFrame::Hello(Hello {
@@ -48,12 +49,18 @@ type LocalStream = UnixStream;
 #[cfg(windows)]
 type LocalStream = NamedPipeClient;
 
-async fn connect_or_start(data_dir: &Path) -> Result<LocalStream, Box<dyn std::error::Error>> {
+async fn connect_or_start(
+    data_dir: &Path,
+    no_autostart: bool,
+) -> Result<LocalStream, Box<dyn std::error::Error>> {
     match connect(data_dir).await {
         Ok(stream) => return Ok(stream),
         #[cfg(windows)]
         Err(error) if pipe_is_busy(&error) => return wait_for_connection(data_dir).await,
         Err(_) => {}
+    }
+    if no_autostart {
+        return Err("gentd is unavailable and --no-autostart was requested".into());
     }
     std::fs::create_dir_all(data_dir)?;
     let daemon = std::env::var_os("GENTD_BIN").map_or_else(default_daemon_binary, PathBuf::from);

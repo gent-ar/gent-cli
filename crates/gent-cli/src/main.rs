@@ -18,6 +18,9 @@ use crate::local_ipc::request;
 struct Args {
     #[arg(long, env = "GENT_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Fail if the local daemon is unavailable instead of starting one.
+    #[arg(long, global = true)]
+    no_autostart: bool,
     #[command(subcommand)]
     command: CommandLine,
 }
@@ -78,29 +81,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         CommandLine::Doctor => println!(
             "{}",
-            serde_json::to_string_pretty(&request(args.data_dir, WireFrame::DoctorRequest).await?)?
+            serde_json::to_string_pretty(
+                &request(args.data_dir, args.no_autostart, WireFrame::DoctorRequest).await?,
+            )?
         ),
         CommandLine::Deps { action } => {
             let frame = dependency_frame(&action);
             println!(
                 "{}",
-                serde_json::to_string_pretty(&request(args.data_dir, frame).await?)?
+                serde_json::to_string_pretty(
+                    &request(args.data_dir, args.no_autostart, frame).await?
+                )?
             );
         }
         CommandLine::Decision { action } => println!(
             "{}",
-            serde_json::to_string_pretty(&request(args.data_dir, decision_frame(&action)).await?)?
+            serde_json::to_string_pretty(
+                &request(args.data_dir, args.no_autostart, decision_frame(&action)).await?,
+            )?
         ),
         CommandLine::Status => println!(
             "{}",
-            serde_json::to_string_pretty(&request(args.data_dir, WireFrame::StatusRequest).await?)?
+            serde_json::to_string_pretty(
+                &request(args.data_dir, args.no_autostart, WireFrame::StatusRequest).await?,
+            )?
         ),
         CommandLine::Submit {
             kind,
             payload,
             idempotency_key,
         } => {
-            let status = request(args.data_dir.clone(), WireFrame::StatusRequest).await?;
+            let status = request(
+                args.data_dir.clone(),
+                args.no_autostart,
+                WireFrame::StatusRequest,
+            )
+            .await?;
             let WireFrame::Status(status) = status else {
                 return Err("daemon did not return host status".into());
             };
@@ -115,14 +131,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &request(args.data_dir, WireFrame::Command(command)).await?
+                    &request(
+                        args.data_dir,
+                        args.no_autostart,
+                        WireFrame::Command(command)
+                    )
+                    .await?
                 )?
             );
         }
         CommandLine::Events { after_cursor } => println!(
             "{}",
             serde_json::to_string_pretty(
-                &request(args.data_dir, WireFrame::Subscribe { after_cursor }).await?
+                &request(
+                    args.data_dir,
+                    args.no_autostart,
+                    WireFrame::Subscribe { after_cursor },
+                )
+                .await?
             )?
         ),
     }

@@ -35,6 +35,8 @@ cargo run -p gent-cli -- events
 The default data directory is platform-specific. Set `GENT_DATA_DIR` to an
 empty temporary directory when experimenting or testing. Set `GENTD_BIN` to a
 specific daemon binary when `gent` should not resolve a sibling executable.
+Pass `--no-autostart` to require an already-running daemon, which is useful for
+supervised deployments and deterministic smoke tests.
 
 ## Development
 

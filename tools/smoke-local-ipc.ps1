@@ -15,7 +15,7 @@ function Assert-Equal([object]$actual, [object]$expected, [string]$label) {
 function Invoke-Gent([string]$label, [string[]]$arguments) {
     $stdout = Join-Path $dataDir "${label}.stdout"
     $stderr = Join-Path $dataDir "${label}.stderr"
-    $process = Start-Process -FilePath $gent -ArgumentList $arguments -PassThru -NoNewWindow `
+    $process = Start-Process -FilePath $gent -ArgumentList (@("--no-autostart") + $arguments) -PassThru -NoNewWindow `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     if (-not $process.WaitForExit(10000)) {
         Stop-Process -Id $process.Id -Force
