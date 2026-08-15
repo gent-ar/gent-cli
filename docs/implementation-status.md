@@ -33,6 +33,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Public clients can submit a decision or explicitly mark recovery outcomes, but cannot assert
       provider acknowledgement or settlement; those lifecycle facts are accepted only behind a
       daemon-owned ingress, with legacy wire evidence rejected after negotiation.
+- [x] Dormant authority-gated provider-effect ingress persists a stable, secret-free source event
+      before daemon-owned session binding, decision settlement, or run projection reduction; it
+      rejects source-ID substitution and all observer-mode calls, and is not composed by `gentd`.
 - [x] Protocol-only CLI status/events/submit and filesystem-only read-only doctor discovery;
       it does not execute provider binaries, including version probes, in observer mode.
 - [x] `gent deps` requires explicit consent, then invokes only fixed, shell-free vendor installer

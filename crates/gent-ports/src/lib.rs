@@ -191,6 +191,11 @@ pub trait Ledger: Send + Sync {
     /// # Errors
     /// Returns an error when the event cannot be persisted.
     fn append_event(&self, event: &Event) -> Result<Event, LedgerError>;
+    /// Finds one durable event by its producer-stable identity.
+    ///
+    /// # Errors
+    /// Returns an error when the event cannot be read.
+    fn find_event(&self, event_id: &str) -> Result<Option<Event>, LedgerError>;
     /// Safely resumes an event feed, returning a replacement snapshot for stale cursors.
     ///
     /// # Errors

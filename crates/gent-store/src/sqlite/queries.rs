@@ -50,6 +50,14 @@ pub(super) fn append_event(connection: &Connection, event: &Event) -> Result<Eve
         ..event.clone()
     })
 }
+pub(super) fn find_event(
+    connection: &Connection,
+    event_id: &str,
+) -> Result<Option<Event>, LedgerError> {
+    connection.query_row("SELECT cursor, event_id, receipt_id, host_epoch, kind, payload FROM events WHERE event_id = ?1", [event_id], |row| Ok(Event {
+        cursor: row.get(0)?, event_id: row.get(1)?, receipt_id: ReceiptId(row.get(2)?), host_epoch: HostEpoch(row.get(3)?), kind: row.get(4)?, payload: serde_json::from_str(&row.get::<_, String>(5)?).map_err(json_error)?,
+    })).optional().map_err(storage_error)
+}
 pub(super) fn events_after(
     connection: &Connection,
     cursor: u64,

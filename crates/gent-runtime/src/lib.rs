@@ -10,6 +10,7 @@ mod events;
 mod git_operations;
 mod legacy_observer;
 mod policies;
+mod provider_lifecycle;
 mod public_runs;
 mod run_checkpoints;
 mod run_projections;
@@ -27,6 +28,7 @@ use gent_types::{
     RunVersionLock,
 };
 pub use legacy_observer::{LegacyObserver, ObserverPoll};
+pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
 #[derive(Clone, Debug)]
@@ -138,7 +140,6 @@ impl<L: Ledger> Coordinator<L> {
     ) -> Result<(), RuntimeError> {
         Ok(self.ledger.save_run_version_lock(run_id, lock)?)
     }
-
     /// Persists a provider-switch child instead of mutating the source run.
     ///
     /// # Errors
@@ -171,7 +172,6 @@ impl<L: Ledger> Coordinator<L> {
         Ok(self.ledger.claim_worktree_lease(lease)?)
     }
 }
-
 fn terminal_status(kind: &str) -> ReceiptStatus {
     if kind == "decision" {
         ReceiptStatus::Unprovable

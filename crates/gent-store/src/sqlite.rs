@@ -7,9 +7,7 @@ use gent_types::{
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
 use rusqlite::{Connection, params};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{path::Path, sync::Arc, sync::Mutex, time::Duration};
 mod attachment_ledger;
 mod automation_execution_ledger;
 mod automation_executions;
@@ -37,9 +35,10 @@ mod workspace_ledger;
 mod workspaces;
 use epoch::require_epoch;
 use queries::{
-    append_event, encode_status, find_lease, find_receipt, find_run, find_run_session_binding,
-    find_run_version_lock, host_ingress, insert_lease, insert_receipt, receipt_matches_command,
-    replace_lease, save_run_session_binding, save_run_version_lock, storage_error,
+    append_event, encode_status, find_event, find_lease, find_receipt, find_run,
+    find_run_session_binding, find_run_version_lock, host_ingress, insert_lease, insert_receipt,
+    receipt_matches_command, replace_lease, save_run_session_binding, save_run_version_lock,
+    storage_error,
 };
 
 #[derive(Clone, Debug)]
@@ -48,14 +47,12 @@ pub struct SqliteLedger {
 }
 impl SqliteLedger {
     /// Opens or creates a durable ledger at `path`.
-    ///
     /// # Errors
     /// Returns an error when `SQLite` cannot open or migrate the database.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         Self::from_connection(Connection::open(path).map_err(storage_error)?)
     }
     /// Creates an isolated in-memory ledger for deterministic tests.
-    ///
     /// # Errors
     /// Returns an error when `SQLite` cannot initialize the database.
     pub fn in_memory() -> Result<Self, LedgerError> {
@@ -209,8 +206,10 @@ impl Ledger for SqliteLedger {
         decisions::replace_phase(self, decision_id, expected, next)
     }
     fn append_event(&self, event: &Event) -> Result<Event, LedgerError> {
-        let connection = self.lock()?;
-        append_event(&connection, event)
+        append_event(&*self.lock()?, event)
+    }
+    fn find_event(&self, event_id: &str) -> Result<Option<Event>, LedgerError> {
+        find_event(&*self.lock()?, event_id)
     }
     fn resume_events(&self, cursor: u64) -> Result<EventResume, LedgerError> {
         let connection = self.lock()?;
