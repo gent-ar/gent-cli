@@ -7,7 +7,8 @@ use gent_protocol::{
 use gent_types::{
     CapabilitySet, Command, DoctorReport, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
 };
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::UnixListener;
 
 const CAPABILITIES: &[&str] = &["events", "host-epoch", "receipts"];
 
@@ -35,10 +36,14 @@ pub async fn serve<R: RuntimeApi>(
     }
 }
 
-async fn serve_connection<R: RuntimeApi>(
-    mut stream: UnixStream,
+async fn serve_connection<S, R>(
+    mut stream: S,
     runtime: R,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    R: RuntimeApi,
+{
     let WireFrame::Hello(hello) = read_frame(&mut stream).await? else {
         return write_error(
             &mut stream,
@@ -85,7 +90,7 @@ mod tests {
     use gent_types::{
         CapabilitySet, DoctorReport, HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN,
     };
-    use tokio::net::UnixStream;
+    use tokio::io::duplex;
 
     use super::{RuntimeApi, serve_connection};
 
@@ -153,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn handshake_is_mandatory_before_requests() {
-        let (mut client, server) = UnixStream::pair().unwrap();
+        let (mut client, server) = duplex(1024);
         let task = tokio::spawn(serve_connection(server, FakeRuntime));
         write_frame(&mut client, &WireFrame::StatusRequest)
             .await
@@ -167,7 +172,7 @@ mod tests {
 
     #[tokio::test]
     async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
-        let (mut client, server) = UnixStream::pair().unwrap();
+        let (mut client, server) = duplex(1024);
         let task = tokio::spawn(serve_connection(server, FakeRuntime));
         write_frame(&mut client, &hello()).await.unwrap();
         assert!(matches!(
@@ -194,11 +199,14 @@ mod tests {
     }
 }
 
-async fn write_error(
-    stream: &mut UnixStream,
+async fn write_error<S>(
+    stream: &mut S,
     code: &str,
     message: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: AsyncWrite + Unpin,
+{
     write_frame(
         stream,
         &WireFrame::Error {
