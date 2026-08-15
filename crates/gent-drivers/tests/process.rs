@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+#[cfg(unix)]
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeSignal};
 use gent_drivers::{
     LaunchIntent, ProcessLauncher, ProviderLaunch, SupervisorError, SystemLauncher,
