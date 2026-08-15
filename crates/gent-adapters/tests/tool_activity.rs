@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use gent_adapters::DeclarativeAdapterManifest;
+use gent_adapters::manifest::DeclarativeAdapterManifest;
 use gent_types::{NormalizedLifecycleSignal, ToolActivity, ToolPhase};
 use serde_json::json;
 

@@ -17,7 +17,9 @@ pub fn project_lifecycle_signal(
             applied: false,
         };
     }
-    state.lifecycle = reduce_lifecycle(state.lifecycle, lifecycle_event(signal));
+    if let Some(event) = lifecycle_event(signal) {
+        state.lifecycle = reduce_lifecycle(state.lifecycle, event);
+    }
     state.last_cursor = Some(cursor);
     ProjectionUpdate {
         state,
@@ -25,8 +27,8 @@ pub fn project_lifecycle_signal(
     }
 }
 
-fn lifecycle_event(signal: &NormalizedLifecycleSignal) -> LifecycleEvent {
-    match signal {
+fn lifecycle_event(signal: &NormalizedLifecycleSignal) -> Option<LifecycleEvent> {
+    Some(match signal {
         NormalizedLifecycleSignal::RootPhase { phase } => LifecycleEvent::RootPhase(phase.clone()),
         NormalizedLifecycleSignal::RootActivity { activity } => {
             LifecycleEvent::RootActivity(*activity)
@@ -41,14 +43,17 @@ fn lifecycle_event(signal: &NormalizedLifecycleSignal) -> LifecycleEvent {
                 phase: phase.clone(),
             }
         }
+        NormalizedLifecycleSignal::ToolActivity { .. } => return None,
         NormalizedLifecycleSignal::AttentionRequired => LifecycleEvent::AttentionRequired,
         NormalizedLifecycleSignal::AttentionCleared => LifecycleEvent::AttentionCleared,
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use gent_types::{NormalizedLifecycleSignal, RootActivity, TurnPhase, WorkPhase};
+    use gent_types::{
+        NormalizedLifecycleSignal, RootActivity, ToolActivity, ToolPhase, TurnPhase, WorkPhase,
+    };
 
     use super::project_lifecycle_signal;
     use crate::{LifecycleProjection, projected_live_status};
@@ -121,5 +126,24 @@ mod tests {
             project_lifecycle_signal(command, 4, &NormalizedLifecycleSignal::AttentionRequired);
         assert!(!stale.applied);
         assert!(!projected_live_status(&stale.state).needs_attention);
+    }
+
+    #[test]
+    fn tool_activity_advances_the_durable_cursor_without_changing_lifecycle_state() {
+        let update = project_lifecycle_signal(
+            LifecycleProjection::default(),
+            1,
+            &NormalizedLifecycleSignal::ToolActivity {
+                activity: ToolActivity {
+                    tool_use_id: "tool-1".into(),
+                    tool_name: "read_file".into(),
+                    phase: ToolPhase::Started,
+                    output_digest: None,
+                },
+            },
+        );
+        assert!(update.applied);
+        assert_eq!(update.state.last_cursor, Some(1));
+        assert!(!projected_live_status(&update.state).is_processing);
     }
 }
