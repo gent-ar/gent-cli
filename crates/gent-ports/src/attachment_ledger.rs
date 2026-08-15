@@ -41,7 +41,7 @@ pub trait AttachmentLedger: Send + Sync {
         attachment_id: &str,
     ) -> Result<Option<AttachmentTransfer>, LedgerError>;
 
-    /// Associates one available attachment with a durable turn without exposing its bytes.
+    /// Associates one available attachment with a durable turn under its active host fence.
     ///
     /// # Errors
     /// Returns an error when either identity is unknown or the association already conflicts.

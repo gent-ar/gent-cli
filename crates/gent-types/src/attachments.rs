@@ -45,4 +45,6 @@ pub struct AttachmentTransfer {
 pub struct TurnAttachment {
     pub turn_id: String,
     pub attachment_id: String,
+    /// Fences the association against a superseded daemon host.
+    pub host_epoch: HostEpoch,
 }

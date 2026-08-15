@@ -53,6 +53,11 @@ impl AttachmentLedger for SqliteLedger {
                 "attachment metadata is immutable".into(),
             ));
         }
+        if !valid_transition(expected, next) {
+            return Err(LedgerError::Invariant(
+                "attachment transition is not monotonic".into(),
+            ));
+        }
         let connection = self.lock()?;
         guard_ingress(&connection, expected.host_epoch)?;
         let changed = connection.execute(
@@ -78,6 +83,7 @@ impl AttachmentLedger for SqliteLedger {
 
     fn attach_to_turn(&self, association: &TurnAttachment) -> Result<(), LedgerError> {
         let connection = self.lock()?;
+        guard_ingress(&connection, association.host_epoch)?;
         let available = connection
             .query_row(
                 "SELECT state FROM attachments WHERE attachment_id = ?1",
@@ -140,6 +146,19 @@ fn same_identity(left: &AttachmentTransfer, right: &AttachmentTransfer) -> bool 
         && left.receipt_id == right.receipt_id
         && left.idempotency_key == right.idempotency_key
         && left.host_epoch == right.host_epoch
+}
+fn valid_transition(expected: &AttachmentTransfer, next: &AttachmentTransfer) -> bool {
+    match (expected.state, next.state) {
+        (AttachmentState::Uploading, AttachmentState::Uploading) => {
+            next.received_bytes > expected.received_bytes
+                && next.received_bytes <= next.metadata.byte_len
+        }
+        (AttachmentState::Uploading, AttachmentState::Available) => {
+            next.received_bytes == expected.received_bytes
+                && next.received_bytes == next.metadata.byte_len
+        }
+        _ => false,
+    }
 }
 fn guard_ingress(connection: &rusqlite::Connection, epoch: HostEpoch) -> Result<(), LedgerError> {
     let ingress = host_ingress(connection)?;

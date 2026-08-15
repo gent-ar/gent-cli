@@ -1,6 +1,8 @@
 use gent_ports::{AttachmentClaim, AttachmentLedger, Ledger};
 use gent_store::SqliteLedger;
-use gent_types::{AttachmentMetadata, AttachmentState, AttachmentTransfer, HostEpoch, ReceiptId};
+use gent_types::{
+    AttachmentMetadata, AttachmentState, AttachmentTransfer, HostEpoch, ReceiptId, TurnAttachment,
+};
 
 fn transfer() -> AttachmentTransfer {
     AttachmentTransfer {
@@ -67,4 +69,24 @@ fn closed_or_fenced_host_rejects_attachment_progress() {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger.close_ingress(HostEpoch(1)).unwrap();
     assert!(ledger.claim_attachment(&transfer()).is_err());
+}
+
+#[test]
+fn association_is_fenced_and_attachment_updates_are_monotonic() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let initial = transfer();
+    ledger.claim_attachment(&initial).unwrap();
+    let mut uploaded = initial.clone();
+    uploaded.received_bytes = 4;
+    ledger.replace_attachment(&initial, &uploaded).unwrap();
+    let mut available = uploaded.clone();
+    available.state = AttachmentState::Available;
+    assert!(ledger.replace_attachment(&uploaded, &available).is_ok());
+    assert!(ledger.replace_attachment(&available, &initial).is_err());
+    let association = TurnAttachment {
+        turn_id: "turn-1".into(),
+        attachment_id: initial.metadata.attachment_id,
+        host_epoch: HostEpoch(2),
+    };
+    assert!(ledger.attach_to_turn(&association).is_err());
 }
