@@ -2,6 +2,8 @@ mod api;
 mod attachment_api;
 mod attachment_transport;
 mod compatibility_assessment;
+#[cfg(test)]
+mod compatibility_lock_tests;
 mod dependency_actions;
 mod dependency_catalog;
 #[cfg(test)]

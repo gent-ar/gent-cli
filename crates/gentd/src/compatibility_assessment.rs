@@ -59,22 +59,14 @@ impl CompatibilityAssessment {
         provider: &str,
         identity: &ExecutableIdentity,
     ) -> CompatibilityTrust {
-        let Some(cached) = &self.cached else {
+        if self.cached.is_none() {
             return if self.configured {
                 CompatibilityTrust::Untrusted
             } else {
                 CompatibilityTrust::NotConfigured
             };
-        };
+        }
         let Some(version) = &identity.version else {
-            return CompatibilityTrust::Untrusted;
-        };
-        let Some(entry) = cached.manifest.payload.entries.iter().find(|entry| {
-            entry.provider == provider
-                && entry.version == *version
-                && entry.digest_sha256 == identity.digest_sha256
-                && !entry.revoked
-        }) else {
             return CompatibilityTrust::Untrusted;
         };
         let lock = RunVersionLock {
@@ -83,14 +75,9 @@ impl CompatibilityAssessment {
             file_identity: identity.file_identity.clone(),
             digest_sha256: identity.digest_sha256.clone(),
             version: version.clone(),
-            compatibility_entry: entry.id.clone(),
+            compatibility_entry: "unbound".into(),
         };
-        if cached.revalidate(&self.keys, self.now).is_ok()
-            && self
-                .keys
-                .verify_lock(&cached.manifest, &lock, self.now)
-                .is_ok()
-        {
+        if self.bind_observed_lock(lock).is_ok() {
             CompatibilityTrust::Verified
         } else {
             CompatibilityTrust::Untrusted
@@ -117,6 +104,38 @@ impl CompatibilityAssessment {
                     .into()
             }
         }
+    }
+
+    /// Binds a daemon-observed executable lock to its exact signed compatibility entry.
+    ///
+    /// # Errors
+    /// Returns a controlled denial when no current digest-bound entry authorizes the lock.
+    pub fn bind_observed_lock(
+        &self,
+        mut lock: RunVersionLock,
+    ) -> Result<RunVersionLock, PublicProviderRunError> {
+        let cached = self
+            .cached
+            .as_ref()
+            .ok_or(PublicProviderRunError::CompatibilityDenied)?;
+        cached
+            .revalidate(&self.keys, self.now)
+            .map_err(|_| PublicProviderRunError::CompatibilityDenied)?;
+        let entry = cached
+            .manifest
+            .payload
+            .entries
+            .iter()
+            .find(|entry| {
+                entry.provider == lock.provider
+                    && entry.version == lock.version
+                    && entry.digest_sha256 == lock.digest_sha256
+                    && !entry.revoked
+            })
+            .ok_or(PublicProviderRunError::CompatibilityDenied)?;
+        lock.compatibility_entry = entry.id.clone();
+        self.authorize(&lock)?;
+        Ok(lock)
     }
 }
 
@@ -162,8 +181,7 @@ mod tests {
         CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest,
     };
     use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
-    use gent_ports::RunVersionAuthorizer;
-    use gent_types::{CompatibilityTrust, ExecutableIdentity, RunVersionLock};
+    use gent_types::{CompatibilityTrust, ExecutableIdentity};
 
     use super::{CompatibilityAssessment, TrustedKeySet};
 
@@ -238,43 +256,6 @@ mod tests {
             CompatibilityAssessment::load(None, &["bad-key".into()], 10)
                 .assess("claude", &identity(Some("1.0"))),
             CompatibilityTrust::Untrusted
-        );
-    }
-
-    #[test]
-    fn authorization_requires_an_active_digest_bound_signed_entry() {
-        let lock = RunVersionLock {
-            provider: "claude".into(),
-            canonical_path: "/public/claude".into(),
-            file_identity: "1:2".into(),
-            digest_sha256: "digest".into(),
-            version: "1.0".into(),
-            compatibility_entry: "claude-1".into(),
-        };
-        assert!(CompatibilityAssessment::default().authorize(&lock).is_err());
-        assert!(assessment(9, false).authorize(&lock).is_err());
-        assert!(assessment(20, true).authorize(&lock).is_err());
-        assert!(assessment(20, false).authorize(&lock).is_ok());
-
-        let changed_digest = RunVersionLock {
-            digest_sha256: "changed".into(),
-            ..lock.clone()
-        };
-        assert!(assessment(20, false).authorize(&changed_digest).is_err());
-
-        let wrong_entry = RunVersionLock {
-            compatibility_entry: "other".into(),
-            ..lock
-        };
-        assert!(assessment(20, false).authorize(&wrong_entry).is_err());
-        assert!(
-            assessment(20, false)
-                .authorize(&RunVersionLock {
-                    version: "2.0".into(),
-                    compatibility_entry: "claude-1".into(),
-                    ..wrong_entry
-                })
-                .is_err()
         );
     }
 }
