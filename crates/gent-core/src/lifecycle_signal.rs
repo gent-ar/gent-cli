@@ -76,4 +76,38 @@ mod tests {
                 .state;
         assert!(projected_live_status(&attention).needs_attention);
     }
+
+    #[test]
+    fn every_work_signal_is_reduced_and_stale_cursor_is_ignored() {
+        let child = project_lifecycle_signal(
+            LifecycleProjection::default(),
+            3,
+            &NormalizedLifecycleSignal::ChildPhase {
+                child_id: "child".into(),
+                phase: WorkPhase::Running,
+            },
+        )
+        .state;
+        let command = project_lifecycle_signal(
+            child,
+            4,
+            &NormalizedLifecycleSignal::CommandPhase {
+                command_id: "command".into(),
+                phase: WorkPhase::Done,
+            },
+        )
+        .state;
+        let cleared = project_lifecycle_signal(
+            command.clone(),
+            5,
+            &NormalizedLifecycleSignal::AttentionCleared,
+        );
+        assert!(cleared.applied);
+        assert!(cleared.state.lifecycle.children.contains_key("child"));
+        assert!(cleared.state.lifecycle.commands.contains_key("command"));
+        let stale =
+            project_lifecycle_signal(command, 4, &NormalizedLifecycleSignal::AttentionRequired);
+        assert!(!stale.applied);
+        assert!(!projected_live_status(&stale.state).needs_attention);
+    }
 }

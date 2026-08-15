@@ -134,4 +134,49 @@ mod tests {
             Some(NormalizedLifecycleSignal::AttentionRequired)
         );
     }
+
+    #[test]
+    fn lifecycle_normalization_covers_work_and_every_root_phase() {
+        for (raw, phase) in [
+            ("processing", TurnPhase::Processing),
+            ("waiting_permission", TurnPhase::WaitingPermission),
+            ("waiting_question", TurnPhase::WaitingQuestion),
+            ("ready", TurnPhase::Ready),
+            ("interrupted", TurnPhase::Interrupted),
+            ("dead", TurnPhase::Dead),
+            ("failed", TurnPhase::Failed),
+        ] {
+            assert_eq!(
+                normalize_lifecycle(&json!({ "type": "root_phase", "phase": raw })),
+                Some(NormalizedLifecycleSignal::RootPhase { phase })
+            );
+        }
+        assert_eq!(
+            normalize_lifecycle(
+                &json!({ "type": "child_phase", "child_id": "child", "phase": "done" })
+            ),
+            Some(NormalizedLifecycleSignal::ChildPhase {
+                child_id: "child".into(),
+                phase: WorkPhase::Done
+            })
+        );
+        assert_eq!(
+            normalize_lifecycle(
+                &json!({ "type": "command_phase", "command_id": "command", "phase": "waiting_permission" })
+            ),
+            Some(NormalizedLifecycleSignal::CommandPhase {
+                command_id: "command".into(),
+                phase: WorkPhase::WaitingPermission
+            })
+        );
+        assert_eq!(
+            normalize_lifecycle(&json!({ "type": "decision_settled" })),
+            Some(NormalizedLifecycleSignal::AttentionCleared)
+        );
+        assert_eq!(
+            normalize_lifecycle(&json!({ "type": "root_phase", "phase": "future" })),
+            None
+        );
+        assert_eq!(normalize_lifecycle(&json!({ "type": "child_phase" })), None);
+    }
 }

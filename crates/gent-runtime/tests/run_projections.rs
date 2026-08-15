@@ -121,6 +121,40 @@ fn owned_lifecycle_signals_persist_waiting_and_attention_status() {
 }
 
 #[test]
+fn lifecycle_signals_require_a_cursor_and_ignore_stale_delivery() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    prepare(&ledger);
+    let service = service(ledger);
+    let missing_cursor = service.record_lifecycle_signal(
+        "run-a".into(),
+        "daemon-a",
+        HostEpoch(1),
+        0,
+        &NormalizedLifecycleSignal::AttentionRequired,
+    );
+    assert!(matches!(missing_cursor, Err(RuntimeError::Ledger(_))));
+    let current = service
+        .record_lifecycle_signal(
+            "run-a".into(),
+            "daemon-a",
+            HostEpoch(1),
+            2,
+            &NormalizedLifecycleSignal::AttentionRequired,
+        )
+        .unwrap();
+    let stale = service
+        .record_lifecycle_signal(
+            "run-a".into(),
+            "daemon-a",
+            HostEpoch(1),
+            1,
+            &NormalizedLifecycleSignal::AttentionCleared,
+        )
+        .unwrap();
+    assert_eq!(stale, current);
+}
+
+#[test]
 fn projection_requires_current_owner_and_server_owned_session() {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger

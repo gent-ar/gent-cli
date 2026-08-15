@@ -185,4 +185,47 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn manifest_interprets_work_attention_and_rejects_invalid_lifecycle_frames() {
+        let manifest = DeclarativeAdapterManifest {
+            id: "fixture".into(),
+            protocol_version: 1,
+            event_map: BTreeMap::from([
+                ("child".into(), "childPhase".into()),
+                ("command".into(), "commandPhase".into()),
+                ("need".into(), "attentionRequired".into()),
+                ("clear".into(), "attentionCleared".into()),
+            ]),
+        };
+        assert_eq!(
+            manifest
+                .interpret_lifecycle(&json!({ "type": "child", "child_id": "a", "phase": "done" })),
+            Some(NormalizedLifecycleSignal::ChildPhase {
+                child_id: "a".into(),
+                phase: gent_types::WorkPhase::Done
+            })
+        );
+        assert_eq!(
+            manifest.interpret_lifecycle(
+                &json!({ "type": "command", "command_id": "b", "phase": "waitingPermission" })
+            ),
+            Some(NormalizedLifecycleSignal::CommandPhase {
+                command_id: "b".into(),
+                phase: gent_types::WorkPhase::WaitingPermission
+            })
+        );
+        assert_eq!(
+            manifest.interpret_lifecycle(&json!({ "type": "need" })),
+            Some(NormalizedLifecycleSignal::AttentionRequired)
+        );
+        assert_eq!(
+            manifest.interpret_lifecycle(&json!({ "type": "clear" })),
+            Some(NormalizedLifecycleSignal::AttentionCleared)
+        );
+        assert_eq!(
+            manifest.interpret_lifecycle(&json!({ "type": "child", "phase": "done" })),
+            None
+        );
+    }
 }
