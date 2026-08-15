@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce Gent's crate dependency law and the 300-line source-file limit."""
+"""Enforce Gent's dependency, production-import, and source-size boundaries."""
 
 import json
 import pathlib
@@ -19,10 +19,20 @@ ALLOWED = {
     "gent-mcp": {"gent-types", "gent-ports"},
     "gent-automations": {"gent-types", "gent-ports"},
     "gent-pairing": {"gent-types", "gent-protocol"},
-    "gent-runtime": {"gent-types", "gent-ports", "gent-core", "gent-protocol", "gent-adapters", "gent-drivers"},
+    "gent-runtime": {"gent-types", "gent-ports", "gent-core", "gent-protocol"},
     "gent-testkit": {"gent-types", "gent-ports", "gent-protocol"},
     "gentd": None,
     "gent-cli": {"gent-types", "gent-protocol"},
+}
+
+PRODUCT_DOMAINS = {
+    "gent-adapters",
+    "gent-automations",
+    "gent-drivers",
+    "gent-git",
+    "gent-mcp",
+    "gent-pairing",
+    "gent-store",
 }
 
 
@@ -51,7 +61,48 @@ def check_file_lengths() -> list[str]:
     return errors
 
 
-errors = check_dependencies() + check_file_lengths()
+def test_module_lines(lines: list[str]) -> set[int]:
+    """Returns line indexes enclosed by a conventional `#[cfg(test)] mod` body."""
+    ignored = set()
+    pending = False
+    depth = 0
+    for index, line in enumerate(lines):
+        if line.strip() == "#[cfg(test)]":
+            pending = True
+            continue
+        if pending and line.lstrip().startswith("mod ") and "{" in line:
+            pending = False
+            depth = line.count("{") - line.count("}")
+            ignored.add(index)
+            continue
+        if pending and line.strip():
+            pending = False
+        if depth:
+            ignored.add(index)
+            depth += line.count("{") - line.count("}")
+    return ignored
+
+
+def check_production_imports() -> list[str]:
+    errors = []
+    for source in (ROOT / "crates").glob("*/src/**/*.rs"):
+        crate = source.relative_to(ROOT / "crates").parts[0]
+        if crate == "gentd":
+            continue
+        lines = source.read_text().splitlines()
+        ignored = test_module_lines(lines)
+        for index, line in enumerate(lines):
+            if index in ignored:
+                continue
+            for domain in PRODUCT_DOMAINS:
+                if f"{domain.replace('-', '_')}::" in line:
+                    errors.append(
+                        f"{source.relative_to(ROOT)} imports product domain {domain} outside gentd"
+                    )
+    return errors
+
+
+errors = check_dependencies() + check_production_imports() + check_file_lengths()
 if errors:
     print("architecture check failed:", *errors, sep="\n- ", file=sys.stderr)
     sys.exit(1)

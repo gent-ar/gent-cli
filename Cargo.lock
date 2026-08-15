@@ -491,7 +491,6 @@ dependencies = [
 name = "gent-runtime"
 version = "0.1.0"
 dependencies = [
- "gent-adapters",
  "gent-core",
  "gent-drivers",
  "gent-ports",

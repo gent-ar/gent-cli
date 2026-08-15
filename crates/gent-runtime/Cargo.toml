@@ -7,9 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gent-adapters = { path = "../gent-adapters" }
 gent-core = { path = "../gent-core" }
-gent-drivers = { path = "../gent-drivers" }
 gent-ports = { path = "../gent-ports" }
 gent-protocol = { path = "../gent-protocol" }
 gent-types = { path = "../gent-types" }
@@ -18,6 +16,7 @@ sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+gent-drivers = { path = "../gent-drivers" }
 gent-store = { path = "../gent-store" }
 tempfile.workspace = true
 

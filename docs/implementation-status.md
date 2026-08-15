@@ -14,7 +14,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Durable local attachment staging with per-transfer opaque staging keys, fenced progress,
       and receipt-bound follow-up operations,
       retry-safe final content promotion, and content-addressed deduplication; it is not exposed
-      through observer-mode `gentd` and does not imply provider attachment support.
+      to providers through observer-mode `gentd` and does not imply provider attachment support.
 - [x] Capability-gated local attachment IPC with typed transfer identity, base64 chunk validation,
       retry-safe commit, durable resume, and independently idempotent begin/append/commit
       receipts. The shared receipt journal fingerprints each mutation command and records an

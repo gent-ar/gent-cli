@@ -45,8 +45,6 @@ pub enum RuntimeError {
     #[error("decision was changed by another coordinator too often")]
     DecisionContention,
     #[error(transparent)]
-    ProviderLock(#[from] gent_drivers::lock::LockError),
-    #[error(transparent)]
     ProviderRun(#[from] gent_ports::PublicProviderRunError),
     #[error(transparent)]
     Core(#[from] gent_core::CoreError),

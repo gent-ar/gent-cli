@@ -108,6 +108,8 @@ Standalone setup and signed-release verification are documented in
 application together, then delegates immediately. Product modules communicate
 only through typed commands, value types, protocols, and exported ports. A
 module never reaches into another product domain or infrastructure detail.
+The architecture check rejects direct product-domain imports in every production
+module except the `gentd` composition root.
 Pure state transitions remain small functions that can be tested without I/O;
 adapters own I/O at the edge. Every Rust source file, including tests, is kept
 at 300 lines or fewer and CI enforces that limit.
