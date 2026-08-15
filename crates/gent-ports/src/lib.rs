@@ -4,6 +4,8 @@ use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
+mod attachment_blobs;
+mod attachment_ledger;
 mod automation_execution_ledger;
 mod capability_catalog;
 mod conversation_artifacts;
@@ -16,6 +18,8 @@ mod run_projections;
 mod run_sessions;
 mod tool_source_ledger;
 mod workspace_ledger;
+pub use attachment_blobs::AttachmentBlobStore;
+pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
 pub use automation_execution_ledger::{AutomationExecutionLedger, AutomationExecutionUpdate};
 pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
@@ -36,7 +40,6 @@ pub enum PortError {
     #[error("provider bridge operation is unavailable: {0}")]
     Unavailable(String),
 }
-/// Expected failures from an owned public-provider lifecycle operation.
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum PublicProviderRunError {
     #[error("provider executable changed before spawn or resume")]
@@ -138,7 +141,6 @@ pub enum LeaseClaim {
         current: WorktreeLease,
     },
 }
-
 #[derive(Debug, thiserror::Error)]
 pub enum LedgerError {
     #[error("stale host epoch: command {command:?}, active {active:?}")]
@@ -153,7 +155,6 @@ pub enum LedgerError {
     #[error("ledger failure: {0}")]
     Storage(String),
 }
-
 /// Persistence boundary used by the coordinator. Implementations own durability, not policy.
 pub trait Ledger: Send + Sync {
     /// Returns the durable fence and whether it currently accepts mutation ingress.
