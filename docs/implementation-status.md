@@ -27,7 +27,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
-- [x] Enforced 90% workspace line-coverage gate (current measured result: 90.14%).
+- [x] Enforced 90% workspace line-coverage gate.
 
 ## Intentionally not claimed
 

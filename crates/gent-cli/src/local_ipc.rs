@@ -132,3 +132,133 @@ fn endpoint_hash(data_dir: &Path) -> u64 {
             (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
         })
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use gent_protocol::{Hello, Negotiated, WireFrame, read_frame, write_frame};
+    use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX};
+    use tokio::net::UnixListener;
+
+    use super::request;
+
+    fn status() -> WireFrame {
+        WireFrame::Status(HostStatus {
+            host_epoch: HostEpoch(1),
+            protocol_min: PROTOCOL_MAX,
+            protocol_max: PROTOCOL_MAX,
+            capabilities: CapabilitySet(vec!["events".into()]),
+        })
+    }
+
+    fn server(directory: &tempfile::TempDir, handshake: WireFrame, response: Option<WireFrame>) {
+        let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            assert!(matches!(
+                read_frame(&mut stream).await.unwrap(),
+                WireFrame::Hello(Hello { .. })
+            ));
+            write_frame(&mut stream, &handshake).await.unwrap();
+            if let Some(response) = response {
+                assert!(matches!(
+                    read_frame(&mut stream).await.unwrap(),
+                    WireFrame::StatusRequest
+                ));
+                write_frame(&mut stream, &response).await.unwrap();
+            }
+        });
+    }
+
+    fn negotiated() -> WireFrame {
+        WireFrame::Negotiated(Negotiated {
+            protocol: PROTOCOL_MAX,
+            capabilities: CapabilitySet(vec!["events".into()]),
+        })
+    }
+
+    #[tokio::test]
+    async fn request_negotiates_then_returns_the_typed_daemon_response() {
+        let directory = tempfile::tempdir().unwrap();
+        server(&directory, negotiated(), Some(status()));
+        assert!(matches!(
+            request(
+                Some(directory.path().into()),
+                true,
+                WireFrame::StatusRequest
+            )
+            .await,
+            Ok(WireFrame::Status(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn request_rejects_handshake_and_command_errors_without_autostarting() {
+        let directory = tempfile::tempdir().unwrap();
+        server(
+            &directory,
+            WireFrame::Error {
+                code: "upgradeRequired".into(),
+                message: "upgrade".into(),
+            },
+            None,
+        );
+        assert!(
+            request(
+                Some(directory.path().into()),
+                true,
+                WireFrame::StatusRequest
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("upgrade")
+        );
+
+        let missing = tempfile::tempdir().unwrap();
+        assert!(
+            request(Some(missing.path().into()), true, WireFrame::StatusRequest)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("--no-autostart")
+        );
+    }
+
+    #[tokio::test]
+    async fn request_rejects_unexpected_negotiation_and_command_responses() {
+        let directory = tempfile::tempdir().unwrap();
+        server(&directory, status(), None);
+        assert!(
+            request(
+                Some(directory.path().into()),
+                true,
+                WireFrame::StatusRequest
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("did not negotiate")
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        server(
+            &directory,
+            negotiated(),
+            Some(WireFrame::Error {
+                code: "invalidCommand".into(),
+                message: "denied".into(),
+            }),
+        );
+        assert!(
+            request(
+                Some(directory.path().into()),
+                true,
+                WireFrame::StatusRequest
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("denied")
+        );
+    }
+}
