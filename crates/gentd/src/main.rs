@@ -16,6 +16,7 @@ use gent_protocol::{
     DecisionEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
     DependencyPlan, DependencyPlanRequest,
 };
+use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{Coordinator, ProviderRunAuthority};
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -26,8 +27,6 @@ use gent_types::{
 use tokio::net::UnixListener;
 
 use crate::dependency_catalog::DependencyCatalog;
-
-const CAPABILITIES: &[&str] = &["decisions", "events", "host-epoch", "receipts"];
 
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
@@ -47,15 +46,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = args.data_dir.clone().unwrap_or_else(default_data_dir);
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
-    let runtime = RuntimeFacade {
-        coordinator: Coordinator::new(
-            SqliteLedger::open(data_dir.join("gent.db"))?,
-            CapabilitySet(CAPABILITIES.iter().map(ToString::to_string).collect()),
-        ),
+    let observed_capabilities = transport::observed_capabilities();
+    let runtime = build_runtime(&data_dir, &observed_capabilities)?;
+    serve_local(runtime, &args, &data_dir).await
+}
+
+fn build_runtime(
+    data_dir: &std::path::Path,
+    observed_capabilities: &CapabilitySet,
+) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
+    let capabilities = validate_observed_capabilities(observed_capabilities)?;
+    Ok(RuntimeFacade {
+        coordinator: Coordinator::new(SqliteLedger::open(data_dir.join("gent.db"))?, capabilities),
         dependencies: DependencyCatalog,
         provider_run_authority: ProviderRunAuthority::Observer,
-    };
-    serve_local(runtime, &args, &data_dir).await
+    })
 }
 
 #[cfg(unix)]
@@ -103,6 +108,13 @@ struct RuntimeFacade {
 }
 
 impl transport::RuntimeApi for RuntimeFacade {
+    fn capabilities(&self) -> Result<CapabilitySet, String> {
+        self.coordinator
+            .status()
+            .map(|status| status.capabilities)
+            .map_err(|error| error.to_string())
+    }
+
     fn status(&self) -> Result<HostStatus, String> {
         self.coordinator.status().map_err(|error| error.to_string())
     }
@@ -206,4 +218,25 @@ fn default_data_dir() -> PathBuf {
         || PathBuf::from(".gent"),
         |directories| directories.data_local_dir().to_path_buf(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use gent_runtime::catalog::{CatalogError, declared_capabilities};
+
+    use super::build_runtime;
+
+    #[test]
+    fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut observed = declared_capabilities();
+        observed.0.push("future-handler".into());
+        let error = build_runtime(directory.path(), &observed).unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<CatalogError>(),
+            Some(&CatalogError::UndeclaredObserved("future-handler".into()))
+        );
+        assert!(!directory.path().join("gent.db").exists());
+    }
 }

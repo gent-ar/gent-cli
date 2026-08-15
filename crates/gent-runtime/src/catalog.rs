@@ -2,6 +2,33 @@
 
 use gent_types::CapabilitySet;
 
+/// A capability the runtime may advertise after its transport proves a handler exists.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeCapability {
+    Decisions,
+    Events,
+    HostEpoch,
+    Receipts,
+}
+
+impl RuntimeCapability {
+    const fn wire_name(self) -> &'static str {
+        match self {
+            Self::Decisions => "decisions",
+            Self::Events => "events",
+            Self::HostEpoch => "host-epoch",
+            Self::Receipts => "receipts",
+        }
+    }
+}
+
+const DECLARED: [RuntimeCapability; 4] = [
+    RuntimeCapability::Decisions,
+    RuntimeCapability::Events,
+    RuntimeCapability::HostEpoch,
+    RuntimeCapability::Receipts,
+];
+
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum CatalogError {
     #[error("declared capability is not observed: {0}")]
@@ -28,9 +55,40 @@ pub fn reconcile(declared: &CapabilitySet, observed: &CapabilitySet) -> Result<(
     Ok(())
 }
 
+/// Returns the one runtime-owned catalog eligible for wire advertisement.
+#[must_use]
+pub fn declared_capabilities() -> CapabilitySet {
+    capability_set(DECLARED)
+}
+
+/// Converts typed handler observations into their stable wire representation.
+#[must_use]
+pub fn capability_set(observed: impl IntoIterator<Item = RuntimeCapability>) -> CapabilitySet {
+    CapabilitySet(
+        observed
+            .into_iter()
+            .map(|capability| capability.wire_name().into())
+            .collect(),
+    )
+}
+
+/// Rejects a transport whose observed handlers drift from the runtime catalog.
+///
+/// # Errors
+/// Returns the mismatch before any status or handshake can advertise capabilities.
+pub fn validate_observed_capabilities(
+    observed: &CapabilitySet,
+) -> Result<CapabilitySet, CatalogError> {
+    let declared = declared_capabilities();
+    reconcile(&declared, observed)?;
+    Ok(declared)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CatalogError, reconcile};
+    use super::{
+        CatalogError, RuntimeCapability, capability_set, reconcile, validate_observed_capabilities,
+    };
     use gent_types::CapabilitySet;
 
     #[test]
@@ -48,5 +106,14 @@ mod tests {
     fn exact_catalog_is_accepted() {
         let catalog = CapabilitySet(vec!["events".into(), "receipts".into()]);
         assert!(reconcile(&catalog, &catalog).is_ok());
+    }
+
+    #[test]
+    fn typed_observations_cannot_add_an_undeclared_wire_capability() {
+        let observed = capability_set([RuntimeCapability::Events]);
+        assert_eq!(
+            validate_observed_capabilities(&observed),
+            Err(CatalogError::DeclaredButUnavailable("decisions".into()))
+        );
     }
 }

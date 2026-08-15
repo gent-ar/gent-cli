@@ -5,6 +5,7 @@ use gent_protocol::{
     DependencyPlan, DependencyPlanRequest, PublicRunInterruptRequest, PublicRunResponse,
     PublicRunResumeRequest, PublicRunStartRequest, WireFrame, negotiate, read_frame, write_frame,
 };
+use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
     PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
@@ -13,9 +14,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(unix)]
 use tokio::net::UnixListener;
 
-const CAPABILITIES: &[&str] = &["decisions", "events", "host-epoch", "receipts"];
-
 pub trait RuntimeApi: Clone + Send + Sync + 'static {
+    fn capabilities(&self) -> Result<CapabilitySet, String>;
     fn status(&self) -> Result<HostStatus, String>;
     fn submit(&self, command: Command) -> Result<Receipt, String>;
     fn events_after(&self, cursor: u64) -> Result<Vec<Event>, String>;
@@ -38,6 +38,17 @@ pub trait RuntimeApi: Clone + Send + Sync + 'static {
         &self,
         request: PublicRunInterruptRequest,
     ) -> Result<PublicRunResponse, String>;
+}
+
+/// Reports the capabilities backed by concrete post-handshake handlers in this adapter.
+#[must_use]
+pub(crate) fn observed_capabilities() -> CapabilitySet {
+    capability_set([
+        RuntimeCapability::Decisions,
+        RuntimeCapability::Events,
+        RuntimeCapability::HostEpoch,
+        RuntimeCapability::Receipts,
+    ])
 }
 
 #[cfg(unix)]
@@ -72,7 +83,10 @@ where
         )
         .await;
     };
-    let capabilities = CapabilitySet(CAPABILITIES.iter().map(ToString::to_string).collect());
+    let capabilities = match runtime.capabilities() {
+        Ok(capabilities) => capabilities,
+        Err(message) => return write_error(&mut stream, "capabilityUnavailable", &message).await,
+    };
     match negotiate(&hello, PROTOCOL_MIN, PROTOCOL_MAX, &capabilities) {
         Ok(answer) => write_frame(&mut stream, &WireFrame::Negotiated(answer)).await?,
         Err(error) => return write_error(&mut stream, "upgradeRequired", &error.to_string()).await,

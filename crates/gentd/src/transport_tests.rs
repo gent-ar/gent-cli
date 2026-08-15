@@ -15,12 +15,16 @@ use crate::transport::{RuntimeApi, serve_connection};
 struct FakeRuntime;
 
 impl RuntimeApi for FakeRuntime {
+    fn capabilities(&self) -> Result<CapabilitySet, String> {
+        Ok(CapabilitySet(vec!["events".into()]))
+    }
+
     fn status(&self) -> Result<HostStatus, String> {
         Ok(HostStatus {
             host_epoch: HostEpoch(1),
             protocol_min: PROTOCOL_MIN,
             protocol_max: PROTOCOL_MAX,
-            capabilities: CapabilitySet::default(),
+            capabilities: self.capabilities()?,
         })
     }
     fn submit(&self, _: gent_types::Command) -> Result<gent_types::Receipt, String> {
@@ -118,7 +122,7 @@ fn hello() -> WireFrame {
     WireFrame::Hello(Hello {
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        capabilities: CapabilitySet::default(),
+        capabilities: CapabilitySet(vec!["events".into()]),
     })
 }
 
@@ -140,7 +144,10 @@ async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
     let (mut client, server) = duplex(1024);
     let task = tokio::spawn(serve_connection(server, FakeRuntime));
     write_frame(&mut client, &hello()).await.unwrap();
-    let _ = read_frame(&mut client).await.unwrap();
+    assert!(matches!(
+        read_frame(&mut client).await.unwrap(),
+        WireFrame::Negotiated(answer) if answer.capabilities == CapabilitySet(vec!["events".into()])
+    ));
     write_frame(
         &mut client,
         &WireFrame::DependencyActionRequest(DependencyActionRequest {
