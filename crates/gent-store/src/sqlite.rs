@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use gent_ports::{
     DecisionClaim, DecisionPhaseUpdate, HostIngress, IngressMode, LeaseClaim, Ledger, LedgerError,
-    ReceiptClaim, RunLease, RunLeaseClaim, RunRecord, WorktreeLease,
+    ReceiptClaim, RunLease, RunLeaseClaim, RunRecord, RunSessionBinding, WorktreeLease,
 };
 use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
@@ -19,9 +19,9 @@ mod queries;
 mod runs;
 mod snapshots;
 use queries::{
-    append_event, encode_status, find_lease, find_receipt, find_run, find_run_version_lock,
-    host_ingress, insert_lease, insert_receipt, replace_lease, save_run_version_lock,
-    storage_error,
+    append_event, encode_status, find_lease, find_receipt, find_run, find_run_session_binding,
+    find_run_version_lock, host_ingress, insert_lease, insert_receipt, replace_lease,
+    save_run_session_binding, save_run_version_lock, storage_error,
 };
 
 #[derive(Clone, Debug)]
@@ -225,6 +225,20 @@ impl Ledger for SqliteLedger {
     fn find_run_version_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, LedgerError> {
         let connection = self.lock()?;
         find_run_version_lock(&connection, run_id)
+    }
+    fn save_run_session_binding(&self, binding: &RunSessionBinding) -> Result<(), LedgerError> {
+        let connection = self.lock()?;
+        if find_run(&connection, &binding.run_id)?.is_none() {
+            return Err(LedgerError::Invariant("run does not exist".into()));
+        }
+        save_run_session_binding(&connection, binding)
+    }
+    fn find_run_session_binding(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<RunSessionBinding>, LedgerError> {
+        let connection = self.lock()?;
+        find_run_session_binding(&connection, run_id)
     }
     fn claim_run_lease(&self, requested: &RunLease) -> Result<RunLeaseClaim, LedgerError> {
         leases::claim_run(self, requested)

@@ -25,6 +25,9 @@ pub struct PublicRunResumeRequest {
     pub run_id: String,
     pub coordinator_id: String,
     pub host_epoch: HostEpoch,
+    /// Legacy wire compatibility only. The daemon deliberately ignores this value and resumes
+    /// using its immutable daemon-owned session binding instead.
+    #[serde(default)]
     pub session_id: String,
 }
 

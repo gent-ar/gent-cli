@@ -1,4 +1,6 @@
-use gent_ports::{HostIngress, IngressMode, LedgerError, RunLease, RunRecord, WorktreeLease};
+use gent_ports::{
+    HostIngress, IngressMode, LedgerError, RunLease, RunRecord, RunSessionBinding, WorktreeLease,
+};
 use gent_types::{Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus, RunVersionLock};
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -112,6 +114,46 @@ pub(super) fn find_run_version_lock(
                 Ok(RunVersionLock {
                     provider: row.get(0)?, canonical_path: row.get(1)?, file_identity: row.get(2)?,
                     digest_sha256: row.get(3)?, version: row.get(4)?, compatibility_entry: row.get(5)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(storage_error)
+}
+pub(super) fn save_run_session_binding(
+    connection: &Connection,
+    binding: &RunSessionBinding,
+) -> Result<(), LedgerError> {
+    let existing = find_run_session_binding(connection, &binding.run_id)?;
+    if let Some(existing) = existing {
+        return if existing == *binding {
+            Ok(())
+        } else {
+            Err(LedgerError::Invariant(
+                "run session binding is immutable".into(),
+            ))
+        };
+    }
+    connection
+        .execute(
+            "INSERT INTO run_session_bindings (run_id, provider_session_id) VALUES (?1, ?2)",
+            params![binding.run_id, binding.provider_session_id],
+        )
+        .map(|_| ())
+        .map_err(storage_error)
+}
+pub(super) fn find_run_session_binding(
+    connection: &Connection,
+    run_id: &str,
+) -> Result<Option<RunSessionBinding>, LedgerError> {
+    connection
+        .query_row(
+            "SELECT run_id, provider_session_id FROM run_session_bindings WHERE run_id = ?1",
+            [run_id],
+            |row| {
+                Ok(RunSessionBinding {
+                    run_id: row.get(0)?,
+                    provider_session_id: row.get(1)?,
                 })
             },
         )

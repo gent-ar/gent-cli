@@ -5,6 +5,7 @@ use std::path::Path;
 use gent_drivers::lock::capture;
 use gent_ports::{
     Ledger, PublicProviderRunError, PublicProviderRunner, RunLease, RunLeaseClaim, RunRecord,
+    RunSessionBinding,
 };
 use gent_protocol::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
@@ -91,6 +92,9 @@ where
         if !self.is_authoritative() {
             return Ok(denied(request.run_id));
         }
+        let Some(session) = self.coordinator.public_run_session(&request.run_id)? else {
+            return Err(missing_session());
+        };
         let lock = self
             .coordinator
             .public_run_lock(&request.run_id)?
@@ -111,7 +115,7 @@ where
             RunLeaseClaim::Acquired(_) | RunLeaseClaim::Recovered { .. } => {
                 match self
                     .runner
-                    .resume(&request.run_id, &lock, &request.session_id)
+                    .resume(&request.run_id, &lock, &session.provider_session_id)
                 {
                     Ok(()) => Ok(response(request.run_id, PublicRunOutcome::Resumed)),
                     Err(PublicProviderRunError::ProviderChanged) => {
@@ -121,6 +125,43 @@ where
                 }
             }
         }
+    }
+
+    /// Records the provider-native session announced by an owned public-driver process.
+    ///
+    /// This is an internal daemon lifecycle entry point, deliberately not a protocol request.
+    /// A client therefore cannot select the session used by [`Self::resume`].
+    ///
+    /// # Errors
+    /// Returns an error when this daemon is not authoritative or no longer owns the run.
+    pub fn record_provider_session(
+        &self,
+        run_id: String,
+        coordinator_id: &str,
+        host_epoch: gent_types::HostEpoch,
+        provider_session_id: String,
+    ) -> Result<(), RuntimeError> {
+        if !self.is_authoritative() {
+            return Err(RuntimeError::Ledger(gent_ports::LedgerError::Invariant(
+                "observer mode cannot record public provider sessions".into(),
+            )));
+        }
+        let owned = self
+            .coordinator
+            .public_run_lease(&run_id)?
+            .is_some_and(|lease| {
+                lease.coordinator_id == coordinator_id && lease.host_epoch == host_epoch
+            });
+        if !owned {
+            return Err(RuntimeError::Ledger(gent_ports::LedgerError::Invariant(
+                "provider session reporter does not own the run".into(),
+            )));
+        }
+        self.coordinator
+            .save_public_run_session(&RunSessionBinding {
+                run_id,
+                provider_session_id,
+            })
     }
 
     /// Signals only a run whose durable lease still names this coordinator and epoch.
@@ -167,6 +208,14 @@ impl<L: Ledger> Coordinator<L> {
         Ok(self.ledger.find_run_version_lock(run_id)?)
     }
 
+    fn public_run_session(&self, run_id: &str) -> Result<Option<RunSessionBinding>, RuntimeError> {
+        Ok(self.ledger.find_run_session_binding(run_id)?)
+    }
+
+    fn save_public_run_session(&self, binding: &RunSessionBinding) -> Result<(), RuntimeError> {
+        Ok(self.ledger.save_run_session_binding(binding)?)
+    }
+
     fn public_run_lease(&self, run_id: &str) -> Result<Option<RunLease>, RuntimeError> {
         Ok(self.ledger.find_run_lease(run_id)?)
     }
@@ -178,4 +227,10 @@ const fn response(run_id: String, outcome: PublicRunOutcome) -> PublicRunRespons
 
 fn denied(run_id: String) -> PublicRunResponse {
     response(run_id, PublicRunOutcome::Denied)
+}
+
+fn missing_session() -> RuntimeError {
+    RuntimeError::Ledger(gent_ports::LedgerError::Invariant(
+        "run has no daemon-owned provider session binding".into(),
+    ))
 }

@@ -6,6 +6,10 @@ use gent_types::{
     EventSnapshot, HostEpoch, ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
 };
 
+mod run_sessions;
+
+pub use run_sessions::RunSessionBinding;
+
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
     #[error("provider bridge failure: {0}")]
@@ -255,6 +259,22 @@ pub trait Ledger: Send + Sync {
     /// # Errors
     /// Returns an error when the lock cannot be read.
     fn find_run_version_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, LedgerError>;
+    /// Persists a provider-native session reported by the daemon for a durable run.
+    /// It is idempotent only when identical; a conflicting binding is rejected.
+    fn save_run_session_binding(&self, binding: &RunSessionBinding) -> Result<(), LedgerError> {
+        let _ = binding;
+        Err(LedgerError::Invariant(
+            "ledger does not support provider session bindings".into(),
+        ))
+    }
+    /// Reads the daemon-owned provider session identity to use for resume.
+    fn find_run_session_binding(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<RunSessionBinding>, LedgerError> {
+        let _ = run_id;
+        Ok(None)
+    }
     /// Atomically obtains a coordinator lease for one durable run.
     ///
     /// # Errors

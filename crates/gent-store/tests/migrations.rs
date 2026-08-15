@@ -48,6 +48,15 @@ fn legacy_ledger_is_upgraded_without_losing_epoch_or_events() {
             .unwrap(),
         "open"
     );
+    assert!(
+        reopened
+            .query_row(
+                "SELECT 1 FROM schema_migrations WHERE version = 2",
+                [],
+                |_| Ok(()),
+            )
+            .is_ok()
+    );
 }
 
 #[test]

@@ -25,6 +25,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Fail-closed cross-linking from passed public-provider coverage records to
       recorded driver transcripts with matching provider/version/platform/transport.
 - [x] Signed compatibility entries, trusted-key revocation, fixed-expiry offline cache, and immutable durable run-version locks.
+- [x] Immutable, restart-safe provider-native session bindings; resume ignores the legacy client wire value.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, process fakes, and locked public-process launching.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.

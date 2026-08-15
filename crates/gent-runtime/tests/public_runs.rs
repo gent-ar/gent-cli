@@ -1,5 +1,6 @@
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use gent_drivers::lock::recheck;
 use gent_ports::{Ledger, PublicProviderRunError, PublicProviderRunner};
@@ -18,6 +19,7 @@ struct FakeRunner {
     resumes: AtomicUsize,
     interrupts: AtomicUsize,
     change_before_start: bool,
+    resumed_sessions: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeRunner {
@@ -28,6 +30,7 @@ impl FakeRunner {
             resumes: AtomicUsize::new(0),
             interrupts: AtomicUsize::new(0),
             change_before_start: false,
+            resumed_sessions: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -51,9 +54,13 @@ impl PublicProviderRunner for FakeRunner {
         &self,
         _: &str,
         lock: &RunVersionLock,
-        _: &str,
+        session_id: &str,
     ) -> Result<(), PublicProviderRunError> {
         self.resumes.fetch_add(1, Ordering::SeqCst);
+        self.resumed_sessions
+            .lock()
+            .unwrap()
+            .push(session_id.into());
         recheck(lock).map_err(|_| PublicProviderRunError::ProviderChanged)
     }
 
@@ -86,7 +93,7 @@ fn service(
 #[test]
 fn observer_mode_hard_denies_provider_lifecycle_without_touching_runner() {
     let ledger = SqliteLedger::in_memory().unwrap();
-    let runner = FakeRunner::new(ledger);
+    let runner = FakeRunner::new(ledger.clone());
     let path = tempfile::NamedTempFile::new().unwrap();
     let answer = service(ProviderRunAuthority::Observer, runner)
         .start(request(path.path()))
@@ -133,19 +140,46 @@ fn resume_and_interrupt_require_authoritative_owned_run() {
     let executable = directory.path().join("codex");
     fs::write(&executable, "stable").unwrap();
     let ledger = SqliteLedger::in_memory().unwrap();
-    let runner = FakeRunner::new(ledger);
+    let runner = FakeRunner::new(ledger.clone());
+    let resumed_sessions = Arc::clone(&runner.resumed_sessions);
     let service = service(ProviderRunAuthority::PublicDrivers, runner);
     assert_eq!(
         service.start(request(&executable)).unwrap().outcome,
         PublicRunOutcome::Started
+    );
+    service
+        .record_provider_session(
+            "run-a".into(),
+            "daemon-a",
+            HostEpoch(1),
+            "durable-session".into(),
+        )
+        .unwrap();
+    ledger.close_ingress(HostEpoch(1)).unwrap();
+    ledger.fence_and_open(HostEpoch(1)).unwrap();
+    assert_eq!(
+        service
+            .resume(PublicRunResumeRequest {
+                run_id: "run-a".into(),
+                coordinator_id: "daemon-b".into(),
+                host_epoch: HostEpoch(2),
+                session_id: "client-substitution-attempt".into(),
+            })
+            .unwrap()
+            .outcome,
+        PublicRunOutcome::Resumed
+    );
+    assert_eq!(
+        resumed_sessions.lock().unwrap().as_slice(),
+        ["durable-session"]
     );
     assert_eq!(
         service
             .resume(PublicRunResumeRequest {
                 run_id: "run-a".into(),
                 coordinator_id: "other".into(),
-                host_epoch: HostEpoch(1),
-                session_id: "session".into(),
+                host_epoch: HostEpoch(2),
+                session_id: "client-substitution-attempt".into(),
             })
             .unwrap()
             .outcome,
@@ -155,11 +189,33 @@ fn resume_and_interrupt_require_authoritative_owned_run() {
         service
             .interrupt(PublicRunInterruptRequest {
                 run_id: "run-a".into(),
-                coordinator_id: "daemon-a".into(),
-                host_epoch: HostEpoch(1),
+                coordinator_id: "daemon-b".into(),
+                host_epoch: HostEpoch(2),
             })
             .unwrap()
             .outcome,
         PublicRunOutcome::Interrupted
+    );
+}
+
+#[test]
+fn resume_refuses_runs_without_a_server_owned_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("claude");
+    fs::write(&executable, "stable").unwrap();
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let runner = FakeRunner::new(ledger);
+    let service = service(ProviderRunAuthority::PublicDrivers, runner);
+    service.start(request(&executable)).unwrap();
+
+    assert!(
+        service
+            .resume(PublicRunResumeRequest {
+                run_id: "run-a".into(),
+                coordinator_id: "daemon-a".into(),
+                host_epoch: HostEpoch(1),
+                session_id: "client-substitution-attempt".into(),
+            })
+            .is_err()
     );
 }

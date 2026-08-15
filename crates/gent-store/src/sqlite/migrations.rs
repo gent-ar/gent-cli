@@ -14,16 +14,26 @@ CREATE TABLE IF NOT EXISTS run_leases (run_id TEXT PRIMARY KEY NOT NULL REFERENC
 CREATE TABLE IF NOT EXISTS worktree_leases (worktree_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id), lease_token TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL);
 ";
 
+const RUN_SESSION_BINDINGS: &str = "
+CREATE TABLE IF NOT EXISTS run_session_bindings (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), provider_session_id TEXT NOT NULL);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 1] = [Migration {
-    version: 1,
-    sql: BASE_SCHEMA,
-}];
+const MIGRATIONS: [Migration; 2] = [
+    Migration {
+        version: 1,
+        sql: BASE_SCHEMA,
+    },
+    Migration {
+        version: 2,
+        sql: RUN_SESSION_BINDINGS,
+    },
+];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
     let transaction = connection
