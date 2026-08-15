@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS automation_executions (
 const RUN_CHECKPOINTS: &str = include_str!("run_checkpoints.sql");
 const ATTACHMENTS: &str = include_str!("attachments.sql");
 const ATTACHMENT_TRANSFER_KEYS: &str = include_str!("attachment_transfer_keys.sql");
+const RECEIPT_FINGERPRINTS: &str = include_str!("receipt_fingerprints.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -108,63 +109,26 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 14] = [
-    Migration {
-        version: 1,
-        sql: BASE_SCHEMA,
-    },
-    Migration {
-        version: 2,
-        sql: RUN_SESSION_BINDINGS,
-    },
-    Migration {
-        version: 3,
-        sql: RUN_PROJECTIONS,
-    },
-    Migration {
-        version: 4,
-        sql: CONVERSATIONS_AND_TURNS,
-    },
-    Migration {
-        version: 5,
-        sql: CONVERSATION_ARTIFACTS,
-    },
-    Migration {
-        version: 6,
-        sql: CAPABILITY_CATALOG,
-    },
-    Migration {
-        version: 7,
-        sql: WORKSPACE_HIERARCHY,
-    },
-    Migration {
-        version: 8,
-        sql: POLICIES,
-    },
-    Migration {
-        version: 9,
-        sql: GIT_OPERATIONS,
-    },
-    Migration {
-        version: 10,
-        sql: TOOL_SOURCES,
-    },
-    Migration {
-        version: 11,
-        sql: AUTOMATION_EXECUTIONS,
-    },
-    Migration {
-        version: 12,
-        sql: RUN_CHECKPOINTS,
-    },
-    Migration {
-        version: 13,
-        sql: ATTACHMENTS,
-    },
-    Migration {
-        version: 14,
-        sql: ATTACHMENT_TRANSFER_KEYS,
-    },
+const fn migration(version: i64, sql: &'static str) -> Migration {
+    Migration { version, sql }
+}
+
+const MIGRATIONS: [Migration; 15] = [
+    migration(1, BASE_SCHEMA),
+    migration(2, RUN_SESSION_BINDINGS),
+    migration(3, RUN_PROJECTIONS),
+    migration(4, CONVERSATIONS_AND_TURNS),
+    migration(5, CONVERSATION_ARTIFACTS),
+    migration(6, CAPABILITY_CATALOG),
+    migration(7, WORKSPACE_HIERARCHY),
+    migration(8, POLICIES),
+    migration(9, GIT_OPERATIONS),
+    migration(10, TOOL_SOURCES),
+    migration(11, AUTOMATION_EXECUTIONS),
+    migration(12, RUN_CHECKPOINTS),
+    migration(13, ATTACHMENTS),
+    migration(14, ATTACHMENT_TRANSFER_KEYS),
+    migration(15, RECEIPT_FINGERPRINTS),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

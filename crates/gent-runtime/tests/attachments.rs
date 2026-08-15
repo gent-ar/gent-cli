@@ -1,3 +1,4 @@
+use gent_ports::Ledger;
 use gent_runtime::AttachmentService;
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::{
@@ -26,25 +27,38 @@ fn staging_retries_then_commits_only_verified_content() {
         state: AttachmentState::Uploading,
         received_bytes: 0,
     };
+    let ledger = SqliteLedger::in_memory().unwrap();
     let service = AttachmentService::new(
-        SqliteLedger::in_memory().unwrap(),
+        ledger.clone(),
         FileAttachmentBlobs::open(directory.path()).unwrap(),
     );
     service.begin(&transfer).unwrap();
-    let operation = operation(&transfer);
-    let mut wrong_operation = operation.clone();
-    wrong_operation.receipt_id = ReceiptId("wrong-receipt".into());
+    let append_operation = operation(&transfer, "append");
+    let mut wrong_operation = append_operation.clone();
+    wrong_operation.transfer_receipt_id = ReceiptId("wrong-receipt".into());
     assert!(service.append(&wrong_operation, 0, b"hello").is_err());
-    service.append(&operation, 0, b"hello").unwrap();
-    service.append(&operation, 0, b"hello").unwrap();
+    service.append(&append_operation, 0, b"hello").unwrap();
+    service.append(&append_operation, 0, b"hello").unwrap();
     assert_eq!(
-        service.commit(&operation).unwrap().state,
+        service
+            .commit(&operation(&transfer, "commit"))
+            .unwrap()
+            .state,
         AttachmentState::Available
     );
     assert_eq!(
-        service.commit(&operation).unwrap().state,
+        service
+            .commit(&operation(&transfer, "commit"))
+            .unwrap()
+            .state,
         AttachmentState::Available
     );
+    assert!(matches!(
+        ledger.resume_events(0).unwrap(),
+        gent_types::EventResume::Delta { events }
+            if events.len() == 6
+                && events.iter().filter(|event| event.kind == "attachmentSettled").count() == 3
+    ));
 }
 
 #[test]
@@ -73,21 +87,26 @@ fn separate_transfers_can_converge_on_one_content_address() {
             received_bytes: 0,
         };
         service.begin(&transfer).unwrap();
-        let operation = operation(&transfer);
-        service.append(&operation, 0, b"same").unwrap();
+        let append_operation = operation(&transfer, "append");
+        service.append(&append_operation, 0, b"same").unwrap();
         assert_eq!(
-            service.commit(&operation).unwrap().state,
+            service
+                .commit(&operation(&transfer, "commit"))
+                .unwrap()
+                .state,
             AttachmentState::Available
         );
     }
     assert!(directory.path().join("blobs").join(digest).exists());
 }
 
-fn operation(transfer: &AttachmentTransfer) -> AttachmentOperation {
+fn operation(transfer: &AttachmentTransfer, kind: &str) -> AttachmentOperation {
     AttachmentOperation {
         attachment_id: transfer.metadata.attachment_id.clone(),
-        receipt_id: transfer.receipt_id.clone(),
-        idempotency_key: transfer.idempotency_key.clone(),
+        transfer_receipt_id: transfer.receipt_id.clone(),
+        transfer_idempotency_key: transfer.idempotency_key.clone(),
+        receipt_id: ReceiptId(format!("{kind}-{}", transfer.metadata.attachment_id)),
+        idempotency_key: format!("{kind}-{}", transfer.metadata.attachment_id),
         host_epoch: transfer.host_epoch,
     }
 }

@@ -6,8 +6,10 @@ use gent_core::{
 };
 use gent_ports::{AttachmentBlobStore, AttachmentClaim, AttachmentLedger, IngressMode, Ledger};
 use gent_types::{AttachmentOperation, AttachmentState, AttachmentTransfer};
+use sha2::{Digest, Sha256};
 
 use crate::RuntimeError;
+use crate::attachment_receipts::{claim as claim_receipt, settle as settle_receipt};
 
 /// Coordinates retry-safe local attachment staging without importing filesystem or IPC types.
 #[derive(Clone, Debug)]
@@ -42,9 +44,32 @@ where
             .into());
         }
         self.ensure_ingress(transfer)?;
-        match self.ledger.claim_attachment(transfer)? {
-            AttachmentClaim::Created(value) | AttachmentClaim::Existing(value) => Ok(value),
+        let payload = serde_json::json!({
+            "attachmentId": transfer.metadata.attachment_id,
+            "digestSha256": transfer.metadata.digest_sha256,
+            "byteLen": transfer.metadata.byte_len,
+        });
+        if !claim_receipt(
+            &self.ledger,
+            &transfer.receipt_id,
+            &transfer.idempotency_key,
+            transfer.host_epoch,
+            "attachmentBegin",
+            payload,
+        )? {
+            return self.resume(&transfer.metadata.attachment_id);
         }
+        let result = match self.ledger.claim_attachment(transfer)? {
+            AttachmentClaim::Created(value) | AttachmentClaim::Existing(value) => Ok(value),
+        };
+        settle_receipt(
+            &self.ledger,
+            &transfer.receipt_id,
+            &transfer.idempotency_key,
+            transfer.host_epoch,
+            "attachmentBegin",
+            result,
+        )
     }
 
     /// Appends one validated sequential chunk; retries are safe when a prior blob write succeeded first.
@@ -64,23 +89,60 @@ where
                 gent_ports::LedgerError::Invariant("attachment does not exist".into())
             })?;
         Self::require_operation(&current, operation)?;
+        let payload = serde_json::json!({
+            "attachmentId": operation.attachment_id,
+            "offset": offset,
+            "bytesSha256": format!("{:x}", Sha256::digest(bytes)),
+        });
         if current.state == AttachmentState::Available {
-            return Ok(current);
+            return self.settle_available_operation(operation, "attachmentAppend", payload);
         }
         self.ensure_ingress(&current)?;
         let byte_len = u64::try_from(bytes.len())
             .map_err(|_| gent_ports::LedgerError::Invariant("chunk length overflow".into()))?;
-        if offset.checked_add(byte_len) == Some(current.received_bytes) {
-            self.blobs
-                .append_attachment_chunk(&current.staging_key, offset, bytes)?;
+        let next = if offset.checked_add(byte_len) == Some(current.received_bytes) {
+            Ok(None)
+        } else {
+            accept_chunk(&current, offset, byte_len)
+                .map(Some)
+                .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()).into())
+        };
+        if !claim_receipt(
+            &self.ledger,
+            &operation.receipt_id,
+            &operation.idempotency_key,
+            operation.host_epoch,
+            "attachmentAppend",
+            payload,
+        )? {
             return Ok(current);
         }
-        let next = accept_chunk(&current, offset, byte_len)
-            .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
-        self.blobs
-            .append_attachment_chunk(&current.staging_key, offset, bytes)?;
-        self.ledger.replace_attachment(&current, &next)?;
-        Ok(next)
+        let result = match next {
+            Ok(None) => self
+                .blobs
+                .append_attachment_chunk(&current.staging_key, offset, bytes)
+                .map(|()| current.clone())
+                .map_err(RuntimeError::from),
+            Ok(Some(next)) => self
+                .blobs
+                .append_attachment_chunk(&current.staging_key, offset, bytes)
+                .map_err(RuntimeError::from)
+                .and_then(|()| {
+                    self.ledger
+                        .replace_attachment(&current, &next)
+                        .map_err(RuntimeError::from)
+                })
+                .map(|()| next),
+            Err(error) => Err(error),
+        };
+        settle_receipt(
+            &self.ledger,
+            &operation.receipt_id,
+            &operation.idempotency_key,
+            operation.host_epoch,
+            "attachmentAppend",
+            result,
+        )
     }
 
     /// Verifies the complete staged digest, promotes content, then durably marks it available.
@@ -98,25 +160,54 @@ where
                 gent_ports::LedgerError::Invariant("attachment does not exist".into())
             })?;
         Self::require_operation(&current, operation)?;
+        let payload = serde_json::json!({ "attachmentId": operation.attachment_id });
         if current.state == AttachmentState::Available {
-            return Ok(current);
+            return self.settle_available_operation(operation, "attachmentCommit", payload);
         }
         self.ensure_ingress(&current)?;
-        let (size, digest) = self
+        let prepared = self
             .blobs
-            .attachment_digest(&current.staging_key, &current.metadata.storage_key)?;
-        if size != current.received_bytes {
-            return Err(gent_ports::LedgerError::Invariant(
-                "staged attachment size differs from durable progress".into(),
-            )
-            .into());
+            .attachment_digest(&current.staging_key, &current.metadata.storage_key)
+            .map_err(RuntimeError::from)
+            .and_then(|(size, digest)| {
+                if size != current.received_bytes {
+                    return Err(gent_ports::LedgerError::Invariant(
+                        "staged attachment size differs from durable progress".into(),
+                    )
+                    .into());
+                }
+                commit(&current, &digest)
+                    .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()).into())
+            });
+        if !claim_receipt(
+            &self.ledger,
+            &operation.receipt_id,
+            &operation.idempotency_key,
+            operation.host_epoch,
+            "attachmentCommit",
+            payload,
+        )? {
+            return Ok(current);
         }
-        let next = commit(&current, &digest)
-            .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
-        self.blobs
-            .commit_attachment_blob(&current.staging_key, &current.metadata.storage_key)?;
-        self.ledger.replace_attachment(&current, &next)?;
-        Ok(next)
+        let result = prepared.and_then(|next| {
+            self.blobs
+                .commit_attachment_blob(&current.staging_key, &current.metadata.storage_key)
+                .map_err(RuntimeError::from)
+                .and_then(|()| {
+                    self.ledger
+                        .replace_attachment(&current, &next)
+                        .map_err(RuntimeError::from)
+                })
+                .map(|()| next)
+        });
+        settle_receipt(
+            &self.ledger,
+            &operation.receipt_id,
+            &operation.idempotency_key,
+            operation.host_epoch,
+            "attachmentCommit",
+            result,
+        )
     }
 
     /// Returns durable progress without opening ingress or touching staged bytes.
@@ -150,8 +241,8 @@ where
         operation: &AttachmentOperation,
     ) -> Result<(), RuntimeError> {
         if operation.attachment_id != transfer.metadata.attachment_id
-            || operation.receipt_id != transfer.receipt_id
-            || operation.idempotency_key != transfer.idempotency_key
+            || operation.transfer_receipt_id != transfer.receipt_id
+            || operation.transfer_idempotency_key != transfer.idempotency_key
             || operation.host_epoch != transfer.host_epoch
         {
             return Err(gent_ports::LedgerError::Invariant(
@@ -160,5 +251,33 @@ where
             .into());
         }
         Ok(())
+    }
+
+    fn settle_available_operation(
+        &self,
+        operation: &AttachmentOperation,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<AttachmentTransfer, RuntimeError> {
+        if !claim_receipt(
+            &self.ledger,
+            &operation.receipt_id,
+            &operation.idempotency_key,
+            operation.host_epoch,
+            kind,
+            payload,
+        )? {
+            return self.resume(&operation.attachment_id);
+        }
+        settle_receipt(
+            &self.ledger,
+            &operation.receipt_id,
+            &operation.idempotency_key,
+            operation.host_epoch,
+            kind,
+            Err(
+                gent_ports::LedgerError::Invariant("attachment is already available".into()).into(),
+            ),
+        )
     }
 }

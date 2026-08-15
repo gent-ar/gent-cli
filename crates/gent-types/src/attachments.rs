@@ -41,12 +41,18 @@ pub struct AttachmentTransfer {
     pub received_bytes: u64,
 }
 
-/// Receipt and fence identity required by every follow-up attachment mutation.
+/// Transfer ownership plus a distinct receipt required by every follow-up mutation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentOperation {
     pub attachment_id: String,
+    /// Receipt that created the immutable transfer being mutated.
+    pub transfer_receipt_id: ReceiptId,
+    /// Idempotency key that created the immutable transfer being mutated.
+    pub transfer_idempotency_key: String,
+    /// Unique receipt for this append or commit operation.
     pub receipt_id: ReceiptId,
+    /// Unique idempotency key for this append or commit operation.
     pub idempotency_key: String,
     pub host_epoch: HostEpoch,
 }

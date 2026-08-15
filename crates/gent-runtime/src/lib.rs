@@ -1,4 +1,5 @@
 //! Coordinator orchestration over pure policy and durable ports.
+mod attachment_receipts;
 mod attachments;
 mod automation_executions;
 pub mod catalog;
@@ -115,7 +116,6 @@ impl<L: Ledger> Coordinator<L> {
     ) -> Result<HostIngress, RuntimeError> {
         Ok(self.ledger.fence_and_open(epoch)?)
     }
-
     /// Persists an immutable root run.
     ///
     /// # Errors

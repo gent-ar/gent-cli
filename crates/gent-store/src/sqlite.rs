@@ -18,6 +18,7 @@ mod conversation_artifacts;
 mod conversation_ledger;
 mod conversations;
 mod decisions;
+mod epoch;
 mod git_operation_ledger;
 mod git_operations;
 mod leases;
@@ -34,11 +35,13 @@ mod tool_source_ledger;
 mod tool_sources;
 mod workspace_ledger;
 mod workspaces;
+use epoch::require_epoch;
 use queries::{
     append_event, encode_status, find_lease, find_receipt, find_run, find_run_session_binding,
-    find_run_version_lock, host_ingress, insert_lease, insert_receipt, replace_lease,
-    save_run_session_binding, save_run_version_lock, storage_error,
+    find_run_version_lock, host_ingress, insert_lease, insert_receipt, receipt_matches_command,
+    replace_lease, save_run_session_binding, save_run_version_lock, storage_error,
 };
+
 #[derive(Clone, Debug)]
 pub struct SqliteLedger {
     connection: Arc<Mutex<Connection>>,
@@ -139,6 +142,11 @@ impl Ledger for SqliteLedger {
             return Err(LedgerError::IngressClosed { epoch: state.epoch });
         }
         if let Some(receipt) = find_receipt(&transaction, &command.idempotency_key)? {
+            if !receipt_matches_command(&transaction, command)? {
+                return Err(LedgerError::Invariant(
+                    "idempotency key is bound to a different command".into(),
+                ));
+            }
             return Ok(ReceiptClaim::Existing(receipt));
         }
         let receipt = Receipt {
@@ -147,7 +155,7 @@ impl Ledger for SqliteLedger {
             status: ReceiptStatus::Accepted,
             host_epoch: state.epoch,
         };
-        insert_receipt(&transaction, &receipt)?;
+        insert_receipt(&transaction, &receipt, command)?;
         append_event(&transaction, accepted)?;
         transaction.commit().map_err(storage_error)?;
         Ok(ReceiptClaim::Accepted(receipt))
@@ -288,13 +296,5 @@ impl Ledger for SqliteLedger {
     fn find_worktree_lease(&self, id: &str) -> Result<Option<WorktreeLease>, LedgerError> {
         let connection = self.lock()?;
         find_lease(&connection, id)
-    }
-}
-
-pub(super) fn require_epoch(command: HostEpoch, active: HostEpoch) -> Result<(), LedgerError> {
-    if command == active {
-        Ok(())
-    } else {
-        Err(LedgerError::StaleEpoch { command, active })
     }
 }

@@ -128,9 +128,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CatalogError, RuntimeCapability, capability_set, reconcile, validate_observed_capabilities,
-    };
+    use super::{CatalogError, declared_capabilities, reconcile, validate_observed_capabilities};
     use gent_types::CapabilitySet;
 
     #[test]
@@ -152,10 +150,11 @@ mod tests {
 
     #[test]
     fn typed_observations_cannot_add_an_undeclared_wire_capability() {
-        let observed = capability_set([RuntimeCapability::Events]);
+        let mut observed = declared_capabilities();
+        observed.0.push("future-capability".into());
         assert_eq!(
             validate_observed_capabilities(&observed),
-            Err(CatalogError::DeclaredButUnavailable("decisions".into()))
+            Err(CatalogError::UndeclaredObserved("future-capability".into()))
         );
     }
 }

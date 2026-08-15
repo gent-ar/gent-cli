@@ -1,14 +1,47 @@
 use gent_ports::{
     HostIngress, IngressMode, LedgerError, RunLease, RunRecord, RunSessionBinding, WorktreeLease,
 };
-use gent_types::{Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus, RunVersionLock};
+use gent_types::{Command, Event, HostEpoch, Receipt, ReceiptId, ReceiptStatus, RunVersionLock};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub(super) fn insert_receipt(
     connection: &Connection,
     receipt: &Receipt,
+    command: &Command,
 ) -> Result<(), LedgerError> {
-    connection.execute("INSERT INTO receipts (idempotency_key, receipt_id, status, host_epoch) VALUES (?1, ?2, ?3, ?4)", params![receipt.idempotency_key, receipt.receipt_id.0, encode_status(&receipt.status), receipt.host_epoch.0]).map(|_| ()).map_err(storage_error)
+    connection.execute("INSERT INTO receipts (idempotency_key, receipt_id, status, host_epoch, kind, payload_digest) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![receipt.idempotency_key, receipt.receipt_id.0, encode_status(&receipt.status), receipt.host_epoch.0, command.kind, command_fingerprint(command)?]).map(|_| ()).map_err(storage_error)
+}
+
+pub(super) fn receipt_matches_command(
+    connection: &Connection,
+    command: &Command,
+) -> Result<bool, LedgerError> {
+    let wanted_fingerprint = command_fingerprint(command)?;
+    connection
+        .query_row(
+            "SELECT receipt_id, host_epoch, kind, payload_digest FROM receipts WHERE idempotency_key = ?1",
+            [&command.idempotency_key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)),
+        )
+        .optional()
+        .map_err(storage_error)
+        .map(|stored| stored.is_some_and(|(receipt_id, epoch, kind, fingerprint)| {
+            receipt_id == command.receipt_id.0
+                && epoch == command.host_epoch.0
+                && (kind.is_empty() || kind == command.kind)
+                && (fingerprint.is_empty() || fingerprint == wanted_fingerprint)
+        }))
+}
+
+fn command_fingerprint(command: &Command) -> Result<String, LedgerError> {
+    use sha2::{Digest, Sha256};
+
+    let payload = serde_json::to_vec(&command.payload).map_err(storage_error)?;
+    let mut digest = Sha256::new();
+    digest.update(command.kind.as_bytes());
+    digest.update([0]);
+    digest.update(payload);
+    Ok(format!("{:x}", digest.finalize()))
 }
 pub(super) fn append_event(connection: &Connection, event: &Event) -> Result<Event, LedgerError> {
     connection.execute("INSERT INTO events (event_id, receipt_id, host_epoch, kind, payload) VALUES (?1, ?2, ?3, ?4, ?5)", params![event.event_id, event.receipt_id.0, event.host_epoch.0, event.kind, serde_json::to_string(&event.payload).map_err(storage_error)?]).map_err(storage_error)?;

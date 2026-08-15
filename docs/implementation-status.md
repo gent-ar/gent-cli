@@ -14,8 +14,9 @@ not claim provider or app compatibility evidence that has not been recorded.
       retry-safe final content promotion, and content-addressed deduplication; it is not exposed
       through observer-mode `gentd` and does not imply provider attachment support.
 - [x] Capability-gated local attachment IPC with typed transfer identity, base64 chunk validation,
-      retry-safe commit, and durable resume. Per-mutation receipt settlement is not yet part of
-      the shared receipt/event journal and remains a standalone hardening task.
+      retry-safe commit, durable resume, and independently idempotent begin/append/commit
+      receipts. The shared receipt journal fingerprints each mutation command and records an
+      accepted and terminal event before a retry is acknowledged.
 - [x] Durable event snapshots and transactional compaction with explicit stale-cursor resync.
 - [x] Versioned, checksummed, transactional SQLite migrations with legacy-ledger upgrade tests.
 - [x] Durable run and worktree lease arbitration with separate-connection contention tests.

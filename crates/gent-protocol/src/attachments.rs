@@ -42,8 +42,10 @@ mod tests {
         let frame = AttachmentFrame::Chunk {
             operation: gent_types::AttachmentOperation {
                 attachment_id: "attachment-1".into(),
+                transfer_receipt_id: gent_types::ReceiptId("begin-receipt-1".into()),
+                transfer_idempotency_key: "begin-attachment-1".into(),
                 receipt_id: gent_types::ReceiptId("receipt-1".into()),
-                idempotency_key: "attachment-1".into(),
+                idempotency_key: "append-attachment-1".into(),
                 host_epoch: gent_types::HostEpoch(1),
             },
             offset: 0,
@@ -52,6 +54,10 @@ mod tests {
         let value = serde_json::to_value(&frame).unwrap();
         assert_eq!(value["type"], "chunk");
         assert!(value["body"].get("path").is_none());
+        assert_eq!(
+            value["body"]["operation"]["transferReceiptId"],
+            "begin-receipt-1"
+        );
         assert_eq!(value["body"]["operation"]["receiptId"], "receipt-1");
         assert_eq!(ATTACHMENTS_CAPABILITY, "attachments-v1");
     }

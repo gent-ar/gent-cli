@@ -6,7 +6,7 @@ use super::queries::{
     find_run, find_run_lease, insert_run_lease, replace_run_lease, save_run_version_lock,
     storage_error,
 };
-use super::{SqliteLedger, host_ingress, require_epoch};
+use super::{SqliteLedger, epoch::require_epoch, host_ingress};
 
 /// Claims one durable run for a coordinator transactionally.
 pub(super) fn claim_run(

@@ -189,8 +189,10 @@ async fn attachment_frames_preserve_transfer_identity_and_resume_durable_progres
 
     let operation = AttachmentOperation {
         attachment_id: "attachment-1".into(),
-        receipt_id: ReceiptId("receipt-1".into()),
-        idempotency_key: "attachment-1".into(),
+        transfer_receipt_id: ReceiptId("receipt-1".into()),
+        transfer_idempotency_key: "attachment-1".into(),
+        receipt_id: ReceiptId("append-receipt-1".into()),
+        idempotency_key: "append-attachment-1".into(),
         host_epoch: HostEpoch(1),
     };
     let chunk = AttachmentFrame::Chunk {
@@ -212,7 +214,11 @@ async fn attachment_frames_preserve_transfer_identity_and_resume_durable_progres
     write_json_frame(
         &mut stream,
         &AttachmentFrame::Commit {
-            operation: operation.clone(),
+            operation: AttachmentOperation {
+                receipt_id: ReceiptId("commit-receipt-1".into()),
+                idempotency_key: "commit-attachment-1".into(),
+                ..operation.clone()
+            },
         },
     )
     .await
