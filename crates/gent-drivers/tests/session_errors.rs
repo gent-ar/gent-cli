@@ -1,6 +1,8 @@
 use gent_drivers::normalize::normalize;
 use gent_drivers::{DriverSession, OutputLimits, SessionEffect, SessionInput, SessionStatus};
-use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase, WorkPhase};
+use gent_types::{
+    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+};
 use serde_json::json;
 
 fn raw(value: &str) -> SessionInput {
@@ -133,7 +135,17 @@ fn active_sessions_surface_lifecycle_signals_without_content_effects() {
         .effects
         .is_empty()
     );
+    assert_eq!(
+        active.lifecycle_signal(br#"{"type":"root_activity","activity":"generating"}"#),
+        Some(NormalizedLifecycleSignal::RootActivity {
+            activity: RootActivity::Generating,
+        })
+    );
     assert_eq!(active.lifecycle_signal(b"not-json"), None);
+    assert_eq!(
+        active.lifecycle_signal(br#"{"type":"child_phase","child_id":"","phase":"running"}"#),
+        None
+    );
 }
 
 #[test]

@@ -104,7 +104,12 @@ fn v13_attachment_uploads_gain_a_transfer_owned_staging_key() {
         .execute_batch(
             "DROP TABLE turn_attachments;
              DROP TABLE attachments;
-             DELETE FROM schema_migrations WHERE version = 14;
+             DROP TABLE receipts;
+             DELETE FROM schema_migrations WHERE version IN (14, 15);
+             CREATE TABLE receipts (
+                 idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE,
+                 status TEXT NOT NULL, host_epoch INTEGER NOT NULL
+             );
              CREATE TABLE attachments (
                  attachment_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
                  receipt_id TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL, state TEXT NOT NULL,

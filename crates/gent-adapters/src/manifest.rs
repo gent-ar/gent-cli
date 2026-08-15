@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase, WorkPhase};
+use gent_types::{
+    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -38,6 +40,7 @@ impl DeclarativeAdapterManifest {
                 "turnEnded",
                 "decisionSettled",
                 "rootPhase",
+                "rootActivity",
                 "childPhase",
                 "commandPhase",
                 "attentionRequired",
@@ -86,6 +89,9 @@ impl DeclarativeAdapterManifest {
         match self.target(frame)? {
             "rootPhase" => Some(NormalizedLifecycleSignal::RootPhase {
                 phase: root_phase(&string(frame, "phase"))?,
+            }),
+            "rootActivity" => Some(NormalizedLifecycleSignal::RootActivity {
+                activity: root_activity(&string(frame, "activity"))?,
             }),
             "childPhase" => Some(NormalizedLifecycleSignal::ChildPhase {
                 child_id: non_empty(frame, "child_id")?,
@@ -146,10 +152,19 @@ fn root_phase(value: &str) -> Option<TurnPhase> {
     }
 }
 
+fn root_activity(value: &str) -> Option<RootActivity> {
+    match value {
+        "generating" => Some(RootActivity::Generating),
+        "waiting" => Some(RootActivity::Waiting),
+        "idle" => Some(RootActivity::Idle),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::DeclarativeAdapterManifest;
-    use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase};
+    use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -192,12 +207,19 @@ mod tests {
             id: "fixture".into(),
             protocol_version: 1,
             event_map: BTreeMap::from([
+                ("activity".into(), "rootActivity".into()),
                 ("child".into(), "childPhase".into()),
                 ("command".into(), "commandPhase".into()),
                 ("need".into(), "attentionRequired".into()),
                 ("clear".into(), "attentionCleared".into()),
             ]),
         };
+        assert_eq!(
+            manifest.interpret_lifecycle(&json!({ "type": "activity", "activity": "generating" })),
+            Some(NormalizedLifecycleSignal::RootActivity {
+                activity: RootActivity::Generating
+            })
+        );
         assert_eq!(
             manifest
                 .interpret_lifecycle(&json!({ "type": "child", "child_id": "a", "phase": "done" })),

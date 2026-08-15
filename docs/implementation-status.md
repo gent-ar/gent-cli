@@ -30,6 +30,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Durable SQLite decision settlement with restart-safe terminal outcomes and optimistic contention handling.
 - [x] Protocol-only CLI status/events/submit and filesystem-only read-only doctor discovery;
       it does not execute provider binaries, including version probes, in observer mode.
+- [x] `gent deps` requires explicit consent, then invokes only fixed, shell-free vendor installer
+      commands for public Claude/Codex dependencies and waits for their terminal result; it never
+      installs private Claurst components or runs during `gent doctor`.
 - [x] Capability-gated local event attachment: initial replay, snapshot resync, cursor-ordered
       bounded batches, client acknowledgements, and `gent events --follow` over the existing IPC.
       The daemon polls its durable ledger at a bounded interval; it does not yet claim a producer

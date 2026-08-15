@@ -133,15 +133,18 @@ pub struct DependencyPlan {
 #[serde(rename_all = "camelCase")]
 pub enum DependencyActionState {
     ConsentRequired,
-    InstallerNotConfigured,
+    Completed,
+    Failed,
 }
 
-/// The daemon's non-mutating dependency-action result for this milestone.
+/// Terminal result of an explicit dependency action.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DependencyActionResult {
     pub plan: DependencyPlan,
     pub state: DependencyActionState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

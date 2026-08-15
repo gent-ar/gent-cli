@@ -68,13 +68,13 @@ enum DependencyCommand {
         action: DependencyAction,
         provider: DependencyProvider,
     },
-    /// Confirm an install plan. No installer is started until this capability is configured.
+    /// Confirm and run a reviewed public-provider installer.
     Install {
         provider: DependencyProvider,
         #[arg(long)]
         consent: bool,
     },
-    /// Confirm an update plan. No updater is started until this capability is configured.
+    /// Confirm and run a reviewed public-provider updater.
     Update {
         provider: DependencyProvider,
         #[arg(long)]

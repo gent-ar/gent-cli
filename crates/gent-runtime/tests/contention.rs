@@ -109,20 +109,19 @@ fn concurrent_worktree_claims_have_one_winner() {
 fn concurrent_command_retries_produce_one_receipt_and_event_pair() {
     let coordinator = coordinator();
     let barrier = Arc::new(Barrier::new(2));
-    let receipts = [ReceiptId::new(), ReceiptId::new()].map(|receipt_id| {
+    let command = Command {
+        receipt_id: ReceiptId::new(),
+        idempotency_key: "same-command".into(),
+        host_epoch: HostEpoch(1),
+        kind: "ping".into(),
+        payload: json!({"concurrent": true}),
+    };
+    let receipts = [command.clone(), command].map(|command| {
         let coordinator = coordinator.clone();
         let barrier = Arc::clone(&barrier);
         thread::spawn(move || {
             barrier.wait();
-            coordinator
-                .submit(&Command {
-                    receipt_id,
-                    idempotency_key: "same-command".into(),
-                    host_epoch: HostEpoch(1),
-                    kind: "ping".into(),
-                    payload: json!({"concurrent": true}),
-                })
-                .unwrap()
+            coordinator.submit(&command).unwrap()
         })
     });
     let receipts = receipts.map(|thread| thread.join().unwrap());

@@ -2,7 +2,10 @@ mod api;
 mod attachment_api;
 mod attachment_transport;
 mod compatibility_assessment;
+mod dependency_actions;
 mod dependency_catalog;
+#[cfg(test)]
+mod dependency_catalog_tests;
 mod event_stream;
 mod host_lock;
 mod public_runs;
@@ -170,7 +173,7 @@ impl api::RuntimeApi for RuntimeFacade {
         self.dependencies.plan(request)
     }
     fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult {
-        self.dependencies.act(request)
+        self.dependencies.act(&request)
     }
     fn attachment(&self, frame: AttachmentFrame) -> Result<AttachmentFrame, String> {
         attachment_api::handle(&self.attachments, frame)

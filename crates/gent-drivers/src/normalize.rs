@@ -1,6 +1,8 @@
 //! Pure normalization of supported public-driver frames; no process or persistence access.
 
-use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase, WorkPhase};
+use gent_types::{
+    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+};
 use serde_json::Value;
 
 /// Converts known provider-neutral fields into the stable event contract.
@@ -50,6 +52,8 @@ pub fn normalize_lifecycle(frame: &Value) -> Option<NormalizedLifecycleSignal> {
     match field(frame, "type") {
         Some("root_phase") => root_phase(field(frame, "phase"))
             .map(|phase| NormalizedLifecycleSignal::RootPhase { phase }),
+        Some("root_activity") => root_activity(field(frame, "activity"))
+            .map(|activity| NormalizedLifecycleSignal::RootActivity { activity }),
         Some("child_phase") => Some(NormalizedLifecycleSignal::ChildPhase {
             child_id: field(frame, "child_id")?.into(),
             phase: work_phase(field(frame, "phase")),
@@ -93,9 +97,20 @@ fn root_phase(value: Option<&str>) -> Option<TurnPhase> {
     }
 }
 
+fn root_activity(value: Option<&str>) -> Option<RootActivity> {
+    match value {
+        Some("generating") => Some(RootActivity::Generating),
+        Some("waiting") => Some(RootActivity::Waiting),
+        Some("idle") => Some(RootActivity::Idle),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, TurnPhase, WorkPhase};
+    use gent_types::{
+        NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase, WorkPhase,
+    };
     use serde_json::json;
 
     use super::{normalize, normalize_lifecycle};
@@ -132,6 +147,12 @@ mod tests {
         assert_eq!(
             normalize_lifecycle(&json!({ "type": "decision_requested" })),
             Some(NormalizedLifecycleSignal::AttentionRequired)
+        );
+        assert_eq!(
+            normalize_lifecycle(&json!({ "type": "root_activity", "activity": "generating" })),
+            Some(NormalizedLifecycleSignal::RootActivity {
+                activity: RootActivity::Generating
+            })
         );
     }
 
@@ -175,6 +196,10 @@ mod tests {
         );
         assert_eq!(
             normalize_lifecycle(&json!({ "type": "root_phase", "phase": "future" })),
+            None
+        );
+        assert_eq!(
+            normalize_lifecycle(&json!({ "type": "root_activity", "activity": "future" })),
             None
         );
         assert_eq!(normalize_lifecycle(&json!({ "type": "child_phase" })), None);

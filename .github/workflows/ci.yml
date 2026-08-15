@@ -30,7 +30,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup component add llvm-tools-preview
       - run: cargo install cargo-llvm-cov --locked
-      - run: cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 90
+      - run: cargo llvm-cov --workspace --all-targets --all-features --summary-only --fail-under-lines 90
   verify:
     name: verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

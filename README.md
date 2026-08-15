@@ -66,7 +66,7 @@ supervised deployments and deterministic smoke tests.
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 90
+cargo llvm-cov --workspace --all-targets --all-features --summary-only --fail-under-lines 90
 bash tools/smoke-local-ipc.sh
 ```
 

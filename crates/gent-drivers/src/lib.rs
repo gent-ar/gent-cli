@@ -2,6 +2,7 @@
 
 pub mod buffering;
 pub mod discovery;
+pub mod installer;
 pub mod interrupt;
 pub mod launch_spec;
 pub mod lock;

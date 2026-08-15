@@ -60,10 +60,11 @@ impl RuntimeApi for FakeRuntime {
                 action: request.action,
             }),
             state: if request.consent_granted {
-                DependencyActionState::InstallerNotConfigured
+                DependencyActionState::Completed
             } else {
                 DependencyActionState::ConsentRequired
             },
+            detail: None,
         }
     }
     fn submit_decision(

@@ -215,11 +215,9 @@ mod tests {
     fn acceptance_and_terminal_events_are_idempotent() {
         let ledger = SqliteLedger::in_memory().unwrap();
         let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
-        let first = coordinator.submit(&command("once", 1, "ping")).unwrap();
-        assert_eq!(
-            first,
-            coordinator.submit(&command("once", 1, "ping")).unwrap()
-        );
+        let command = command("once", 1, "ping");
+        let first = coordinator.submit(&command).unwrap();
+        assert_eq!(first, coordinator.submit(&command).unwrap());
         assert!(matches!(
             ledger.resume_events(0).unwrap(),
             gent_types::EventResume::Delta { events } if events.len() == 2

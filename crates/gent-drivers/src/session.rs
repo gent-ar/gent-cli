@@ -83,9 +83,11 @@ impl DriverSession {
         if self.status != SessionStatus::Active {
             return None;
         }
-        serde_json::from_slice::<Value>(raw)
-            .ok()
-            .and_then(|frame| normalize_lifecycle(&frame))
+        let frame = serde_json::from_slice::<Value>(raw).ok()?;
+        let kind = frame.get("type")?.as_str()?;
+        valid_lifecycle_frame(kind, &frame)
+            .then(|| normalize_lifecycle(&frame))
+            .flatten()
     }
 
     fn reduce_raw_frame(&self, raw: &[u8]) -> SessionTransition {

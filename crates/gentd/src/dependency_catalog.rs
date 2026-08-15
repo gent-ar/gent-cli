@@ -1,5 +1,7 @@
 //! Read-only public dependency discovery and explicit-action planning.
 use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::dependency_actions::invocation;
+use gent_drivers::installer::{DependencyInstaller, SystemDependencyInstaller};
 use gent_drivers::lock::capture;
 use gent_protocol::{
     DependencyActionRequest, DependencyActionResult, DependencyActionState, DependencyPlan,
@@ -11,14 +13,34 @@ use gent_types::{
 };
 use std::env;
 use std::path::{Path, PathBuf};
-#[derive(Clone, Debug, Default)]
-pub struct DependencyCatalog {
+#[derive(Clone, Debug)]
+pub struct DependencyCatalog<I = SystemDependencyInstaller> {
     compatibility: CompatibilityAssessment,
+    installer: I,
 }
+impl Default for DependencyCatalog {
+    fn default() -> Self {
+        Self::with_compatibility(CompatibilityAssessment::default())
+    }
+}
+
 impl DependencyCatalog {
     #[must_use]
     pub(crate) fn with_compatibility(compatibility: CompatibilityAssessment) -> Self {
-        Self { compatibility }
+        Self {
+            compatibility,
+            installer: SystemDependencyInstaller,
+        }
+    }
+}
+
+impl<I: DependencyInstaller> DependencyCatalog<I> {
+    #[cfg(test)]
+    pub(crate) fn with_installer(compatibility: CompatibilityAssessment, installer: I) -> Self {
+        Self {
+            compatibility,
+            installer,
+        }
     }
     #[allow(clippy::unused_self)]
     #[must_use]
@@ -34,19 +56,25 @@ impl DependencyCatalog {
     pub fn plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
         plan(request.provider, request.action)
     }
-    #[allow(clippy::unused_self, clippy::needless_pass_by_value)]
     #[must_use]
-    pub fn act(&self, request: DependencyActionRequest) -> DependencyActionResult {
+    pub fn act(&self, request: &DependencyActionRequest) -> DependencyActionResult {
         let plan = plan(request.provider, request.action);
-        let state = if request.consent_granted {
-            DependencyActionState::InstallerNotConfigured
+        let (state, detail) = if request.consent_granted {
+            match self.installer.execute(&invocation(request)) {
+                Ok(()) => (DependencyActionState::Completed, None),
+                Err(error) => (DependencyActionState::Failed, Some(error.to_string())),
+            }
         } else {
-            DependencyActionState::ConsentRequired
+            (DependencyActionState::ConsentRequired, None)
         };
-        DependencyActionResult { plan, state }
+        DependencyActionResult {
+            plan,
+            state,
+            detail,
+        }
     }
 }
-fn doctor_report(
+pub(crate) fn doctor_report(
     providers: Vec<(DependencyStatus, PublicProviderStatus)>,
     node: DependencyStatus,
 ) -> DoctorReport {
@@ -184,100 +212,5 @@ fn plan(provider: DependencyProvider, action: gent_protocol::DependencyAction) -
         action,
         instruction: instruction.into(),
         consent_required: true,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use gent_protocol::{
-        DependencyAction, DependencyActionRequest, DependencyPlanRequest, DependencyProvider,
-    };
-    use gent_types::{
-        CompatibilityTrust, DependencyStatus, ExecutableIdentity, McpPermissionStatus,
-        PrivateBridgeAvailability, PublicProviderStatus,
-    };
-
-    use super::{DependencyActionState, DependencyCatalog, doctor_report};
-
-    fn provider(present: bool) -> (DependencyStatus, PublicProviderStatus) {
-        (
-            DependencyStatus {
-                name: "claude".into(),
-                present,
-                version: present.then(|| "1.2.3".into()),
-                remediation: "review plan".into(),
-            },
-            PublicProviderStatus {
-                provider: "claude".into(),
-                executable: present.then(|| ExecutableIdentity {
-                    canonical_path: "/public/claude".into(),
-                    file_identity: "10:20".into(),
-                    digest_sha256: "abc".into(),
-                    version: Some("1.2.3".into()),
-                }),
-                compatibility: CompatibilityTrust::NotConfigured,
-                remediation: "review manifest".into(),
-            },
-        )
-    }
-
-    fn node() -> DependencyStatus {
-        DependencyStatus {
-            name: "node".into(),
-            present: true,
-            version: Some("v22".into()),
-            remediation: "none".into(),
-        }
-    }
-
-    #[test]
-    fn doctor_reports_provenance_gates_and_a_safe_next_action() {
-        let report = doctor_report(vec![provider(false)], node());
-        assert_eq!(
-            report.public_providers[0].compatibility,
-            CompatibilityTrust::NotConfigured
-        );
-        assert!(report.public_providers[0].executable.is_none());
-        assert_eq!(
-            report.mcp.permission,
-            McpPermissionStatus::HardDisabledObserver
-        );
-        assert_eq!(
-            report.private_bridge,
-            PrivateBridgeAvailability::NotConfigured
-        );
-        assert_eq!(report.next_action.id, "review-claude-install-plan");
-    }
-
-    #[test]
-    fn installed_public_provider_preserves_identity_without_claiming_trust() {
-        let report = doctor_report(vec![provider(true)], node());
-        let identity = report.public_providers[0].executable.as_ref().unwrap();
-        assert_eq!(identity.digest_sha256, "abc");
-        assert_eq!(
-            report.public_providers[0].compatibility,
-            CompatibilityTrust::NotConfigured
-        );
-        assert_eq!(report.next_action.id, "review-authority-gates");
-    }
-
-    #[test]
-    fn plans_are_read_only_and_private_providers_are_unrepresentable() {
-        let plan = DependencyCatalog::default().plan(DependencyPlanRequest {
-            provider: DependencyProvider::Claude,
-            action: DependencyAction::Install,
-        });
-        assert!(plan.consent_required);
-        assert!(plan.instruction.contains("Anthropic"));
-    }
-
-    #[test]
-    fn consent_never_silently_starts_an_installer() {
-        let result = DependencyCatalog::default().act(DependencyActionRequest {
-            provider: DependencyProvider::Codex,
-            action: DependencyAction::Update,
-            consent_granted: true,
-        });
-        assert_eq!(result.state, DependencyActionState::InstallerNotConfigured);
     }
 }
