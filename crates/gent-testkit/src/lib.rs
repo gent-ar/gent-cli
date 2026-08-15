@@ -6,6 +6,7 @@
 
 mod evidence_manifest;
 mod fake_bridge;
+mod fake_legacy_event_tap;
 mod fake_process;
 mod transcript;
 mod transcript_catalog;
@@ -15,6 +16,7 @@ mod transcript_provenance;
 
 pub use evidence_manifest::validate_evidence_manifest;
 pub use fake_bridge::{BridgeSubmission, FakeExternalProviderBridge};
+pub use fake_legacy_event_tap::FakeLegacyEventTap;
 pub use fake_process::{FakeProcess, FakeProcessSignal};
 pub use transcript::{
     PublicDriverFixture, PublicDriverFrame, TranscriptError, load_public_driver_fixture,
