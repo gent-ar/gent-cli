@@ -110,6 +110,11 @@ not claim provider or app compatibility evidence that has not been recorded.
       executor behind a receipt-backed, worktree-lease-fenced authority service. It returns
       only a count and digest, is uncomposed by `gentd`, and observer mode denies it before
       a receipt, lease, or process is created.
+- [x] Receipt-backed, source-lease-fenced MCP connector lifecycle coordination. It resolves
+      only durable credential-free MCP declarations, persists requested → connecting → terminal
+      state, and never replays an accepted receipt after restart. It is uncomposed by `gentd`
+      and has no process or network executor implementation; observer mode returns before a
+      receipt, lease, connector record, or executor call.
 - [x] Worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
@@ -120,14 +125,21 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Standalone discovery-first onboarding documentation with explicit dependency consent.
 - [x] Read-only `gent onboarding` projection with exactly Gent/Claurst, Claude, and Codex branches;
       it derives readiness only from `gent doctor`, never starts a provider or performs auth/install/download work.
+- [x] The daemon's target product boundary is recorded: it will own agent-chat conversations,
+      sessions, prompts, Claude/Codex drivers, the private Claurst bridge port, MCP, and Git;
+      a future Flutter caller invokes `gent` rather than a provider executable. Device pairing
+      and application automations remain Flutter-owned and have no `gentd` protocol or executor.
 
 ## Intentionally not claimed
 
 - [ ] Real Claude/Codex recordings and installed-provider integration evidence.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
-- [ ] MCP hosting, Git mutation/worktree operations, automation execution, pairing
-      transport, and provider process lifecycle ownership in a live daemon. The narrow Git
-      status service above remains dormant until an authority-gated host profile is proven.
+- [ ] MCP hosting, Git mutation/worktree operations, and provider process lifecycle ownership
+      in a live daemon. The narrow Git status service above remains dormant until an
+      authority-gated host profile is proven.
+- [ ] A separately authorized Flutter integration that invokes `gent` for agent-chat work.
+      It must not launch provider binaries directly. Device pairing and application automation
+      execution stay Flutter-owned and are intentionally excluded from `gentd`.
 - [ ] A phase-4 legacy-observer host profile: it must consume a `LegacyEventTap`
       without Rust durable writes, mutation APIs, or worktree leases. The current
       standalone daemon's hard public-provider observer guard does not claim this.

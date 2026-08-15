@@ -10,6 +10,13 @@ impl ToolSourceLedger for SqliteLedger {
         tool_sources::create(self, source)
     }
 
+    fn find_tool_source(
+        &self,
+        tool_source_id: &str,
+    ) -> Result<Option<ToolSourceRecord>, LedgerError> {
+        tool_sources::find(self, tool_source_id)
+    }
+
     fn list_tool_sources(&self, workspace_id: &str) -> Result<Vec<ToolSourceRecord>, LedgerError> {
         tool_sources::list(self, workspace_id)
     }

@@ -16,6 +16,7 @@ mod external_provider_bridge;
 mod git_operations;
 mod lifecycle_signal;
 mod lifecycle_state;
+mod mcp_connectors;
 mod observer_tap;
 mod onboarding;
 mod policies;
@@ -47,6 +48,7 @@ pub use external_provider_bridge::{ExternalProviderSession, ExternalProviderTerm
 pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord};
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
+pub use mcp_connectors::{McpConnectorPhase, McpConnectorRecord};
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
 pub use policies::{PolicyRecord, PolicyScope};

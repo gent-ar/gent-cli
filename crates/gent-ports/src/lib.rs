@@ -15,6 +15,8 @@ mod external_provider_bridge;
 mod git_executor;
 mod git_operation_ledger;
 mod legacy_event_tap;
+mod mcp_connector_executor;
+mod mcp_connector_ledger;
 mod policy_ledger;
 mod public_provider_resolver;
 mod public_provider_runner;
@@ -38,6 +40,12 @@ pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_executor::{GitExecutor, GitExecutorError, GitStatusOperation, GitStatusSummary};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use legacy_event_tap::LegacyEventTap;
+pub use mcp_connector_executor::{
+    McpConnectOperation, McpConnectionSummary, McpConnectorError, McpConnectorExecutor,
+};
+pub use mcp_connector_ledger::{
+    McpConnectorLease, McpConnectorLeaseClaim, McpConnectorLedger, McpConnectorUpdate,
+};
 pub use policy_ledger::PolicyLedger;
 pub use public_provider_resolver::PublicProviderResolver;
 pub use public_provider_runner::{PublicProviderRunError, PublicProviderRunner};

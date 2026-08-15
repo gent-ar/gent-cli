@@ -103,6 +103,20 @@ const ATTACHMENTS: &str = include_str!("attachments.sql");
 const ATTACHMENT_TRANSFER_KEYS: &str = include_str!("attachment_transfer_keys.sql");
 const RECEIPT_FINGERPRINTS: &str = include_str!("receipt_fingerprints.sql");
 
+const MCP_CONNECTORS: &str = "
+CREATE TABLE IF NOT EXISTS mcp_connectors (
+    connector_id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+    tool_source_id TEXT NOT NULL REFERENCES tool_sources(tool_source_id),
+    phase TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_connector_leases (
+    tool_source_id TEXT PRIMARY KEY NOT NULL REFERENCES tool_sources(tool_source_id),
+    lease_token TEXT NOT NULL UNIQUE,
+    host_epoch INTEGER NOT NULL
+);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
@@ -113,7 +127,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 15] = [
+const MIGRATIONS: [Migration; 16] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -129,6 +143,7 @@ const MIGRATIONS: [Migration; 15] = [
     migration(13, ATTACHMENTS),
     migration(14, ATTACHMENT_TRANSFER_KEYS),
     migration(15, RECEIPT_FINGERPRINTS),
+    migration(16, MCP_CONNECTORS),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

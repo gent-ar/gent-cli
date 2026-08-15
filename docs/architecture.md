@@ -20,10 +20,18 @@ The public crate dependency rules are encoded in the workspace layout:
 Driver-to-runtime conversion is composed only at the `gentd` edge. `gent-runtime` receives
 protocol, type, and port values rather than importing another product domain.
 
-The remaining domain crates (`gent-adapters`, `gent-drivers`, `gent-git`,
-`gent-mcp`, `gent-automations`, `gent-pairing`, and `gent-testkit`) exist as
-explicit ownership boundaries. They cannot obtain write authority or launch
-external work in this milestone.
+The agent-chat domains are `gent-adapters`, `gent-drivers`, `gent-git`,
+`gent-mcp`, the private external-provider bridge port, and the durable
+conversation/session runtime. In the future authority profile, only `gentd`
+composes them; callers, including a later Flutter integration, invoke `gent`
+or the local protocol rather than launching Claude, Codex, Claurst, or MCP
+processes directly.
+
+`gent-automations` and `gent-pairing` retain pure platform-contract policy and
+value boundaries, but device pairing and application automations are explicitly
+Flutter-app-owned. They are not `gentd` APIs, are not executable CLI domains,
+and will not receive a daemon composition path. No domain crate can obtain
+write authority or launch external work in this milestone.
 
 No migration authority transfers to this repository until recorded baseline
 transcripts, observer parity, public-driver evidence, app compatibility and

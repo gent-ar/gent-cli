@@ -2,7 +2,7 @@
 
 use gent_ports::LedgerError;
 use gent_types::{ToolSourceKind, ToolSourceRecord};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 use super::SqliteLedger;
 use super::queries::storage_error;
@@ -41,6 +41,21 @@ pub(super) fn list(
         .query_map([workspace_id], decode_source)
         .map_err(storage_error)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)
+}
+
+pub(super) fn find(
+    ledger: &SqliteLedger,
+    tool_source_id: &str,
+) -> Result<Option<ToolSourceRecord>, LedgerError> {
+    ledger
+        .lock()?
+        .query_row(
+            "SELECT tool_source_id, workspace_id, kind, source_name, declared_tools FROM tool_sources WHERE tool_source_id = ?1",
+            [tool_source_id],
+            decode_source,
+        )
+        .optional()
+        .map_err(storage_error)
 }
 
 fn validate(source: &ToolSourceRecord) -> Result<(), LedgerError> {

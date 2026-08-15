@@ -20,6 +20,8 @@ mod epoch;
 mod git_operation_ledger;
 mod git_operations;
 mod leases;
+mod mcp_connector_ledger;
+mod mcp_connectors;
 mod migrations;
 mod policies;
 mod policy_ledger;
@@ -48,7 +50,6 @@ pub struct SqliteLedger {
 impl SqliteLedger {
     /// Opens or creates a durable ledger at `path`.
     /// # Errors
-    /// Returns an error when `SQLite` cannot open or migrate the database.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         Self::from_connection(Connection::open(path).map_err(storage_error)?)
     }

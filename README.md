@@ -40,12 +40,25 @@ than a second copy of application logic. The implemented vertical slice is:
   a claim that a live provider is attached to the daemon. Root generation activity is explicit,
   so waiting on detached work is never inferred from a root turn phase alone.
 
-Claude, Codex, MCP, pairing, Git, automations and the private Claurst bridge
-are deliberately not routed through `gentd` in this milestone. The public
-driver crate has minimal, typed transport launch specifications for a previously locked Claude
-or Codex binary at its outer operating-system edge, but daemon authority is not connected to
-that capability. This keeps the app as the sole production writer until the migration plan's
-observer and cutover gates are satisfied.
+### Intended product boundary (not wired in this observer milestone)
+
+Gent owns the agent-chat runtime: durable conversations, sessions, prompts,
+Claude and Codex public-driver orchestration, the private Claurst bridge behind
+its port, MCP, and authorized Git work. A future Flutter integration invokes
+`gent`/`gentd` through this local protocol; it never spawns a provider binary
+directly. `gentd` is the only component allowed to compose those capabilities.
+
+Device pairing and application automations are Flutter-app concerns, not a
+`gentd` API or execution domain. The workspace retains small pure policy/value
+crates needed by the platform contract, but neither is wired into the daemon or
+available through the CLI protocol.
+
+Claude, Codex, MCP, Git, and the private Claurst bridge are deliberately not
+routed through `gentd` in the current observer milestone. The public driver
+crate has minimal typed launch specifications for a previously locked Claude
+or Codex binary at its operating-system edge, but daemon authority is not yet
+connected to that capability. This keeps the app as the sole production writer
+until the migration plan's evidence, observer, and cutover gates are satisfied.
 
 ## Try it
 
@@ -119,7 +132,8 @@ at 300 lines or fewer and CI enforces that limit.
 `gentd` never receives Claurst credentials or endpoint configuration. Provider
 installation or updates are explicit, receipt-backed user actions; `gent doctor`
 only observes dependencies. The present daemon does not route or start live provider
-runs, MCP servers, Git operations, automation jobs, or network listeners.
+runs, MCP servers, Git operations, or network listeners. Pairing and automation
+execution are deliberately outside its protocol surface.
 
 ## License
 
