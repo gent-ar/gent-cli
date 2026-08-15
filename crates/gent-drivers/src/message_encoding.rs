@@ -14,6 +14,30 @@ pub enum PublicSession {
     CodexAppServer { thread_id: String, request_id: u64 },
 }
 
+/// Encodes Codex app-server's required connection handshake before any thread request.
+///
+/// The frames contain only Gent's fixed client identity and never provider credentials.
+///
+/// # Errors
+/// Returns an error when the caller has no valid JSON-RPC request identity.
+pub fn encode_codex_handshake(request_id: u64) -> Result<Vec<Vec<u8>>, MessageEncodingError> {
+    if request_id == 0 {
+        return Err(MessageEncodingError::InvalidCodexRequestId);
+    }
+    Ok(vec![
+        encode_frame(json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "initialize",
+            "params": {
+                "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
+                "capabilities": {}
+            }
+        }))?,
+        encode_frame(json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}))?,
+    ])
+}
+
 /// Encodes one `userMessage` command as an NDJSON frame for a known public transport.
 ///
 /// # Errors
@@ -40,10 +64,7 @@ pub fn encode_user_message(
         }
         _ => return Err(MessageEncodingError::SessionProviderMismatch),
     };
-    let mut encoded =
-        serde_json::to_vec(&frame).map_err(|_| MessageEncodingError::Serialization)?;
-    encoded.push(b'\n');
-    Ok(encoded)
+    encode_frame(frame)
 }
 
 fn prompt(command: &Command) -> Result<&str, MessageEncodingError> {
@@ -74,6 +95,13 @@ fn codex_frame(prompt: &str, thread_id: &str, request_id: u64) -> Value {
     })
 }
 
+fn encode_frame(frame: Value) -> Result<Vec<u8>, MessageEncodingError> {
+    let mut encoded =
+        serde_json::to_vec(&frame).map_err(|_| MessageEncodingError::Serialization)?;
+    encoded.push(b'\n');
+    Ok(encoded)
+}
+
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum MessageEncodingError {
     #[error("only userMessage commands enter a public provider transport")]
@@ -84,6 +112,8 @@ pub enum MessageEncodingError {
     SessionProviderMismatch,
     #[error("a Codex app-server session requires a thread and positive request identifier")]
     InvalidCodexSession,
+    #[error("a Codex app-server handshake requires a positive request identifier")]
+    InvalidCodexRequestId,
     #[error("provider input could not be encoded")]
     Serialization,
 }
@@ -93,7 +123,10 @@ mod tests {
     use gent_types::{Command, HostEpoch, ReceiptId};
     use serde_json::{Value, json};
 
-    use super::{MessageEncodingError, PublicProvider, PublicSession, encode_user_message};
+    use super::{
+        MessageEncodingError, PublicProvider, PublicSession, encode_codex_handshake,
+        encode_user_message,
+    };
 
     fn command(prompt: &Value) -> Command {
         Command {
@@ -148,6 +181,22 @@ mod tests {
                 "method": "turn/start",
                 "params": {"threadId": "thread-1", "input": [{"type": "text", "text": "hello"}]}
             })
+        );
+    }
+
+    #[test]
+    fn codex_handshake_precedes_every_thread_request() {
+        let frames = encode_codex_handshake(1).unwrap();
+        assert_eq!(
+            frames.iter().map(|frame| decode(frame)).collect::<Vec<_>>(),
+            vec![
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"gent","version":env!("CARGO_PKG_VERSION")},"capabilities":{}}}),
+                json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
+            ]
+        );
+        assert_eq!(
+            encode_codex_handshake(0),
+            Err(MessageEncodingError::InvalidCodexRequestId)
         );
     }
 
