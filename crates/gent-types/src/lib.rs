@@ -17,6 +17,7 @@ mod git_operations;
 mod lifecycle_signal;
 mod lifecycle_state;
 mod observer_tap;
+mod onboarding;
 mod policies;
 mod run_checkpoints;
 mod run_projection;
@@ -46,6 +47,7 @@ pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
+pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
 pub use policies::{PolicyRecord, PolicyScope};
 pub use run_checkpoints::RunCheckpointRecord;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};

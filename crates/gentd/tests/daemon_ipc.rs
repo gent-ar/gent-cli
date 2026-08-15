@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::process::{Child, Command as ProcessCommand, Stdio};
 
 use gent_protocol::{
-    ATTACHMENTS_CAPABILITY, AttachmentFrame, DependencyAction, DependencyActionRequest,
-    DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome, PublicRunStartRequest,
-    WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
+    ATTACHMENTS_CAPABILITY, AttachmentFrame, DependencyAction, DependencyPlanRequest,
+    DependencyProvider, Hello, PublicRunOutcome, PublicRunStartRequest, WireFrame, read_frame,
+    read_json_frame, write_frame, write_json_frame,
 };
 use gent_types::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, CapabilitySet,
@@ -242,7 +242,7 @@ async fn attachment_frames_preserve_transfer_identity_and_resume_durable_progres
 }
 
 #[tokio::test]
-async fn observer_daemon_exposes_only_read_only_doctor_and_dependency_plans() {
+async fn observer_daemon_exposes_read_only_doctor_onboarding_and_dependency_plans() {
     let daemon = daemon().await;
     let mut stream = client(&daemon).await;
     assert!(matches!(
@@ -263,21 +263,8 @@ async fn observer_daemon_exposes_only_read_only_doctor_and_dependency_plans() {
         WireFrame::DependencyPlan(plan) if plan.consent_required
     ));
     assert!(matches!(
-        request(
-            &mut stream,
-            WireFrame::DependencyActionRequest(DependencyActionRequest {
-                provider: DependencyProvider::Codex,
-                action: DependencyAction::Update,
-                consent_granted: false,
-                receipt_id: gent_types::ReceiptId("dependency".into()),
-                idempotency_key: "dependency".into(),
-                host_epoch: HostEpoch(1),
-                reviewed_plan_digest: "reviewed".into(),
-            }),
-        )
-        .await,
-        WireFrame::DependencyActionResult(result)
-            if result.state == gent_protocol::DependencyActionState::ConsentRequired
+        request(&mut stream, WireFrame::OnboardingRequest).await,
+        WireFrame::Onboarding(state) if state.branches.len() == 3
     ));
     assert!(matches!(
         request(

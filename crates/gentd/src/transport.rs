@@ -200,6 +200,7 @@ fn command_frame<R: RuntimeApi>(
     client_supports_resync: bool,
 ) -> Result<WireFrame, String> {
     match serde_json::from_value::<WireFrame>(raw) {
+        Ok(WireFrame::OnboardingRequest) => Ok(WireFrame::Onboarding(runtime.onboarding())),
         Ok(WireFrame::StatusRequest) => runtime.status().map(WireFrame::Status),
         Ok(WireFrame::DoctorRequest) => Ok(WireFrame::DoctorReport(runtime.doctor())),
         Ok(WireFrame::DependencyPlanRequest(request)) => {

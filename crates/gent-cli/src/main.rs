@@ -28,6 +28,8 @@ struct Args {
 enum CommandLine {
     /// Read-only dependency discovery through the local daemon.
     Doctor,
+    /// Read the closed three-provider onboarding model without starting any provider.
+    Onboarding,
     /// Review or explicitly consent to a public provider dependency action.
     Deps {
         #[command(subcommand)]

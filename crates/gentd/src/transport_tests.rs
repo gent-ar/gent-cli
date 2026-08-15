@@ -260,3 +260,22 @@ async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
     drop(client);
     assert!(task.await.unwrap().is_err());
 }
+
+#[tokio::test]
+async fn onboarding_is_read_only_and_returns_the_closed_provider_model() {
+    let (mut client, server) = duplex(1024);
+    let task = tokio::spawn(serve_connection(server, FakeRuntime));
+    write_frame(&mut client, &hello()).await.unwrap();
+    let _ = read_frame(&mut client).await.unwrap();
+    write_frame(&mut client, &WireFrame::OnboardingRequest)
+        .await
+        .unwrap();
+    assert!(matches!(
+        read_frame(&mut client).await.unwrap(),
+        WireFrame::Onboarding(state)
+            if state.branches.len() == 3
+                && state.branches[0].provider == gent_types::OnboardingProvider::Gent
+    ));
+    drop(client);
+    assert!(task.await.unwrap().is_err());
+}

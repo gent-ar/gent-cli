@@ -23,6 +23,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Doctor => {
             print(request(data_dir, no_autostart, WireFrame::DoctorRequest).await?)?;
         }
+        CommandLine::Onboarding => {
+            print(request(data_dir, no_autostart, WireFrame::OnboardingRequest).await?)?;
+        }
         CommandLine::Deps { action } => {
             dependency(data_dir, no_autostart, action).await?;
         }

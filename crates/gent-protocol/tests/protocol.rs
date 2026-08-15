@@ -40,6 +40,14 @@ async fn frames_round_trip_and_ignore_additive_fields() {
     assert_eq!(serde_json::from_slice::<WireFrame>(body).unwrap(), frame);
 }
 
+#[test]
+fn onboarding_frames_are_additive_and_read_only() {
+    let frame = WireFrame::OnboardingRequest;
+    let encoded = serde_json::to_string(&frame).unwrap();
+    assert_eq!(serde_json::from_str::<WireFrame>(&encoded).unwrap(), frame);
+    assert!(encoded.contains("onboardingRequest"));
+}
+
 #[tokio::test]
 async fn additive_conversation_frames_share_the_bounded_json_framing() {
     let (mut writer, mut reader) = duplex(1024);

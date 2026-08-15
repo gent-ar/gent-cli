@@ -2,7 +2,7 @@
 
 use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event,
-    EventSnapshot, HostStatus, Receipt,
+    EventSnapshot, HostStatus, OnboardingState, Receipt,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io;
@@ -66,6 +66,8 @@ pub enum WireFrame {
     Status(HostStatus),
     DoctorRequest,
     DoctorReport(DoctorReport),
+    OnboardingRequest,
+    Onboarding(OnboardingState),
     DependencyPlanRequest(DependencyPlanRequest),
     DependencyPlan(DependencyPlan),
     DependencyActionRequest(DependencyActionRequest),

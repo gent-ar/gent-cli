@@ -7,7 +7,7 @@ use gent_protocol::{
 };
 use gent_types::{
     CapabilitySet, Command, ConversationStatus, ConversationTimeline, DecisionCommand,
-    DecisionSettlement, DoctorReport, EventResume, HostStatus, Receipt,
+    DecisionSettlement, DoctorReport, EventResume, HostStatus, OnboardingState, Receipt,
 };
 
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
@@ -16,6 +16,9 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     fn submit(&self, command: Command) -> Result<Receipt, String>;
     fn resume_events(&self, cursor: u64) -> Result<EventResume, String>;
     fn doctor(&self) -> DoctorReport;
+    fn onboarding(&self) -> OnboardingState {
+        OnboardingState::from_doctor(&self.doctor())
+    }
     fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan;
     fn dependency_action(
         &self,
