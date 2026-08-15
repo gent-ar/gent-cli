@@ -1,14 +1,16 @@
 //! Local IPC adapter. It only knows the `RuntimeApi` port, never persistence or providers.
 
 use gent_protocol::{
-    ATTACHMENTS_CAPABILITY, AttachmentFrame, CONVERSATION_CONTENT_CAPABILITY,
-    CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
-    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, EventStreamFrame, WireFrame,
-    negotiate, read_frame, read_json_frame, write_frame,
+    ATTACHMENTS_CAPABILITY, AttachmentFrame, CONVERSATION_INDEX_CAPABILITY,
+    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
+    EventStreamFrame, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde_json::Value;
+
+#[cfg(unix)]
+use gent_protocol::CONVERSATION_CONTENT_CAPABILITY;
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(unix)]
 use tokio::net::UnixListener;

@@ -104,6 +104,8 @@ fn v13_attachment_uploads_gain_a_transfer_owned_staging_key() {
         .execute_batch(
             "DROP TABLE turn_attachments;
              DROP TABLE attachments;
+             DROP INDEX conversation_message_ordinals_by_conversation_ordinal;
+             DROP TABLE conversation_message_ordinals;
              DROP TABLE receipts;
              DELETE FROM schema_migrations WHERE version IN (14, 15, 16, 17, 18);
              CREATE TABLE receipts (
