@@ -135,9 +135,7 @@ mod tests {
         }
 
         fn doctor(&self) -> DoctorReport {
-            DoctorReport {
-                dependencies: Vec::new(),
-            }
+            DoctorReport::empty()
         }
 
         fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {

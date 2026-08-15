@@ -5,8 +5,13 @@ use serde_json::Value;
 use uuid::Uuid;
 
 mod decision;
+mod doctor;
 
 pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
+pub use doctor::{
+    CompatibilityTrust, DoctorNextAction, ExecutableIdentity, McpDoctorStatus, McpPermissionStatus,
+    PrivateBridgeAvailability, PublicProviderStatus,
+};
 
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;
@@ -111,6 +116,10 @@ pub struct DependencyStatus {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DoctorReport {
     pub dependencies: Vec<DependencyStatus>,
+    pub public_providers: Vec<PublicProviderStatus>,
+    pub mcp: McpDoctorStatus,
+    pub private_bridge: PrivateBridgeAvailability,
+    pub next_action: DoctorNextAction,
 }
 
 /// Immutable provenance captured before a public-provider process is allowed to start.
