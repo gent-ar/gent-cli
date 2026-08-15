@@ -12,6 +12,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
+mod attachments;
 mod conversation_status;
 mod conversation_timeline;
 mod decision;
@@ -19,6 +20,7 @@ mod event_stream;
 mod external_provider_bridge;
 mod runs;
 
+pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
 pub use conversation_status::{CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame};
 pub use conversation_timeline::{CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame};
 pub use decision::{DecisionEvidence, DecisionSubmission};
