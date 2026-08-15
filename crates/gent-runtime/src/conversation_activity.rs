@@ -1,7 +1,9 @@
 //! Authority-gated persistence of pure conversation activity projections.
 
 use gent_core::{ConversationActivityProjection, project_conversation_activity};
-use gent_ports::{ConversationActivityLedger, IngressMode, Ledger};
+use gent_ports::{
+    ConversationActivityLedger, IngressMode, Ledger, MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS,
+};
 use gent_types::{ConversationActivity, ConversationActivityFact, ConversationActivityScope};
 
 use crate::RuntimeError;
@@ -23,6 +25,15 @@ pub enum ConversationActivityResult {
     Unchanged(ConversationActivity),
     Applied(ConversationActivity),
     Resumed(Vec<ConversationActivity>),
+}
+
+/// A bounded, cursor-based activity response with an explicit replacement fallback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConversationActivityRead {
+    DeniedObserver,
+    Missing,
+    Snapshot(ConversationActivity),
+    Delta(Vec<ConversationActivity>),
 }
 
 /// Reduces typed facts through the pure state machine before append-only persistence.
@@ -94,6 +105,38 @@ impl<L: Ledger + ConversationActivityLedger> ConversationActivityService<L> {
             self.ledger
                 .resume_conversation_activity(conversation_id, run_id, after_cursor)?;
         Ok(ConversationActivityResult::Resumed(
+            records.into_iter().map(|record| record.activity).collect(),
+        ))
+    }
+
+    /// Returns bounded deltas or a replacement snapshot when a cursor may have fallen behind.
+    ///
+    /// # Errors
+    /// Returns an error when durable activity data cannot be read.
+    pub fn read(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+        after_cursor: u64,
+    ) -> Result<ConversationActivityRead, RuntimeError> {
+        if self.authority != ConversationActivityAuthority::Approved {
+            return Ok(ConversationActivityRead::DeniedObserver);
+        }
+        let Some(current) = self
+            .ledger
+            .find_conversation_activity(conversation_id, run_id)?
+        else {
+            return Ok(ConversationActivityRead::Missing);
+        };
+        let records =
+            self.ledger
+                .resume_conversation_activity(conversation_id, run_id, after_cursor)?;
+        if records.len() == MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS
+            || (records.is_empty() && after_cursor < current.activity.cursor)
+        {
+            return Ok(ConversationActivityRead::Snapshot(current.activity));
+        }
+        Ok(ConversationActivityRead::Delta(
             records.into_iter().map(|record| record.activity).collect(),
         ))
     }

@@ -27,7 +27,8 @@ mod tool_sources;
 mod workspaces;
 pub use attachments::AttachmentService;
 pub use conversation_activity::{
-    ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
+    ConversationActivityAuthority, ConversationActivityRead, ConversationActivityResult,
+    ConversationActivityService,
 };
 pub use conversation_prompts::*;
 pub use dependency_actions::DependencyActionService;

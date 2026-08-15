@@ -1,3 +1,6 @@
+mod activity_transport;
+#[cfg(test)]
+mod activity_transport_tests;
 mod api;
 mod attachment_api;
 mod attachment_transport;

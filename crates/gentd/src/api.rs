@@ -5,6 +5,7 @@ use gent_protocol::{
     DependencyActionResult, DependencyPlan, DependencyPlanRequest, PublicRunInterruptRequest,
     PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
 };
+use gent_runtime::ConversationActivityRead;
 use gent_types::{
     CapabilitySet, Command, ConversationContentCursor, ConversationContentPage,
     ConversationListItem, ConversationStatus, ConversationTimeline, DecisionCommand,
@@ -50,6 +51,15 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         Err("conversation discovery is unavailable for this runtime".into())
     }
     fn conversation_timeline(&self, conversation_id: &str) -> Result<ConversationTimeline, String>;
+    /// Returns activity only for a future authority-gated runtime composition.
+    fn conversation_activity(
+        &self,
+        _: &str,
+        _: &str,
+        _: u64,
+    ) -> Result<ConversationActivityRead, String> {
+        Err("conversation activity is unavailable for this runtime".into())
+    }
     fn conversation_content(
         &self,
         _: &str,

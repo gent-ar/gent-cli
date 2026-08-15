@@ -1,6 +1,7 @@
 use gent_ports::{ConversationLedger, Ledger, RunRecord};
 use gent_runtime::{
-    ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
+    ConversationActivityAuthority, ConversationActivityRead, ConversationActivityResult,
+    ConversationActivityService,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -97,4 +98,25 @@ fn activity_facts_obey_the_host_fence_before_reduction() {
     ledger.close_ingress(HostEpoch(1)).unwrap();
     let service = ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved);
     assert!(service.record(&start(1)).is_err());
+}
+
+#[test]
+fn activity_read_uses_snapshot_when_a_bounded_delta_cannot_be_complete() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    setup(&ledger);
+    let service = ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved);
+    service.record(&start(1)).unwrap();
+    for cursor in 2..=129 {
+        let fact = ConversationActivityFact::WorkPhase {
+            scope: scope(cursor),
+            work_id: "command-1".into(),
+            kind: ActivityWorkKind::Command,
+            phase: WorkPhase::Running,
+        };
+        service.record(&fact).unwrap();
+    }
+    assert!(matches!(
+        service.read("conversation-1", "run-1", 0).unwrap(),
+        ConversationActivityRead::Snapshot(activity) if activity.cursor == 129
+    ));
 }

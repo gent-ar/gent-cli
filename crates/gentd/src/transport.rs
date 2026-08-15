@@ -150,6 +150,9 @@ where
     if crate::conversation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::activity_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if extensions.supports(ATTACHMENTS_CAPABILITY) {
         if let Ok(frame) = serde_json::from_value::<AttachmentFrame>(raw.clone()) {
             return crate::attachment_transport::write(stream, runtime, frame).await;
