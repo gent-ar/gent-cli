@@ -2,7 +2,8 @@
 
 use gent_protocol::{
     DecisionEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
-    DependencyPlan, DependencyPlanRequest, WireFrame, negotiate, read_frame, write_frame,
+    DependencyPlan, DependencyPlanRequest, PublicRunInterruptRequest, PublicRunResponse,
+    PublicRunResumeRequest, PublicRunStartRequest, WireFrame, negotiate, read_frame, write_frame,
 };
 use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
@@ -27,6 +28,16 @@ pub trait RuntimeApi: Clone + Send + Sync + 'static {
         decision_id: String,
         evidence: DecisionEvidence,
     ) -> Result<DecisionSettlement, String>;
+    fn start_public_run(&self, request: PublicRunStartRequest)
+    -> Result<PublicRunResponse, String>;
+    fn resume_public_run(
+        &self,
+        request: PublicRunResumeRequest,
+    ) -> Result<PublicRunResponse, String>;
+    fn interrupt_public_run(
+        &self,
+        request: PublicRunInterruptRequest,
+    ) -> Result<PublicRunResponse, String>;
 }
 
 #[cfg(unix)]
@@ -85,6 +96,15 @@ where
             } => runtime
                 .apply_decision_evidence(decision_id, evidence)
                 .map(WireFrame::DecisionSettlement),
+            WireFrame::PublicRunStart(request) => runtime
+                .start_public_run(request)
+                .map(WireFrame::PublicRunResponse),
+            WireFrame::PublicRunResume(request) => runtime
+                .resume_public_run(request)
+                .map(WireFrame::PublicRunResponse),
+            WireFrame::PublicRunInterrupt(request) => runtime
+                .interrupt_public_run(request)
+                .map(WireFrame::PublicRunResponse),
             WireFrame::Command(command) => runtime.submit(command).map(WireFrame::Receipt),
             WireFrame::Subscribe { after_cursor } => runtime
                 .events_after(after_cursor)
@@ -95,186 +115,6 @@ where
             Ok(frame) => write_frame(&mut stream, &frame).await?,
             Err(message) => write_error(&mut stream, "invalidCommand", &message).await?,
         }
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)]
-mod tests {
-    use gent_protocol::{
-        DependencyAction, DependencyActionRequest, DependencyActionState, DependencyPlan,
-        DependencyPlanRequest, DependencyProvider, Hello, WireFrame, read_frame, write_frame,
-    };
-    use gent_types::{
-        CapabilitySet, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, DoctorReport,
-        HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN,
-    };
-    use tokio::io::duplex;
-
-    use super::{RuntimeApi, serve_connection};
-
-    #[derive(Clone, Debug)]
-    struct FakeRuntime;
-
-    impl RuntimeApi for FakeRuntime {
-        fn status(&self) -> Result<HostStatus, String> {
-            Ok(HostStatus {
-                host_epoch: HostEpoch(1),
-                protocol_min: PROTOCOL_MIN,
-                protocol_max: PROTOCOL_MAX,
-                capabilities: CapabilitySet::default(),
-            })
-        }
-
-        fn submit(&self, _: gent_types::Command) -> Result<gent_types::Receipt, String> {
-            Err("not used".into())
-        }
-
-        fn events_after(&self, _: u64) -> Result<Vec<gent_types::Event>, String> {
-            Ok(Vec::new())
-        }
-
-        fn doctor(&self) -> DoctorReport {
-            DoctorReport::empty()
-        }
-
-        fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
-            DependencyPlan {
-                provider: request.provider,
-                action: request.action,
-                instruction: "review vendor installer".into(),
-                consent_required: true,
-            }
-        }
-
-        fn dependency_action(
-            &self,
-            request: DependencyActionRequest,
-        ) -> gent_protocol::DependencyActionResult {
-            gent_protocol::DependencyActionResult {
-                plan: self.dependency_plan(DependencyPlanRequest {
-                    provider: request.provider,
-                    action: request.action,
-                }),
-                state: if request.consent_granted {
-                    DependencyActionState::InstallerNotConfigured
-                } else {
-                    DependencyActionState::ConsentRequired
-                },
-            }
-        }
-
-        fn submit_decision(
-            &self,
-            command: DecisionCommand,
-        ) -> Result<gent_protocol::DecisionSubmission, String> {
-            Ok(gent_protocol::DecisionSubmission::Accepted(
-                DecisionSettlement {
-                    decision_id: command.decision_id,
-                    idempotency_key: command.idempotency_key,
-                    phase: DecisionSettlementPhase::Pending,
-                },
-            ))
-        }
-
-        fn apply_decision_evidence(
-            &self,
-            decision_id: String,
-            evidence: gent_protocol::DecisionEvidence,
-        ) -> Result<DecisionSettlement, String> {
-            Ok(DecisionSettlement {
-                decision_id,
-                idempotency_key: "fake".into(),
-                phase: match evidence {
-                    gent_protocol::DecisionEvidence::ProviderAcknowledged => {
-                        DecisionSettlementPhase::Acknowledged
-                    }
-                    gent_protocol::DecisionEvidence::ProviderSettled => {
-                        DecisionSettlementPhase::Settled
-                    }
-                    gent_protocol::DecisionEvidence::AcknowledgementUnprovable => {
-                        DecisionSettlementPhase::Unprovable
-                    }
-                    gent_protocol::DecisionEvidence::RecoveryRequired => {
-                        DecisionSettlementPhase::RecoveryRequired
-                    }
-                },
-            })
-        }
-    }
-
-    fn hello() -> WireFrame {
-        WireFrame::Hello(Hello {
-            protocol_min: PROTOCOL_MIN,
-            protocol_max: PROTOCOL_MAX,
-            capabilities: CapabilitySet::default(),
-        })
-    }
-
-    #[tokio::test]
-    async fn handshake_is_mandatory_before_requests() {
-        let (mut client, server) = duplex(1024);
-        let task = tokio::spawn(serve_connection(server, FakeRuntime));
-        write_frame(&mut client, &WireFrame::StatusRequest)
-            .await
-            .unwrap();
-        assert!(matches!(
-            read_frame(&mut client).await.unwrap(),
-            WireFrame::Error { code, .. } if code == "handshakeRequired"
-        ));
-        task.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
-        let (mut client, server) = duplex(1024);
-        let task = tokio::spawn(serve_connection(server, FakeRuntime));
-        write_frame(&mut client, &hello()).await.unwrap();
-        assert!(matches!(
-            read_frame(&mut client).await.unwrap(),
-            WireFrame::Negotiated(_)
-        ));
-        write_frame(
-            &mut client,
-            &WireFrame::DependencyActionRequest(DependencyActionRequest {
-                provider: DependencyProvider::Claude,
-                action: DependencyAction::Install,
-                consent_granted: false,
-            }),
-        )
-        .await
-        .unwrap();
-        assert!(matches!(
-            read_frame(&mut client).await.unwrap(),
-            WireFrame::DependencyActionResult(result)
-                if result.state == DependencyActionState::ConsentRequired
-        ));
-        drop(client);
-        assert!(task.await.unwrap().is_err());
-    }
-
-    #[tokio::test]
-    async fn decision_evidence_is_routed_only_after_handshake() {
-        let (mut client, server) = duplex(1024);
-        let task = tokio::spawn(serve_connection(server, FakeRuntime));
-        write_frame(&mut client, &hello()).await.unwrap();
-        let _ = read_frame(&mut client).await.unwrap();
-        write_frame(
-            &mut client,
-            &WireFrame::DecisionEvidence {
-                decision_id: "decision-1".into(),
-                evidence: gent_protocol::DecisionEvidence::AcknowledgementUnprovable,
-            },
-        )
-        .await
-        .unwrap();
-        assert!(matches!(
-            read_frame(&mut client).await.unwrap(),
-            WireFrame::DecisionSettlement(decision)
-                if decision.phase == DecisionSettlementPhase::Unprovable
-        ));
-        drop(client);
-        assert!(task.await.unwrap().is_err());
     }
 }
 

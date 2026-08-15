@@ -13,8 +13,13 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 mod decision;
+mod runs;
 
 pub use decision::{DecisionEvidence, DecisionSubmission};
+pub use runs::{
+    PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
+    PublicRunStartRequest,
+};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +43,17 @@ pub struct Negotiated {
 pub enum DependencyProvider {
     Claude,
     Codex,
+}
+
+impl DependencyProvider {
+    /// Returns the stable public provider identifier used in durable locks.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+        }
+    }
 }
 
 impl FromStr for DependencyProvider {
@@ -137,6 +153,10 @@ pub enum WireFrame {
         evidence: DecisionEvidence,
     },
     DecisionSettlement(DecisionSettlement),
+    PublicRunStart(PublicRunStartRequest),
+    PublicRunResume(PublicRunResumeRequest),
+    PublicRunInterrupt(PublicRunInterruptRequest),
+    PublicRunResponse(PublicRunResponse),
     Subscribe {
         after_cursor: u64,
     },
@@ -226,63 +246,4 @@ where
     let mut body = vec![0; length];
     reader.read_exact(&mut body).await?;
     serde_json::from_slice(&body).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        DependencyAction, DependencyPlanRequest, DependencyProvider, Hello, WireFrame, negotiate,
-        read_frame, write_frame,
-    };
-    use gent_types::CapabilitySet;
-    use tokio::io::duplex;
-
-    #[test]
-    fn negotiation_intersects_capabilities() {
-        let hello = Hello {
-            protocol_min: 1,
-            protocol_max: 2,
-            capabilities: CapabilitySet(vec!["events".into(), "future".into()]),
-        };
-        let answer = negotiate(
-            &hello,
-            1,
-            1,
-            &CapabilitySet(vec!["events".into(), "receipts".into()]),
-        )
-        .unwrap();
-        assert_eq!(answer.protocol, 1);
-        assert_eq!(answer.capabilities, CapabilitySet(vec!["events".into()]));
-    }
-
-    #[tokio::test]
-    async fn framed_json_round_trips_and_ignores_additive_fields() {
-        let (mut writer, mut reader) = duplex(1024);
-        let frame = WireFrame::Hello(Hello {
-            protocol_min: 1,
-            protocol_max: 1,
-            capabilities: CapabilitySet::default(),
-        });
-        write_frame(&mut writer, &frame).await.unwrap();
-        assert_eq!(read_frame(&mut reader).await.unwrap(), frame);
-
-        let body = br#"{"type":"hello","body":{"protocolMin":1,"protocolMax":1,"capabilities":[],"futureField":true}}"#;
-        let parsed: WireFrame = serde_json::from_slice(body).unwrap();
-        assert_eq!(parsed, frame);
-    }
-
-    #[test]
-    fn public_dependency_commands_are_typed_and_exclude_private_bridges() {
-        assert!(matches!("claude".parse(), Ok(DependencyProvider::Claude)));
-        assert!(matches!("update".parse(), Ok(DependencyAction::Update)));
-        assert!("claurst".parse::<DependencyProvider>().is_err());
-
-        let frame = WireFrame::DependencyPlanRequest(DependencyPlanRequest {
-            provider: DependencyProvider::Codex,
-            action: DependencyAction::Install,
-        });
-        let encoded = serde_json::to_string(&frame).unwrap();
-        assert!(encoded.contains("dependencyPlanRequest"));
-        assert!(encoded.contains("codex"));
-    }
 }

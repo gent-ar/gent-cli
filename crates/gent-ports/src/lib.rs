@@ -12,6 +12,17 @@ pub enum PortError {
     Provider(String),
 }
 
+/// Expected failures from an owned public-provider lifecycle operation.
+#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+pub enum PublicProviderRunError {
+    #[error("provider executable changed before spawn or resume")]
+    ProviderChanged,
+    #[error("provider run is not active")]
+    NotActive,
+    #[error("provider lifecycle failed: {0}")]
+    Failed(String),
+}
+
 /// Private Claurst implementations receive only opaque references through this port.
 #[async_trait]
 pub trait ExternalProviderBridge: Send + Sync {
@@ -22,6 +33,33 @@ pub trait ExternalProviderBridge: Send + Sync {
 #[async_trait]
 pub trait ProviderDriver: Send + Sync {
     async fn submit(&self, command: Command) -> Result<(), PortError>;
+}
+
+/// Daemon-owned public provider lifecycle boundary.
+///
+/// Implementations may only receive locks derived from Claude or Codex. Private bridges are
+/// represented separately by [`ExternalProviderBridge`] and cannot enter this lifecycle.
+pub trait PublicProviderRunner: Send + Sync {
+    /// Starts a new process only after the caller has durably reserved its run.
+    ///
+    /// # Errors
+    /// Returns a changed-binary or launcher failure without silently substituting a provider.
+    fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError>;
+    /// Resumes a process only after the caller has re-established durable ownership.
+    ///
+    /// # Errors
+    /// Returns a changed-binary or launcher failure without silently substituting a provider.
+    fn resume(
+        &self,
+        run_id: &str,
+        lock: &RunVersionLock,
+        session_id: &str,
+    ) -> Result<(), PublicProviderRunError>;
+    /// Interrupts the complete process tree currently owned by `run_id`.
+    ///
+    /// # Errors
+    /// Returns an error when no process is active or process-tree interruption fails.
+    fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -185,6 +223,17 @@ pub trait Ledger: Send + Sync {
     /// # Errors
     /// Returns an error when lineage invariants or persistence fail.
     fn create_run(&self, run: &RunRecord) -> Result<(), LedgerError>;
+    /// Atomically persists a new run, immutable executable lock, and coordinator lease.
+    ///
+    /// # Errors
+    /// Returns an error when ingress is closed or stale, lineage or provider identities differ,
+    /// or any durable reservation step fails.
+    fn reserve_run_start(
+        &self,
+        run: &RunRecord,
+        lock: &RunVersionLock,
+        lease: &RunLease,
+    ) -> Result<(), LedgerError>;
     /// Reads one lineage node.
     ///
     /// # Errors

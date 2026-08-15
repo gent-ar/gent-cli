@@ -2,6 +2,9 @@
 
 pub mod catalog;
 mod decisions;
+mod public_runs;
+
+pub use public_runs::{ProviderRunAuthority, PublicRunService};
 
 use gent_core::{Run, switch_provider};
 use gent_ports::{
@@ -27,6 +30,10 @@ pub enum RuntimeError {
     UnknownDecision(String),
     #[error("decision was changed by another coordinator too often")]
     DecisionContention,
+    #[error(transparent)]
+    ProviderLock(#[from] gent_drivers::lock::LockError),
+    #[error(transparent)]
+    ProviderRun(#[from] gent_ports::PublicProviderRunError),
 }
 
 impl<L: Ledger> Coordinator<L> {

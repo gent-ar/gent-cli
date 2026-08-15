@@ -1,6 +1,8 @@
 mod dependency_catalog;
 mod host_lock;
 mod transport;
+#[cfg(test)]
+mod transport_tests;
 #[cfg(windows)]
 mod transport_windows;
 #[cfg(all(test, windows))]
@@ -14,7 +16,7 @@ use gent_protocol::{
     DecisionEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
     DependencyPlan, DependencyPlanRequest,
 };
-use gent_runtime::Coordinator;
+use gent_runtime::{Coordinator, ProviderRunAuthority};
 use gent_store::SqliteLedger;
 use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
@@ -51,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             CapabilitySet(CAPABILITIES.iter().map(ToString::to_string).collect()),
         ),
         dependencies: DependencyCatalog,
+        provider_run_authority: ProviderRunAuthority::Observer,
     };
     serve_local(runtime, &args, &data_dir).await
 }
@@ -96,6 +99,7 @@ fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
 struct RuntimeFacade {
     coordinator: Coordinator<SqliteLedger>,
     dependencies: DependencyCatalog,
+    provider_run_authority: ProviderRunAuthority,
 }
 
 impl transport::RuntimeApi for RuntimeFacade {
@@ -136,6 +140,37 @@ impl transport::RuntimeApi for RuntimeFacade {
             .apply_decision_evidence(&decision_id, decision_evidence(evidence))
             .map_err(|error| error.to_string())
     }
+    fn start_public_run(
+        &self,
+        request: gent_protocol::PublicRunStartRequest,
+    ) -> Result<gent_protocol::PublicRunResponse, String> {
+        provider_run_denied(self.provider_run_authority, request.run_id)
+    }
+    fn resume_public_run(
+        &self,
+        request: gent_protocol::PublicRunResumeRequest,
+    ) -> Result<gent_protocol::PublicRunResponse, String> {
+        provider_run_denied(self.provider_run_authority, request.run_id)
+    }
+    fn interrupt_public_run(
+        &self,
+        request: gent_protocol::PublicRunInterruptRequest,
+    ) -> Result<gent_protocol::PublicRunResponse, String> {
+        provider_run_denied(self.provider_run_authority, request.run_id)
+    }
+}
+
+fn provider_run_denied(
+    authority: ProviderRunAuthority,
+    run_id: String,
+) -> Result<gent_protocol::PublicRunResponse, String> {
+    if authority == ProviderRunAuthority::Observer {
+        return Ok(gent_protocol::PublicRunResponse {
+            run_id,
+            outcome: gent_protocol::PublicRunOutcome::Denied,
+        });
+    }
+    Err("public provider authority requires a configured process runner".into())
 }
 
 fn decision_submission(outcome: DecisionCommandOutcome) -> DecisionSubmission {
