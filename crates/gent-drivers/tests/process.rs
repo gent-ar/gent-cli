@@ -3,8 +3,11 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeSignal};
 use gent_drivers::{
-    LaunchIntent, ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError, SystemLauncher,
+    LaunchIntent, ProcessLauncher, ProviderLaunch, SupervisorError, SystemLauncher,
 };
+
+#[cfg(unix)]
+use gent_drivers::ProviderProcess;
 
 fn shell_launch(script: &str) -> ProviderLaunch {
     ProviderLaunch {

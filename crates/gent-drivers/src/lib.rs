@@ -6,6 +6,7 @@ pub mod interrupt;
 pub mod launch_spec;
 pub mod lock;
 pub mod message_encoding;
+pub mod ndjson;
 pub mod normalize;
 pub mod process;
 pub mod run_runner;
