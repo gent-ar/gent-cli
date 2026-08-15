@@ -10,6 +10,7 @@ pub mod ndjson;
 pub mod normalize;
 pub mod output_pump;
 pub mod process;
+mod process_streams;
 pub mod run_runner;
 pub mod session;
 mod session_frames;

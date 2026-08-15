@@ -60,6 +60,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Bounded stdout output pump connects chunk-tolerant NDJSON framing to the existing
       supervisor frame buffer and pure session reducer, retaining FIFO frames across backpressure
       without retaining oversized reads or lines.
+- [x] Production process stdout is delivered through a bounded queue into that pump; direct
+      process waits drain the queue safely, and runner-owned monotonic deadlines execute the
+      interrupt → terminate → kill ladder or cancel it on process exit.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
@@ -74,8 +77,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [ ] Real Claude/Codex recordings and installed-provider integration evidence.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
 - [ ] MCP hosting, Git execution/worktree operations, automation execution, pairing
-      transport, and provider process lifecycle ownership in a live daemon (including attaching
-      the verified stdout pump to a real process reader).
+      transport, and provider process lifecycle ownership in a live daemon.
 - [ ] Observer-mode comparison with the legacy host.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
 

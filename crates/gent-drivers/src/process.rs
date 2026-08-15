@@ -5,25 +5,14 @@
 
 use std::io::{Read, Result as IoResult, Write};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::thread::{self, JoinHandle};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::thread;
+use std::time::Duration;
 
 use crate::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
+use crate::process_streams::ProcessStreams;
+pub use crate::process_streams::{CapturedStream, ProcessOutput};
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
-
-/// Bounded capture from one provider stream.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct CapturedStream {
-    pub bytes: Vec<u8>,
-    pub discarded_bytes: usize,
-}
-
-/// Bounded stdout and stderr captured from a public provider process.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ProcessOutput {
-    pub stdout: CapturedStream,
-    pub stderr: CapturedStream,
-}
 
 /// A synchronous launcher for public executables with a fixed per-stream output limit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -80,8 +69,7 @@ impl ProcessLauncher for SystemLauncher {
 pub struct SystemProcess {
     child: Mutex<Child>,
     stdin: Mutex<ChildStdin>,
-    output: Arc<Mutex<ProcessOutput>>,
-    readers: Mutex<Vec<JoinHandle<()>>>,
+    streams: ProcessStreams,
 }
 
 impl SystemProcess {
@@ -92,16 +80,10 @@ impl SystemProcess {
         stderr: impl Read + Send + 'static,
         output_limit: usize,
     ) -> Self {
-        let output = Arc::new(Mutex::new(ProcessOutput::default()));
-        let readers = vec![
-            start_reader(stdout, &output, output_limit, StreamKind::Stdout),
-            start_reader(stderr, &output, output_limit, StreamKind::Stderr),
-        ];
         Self {
             child: Mutex::new(child),
             stdin: Mutex::new(stdin),
-            output,
-            readers: Mutex::new(readers),
+            streams: ProcessStreams::new(stdout, stderr, output_limit),
         }
     }
 
@@ -110,17 +92,20 @@ impl SystemProcess {
     /// # Errors
     /// Returns an error when waiting for the operating-system process fails.
     pub fn wait(&self) -> IoResult<ExitStatus> {
-        let status = recover_lock(&self.child).wait()?;
-        for reader in recover_lock(&self.readers).drain(..) {
-            let _ = reader.join();
+        loop {
+            if let Some(status) = recover_lock(&self.child).try_wait()? {
+                self.streams.join_after_exit();
+                return Ok(status);
+            }
+            let _ = self.streams.next_stdout_chunk();
+            thread::sleep(Duration::from_millis(1));
         }
-        Ok(status)
     }
 
     /// Returns a consistent snapshot of the bounded captures collected so far.
     #[must_use]
     pub fn output(&self) -> ProcessOutput {
-        recover_lock(&self.output).clone()
+        self.streams.output()
     }
 }
 
@@ -144,6 +129,10 @@ impl ProviderProcess for SystemProcess {
             .write_all(frame)
             .and_then(|()| stdin.flush())
             .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+    }
+
+    fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
+        Ok(self.streams.next_stdout_chunk())
     }
 }
 
@@ -189,47 +178,6 @@ fn signal_process_tree(_: i32, _: ProcessTreeSignal) -> Result<(), ProcessTreeEr
     ))
 }
 
-#[derive(Clone, Copy)]
-enum StreamKind {
-    Stdout,
-    Stderr,
-}
-
-fn start_reader(
-    reader: impl Read + Send + 'static,
-    output: &Arc<Mutex<ProcessOutput>>,
-    limit: usize,
-    stream: StreamKind,
-) -> JoinHandle<()> {
-    let output = Arc::clone(output);
-    thread::spawn(move || read_bounded(reader, &output, limit, stream))
-}
-
-fn read_bounded(
-    mut reader: impl Read,
-    output: &Arc<Mutex<ProcessOutput>>,
-    limit: usize,
-    stream: StreamKind,
-) {
-    let mut buffer = [0_u8; 4096];
-    while let Ok(read) = reader.read(&mut buffer) {
-        if read == 0 {
-            return;
-        }
-        append(&mut recover_lock(output), &buffer[..read], limit, stream);
-    }
-}
-
 fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn append(output: &mut ProcessOutput, chunk: &[u8], limit: usize, stream: StreamKind) {
-    let target = match stream {
-        StreamKind::Stdout => &mut output.stdout,
-        StreamKind::Stderr => &mut output.stderr,
-    };
-    let accepted = limit.saturating_sub(target.bytes.len()).min(chunk.len());
-    target.bytes.extend_from_slice(&chunk[..accepted]);
-    target.discarded_bytes += chunk.len() - accepted;
 }

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::interrupt::{
@@ -32,6 +33,10 @@ impl ProcessTreeControl for FakeTree {
 impl ProviderProcess for FakeTree {
     fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
         Ok(())
+    }
+
+    fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
+        Ok(self.0.read_stdout())
     }
 }
 
@@ -72,7 +77,7 @@ fn runner(launcher: FakeLauncher) -> DriverRunRunner<FakeLauncher, FakeTree> {
     DriverRunRunner::new(
         launcher,
         OutputLimits::new(16, 32),
-        BufferPolicy::new(2, 32, 0, 0).unwrap(),
+        BufferPolicy::new(2, 64, 0, 0).unwrap(),
         InterruptPolicy {
             interrupt_grace_ms: 1,
             terminate_grace_ms: 1,
@@ -173,5 +178,82 @@ fn changed_locks_and_launcher_failures_are_never_silently_accepted() {
     assert!(matches!(
         runner(launcher).start("failed", &run_lock),
         Err(PublicProviderRunError::Failed(message)) if message.contains("scripted failure")
+    ));
+}
+
+#[test]
+fn interrupt_deadlines_escalate_and_exit_cancels_the_remaining_ladder() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("claude");
+    fs::write(&executable, "public").unwrap();
+    let process = Arc::new(FakeProcess::default());
+    let runner = runner(FakeLauncher::new(
+        Arc::clone(&process),
+        Arc::new(Mutex::new(Vec::new())),
+    ));
+    let run_lock = lock(&executable);
+    runner.start("escalate", &run_lock).unwrap();
+
+    let start = Instant::now();
+    runner.interrupt_at("escalate", start).unwrap();
+    assert!(
+        !runner
+            .advance_interrupt("escalate", start + Duration::from_millis(0))
+            .unwrap()
+    );
+    assert!(
+        runner
+            .advance_interrupt("escalate", start + Duration::from_millis(1))
+            .unwrap()
+    );
+    assert!(
+        runner
+            .advance_interrupt("escalate", start + Duration::from_millis(2))
+            .unwrap()
+    );
+    assert_eq!(
+        process.signals(),
+        [
+            FakeProcessSignal::Interrupt,
+            FakeProcessSignal::Terminate,
+            FakeProcessSignal::Kill
+        ]
+    );
+
+    runner.start("exit", &run_lock).unwrap();
+    runner.interrupt_at("exit", start).unwrap();
+    let signals_before_exit = process.signals();
+    let _ = runner.process_exited("exit", Some(0)).unwrap();
+    assert_eq!(
+        runner.advance_interrupt("exit", start + Duration::from_secs(1)),
+        Err(PublicProviderRunError::NotActive)
+    );
+    assert_eq!(process.signals(), signals_before_exit);
+}
+
+#[test]
+fn runner_polls_stdout_through_its_owned_supervisor() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("claude");
+    fs::write(&executable, "public").unwrap();
+    let process = Arc::new(FakeProcess::default());
+    let runner = runner(FakeLauncher::new(
+        Arc::clone(&process),
+        Arc::new(Mutex::new(Vec::new())),
+    ));
+    runner.start("output", &lock(&executable)).unwrap();
+
+    process.push_stdout(
+        br#"{"type":"session_started","session_id":"s"}
+"#,
+    );
+    assert_eq!(runner.poll_stdout("output").unwrap(), Some(Vec::new()));
+    process.push_stdout(
+        br#"{"type":"output","text":"ok"}
+"#,
+    );
+    assert!(matches!(
+        runner.poll_stdout("output").unwrap().as_deref(),
+        Some([gent_drivers::SessionEffect::Normalized { .. }])
     ));
 }

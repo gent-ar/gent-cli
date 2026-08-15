@@ -35,6 +35,16 @@ pub trait ProviderProcess: ProcessTreeControl {
     /// # Errors
     /// Returns an error when the owned process cannot accept the frame.
     fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError>;
+
+    /// Returns one bounded stdout chunk without blocking when no process output is available.
+    ///
+    /// Implementations that cannot provide live output return `Ok(None)`.
+    ///
+    /// # Errors
+    /// Returns an error when reading the process-owned output source fails.
+    fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
+        Ok(None)
+    }
 }
 
 /// Process-spawning infrastructure. Production implementations belong at an outer edge.
@@ -62,6 +72,8 @@ pub enum SupervisorError {
     NoActiveProcess,
     #[error(transparent)]
     ProcessTree(#[from] ProcessTreeError),
+    #[error(transparent)]
+    Output(#[from] OutputPumpError),
     #[error("provider launch failed: {0}")]
     Launch(String),
 }
@@ -130,6 +142,31 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
     /// Returns an error for an oversized, malformed, or prematurely delivered chunk.
     pub fn offer_output_chunk(&mut self, chunk: &[u8]) -> Result<ReadDirective, OutputPumpError> {
         self.output.accept_chunk(chunk)
+    }
+
+    /// Pulls one real process stdout chunk through the bounded pump and session reducer.
+    ///
+    /// The caller persists returned effects before polling again. A process that has no queued
+    /// stdout currently returns `Ok(None)` without performing any I/O.
+    ///
+    /// # Errors
+    /// Returns an error when no process is active, the output source fails, or provider output
+    /// violates the bounded framing contract.
+    pub fn poll_stdout(&mut self) -> Result<Option<Vec<SessionEffect>>, SupervisorError> {
+        let Some(chunk) = self
+            .process
+            .as_ref()
+            .ok_or(SupervisorError::NoActiveProcess)?
+            .next_stdout_chunk()?
+        else {
+            return Ok(None);
+        };
+        self.offer_output_chunk(&chunk)?;
+        let mut effects = Vec::new();
+        while self.output.queued_frames() > 0 {
+            effects.extend(self.drain_frame().0);
+        }
+        Ok(Some(effects))
     }
 
     /// Reduces one buffered frame and returns normalized effects for the persistence edge.

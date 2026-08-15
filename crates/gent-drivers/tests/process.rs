@@ -33,6 +33,20 @@ fn captures_each_stream_without_exceeding_its_limit() {
     assert_eq!(process.output().stderr.discarded_bytes, 1);
 }
 
+#[cfg(unix)]
+#[test]
+fn direct_wait_drains_a_full_stdout_delivery_queue() {
+    let process = SystemLauncher::new(8)
+        .launch(&shell_launch(
+            "dd if=/dev/zero bs=4096 count=32 2>/dev/null",
+        ))
+        .unwrap();
+
+    assert!(process.wait().unwrap().success());
+    assert_eq!(process.output().stdout.bytes.len(), 8);
+    assert_eq!(process.output().stdout.discarded_bytes, 131_064);
+}
+
 #[test]
 fn public_launcher_refuses_private_provider_names() {
     let mut launch = shell_launch("exit 0");

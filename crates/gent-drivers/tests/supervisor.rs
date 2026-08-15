@@ -12,7 +12,7 @@ use gent_drivers::interrupt::{
 use gent_drivers::lock::capture;
 use gent_drivers::{
     OutputLimits, ProcessLauncher, ProviderLaunch, ProviderProcess, ProviderSupervisor,
-    SessionEffect, SupervisorError,
+    SessionEffect, SupervisorError, SystemLauncher, SystemProcess,
 };
 
 #[derive(Debug, Default)]
@@ -167,6 +167,44 @@ fn stdout_chunks_reach_the_existing_session_reducer_in_order() {
     assert!(supervisor.drain_frame().0.is_empty());
     assert!(matches!(
         supervisor.drain_frame().0.as_slice(),
+        [SessionEffect::Normalized { .. }]
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn system_stdout_reaches_the_reducer_through_the_bounded_process_queue() {
+    let executable = Path::new("/bin/sh");
+    let mut supervisor = ProviderSupervisor::<SystemProcess>::new(
+        capture("claude", executable, "1", "public").unwrap(),
+        OutputLimits::new(32, 64),
+        BufferPolicy::new(2, 64, 0, 0).unwrap(),
+    );
+    supervisor
+        .spawn(
+            &SystemLauncher::new(64),
+            vec![
+                "-c".into(),
+                "printf '%s\\n' '{\"type\":\"session_started\",\"session_id\":\"s\"}' '{\"type\":\"output\",\"text\":\"ok\"}'".into(),
+            ],
+        )
+        .unwrap();
+
+    let mut effects = Vec::new();
+    for _ in 0..100 {
+        if let Some(chunk_effects) = supervisor.poll_stdout().unwrap() {
+            effects.extend(chunk_effects);
+        }
+        if effects
+            .iter()
+            .any(|effect| matches!(effect, SessionEffect::Normalized { .. }))
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(matches!(
+        effects.as_slice(),
         [SessionEffect::Normalized { .. }]
     ));
 }
