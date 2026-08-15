@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+mod decision;
+
+pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
+
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;
 
