@@ -169,3 +169,7 @@ pub(super) fn strings(value: &Value, name: &str) -> Result<Vec<String>, String> 
 #[cfg(test)]
 #[path = "evidence_manifest_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "evidence_manifest_records_tests.rs"]
+mod records_tests;

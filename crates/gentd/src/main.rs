@@ -221,22 +221,5 @@ fn default_data_dir() -> PathBuf {
 }
 
 #[cfg(test)]
-mod tests {
-    use gent_runtime::catalog::{CatalogError, declared_capabilities};
-
-    use super::build_runtime;
-
-    #[test]
-    fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut observed = declared_capabilities();
-        observed.0.push("future-handler".into());
-        let error = build_runtime(directory.path(), &observed).unwrap_err();
-
-        assert_eq!(
-            error.downcast_ref::<CatalogError>(),
-            Some(&CatalogError::UndeclaredObserved("future-handler".into()))
-        );
-        assert!(!directory.path().join("gent.db").exists());
-    }
-}
+#[path = "main_tests.rs"]
+mod tests;

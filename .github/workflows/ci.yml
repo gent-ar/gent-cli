@@ -22,6 +22,15 @@ jobs:
           exclude: gent-cli,gentd
           feature-group: all-features
           release-type: patch
+  coverage:
+    name: workspace line coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup component add llvm-tools-preview
+      - run: cargo install cargo-llvm-cov --locked
+      - run: cargo llvm-cov --workspace --all-features --summary-only --fail-under-lines 90
   verify:
     name: verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

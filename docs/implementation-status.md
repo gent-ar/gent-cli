@@ -27,6 +27,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
+- [x] Enforced 90% workspace line-coverage gate (current measured result: 90.14%).
 
 ## Intentionally not claimed
 
@@ -36,7 +37,6 @@ not claim provider or app compatibility evidence that has not been recorded.
       transport, and provider process lifecycle ownership in a live daemon.
 - [ ] Observer-mode comparison with the legacy host.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
-- [ ] Required 90% workspace line coverage (current measured baseline: 76.29%).
 
 The coverage manifest blocks an authority-transfer invocation while its real
 evidence records are absent. This is deliberate: recorded provider evidence
