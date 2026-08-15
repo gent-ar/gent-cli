@@ -40,6 +40,7 @@ specific daemon binary when `gent` should not resolve a sibling executable.
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+bash tools/smoke-local-ipc.sh
 ```
 
 The repository’s architectural rules and phased migration decision record are

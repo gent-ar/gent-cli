@@ -27,3 +27,4 @@ jobs:
       - run: cargo run --quiet -p gent-testkit --bin validate-coverage-manifest -- fixtures/coverage-manifest.yml
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
+      - run: bash tools/smoke-local-ipc.sh

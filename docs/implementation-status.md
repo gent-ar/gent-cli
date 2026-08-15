@@ -13,6 +13,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Pure run-lineage, cursor-deduplicated lifecycle projection, and live-status reducers.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
 - [x] Protocol-only CLI status/events/submit and read-only doctor discovery.
+- [x] End-to-end Unix local-IPC smoke test for daemon, client, receipt, and event ordering.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
 - [x] Signed compatibility entries, trusted-key revocation, fixed-expiry offline cache, and immutable durable run-version locks.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
