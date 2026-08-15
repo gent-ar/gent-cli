@@ -37,10 +37,10 @@ than a second copy of application logic. The implemented vertical slice is:
 
 Claude, Codex, MCP, pairing, Git, automations and the private Claurst bridge
 are deliberately not routed through `gentd` in this milestone. The public
-driver crate can execute a previously locked Claude or Codex binary at its
-outer operating-system edge, but daemon authority is not connected to that
-capability. This keeps the app as the sole production writer until the
-migration plan's observer and cutover gates are satisfied.
+driver crate has minimal, typed transport launch specifications for a previously locked Claude
+or Codex binary at its outer operating-system edge, but daemon authority is not connected to
+that capability. This keeps the app as the sole production writer until the migration plan's
+observer and cutover gates are satisfied.
 
 ## Try it
 

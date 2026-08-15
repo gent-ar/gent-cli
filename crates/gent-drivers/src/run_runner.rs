@@ -8,9 +8,12 @@ use gent_types::RunVersionLock;
 
 use crate::buffering::BufferPolicy;
 use crate::interrupt::{InterruptEvent, InterruptPolicy, ProcessTreeControl};
+use crate::launch_spec::arguments;
 use crate::lock::LockError;
 use crate::session::OutputLimits;
-use crate::supervisor::{ProcessLauncher, ProviderProcess, ProviderSupervisor, SupervisorError};
+use crate::supervisor::{
+    LaunchIntent, ProcessLauncher, ProviderProcess, ProviderSupervisor, SupervisorError,
+};
 
 /// A process-owning adapter built from an injected launcher and fixed safe stream limits.
 #[derive(Debug)]
@@ -53,7 +56,11 @@ where
         }
         let mut supervisor = ProviderSupervisor::new(lock.clone(), self.limits, self.buffer_policy);
         supervisor
-            .spawn(&self.launcher, Vec::new())
+            .spawn(
+                &self.launcher,
+                arguments(&lock.provider, &LaunchIntent::Start)
+                    .map_err(|error| map_spec_error(&error))?,
+            )
             .map_err(map_error)?;
         runs.insert(run_id.into(), supervisor);
         Ok(())
@@ -70,8 +77,15 @@ where
             return Err(PublicProviderRunError::Failed("run already active".into()));
         }
         let mut supervisor = ProviderSupervisor::new(lock.clone(), self.limits, self.buffer_policy);
+        let intent = LaunchIntent::Resume {
+            session_id: session_id.into(),
+        };
         supervisor
-            .resume(&self.launcher, Vec::new(), session_id.into())
+            .resume(
+                &self.launcher,
+                arguments(&lock.provider, &intent).map_err(|error| map_spec_error(&error))?,
+                session_id.into(),
+            )
             .map_err(map_error)?;
         runs.insert(run_id.into(), supervisor);
         Ok(())
@@ -103,4 +117,8 @@ fn map_error(error: SupervisorError) -> PublicProviderRunError {
         }
         other => PublicProviderRunError::Failed(other.to_string()),
     }
+}
+
+fn map_spec_error(error: &crate::launch_spec::LaunchSpecError) -> PublicProviderRunError {
+    PublicProviderRunError::Failed(error.to_string())
 }

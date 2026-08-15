@@ -16,12 +16,7 @@ use crate::interrupt::{
 use crate::lock::{LockError, recheck};
 use crate::session::{DriverSession, OutputLimits, SessionEffect, SessionInput};
 
-/// Describes whether a public executable begins a new session or resumes a named one.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LaunchIntent {
-    Start,
-    Resume { session_id: String },
-}
+pub use crate::launch_spec::LaunchIntent;
 
 /// An immutable, public executable launch request passed to infrastructure.
 #[derive(Clone, Debug, Eq, PartialEq)]

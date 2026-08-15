@@ -105,10 +105,34 @@ fn starts_resumes_rejects_duplicates_and_interrupts_only_active_runs() {
 
     let launches = launches.lock().unwrap();
     assert!(matches!(launches[0].intent, LaunchIntent::Start));
+    assert_eq!(
+        launches[0].arguments,
+        [
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--print",
+            "--verbose",
+        ]
+    );
     assert!(matches!(
         &launches[1].intent,
         LaunchIntent::Resume { session_id } if session_id == "session-a"
     ));
+    assert_eq!(
+        launches[1].arguments,
+        [
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--print",
+            "--verbose",
+            "--resume",
+            "session-a",
+        ]
+    );
 }
 
 #[test]

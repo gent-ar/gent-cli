@@ -3,6 +3,7 @@
 pub mod buffering;
 pub mod discovery;
 pub mod interrupt;
+pub mod launch_spec;
 pub mod lock;
 pub mod normalize;
 pub mod process;
