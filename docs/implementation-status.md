@@ -58,6 +58,8 @@ not claim provider or app compatibility evidence that has not been recorded.
       immutable durable run-version locks, and a daemon-owned resolver component. The shipped
       observer still denies public lifecycle requests before resolving an executable; enabling
       authority additionally requires composition approval and real-provider evidence.
+- [x] A changed executable produces a separately reserved child run with immutable lineage and a
+      freshly resolved lock; it never mutates the parent run or silently substitutes a provider.
 - [x] Immutable, restart-safe provider-native session bindings; resume ignores the legacy client wire value.
 - [x] Lease- and session-bound durable run lifecycle projections, with cursor-monotonic restart recovery.
 - [x] Durable immutable conversation → run → turn identity, provider-switch lineage, and monotonic turn lifecycle transitions.

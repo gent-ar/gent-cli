@@ -10,7 +10,6 @@ use gent_types::{CapabilitySet, HostEpoch, RunVersionLock};
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-
 mod public_run_authorizer;
 mod public_run_resolver;
 use public_run_authorizer::FakeAuthorizer;
@@ -145,7 +144,6 @@ fn start_persists_run_lock_and_lease_before_fake_launch() {
     assert_eq!(persisted.compatibility_entry, "daemon-entry");
     assert_eq!(resolver_calls.load(Ordering::SeqCst), 1);
 }
-
 #[test]
 fn changed_binary_returns_provider_changed_after_durable_reservation() {
     let directory = tempfile::tempdir().unwrap();
@@ -161,7 +159,9 @@ fn changed_binary_returns_provider_changed_after_durable_reservation() {
     );
     let answer = service.start(request(&executable)).unwrap();
     assert_eq!(answer.outcome, PublicRunOutcome::ProviderChanged);
-    assert!(ledger.find_run_version_lock("run-a").unwrap().is_some());
+    assert_ne!(answer.run_id, "run-a");
+    let child = ledger.find_run(&answer.run_id).unwrap().unwrap();
+    assert_eq!(child.parent_run_id, Some("run-a".into()));
 }
 
 #[test]

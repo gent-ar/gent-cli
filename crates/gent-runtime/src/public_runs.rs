@@ -8,6 +8,7 @@ use gent_protocol::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
     PublicRunStartRequest,
 };
+use gent_types::ReceiptId;
 
 use crate::{Coordinator, RuntimeError};
 
@@ -77,15 +78,18 @@ where
         };
         let lease = RunLease {
             run_id: request.run_id.clone(),
-            coordinator_id: request.coordinator_id,
+            coordinator_id: request.coordinator_id.clone(),
             host_epoch: request.host_epoch,
         };
         self.coordinator.reserve_public_run(&run, &lock, &lease)?;
         match self.runner.start(&request.run_id, &lock) {
             Ok(()) => Ok(response(request.run_id, PublicRunOutcome::Started)),
-            Err(PublicProviderRunError::ProviderChanged) => {
-                Ok(response(request.run_id, PublicRunOutcome::ProviderChanged))
-            }
+            Err(PublicProviderRunError::ProviderChanged) => self.provider_changed(
+                &request.run_id,
+                &request.coordinator_id,
+                request.host_epoch,
+                request.provider.as_str(),
+            ),
             Err(error) => Err(error.into()),
         }
     }
@@ -114,7 +118,7 @@ where
             })?;
         let lease = RunLease {
             run_id: request.run_id.clone(),
-            coordinator_id: request.coordinator_id,
+            coordinator_id: request.coordinator_id.clone(),
             host_epoch: request.host_epoch,
         };
         match self.coordinator.claim_run_lease(&lease)? {
@@ -130,9 +134,12 @@ where
                     .resume(&request.run_id, &lock, &session.provider_session_id)
                 {
                     Ok(()) => Ok(response(request.run_id, PublicRunOutcome::Resumed)),
-                    Err(PublicProviderRunError::ProviderChanged) => {
-                        Ok(response(request.run_id, PublicRunOutcome::ProviderChanged))
-                    }
+                    Err(PublicProviderRunError::ProviderChanged) => self.provider_changed(
+                        &request.run_id,
+                        &request.coordinator_id,
+                        request.host_epoch,
+                        &lock.provider,
+                    ),
                     Err(error) => Err(error.into()),
                 }
             }
@@ -200,6 +207,47 @@ where
 
     fn is_authoritative(&self) -> bool {
         self.authority == ProviderRunAuthority::PublicDrivers
+    }
+
+    fn provider_changed(
+        &self,
+        parent_run_id: &str,
+        coordinator_id: &str,
+        host_epoch: gent_types::HostEpoch,
+        provider: &str,
+    ) -> Result<PublicRunResponse, RuntimeError> {
+        let child_id = format!("{parent_run_id}:provider-changed:{}", ReceiptId::new().0);
+        let Ok(lock) = self.resolver.resolve(provider) else {
+            return Ok(response(
+                parent_run_id.into(),
+                PublicRunOutcome::ProviderChanged,
+            ));
+        };
+        if self.authorizer.authorize(&lock).is_err() {
+            return Ok(response(
+                parent_run_id.into(),
+                PublicRunOutcome::ProviderChanged,
+            ));
+        }
+        self.coordinator.reserve_public_run(
+            &RunRecord {
+                run_id: child_id.clone(),
+                parent_run_id: Some(parent_run_id.into()),
+                provider: lock.provider.clone(),
+            },
+            &lock,
+            &RunLease {
+                run_id: child_id.clone(),
+                coordinator_id: coordinator_id.into(),
+                host_epoch,
+            },
+        )?;
+        match self.runner.start(&child_id, &lock) {
+            Ok(()) | Err(PublicProviderRunError::ProviderChanged) => {
+                Ok(response(child_id, PublicRunOutcome::ProviderChanged))
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 
