@@ -82,7 +82,9 @@ fn claude_content(block: &Value) -> Vec<PublicWireFact> {
                     })]
                 },
             ),
-        Some("tool_use") => tool_activity(block, ToolPhase::Started, "malformedClaudeToolUse"),
+        Some("tool_use") => {
+            tool_activity(block, ToolPhase::Started, "malformedClaudeToolUse", false)
+        }
         _ => diagnostic("unsupportedClaudeContent"),
     }
 }
@@ -180,14 +182,21 @@ fn codex_item(frame: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
     if !matches!(kind, "commandExecution" | "fileChange" | "mcpToolCall") {
         return Vec::new();
     }
-    tool_activity(item, phase, "malformedCodexItem")
+    tool_activity(item, phase, "malformedCodexItem", true)
 }
 
-fn tool_activity(value: &Value, phase: ToolPhase, invalid: &str) -> Vec<PublicWireFact> {
-    match (
-        string(value, "id"),
-        string(value, "name").or_else(|| string(value, "type")),
-    ) {
+fn tool_activity(
+    value: &Value,
+    phase: ToolPhase,
+    invalid: &str,
+    use_type_as_name: bool,
+) -> Vec<PublicWireFact> {
+    let name = if use_type_as_name {
+        string(value, "name").or_else(|| string(value, "type"))
+    } else {
+        string(value, "name")
+    };
+    match (string(value, "id"), name) {
         (Some(tool_use_id), Some(tool_name))
             if !tool_use_id.is_empty() && !tool_name.is_empty() =>
         {
