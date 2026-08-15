@@ -4,11 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use gent_protocol::{
-    CONVERSATION_CONTENT_CAPABILITY, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
+    CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, Hello, WireFrame, read_frame,
     write_frame,
 };
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
+
+#[cfg(unix)]
+use gent_protocol::CONVERSATION_CONTENT_CAPABILITY;
 #[cfg(unix)]
 use tokio::net::UnixStream;
 #[cfg(windows)]
@@ -53,7 +56,20 @@ pub(crate) async fn connect_and_negotiate(
 
 #[must_use]
 pub(crate) fn client_capabilities() -> CapabilitySet {
+    #[cfg(unix)]
     let mut capabilities = vec![
+        CONVERSATION_INDEX_CAPABILITY.into(),
+        CONVERSATION_STATUS_CAPABILITY.into(),
+        CONVERSATION_TIMELINE_CAPABILITY.into(),
+        "decisions".into(),
+        "event-resync".into(),
+        EVENT_STREAM_CAPABILITY.into(),
+        "events".into(),
+        "host-epoch".into(),
+        "receipts".into(),
+    ];
+    #[cfg(not(unix))]
+    let capabilities = vec![
         CONVERSATION_INDEX_CAPABILITY.into(),
         CONVERSATION_STATUS_CAPABILITY.into(),
         CONVERSATION_TIMELINE_CAPABILITY.into(),
