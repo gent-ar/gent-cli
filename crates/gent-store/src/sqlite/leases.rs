@@ -72,15 +72,17 @@ pub(super) fn reserve_run_start(
     if find_run(&transaction, &run.run_id)?.is_some() {
         return Err(LedgerError::Invariant("run already exists".into()));
     }
-    if let Some(parent) = &run.parent_run_id {
-        if find_run(&transaction, parent)?.is_none() {
-            return Err(LedgerError::Invariant("run parent does not exist".into()));
-        }
-    }
+    let conversation_id = if let Some(parent) = &run.parent_run_id {
+        find_run(&transaction, parent)?
+            .ok_or_else(|| LedgerError::Invariant("run parent does not exist".into()))?;
+        super::conversations::conversation_id_for_run(&transaction, parent)?
+    } else {
+        None
+    };
     transaction
         .execute(
-            "INSERT INTO runs (run_id, parent_run_id, provider) VALUES (?1, ?2, ?3)",
-            rusqlite::params![run.run_id, run.parent_run_id, run.provider],
+            "INSERT INTO runs (run_id, conversation_id, parent_run_id, provider) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![run.run_id, conversation_id, run.parent_run_id, run.provider],
         )
         .map_err(storage_error)?;
     save_run_version_lock(&transaction, &run.run_id, lock)?;

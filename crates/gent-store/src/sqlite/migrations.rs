@@ -22,13 +22,20 @@ const RUN_PROJECTIONS: &str = "
 CREATE TABLE IF NOT EXISTS run_projections (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), host_epoch INTEGER NOT NULL, cursor INTEGER NOT NULL, payload TEXT NOT NULL);
 ";
 
+const CONVERSATIONS_AND_TURNS: &str = "
+CREATE TABLE IF NOT EXISTS conversations (conversation_id TEXT PRIMARY KEY NOT NULL);
+ALTER TABLE runs ADD COLUMN conversation_id TEXT REFERENCES conversations(conversation_id);
+CREATE TABLE IF NOT EXISTS turns (turn_id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id), run_id TEXT NOT NULL REFERENCES runs(run_id), sequence INTEGER NOT NULL CHECK (sequence > 0), phase TEXT NOT NULL, UNIQUE (run_id, sequence));
+CREATE INDEX IF NOT EXISTS turns_by_run_sequence ON turns (run_id, sequence);
+";
+
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 3] = [
+const MIGRATIONS: [Migration; 4] = [
     Migration {
         version: 1,
         sql: BASE_SCHEMA,
@@ -40,6 +47,10 @@ const MIGRATIONS: [Migration; 3] = [
     Migration {
         version: 3,
         sql: RUN_PROJECTIONS,
+    },
+    Migration {
+        version: 4,
+        sql: CONVERSATIONS_AND_TURNS,
     },
 ];
 

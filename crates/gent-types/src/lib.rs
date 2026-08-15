@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+mod conversations;
 mod decision;
 mod doctor;
 mod event_resume;
 mod run_projection;
 
+pub use conversations::{ConversationRecord, DurableTurnPhase, TurnRecord};
 pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
 pub use doctor::{
     CompatibilityTrust, DoctorNextAction, ExecutableIdentity, McpDoctorStatus, McpPermissionStatus,

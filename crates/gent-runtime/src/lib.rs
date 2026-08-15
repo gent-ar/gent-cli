@@ -1,6 +1,7 @@
 //! Coordinator orchestration over pure policy and durable ports.
 
 pub mod catalog;
+mod conversations;
 mod decisions;
 mod events;
 mod public_runs;
@@ -118,8 +119,9 @@ impl<L: Ledger> Coordinator<L> {
     ///
     /// # Errors
     /// Returns an error when the run already exists or persistence fails.
+    #[allow(clippy::needless_pass_by_value)] // The coordinator owns the root-run handoff boundary.
     pub fn create_run(&self, run: Run) -> Result<(), RuntimeError> {
-        Ok(self.ledger.create_run(&to_record(run))?)
+        Ok(self.ledger.create_run(&to_record(&run))?)
     }
 
     /// Persists the immutable executable identity to be rechecked before run resume.
@@ -145,7 +147,7 @@ impl<L: Ledger> Coordinator<L> {
         provider: String,
     ) -> Result<Run, RuntimeError> {
         let child = switch_provider(run, child_id, provider);
-        self.ledger.create_run(&to_record(child.clone()))?;
+        self.ledger.create_run(&to_record(&child))?;
         Ok(child)
     }
 
@@ -181,11 +183,11 @@ fn terminal_kind(status: &ReceiptStatus) -> &'static str {
         "commandSettled"
     }
 }
-fn to_record(run: Run) -> RunRecord {
+pub(crate) fn to_record(run: &Run) -> RunRecord {
     RunRecord {
-        run_id: run.id,
-        parent_run_id: run.parent_run_id,
-        provider: run.provider,
+        run_id: run.id.clone(),
+        parent_run_id: run.parent_run_id.clone(),
+        provider: run.provider.clone(),
     }
 }
 

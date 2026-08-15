@@ -16,6 +16,8 @@ than a second copy of application logic. The implemented vertical slice is:
   idempotent command receipts, cursor-ordered durable events, and explicit
   snapshot-backed resync after event compaction.
 - SQLite-backed host state and a read-only `gent doctor` dependency report.
+- Durable conversation → run → turn identity and restart-safe provider-switch lineage;
+  the future read protocol remains capability-gated until it is wired into `gentd`.
 
 Claude, Codex, MCP, pairing, Git, automations and the private Claurst bridge
 are deliberately not routed through `gentd` in this milestone. The public

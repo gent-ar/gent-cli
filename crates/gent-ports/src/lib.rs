@@ -6,9 +6,10 @@ use gent_types::{
     EventSnapshot, HostEpoch, ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
 };
 
+mod conversation_ledger;
 mod run_projections;
 mod run_sessions;
-
+pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
 
@@ -17,7 +18,6 @@ pub enum PortError {
     #[error("provider bridge failure: {0}")]
     Provider(String),
 }
-
 /// Expected failures from an owned public-provider lifecycle operation.
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum PublicProviderRunError {
@@ -28,7 +28,6 @@ pub enum PublicProviderRunError {
     #[error("provider lifecycle failed: {0}")]
     Failed(String),
 }
-
 /// Private Claurst implementations receive only opaque references through this port.
 #[async_trait]
 pub trait ExternalProviderBridge: Send + Sync {

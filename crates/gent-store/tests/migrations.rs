@@ -66,6 +66,15 @@ fn legacy_ledger_is_upgraded_without_losing_epoch_or_events() {
             )
             .is_ok()
     );
+    assert!(
+        reopened
+            .query_row(
+                "SELECT 1 FROM schema_migrations WHERE version = 4",
+                [],
+                |_| Ok(()),
+            )
+            .is_ok()
+    );
 }
 
 #[test]
