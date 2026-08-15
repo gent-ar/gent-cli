@@ -13,7 +13,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Pure run-lineage and live-status reducers.
 - [x] Protocol-only CLI status/events/submit and read-only doctor discovery.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
-- [x] Signed compatibility-entry verification and executable run-version locks.
+- [x] Signed compatibility-entry verification, trusted-key revocation, and executable run-version locks.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Fixture-tested driver session recovery, output bounds, interrupt policy, and process fakes.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
@@ -26,6 +26,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
 - [ ] MCP hosting, Git execution/worktree operations, automation execution, pairing
       transport, and provider process lifecycle ownership in a live daemon.
+- [ ] Windows named-pipe transport and Windows host-target verification.
 - [ ] Observer-mode comparison with the legacy host.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
 

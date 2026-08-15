@@ -1,5 +1,7 @@
 //! Signed, expiring compatibility entries for public provider adapters.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use gent_types::RunVersionLock;
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,13 @@ pub struct SignedCompatibilityManifest {
     pub signature_hex: String,
 }
 
+/// Trusted signing keys and explicit revocations for compatibility manifests.
+#[derive(Clone, Debug, Default)]
+pub struct TrustedKeySet {
+    keys: BTreeMap<String, VerifyingKey>,
+    revoked_key_ids: BTreeSet<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CompatibilityError {
     #[error("compatibility manifest signature is malformed")]
@@ -34,10 +43,46 @@ pub enum CompatibilityError {
     SignatureMismatch,
     #[error("compatibility manifest has expired")]
     Expired,
+    #[error("compatibility manifest signing key {0} is unknown")]
+    UnknownKey(String),
+    #[error("compatibility manifest signing key {0} is revoked")]
+    RevokedKey(String),
     #[error("provider {provider} version {version} has no active compatible entry")]
     Unsupported { provider: String, version: String },
     #[error("compatibility manifest cannot be encoded: {0}")]
     Serialization(#[from] serde_json::Error),
+}
+
+impl TrustedKeySet {
+    /// Adds a currently trusted key under its stable public key identifier.
+    pub fn trust(&mut self, key_id: impl Into<String>, key: VerifyingKey) {
+        self.keys.insert(key_id.into(), key);
+    }
+
+    /// Revokes a key immediately, including manifests signed before the revocation.
+    pub fn revoke(&mut self, key_id: impl Into<String>) {
+        self.revoked_key_ids.insert(key_id.into());
+    }
+
+    /// Verifies a manifest using its declared key identifier.
+    ///
+    /// # Errors
+    /// Returns an error when the key is absent, revoked, or the manifest is invalid.
+    pub fn verify_lock(
+        &self,
+        manifest: &SignedCompatibilityManifest,
+        lock: &RunVersionLock,
+        now: u64,
+    ) -> Result<(), CompatibilityError> {
+        if self.revoked_key_ids.contains(&manifest.key_id) {
+            return Err(CompatibilityError::RevokedKey(manifest.key_id.clone()));
+        }
+        let key = self
+            .keys
+            .get(&manifest.key_id)
+            .ok_or_else(|| CompatibilityError::UnknownKey(manifest.key_id.clone()))?;
+        manifest.verify_lock(key, lock, now)
+    }
 }
 
 impl SignedCompatibilityManifest {
@@ -81,7 +126,9 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use gent_types::RunVersionLock;
 
-    use super::{CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest};
+    use super::{
+        CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest, TrustedKeySet,
+    };
 
     #[test]
     fn signed_entry_verifies_and_expired_entry_is_rejected() {
@@ -117,5 +164,39 @@ mod tests {
                 .verify_lock(&key.verifying_key(), &lock, 101)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn keyring_rejects_unknown_and_revoked_signers() {
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let payload = CompatibilityManifest {
+            manifest_version: 1,
+            expires_at_unix_seconds: 100,
+            entries: Vec::new(),
+        };
+        let signed = SignedCompatibilityManifest {
+            key_id: "rotated-key".into(),
+            signature_hex: hex::encode(key.sign(&serde_json::to_vec(&payload).unwrap()).to_bytes()),
+            payload,
+        };
+        let lock = RunVersionLock {
+            provider: "claude".into(),
+            canonical_path: "/bin/claude".into(),
+            file_identity: "x".into(),
+            digest_sha256: "digest".into(),
+            version: "1.0".into(),
+            compatibility_entry: "entry".into(),
+        };
+        let mut keys = TrustedKeySet::default();
+        assert!(matches!(
+            keys.verify_lock(&signed, &lock, 1),
+            Err(super::CompatibilityError::UnknownKey(_))
+        ));
+        keys.trust("rotated-key", key.verifying_key());
+        keys.revoke("rotated-key");
+        assert!(matches!(
+            keys.verify_lock(&signed, &lock, 1),
+            Err(super::CompatibilityError::RevokedKey(_))
+        ));
     }
 }

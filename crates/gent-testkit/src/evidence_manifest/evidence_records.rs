@@ -8,6 +8,8 @@ pub(super) fn validate_records(
     value: &Value,
     features: &Mapping,
     dimensions: &Mapping,
+    provider_implementation: &Mapping,
+    required_evidence: &[String],
     manifest_dir: &Path,
     authority_transfer: bool,
 ) -> Result<(), String> {
@@ -41,7 +43,16 @@ pub(super) fn validate_records(
         let provider = member(record, "provider", &providers)?;
         let platform = member(record, "platform", &platforms)?;
         let transport = member(record, "transport", &transports)?;
-        validate_record(record, &id, &state, manifest_dir, authority_transfer)?;
+        let expected_implementation = non_empty(provider_implementation, &provider)?;
+        validate_record(
+            record,
+            &id,
+            &state,
+            &expected_implementation,
+            required_evidence,
+            manifest_dir,
+            authority_transfer,
+        )?;
         covered.insert((feature, provider, platform, transport));
     }
     if authority_transfer {
@@ -54,6 +65,8 @@ fn validate_record(
     record: &Mapping,
     id: &str,
     state: &str,
+    expected_implementation: &str,
+    required_evidence: &[String],
     manifest_dir: &Path,
     authority_transfer: bool,
 ) -> Result<(), String> {
@@ -67,7 +80,12 @@ fn validate_record(
     if !["passed", "recorded_absent", "failed"].contains(&status.as_str()) {
         return Err(format!("evidence record {id} has unknown status {status}"));
     }
-    validate_paths(record, id, manifest_dir, status == "passed")?;
+    validate_paths(record, id, required_evidence, manifest_dir)?;
+    if non_empty(record, "provider_implementation")? != expected_implementation {
+        return Err(format!(
+            "evidence record {id} has the wrong provider implementation"
+        ));
+    }
     let artifact = non_empty(record, "ci_artifact")?;
     if !artifact.starts_with("signed:") || artifact.len() == "signed:".len() {
         return Err(format!(
@@ -131,8 +149,8 @@ fn validate_coverage(
 fn validate_paths(
     record: &Mapping,
     id: &str,
+    required_evidence: &[String],
     manifest_dir: &Path,
-    all_required: bool,
 ) -> Result<(), String> {
     let paths = mapping(required(record, "evidence_paths")?, "evidence_paths")?;
     if paths.is_empty() {
@@ -154,10 +172,12 @@ fn validate_paths(
             return Err(format!("evidence record {id} has an empty evidence kind"));
         }
     }
-    if all_required && !paths.contains_key(Value::String("cutover".into())) {
-        return Err(format!(
-            "evidence record {id} is passed without a cutover evidence path"
-        ));
+    for required_kind in required_evidence {
+        if !paths.contains_key(Value::String(required_kind.clone())) {
+            return Err(format!(
+                "evidence record {id} is missing {required_kind} evidence"
+            ));
+        }
     }
     Ok(())
 }

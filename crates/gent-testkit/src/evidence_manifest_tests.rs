@@ -27,3 +27,32 @@ fn baseline_is_valid_but_cannot_transfer_authority_without_real_evidence() {
             .contains("evidence_records are absent")
     );
 }
+
+#[test]
+fn recorded_evidence_requires_all_declared_kinds_and_implementation() {
+    let fixture = r"
+schema_version: 3
+dimensions: { providers: [claude, codex, claurst, copilot], transports: [local_ipc, paired_mux], platforms: [macos, linux, windows] }
+provider_implementation: { claude: rust_native_driver, codex: rust_native_driver, claurst: private_external_provider_bridge, copilot: unsupported }
+required_evidence: [baseline, cutover]
+features: { example: { state: supported, evidence: required, legacy_owner: owner } }
+evidence_records:
+  - id: incomplete
+    feature: example
+    state: supported
+    provider: claude
+    provider_version: 1
+    platform: macos
+    transport: local_ipc
+    status: passed
+    provider_implementation: rust_native_driver
+    evidence_paths: { baseline: Cargo.toml }
+    ci_artifact: signed:test
+";
+    let value: Value = serde_yaml::from_str(fixture).unwrap();
+    assert!(
+        validate(&value, Path::new("."), false)
+            .unwrap_err()
+            .contains("missing cutover evidence")
+    );
+}

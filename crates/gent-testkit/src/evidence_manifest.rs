@@ -45,6 +45,10 @@ fn validate(manifest: &Value, manifest_dir: &Path, authority_transfer: bool) -> 
         "provider_implementation",
     )?;
     require_scalar(provider_implementation, "copilot", "unsupported")?;
+    let required_evidence = strings(required(root, "required_evidence")?, "required_evidence")?;
+    if required_evidence.is_empty() {
+        return Err("required_evidence must not be empty".into());
+    }
     let features = mapping(required(root, "features")?, "features")?;
     validate_features(features)?;
     let records = root.get(Value::String("evidence_records".into()));
@@ -53,6 +57,8 @@ fn validate(manifest: &Value, manifest_dir: &Path, authority_transfer: bool) -> 
             records,
             features,
             dimensions,
+            provider_implementation,
+            &required_evidence,
             manifest_dir,
             authority_transfer,
         )
