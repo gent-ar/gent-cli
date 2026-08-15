@@ -7,7 +7,7 @@ use gent_ports::{PublicProviderRunError, PublicProviderRunner};
 use gent_types::RunVersionLock;
 
 use crate::buffering::BufferPolicy;
-use crate::interrupt::{InterruptEvent, InterruptPolicy, ProcessTreeControl};
+use crate::interrupt::{InterruptEvent, InterruptPolicy};
 use crate::launch_spec::arguments;
 use crate::lock::LockError;
 use crate::session::OutputLimits;
@@ -17,7 +17,7 @@ use crate::supervisor::{
 
 /// A process-owning adapter built from an injected launcher and fixed safe stream limits.
 #[derive(Debug)]
-pub struct DriverRunRunner<L, P: ProcessTreeControl> {
+pub struct DriverRunRunner<L, P: ProviderProcess> {
     launcher: L,
     limits: OutputLimits,
     buffer_policy: BufferPolicy,
@@ -25,7 +25,7 @@ pub struct DriverRunRunner<L, P: ProcessTreeControl> {
     runs: Mutex<BTreeMap<String, ProviderSupervisor<P>>>,
 }
 
-impl<L, P: ProcessTreeControl> DriverRunRunner<L, P> {
+impl<L, P: ProviderProcess> DriverRunRunner<L, P> {
     /// Creates a runner without launching or inspecting any executable.
     #[must_use]
     pub fn new(
@@ -41,6 +41,18 @@ impl<L, P: ProcessTreeControl> DriverRunRunner<L, P> {
             interrupt_policy,
             runs: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Sends one pre-encoded frame to a currently owned provider process.
+    ///
+    /// # Errors
+    /// Returns an error when the run is absent or its process cannot accept input.
+    pub fn write_frame(&self, run_id: &str, frame: &[u8]) -> Result<(), PublicProviderRunError> {
+        lock_runs(&self.runs)
+            .get(run_id)
+            .ok_or(PublicProviderRunError::NotActive)?
+            .write_frame(frame)
+            .map_err(map_error)
     }
 }
 
@@ -103,7 +115,7 @@ where
     }
 }
 
-fn lock_runs<P: ProcessTreeControl>(
+fn lock_runs<P: ProviderProcess>(
     runs: &Mutex<BTreeMap<String, ProviderSupervisor<P>>>,
 ) -> MutexGuard<'_, BTreeMap<String, ProviderSupervisor<P>>> {
     runs.lock()

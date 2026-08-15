@@ -27,10 +27,14 @@ pub struct ProviderLaunch {
     pub intent: LaunchIntent,
 }
 
-/// A live public provider process. Platform implementations must signal its whole tree.
-pub trait ProviderProcess: ProcessTreeControl {}
-
-impl<T: ProcessTreeControl> ProviderProcess for T {}
+/// A live public provider process. Platform implementations own its tree and standard input.
+pub trait ProviderProcess: ProcessTreeControl {
+    /// Writes one complete provider-native frame to the process standard input.
+    ///
+    /// # Errors
+    /// Returns an error when the owned process cannot accept the frame.
+    fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError>;
+}
 
 /// Process-spawning infrastructure. Production implementations belong at an outer edge.
 pub trait ProcessLauncher: Send + Sync {
@@ -120,6 +124,18 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
         let (frame, directive) = self.frames.take();
         let effects = frame.map_or_else(Vec::new, |raw| self.apply(SessionInput::RawFrame(raw)));
         (effects, directive)
+    }
+
+    /// Writes one already-encoded provider frame only while this supervisor owns a live process.
+    ///
+    /// # Errors
+    /// Returns an error when no process is owned or its input cannot accept the frame.
+    pub fn write_frame(&self, frame: &[u8]) -> Result<(), SupervisorError> {
+        self.process
+            .as_ref()
+            .ok_or(SupervisorError::NoActiveProcess)?
+            .write_frame(frame)?;
+        Ok(())
     }
 
     /// Reports process termination to the pure session reducer and prevents further signaling.

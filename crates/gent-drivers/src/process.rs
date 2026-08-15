@@ -3,13 +3,13 @@
 //! It starts only lock-validated Claude or Codex executables. Output collection is bounded at
 //! the reader edge so an uncooperative provider cannot grow driver memory without limit.
 
-use std::io::{Read, Result as IoResult};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::io::{Read, Result as IoResult, Write};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use crate::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
-use crate::supervisor::{ProcessLauncher, ProviderLaunch, SupervisorError};
+use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 
 /// Bounded capture from one provider stream.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -46,7 +46,7 @@ impl ProcessLauncher for SystemLauncher {
         let mut command = Command::new(&launch.executable);
         command
             .args(&launch.arguments)
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         configure_process_tree(&mut command);
@@ -61,7 +61,17 @@ impl ProcessLauncher for SystemLauncher {
             .stderr
             .take()
             .ok_or_else(|| SupervisorError::Launch("stderr was not piped".into()))?;
-        Ok(SystemProcess::new(child, stdout, stderr, self.output_limit))
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| SupervisorError::Launch("stdin was not piped".into()))?;
+        Ok(SystemProcess::new(
+            child,
+            stdin,
+            stdout,
+            stderr,
+            self.output_limit,
+        ))
     }
 }
 
@@ -69,6 +79,7 @@ impl ProcessLauncher for SystemLauncher {
 #[derive(Debug)]
 pub struct SystemProcess {
     child: Mutex<Child>,
+    stdin: Mutex<ChildStdin>,
     output: Arc<Mutex<ProcessOutput>>,
     readers: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -76,6 +87,7 @@ pub struct SystemProcess {
 impl SystemProcess {
     fn new(
         child: Child,
+        stdin: ChildStdin,
         stdout: impl Read + Send + 'static,
         stderr: impl Read + Send + 'static,
         output_limit: usize,
@@ -87,6 +99,7 @@ impl SystemProcess {
         ];
         Self {
             child: Mutex::new(child),
+            stdin: Mutex::new(stdin),
             output,
             readers: Mutex::new(readers),
         }
@@ -121,6 +134,16 @@ impl ProcessTreeControl for SystemProcess {
             .try_into()
             .map_err(|_| ProcessTreeError::Failed("provider process id overflowed".into()))?;
         signal_process_tree(pid, signal)
+    }
+}
+
+impl ProviderProcess for SystemProcess {
+    fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError> {
+        let mut stdin = recover_lock(&self.stdin);
+        stdin
+            .write_all(frame)
+            .and_then(|()| stdin.flush())
+            .map_err(|error| ProcessTreeError::Failed(error.to_string()))
     }
 }
 

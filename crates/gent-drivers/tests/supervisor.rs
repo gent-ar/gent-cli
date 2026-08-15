@@ -11,8 +11,8 @@ use gent_drivers::interrupt::{
 };
 use gent_drivers::lock::capture;
 use gent_drivers::{
-    OutputLimits, ProcessLauncher, ProviderLaunch, ProviderSupervisor, SessionEffect,
-    SupervisorError,
+    OutputLimits, ProcessLauncher, ProviderLaunch, ProviderProcess, ProviderSupervisor,
+    SessionEffect, SupervisorError,
 };
 
 #[derive(Debug, Default)]
@@ -28,6 +28,12 @@ impl ProcessTreeControl for FakeProcess {
             ProcessTreeSignal::Kill => 3,
         };
         self.signals.store(value, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+impl ProviderProcess for FakeProcess {
+    fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
         Ok(())
     }
 }

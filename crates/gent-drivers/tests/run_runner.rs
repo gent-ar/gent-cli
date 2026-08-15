@@ -8,7 +8,8 @@ use gent_drivers::interrupt::{
 };
 use gent_drivers::lock::capture;
 use gent_drivers::{
-    DriverRunRunner, LaunchIntent, OutputLimits, ProcessLauncher, ProviderLaunch, SupervisorError,
+    DriverRunRunner, LaunchIntent, OutputLimits, ProcessLauncher, ProviderLaunch, ProviderProcess,
+    SupervisorError,
 };
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
 use gent_testkit::{FakeProcess, FakeProcessSignal};
@@ -24,6 +25,12 @@ impl ProcessTreeControl for FakeTree {
             ProcessTreeSignal::Terminate => FakeProcessSignal::Terminate,
             ProcessTreeSignal::Kill => FakeProcessSignal::Kill,
         });
+        Ok(())
+    }
+}
+
+impl ProviderProcess for FakeTree {
+    fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
         Ok(())
     }
 }
@@ -88,6 +95,11 @@ fn starts_resumes_rejects_duplicates_and_interrupts_only_active_runs() {
 
     runner.start("start", &run_lock).unwrap();
     runner.resume("resume", &run_lock, "session-a").unwrap();
+    assert_eq!(
+        runner.write_frame("missing", b"frame\n"),
+        Err(PublicProviderRunError::NotActive)
+    );
+    runner.write_frame("start", b"frame\n").unwrap();
     assert!(matches!(
         runner.start("start", &run_lock),
         Err(PublicProviderRunError::Failed(message)) if message == "run already active"

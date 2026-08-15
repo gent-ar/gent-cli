@@ -3,7 +3,7 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeSignal};
 use gent_drivers::{
-    LaunchIntent, ProcessLauncher, ProviderLaunch, SupervisorError, SystemLauncher,
+    LaunchIntent, ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError, SystemLauncher,
 };
 
 fn shell_launch(script: &str) -> ProviderLaunch {
@@ -39,6 +39,18 @@ fn public_launcher_refuses_private_provider_names() {
         SystemLauncher::new(1).launch(&launch),
         Err(SupervisorError::UnsupportedProvider(provider)) if provider == "claurst"
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn owned_process_writes_only_to_its_piped_standard_input() {
+    let process = SystemLauncher::new(16)
+        .launch(&shell_launch("IFS= read -r line; printf '%s' \"$line\""))
+        .unwrap();
+
+    process.write_frame(b"frame\n").unwrap();
+    assert!(process.wait().unwrap().success());
+    assert_eq!(process.output().stdout.bytes, b"frame");
 }
 
 #[cfg(unix)]
