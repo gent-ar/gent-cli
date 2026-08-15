@@ -19,6 +19,12 @@ or starts a provider automatically.
    entry and the required redacted live evidence exist. A discovered executable
    is not approval to launch it.
 
+To assess an already-verified offline manifest, start `gentd` with
+`--compatibility-cache <path>` and one or more
+`--compatibility-key <key-id:lowercase-hex>` values (or their corresponding
+`GENT_COMPATIBILITY_*` environment variables). This only revalidates local
+signed data; it neither downloads a manifest nor starts a provider.
+
 `gent doctor` is read-only discovery. It reports private Claurst integration as
 `notConfigured` in this public repository; it never accepts Claurst endpoint,
 credential, billing, or routing configuration.
