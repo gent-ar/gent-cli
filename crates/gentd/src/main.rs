@@ -57,8 +57,10 @@ fn build_runtime(
     observed_capabilities: &CapabilitySet,
 ) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
     let capabilities = validate_observed_capabilities(observed_capabilities)?;
+    let coordinator = Coordinator::new(SqliteLedger::open(data_dir.join("gent.db"))?, capabilities);
+    coordinator.persist_capability_catalog()?;
     Ok(RuntimeFacade {
-        coordinator: Coordinator::new(SqliteLedger::open(data_dir.join("gent.db"))?, capabilities),
+        coordinator,
         dependencies: DependencyCatalog,
         provider_run_authority: ProviderRunAuthority::Observer,
     })

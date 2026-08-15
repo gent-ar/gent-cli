@@ -1,7 +1,11 @@
 //! Capability-catalog reconciliation is pure: declarations must match observed behavior.
 
+use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::CONVERSATION_STATUS_CAPABILITY;
-use gent_types::CapabilitySet;
+use gent_types::{CapabilityCatalogRecord, CapabilitySet};
+
+use crate::Coordinator;
+use crate::RuntimeError;
 
 /// A capability the runtime may advertise after its transport proves a handler exists.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -90,6 +94,24 @@ pub fn validate_observed_capabilities(
     let declared = declared_capabilities();
     reconcile(&declared, observed)?;
     Ok(declared)
+}
+
+impl<L> Coordinator<L>
+where
+    L: CapabilityCatalogLedger,
+{
+    /// Persists the complete capability set validated for this daemon process.
+    ///
+    /// # Errors
+    /// Returns an error when durable storage rejects the catalog snapshot.
+    pub fn persist_capability_catalog(&self) -> Result<(), RuntimeError> {
+        self.ledger
+            .save_capability_catalog(&CapabilityCatalogRecord {
+                schema_version: 1,
+                capabilities: self.capabilities.clone(),
+            })?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

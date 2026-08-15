@@ -1,4 +1,5 @@
 use gent_core::DecisionCommandOutcome;
+use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
     DecisionEvidence, DependencyAction, DependencyActionRequest, DependencyPlanRequest,
     DependencyProvider, PublicRunOutcome, PublicRunStartRequest,
@@ -41,8 +42,18 @@ fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
 
 #[test]
 fn facade_exposes_only_durable_or_read_only_observer_operations() {
-    let (_directory, runtime) = runtime();
+    let (directory, runtime) = runtime();
     assert_eq!(runtime.capabilities().unwrap(), declared_capabilities());
+    assert_eq!(
+        gent_store::SqliteLedger::open(directory.path().join("gent.db"))
+            .unwrap()
+            .capability_catalog()
+            .unwrap(),
+        Some(gent_types::CapabilityCatalogRecord {
+            schema_version: 1,
+            capabilities: declared_capabilities(),
+        })
+    );
     let status = runtime.status().unwrap();
     assert_eq!(status.host_epoch, HostEpoch(1));
     assert_eq!(
