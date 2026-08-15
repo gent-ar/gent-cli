@@ -2,7 +2,8 @@
 
 use async_trait::async_trait;
 use gent_types::{
-    Command, Event, HostEpoch, ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
+    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, HostEpoch,
+    ProviderEvent, Receipt, ReceiptStatus, RunVersionLock,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -39,6 +40,20 @@ pub struct HostIngress {
 pub enum ReceiptClaim {
     Existing(Receipt),
     Accepted(Receipt),
+}
+
+/// Result of atomically creating or locating a decision by either stable identifier.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DecisionClaim {
+    Created(DecisionSettlement),
+    Existing(DecisionSettlement),
+}
+
+/// Result of an optimistic phase update. `Current` preserves a concurrent writer's state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DecisionPhaseUpdate {
+    Applied(DecisionSettlement),
+    Current(DecisionSettlement),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -135,6 +150,26 @@ pub trait Ledger: Send + Sync {
         status: ReceiptStatus,
         terminal: &Event,
     ) -> Result<Receipt, LedgerError>;
+    /// Atomically creates a pending decision or returns the record owning either identifier.
+    ///
+    /// # Errors
+    /// Returns an error when the decision cannot be persisted or read.
+    fn claim_decision(&self, command: &DecisionCommand) -> Result<DecisionClaim, LedgerError>;
+    /// Reads one durable decision settlement state.
+    ///
+    /// # Errors
+    /// Returns an error when the decision cannot be read.
+    fn find_decision(&self, decision_id: &str) -> Result<Option<DecisionSettlement>, LedgerError>;
+    /// Advances a decision only if its durable phase still equals `expected`.
+    ///
+    /// # Errors
+    /// Returns an error when the decision is unknown or persistence fails.
+    fn replace_decision_phase(
+        &self,
+        decision_id: &str,
+        expected: &DecisionSettlementPhase,
+        next: &DecisionSettlementPhase,
+    ) -> Result<DecisionPhaseUpdate, LedgerError>;
     /// Appends a cursor-ordered event outside the command receipt transaction.
     ///
     /// # Errors

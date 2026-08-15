@@ -1,16 +1,17 @@
 //! Local IPC adapter. It only knows the `RuntimeApi` port, never persistence or providers.
 
 use gent_protocol::{
-    DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-    WireFrame, negotiate, read_frame, write_frame,
+    DecisionEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
+    DependencyPlan, DependencyPlanRequest, WireFrame, negotiate, read_frame, write_frame,
 };
 use gent_types::{
-    CapabilitySet, Command, DoctorReport, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
+    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
+    PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
 
-const CAPABILITIES: &[&str] = &["events", "host-epoch", "receipts"];
+const CAPABILITIES: &[&str] = &["decisions", "events", "host-epoch", "receipts"];
 
 pub trait RuntimeApi: Clone + Send + Sync + 'static {
     fn status(&self) -> Result<HostStatus, String>;
@@ -19,6 +20,12 @@ pub trait RuntimeApi: Clone + Send + Sync + 'static {
     fn doctor(&self) -> DoctorReport;
     fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan;
     fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult;
+    fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String>;
+    fn apply_decision_evidence(
+        &self,
+        decision_id: String,
+        evidence: DecisionEvidence,
+    ) -> Result<DecisionSettlement, String>;
 }
 
 pub async fn serve<R: RuntimeApi>(
@@ -67,6 +74,15 @@ where
             WireFrame::DependencyActionRequest(request) => Ok(WireFrame::DependencyActionResult(
                 runtime.dependency_action(request),
             )),
+            WireFrame::DecisionSubmit(command) => runtime
+                .submit_decision(command)
+                .map(WireFrame::DecisionSubmission),
+            WireFrame::DecisionEvidence {
+                decision_id,
+                evidence,
+            } => runtime
+                .apply_decision_evidence(decision_id, evidence)
+                .map(WireFrame::DecisionSettlement),
             WireFrame::Command(command) => runtime.submit(command).map(WireFrame::Receipt),
             WireFrame::Subscribe { after_cursor } => runtime
                 .events_after(after_cursor)
@@ -88,7 +104,8 @@ mod tests {
         DependencyPlanRequest, DependencyProvider, Hello, WireFrame, read_frame, write_frame,
     };
     use gent_types::{
-        CapabilitySet, DoctorReport, HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN,
+        CapabilitySet, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, DoctorReport,
+        HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN,
     };
     use tokio::io::duplex;
 
@@ -146,6 +163,44 @@ mod tests {
                 },
             }
         }
+
+        fn submit_decision(
+            &self,
+            command: DecisionCommand,
+        ) -> Result<gent_protocol::DecisionSubmission, String> {
+            Ok(gent_protocol::DecisionSubmission::Accepted(
+                DecisionSettlement {
+                    decision_id: command.decision_id,
+                    idempotency_key: command.idempotency_key,
+                    phase: DecisionSettlementPhase::Pending,
+                },
+            ))
+        }
+
+        fn apply_decision_evidence(
+            &self,
+            decision_id: String,
+            evidence: gent_protocol::DecisionEvidence,
+        ) -> Result<DecisionSettlement, String> {
+            Ok(DecisionSettlement {
+                decision_id,
+                idempotency_key: "fake".into(),
+                phase: match evidence {
+                    gent_protocol::DecisionEvidence::ProviderAcknowledged => {
+                        DecisionSettlementPhase::Acknowledged
+                    }
+                    gent_protocol::DecisionEvidence::ProviderSettled => {
+                        DecisionSettlementPhase::Settled
+                    }
+                    gent_protocol::DecisionEvidence::AcknowledgementUnprovable => {
+                        DecisionSettlementPhase::Unprovable
+                    }
+                    gent_protocol::DecisionEvidence::RecoveryRequired => {
+                        DecisionSettlementPhase::RecoveryRequired
+                    }
+                },
+            })
+        }
     }
 
     fn hello() -> WireFrame {
@@ -193,6 +248,30 @@ mod tests {
             read_frame(&mut client).await.unwrap(),
             WireFrame::DependencyActionResult(result)
                 if result.state == DependencyActionState::ConsentRequired
+        ));
+        drop(client);
+        assert!(task.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn decision_evidence_is_routed_only_after_handshake() {
+        let (mut client, server) = duplex(1024);
+        let task = tokio::spawn(serve_connection(server, FakeRuntime));
+        write_frame(&mut client, &hello()).await.unwrap();
+        let _ = read_frame(&mut client).await.unwrap();
+        write_frame(
+            &mut client,
+            &WireFrame::DecisionEvidence {
+                decision_id: "decision-1".into(),
+                evidence: gent_protocol::DecisionEvidence::AcknowledgementUnprovable,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            read_frame(&mut client).await.unwrap(),
+            WireFrame::DecisionSettlement(decision)
+                if decision.phase == DecisionSettlementPhase::Unprovable
         ));
         drop(client);
         assert!(task.await.unwrap().is_err());

@@ -17,6 +17,20 @@ impl DecisionSettlementState {
     pub fn decision(&self, decision_id: &str) -> Option<&DecisionSettlement> {
         self.decisions.get(decision_id)
     }
+
+    /// Rehydrates the minimum pure state needed to validate one durable decision update.
+    #[must_use]
+    pub fn from_decision(decision: DecisionSettlement) -> Self {
+        let mut state = Self::default();
+        state.keys.insert(
+            decision.idempotency_key.clone(),
+            decision.decision_id.clone(),
+        );
+        state
+            .decisions
+            .insert(decision.decision_id.clone(), decision);
+        state
+    }
 }
 
 /// The result of accepting or deduplicating a client decision command.

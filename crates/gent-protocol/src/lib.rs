@@ -3,11 +3,18 @@
 use std::io;
 use std::str::FromStr;
 
-use gent_types::{CapabilitySet, Command, DoctorReport, Event, HostStatus, Receipt};
+use gent_types::{
+    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
+    Receipt,
+};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+
+mod decision;
+
+pub use decision::{DecisionEvidence, DecisionSubmission};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,9 +130,23 @@ pub enum WireFrame {
     DependencyPlan(DependencyPlan),
     DependencyActionRequest(DependencyActionRequest),
     DependencyActionResult(DependencyActionResult),
-    Subscribe { after_cursor: u64 },
-    Events { events: Vec<Event> },
-    Error { code: String, message: String },
+    DecisionSubmit(DecisionCommand),
+    DecisionSubmission(DecisionSubmission),
+    DecisionEvidence {
+        decision_id: String,
+        evidence: DecisionEvidence,
+    },
+    DecisionSettlement(DecisionSettlement),
+    Subscribe {
+        after_cursor: u64,
+    },
+    Events {
+        events: Vec<Event>,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

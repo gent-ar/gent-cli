@@ -16,10 +16,11 @@ than a second copy of application logic. The implemented vertical slice is:
 - SQLite-backed host state and a read-only `gent doctor` dependency report.
 
 Claude, Codex, MCP, pairing, Git, automations and the private Claurst bridge
-are deliberately not routed in this milestone. They are represented by their
-own crates and ports, but no provider process can be spawned yet. This keeps
-the app as the sole production writer until the migration plan's observer and
-cutover gates are satisfied.
+are deliberately not routed through `gentd` in this milestone. The public
+driver crate can execute a previously locked Claude or Codex binary at its
+outer operating-system edge, but daemon authority is not connected to that
+capability. This keeps the app as the sole production writer until the
+migration plan's observer and cutover gates are satisfied.
 
 ## Try it
 

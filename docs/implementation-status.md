@@ -13,12 +13,13 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] File-backed SQLite restart recovery for host epoch and cursor-ordered receipt events.
 - [x] Pure run-lineage, cursor-deduplicated lifecycle projection, and live-status reducers.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
+- [x] Durable SQLite decision settlement with restart-safe terminal outcomes and optimistic contention handling.
 - [x] Protocol-only CLI status/events/submit and read-only doctor discovery.
 - [x] End-to-end Unix local-IPC smoke test for daemon, client, receipt, and event ordering.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
 - [x] Signed compatibility entries, trusted-key revocation, fixed-expiry offline cache, and immutable durable run-version locks.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
-- [x] Fixture-tested driver session recovery, output bounds, interrupt policy, and process fakes.
+- [x] Fixture-tested driver session recovery, output bounds, interrupt policy, process fakes, and locked public-process launching.
 - [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux CI matrix for the supported Unix-socket host targets.

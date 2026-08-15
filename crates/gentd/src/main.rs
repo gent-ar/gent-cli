@@ -5,17 +5,22 @@ mod transport;
 use std::path::PathBuf;
 
 use clap::Parser;
+use gent_core::{DecisionCommandOutcome, DecisionEvidence as CoreDecisionEvidence};
 use gent_protocol::{
-    DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
+    DecisionEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
+    DependencyPlan, DependencyPlanRequest,
 };
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, Command, DoctorReport, Event, HostStatus, Receipt};
+use gent_types::{
+    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event, HostStatus,
+    Receipt,
+};
 use tokio::net::UnixListener;
 
 use crate::dependency_catalog::DependencyCatalog;
 
-const CAPABILITIES: &[&str] = &["events", "host-epoch", "receipts"];
+const CAPABILITIES: &[&str] = &["decisions", "events", "host-epoch", "receipts"];
 
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
@@ -74,6 +79,49 @@ impl transport::RuntimeApi for RuntimeFacade {
     }
     fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult {
         self.dependencies.act(request)
+    }
+    fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String> {
+        self.coordinator
+            .submit_decision(command)
+            .map(decision_submission)
+            .map_err(|error| error.to_string())
+    }
+    fn apply_decision_evidence(
+        &self,
+        decision_id: String,
+        evidence: DecisionEvidence,
+    ) -> Result<DecisionSettlement, String> {
+        self.coordinator
+            .apply_decision_evidence(&decision_id, decision_evidence(evidence))
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn decision_submission(outcome: DecisionCommandOutcome) -> DecisionSubmission {
+    match outcome {
+        DecisionCommandOutcome::Accepted(decision) => DecisionSubmission::Accepted(decision),
+        DecisionCommandOutcome::Duplicate(decision) => DecisionSubmission::Duplicate(decision),
+        DecisionCommandOutcome::IdempotencyConflict {
+            existing_decision_id,
+        } => DecisionSubmission::IdempotencyConflict {
+            existing_decision_id,
+        },
+        DecisionCommandOutcome::DecisionIdConflict {
+            existing_idempotency_key,
+        } => DecisionSubmission::DecisionIdConflict {
+            existing_idempotency_key,
+        },
+    }
+}
+
+const fn decision_evidence(evidence: DecisionEvidence) -> CoreDecisionEvidence {
+    match evidence {
+        DecisionEvidence::ProviderAcknowledged => CoreDecisionEvidence::ProviderAcknowledged,
+        DecisionEvidence::ProviderSettled => CoreDecisionEvidence::ProviderSettled,
+        DecisionEvidence::AcknowledgementUnprovable => {
+            CoreDecisionEvidence::AcknowledgementUnprovable
+        }
+        DecisionEvidence::RecoveryRequired => CoreDecisionEvidence::RecoveryRequired,
     }
 }
 

@@ -1,6 +1,7 @@
 //! Coordinator orchestration over pure policy and durable ports.
 
 pub mod catalog;
+mod decisions;
 
 use gent_core::{Run, switch_provider};
 use gent_ports::{
@@ -22,6 +23,10 @@ pub struct Coordinator<L> {
 pub enum RuntimeError {
     #[error(transparent)]
     Ledger(#[from] LedgerError),
+    #[error("unknown decision: {0}")]
+    UnknownDecision(String),
+    #[error("decision was changed by another coordinator too often")]
+    DecisionContention,
 }
 
 impl<L: Ledger> Coordinator<L> {
@@ -60,9 +65,11 @@ impl<L: Ledger> Coordinator<L> {
             kind: "commandAccepted".into(),
             payload: command.payload.clone(),
         };
+        // A concurrent retry can observe the short accepted-to-terminal window. Both callers
+        // then settle the same receipt; the ledger atomically lets one append the terminal event
+        // and returns that terminal receipt to the other.
         let receipt = match self.ledger.claim_command(command, &accepted)? {
-            ReceiptClaim::Existing(receipt) => return Ok(receipt),
-            ReceiptClaim::Accepted(receipt) => receipt,
+            ReceiptClaim::Existing(receipt) | ReceiptClaim::Accepted(receipt) => receipt,
         };
         let status = terminal_status(&command.kind);
         let terminal = Event {

@@ -3,12 +3,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gent_ports::{
-    HostIngress, IngressMode, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease,
-    RunLeaseClaim, RunRecord, WorktreeLease,
+    DecisionClaim, DecisionPhaseUpdate, HostIngress, IngressMode, LeaseClaim, Ledger, LedgerError,
+    ReceiptClaim, RunLease, RunLeaseClaim, RunRecord, WorktreeLease,
 };
-use gent_types::{Command, Event, HostEpoch, Receipt, ReceiptStatus, RunVersionLock};
+use gent_types::{
+    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, HostEpoch,
+    Receipt, ReceiptStatus, RunVersionLock,
+};
 use rusqlite::{Connection, params};
 
+mod decisions;
 mod leases;
 mod queries;
 use queries::{
@@ -53,6 +57,7 @@ impl SqliteLedger {
             CREATE TABLE IF NOT EXISTS host_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), epoch INTEGER NOT NULL, ingress TEXT NOT NULL DEFAULT 'open');
             INSERT OR IGNORE INTO host_state (singleton, epoch, ingress) VALUES (1, 1, 'open');
             CREATE TABLE IF NOT EXISTS receipts (idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, host_epoch INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS decisions (decision_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, phase TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS events (cursor INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, receipt_id TEXT NOT NULL, host_epoch INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY NOT NULL, parent_run_id TEXT REFERENCES runs(run_id), provider TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS run_version_locks (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), provider TEXT NOT NULL, canonical_path TEXT NOT NULL, file_identity TEXT NOT NULL, digest_sha256 TEXT NOT NULL, version TEXT NOT NULL, compatibility_entry TEXT NOT NULL);
@@ -185,6 +190,20 @@ impl Ledger for SqliteLedger {
         transaction.commit().map_err(storage_error)?;
         receipt.status = status;
         Ok(receipt)
+    }
+    fn claim_decision(&self, command: &DecisionCommand) -> Result<DecisionClaim, LedgerError> {
+        decisions::claim(self, command)
+    }
+    fn find_decision(&self, decision_id: &str) -> Result<Option<DecisionSettlement>, LedgerError> {
+        decisions::find(self, decision_id)
+    }
+    fn replace_decision_phase(
+        &self,
+        decision_id: &str,
+        expected: &DecisionSettlementPhase,
+        next: &DecisionSettlementPhase,
+    ) -> Result<DecisionPhaseUpdate, LedgerError> {
+        decisions::replace_phase(self, decision_id, expected, next)
     }
     fn append_event(&self, event: &Event) -> Result<Event, LedgerError> {
         let connection = self.lock()?;

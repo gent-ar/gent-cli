@@ -26,6 +26,8 @@ done
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- status >"$data_dir/status.json"
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- submit --kind ping --payload '{"message":"smoke"}' >"$data_dir/receipt.json"
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- events >"$data_dir/events.json"
+GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- decision submit --decision-id smoke-decision --idempotency-key smoke-key >"$data_dir/decision.json"
+GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- decision unprovable --decision-id smoke-decision >"$data_dir/decision-terminal.json"
 
 python3 - "$data_dir" <<'PY'
 import json
@@ -36,6 +38,8 @@ data_dir = pathlib.Path(sys.argv[1])
 status = json.loads((data_dir / "status.json").read_text())
 receipt = json.loads((data_dir / "receipt.json").read_text())
 events = json.loads((data_dir / "events.json").read_text())
+decision = json.loads((data_dir / "decision.json").read_text())
+terminal_decision = json.loads((data_dir / "decision-terminal.json").read_text())
 
 assert status["type"] == "status"
 assert receipt["body"]["status"] == "settled"
@@ -43,4 +47,9 @@ assert [event["kind"] for event in events["body"]["events"]] == [
     "commandAccepted",
     "commandSettled",
 ]
+assert decision["type"] == "decisionSubmission"
+assert decision["body"]["outcome"] == "accepted"
+assert decision["body"]["decision"]["phase"] == "pending"
+assert terminal_decision["type"] == "decisionSettlement"
+assert terminal_decision["body"]["phase"] == "unprovable"
 PY

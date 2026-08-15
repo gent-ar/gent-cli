@@ -10,6 +10,10 @@ use gent_types::{CapabilitySet, Command, PROTOCOL_MAX, PROTOCOL_MIN, ReceiptId};
 use serde_json::Value;
 use tokio::net::UnixStream;
 
+mod decision;
+
+use crate::decision::{DecisionCommandLine, decision_frame};
+
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
 struct Args {
@@ -27,6 +31,11 @@ enum CommandLine {
     Deps {
         #[command(subcommand)]
         action: DependencyCommand,
+    },
+    /// Submit or terminally settle a durable provider-neutral decision.
+    Decision {
+        #[command(subcommand)]
+        action: DecisionCommandLine,
     },
     Status,
     Submit {
@@ -79,6 +88,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 serde_json::to_string_pretty(&request(args.data_dir, frame).await?)?
             );
         }
+        CommandLine::Decision { action } => println!(
+            "{}",
+            serde_json::to_string_pretty(&request(args.data_dir, decision_frame(&action)).await?)?
+        ),
         CommandLine::Status => println!(
             "{}",
             serde_json::to_string_pretty(&request(args.data_dir, WireFrame::StatusRequest).await?)?
@@ -159,6 +172,7 @@ async fn request(
             protocol_min: PROTOCOL_MIN,
             protocol_max: PROTOCOL_MAX,
             capabilities: CapabilitySet(vec![
+                "decisions".into(),
                 "events".into(),
                 "host-epoch".into(),
                 "receipts".into(),
