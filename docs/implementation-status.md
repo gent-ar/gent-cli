@@ -106,7 +106,11 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Production process stdout is delivered through a bounded queue into that pump; direct
       process waits drain the queue safely, and runner-owned monotonic deadlines execute the
       interrupt → terminate → kill ladder or cancel it on process exit.
-- [x] Pure Git porcelain parsing, worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
+- [x] Pure Git porcelain parsing plus a bounded, fixed-argv, canonical-path Git-status
+      executor behind a receipt-backed, worktree-lease-fenced authority service. It returns
+      only a count and digest, is uncomposed by `gentd`, and observer mode denies it before
+      a receipt, lease, or process is created.
+- [x] Worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
@@ -121,8 +125,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 
 - [ ] Real Claude/Codex recordings and installed-provider integration evidence.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
-- [ ] MCP hosting, Git execution/worktree operations, automation execution, pairing
-      transport, and provider process lifecycle ownership in a live daemon.
+- [ ] MCP hosting, Git mutation/worktree operations, automation execution, pairing
+      transport, and provider process lifecycle ownership in a live daemon. The narrow Git
+      status service above remains dormant until an authority-gated host profile is proven.
 - [ ] A phase-4 legacy-observer host profile: it must consume a `LegacyEventTap`
       without Rust durable writes, mutation APIs, or worktree leases. The current
       standalone daemon's hard public-provider observer guard does not claim this.

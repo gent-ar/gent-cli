@@ -79,6 +79,27 @@ pub(super) fn find_workspace(
         .map_err(storage_error)
 }
 
+pub(super) fn find_worktree(
+    ledger: &SqliteLedger,
+    worktree_id: &str,
+) -> Result<Option<WorktreeRecord>, LedgerError> {
+    let connection = ledger.lock()?;
+    connection
+        .query_row(
+            "SELECT worktree_id, repository_id, canonical_path FROM worktrees WHERE worktree_id = ?1",
+            [worktree_id],
+            |row| {
+                Ok(WorktreeRecord {
+                    worktree_id: row.get(0)?,
+                    repository_id: row.get(1)?,
+                    canonical_path: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(storage_error)
+}
+
 pub(super) fn list_repositories(
     ledger: &SqliteLedger,
     workspace_id: &str,

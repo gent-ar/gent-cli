@@ -12,6 +12,7 @@ mod conversation_artifacts;
 mod conversation_ledger;
 mod dependency_action_executor;
 mod external_provider_bridge;
+mod git_executor;
 mod git_operation_ledger;
 mod legacy_event_tap;
 mod policy_ledger;
@@ -34,6 +35,7 @@ pub use dependency_action_executor::{
 };
 pub use external_provider_bridge::ExternalProviderBridge;
 pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
+pub use git_executor::{GitExecutor, GitExecutorError, GitStatusOperation, GitStatusSummary};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use legacy_event_tap::LegacyEventTap;
 pub use policy_ledger::PolicyLedger;

@@ -1,4 +1,6 @@
-//! Pure Git porcelain parsing and typed outcomes. Process execution is composed by `gentd` later.
+//! Git porcelain parsing plus a dormant, fixed-argv status executor.
+
+pub mod executor;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StatusEntry {

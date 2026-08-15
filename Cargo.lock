@@ -445,6 +445,9 @@ version = "0.1.0"
 dependencies = [
  "gent-ports",
  "gent-types",
+ "hex",
+ "sha2",
+ "tempfile",
  "thiserror",
 ]
 

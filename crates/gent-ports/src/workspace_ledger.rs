@@ -30,6 +30,17 @@ pub trait WorkspaceLedger: Send + Sync {
     /// Returns an error when durable state cannot be read.
     fn find_workspace(&self, workspace_id: &str) -> Result<Option<WorkspaceRecord>, LedgerError>;
 
+    /// Reads one durable worktree identity, including its daemon-selected canonical path.
+    ///
+    /// # Errors
+    /// Returns an error when the implementation cannot resolve worktree identities.
+    fn find_worktree(&self, worktree_id: &str) -> Result<Option<WorktreeRecord>, LedgerError> {
+        let _ = worktree_id;
+        Err(LedgerError::Invariant(
+            "worktree lookup is unavailable".into(),
+        ))
+    }
+
     /// Lists repositories in durable creation order.
     ///
     /// # Errors

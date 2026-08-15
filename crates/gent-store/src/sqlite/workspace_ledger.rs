@@ -22,6 +22,10 @@ impl WorkspaceLedger for SqliteLedger {
         workspaces::find_workspace(self, workspace_id)
     }
 
+    fn find_worktree(&self, worktree_id: &str) -> Result<Option<WorktreeRecord>, LedgerError> {
+        workspaces::find_worktree(self, worktree_id)
+    }
+
     fn list_workspace_repositories(
         &self,
         workspace_id: &str,
