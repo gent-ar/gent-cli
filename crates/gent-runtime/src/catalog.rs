@@ -1,7 +1,7 @@
 //! Capability-catalog reconciliation is pure: declarations must match observed behavior.
 
 use gent_ports::CapabilityCatalogLedger;
-use gent_protocol::CONVERSATION_STATUS_CAPABILITY;
+use gent_protocol::{CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY};
 use gent_types::{CapabilityCatalogRecord, CapabilitySet};
 
 use crate::Coordinator;
@@ -70,6 +70,9 @@ pub fn declared_capabilities() -> CapabilitySet {
     capabilities
         .0
         .push(CONVERSATION_STATUS_CAPABILITY.to_owned());
+    capabilities
+        .0
+        .push(CONVERSATION_TIMELINE_CAPABILITY.to_owned());
     capabilities
 }
 

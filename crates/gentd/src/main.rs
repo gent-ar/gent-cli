@@ -4,6 +4,8 @@ mod host_lock;
 mod transport;
 #[cfg(test)]
 mod transport_tests;
+#[cfg(test)]
+mod transport_timeline_tests;
 #[cfg(windows)]
 mod transport_windows;
 #[cfg(all(test, windows))]
@@ -21,8 +23,8 @@ use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{Coordinator, ProviderRunAuthority};
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, Command, ConversationStatus, DecisionCommand, DecisionSettlement, DoctorReport,
-    EventResume, HostStatus, Receipt,
+    CapabilitySet, Command, ConversationStatus, ConversationTimeline, DecisionCommand,
+    DecisionSettlement, DoctorReport, EventResume, HostStatus, Receipt,
 };
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -176,6 +178,11 @@ impl api::RuntimeApi for RuntimeFacade {
     fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String> {
         self.coordinator
             .conversation_status(conversation_id)
+            .map_err(|error| error.to_string())
+    }
+    fn conversation_timeline(&self, conversation_id: &str) -> Result<ConversationTimeline, String> {
+        self.coordinator
+            .conversation_timeline(conversation_id)
             .map_err(|error| error.to_string())
     }
 }

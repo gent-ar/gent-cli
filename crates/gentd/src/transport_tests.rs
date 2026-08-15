@@ -131,6 +131,16 @@ impl RuntimeApi for FakeRuntime {
             runs: Vec::new(),
         })
     }
+    fn conversation_timeline(
+        &self,
+        conversation_id: &str,
+    ) -> Result<gent_types::ConversationTimeline, String> {
+        Ok(gent_types::ConversationTimeline {
+            conversation_id: conversation_id.into(),
+            runs: Vec::new(),
+            artifacts: Vec::new(),
+        })
+    }
 }
 
 fn hello() -> WireFrame {

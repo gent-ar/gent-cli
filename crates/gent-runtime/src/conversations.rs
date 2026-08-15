@@ -6,8 +6,9 @@ use gent_ports::{
     RunRecord, TurnPhaseUpdate,
 };
 use gent_types::{
-    ConversationArtifact, ConversationRecord, ConversationRunStatus, ConversationStatus,
-    DurableTurnPhase, RunLiveStatus, TurnRecord,
+    ConversationArtifact, ConversationArtifactSummary, ConversationRecord, ConversationRunStatus,
+    ConversationStatus, ConversationTimeline, ConversationTimelineRun, DurableTurnPhase,
+    RunLiveStatus, TurnRecord,
 };
 
 use crate::{Coordinator, RuntimeError, to_record};
@@ -97,6 +98,58 @@ where
         conversation_id: &str,
     ) -> Result<Vec<ConversationArtifact>, RuntimeError> {
         Ok(self.ledger.list_conversation_artifacts(conversation_id)?)
+    }
+}
+
+impl<L> Coordinator<L>
+where
+    L: Ledger + ConversationLedger + ConversationArtifactLedger,
+{
+    /// Reads one durable conversation without exposing transcript content or provider sessions.
+    ///
+    /// # Errors
+    /// Returns an error when durable hierarchy or artifact provenance cannot be read.
+    pub fn conversation_timeline(
+        &self,
+        conversation_id: &str,
+    ) -> Result<ConversationTimeline, RuntimeError> {
+        let runs = self
+            .ledger
+            .list_conversation_runs(conversation_id)?
+            .into_iter()
+            .map(|run| {
+                Ok(ConversationTimelineRun {
+                    turns: self.ledger.list_run_turns(&run.run_id)?,
+                    run_id: run.run_id,
+                    parent_run_id: run.parent_run_id,
+                    provider: run.provider,
+                })
+            })
+            .collect::<Result<Vec<_>, gent_ports::LedgerError>>()?;
+        let artifacts = self
+            .ledger
+            .list_conversation_artifacts(conversation_id)?
+            .iter()
+            .map(artifact_summary)
+            .collect();
+        Ok(ConversationTimeline {
+            conversation_id: conversation_id.into(),
+            runs,
+            artifacts,
+        })
+    }
+}
+
+fn artifact_summary(artifact: &ConversationArtifact) -> ConversationArtifactSummary {
+    ConversationArtifactSummary {
+        artifact_id: artifact.artifact_id.clone(),
+        kind: artifact.kind,
+        source_turn_ids: artifact.source_turn_ids.clone(),
+        provider: artifact.provider.clone(),
+        model_version: artifact.model_version.clone(),
+        input_digest: artifact.input_digest.clone(),
+        status: artifact.status,
+        supersedes_artifact_id: artifact.supersedes_artifact_id.clone(),
     }
 }
 

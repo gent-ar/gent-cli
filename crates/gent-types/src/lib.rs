@@ -25,7 +25,8 @@ pub use conversation_artifact::{
     ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
 };
 pub use conversations::{
-    ConversationRecord, ConversationRunStatus, ConversationStatus, DurableTurnPhase, TurnRecord,
+    ConversationArtifactSummary, ConversationRecord, ConversationRunStatus, ConversationStatus,
+    ConversationTimeline, ConversationTimelineRun, DurableTurnPhase, TurnRecord,
 };
 pub use decision::{DecisionCommand, DecisionSettlement, DecisionSettlementPhase};
 pub use doctor::{

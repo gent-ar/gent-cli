@@ -8,6 +8,7 @@ use gent_types::{Command, ReceiptId};
 use serde_json::Value;
 
 mod conversation_status;
+mod conversation_timeline;
 mod decision;
 mod local_ipc;
 
@@ -87,6 +88,11 @@ enum ConversationCommand {
         #[arg(long)]
         conversation_id: String,
     },
+    /// Read durable run/turn lineage and artifact provenance without transcript content.
+    Timeline {
+        #[arg(long)]
+        conversation_id: String,
+    },
 }
 
 #[tokio::main]
@@ -119,6 +125,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "{}",
                 serde_json::to_string_pretty(
                     &conversation_status::request(
+                        args.data_dir,
+                        args.no_autostart,
+                        conversation_id
+                    )
+                    .await?,
+                )?
+            ),
+            ConversationCommand::Timeline { conversation_id } => println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &conversation_timeline::request(
                         args.data_dir,
                         args.no_autostart,
                         conversation_id
@@ -254,6 +271,24 @@ mod tests {
             args.command,
             CommandLine::Conversation {
                 action: ConversationCommand::Status { conversation_id }
+            } if conversation_id == "conversation-1"
+        ));
+    }
+
+    #[test]
+    fn conversation_timeline_is_a_dedicated_read_only_command() {
+        let args = Args::try_parse_from([
+            "gent",
+            "conversation",
+            "timeline",
+            "--conversation-id",
+            "conversation-1",
+        ])
+        .unwrap();
+        assert!(matches!(
+            args.command,
+            CommandLine::Conversation {
+                action: ConversationCommand::Timeline { conversation_id }
             } if conversation_id == "conversation-1"
         ));
     }

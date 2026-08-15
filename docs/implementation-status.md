@@ -42,6 +42,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Durable title/recap provenance records: source turns, provider/model version, input digest,
       immutable lineage, and atomic supersession.
 - [x] Capability-gated, same-socket `gent conversation status` transport; it creates no receipt and does not use command or event frames.
+- [x] Capability-gated `gent conversation timeline` transport for ordered run/turn lineage and
+      title/recap provenance metadata; it excludes artifact text and provider-native sessions.
 - [x] Additive normalized lifecycle signals for root thinking/waiting/compacting states,
       subagent and command work, and attention; lease-owned durable projections preserve them.
 - [x] Pure normalized driver frames and declarative adapter interpreter.

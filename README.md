@@ -16,9 +16,10 @@ than a second copy of application logic. The implemented vertical slice is:
   idempotent command receipts, cursor-ordered durable events, and explicit
   snapshot-backed resync after event compaction.
 - SQLite-backed host state, a read-only `gent doctor` dependency report, and negotiated
-  `gent conversation status --conversation-id <id>` reads.
+  `gent conversation status` and `gent conversation timeline` reads.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
-  only through the capability-gated read protocol in `gentd`.
+  only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
+  content and provider-native session identifiers.
 - Durable workspace → repository → worktree identities, stored independently from worktree
   leases and any future Git execution.
 - Durable worktree-scoped Git-operation lifecycle records with optimistic, terminal-safe transitions;
