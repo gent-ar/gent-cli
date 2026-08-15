@@ -12,6 +12,7 @@ mod attachment_ledger;
 mod automation_execution_ledger;
 mod automation_executions;
 mod capability_catalog;
+mod conversation_activity_ledger;
 mod conversation_artifacts;
 mod conversation_ledger;
 mod conversation_prompt_ledger;

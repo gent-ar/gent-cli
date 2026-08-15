@@ -8,6 +8,7 @@ mod attachment_blobs;
 mod attachment_ledger;
 mod automation_execution_ledger;
 mod capability_catalog;
+mod conversation_activity_ledger;
 mod conversation_artifacts;
 mod conversation_content;
 mod conversation_ledger;
@@ -32,6 +33,7 @@ pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
 pub use automation_execution_ledger::{AutomationExecutionLedger, AutomationExecutionUpdate};
 pub use capability_catalog::CapabilityCatalogLedger;
+pub use conversation_activity_ledger::ConversationActivityLedger;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_content::ConversationContentReader;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
@@ -85,13 +87,11 @@ pub enum ReceiptClaim {
     Existing(Receipt),
     Accepted(Receipt),
 }
-/// Result of atomically creating or locating a decision by either stable identifier.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DecisionClaim {
     Created(DecisionSettlement),
     Existing(DecisionSettlement),
 }
-/// Result of an optimistic phase update. `Current` preserves a concurrent writer's state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DecisionPhaseUpdate {
     Applied(DecisionSettlement),
