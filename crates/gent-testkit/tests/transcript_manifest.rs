@@ -182,6 +182,26 @@ fn rejects_missing_files_and_invalid_live_provenance() {
     )
     .replacen("sha256:aaaa", "not-a-digest", 1);
     write_fixture(&directory, "bad.jsonl", &bad, true);
+    write_fixture(
+        &directory,
+        "mismatched.jsonl",
+        &live_metadata(
+            "codex",
+            "permission_prompt",
+            r#","status":"synthetic","captureOrigin":"synthetic""#,
+        ),
+        false,
+    );
+    write_fixture(
+        &directory,
+        "unrationalized.jsonl",
+        &live_metadata(
+            "claude",
+            "plan_mode",
+            r#","status":"synthetic","captureOrigin":"synthetic""#,
+        ),
+        true,
+    );
     let mut cells = all_cells("capture_required");
     cells = cells.replacen(
         "{ vendor: claude, scenario: full_turn, state: capture_required }",
@@ -203,10 +223,23 @@ fn rejects_missing_files_and_invalid_live_provenance() {
         "{ vendor: claude, scenario: thinking, state: recorded, path: invalid.txt }",
         1,
     );
+    cells = cells.replacen(
+        "{ vendor: claude, scenario: permission_prompt, state: capture_required }",
+        "{ vendor: claude, scenario: permission_prompt, state: recorded, path: mismatched.jsonl }",
+        1,
+    );
+    cells = cells.replacen(
+        "{ vendor: claude, scenario: plan_mode, state: capture_required }",
+        "{ vendor: claude, scenario: plan_mode, state: synthetic, path: unrationalized.jsonl }",
+        1,
+    );
     let error =
         validate_public_driver_manifest(&write_manifest(&directory, &cells), false).unwrap_err();
     assert!(error.contains("could not resolve fixture"));
     assert!(error.contains("fixture path is required"));
     assert!(error.contains("fixture path must be repository-relative"));
     assert!(error.contains("invalid or missing executableDigest"));
+    assert!(error.contains("fixture vendor does not match"));
+    assert!(error.contains("fixture status must be recorded"));
+    assert!(error.contains("rationale is required"));
 }
