@@ -541,6 +541,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "directories",
+ "ed25519-dalek",
  "fs2",
  "gent-adapters",
  "gent-automations",
@@ -554,6 +555,7 @@ dependencies = [
  "gent-runtime",
  "gent-store",
  "gent-types",
+ "hex",
  "serde_json",
  "tempfile",
  "thiserror",
