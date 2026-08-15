@@ -10,15 +10,24 @@ use crate::decision::decision_frame;
 use crate::local_ipc::request;
 use crate::{
     Args, CommandLine, ConversationCommand, DependencyCommand, conversation_index,
-    conversation_status, conversation_timeline, event_stream,
+    conversation_status, conversation_timeline, event_stream, terminal,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let Args {
         data_dir,
         no_autostart,
+        conversations,
         command,
     } = args;
+    if conversations && command.is_some() {
+        return Err("--conversations cannot be combined with a subcommand".into());
+    }
+    if conversations || command.is_none() {
+        let index = conversation_index::request(data_dir, no_autostart).await?;
+        return Ok(terminal::run(terminal::UiState::new(index))?);
+    }
+    let command = command.expect("conversation browser handles no-subcommand invocation");
     match command {
         CommandLine::Doctor => {
             print(request(data_dir, no_autostart, WireFrame::DoctorRequest).await?)?;

@@ -67,6 +67,7 @@ until the migration plan's evidence, observer, and cutover gates are satisfied.
 ```sh
 cargo run -p gent-cli -- doctor
 cargo run -p gent-cli -- status
+cargo run -p gent-cli -- --conversations
 cargo run -p gent-cli -- conversation list
 cargo run -p gent-cli -- submit --kind ping --payload '{"message":"hello"}'
 cargo run -p gent-cli -- events
@@ -78,6 +79,12 @@ empty temporary directory when experimenting or testing. Set `GENTD_BIN` to a
 specific daemon binary when `gent` should not resolve a sibling executable.
 Pass `--no-autostart` to require an already-running daemon, which is useful for
 supervised deployments and deterministic smoke tests.
+
+Running `gent` with no subcommand, or `gent --conversations`, opens the local
+read-only conversation browser. It lists durable identities and run counts, then
+shows an explicitly disabled composer and model/effort/mode controls while the
+daemon is in observer mode. It never sends a prompt, a command receipt, or a
+provider lifecycle request.
 
 ## Development
 

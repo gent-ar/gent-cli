@@ -10,6 +10,7 @@ mod conversation_timeline;
 mod decision;
 mod event_stream;
 mod local_ipc;
+mod terminal;
 
 use crate::decision::DecisionCommandLine;
 
@@ -21,8 +22,11 @@ struct Args {
     /// Fail if the local daemon is unavailable instead of starting one.
     #[arg(long, global = true)]
     no_autostart: bool,
+    /// Open the read-only conversation browser.
+    #[arg(long, global = true)]
+    conversations: bool,
     #[command(subcommand)]
-    command: CommandLine,
+    command: Option<CommandLine>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -141,9 +145,9 @@ mod tests {
         .unwrap();
         assert!(matches!(
             args.command,
-            CommandLine::Deps {
+            Some(CommandLine::Deps {
                 action: DependencyCommand::Install { idempotency_key: Some(key), .. }
-            } if key == "retry-1"
+            }) if key == "retry-1"
         ));
     }
 
@@ -159,9 +163,9 @@ mod tests {
         .unwrap();
         assert!(matches!(
             args.command,
-            CommandLine::Conversation {
+            Some(CommandLine::Conversation {
                 action: ConversationCommand::Status { conversation_id }
-            } if conversation_id == "conversation-1"
+            }) if conversation_id == "conversation-1"
         ));
     }
 
@@ -170,10 +174,19 @@ mod tests {
         let args = Args::try_parse_from(["gent", "conversation", "list"]).unwrap();
         assert!(matches!(
             args.command,
-            CommandLine::Conversation {
+            Some(CommandLine::Conversation {
                 action: ConversationCommand::List
-            }
+            })
         ));
+    }
+
+    #[test]
+    fn default_and_conversations_flag_select_the_terminal_browser() {
+        let default_args = Args::try_parse_from(["gent"]).unwrap();
+        assert!(default_args.command.is_none());
+        let browser_args = Args::try_parse_from(["gent", "--conversations"]).unwrap();
+        assert!(browser_args.conversations);
+        assert!(browser_args.command.is_none());
     }
 
     #[test]
@@ -188,9 +201,9 @@ mod tests {
         .unwrap();
         assert!(matches!(
             args.command,
-            CommandLine::Conversation {
+            Some(CommandLine::Conversation {
                 action: ConversationCommand::Timeline { conversation_id }
-            } if conversation_id == "conversation-1"
+            }) if conversation_id == "conversation-1"
         ));
     }
 
