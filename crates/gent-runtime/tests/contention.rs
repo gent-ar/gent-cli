@@ -156,3 +156,41 @@ fn run_version_lock_is_immutable_and_durable() {
     );
     assert!(coordinator.lock_run_version("run", &lock).is_err());
 }
+
+#[test]
+fn file_backed_ledger_preserves_events_and_epoch_after_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("ledger.sqlite");
+    let first = Coordinator::new(
+        SqliteLedger::open(&database).unwrap(),
+        CapabilitySet::default(),
+    );
+    let receipt = first
+        .submit(&Command {
+            receipt_id: ReceiptId::new(),
+            idempotency_key: "restart".into(),
+            host_epoch: HostEpoch(1),
+            kind: "ping".into(),
+            payload: json!({"restart": true}),
+        })
+        .unwrap();
+    drop(first);
+
+    let restarted = Coordinator::new(
+        SqliteLedger::open(&database).unwrap(),
+        CapabilitySet::default(),
+    );
+    assert_eq!(restarted.status().unwrap().host_epoch, HostEpoch(1));
+    let events = restarted.events_after(0).unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(
+        events
+            .windows(2)
+            .all(|pair| pair[0].cursor < pair[1].cursor)
+    );
+    assert!(
+        events
+            .iter()
+            .all(|event| event.receipt_id == receipt.receipt_id)
+    );
+}

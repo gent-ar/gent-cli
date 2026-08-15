@@ -10,6 +10,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Protocol negotiation and bounded length-prefixed JSON local IPC.
 - [x] SQLite receipt/event ledger, idempotency, event cursors, and epoch checks.
 - [x] Durable run and worktree lease arbitration with separate-connection contention tests.
+- [x] File-backed SQLite restart recovery for host epoch and cursor-ordered receipt events.
 - [x] Pure run-lineage, cursor-deduplicated lifecycle projection, and live-status reducers.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
 - [x] Protocol-only CLI status/events/submit and read-only doctor discovery.
