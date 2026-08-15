@@ -48,7 +48,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       live-evidence gate.
 - [x] Fail-closed cross-linking from passed public-provider coverage records to
       recorded driver transcripts with matching provider/version/platform/transport.
-- [x] Signed compatibility entries, trusted-key revocation, fixed-expiry offline cache, and immutable durable run-version locks. Version-only manifests remain discovery evidence only: authority stays denied until a digest-bound signed schema and daemon-owned resolver can authorize an observed executable.
+- [x] Digest-bound signed compatibility entries, trusted-key revocation, fixed-expiry offline cache,
+      and immutable durable run-version locks. The shipped observer still denies public lifecycle
+      requests before resolving an executable; enabling authority additionally requires the planned
+      daemon-owned resolver and real-provider evidence.
 - [x] Immutable, restart-safe provider-native session bindings; resume ignores the legacy client wire value.
 - [x] Lease- and session-bound durable run lifecycle projections, with cursor-monotonic restart recovery.
 - [x] Durable immutable conversation → run → turn identity, provider-switch lineage, and monotonic turn lifecycle transitions.

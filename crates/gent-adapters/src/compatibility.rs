@@ -11,6 +11,8 @@ pub struct CompatibilityEntry {
     pub id: String,
     pub provider: String,
     pub version: String,
+    /// SHA-256 of the canonical executable this entry authorizes.
+    pub digest_sha256: String,
     pub revoked: bool,
 }
 
@@ -79,6 +81,7 @@ impl TrustedKeySet {
             entry.id == lock.compatibility_entry
                 && entry.provider == lock.provider
                 && entry.version == lock.version
+                && entry.digest_sha256 == lock.digest_sha256
                 && !entry.revoked
         });
         matched
@@ -125,6 +128,7 @@ impl SignedCompatibilityManifest {
             entry.id == lock.compatibility_entry
                 && entry.provider == lock.provider
                 && entry.version == lock.version
+                && entry.digest_sha256 == lock.digest_sha256
                 && !entry.revoked
         });
         matched
@@ -177,6 +181,7 @@ mod tests {
                 id: "claude-1".into(),
                 provider: "claude".into(),
                 version: "1.0".into(),
+                digest_sha256: "digest".into(),
                 revoked: false,
             }],
         };

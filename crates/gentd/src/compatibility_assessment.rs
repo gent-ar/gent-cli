@@ -70,7 +70,10 @@ impl CompatibilityAssessment {
             return CompatibilityTrust::Untrusted;
         };
         let Some(entry) = cached.manifest.payload.entries.iter().find(|entry| {
-            entry.provider == provider && entry.version == *version && !entry.revoked
+            entry.provider == provider
+                && entry.version == *version
+                && entry.digest_sha256 == identity.digest_sha256
+                && !entry.revoked
         }) else {
             return CompatibilityTrust::Untrusted;
         };
@@ -118,10 +121,15 @@ impl CompatibilityAssessment {
 }
 
 impl RunVersionAuthorizer for CompatibilityAssessment {
-    fn authorize(&self, _: &RunVersionLock) -> Result<(), PublicProviderRunError> {
-        // The existing signed manifest names only provider/version. It does not bind the captured
-        // SHA-256 digest, so it is discovery evidence only and cannot authorize process work.
-        Err(PublicProviderRunError::CompatibilityDenied)
+    fn authorize(&self, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
+        let cached = self
+            .cached
+            .as_ref()
+            .ok_or(PublicProviderRunError::CompatibilityDenied)?;
+        cached
+            .revalidate(&self.keys, self.now)
+            .and_then(|()| self.keys.verify_lock(&cached.manifest, lock, self.now))
+            .map_err(|_| PublicProviderRunError::CompatibilityDenied)
     }
 }
 
@@ -168,6 +176,7 @@ mod tests {
                 id: "claude-1".into(),
                 provider: "claude".into(),
                 version: "1.0".into(),
+                digest_sha256: "digest".into(),
                 revoked,
             }],
         };
@@ -233,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn authorization_fails_closed_without_an_active_signed_entry() {
+    fn authorization_requires_an_active_digest_bound_signed_entry() {
         let lock = RunVersionLock {
             provider: "claude".into(),
             canonical_path: "/public/claude".into(),
@@ -245,6 +254,13 @@ mod tests {
         assert!(CompatibilityAssessment::default().authorize(&lock).is_err());
         assert!(assessment(9, false).authorize(&lock).is_err());
         assert!(assessment(20, true).authorize(&lock).is_err());
+        assert!(assessment(20, false).authorize(&lock).is_ok());
+
+        let changed_digest = RunVersionLock {
+            digest_sha256: "changed".into(),
+            ..lock.clone()
+        };
+        assert!(assessment(20, false).authorize(&changed_digest).is_err());
 
         let wrong_entry = RunVersionLock {
             compatibility_entry: "other".into(),
