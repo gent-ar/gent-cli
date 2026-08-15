@@ -1,4 +1,6 @@
 mod api;
+mod attachment_api;
+mod attachment_transport;
 mod compatibility_assessment;
 mod dependency_catalog;
 mod event_stream;
@@ -23,12 +25,12 @@ use std::path::PathBuf;
 use clap::Parser;
 use gent_core::{DecisionCommandOutcome, DecisionEvidence as CoreDecisionEvidence};
 use gent_protocol::{
-    DecisionEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
-    DependencyPlan, DependencyPlanRequest,
+    AttachmentFrame, DecisionEvidence, DecisionSubmission, DependencyActionRequest,
+    DependencyActionResult, DependencyPlan, DependencyPlanRequest,
 };
-use gent_runtime::Coordinator;
 use gent_runtime::catalog::validate_observed_capabilities;
-use gent_store::SqliteLedger;
+use gent_runtime::{AttachmentService, Coordinator};
+use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::{
     CapabilitySet, Command, ConversationStatus, ConversationTimeline, DecisionCommand,
     DecisionSettlement, DoctorReport, EventResume, HostStatus, Receipt,
@@ -80,10 +82,16 @@ fn build_runtime(
     compatibility: CompatibilityAssessment,
 ) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
     let capabilities = validate_observed_capabilities(observed_capabilities)?;
-    let coordinator = Coordinator::new(SqliteLedger::open(data_dir.join("gent.db"))?, capabilities);
+    let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
+    let attachments = AttachmentService::new(
+        ledger.clone(),
+        FileAttachmentBlobs::open(data_dir.join("attachments"))?,
+    );
+    let coordinator = Coordinator::new(ledger, capabilities);
     coordinator.persist_capability_catalog()?;
     Ok(RuntimeFacade {
         public_runs: observer_service(coordinator.clone()),
+        attachments,
         coordinator,
         dependencies: DependencyCatalog::with_compatibility(compatibility),
     })
@@ -128,6 +136,7 @@ fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
 
 #[derive(Clone, Debug)]
 struct RuntimeFacade {
+    attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
     coordinator: Coordinator<SqliteLedger>,
     dependencies: DependencyCatalog,
     public_runs: DaemonPublicRuns,
@@ -162,6 +171,9 @@ impl api::RuntimeApi for RuntimeFacade {
     }
     fn dependency_action(&self, request: DependencyActionRequest) -> DependencyActionResult {
         self.dependencies.act(request)
+    }
+    fn attachment(&self, frame: AttachmentFrame) -> Result<AttachmentFrame, String> {
+        attachment_api::handle(&self.attachments, frame)
     }
     fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String> {
         self.coordinator

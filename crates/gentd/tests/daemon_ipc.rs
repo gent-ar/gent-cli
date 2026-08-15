@@ -4,11 +4,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command as ProcessCommand, Stdio};
 
 use gent_protocol::{
-    DependencyAction, DependencyActionRequest, DependencyPlanRequest, DependencyProvider, Hello,
-    PublicRunOutcome, PublicRunStartRequest, WireFrame, read_frame, write_frame,
+    ATTACHMENTS_CAPABILITY, AttachmentFrame, DependencyAction, DependencyActionRequest,
+    DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome, PublicRunStartRequest,
+    WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
 };
 use gent_types::{
-    CapabilitySet, Command, HostEpoch, McpPermissionStatus, PROTOCOL_MAX, PROTOCOL_MIN, ReceiptId,
+    AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, CapabilitySet,
+    Command, HostEpoch, McpPermissionStatus, PROTOCOL_MAX, PROTOCOL_MIN, ReceiptId,
 };
 use serde_json::json;
 use tempfile::TempDir;
@@ -69,6 +71,7 @@ fn hello() -> WireFrame {
             "events".into(),
             "host-epoch".into(),
             "receipts".into(),
+            ATTACHMENTS_CAPABILITY.into(),
         ]),
     })
 }
@@ -146,6 +149,89 @@ async fn command_receipts_are_idempotent_and_events_resume_over_ipc() {
             if events.len() == 2
                 && events[0].kind == "commandAccepted"
                 && events[1].kind == "commandSettled"
+    ));
+}
+
+#[tokio::test]
+async fn attachment_frames_preserve_transfer_identity_and_resume_durable_progress() {
+    let daemon = daemon().await;
+    let mut stream = client(&daemon).await;
+    let transfer = AttachmentTransfer {
+        metadata: AttachmentMetadata {
+            attachment_id: "attachment-1".into(),
+            display_name: "hello.txt".into(),
+            media_type: "text/plain".into(),
+            byte_len: 5,
+            digest_sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                .into(),
+            storage_key: "sha256/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                .into(),
+        },
+        staging_key: "staging/attachment-1".into(),
+        receipt_id: ReceiptId("receipt-1".into()),
+        idempotency_key: "attachment-1".into(),
+        host_epoch: HostEpoch(1),
+        state: AttachmentState::Uploading,
+        received_bytes: 0,
+    };
+    write_json_frame(
+        &mut stream,
+        &AttachmentFrame::Begin {
+            transfer: transfer.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        read_json_frame::<_, AttachmentFrame>(&mut stream).await.unwrap(),
+        AttachmentFrame::Transfer { transfer: current } if current == transfer
+    ));
+
+    let operation = AttachmentOperation {
+        attachment_id: "attachment-1".into(),
+        receipt_id: ReceiptId("receipt-1".into()),
+        idempotency_key: "attachment-1".into(),
+        host_epoch: HostEpoch(1),
+    };
+    let chunk = AttachmentFrame::Chunk {
+        operation: operation.clone(),
+        offset: 0,
+        data_base64: "aGVsbG8=".into(),
+    };
+    write_json_frame(&mut stream, &chunk).await.unwrap();
+    assert!(matches!(
+        read_json_frame::<_, AttachmentFrame>(&mut stream).await.unwrap(),
+        AttachmentFrame::Transfer { transfer } if transfer.received_bytes == 5
+    ));
+    write_json_frame(&mut stream, &chunk).await.unwrap();
+    assert!(matches!(
+        read_json_frame::<_, AttachmentFrame>(&mut stream).await.unwrap(),
+        AttachmentFrame::Transfer { transfer } if transfer.received_bytes == 5
+    ));
+
+    write_json_frame(
+        &mut stream,
+        &AttachmentFrame::Commit {
+            operation: operation.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        read_json_frame::<_, AttachmentFrame>(&mut stream).await.unwrap(),
+        AttachmentFrame::Transfer { transfer } if transfer.state == AttachmentState::Available
+    ));
+    write_json_frame(
+        &mut stream,
+        &AttachmentFrame::Resume {
+            attachment_id: "attachment-1".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        read_json_frame::<_, AttachmentFrame>(&mut stream).await.unwrap(),
+        AttachmentFrame::Transfer { transfer } if transfer.state == AttachmentState::Available
     ));
 }
 

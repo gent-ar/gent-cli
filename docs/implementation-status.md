@@ -13,6 +13,9 @@ not claim provider or app compatibility evidence that has not been recorded.
       and receipt-bound follow-up operations,
       retry-safe final content promotion, and content-addressed deduplication; it is not exposed
       through observer-mode `gentd` and does not imply provider attachment support.
+- [x] Capability-gated local attachment IPC with typed transfer identity, base64 chunk validation,
+      retry-safe commit, and durable resume. Per-mutation receipt settlement is not yet part of
+      the shared receipt/event journal and remains a standalone hardening task.
 - [x] Durable event snapshots and transactional compaction with explicit stale-cursor resync.
 - [x] Versioned, checksummed, transactional SQLite migrations with legacy-ledger upgrade tests.
 - [x] Durable run and worktree lease arbitration with separate-connection contention tests.
@@ -24,7 +27,8 @@ not claim provider or app compatibility evidence that has not been recorded.
       at the first divergence; it owns no SQLite ledger, IPC mutation surface, or process work.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
 - [x] Durable SQLite decision settlement with restart-safe terminal outcomes and optimistic contention handling.
-- [x] Protocol-only CLI status/events/submit and read-only doctor discovery.
+- [x] Protocol-only CLI status/events/submit and filesystem-only read-only doctor discovery;
+      it does not execute provider binaries, including version probes, in observer mode.
 - [x] Capability-gated local event attachment: initial replay, snapshot resync, cursor-ordered
       bounded batches, client acknowledgements, and `gent events --follow` over the existing IPC.
       The daemon polls its durable ledger at a bounded interval; it does not yet claim a producer

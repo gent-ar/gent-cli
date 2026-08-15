@@ -2,7 +2,8 @@
 
 use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
-    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
+    ATTACHMENTS_CAPABILITY, CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY,
+    EVENT_STREAM_CAPABILITY,
 };
 use gent_types::{CapabilityCatalogRecord, CapabilitySet};
 
@@ -12,6 +13,7 @@ use crate::RuntimeError;
 /// A capability the runtime may advertise after its transport proves a handler exists.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeCapability {
+    Attachments,
     Decisions,
     EventResync,
     EventStream,
@@ -23,6 +25,7 @@ pub enum RuntimeCapability {
 impl RuntimeCapability {
     const fn wire_name(self) -> &'static str {
         match self {
+            Self::Attachments => ATTACHMENTS_CAPABILITY,
             Self::Decisions => "decisions",
             Self::EventResync => "event-resync",
             Self::EventStream => EVENT_STREAM_CAPABILITY,
@@ -33,7 +36,8 @@ impl RuntimeCapability {
     }
 }
 
-const DECLARED: [RuntimeCapability; 6] = [
+const DECLARED: [RuntimeCapability; 7] = [
+    RuntimeCapability::Attachments,
     RuntimeCapability::Decisions,
     RuntimeCapability::EventResync,
     RuntimeCapability::EventStream,

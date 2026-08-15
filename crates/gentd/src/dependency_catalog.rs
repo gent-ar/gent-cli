@@ -11,7 +11,6 @@ use gent_types::{
 };
 use std::env;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 #[derive(Clone, Debug, Default)]
 pub struct DependencyCatalog {
     compatibility: CompatibilityAssessment,
@@ -87,7 +86,9 @@ fn observe_provider(
 ) -> (DependencyStatus, PublicProviderStatus) {
     let (name, remediation) = provider_details(provider);
     let executable = find_executable(name);
-    let version = executable.as_deref().and_then(probe_version);
+    // Observer-mode discovery never executes a provider binary, including `--version`.
+    // A later, authority-gated lifecycle captures version and rechecks identity before spawn.
+    let version = None;
     let identity = executable
         .as_deref()
         .and_then(|path| executable_identity(name, path, version.as_deref()));
@@ -132,19 +133,6 @@ fn find_executable(name: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-fn probe_version(executable: &Path) -> Option<String> {
-    Command::new(executable)
-        .arg("--version")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| {
-            String::from_utf8(output.stdout)
-                .ok()
-                .and_then(|value| value.lines().next().map(str::to_owned))
-        })
-}
-
 fn executable_identity(
     provider: &str,
     executable: &Path,
@@ -170,7 +158,7 @@ fn discover_node() -> DependencyStatus {
     DependencyStatus {
         name: "node".into(),
         present: executable.is_some(),
-        version: executable.as_deref().and_then(probe_version),
+        version: None,
         remediation: "Node discovery is read-only; MCP remains hard-disabled until a later authority-gated release."
             .into(),
     }

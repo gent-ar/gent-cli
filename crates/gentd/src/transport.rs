@@ -1,9 +1,10 @@
 //! Local IPC adapter. It only knows the `RuntimeApi` port, never persistence or providers.
 
 use gent_protocol::{
-    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, ConversationStatusFrame,
-    ConversationTimelineFrame, EVENT_STREAM_CAPABILITY, EventStreamFrame, WireFrame, negotiate,
-    read_frame, read_json_frame, write_frame, write_json_frame,
+    ATTACHMENTS_CAPABILITY, AttachmentFrame, CONVERSATION_STATUS_CAPABILITY,
+    CONVERSATION_TIMELINE_CAPABILITY, ConversationStatusFrame, ConversationTimelineFrame,
+    EVENT_STREAM_CAPABILITY, EventStreamFrame, WireFrame, negotiate, read_frame, read_json_frame,
+    write_frame, write_json_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
@@ -18,6 +19,7 @@ use crate::api::RuntimeApi;
 #[must_use]
 pub(crate) fn observed_capabilities() -> CapabilitySet {
     let mut capabilities = capability_set([
+        RuntimeCapability::Attachments,
         RuntimeCapability::Decisions,
         RuntimeCapability::EventResync,
         RuntimeCapability::EventStream,
@@ -141,6 +143,11 @@ where
             serde_json::from_value(raw.clone())
         {
             return write_conversation_status(stream, runtime, &conversation_id).await;
+        }
+    }
+    if extensions.supports(ATTACHMENTS_CAPABILITY) {
+        if let Ok(frame) = serde_json::from_value::<AttachmentFrame>(raw.clone()) {
+            return crate::attachment_transport::write(stream, runtime, frame).await;
         }
     }
     if extensions.supports(CONVERSATION_TIMELINE_CAPABILITY) {

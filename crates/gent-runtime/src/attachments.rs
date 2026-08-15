@@ -119,6 +119,16 @@ where
         Ok(next)
     }
 
+    /// Returns durable progress without opening ingress or touching staged bytes.
+    ///
+    /// # Errors
+    /// Returns an error when the attachment is unknown or metadata cannot be read.
+    pub fn resume(&self, attachment_id: &str) -> Result<AttachmentTransfer, RuntimeError> {
+        self.ledger.find_attachment(attachment_id)?.ok_or_else(|| {
+            gent_ports::LedgerError::Invariant("attachment does not exist".into()).into()
+        })
+    }
+
     fn ensure_ingress(&self, transfer: &AttachmentTransfer) -> Result<(), RuntimeError> {
         let ingress = self.ledger.host_ingress()?;
         validate_ingress(

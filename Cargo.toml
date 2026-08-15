@@ -19,6 +19,7 @@ authors = ["Gent contributors"]
 [workspace.dependencies]
 anyhow = "1.0.100"
 async-trait = "0.1.89"
+base64 = "0.22.1"
 clap = { version = "4.5.53", features = ["derive", "env"] }
 directories = "6.0.0"
 ed25519-dalek = "2.2.0"
