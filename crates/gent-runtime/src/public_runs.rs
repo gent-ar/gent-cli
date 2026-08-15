@@ -68,7 +68,7 @@ where
         let Ok(lock) = self.resolver.resolve(request.provider.as_str()) else {
             return Ok(denied(request.run_id));
         };
-        if self.authorizer.authorize(&lock).is_err() {
+        if lock.provider != request.provider.as_str() || self.authorizer.authorize(&lock).is_err() {
             return Ok(denied(request.run_id));
         }
         let run = RunRecord {
@@ -223,7 +223,7 @@ where
                 PublicRunOutcome::ProviderChanged,
             ));
         };
-        if self.authorizer.authorize(&lock).is_err() {
+        if lock.provider != provider || self.authorizer.authorize(&lock).is_err() {
             return Ok(response(
                 parent_run_id.into(),
                 PublicRunOutcome::ProviderChanged,
