@@ -7,6 +7,7 @@ use uuid::Uuid;
 mod attachments;
 mod automation_executions;
 mod capability_catalog;
+mod conversation_activity;
 mod conversation_artifact;
 mod conversation_content;
 mod conversation_prompts;
@@ -33,6 +34,10 @@ pub use attachments::{
 };
 pub use automation_executions::{AutomationExecutionPhase, AutomationExecutionRecord};
 pub use capability_catalog::CapabilityCatalogRecord;
+pub use conversation_activity::{
+    ActivityWork, ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivity,
+    ConversationActivityFact, ConversationActivityScope, ConversationActivityState,
+};
 pub use conversation_artifact::{
     ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
 };

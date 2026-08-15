@@ -2,6 +2,7 @@
 use gent_types::HostEpoch;
 mod attachment_transfer;
 mod automation_execution;
+mod conversation_activity;
 mod decision_settlement;
 mod git_operation;
 mod lifecycle_projection;
@@ -13,6 +14,9 @@ mod tool_classification;
 mod turn_lifecycle;
 pub use attachment_transfer::*;
 pub use automation_execution::permits_automation_execution_transition;
+pub use conversation_activity::{
+    ConversationActivityProjection, ConversationActivityUpdate, project_conversation_activity,
+};
 pub use decision_settlement::{
     DecisionCommandOutcome, DecisionCommandUpdate, DecisionEvidence, DecisionEvidenceUpdate,
     DecisionSettlementState, apply_decision_evidence, submit_decision,

@@ -95,6 +95,10 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Additive normalized lifecycle signals for root phase and explicit generation activity,
       subagent and command work, and attention; lease-owned durable projections preserve them.
       Waiting work is derived from activity rather than inferred from root phase.
+- [x] Versioned, content-free `ConversationActivity` DTOs and a pure conversation-scoped reducer
+      with epoch/cursor fencing, terminal dominance, decision priority, descendant liveness, and
+      stale-turn rejection. It is intentionally not yet persisted, advertised, or composed by the
+      observer daemon.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not
