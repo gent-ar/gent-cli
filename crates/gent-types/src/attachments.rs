@@ -41,6 +41,16 @@ pub struct AttachmentTransfer {
     pub received_bytes: u64,
 }
 
+/// Receipt and fence identity required by every follow-up attachment mutation.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentOperation {
+    pub attachment_id: String,
+    pub receipt_id: ReceiptId,
+    pub idempotency_key: String,
+    pub host_epoch: HostEpoch,
+}
+
 /// Immutable association of an available attachment with a durable turn.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

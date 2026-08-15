@@ -1,6 +1,9 @@
 use gent_runtime::AttachmentService;
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
-use gent_types::{AttachmentMetadata, AttachmentState, AttachmentTransfer, HostEpoch, ReceiptId};
+use gent_types::{
+    AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, HostEpoch,
+    ReceiptId,
+};
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -28,14 +31,18 @@ fn staging_retries_then_commits_only_verified_content() {
         FileAttachmentBlobs::open(directory.path()).unwrap(),
     );
     service.begin(&transfer).unwrap();
-    service.append("attachment-1", 0, b"hello").unwrap();
-    service.append("attachment-1", 0, b"hello").unwrap();
+    let operation = operation(&transfer);
+    let mut wrong_operation = operation.clone();
+    wrong_operation.receipt_id = ReceiptId("wrong-receipt".into());
+    assert!(service.append(&wrong_operation, 0, b"hello").is_err());
+    service.append(&operation, 0, b"hello").unwrap();
+    service.append(&operation, 0, b"hello").unwrap();
     assert_eq!(
-        service.commit("attachment-1").unwrap().state,
+        service.commit(&operation).unwrap().state,
         AttachmentState::Available
     );
     assert_eq!(
-        service.commit("attachment-1").unwrap().state,
+        service.commit(&operation).unwrap().state,
         AttachmentState::Available
     );
 }
@@ -66,11 +73,21 @@ fn separate_transfers_can_converge_on_one_content_address() {
             received_bytes: 0,
         };
         service.begin(&transfer).unwrap();
-        service.append(id, 0, b"same").unwrap();
+        let operation = operation(&transfer);
+        service.append(&operation, 0, b"same").unwrap();
         assert_eq!(
-            service.commit(id).unwrap().state,
+            service.commit(&operation).unwrap().state,
             AttachmentState::Available
         );
     }
     assert!(directory.path().join("blobs").join(digest).exists());
+}
+
+fn operation(transfer: &AttachmentTransfer) -> AttachmentOperation {
+    AttachmentOperation {
+        attachment_id: transfer.metadata.attachment_id.clone(),
+        receipt_id: transfer.receipt_id.clone(),
+        idempotency_key: transfer.idempotency_key.clone(),
+        host_epoch: transfer.host_epoch,
+    }
 }

@@ -22,7 +22,9 @@ mod run_projection;
 mod tool_sources;
 mod workspaces;
 
-pub use attachments::{AttachmentMetadata, AttachmentState, AttachmentTransfer, TurnAttachment};
+pub use attachments::{
+    AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
+};
 pub use automation_executions::{AutomationExecutionPhase, AutomationExecutionRecord};
 pub use capability_catalog::CapabilityCatalogRecord;
 pub use conversation_artifact::{

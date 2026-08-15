@@ -5,7 +5,7 @@ use gent_core::{
     validate_ingress, validate_staging_key,
 };
 use gent_ports::{AttachmentBlobStore, AttachmentClaim, AttachmentLedger, IngressMode, Ledger};
-use gent_types::{AttachmentState, AttachmentTransfer};
+use gent_types::{AttachmentOperation, AttachmentState, AttachmentTransfer};
 
 use crate::RuntimeError;
 
@@ -53,13 +53,17 @@ where
     /// Returns an error for stale ingress, missing metadata, or invalid ordered progress.
     pub fn append(
         &self,
-        attachment_id: &str,
+        operation: &AttachmentOperation,
         offset: u64,
         bytes: &[u8],
     ) -> Result<AttachmentTransfer, RuntimeError> {
-        let current = self.ledger.find_attachment(attachment_id)?.ok_or_else(|| {
-            gent_ports::LedgerError::Invariant("attachment does not exist".into())
-        })?;
+        let current = self
+            .ledger
+            .find_attachment(&operation.attachment_id)?
+            .ok_or_else(|| {
+                gent_ports::LedgerError::Invariant("attachment does not exist".into())
+            })?;
+        Self::require_operation(&current, operation)?;
         if current.state == AttachmentState::Available {
             return Ok(current);
         }
@@ -83,10 +87,17 @@ where
     ///
     /// # Errors
     /// Returns an error without availability when the byte count or digest differs.
-    pub fn commit(&self, attachment_id: &str) -> Result<AttachmentTransfer, RuntimeError> {
-        let current = self.ledger.find_attachment(attachment_id)?.ok_or_else(|| {
-            gent_ports::LedgerError::Invariant("attachment does not exist".into())
-        })?;
+    pub fn commit(
+        &self,
+        operation: &AttachmentOperation,
+    ) -> Result<AttachmentTransfer, RuntimeError> {
+        let current = self
+            .ledger
+            .find_attachment(&operation.attachment_id)?
+            .ok_or_else(|| {
+                gent_ports::LedgerError::Invariant("attachment does not exist".into())
+            })?;
+        Self::require_operation(&current, operation)?;
         if current.state == AttachmentState::Available {
             return Ok(current);
         }
@@ -121,6 +132,23 @@ where
                 },
             },
         )?;
+        Ok(())
+    }
+
+    fn require_operation(
+        transfer: &AttachmentTransfer,
+        operation: &AttachmentOperation,
+    ) -> Result<(), RuntimeError> {
+        if operation.attachment_id != transfer.metadata.attachment_id
+            || operation.receipt_id != transfer.receipt_id
+            || operation.idempotency_key != transfer.idempotency_key
+            || operation.host_epoch != transfer.host_epoch
+        {
+            return Err(gent_ports::LedgerError::Invariant(
+                "attachment operation does not own this transfer".into(),
+            )
+            .into());
+        }
         Ok(())
     }
 }

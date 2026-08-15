@@ -10,6 +10,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Protocol negotiation and bounded length-prefixed JSON local IPC.
 - [x] SQLite receipt/event ledger, idempotency, event cursors, and epoch checks.
 - [x] Durable local attachment staging with per-transfer opaque staging keys, fenced progress,
+      and receipt-bound follow-up operations,
       retry-safe final content promotion, and content-addressed deduplication; it is not exposed
       through observer-mode `gentd` and does not imply provider attachment support.
 - [x] Durable event snapshots and transactional compaction with explicit stale-cursor resync.
