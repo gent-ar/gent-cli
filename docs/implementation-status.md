@@ -237,6 +237,22 @@ not claim provider or app compatibility evidence that has not been recorded.
       update-under-load recovery evidence. The secure explicit idle-only installer
       handoff above is install distribution, not this future daemon authority.
 
+## Recorded follow-on scope
+
+The next product-scope request is recorded here, not implied by the current
+observer milestone. After the evidence and authority gates above, Gent will add
+native `gent-canvas`, `gent-forge`, and `gent-automations` domains. They will be
+separate modules with typed ports and reducers, and `gentd` will be their only
+composition root. Device pairing and the Flutter application's non-agent UI
+automation remain app-owned.
+
+Provider selection must remain a durable child-run transition. Switching among
+Claude, Codex, or the private Claurst bridge must preserve the provider-neutral
+conversation history and lineage without rewriting an existing run or exposing
+Claurst credentials. The later native domains and this continuity contract require
+their own protocol, persistence, receipts, observer-disablement, and live-evidence
+work before they are advertised.
+
 The coverage manifest blocks an authority-transfer invocation while its real
 evidence records are absent. This is deliberate: recorded provider evidence
 and a legacy-writer release are external prerequisites, never placeholders.
