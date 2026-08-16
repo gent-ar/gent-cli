@@ -1,5 +1,6 @@
 //! Content-free contracts for signed Gent runtime release updates.
 
+use crate::HostEpoch;
 use serde::{Deserialize, Serialize};
 
 /// The only runtime release-manifest contract understood by this build.
@@ -70,6 +71,7 @@ pub enum RuntimeUpdateStage {
     Staged,
     HealthChecking,
     ReadyToActivate,
+    HandoffRequested,
     Activated,
     RolledBack,
     ReadOnlyUpdateRequired,
@@ -114,6 +116,34 @@ pub struct RuntimeStagingReceipt {
     pub artifact_digest_sha256: String,
 }
 
+/// Immutable release facts a successor must match before it may confirm a handoff.
+///
+/// This is deliberately content-free: it identifies the already verified signed release without
+/// retaining download locations, credentials, or an activation command.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeReleaseIdentity {
+    pub key_id: String,
+    pub release_version: RuntimeVersion,
+    pub target: String,
+    pub artifact_digest_sha256: String,
+}
+
+/// Durable facts which bind an update to the old host and its exact staged release.
+///
+/// Historic journal rows decode with no handoff facts. They remain readable but can never be
+/// treated as successor-confirmable, which avoids retroactively inventing a host fence.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateHandoff {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_host_epoch: Option<HostEpoch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<RuntimeReleaseIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging_receipt: Option<RuntimeStagingReceipt>,
+}
+
 /// One append-only durable checkpoint in a runtime-update attempt.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,6 +152,8 @@ pub struct RuntimeUpdateRecord {
     pub revision: u64,
     pub artifact_digest_sha256: String,
     pub status: RuntimeUpdateStatus,
+    #[serde(default)]
+    pub handoff: RuntimeUpdateHandoff,
 }
 
 /// A user-selected channel for a read-only runtime update check.
@@ -185,93 +217,5 @@ impl Default for RuntimeUpdateStatus {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::{
-        RuntimeReleaseChannel, RuntimeUpdateCandidate, RuntimeUpdateCheckReport,
-        RuntimeUpdateCheckState, RuntimeUpdateFailure, RuntimeUpdateRecord, RuntimeUpdateStage,
-        RuntimeUpdateStatus, RuntimeVersion,
-    };
-
-    #[test]
-    fn status_uses_a_stable_content_free_camel_case_contract() {
-        let status = RuntimeUpdateStatus {
-            stage: RuntimeUpdateStage::ReadyToActivate,
-            release_version: Some(RuntimeVersion {
-                major: 1,
-                minor: 2,
-                patch: 3,
-            }),
-            forward_only_schema: true,
-            failure: None,
-        };
-        assert_eq!(
-            serde_json::to_value(status).unwrap(),
-            json!({
-                "stage": "readyToActivate",
-                "releaseVersion": { "major": 1, "minor": 2, "patch": 3 },
-                "forwardOnlySchema": true,
-                "failure": null,
-            })
-        );
-    }
-
-    #[test]
-    fn update_record_keeps_attempt_order_separate_from_release_state() {
-        let record = RuntimeUpdateRecord {
-            attempt_id: "attempt-1".into(),
-            revision: 2,
-            artifact_digest_sha256: "a".repeat(64),
-            status: RuntimeUpdateStatus::default(),
-        };
-        assert_eq!(serde_json::to_value(record).unwrap()["revision"], 2);
-    }
-
-    #[test]
-    fn check_report_is_content_free_and_does_not_imply_activation() {
-        let report = RuntimeUpdateCheckReport {
-            current_version: RuntimeVersion {
-                major: 1,
-                minor: 0,
-                patch: 0,
-            },
-            channel: RuntimeReleaseChannel::Stable,
-            state: RuntimeUpdateCheckState::Available,
-            candidate: Some(RuntimeUpdateCandidate {
-                release_version: RuntimeVersion {
-                    major: 1,
-                    minor: 1,
-                    patch: 0,
-                },
-                artifact_digest_sha256: "a".repeat(64),
-                forward_only_schema: false,
-            }),
-            failure: None,
-        };
-        let encoded = serde_json::to_value(report).unwrap();
-        assert_eq!(encoded["state"], "available");
-        assert!(encoded.get("failure").is_none());
-        assert!(!encoded.to_string().contains("activate"));
-        assert!(!encoded.to_string().contains("archiveName"));
-    }
-
-    #[test]
-    fn unavailable_check_distinguishes_missing_metadata_from_bad_signatures() {
-        let report = RuntimeUpdateCheckReport {
-            current_version: RuntimeVersion {
-                major: 1,
-                minor: 0,
-                patch: 0,
-            },
-            channel: RuntimeReleaseChannel::Stable,
-            state: RuntimeUpdateCheckState::Unavailable,
-            candidate: None,
-            failure: Some(RuntimeUpdateFailure::ReleaseMetadataUnavailable),
-        };
-        assert_eq!(
-            serde_json::to_value(report).unwrap()["failure"],
-            "releaseMetadataUnavailable"
-        );
-    }
-}
+#[path = "runtime_update_tests.rs"]
+mod tests;

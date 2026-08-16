@@ -35,7 +35,8 @@ pub enum RuntimeUpdateEvent {
     HealthCheckStarted,
     HealthCheckPassed,
     HealthCheckFailed,
-    ActivationRequested { ingress_closed: bool },
+    HandoffRequested { ingress_closed: bool },
+    SuccessorConfirmed,
     ActivationFailed,
     RollbackRequested,
 }
@@ -141,8 +142,21 @@ pub fn reduce_runtime_update(
         RuntimeUpdateEvent::HealthCheckFailed => {
             failed(status, RuntimeUpdateFailure::HealthCheckFailed)
         }
-        RuntimeUpdateEvent::ActivationRequested { ingress_closed }
+        RuntimeUpdateEvent::HandoffRequested { ingress_closed }
             if status.stage == RuntimeUpdateStage::ReadyToActivate && ingress_closed =>
+        {
+            transition(
+                status,
+                RuntimeUpdateStage::HandoffRequested,
+                None,
+                RuntimeUpdateIngress::KeepClosed,
+            )
+        }
+        RuntimeUpdateEvent::HandoffRequested { .. } => {
+            failed(status, RuntimeUpdateFailure::IngressNotClosed)
+        }
+        RuntimeUpdateEvent::SuccessorConfirmed
+            if status.stage == RuntimeUpdateStage::HandoffRequested =>
         {
             transition(
                 status,
@@ -150,9 +164,6 @@ pub fn reduce_runtime_update(
                 None,
                 RuntimeUpdateIngress::KeepClosed,
             )
-        }
-        RuntimeUpdateEvent::ActivationRequested { .. } => {
-            failed(status, RuntimeUpdateFailure::IngressNotClosed)
         }
         RuntimeUpdateEvent::ActivationFailed => {
             failed(status, RuntimeUpdateFailure::ActivationFailed)

@@ -12,8 +12,8 @@ use gent_runtime::{
 use gent_store::SqliteLedger;
 use gent_types::{
     CapabilitySet, HostEpoch, RuntimeReleaseArtifact, RuntimeReleaseChannel,
-    RuntimeReleaseManifest, RuntimeStagingReceipt, RuntimeUpdateRecord, RuntimeUpdateStage,
-    RuntimeUpdateStatus, RuntimeVersion, SignedRuntimeRelease,
+    RuntimeReleaseManifest, RuntimeStagingReceipt, RuntimeUpdateHandoff, RuntimeUpdateRecord,
+    RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion, SignedRuntimeRelease,
 };
 
 #[derive(Clone, Debug)]
@@ -109,6 +109,20 @@ fn plan() -> RuntimeUpdatePlan {
                 forward_only_schema: false,
                 failure: None,
             },
+            handoff: RuntimeUpdateHandoff {
+                origin_host_epoch: Some(HostEpoch(1)),
+                release: Some(gent_types::RuntimeReleaseIdentity {
+                    key_id: "test".into(),
+                    release_version: RuntimeVersion {
+                        major: 1,
+                        minor: 0,
+                        patch: 0,
+                    },
+                    target: "aarch64-apple-darwin".into(),
+                    artifact_digest_sha256: "d".repeat(64),
+                }),
+                staging_receipt: None,
+            },
         },
     }
 }
@@ -191,7 +205,7 @@ fn approved_executor_stages_health_checks_and_activates_while_ingress_stays_clos
     };
     assert_eq!(record.status.stage, RuntimeUpdateStage::ReadyToActivate);
     assert_eq!(ledger.host_ingress().unwrap().mode, IngressMode::Closed);
-    let RuntimeUpdateExecutionResult::Activated(record) = executor
+    let RuntimeUpdateExecutionResult::HandoffRequested(record) = executor
         .execute(
             RuntimeUpdateExecution::Activate,
             &plan,
@@ -200,9 +214,10 @@ fn approved_executor_stages_health_checks_and_activates_while_ingress_stays_clos
         )
         .unwrap()
     else {
-        panic!("expected activation")
+        panic!("expected handoff request")
     };
-    assert_eq!(record.status.stage, RuntimeUpdateStage::Activated);
+    assert_eq!(record.status.stage, RuntimeUpdateStage::HandoffRequested);
+    assert_eq!(record.handoff.staging_receipt, Some(receipt));
     assert_eq!(*calls.lock().unwrap(), 3);
 }
 

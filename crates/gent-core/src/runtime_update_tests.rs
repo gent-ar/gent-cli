@@ -173,7 +173,7 @@ fn activation_and_failures_preserve_the_closed_ingress_boundary() {
     );
     let denied = reduce_runtime_update(
         ready.status.clone(),
-        RuntimeUpdateEvent::ActivationRequested {
+        RuntimeUpdateEvent::HandoffRequested {
             ingress_closed: false,
         },
         Some(&release),
@@ -182,15 +182,21 @@ fn activation_and_failures_preserve_the_closed_ingress_boundary() {
         denied.status.failure,
         Some(RuntimeUpdateFailure::IngressNotClosed)
     );
-    let activated = reduce_runtime_update(
+    let requested = reduce_runtime_update(
         ready.status,
-        RuntimeUpdateEvent::ActivationRequested {
+        RuntimeUpdateEvent::HandoffRequested {
             ingress_closed: true,
         },
         Some(&release),
     );
+    assert_eq!(requested.status.stage, RuntimeUpdateStage::HandoffRequested);
+    assert_eq!(requested.ingress, RuntimeUpdateIngress::KeepClosed);
+    let activated = reduce_runtime_update(
+        requested.status,
+        RuntimeUpdateEvent::SuccessorConfirmed,
+        Some(&release),
+    );
     assert_eq!(activated.status.stage, RuntimeUpdateStage::Activated);
-    assert_eq!(activated.ingress, RuntimeUpdateIngress::KeepClosed);
     let failed = reduce_runtime_update(
         activated.status,
         RuntimeUpdateEvent::HealthCheckFailed,

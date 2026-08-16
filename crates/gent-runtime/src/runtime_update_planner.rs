@@ -9,7 +9,8 @@ use gent_ports::{
     runtime_update::{RuntimeReleaseSource, RuntimeUpdateJournal, RuntimeUpdatePortError},
 };
 use gent_types::{
-    HostEpoch, RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus, SignedRuntimeRelease,
+    HostEpoch, RuntimeReleaseIdentity, RuntimeUpdateHandoff, RuntimeUpdateRecord,
+    RuntimeUpdateStage, RuntimeUpdateStatus, SignedRuntimeRelease,
 };
 
 use crate::{Coordinator, RuntimeError, RuntimeReleaseTrust, RuntimeReleaseTrustError};
@@ -63,6 +64,8 @@ pub enum RuntimeUpdatePlannerError {
     InvalidRequest,
     #[error("signed runtime release target does not match the requested target")]
     TargetMismatch,
+    #[error("runtime update origin host epoch is no longer active")]
+    OriginEpochMismatch,
 }
 
 /// Selects one signed release and durably records its pure safety disposition.
@@ -116,6 +119,9 @@ impl<L: Ledger + RuntimeUpdateJournal, S: RuntimeReleaseSource> RuntimeUpdatePla
         if let Some(existing) = self.journal.find_runtime_update(&request.attempt_id)? {
             return Ok(RuntimeUpdatePlanningResult::Existing(existing));
         }
+        if self.journal.host_ingress()?.epoch != request.host_epoch {
+            return Err(RuntimeUpdatePlannerError::OriginEpochMismatch);
+        }
         let release = self
             .source
             .fetch_release(request.context.selected_channel, &request.target)?;
@@ -144,6 +150,16 @@ impl<L: Ledger + RuntimeUpdateJournal, S: RuntimeReleaseSource> RuntimeUpdatePla
             revision: 1,
             artifact_digest_sha256: release.payload.artifact.digest_sha256.clone(),
             status: transition.status,
+            handoff: RuntimeUpdateHandoff {
+                origin_host_epoch: Some(request.host_epoch),
+                release: Some(RuntimeReleaseIdentity {
+                    key_id: release.key_id.clone(),
+                    release_version: release.payload.release_version,
+                    target: request.target.clone(),
+                    artifact_digest_sha256: release.payload.artifact.digest_sha256.clone(),
+                }),
+                staging_receipt: None,
+            },
         };
         self.journal.save_runtime_update(&record)?;
         Ok(RuntimeUpdatePlanningResult::Planned(RuntimeUpdatePlan {

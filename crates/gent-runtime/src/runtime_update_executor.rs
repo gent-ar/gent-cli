@@ -7,7 +7,9 @@ use gent_ports::{
         RuntimeActivation, RuntimeArtifactStager, RuntimeHealthProbe, RuntimeUpdateJournal,
     },
 };
-use gent_types::{HostEpoch, RuntimeStagingReceipt, RuntimeUpdateRecord, RuntimeUpdateStage};
+use gent_types::{
+    HostEpoch, RuntimeStagingReceipt, RuntimeUpdateHandoff, RuntimeUpdateRecord, RuntimeUpdateStage,
+};
 
 use crate::{Coordinator, RuntimeError, RuntimeUpdateAuthority, RuntimeUpdatePlan};
 
@@ -22,7 +24,7 @@ pub enum RuntimeUpdateExecutionResult {
     },
     Ready(RuntimeUpdateRecord),
     Failed(RuntimeUpdateRecord),
-    Activated(RuntimeUpdateRecord),
+    HandoffRequested(RuntimeUpdateRecord),
 }
 
 /// A single stage, health, or activation effect available only after authority approval.
@@ -42,6 +44,8 @@ pub enum RuntimeUpdateExecutionError {
     Ledger(#[from] gent_ports::LedgerError),
     #[error("staging receipt does not match its approved runtime update attempt")]
     ReceiptMismatch,
+    #[error("runtime update origin host epoch is no longer active")]
+    OriginEpochMismatch,
 }
 
 /// Coordinates approved staging, health, and bootstrapper handoff through fakeable ports.
@@ -118,7 +122,7 @@ where
             .stage(&current.attempt_id, &plan.release.payload.artifact)
         {
             Ok(receipt) if matches_receipt(&receipt, &current) => {
-                let record = self.checkpoint(current, RuntimeUpdateEvent::Staged)?;
+                let record = self.checkpoint_staged(current, receipt.clone())?;
                 Ok(RuntimeUpdateExecutionResult::Staged { record, receipt })
             }
             Ok(_) | Err(_) => Ok(RuntimeUpdateExecutionResult::Failed(
@@ -137,7 +141,8 @@ where
         if current.status.stage != RuntimeUpdateStage::Staged {
             return Ok(RuntimeUpdateExecutionResult::Existing(current));
         }
-        let staged = checked_receipt(staged, &current)?;
+        Self::require_origin_epoch(&current, host_epoch)?;
+        let staged = checked_receipt(staged, &current)?.clone();
         let transition = reduce_runtime_update(
             current.status.clone(),
             RuntimeUpdateEvent::HealthCheckStarted,
@@ -151,7 +156,7 @@ where
         };
         self.coordinator.close_ingress(host_epoch)?;
         self.journal.save_runtime_update(&checking)?;
-        let event = if self.health.probe(staged).is_ok() {
+        let event = if self.health.probe(&staged).is_ok() {
             RuntimeUpdateEvent::HealthCheckPassed
         } else {
             RuntimeUpdateEvent::HealthCheckFailed
@@ -175,19 +180,23 @@ where
         if current.status.stage != RuntimeUpdateStage::ReadyToActivate {
             return Ok(RuntimeUpdateExecutionResult::Existing(current));
         }
-        let staged = checked_receipt(staged, &current)?;
-        let ingress_closed = self.journal.host_ingress()?.mode == gent_ports::IngressMode::Closed;
-        let event = if self.activation.activate(staged).is_ok() {
-            RuntimeUpdateEvent::ActivationRequested { ingress_closed }
+        let staged = checked_receipt(staged, &current)?.clone();
+        let ingress = self.journal.host_ingress()?;
+        Self::require_origin_epoch(&current, ingress.epoch)?;
+        let ingress_closed = ingress.mode == gent_ports::IngressMode::Closed;
+        let event = if self.activation.activate(&staged).is_ok() {
+            RuntimeUpdateEvent::HandoffRequested { ingress_closed }
         } else {
             RuntimeUpdateEvent::ActivationFailed
         };
         let record = self.checkpoint(current, event)?;
-        Ok(if record.status.stage == RuntimeUpdateStage::Activated {
-            RuntimeUpdateExecutionResult::Activated(record)
-        } else {
-            RuntimeUpdateExecutionResult::Failed(record)
-        })
+        Ok(
+            if record.status.stage == RuntimeUpdateStage::HandoffRequested {
+                RuntimeUpdateExecutionResult::HandoffRequested(record)
+            } else {
+                RuntimeUpdateExecutionResult::Failed(record)
+            },
+        )
     }
 
     fn current(
@@ -224,15 +233,52 @@ where
         self.journal.save_runtime_update(&record)?;
         Ok(record)
     }
+
+    fn checkpoint_staged(
+        &self,
+        record: RuntimeUpdateRecord,
+        receipt: RuntimeStagingReceipt,
+    ) -> Result<RuntimeUpdateRecord, RuntimeUpdateExecutionError> {
+        let transition =
+            reduce_runtime_update(record.status.clone(), RuntimeUpdateEvent::Staged, None);
+        let handoff = RuntimeUpdateHandoff {
+            staging_receipt: Some(receipt),
+            ..record.handoff.clone()
+        };
+        let record = RuntimeUpdateRecord {
+            revision: record.revision + 1,
+            status: transition.status,
+            handoff,
+            ..record
+        };
+        self.journal.save_runtime_update(&record)?;
+        Ok(record)
+    }
+
+    fn require_origin_epoch(
+        record: &RuntimeUpdateRecord,
+        active: HostEpoch,
+    ) -> Result<(), RuntimeUpdateExecutionError> {
+        if record.handoff.origin_host_epoch == Some(active) {
+            Ok(())
+        } else {
+            Err(RuntimeUpdateExecutionError::OriginEpochMismatch)
+        }
+    }
 }
 
 fn checked_receipt<'a>(
     staged: Option<&'a RuntimeStagingReceipt>,
-    record: &RuntimeUpdateRecord,
+    record: &'a RuntimeUpdateRecord,
 ) -> Result<&'a RuntimeStagingReceipt, RuntimeUpdateExecutionError> {
-    let receipt = staged.ok_or(RuntimeUpdateExecutionError::ReceiptMismatch)?;
-    if matches_receipt(receipt, record) {
-        Ok(receipt)
+    let supplied = staged.ok_or(RuntimeUpdateExecutionError::ReceiptMismatch)?;
+    let persisted = record
+        .handoff
+        .staging_receipt
+        .as_ref()
+        .ok_or(RuntimeUpdateExecutionError::ReceiptMismatch)?;
+    if supplied == persisted && matches_receipt(persisted, record) {
+        Ok(persisted)
     } else {
         Err(RuntimeUpdateExecutionError::ReceiptMismatch)
     }
@@ -241,4 +287,9 @@ fn checked_receipt<'a>(
 fn matches_receipt(receipt: &RuntimeStagingReceipt, record: &RuntimeUpdateRecord) -> bool {
     receipt.attempt_id == record.attempt_id
         && receipt.artifact_digest_sha256 == record.artifact_digest_sha256
+        && record
+            .handoff
+            .release
+            .as_ref()
+            .is_some_and(|release| release.artifact_digest_sha256 == record.artifact_digest_sha256)
 }

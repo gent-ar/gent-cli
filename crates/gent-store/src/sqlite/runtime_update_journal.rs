@@ -30,6 +30,9 @@ impl RuntimeUpdateJournal for SqliteLedger {
                 "runtime update revision regressed".into(),
             ));
         }
+        if let Some(current) = find(&transaction, &record.attempt_id)? {
+            validate_handoff_immutability(&current, record)?;
+        }
         transaction
             .execute(
                 "INSERT INTO runtime_update_journal (attempt_id, revision, artifact_digest_sha256, payload) VALUES (?1, ?2, ?3, ?4)",
@@ -48,10 +51,49 @@ impl RuntimeUpdateJournal for SqliteLedger {
     }
 }
 
+fn validate_handoff_immutability(
+    current: &RuntimeUpdateRecord,
+    next: &RuntimeUpdateRecord,
+) -> Result<(), LedgerError> {
+    if current.handoff.origin_host_epoch != next.handoff.origin_host_epoch
+        || current.handoff.release != next.handoff.release
+    {
+        return Err(LedgerError::Invariant(
+            "runtime update origin and release identity cannot change".into(),
+        ));
+    }
+    if let Some(receipt) = &current.handoff.staging_receipt
+        && next.handoff.staging_receipt.as_ref() != Some(receipt)
+    {
+        return Err(LedgerError::Invariant(
+            "runtime update staging receipt cannot change or be removed".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate(record: &RuntimeUpdateRecord) -> Result<(), LedgerError> {
     if record.revision == 0 || record.artifact_digest_sha256.len() != 64 {
         return Err(LedgerError::Invariant(
             "runtime update requires a nonzero revision and SHA-256 digest".into(),
+        ));
+    }
+    if let Some(release) = &record.handoff.release
+        && (release.key_id.trim().is_empty()
+            || release.target.trim().is_empty()
+            || release.artifact_digest_sha256 != record.artifact_digest_sha256)
+    {
+        return Err(LedgerError::Invariant(
+            "runtime update release identity must match its artifact digest".into(),
+        ));
+    }
+    if let Some(receipt) = &record.handoff.staging_receipt
+        && (receipt.attempt_id != record.attempt_id
+            || receipt.artifact_digest_sha256 != record.artifact_digest_sha256
+            || record.handoff.release.is_none())
+    {
+        return Err(LedgerError::Invariant(
+            "runtime update staging receipt must bind the planned release".into(),
         ));
     }
     Ok(())
