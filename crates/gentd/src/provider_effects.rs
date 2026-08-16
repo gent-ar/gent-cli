@@ -1,7 +1,7 @@
 #![allow(dead_code)] // The shipped daemon remains observer-only until the evidence gates pass.
 //! Composition-edge adapter from pure public-driver effects to runtime lifecycle ingress.
 
-use gent_drivers::SessionEffect;
+use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
 use gent_ports::{Ledger, RunProjectionLedger};
 use gent_runtime::{
     Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
@@ -48,6 +48,31 @@ where
         self.ingress
             .record(event_id, run_id, coordinator_id, host_epoch, effect)
     }
+
+    /// Persists a fact from the documented Claude/Codex public-wire normalizer.
+    ///
+    /// The normalizer has already discarded unknown provider fields. This composition edge maps
+    /// only its typed facts into the same fenced ingress as the generic process reducer.
+    pub(crate) fn record_public_wire_fact(
+        &self,
+        event_id: String,
+        run_id: String,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        fact: &PublicWireFact,
+    ) -> Result<Option<RunLiveStatus>, RuntimeError> {
+        let effect = match fact {
+            PublicWireFact::SessionStarted {
+                provider_session_id,
+            } => ProviderLifecycleEffect::SessionStarted {
+                provider_session_id: provider_session_id.clone(),
+            },
+            PublicWireFact::Event(event) => ProviderLifecycleEffect::Normalized(event.clone()),
+            PublicWireFact::Lifecycle(signal) => ProviderLifecycleEffect::Lifecycle(signal.clone()),
+        };
+        self.ingress
+            .record(event_id, run_id, coordinator_id, host_epoch, effect)
+    }
 }
 
 fn lifecycle_effect(effect: &SessionEffect) -> Option<ProviderLifecycleEffect> {
@@ -69,11 +94,14 @@ fn lifecycle_effect(effect: &SessionEffect) -> Option<ProviderLifecycleEffect> {
 
 #[cfg(test)]
 mod tests {
-    use gent_drivers::SessionEffect;
+    use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
     use gent_ports::{Ledger, RunLease, RunRecord};
     use gent_runtime::{Coordinator, ProviderRunAuthority};
     use gent_store::SqliteLedger;
-    use gent_types::{CapabilitySet, EventResume, HostEpoch, NormalizedProviderEvent};
+    use gent_types::{
+        CapabilitySet, EventResume, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent,
+        RootActivity,
+    };
 
     use super::ProviderEffectDispatcher;
 
@@ -167,5 +195,41 @@ mod tests {
         };
         assert_eq!(events.len(), 3);
         assert!(!events[0].payload.to_string().contains("native-session"));
+    }
+
+    #[test]
+    fn dispatcher_accepts_only_normalized_public_wire_facts() {
+        let ledger = SqliteLedger::in_memory().unwrap();
+        prepare(&ledger);
+        let dispatcher = ProviderEffectDispatcher::new(
+            Coordinator::new(ledger.clone(), CapabilitySet::default()),
+            ProviderRunAuthority::PublicDrivers,
+        );
+        dispatcher
+            .record_public_wire_fact(
+                "public-session".into(),
+                "run-a".into(),
+                "daemon-a",
+                HostEpoch(1),
+                &PublicWireFact::SessionStarted {
+                    provider_session_id: "provider-private-id".into(),
+                },
+            )
+            .unwrap();
+        let status = dispatcher
+            .record_public_wire_fact(
+                "public-activity".into(),
+                "run-a".into(),
+                "daemon-a",
+                HostEpoch(1),
+                &PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {
+                    activity: RootActivity::Generating,
+                }),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.status.snapshot_cursor, 2);
+        let source = ledger.find_event("public-session").unwrap().unwrap();
+        assert!(!source.payload.to_string().contains("provider-private-id"));
     }
 }
