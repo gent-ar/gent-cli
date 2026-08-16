@@ -26,8 +26,8 @@ for binary in gent gentd; do
   [[ -f "$bin_dir/$binary" && -x "$bin_dir/$binary" ]] || fail "missing executable $binary"
 done
 
-gent_version="$($bin_dir/gent --version)"
-gentd_version="$($bin_dir/gentd --version)"
+gent_version="$("$bin_dir/gent" --version)" || fail "gent --version failed"
+gentd_version="$("$bin_dir/gentd" --version)" || fail "gentd --version failed"
 [[ "$gent_version" == gent\ * && "$gentd_version" == gentd\ * ]] || fail "invalid version output"
 if [[ -n "$expected_version" ]]; then
   [[ "$gent_version" == *"$expected_version" && "$gentd_version" == *"$expected_version" ]] || fail "installed pair does not match expected version"

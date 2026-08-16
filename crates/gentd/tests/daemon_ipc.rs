@@ -22,6 +22,16 @@ struct Daemon {
     socket: PathBuf,
 }
 
+#[test]
+fn daemon_prints_its_package_version_without_opening_ipc() {
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_gentd"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("gentd "));
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();

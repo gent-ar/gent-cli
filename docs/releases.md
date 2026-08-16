@@ -78,7 +78,7 @@ a version tag:
 cosign verify-blob gent-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz \
   --bundle gent-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz.sigstore.json \
   --certificate-identity-regexp '^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/v.+$' \
-  --certificate-oidc-issuer https://github.com/login/oauth
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 Reject a release if either verification fails, the manifest’s target/version

@@ -220,7 +220,7 @@ jobs:
           curl --fail --location --silent --show-error --output gent-install.sh.sigstore.json "$base/gent-install.sh.sigstore.json"
           cosign verify-blob gent-install.sh --bundle gent-install.sh.sigstore.json \
             --certificate-identity-regexp "^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/$RELEASE_TAG$" \
-            --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
           export GENT_INSTALL_DIR="$RUNNER_TEMP/gent-install"
           sh gent-install.sh --version "$RELEASE_TAG"
           GENT_BIN_DIR="$GENT_INSTALL_DIR/bin" GENT_EXPECTED_VERSION="${RELEASE_TAG#v}" \

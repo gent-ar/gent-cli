@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--protocol-max", type=int, default=1)
     parser.add_argument("--schema-min", type=int, default=1)
     parser.add_argument("--schema-max", type=int, default=22)
-    parser.add_argument("--minimum-app-version", default="0.1.4")
+    parser.add_argument("--minimum-app-version", default="0.1.5")
     parser.add_argument("--channel", choices=CHANNELS, default="stable")
     parser.add_argument("--rollout-percent", type=int, default=100)
     parser.add_argument("--forward-only-schema", action="store_true")

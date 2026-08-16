@@ -236,6 +236,24 @@ def test_installer_rejects_malformed_versions_before_download() -> None:
         assert not marker.exists()
 
 
+def test_installer_allows_an_omitted_optional_digest_before_download() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        fake, marker = Path(temporary) / "fake", Path(temporary) / "downloaded"
+        fake.mkdir()
+        curl = fake / "curl"
+        curl.write_text(f"#!/usr/bin/env sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
+        curl.chmod(0o755)
+        result = subprocess.run(
+            ["sh", str(INSTALLER), "--version", "v1.2.3"],
+            env=os.environ | {"PATH": f"{fake}:{os.environ['PATH']}"},
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0
+        assert marker.exists()
+        assert "expected digest" not in result.stderr
+
+
 def main() -> None:
     test_first_activation_and_atomic_replacement()
     test_rejects_incomplete_release_without_changing_current()
@@ -248,6 +266,7 @@ def main() -> None:
     test_concurrent_installs_leave_no_stage_remnants()
     test_install_rejects_dangling_lock_symlink()
     test_installer_rejects_malformed_versions_before_download()
+    test_installer_allows_an_omitted_optional_digest_before_download()
     print("install activation checks passed")
 
 

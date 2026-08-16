@@ -60,7 +60,7 @@ function Assert-Signed([string]$Path, [string]$Bundle, [string]$ReleaseVersion) 
     $tag = [regex]::Escape($ReleaseVersion)
     & cosign verify-blob $Path --bundle $Bundle `
         --certificate-identity-regexp "$Identity$tag`$" `
-        --certificate-oidc-issuer "https://github.com/login/oauth" | Out-Null
+        --certificate-oidc-issuer "https://token.actions.githubusercontent.com" | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail "signature verification failed for $(Split-Path $Path -Leaf)" }
 }
 

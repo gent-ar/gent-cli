@@ -1,7 +1,6 @@
-use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
 use gent_protocol::{DependencyAction, DependencyProvider};
+use std::path::PathBuf;
 
 mod chat_cli;
 mod command_execution;
@@ -22,6 +21,7 @@ use crate::{decision::DecisionCommandLine, update_check::UpdateCommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
+#[command(version)]
 struct Args {
     #[arg(long, env = "GENT_DATA_DIR")]
     data_dir: Option<PathBuf>,

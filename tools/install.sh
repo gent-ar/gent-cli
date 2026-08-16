@@ -51,7 +51,7 @@ import sys
 if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", sys.argv[1]):
     raise SystemExit(f"invalid release version: {sys.argv[1]}")
 PY
-case "$expected_sha256" in ''|*[!0-9a-f]*) printf '%s\n' 'expected digest must be lowercase hexadecimal' >&2; exit 1 ;; esac
+case "$expected_sha256" in *[!0-9a-f]*) printf '%s\n' 'expected digest must be lowercase hexadecimal' >&2; exit 1 ;; esac
 [ -z "$expected_sha256" ] || [ "${#expected_sha256}" -eq 64 ] || { printf '%s\n' 'expected digest must contain 64 hexadecimal characters' >&2; exit 1; }
 tag_identity_regex=$(python3 -c 'import re,sys; print(re.escape(sys.argv[1]))' "$version")
 
@@ -74,24 +74,24 @@ download "$helper_base" 'gent-activate-install.py'
 download "$helper_base.sigstore.json" 'gent-activate-install.py.sigstore.json'
 supervisor_base="$release_base/gent-supervise-runtime-activation.py"
 has_supervisor=0
-if download "$supervisor_base" 'gent-supervise-runtime-activation.py'; then
+if download "$supervisor_base" 'gent-supervise-runtime-activation.py' 2>/dev/null; then
   download "$supervisor_base.sigstore.json" 'gent-supervise-runtime-activation.py.sigstore.json' || exit 1
   has_supervisor=1
 fi
 
 cosign verify-blob "$temp/$name" --bundle "$temp/$name.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
-  --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 cosign verify-blob "$temp/$name.manifest.json" --bundle "$temp/$name.manifest.json.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
-  --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 cosign verify-blob "$temp/gent-activate-install.py" --bundle "$temp/gent-activate-install.py.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
-  --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 if [ "$has_supervisor" -eq 1 ]; then
   cosign verify-blob "$temp/gent-supervise-runtime-activation.py" --bundle "$temp/gent-supervise-runtime-activation.py.sigstore.json" \
     --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
-    --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 fi
 
 python3 - "$temp/$name" "$temp/$name.manifest.json" "$temp/$name.sha256" "$version" "$target" <<'PY'

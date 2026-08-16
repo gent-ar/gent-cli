@@ -95,6 +95,16 @@ fn run(directory: &TempDir, args: &[&str]) {
     assert!(!output.stdout.is_empty());
 }
 
+#[test]
+fn cli_prints_its_package_version_without_contacting_a_daemon() {
+    let output = Command::new(env!("CARGO_BIN_EXE_gent"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).starts_with("gent "));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
     let directory = tempfile::tempdir().unwrap();

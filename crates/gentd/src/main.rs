@@ -54,7 +54,7 @@ pub(crate) use runtime_facade::build_runtime;
 pub(crate) use runtime_facade::{RuntimeFacade, build_runtime_with_update_checks};
 use std::path::PathBuf;
 #[derive(Debug, Parser)]
-#[command(name = "gentd", about = "Gent's local runtime host")]
+#[command(name = "gentd", about = "Gent's local runtime host", version)]
 #[allow(clippy::struct_excessive_bools)] // Clap flags are independent authority opt-ins.
 struct Args {
     /// Directory containing the local IPC endpoint and durable `SQLite` ledger.

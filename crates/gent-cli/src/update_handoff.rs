@@ -7,6 +7,7 @@ use tempfile::TempDir;
 use thiserror::Error;
 
 const REPOSITORY: &str = "gent-ar/gent-cli";
+const GITHUB_ACTIONS_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 
 /// Exact, user-confirmed release identity sent to the external installer.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -92,7 +93,7 @@ fn verify_bootstrap(script: &std::path::Path, version: &str) -> Result<(), Updat
                 "^https://github.com/{REPOSITORY}/.github/workflows/release.yml@refs/tags/{version}$"
             ))
             .arg("--certificate-oidc-issuer")
-            .arg("https://github.com/login/oauth"),
+            .arg(GITHUB_ACTIONS_OIDC_ISSUER),
         "cosign",
     )
 }
@@ -186,7 +187,7 @@ fn installer_arguments(command: &mut Command, script: &std::path::Path, request:
 
 #[cfg(test)]
 mod tests {
-    use super::{UpdateRequest, bootstrap_url, installer_name};
+    use super::{GITHUB_ACTIONS_OIDC_ISSUER, UpdateRequest, bootstrap_url, installer_name};
 
     #[test]
     fn bootstrap_url_is_tag_pinned_and_names_the_platform_installer() {
@@ -210,5 +211,13 @@ mod tests {
         };
         assert_eq!(request.expected_sha256.len(), 64);
         assert!(request.install_dir.is_none());
+    }
+
+    #[test]
+    fn bootstrap_verification_uses_the_github_actions_oidc_issuer() {
+        assert_eq!(
+            GITHUB_ACTIONS_OIDC_ISSUER,
+            "https://token.actions.githubusercontent.com"
+        );
     }
 }

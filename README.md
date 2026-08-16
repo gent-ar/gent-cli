@@ -101,7 +101,7 @@ curl -fLO "https://github.com/gent-ar/gent-cli/releases/download/$version/gent-i
 curl -fLO "https://github.com/gent-ar/gent-cli/releases/download/$version/gent-install.sh.sigstore.json"
 cosign verify-blob gent-install.sh --bundle gent-install.sh.sigstore.json \
   --certificate-identity-regexp "^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/$version$" \
-  --certificate-oidc-issuer https://github.com/login/oauth
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sh gent-install.sh --version "$version"
 ```
 
@@ -118,7 +118,7 @@ $version = "vX.Y.Z"
 $base = "https://github.com/gent-ar/gent-cli/releases/download/$version"
 Invoke-WebRequest "$base/gent-install.ps1" -OutFile gent-install.ps1
 Invoke-WebRequest "$base/gent-install.ps1.sigstore.json" -OutFile gent-install.ps1.sigstore.json
-cosign verify-blob gent-install.ps1 --bundle gent-install.ps1.sigstore.json --certificate-identity-regexp "^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/$version$" --certificate-oidc-issuer https://github.com/login/oauth
+cosign verify-blob gent-install.ps1 --bundle gent-install.ps1.sigstore.json --certificate-identity-regexp "^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/$version$" --certificate-oidc-issuer https://token.actions.githubusercontent.com
 .\gent-install.ps1 -Version $version
 ```
 
