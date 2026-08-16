@@ -11,7 +11,7 @@ cells:
   - { vendor: claude, scenario: plan_mode, state: recorded, path: claude-plan-mode-20260816.jsonl }
   - { vendor: claude, scenario: subagent, state: recorded, path: claude-subagent-haiku-20260816.jsonl }
   - { vendor: claude, scenario: compaction, state: capture_required }
-  - { vendor: claude, scenario: mcp_tool, state: capture_required }
+  - { vendor: claude, scenario: mcp_tool, state: recorded, path: claude-mcp-tool-haiku-20260816.jsonl }
   - { vendor: claude, scenario: resume, state: recorded, path: claude-resume-haiku-20260816.jsonl }
   - { vendor: claude, scenario: interrupt, state: recorded, path: claude-interrupt-haiku-20260816.jsonl }
   - { vendor: claude, scenario: steer, state: recorded, path: claude-steer-haiku-20260816.jsonl }
