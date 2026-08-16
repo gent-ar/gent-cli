@@ -9,16 +9,24 @@ envelope the daemon revalidates before it can stage an update.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 import re
-import subprocess
 import tempfile
 from pathlib import Path
 
 
 VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)$")
 CHANNELS = ("stable", "beta", "canary")
+FIELD = 2**255 - 19
+ORDER = 2**252 + 27742317777372353535851937790883648493
+CURVE_D = (-121665 * pow(121666, FIELD - 2, FIELD)) % FIELD
+BASE_X = 15112221349535400772501151409588531511454012693041857206046113283949847762202
+BASE_Y = 46316835694926478169428394003475163141307993866256225615783033603165251855960
+BASE = (BASE_X, BASE_Y, 1, BASE_X * BASE_Y % FIELD)
+PKCS8_ED25519_PREFIX = bytes.fromhex("302e020100300506032b657004220420")
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +53,7 @@ def version(value: str) -> dict[str, int]:
     match = VERSION.fullmatch(value)
     if match is None:
         raise ValueError("version must be vMAJOR.MINOR.PATCH")
-    return dict(zip(("major", "minor", "patch"), map(int, match.groups()), strict=True))
+    return dict(zip(("major", "minor", "patch"), map(int, match.groups())))
 
 
 def load_archive(path: Path, release: str, target: str) -> dict[str, object]:
@@ -93,23 +101,68 @@ def canonical(value: dict[str, object]) -> bytes:
     return json.dumps(value, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
 
 
-def sign(key: Path, content: bytes) -> str:
+def load_seed(key: Path) -> bytes:
     if not key.is_file() or key.is_symlink():
         raise ValueError("private key must be a real readable file")
-    with tempfile.TemporaryDirectory(prefix="gent-runtime-sign-") as directory:
-        root = Path(directory)
-        input_path, signature_path = root / "payload.json", root / "signature.bin"
-        input_path.write_bytes(content)
-        subprocess.run(
-            ["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(key), "-in", str(input_path), "-out", str(signature_path)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        signature = signature_path.read_bytes()
-    if len(signature) != 64:
-        raise ValueError("runtime release key must produce a 64-byte Ed25519 signature")
-    return signature.hex()
+    value = key.read_bytes()
+    if len(value) == 32:
+        return value
+    try:
+        lines = value.decode("ascii").splitlines()
+        body = "".join(line for line in lines if not line.startswith("---"))
+        der = base64.b64decode(body, validate=True)
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError("private key must be a raw Ed25519 seed or PKCS#8 PEM") from error
+    if len(der) != 48 or not der.startswith(PKCS8_ED25519_PREFIX):
+        raise ValueError("private key must be an Ed25519 PKCS#8 PEM")
+    return der[len(PKCS8_ED25519_PREFIX) :]
+
+
+def point_add(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    x1, y1, z1, t1 = left
+    x2, y2, z2, t2 = right
+    a, b = (y1 - x1) * (y2 - x2), (y1 + x1) * (y2 + x2)
+    c, d = 2 * CURVE_D * t1 * t2, 2 * z1 * z2
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return (e * f % FIELD, g * h % FIELD, f * g % FIELD, e * h % FIELD)
+
+
+def point_double(point: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    x, y, z, _ = point
+    a, b, c, d = x * x, y * y, 2 * z * z, -(x * x)
+    e, g, f, h = (x + y) * (x + y) - a - b, d + b, d + b - c, d - b
+    return (e * f % FIELD, g * h % FIELD, f * g % FIELD, e * h % FIELD)
+
+
+def scalar_multiply(scalar: int) -> tuple[int, int, int, int]:
+    result, point = (0, 1, 1, 0), BASE
+    while scalar:
+        if scalar & 1:
+            result = point_add(result, point)
+        point = point_double(point)
+        scalar >>= 1
+    return result
+
+
+def encode_point(point: tuple[int, int, int, int]) -> bytes:
+    x, y, z, _ = point
+    inverse = pow(z, FIELD - 2, FIELD)
+    x, y = x * inverse % FIELD, y * inverse % FIELD
+    encoded = bytearray(y.to_bytes(32, "little"))
+    encoded[31] |= (x & 1) << 7
+    return bytes(encoded)
+
+
+def sign(key: Path, content: bytes) -> str:
+    digest = hashlib.sha512(load_seed(key)).digest()
+    scalar = int.from_bytes(digest[:32], "little")
+    scalar &= (1 << 254) - 8
+    scalar |= 1 << 254
+    public = encode_point(scalar_multiply(scalar))
+    nonce = int.from_bytes(hashlib.sha512(digest[32:] + content).digest(), "little") % ORDER
+    encoded_nonce = encode_point(scalar_multiply(nonce))
+    challenge = int.from_bytes(hashlib.sha512(encoded_nonce + public + content).digest(), "little") % ORDER
+    return (encoded_nonce + ((nonce + challenge * scalar) % ORDER).to_bytes(32, "little")).hex()
 
 
 def atomic_write(path: Path, data: bytes) -> None:
@@ -136,5 +189,5 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, subprocess.SubprocessError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, json.JSONDecodeError) as error:
         raise SystemExit(f"runtime release signing failed: {error}") from error

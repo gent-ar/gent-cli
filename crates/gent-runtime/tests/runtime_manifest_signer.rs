@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::SigningKey;
 use gent_runtime::RuntimeReleaseTrust;
 use gent_types::SignedRuntimeRelease;
 use tempfile::tempdir;
@@ -31,31 +31,11 @@ fn root() -> PathBuf {
 #[test]
 fn release_signer_emits_a_manifest_the_runtime_revalidates() {
     let directory = tempdir().unwrap();
-    let private = directory.path().join("private.pem");
-    let public = directory.path().join("public.pem");
+    let private = directory.path().join("private.seed");
     let archive = directory.path().join("archive.manifest.json");
     let output = directory.path().join("runtime-release.json");
-    command(
-        "openssl",
-        &[
-            "genpkey",
-            "-algorithm",
-            "ED25519",
-            "-out",
-            private.to_str().unwrap(),
-        ],
-    );
-    command(
-        "openssl",
-        &[
-            "pkey",
-            "-in",
-            private.to_str().unwrap(),
-            "-pubout",
-            "-out",
-            public.to_str().unwrap(),
-        ],
-    );
+    let seed = [7; 32];
+    std::fs::write(&private, seed).unwrap();
     std::fs::write(
         &archive,
         r#"{"schemaVersion":1,"version":"v2.0.0","target":"fixture-target","archive":{"name":"gent.tar.gz","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1}}"#,
@@ -88,23 +68,7 @@ fn release_signer_emits_a_manifest_the_runtime_revalidates() {
     );
     let release: SignedRuntimeRelease =
         serde_json::from_slice(&std::fs::read(&output).unwrap()).unwrap();
-    let der = Command::new("openssl")
-        .args([
-            "pkey",
-            "-pubin",
-            "-in",
-            public.to_str().unwrap(),
-            "-pubout",
-            "-outform",
-            "DER",
-        ])
-        .output()
-        .unwrap();
-    assert!(der.status.success());
-    let raw: [u8; 32] = der.stdout[der.stdout.len() - 32..].try_into().unwrap();
-    let trust = RuntimeReleaseTrust::new(BTreeMap::from([(
-        "release-1".into(),
-        VerifyingKey::from_bytes(&raw).unwrap(),
-    )]));
+    let key = SigningKey::from_bytes(&seed).verifying_key();
+    let trust = RuntimeReleaseTrust::new(BTreeMap::from([("release-1".into(), key)]));
     trust.verify_release(&release, 1).unwrap();
 }

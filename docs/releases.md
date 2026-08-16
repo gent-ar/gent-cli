@@ -20,7 +20,8 @@ files:
 - a target-specific `*.runtime-release.json` envelope signed with the release
   Ed25519 key, its Sigstore bundle, and a Sigstore-signed public trust file;
 - signed `gent-install.sh`, `gent-install.ps1`, and
-  `gent-activate-install.py` bootstrap assets, each with a Sigstore bundle.
+  `gent-activate-install.py`, and `gent-supervise-runtime-activation.py`
+  bootstrap assets, each with a Sigstore bundle.
 
 The package tool fixes archive metadata to `SOURCE_DATE_EPOCH`, derived from
 the tagged commit. This makes archive construction deterministic for identical
@@ -35,6 +36,10 @@ trust file; neither private key material nor credentials are stored in the
 repository. High-assurance
 deployments should download the release bootstrap and verify its bundle before
 execution rather than using a moving source URL.
+
+`GENT_RUNTIME_RELEASE_PRIVATE_KEY` is an Ed25519 PKCS#8 PEM. The metadata
+signer uses only the Python standard library so the same signed envelope can
+be produced and verified by the repository's macOS, Linux, and Windows gates.
 
 The runtime trust document is not itself permission to replace a running
 daemon. It only supplies public verification keys to the explicit cached
