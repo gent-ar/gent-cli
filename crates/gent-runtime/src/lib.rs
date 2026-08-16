@@ -25,6 +25,7 @@ mod runtime_release_trust;
 mod runtime_update_check;
 mod runtime_update_executor;
 mod runtime_update_planner;
+mod runtime_update_successor;
 mod tool_sources;
 mod workspaces;
 pub use agent_chat_conversations::{
@@ -68,6 +69,10 @@ pub use runtime_update_executor::{
 pub use runtime_update_planner::{
     RuntimeUpdateAuthority, RuntimeUpdatePlan, RuntimeUpdatePlanner, RuntimeUpdatePlannerError,
     RuntimeUpdatePlanningResult, RuntimeUpdateRequest,
+};
+pub use runtime_update_successor::{
+    RuntimeUpdateSuccessor, RuntimeUpdateSuccessorError, RuntimeUpdateSuccessorRequest,
+    RuntimeUpdateSuccessorResult,
 };
 #[derive(Clone, Debug)]
 pub struct Coordinator<L> {
