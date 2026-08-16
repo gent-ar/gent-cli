@@ -56,6 +56,7 @@ def test_server_request_is_declined_with_the_same_json_rpc_id() -> None:
         {"id": 1, "result": {}}, {"id": 2, "result": {"thread": {"id": "thread-1"}}},
         {"id": 3, "result": {"turn": {"id": "turn-1"}}},
         {"id": "approval-1", "method": "item/commandExecution/requestApproval", "params": {}},
+        {"method": "turn/completed", "params": {"turn": {"status": "completed"}}},
     ])
     seen = MODULE.capture(Path("/fake/codex"), "permission_prompt", "gpt-5.6-luna", timeout=1, popen=fake_popen(process))
     replies = [request for request in process.stdin.requests if request.get("id") == "approval-1"]
@@ -86,6 +87,23 @@ def test_missing_or_wrong_structural_conditions_never_validate() -> None:
     assert MODULE.frames("mcp_tool", {"item/mcpToolCall/progress"})[0]["in"]["nativeType"] == "item/mcpToolCall/progress"
     assert MODULE.registered_mcp({"data": [{"name": "isolated", "tools": {"gent_probe": {}}}]}, "isolated")
     assert not MODULE.registered_mcp({"data": [{"name": "isolated", "tools": {}}]}, "isolated")
+
+
+def test_replay_plan_reports_manifest_state_without_side_effects() -> None:
+    args = type(
+        "Args",
+        (),
+        {
+            "scenario": "permission_prompt",
+            "output": Path(
+                "/Users/ivanmatiasfort/Clouseau/gent-cli/fixtures/public-driver-transcripts/candidate.jsonl"
+            ),
+        },
+    )
+    manifest, updated = MODULE.manifest_update(args.scenario, args.output.name, True)
+    assert manifest == MODULE.ROOT / "fixtures/public-driver-transcripts/manifest.yml"
+    assert "scenario: permission_prompt, state: recorded, path: candidate.jsonl" in updated
+    assert "vendor: codex, scenario: permission_prompt, state: capture_required" not in updated
 
 
 def main() -> None:

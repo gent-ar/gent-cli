@@ -106,6 +106,8 @@ def command_for(vendor: str, scenario: str, model: str, run_capture: bool = Fals
             model,
             "--output",
             str(output.relative_to(ROOT)),
+            "--replace-existing",
+            "--update-manifest",
             "--confirm-live-capture",
             *dry_run,
         ]

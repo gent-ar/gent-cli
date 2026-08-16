@@ -62,6 +62,23 @@ interrupt, decision, and cursor-subscription intents. Those frames are an
 uncomposed compatibility contract: negotiating them does not enable a provider,
 write a conversation, or change the observer daemon's refusal behavior.
 
+### Milestone scope contract
+
+- `gent-cli` is the only CLI surface; it is a thin protocol client and must remain
+  a composition boundary, not a hidden authority plane.
+- `gentd` composes all mutable domains, but in the current observer milestone it hard-disables
+  Git mutation, MCP spawning, automation scheduling, and private bridge routing for live
+  provider execution.
+- Modules do not import each other as peers; only `gentd` and `gent` are allowed to
+  compose stable interfaces across boundaries.
+- Public transport for Claude/Codex stays declarative and typed; `gentd` is not yet connected
+  to that authority today.
+- Claurst support exists in protocol as a private-bridge capability only; no app-level credentials
+  or endpoints are embedded in the public daemon.
+- Device pairing and app-only automations are app responsibilities and are intentionally not
+  represented in observer-gent runtime authority.
+- No source file in this milestone should exceed 300 lines. This is enforced by
+  `python tools/check-architecture.py`.
 `fixtures/ipc-contract/manifest.json` is the language-neutral compatibility
 fixture for that local protocol. It records canonical JSON and the exact
 four-byte big-endian length-prefixed wire frames for handshake, errors, event
@@ -72,18 +89,6 @@ as available. Validate it with:
 ```sh
 cargo run -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
 ```
-
-Device pairing and application automations are Flutter-app concerns, not a
-`gentd` API or execution domain. The workspace retains small pure policy/value
-crates needed by the platform contract, but neither is wired into the daemon or
-available through the CLI protocol.
-
-Claude, Codex, MCP, Git, and the private Claurst bridge are deliberately not
-routed through `gentd` in the current observer milestone. The public driver
-crate has minimal typed launch specifications for a previously locked Claude
-or Codex binary at its operating-system edge, but daemon authority is not yet
-connected to that capability. This keeps the app as the sole production writer
-until the migration plan's evidence, observer, and cutover gates are satisfied.
 
 ## Try it
 
