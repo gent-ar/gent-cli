@@ -84,9 +84,9 @@ The paired staged successor may subsequently use
 `--runtime-update-recover-authority --runtime-update-attempt-id <id>` with the
 same trusted cache inputs. That profile is for the external supervisor only:
 it refuses any release, staging receipt, daemon version, or old host epoch
-mismatch and leaves ingress closed on failure. It confirms the durable handoff
-before fencing/opening the successor epoch; it is not a fetch, install, or
-provider-authority command.
+mismatch and leaves ingress closed on failure. It confirms the durable handoff,
+binds its local endpoint while still closed, then fences/opens the successor
+epoch; it is not a fetch, install, or provider-authority command.
 
 `gent doctor` is read-only discovery. It reports private Claurst integration as
 `notConfigured` in this public repository; it never accepts Claurst endpoint,

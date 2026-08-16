@@ -89,7 +89,7 @@ struct Args {
     /// wired into a later migration phase.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_PLAN_AUTHORITY")]
     runtime_update_plan_authority: bool,
-    /// Confirm a staged successor and fence/open its new writer epoch.
+    /// Confirm a staged successor and open its new writer epoch after binding local IPC.
     ///
     /// This is only for an external supervisor after it has verified and started the exact staged
     /// Gent pair. It does not download, stage, replace, or launch another process.
@@ -128,7 +128,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             || args.runtime_release_trust.is_some()
             || !args.runtime_release_keys.is_empty())
     {
-        return Err("runtime release settings require explicit check or plan authority".into());
+        return Err(
+            "runtime release settings require explicit check, plan, or recovery authority".into(),
+        );
     }
     let update_checks = args
         .runtime_update_check_authority
@@ -165,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             record.attempt_id, record.status.stage
         );
     }
-    if let Some(epoch) = runtime_update_recovery::recover_if_enabled(
+    let recovery = runtime_update_recovery::confirm_if_enabled(
         &data_dir,
         runtime_update_recovery::RuntimeUpdateRecoverConfig {
             enabled: args.runtime_update_recover_authority,
@@ -175,12 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             keys: &args.runtime_release_keys,
             now_unix_seconds: startup::unix_seconds(),
         },
-    )? {
-        eprintln!(
-            "confirmed runtime update successor at host epoch {}",
-            epoch.0
-        );
-    }
+    )?;
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
         &args.compatibility_keys,
@@ -192,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         compatibility,
         update_checks,
     )?;
-    serve_local(runtime, &args, &data_dir).await
+    serve_local(runtime, &args, &data_dir, recovery.as_ref()).await
 }
 
 #[cfg(unix)]
@@ -200,12 +197,21 @@ async fn serve_local(
     runtime: RuntimeFacade,
     args: &Args,
     data_dir: &std::path::Path,
+    recovery: Option<&runtime_update_recovery::ConfirmedRuntimeUpdateRecovery>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let socket = args
         .socket
         .clone()
         .unwrap_or_else(|| data_dir.join("gentd.sock"));
-    transport::serve(private_paths::bind_socket(data_dir, &socket)?, runtime).await
+    let listener = private_paths::bind_socket(data_dir, &socket)?;
+    if let Some(recovery) = recovery {
+        let epoch = runtime_update_recovery::open_confirmed(data_dir, recovery)?;
+        eprintln!(
+            "opened confirmed runtime update successor at host epoch {}",
+            epoch.0
+        );
+    }
+    transport::serve(listener, runtime).await
 }
 
 #[cfg(windows)]
@@ -213,7 +219,15 @@ async fn serve_local(
     runtime: RuntimeFacade,
     _: &Args,
     data_dir: &std::path::Path,
+    recovery: Option<&runtime_update_recovery::ConfirmedRuntimeUpdateRecovery>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(recovery) = recovery {
+        let epoch = runtime_update_recovery::open_confirmed(data_dir, recovery)?;
+        eprintln!(
+            "opened confirmed runtime update successor at host epoch {}",
+            epoch.0
+        );
+    }
     transport_windows::serve_named_pipe(&pipe_name(data_dir), runtime).await
 }
 

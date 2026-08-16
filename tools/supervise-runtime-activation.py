@@ -29,6 +29,10 @@ def args() -> argparse.Namespace:
     parser.add_argument("--source-release", type=Path, required=True)
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument("--recover-attempt-id")
+    parser.add_argument("--runtime-release-cache", type=Path)
+    parser.add_argument("--runtime-release-trust", type=Path)
+    parser.add_argument("--runtime-release-key", action="append", default=[])
     parser.add_argument("--timeout-seconds", type=int, default=30)
     return parser.parse_args()
 
@@ -94,6 +98,51 @@ def health(gent: Path, gentd: Path, deadline: float) -> None:
                     process.kill()
 
 
+def recovery_command(values: argparse.Namespace) -> list[str] | None:
+    if values.recover_attempt_id is None:
+        return None
+    if values.runtime_release_cache is None or (
+        values.runtime_release_trust is None and not values.runtime_release_key
+    ):
+        raise ValueError("successor recovery requires a release cache and trust input")
+    command = [
+        str(values.bin_dir / "gentd"), "--data-dir", str(values.data_dir),
+        "--runtime-update-recover-authority", "--runtime-update-attempt-id",
+        values.recover_attempt_id, "--runtime-release-cache", str(values.runtime_release_cache),
+    ]
+    if values.runtime_release_trust is not None:
+        command.extend(("--runtime-release-trust", str(values.runtime_release_trust)))
+    for key in values.runtime_release_key:
+        command.extend(("--runtime-release-key", key))
+    return command
+
+
+def recover(values: argparse.Namespace, deadline: float) -> None:
+    command = recovery_command(values)
+    if command is None:
+        health(values.bin_dir / "gent", values.bin_dir / "gentd", deadline)
+        return
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    last_probe_error = "local IPC is not ready"
+    while time.monotonic() < deadline:
+        if (values.data_dir / "gentd.sock").exists():
+            try:
+                run([str(values.bin_dir / "gent"), "--data-dir", str(values.data_dir), "--no-autostart", "status"])
+                return
+            except subprocess.CalledProcessError as error:
+                last_probe_error = error.stderr.strip() or "local status probe failed"
+        if process.poll() is not None:
+            raise RuntimeError(f"successor exited before recovery handshake: {process.stderr.read().strip()}")
+        time.sleep(0.05)
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    raise TimeoutError(f"successor did not complete a local IPC probe: {last_probe_error}")
+
+
 def main() -> None:
     values = args()
     if not 1 <= values.timeout_seconds <= 120:
@@ -106,9 +155,9 @@ def main() -> None:
     wait_for_lock(values.data_dir, deadline)
     try:
         activate(values)
-        health(values.bin_dir / "gent", values.bin_dir / "gentd", deadline)
+        recover(values, deadline)
     except BaseException:
-        if lock_is_free(values.data_dir):
+        if values.recover_attempt_id is None and lock_is_free(values.data_dir):
             activate(values, release=previous)
         raise
     print(f"activated {values.release_name}")

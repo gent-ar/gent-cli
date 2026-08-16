@@ -10,7 +10,7 @@ use gent_runtime::{
     Coordinator, RuntimeUpdateAuthority, RuntimeUpdateSuccessor, RuntimeUpdateSuccessorRequest,
 };
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, RuntimeReleaseIdentity};
+use gent_types::{HostEpoch, RuntimeReleaseIdentity, RuntimeUpdateStage};
 
 use crate::runtime_update_config;
 
@@ -25,15 +25,22 @@ pub(crate) struct RuntimeUpdateRecoverConfig<'a> {
     pub(crate) now_unix_seconds: u64,
 }
 
-/// Confirms the already staged successor and atomically opens a new writer epoch.
+/// A successor that has proven its immutable handoff while ingress remains closed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ConfirmedRuntimeUpdateRecovery {
+    attempt_id: String,
+    origin_epoch: HostEpoch,
+}
+
+/// Confirms the already staged successor while preserving closed ingress.
 ///
 /// # Errors
 /// Returns an error unless the durable handoff, signed release cache, staged daemon version, and
 /// closed old ingress all agree. An error leaves ingress closed.
-pub(crate) fn recover_if_enabled(
+pub(crate) fn confirm_if_enabled(
     data_dir: &Path,
     config: RuntimeUpdateRecoverConfig<'_>,
-) -> Result<Option<HostEpoch>, String> {
+) -> Result<Option<ConfirmedRuntimeUpdateRecovery>, String> {
     if !config.enabled {
         return Ok(None);
     }
@@ -76,10 +83,34 @@ pub(crate) fn recover_if_enabled(
             staging_receipt: receipt,
         })
         .map_err(|error| error.to_string())?;
-    let next = Coordinator::new(ledger, gent_types::CapabilitySet::default())
-        .fence_and_open(ingress.epoch)
-        .map_err(|error| error.to_string())?;
-    Ok(Some(next.epoch))
+    Ok(Some(ConfirmedRuntimeUpdateRecovery {
+        attempt_id: attempt_id.into(),
+        origin_epoch: ingress.epoch,
+    }))
+}
+
+/// Opens a successor epoch only after its local listener has been bound.
+///
+/// # Errors
+/// Returns an error when the exact handoff is no longer the activated successor for this origin.
+pub(crate) fn open_confirmed(
+    data_dir: &Path,
+    recovery: &ConfirmedRuntimeUpdateRecovery,
+) -> Result<HostEpoch, String> {
+    let ledger = SqliteLedger::open(data_dir.join("gent.db")).map_err(|error| error.to_string())?;
+    let record = ledger
+        .find_runtime_update(&recovery.attempt_id)
+        .map_err(|error| error.to_string())?
+        .ok_or("confirmed runtime update attempt was not found")?;
+    if record.status.stage != RuntimeUpdateStage::Activated
+        || record.handoff.origin_host_epoch != Some(recovery.origin_epoch)
+    {
+        return Err("runtime update is not an activated successor for its origin epoch".into());
+    }
+    Coordinator::new(ledger, gent_types::CapabilitySet::default())
+        .fence_and_open(recovery.origin_epoch)
+        .map(|ingress| ingress.epoch)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

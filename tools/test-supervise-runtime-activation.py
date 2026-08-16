@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,7 @@ def source(root: Path, name: str) -> Path:
     directory.mkdir(parents=True)
     (directory / "gent").write_text("#!/bin/sh\nexit 0\n")
     (directory / "gentd").write_text(
-        "#!/bin/sh\ndata=\"$2\"\nmkdir -p \"$data\"\ntouch \"$data/gentd.sock\"\nexec sleep 60\n"
+        "#!/bin/sh\ndata=\"$2\"\nmkdir -p \"$data\"\nprintf '%s' \"$$\" > \"$data/gentd.pid\"\ntouch \"$data/gentd.sock\"\nexec sleep 60\n"
     )
     for binary in (directory / "gent", directory / "gentd"):
         binary.chmod(0o755)
@@ -42,6 +43,12 @@ def main() -> None:
         assert os.readlink(runtime / "current") == "releases/v2"
         assert (runtime / "releases/v2/activate-install.py").is_file()
         assert not list((runtime / "releases").glob(".gent-stage-*"))
+        cache, trust = work / "release.json", work / "trust.json"
+        cache.write_text("{}")
+        trust.write_text("{}")
+        subprocess.run([sys.executable, str(staged), "--runtime-root", str(runtime), "--release-name", "v2", "--source-release", str(second), "--bin-dir", str(bin_dir), "--data-dir", str(data), "--recover-attempt-id", "attempt-1", "--runtime-release-cache", str(cache), "--runtime-release-trust", str(trust)], check=True)
+        successor = int((data / "gentd.pid").read_text())
+        os.kill(successor, signal.SIGTERM)
     print("runtime activation supervisor checks passed")
 
 

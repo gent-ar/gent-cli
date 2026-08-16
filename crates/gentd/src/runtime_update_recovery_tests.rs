@@ -12,7 +12,7 @@ use gent_types::{
     SignedRuntimeRelease,
 };
 
-use super::{RuntimeUpdateRecoverConfig, recover_if_enabled};
+use super::{RuntimeUpdateRecoverConfig, confirm_if_enabled, open_confirmed};
 use crate::runtime_update_config::platform_target;
 
 fn version() -> RuntimeVersion {
@@ -122,7 +122,7 @@ fn record() -> RuntimeUpdateRecord {
 fn disabled_recovery_does_not_create_a_ledger() {
     let directory = tempfile::tempdir().unwrap();
     assert!(
-        recover_if_enabled(
+        confirm_if_enabled(
             directory.path(),
             RuntimeUpdateRecoverConfig {
                 enabled: false,
@@ -146,20 +146,23 @@ fn recovery_confirms_exact_handoff_then_fences_the_new_epoch() {
     let ledger = SqliteLedger::open(directory.path().join("gent.db")).unwrap();
     ledger.save_runtime_update(&record()).unwrap();
     ledger.close_ingress(HostEpoch(1)).unwrap();
+    let recovery = confirm_if_enabled(
+        directory.path(),
+        RuntimeUpdateRecoverConfig {
+            enabled: true,
+            attempt_id: Some("handoff-1"),
+            cache_path: Some(&cache),
+            trust_path: None,
+            keys: &[key],
+            now_unix_seconds: 1,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(ledger.host_ingress().unwrap().mode, IngressMode::Closed);
     assert_eq!(
-        recover_if_enabled(
-            directory.path(),
-            RuntimeUpdateRecoverConfig {
-                enabled: true,
-                attempt_id: Some("handoff-1"),
-                cache_path: Some(&cache),
-                trust_path: None,
-                keys: &[key],
-                now_unix_seconds: 1,
-            }
-        )
-        .unwrap(),
-        Some(HostEpoch(2))
+        open_confirmed(directory.path(), &recovery).unwrap(),
+        HostEpoch(2)
     );
     assert_eq!(
         ledger.host_ingress().unwrap(),
@@ -189,7 +192,7 @@ fn recovery_mismatch_leaves_the_old_epoch_closed() {
     ledger.save_runtime_update(&incorrect).unwrap();
     ledger.close_ingress(HostEpoch(1)).unwrap();
     assert!(
-        recover_if_enabled(
+        confirm_if_enabled(
             directory.path(),
             RuntimeUpdateRecoverConfig {
                 enabled: true,
