@@ -25,7 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures/public-driver-transcripts"
-LIMIT, TIMEOUT = 256 * 1024, 8
+LIMIT, TIMEOUT = 256 * 1024, 90
 SCENARIOS = ("permission_prompt", "permission_persistent", "plan_mode", "compaction",
              "mcp_tool", "interrupt", "steer")
 PROMPTS = {
