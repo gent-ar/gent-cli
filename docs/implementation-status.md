@@ -119,9 +119,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       bootstrapper-handoff transitions, refuses to replay incomplete effects after restart, and
       keeps ingress closed after health or activation begins; no live release source, platform
       staging adapter, binary swap, or observer update API exists yet. The
-      uncomposed `runtime-update-check-v1` contract and local `gent update check`
-      command truthfully report `releaseMetadataUnavailable`; they perform no
-      source access, durable write, download, staging, or activation.
+      uncomposed `runtime-update-check-v1` contract remains unadvertised. The
+      local `gent update check` command now verifies a tag-bound target manifest
+      with Sigstore before reporting a candidate; it performs no durable write,
+      archive download, staging, or activation.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not
@@ -176,6 +177,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       The installer holds that daemon's host lock through its atomic pair-pointer
       switch, refusing a live `gentd`; it never performs in-process replacement
       or background release polling.
+- [x] Read-only stable-channel update discovery: untrusted GitHub metadata only
+      locates a tag; the matching target manifest and Sigstore bundle must verify
+      before a candidate/digest is shown. Missing network or `cosign` truthfully
+      yields `releaseMetadataUnavailable` and cannot authorize an update.
 - [x] Standalone discovery-first onboarding documentation with explicit dependency consent.
 - [x] Read-only `gent onboarding` projection with exactly Gent/Claurst, Claude, and Codex branches;
       it derives readiness only from `gent doctor`, never starts a provider or performs auth/install/download work.

@@ -143,14 +143,15 @@ specific daemon binary when `gent` should not resolve a sibling executable.
 Pass `--no-autostart` to require an already-running daemon, which is useful for
 supervised deployments and deterministic smoke tests.
 
-`gent update check` is a truthful read-only status probe: this observer build
-has no configured runtime-release metadata source, so it reports
-`releaseMetadataUnavailable`. To update from an already reviewed release, use
-the explicit external handoff below. It verifies the tag-bound installer
-bootstrap with Sigstore, and that installer independently verifies the archive,
+`gent update check` is a read-only discovery probe. It fetches only the latest
+release tag and target manifest, then reports a candidate only when the
+manifest's Sigstore bundle verifies against that exact tag; unavailable means
+the source, `cosign`, or verification was unavailable. It never downloads an
+archive, writes a ledger, or starts/replaces `gentd`. To update from a verified
+candidate, use the explicit external handoff below. It verifies the tag-bound
+installer bootstrap, and that installer independently verifies the archive,
 manifest, and supplied archive digest before staging the immutable binary pair.
-It refuses
-to switch the pair while `gentd` owns the selected data directory:
+It refuses to switch the pair while `gentd` owns the selected data directory:
 
 ```sh
 digest='target archive digest from the signed manifest'
