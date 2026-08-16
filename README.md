@@ -104,12 +104,13 @@ bash tools/smoke-local-ipc.sh
 ## Public-driver evidence inventory
 
 The phase-0 manifest lists every required Claude/Codex scenario without
-inventing recordings. It includes redacted live `full_turn` captures for
-Claude Haiku and the requested Codex `gpt-5.6-luna` configuration; every
-unexercised scenario remains explicitly capture-required. The coverage manifest
+inventing recordings. It includes redacted live `full_turn` and `tool_use`
+captures for Claude Haiku and the requested Codex `gpt-5.6-luna`
+configuration; every unexercised scenario remains explicitly capture-required.
+The coverage manifest
 links to that inventory, so an authority-evidence record for Claude or Codex
-must name a recorded transcript
-whose provider/version/platform/driver transport agree with the record. CI
+must name a recorded transcript whose provider/version/platform/driver transport
+agree with the record. CI
 validates both manifests structurally:
 
 ```sh
