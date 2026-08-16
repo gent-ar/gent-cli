@@ -67,9 +67,10 @@ until the migration plan's evidence, observer, and cutover gates are satisfied.
 
 ## Try it
 
-Install a signed release (or rerun with `--force` to update it). Choose a
-published tag, download the bootstrap asset and its Sigstore bundle, and verify
-the bootstrap before executing it:
+Install a signed release (or explicitly rerun with `--force` to update it).
+This is a paired, manual installer update, not an automatic daemon self-update.
+Choose a published tag, download the bootstrap asset and its Sigstore bundle,
+and verify the bootstrap before executing it:
 
 ```sh
 version=vX.Y.Z
@@ -195,8 +196,10 @@ module never reaches into another product domain or infrastructure detail.
 The architecture check rejects direct product-domain imports in every production
 module except the `gentd` composition root.
 Pure state transitions remain small functions that can be tested without I/O;
-adapters own I/O at the edge. Every Rust source file, including tests, is kept
-at 300 lines or fewer and CI enforces that limit.
+adapters own I/O at the edge. Every hand-authored Rust source, test, script,
+and CI workflow file is kept at 300 lines or fewer and CI enforces that limit.
+Generated lockfiles and recorded evidence fixtures are excluded from this
+source-size rule.
 
 ## Security boundary
 

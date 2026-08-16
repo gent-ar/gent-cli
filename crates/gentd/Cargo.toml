@@ -13,12 +13,10 @@ directories.workspace = true
 ed25519-dalek.workspace = true
 fs2.workspace = true
 gent-adapters = { path = "../gent-adapters" }
-gent-automations = { path = "../gent-automations" }
 gent-core = { path = "../gent-core" }
 gent-drivers = { path = "../gent-drivers" }
 gent-git = { path = "../gent-git" }
 gent-mcp = { path = "../gent-mcp" }
-gent-pairing = { path = "../gent-pairing" }
 gent-ports = { path = "../gent-ports" }
 gent-protocol = { path = "../gent-protocol" }
 gent-runtime = { path = "../gent-runtime" }

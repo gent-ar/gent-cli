@@ -6,8 +6,8 @@ or starts a provider automatically.
 
 ## First run
 
-Install (or update) Gent from a signed GitHub release. Choose a published tag,
-verify its bootstrap asset, then execute it:
+Install (or explicitly update) Gent from a signed GitHub release. Choose a
+published tag, verify its bootstrap asset, then execute it:
 
 ```sh
 version=vX.Y.Z
@@ -24,8 +24,9 @@ before replacing either binary. It supports macOS arm64/x86_64 and Linux x86_64.
 Use `GENT_VERSION=vX.Y.Z` to pin a release and `--force` only after reviewing a
 new release. It keeps immutable version pairs and atomically switches both
 launchers through one `current` pointer, so an interrupted update keeps the
-previous pair runnable. Ensure `~/.local/bin` (or `GENT_INSTALL_DIR/bin`) is on
-`PATH`.
+previous pair runnable. This installer is deliberately user-invoked; `gentd`
+does not yet self-update or expose an update protocol. Ensure `~/.local/bin`
+(or `GENT_INSTALL_DIR/bin`) is on `PATH`.
 
 Windows x86_64 follows the same verified-bootstrap rule using
 `gent-install.ps1` and `gent-install.ps1.sigstore.json` from that tag. Its

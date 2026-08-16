@@ -35,6 +35,21 @@ PRODUCT_DOMAINS = {
     "gent-store",
 }
 
+SOURCE_SUFFIXES = {".ps1", ".py", ".rs", ".sh", ".yaml", ".yml"}
+SCRIPT_NAMES = {"validate-coverage-manifest"}
+
+
+def source_files() -> list[pathlib.Path]:
+    """Returns checked source, test, automation, and CI files, never generated data."""
+    roots = (ROOT / "crates", ROOT / "tools", ROOT / ".github" / "workflows")
+    return [
+        path
+        for root in roots
+        if root.exists()
+        for path in root.rglob("*")
+        if path.is_file() and (path.suffix in SOURCE_SUFFIXES or path.name in SCRIPT_NAMES)
+    ]
+
 
 def check_dependencies() -> list[str]:
     data = json.loads(subprocess.check_output(["cargo", "metadata", "--format-version", "1", "--no-deps"], cwd=ROOT))
@@ -54,7 +69,7 @@ def check_dependencies() -> list[str]:
 
 def check_file_lengths() -> list[str]:
     errors = []
-    for source in (ROOT / "crates").glob("**/*.rs"):
+    for source in source_files():
         count = len(source.read_text().splitlines())
         if count > 300:
             errors.append(f"{source.relative_to(ROOT)} has {count} lines (maximum is 300)")
