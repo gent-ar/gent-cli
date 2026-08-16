@@ -73,8 +73,11 @@ helper_base="$release_base/gent-activate-install.py"
 download "$helper_base" 'gent-activate-install.py'
 download "$helper_base.sigstore.json" 'gent-activate-install.py.sigstore.json'
 supervisor_base="$release_base/gent-supervise-runtime-activation.py"
-download "$supervisor_base" 'gent-supervise-runtime-activation.py'
-download "$supervisor_base.sigstore.json" 'gent-supervise-runtime-activation.py.sigstore.json'
+has_supervisor=0
+if download "$supervisor_base" 'gent-supervise-runtime-activation.py'; then
+  download "$supervisor_base.sigstore.json" 'gent-supervise-runtime-activation.py.sigstore.json' || exit 1
+  has_supervisor=1
+fi
 
 cosign verify-blob "$temp/$name" --bundle "$temp/$name.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
@@ -85,9 +88,11 @@ cosign verify-blob "$temp/$name.manifest.json" --bundle "$temp/$name.manifest.js
 cosign verify-blob "$temp/gent-activate-install.py" --bundle "$temp/gent-activate-install.py.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
-cosign verify-blob "$temp/gent-supervise-runtime-activation.py" --bundle "$temp/gent-supervise-runtime-activation.py.sigstore.json" \
-  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
-  --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+if [ "$has_supervisor" -eq 1 ]; then
+  cosign verify-blob "$temp/gent-supervise-runtime-activation.py" --bundle "$temp/gent-supervise-runtime-activation.py.sigstore.json" \
+    --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
+    --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+fi
 
 python3 - "$temp/$name" "$temp/$name.manifest.json" "$temp/$name.sha256" "$version" "$target" <<'PY'
 import hashlib, json, pathlib, sys
@@ -128,7 +133,10 @@ release_dir="$temp/gent-$version-$target"
 bin_dir="$install_root/bin"
 runtime_root="$install_root/lib/gent"
 release_name="$version-$target"
-set -- "$runtime_root" "$release_name" --source-release "$release_dir" --source-supervisor "$temp/gent-supervise-runtime-activation.py" --bin-dir "$bin_dir"
+set -- "$runtime_root" "$release_name" --source-release "$release_dir" --bin-dir "$bin_dir"
+if [ "$has_supervisor" -eq 1 ]; then
+  set -- "$@" --source-supervisor "$temp/gent-supervise-runtime-activation.py"
+fi
 if [ "$force" -eq 1 ]; then
   set -- "$@" --force
 fi
