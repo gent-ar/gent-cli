@@ -35,12 +35,14 @@ PROBES = {
     "thinking": "Reply with the exact text GENT_THINKING_CAPTURE_OK and nothing else.",
     "tool_use": "Run pwd exactly once. Then reply with the exact text GENT_TOOL_CAPTURE_OK and nothing else.",
     "tool_error": "Run the command false exactly once. Then reply with the exact text GENT_TOOL_ERROR_CAPTURE_OK and nothing else.",
+    "permission_prompt": "Run `touch /tmp/gent-public-driver-permission-probe` exactly once. If permission is not granted, reply with exact text GENT_PERMISSION_CAPTURE_OK and nothing else.",
 }
 MARKERS = {
     "full_turn": "GENT_LIVE_CAPTURE_OK",
     "thinking": "GENT_THINKING_CAPTURE_OK",
     "tool_use": "GENT_TOOL_CAPTURE_OK",
     "tool_error": "GENT_TOOL_ERROR_CAPTURE_OK",
+    "permission_prompt": "GENT_PERMISSION_CAPTURE_OK",
 }
 
 
@@ -80,8 +82,10 @@ def command(binary: Path, vendor: str, scenario: str, model: str) -> list[str]:
             allowed = ["--tools", "Bash", "--allowedTools", "Bash(pwd)"]
         if scenario == "tool_error":
             allowed = ["--tools", "Bash", "--allowedTools", "Bash(false)"]
-        return [str(binary), "--safe-mode", "--strict-mcp-config", *allowed,
-                "--permission-mode", "dontAsk", "--print", "--model", model,
+        permission_mode = "manual" if scenario == "permission_prompt" else "dontAsk"
+        tools = ["--tools", "Bash"] if scenario == "permission_prompt" else []
+        return [str(binary), "--safe-mode", "--strict-mcp-config", *tools, *allowed,
+                "--permission-mode", permission_mode, "--print", "--model", model,
                 "--max-budget-usd", "0.05", "--no-session-persistence",
                 "--output-format", "stream-json", "--verbose", prompt]
     return [str(binary), "exec", "--ephemeral", "--model", model,
@@ -153,6 +157,15 @@ def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
                      "expectFields": {"activity": "thinking"}}]
         return [{"in": {"nativeType": "thinking", "observed": True}, "expect": "thinking",
                  "expectFields": {"activity": "thinking"}}]
+    if scenario == "permission_prompt":
+        return [
+            {"in": {"nativeType": "system.init", "permissionMode": "default", "toolsEnabled": True},
+             "expect": "permission_mode_initialized", "expectFields": {"permissionMode": "default"}},
+            {"in": {"nativeType": "tool_use", "permissionState": "requested"},
+             "expect": "permission_requested", "expectFields": {"decision": "permission"}},
+            {"in": {"nativeType": "result", "permissionDenials": 1, "terminalReason": "completed"},
+             "expect": "completed_turn", "expectFields": {"terminal": True}},
+        ]
     success = scenario == "tool_use"
     tool = "Bash" if vendor == "claude" else "command_execution"
     return [
@@ -167,10 +180,31 @@ def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
 
 
 def scenario_was_observed(vendor: str, scenario: str, raw: str) -> bool:
+    if scenario == "permission_prompt":
+        return vendor == "claude" and claude_permission_was_observed(raw)
     if scenario != "thinking":
         return True
     required = '"type":"turn.started"' if vendor == "codex" else '"type":"thinking"'
     return required in raw.replace(" ", "")
+
+
+def claude_permission_was_observed(raw: str) -> bool:
+    """Recognize only the tool request and denial needed for the safe probe."""
+    requested = denied = False
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = event.get("message")
+        if isinstance(message, dict) and any(
+            isinstance(block, dict) and block.get("type") == "tool_use"
+            for block in message.get("content", [])
+        ):
+            requested = True
+        if event.get("type") == "result" and event.get("permission_denials"):
+            denied = True
+    return requested and denied
 
 
 def attestation(metadata: dict[str, object], frames: list[dict[str, object]]) -> str:

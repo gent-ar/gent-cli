@@ -6,7 +6,7 @@ cells:
   - { vendor: claude, scenario: tool_use, state: recorded, path: claude-tool-use-haiku-20260816.jsonl }
   - { vendor: claude, scenario: tool_error, state: recorded, path: claude-tool-error-haiku-20260816.jsonl }
   - { vendor: claude, scenario: thinking, state: recorded, path: claude-thinking-haiku-20260816.jsonl }
-  - { vendor: claude, scenario: permission_prompt, state: capture_required }
+  - { vendor: claude, scenario: permission_prompt, state: recorded, path: claude-permission-prompt-haiku-20260816.jsonl }
   - { vendor: claude, scenario: permission_persistent, state: capture_required }
   - { vendor: claude, scenario: plan_mode, state: recorded, path: claude-plan-mode-20260816.jsonl }
   - { vendor: claude, scenario: subagent, state: capture_required }

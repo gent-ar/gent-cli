@@ -62,6 +62,16 @@ def test_thinking_capture_requires_an_observed_vendor_signal() -> None:
     assert MODULE.scenario_was_observed("claude", "thinking", '{"type":"thinking"}')
 
 
+def test_permission_capture_requires_a_manual_request_and_denial() -> None:
+    stream = "\n".join((
+        '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}',
+        '{"type":"result","permission_denials":["Bash"]}',
+    ))
+    assert MODULE.scenario_was_observed("claude", "permission_prompt", stream)
+    assert not MODULE.scenario_was_observed("codex", "permission_prompt", stream)
+    assert not MODULE.scenario_was_observed("claude", "permission_prompt", stream.rsplit("\n", 1)[0])
+
+
 def test_manifest_update_is_prepared_without_writing() -> None:
     args = type("Args", (), {"vendor": "claude", "scenario": "permission_prompt", "output": Path(output("candidate.jsonl"))})()
     manifest, updated = MODULE.manifest_update(args, False)
