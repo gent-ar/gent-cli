@@ -1,4 +1,4 @@
-//! Pure Ratatui rendering for observer-mode conversation discovery.
+//! Pure Ratatui rendering for conversation discovery and durable-input availability.
 
 use ratatui::{
     Frame,
@@ -21,11 +21,11 @@ pub(crate) fn render(frame: &mut Frame, state: &UiState) {
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(body);
     frame.render_widget(index_widget(state), index);
     frame.render_widget(detail_widget(state), detail);
-    frame.render_widget(composer_widget(), composer);
+    frame.render_widget(composer_widget(state), composer);
 }
 
 fn header_widget() -> Paragraph<'static> {
-    Paragraph::new("Gent conversations  •  observer mode  •  ↑/k ↓/j select  •  q quit")
+    Paragraph::new("Gent conversations  •  ↑/k ↓/j select  •  q quit")
         .block(Block::default().borders(Borders::ALL).title("gent"))
 }
 
@@ -59,21 +59,44 @@ fn index_widget(state: &UiState) -> List<'static> {
 fn detail_widget(state: &UiState) -> Paragraph<'static> {
     let body = state.selected().map_or_else(
         || "Select a conversation when one is available.\n\nNo transcript content is exposed in observer mode.".into(),
-        |item| format!(
-            "Conversation: {}\nRuns: {}\n\nModel: unavailable\nEffort: unavailable\nMode: unavailable\n\nUse gent conversation status or timeline for content-free metadata.",
-            item.conversation_id, item.run_count
-        ),
+        |item| format!("Conversation: {}\nRuns: {}\n\nUse gent conversation status or timeline for content-free metadata.", item.conversation_id, item.run_count),
     );
     Paragraph::new(body)
         .wrap(Wrap { trim: true })
         .block(Block::default().borders(Borders::ALL).title("Details"))
 }
 
-fn composer_widget() -> Paragraph<'static> {
-    Paragraph::new("Chat execution is unavailable while gentd is in observer mode.\nPrompt input and model, effort, and mode switches are disabled.")
-        .style(Style::default().fg(Color::Yellow))
+fn composer_widget(state: &UiState) -> Paragraph<'static> {
+    let body = if state.chat_enabled() {
+        format!(
+            "{}\nProvider: {:?} (Tab)  Effort: {:?} (Ctrl+E)  Mode: {:?} (Ctrl+M)\nCtrl+N create  •  Enter persist prompt  •  {}",
+            state.input(),
+            state.selection().provider,
+            state.selection().effort,
+            state.selection().mode,
+            state
+                .notice()
+                .unwrap_or("No provider lifecycle is connected."),
+        )
+    } else {
+        "Chat execution is unavailable while gentd is in observer mode.\nPrompt input and model, effort, and mode switches are disabled.".into()
+    };
+    Paragraph::new(body)
+        .style(Style::default().fg(if state.chat_enabled() {
+            Color::Green
+        } else {
+            Color::Yellow
+        }))
         .wrap(Wrap { trim: true })
-        .block(Block::default().borders(Borders::ALL).title("Input (disabled)"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(if state.chat_enabled() {
+                    "Input"
+                } else {
+                    "Input (disabled)"
+                }),
+        )
 }
 
 #[cfg(test)]

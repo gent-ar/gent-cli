@@ -1,6 +1,6 @@
 //! Terminal event translation with no rendering or protocol dependencies.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::state::UiCommand;
 
@@ -13,6 +13,19 @@ pub(crate) fn command(event: KeyEvent) -> Option<UiCommand> {
         KeyCode::Down | KeyCode::Char('j') => Some(UiCommand::SelectNext),
         KeyCode::Up | KeyCode::Char('k') => Some(UiCommand::SelectPrevious),
         KeyCode::Esc | KeyCode::Char('q') => Some(UiCommand::Quit),
+        KeyCode::Enter => Some(UiCommand::SubmitPrompt),
+        KeyCode::Backspace => Some(UiCommand::DeleteInput),
+        KeyCode::Tab => Some(UiCommand::CycleProvider),
+        KeyCode::Char('n') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::CreateConversation)
+        }
+        KeyCode::Char('e') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::CycleEffort)
+        }
+        KeyCode::Char('m') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::CycleMode)
+        }
+        KeyCode::Char(value) if event.modifiers.is_empty() => Some(UiCommand::Insert(value)),
         _ => None,
     }
 }

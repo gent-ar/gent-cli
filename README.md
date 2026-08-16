@@ -168,10 +168,11 @@ silently falls back to another archive. Stop the target daemon first; after a
 successful handoff, start `gent` normally to launch the selected pair.
 
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
-read-only conversation browser. It lists durable identities and run counts, then
-shows an explicitly disabled composer and model/effort/mode controls. The
-opt-in ledger profile can be exercised with `gent chat create`, `gent chat send`,
-and `gent chat queue`; these commands never start a provider lifecycle.
+conversation browser. It lists durable identities and run counts. Observer mode
+shows a disabled composer; the opt-in ledger profile enables input, selected
+provider/model/effort/mode controls, `Ctrl+N` creation, and `Enter` prompt
+persistence. `gent chat create`, `send`, and `queue` remain available for
+scripts. None of these paths starts a provider lifecycle.
 
 ## Development
 

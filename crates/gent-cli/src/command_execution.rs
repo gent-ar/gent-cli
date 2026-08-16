@@ -11,7 +11,7 @@ use crate::local_ipc::request;
 use crate::{
     Args, CommandLine, ConversationCommand, DependencyCommand, chat_cli, conversation_activity,
     conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, terminal, update_check, update_handoff,
+    event_stream, terminal_browser, update_check, update_handoff,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -25,9 +25,7 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         return Err("--conversations cannot be combined with a subcommand".into());
     }
     if conversations || command.is_none() {
-        terminal::require_interactive()?;
-        let index = conversation_index::request(data_dir, no_autostart).await?;
-        return Ok(terminal::run(terminal::UiState::new(index))?);
+        return terminal_browser::open(data_dir, no_autostart).await;
     }
     let command = command.expect("conversation browser handles no-subcommand invocation");
     match command {

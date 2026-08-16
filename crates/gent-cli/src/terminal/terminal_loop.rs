@@ -9,9 +9,17 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use super::{input, render, state::UiState};
+use gent_types::ConversationListItem;
 
-pub(crate) fn run(mut state: UiState) -> io::Result<()> {
+use super::{
+    input, render,
+    state::{UiEffect, UiRequest, UiState},
+};
+
+pub(crate) fn run<F>(mut state: UiState, mut request: F) -> io::Result<()>
+where
+    F: FnMut(UiRequest) -> Result<ConversationListItem, String>,
+{
     require_interactive()?;
     let mut terminal = TerminalSession::open()?;
     loop {
@@ -19,8 +27,15 @@ pub(crate) fn run(mut state: UiState) -> io::Result<()> {
             .terminal
             .draw(|frame| render::render(frame, &state))?;
         if let Event::Key(key) = event::read()? {
-            if input::command(key).is_some_and(|command| state.apply(command)) {
-                return Ok(());
+            if let Some(command) = input::command(key) {
+                match state.apply(command) {
+                    UiEffect::Quit => return Ok(()),
+                    UiEffect::Request(value) => match request(value) {
+                        Ok(conversation) => state.replace_conversation(conversation),
+                        Err(error) => state.set_notice(error),
+                    },
+                    UiEffect::Continue => {}
+                }
             }
         }
     }

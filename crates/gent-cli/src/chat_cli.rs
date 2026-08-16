@@ -77,7 +77,64 @@ pub(crate) async fn execute(
     no_autostart: bool,
     action: ChatCommand,
 ) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
-    let request = frame(action);
+    exchange(data_dir, no_autostart, frame(action)).await
+}
+
+/// Creates a selected conversation for an interactive terminal through the same IPC boundary.
+pub(crate) async fn create(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    selection: AgentChatSelection,
+) -> Result<(AgentChatConversationId, gent_types::AgentChatRunId), Box<dyn std::error::Error>> {
+    let response = exchange(
+        data_dir,
+        no_autostart,
+        AgentChatIntentFrame::CreateConversation {
+            request_id: request_id(None),
+            receipt_id: receipt_id(None),
+            selection,
+        },
+    )
+    .await?;
+    let AgentChatIntentFrame::Created {
+        conversation_id,
+        run_id,
+        ..
+    } = response
+    else {
+        return Err("daemon did not return a created conversation".into());
+    };
+    Ok((conversation_id, run_id))
+}
+
+/// Persists one interactive terminal prompt without starting a provider process.
+pub(crate) async fn send(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    conversation_id: String,
+    text: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = exchange(
+        data_dir,
+        no_autostart,
+        AgentChatIntentFrame::SendPrompt {
+            request_id: request_id(None),
+            receipt_id: receipt_id(None),
+            conversation_id: AgentChatConversationId(conversation_id),
+            text,
+        },
+    )
+    .await?;
+    matches!(response, AgentChatIntentFrame::Accepted { .. })
+        .then_some(())
+        .ok_or_else(|| "daemon did not accept the agent-chat prompt".into())
+}
+
+async fn exchange(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    request: AgentChatIntentFrame,
+) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
     let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
     if !capabilities
         .0
@@ -210,79 +267,5 @@ const fn mode(value: Mode) -> AgentChatMode {
 }
 
 #[cfg(all(test, unix))]
-mod tests {
-    use gent_protocol::{
-        AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, Hello, Negotiated, WireFrame,
-        read_frame, read_json_frame, write_frame, write_json_frame,
-    };
-    use gent_types::{
-        AgentChatConversationId, CapabilitySet, HostEpoch, PROTOCOL_MAX, Receipt, ReceiptStatus,
-    };
-    use tokio::net::UnixListener;
-
-    use super::{ChatCommand, CreateArgs, Effort, Mode, Provider, execute};
-
-    #[tokio::test]
-    async fn create_negotiates_agent_chat_and_requires_a_matching_created_reply() {
-        let directory = tempfile::tempdir().unwrap();
-        let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            assert!(matches!(
-                read_frame(&mut stream).await.unwrap(),
-                WireFrame::Hello(Hello { capabilities, .. })
-                    if capabilities.0.iter().any(|item| item == AGENT_CHAT_INTENTS_CAPABILITY)
-            ));
-            write_frame(
-                &mut stream,
-                &WireFrame::Negotiated(Negotiated {
-                    protocol: PROTOCOL_MAX,
-                    capabilities: CapabilitySet(vec![AGENT_CHAT_INTENTS_CAPABILITY.into()]),
-                }),
-            )
-            .await
-            .unwrap();
-            let AgentChatIntentFrame::CreateConversation {
-                request_id,
-                receipt_id,
-                ..
-            } = read_json_frame(&mut stream).await.unwrap()
-            else {
-                panic!("expected create");
-            };
-            write_json_frame(
-                &mut stream,
-                &AgentChatIntentFrame::Created {
-                    request_id,
-                    receipt: Receipt {
-                        receipt_id,
-                        idempotency_key: "redacted".into(),
-                        status: ReceiptStatus::Settled,
-                        host_epoch: HostEpoch(1),
-                    },
-                    conversation_id: AgentChatConversationId("conversation-1".into()),
-                    run_id: gent_types::AgentChatRunId("run-1".into()),
-                },
-            )
-            .await
-            .unwrap();
-        });
-        let reply = execute(
-            Some(directory.path().into()),
-            true,
-            ChatCommand::Create(CreateArgs {
-                provider: Provider::Claude,
-                model: "haiku".into(),
-                effort: Effort::Low,
-                mode: Mode::Ask,
-                request_id: Some("request-1".into()),
-                receipt_id: Some("receipt-1".into()),
-            }),
-        )
-        .await
-        .unwrap();
-        assert!(
-            matches!(reply, AgentChatIntentFrame::Created { conversation_id, run_id, .. } if conversation_id.0 == "conversation-1" && run_id.0 == "run-1")
-        );
-    }
-}
+#[path = "chat_cli/tests.rs"]
+mod tests;
