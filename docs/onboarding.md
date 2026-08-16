@@ -39,9 +39,10 @@ release feed, a background timer, or an in-process binary replacement.
 Windows x86_64 follows the same verified-bootstrap rule using
 `gent-install.ps1` and `gent-install.ps1.sigstore.json` from that tag. Its
 default runtime root is `%LOCALAPPDATA%\Gent`; add `%LOCALAPPDATA%\Gent\bin`
-to `PATH`. The installer stages both `.exe` files, then atomically replaces a
-validated `current.json` pointer. It does not use a symlink or replace a
-running binary.
+to `PATH`. The installer stages the immutable runtime pair and a signed native
+launcher, publishes the launchers before atomically replacing a validated
+`current.json` pointer, and never uses a `.cmd` argument-forwarding wrapper.
+It does not use a symlink or replace a running binary.
 
 1. Run `gent doctor`. It starts the local daemon if needed and reports Claude,
    Codex, Node.js, MCP observer state, private-bridge availability, executable

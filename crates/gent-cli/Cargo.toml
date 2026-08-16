@@ -1,5 +1,6 @@
 [package]
 name = "gent-cli"
+default-run = "gent"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -23,6 +24,13 @@ uuid.workspace = true
 [[bin]]
 name = "gent"
 path = "src/main.rs"
+
+# The Windows archive contains this small, signed dispatcher.  Stable PATH
+# entries execute it directly instead of a `.cmd` file, so Windows never asks
+# `cmd.exe` to re-parse user supplied arguments during release selection.
+[[bin]]
+name = "gent-launcher"
+path = "src/windows_launcher.rs"
 
 [lints]
 workspace = true

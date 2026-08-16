@@ -10,7 +10,9 @@ Pushing a `v*` tag builds `gent` and `gentd` for Linux x86_64, macOS x86_64
 and arm64, and Windows x86_64. Each target produces exactly these published
 files:
 
-- one archive containing both binaries;
+- one archive containing the immutable `gent`/`gentd` pair. Windows also
+  contains the signed `gent-launcher.exe`, copied to the stable PATH entries
+  so no command-shell wrapper re-parses user arguments;
 - a SHA-256 sidecar;
 - a JSON manifest naming the archive, target, version, digest, size, and
   contained binaries;

@@ -46,7 +46,7 @@ def expected_binaries(archive: Path) -> list[str]:
     if archive.name.endswith(".tar.gz"):
         return ["gent", "gentd"]
     if archive.suffix == ".zip":
-        return ["gent.exe", "gentd.exe"]
+        return ["gent.exe", "gentd.exe", "gent-launcher.exe"]
     fail("archive format must be .tar.gz or .zip")
 
 

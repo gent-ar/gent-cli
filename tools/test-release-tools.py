@@ -103,17 +103,23 @@ def main() -> None:
         rejects(tar_symlink)
         (target / "gent.exe").write_bytes(b"gent windows fixture\n")
         (target / "gentd.exe").write_bytes(b"gentd windows fixture\n")
+        (target / "gent-launcher.exe").write_bytes(b"launcher windows fixture\n")
         windows = package(target, root / "windows", "zip", ".exe")
         verify(windows)
+        assert json.loads(Path(f"{windows}.manifest.json").read_text())["binaries"] == [
+            "gent.exe", "gentd.exe", "gent-launcher.exe"
+        ]
         root_name = "gent-0.1.0-fixture-target"
         duplicate = package(target, root / "zip-duplicate", "zip", ".exe")
         replace_zip(duplicate, [(f"{root_name}/gent.exe", b"a", stat.S_IFREG | 0o755),
                                 (f"{root_name}/gent.exe", b"b", stat.S_IFREG | 0o755),
-                                (f"{root_name}/gentd.exe", b"c", stat.S_IFREG | 0o755)])
+                                (f"{root_name}/gentd.exe", b"c", stat.S_IFREG | 0o755),
+                                (f"{root_name}/gent-launcher.exe", b"d", stat.S_IFREG | 0o755)])
         rejects(duplicate)
         zip_link = package(target, root / "zip-link", "zip", ".exe")
         replace_zip(zip_link, [(f"{root_name}/gent.exe", b"a", stat.S_IFLNK | 0o777),
-                               (f"{root_name}/gentd.exe", b"b", stat.S_IFREG | 0o755)])
+                               (f"{root_name}/gentd.exe", b"b", stat.S_IFREG | 0o755),
+                               (f"{root_name}/gent-launcher.exe", b"c", stat.S_IFREG | 0o755)])
         rejects(zip_link)
         bad_binaries = package(target, root / "bad-binaries", "zip", ".exe")
         rewrite_metadata(bad_binaries, lambda manifest: manifest.update(binaries=["gent", "gentd"]))

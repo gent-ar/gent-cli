@@ -44,9 +44,16 @@ if [ -z "$version" ]; then
   version=$(curl --fail --silent --show-error "https://api.github.com/repos/$repo/releases/latest" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
 fi
-case "$version" in v[0-9]*.[0-9]*.[0-9]*) ;; *) printf 'invalid release version: %s\n' "$version" >&2; exit 1 ;; esac
+python3 - "$version" <<'PY'
+import re
+import sys
+
+if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?", sys.argv[1]):
+    raise SystemExit(f"invalid release version: {sys.argv[1]}")
+PY
 case "$expected_sha256" in ''|*[!0-9a-f]*) printf '%s\n' 'expected digest must be lowercase hexadecimal' >&2; exit 1 ;; esac
 [ -z "$expected_sha256" ] || [ "${#expected_sha256}" -eq 64 ] || { printf '%s\n' 'expected digest must contain 64 hexadecimal characters' >&2; exit 1; }
+tag_identity_regex=$(python3 -c 'import re,sys; print(re.escape(sys.argv[1]))' "$version")
 
 name="gent-$version-$target.tar.gz"
 release_base=${GENT_RELEASE_BASE_URL:-"https://github.com/$repo/releases/download/$version"}
@@ -67,13 +74,13 @@ download "$helper_base" 'gent-activate-install.py'
 download "$helper_base.sigstore.json" 'gent-activate-install.py.sigstore.json'
 
 cosign verify-blob "$temp/$name" --bundle "$temp/$name.sigstore.json" \
-  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/v.+$" \
+  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
 cosign verify-blob "$temp/$name.manifest.json" --bundle "$temp/$name.manifest.json.sigstore.json" \
-  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$version$" \
+  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
 cosign verify-blob "$temp/gent-activate-install.py" --bundle "$temp/gent-activate-install.py.sigstore.json" \
-  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$version$" \
+  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
 
 python3 - "$temp/$name" "$temp/$name.manifest.json" "$temp/$name.sha256" "$version" "$target" <<'PY'
@@ -115,33 +122,13 @@ release_dir="$temp/gent-$version-$target"
 bin_dir="$install_root/bin"
 runtime_root="$install_root/lib/gent"
 release_name="$version-$target"
-release_path="$runtime_root/releases/$release_name"
-if [ "$force" -ne 1 ] && [ -e "$runtime_root/current" ]; then
-  printf 'Gent is already installed in %s; pass --force to replace it.\n' "$bin_dir" >&2
-  exit 1
-fi
-mkdir -p "$bin_dir" "$runtime_root/releases"
-if [ ! -e "$release_path" ]; then
-  stage="$runtime_root/releases/.gent-stage-$$"
-  mkdir -p "$stage"
-  cp "$release_dir/gent" "$stage/gent"
-  cp "$release_dir/gentd" "$stage/gentd"
-  chmod 755 "$stage/gent" "$stage/gentd"
-  mv "$stage" "$release_path"
+set -- "$runtime_root" "$release_name" --source-release "$release_dir" --bin-dir "$bin_dir"
+if [ "$force" -eq 1 ]; then
+  set -- "$@" --force
 fi
 if [ -n "$idle_data_dir" ]; then
-  python3 "$temp/gent-activate-install.py" "$runtime_root" "$release_name" --idle-data-dir "$idle_data_dir"
-else
-  python3 "$temp/gent-activate-install.py" "$runtime_root" "$release_name"
+  set -- "$@" --idle-data-dir "$idle_data_dir"
 fi
-for launcher in gent gentd; do
-  cat >"$bin_dir/$launcher" <<'SH'
-#!/usr/bin/env sh
-set -eu
-root=$(CDPATH= cd -- "$(dirname -- "$0")/../lib/gent" && pwd)
-exec "$root/current/$(basename -- "$0")" "$@"
-SH
-  chmod 755 "$bin_dir/$launcher"
-done
+python3 "$temp/gent-activate-install.py" "$@"
 printf 'Installed Gent %s in %s\n' "$version" "$bin_dir"
 printf 'Add %s to PATH, then run: gent doctor\n' "$bin_dir"

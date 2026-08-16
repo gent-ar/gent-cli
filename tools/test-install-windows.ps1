@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $repo = Split-Path -Parent $PSScriptRoot
 $installer = Join-Path $repo "tools\install.ps1"
+$launcherSource = Join-Path $repo "crates\gent-cli\src\windows_launcher.rs"
 $python = (Get-Command python -ErrorAction Stop).Source
 $target = "x86_64-pc-windows-msvc"
 $work = Join-Path ([IO.Path]::GetTempPath()) ("gent-install-test-" + [guid]::NewGuid())
@@ -39,6 +40,7 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
     New-Item -ItemType Directory -Path $source, $output | Out-Null
     Write-FixtureBinary (Join-Path $source "gent.exe") "gent"
     Write-FixtureBinary (Join-Path $source "gentd.exe") "gentd"
+    Write-FixtureBinary (Join-Path $source "gent-launcher.exe") "launcher"
     & $python (Join-Path $repo "tools\package-release.py") --target-dir $source --out-dir $output `
         --version $version --target $target --format zip --suffix .exe
     if ($LASTEXITCODE -ne 0) { throw "could not package release fixture" }
@@ -93,6 +95,14 @@ function Archive-Digest([string]$fixture, [string]$version) {
 
 try {
     Assert-True (Test-Path -LiteralPath $installer -PathType Leaf) "tools/install.ps1 missing"
+    Assert-True (Test-Path -LiteralPath $launcherSource -PathType Leaf) "native launcher source missing"
+    $launcherText = Get-Content -Raw -LiteralPath $launcherSource
+    Assert-True ($launcherText.Contains("Command::new(target)")) "native launcher must use direct process execution"
+    Assert-True ($launcherText.Contains(".args(arguments)")) "native launcher must preserve typed arguments"
+    Assert-True (-not $launcherText.Contains("cmd.exe")) "native launcher must not invoke cmd.exe"
+    Assert-True ($launcherText.Contains("symlink_metadata")) "native launcher must reject reparse points"
+    $installerText = Get-Content -Raw -LiteralPath $installer
+    Assert-True ($installerText.Contains("ReparsePoint")) "installer must reject retained release reparse points"
     $fixture = Join-Path $work "releases"
     $installRoot = Join-Path $work "installed"
     $dataRoot = Join-Path $work "data"
@@ -126,13 +136,24 @@ try {
         Invoke-Installer -version "v0.1.0" -installRoot $installRoot -expected $firstDigest -idleData $dataRoot
         $runtime = $installRoot
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "first release was not activated"
-        Assert-True (Test-Path (Join-Path $installRoot "bin\gent.cmd")) "gent launcher missing"
-        Assert-True (Test-Path (Join-Path $installRoot "bin\gentd.cmd")) "gentd launcher missing"
+        Assert-True (Test-Path (Join-Path $installRoot "bin\gent.exe")) "gent launcher missing"
+        Assert-True (Test-Path (Join-Path $installRoot "bin\gentd.exe")) "gentd launcher missing"
+        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gent.cmd"))) "unsafe gent.cmd survived"
+        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gentd.cmd"))) "unsafe gentd.cmd survived"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.2.0"
         Invoke-Installer -version "v0.2.0" -installRoot $installRoot -mustSucceed $false
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "failed update changed current"
+        Set-Content -NoNewline -Encoding ascii (Join-Path $installRoot "bin\gent.cmd") "legacy"
+        Set-Content -NoNewline -Encoding ascii (Join-Path $installRoot "bin\gentd.cmd") "legacy"
         Invoke-Installer -version "v0.2.0" -installRoot $installRoot -force $true
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "forced update was not activated"
+        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gent.cmd"))) "legacy gent.cmd was not removed"
+        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gentd.cmd"))) "legacy gentd.cmd was not removed"
+        Add-Content -NoNewline -Encoding utf8 (Join-Path $installRoot "releases\v0.1.0-$target\gent.exe") "tampered"
+        $env:GENT_RELEASE_BASE_URL = "$base/v0.1.0"
+        Invoke-Installer -version "v0.1.0" -installRoot $installRoot -force $true -mustSucceed $false
+        Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "tampered retained release was activated"
+        $env:GENT_RELEASE_BASE_URL = "$base/v0.2.0"
         $lockPath = Join-Path $dataRoot "gentd.lock"
         New-Item -ItemType Directory -Force -Path $dataRoot | Out-Null
         $lock = [System.IO.File]::Open($lockPath, "OpenOrCreate", "ReadWrite", "ReadWrite")

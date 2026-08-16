@@ -60,18 +60,29 @@ jobs:
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
             suffix: ""
-          - os: macos-13
+            target_dir: target/release
+            build_target: ""
+          # macos-13 Intel runners are no longer reliably available. macOS's
+          # linker can emit this target from the hosted ARM runner, and the
+          # cross build is exercised before its archive is published.
+          - os: macos-14
             target: x86_64-apple-darwin
             archive: tar.gz
             suffix: ""
+            target_dir: target/x86_64-apple-darwin/release
+            build_target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
             archive: tar.gz
             suffix: ""
+            target_dir: target/release
+            build_target: ""
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: zip
             suffix: .exe
+            target_dir: target/release
+            build_target: ""
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -82,13 +93,22 @@ jobs:
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
       - name: Build release binaries
-        run: cargo build --locked --release -p gent-cli -p gentd
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.build_target }}
+        run: |
+          if [ -n "$BUILD_TARGET" ]; then
+            rustup target add "$BUILD_TARGET"
+            cargo build --locked --release --target "$BUILD_TARGET" -p gent-cli -p gentd --bins
+          else
+            cargo build --locked --release -p gent-cli -p gentd --bins
+          fi
       - if: runner.os == 'Windows'
         name: Verify Windows installer activation
         run: powershell -ExecutionPolicy Bypass -File tools/test-install-windows.ps1
       - name: Package binaries
         run: >-
-          python tools/package-release.py --target-dir target/release --out-dir dist
+          python tools/package-release.py --target-dir "${{ matrix.target_dir }}" --out-dir dist
           --version "${{ github.ref_name }}" --target "${{ matrix.target }}"
           --format "${{ matrix.archive }}" --suffix "${{ matrix.suffix }}"
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

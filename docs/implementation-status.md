@@ -160,9 +160,12 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Deterministic release packaging, checksum/manifest verification, and tag-only
       GitHub OIDC keyless-signing workflow for `gent` and `gentd` artifacts.
 - [x] Signed macOS/Linux and Windows x86_64 release bootstraps stage `gent` and
-      `gentd` as an immutable pair before atomically selecting them. Windows uses
-      a validated `current.json` file rather than a symlink; offline installer
-      tests cover first install, refused replacement, successful forced update,
+      `gentd` as an immutable pair before atomically selecting them. The installer
+      serializes the full transaction, byte-compares any existing release to the
+      verified archive, publishes launchers before selection, and fsyncs Unix
+      pointer transitions. Windows uses a validated `current.json` file plus a
+      signed native launcher rather than a `.cmd` forwarding wrapper; offline
+      tests cover first install, tamper refusal, forced update, live-host refusal,
       and manifest-tamper preservation of the previous pair.
 - [x] User-invoked `gent update apply` verifies a tag-bound Sigstore installer
       bootstrap before external handoff, requires a target archive digest and
@@ -198,9 +201,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [ ] Fence-aware legacy app release and authority-transfer state machine.
 - [ ] An authoritative, advertised `ConversationActivity` service backed by approved provider
       ingress, app-compatible fallback, and the complete cross-process lifecycle race matrix.
-- [ ] A concrete signed, staged, health-checked `gentd` self-update distribution path with a
-      platform binary swap, safe rollback boundaries, and update-under-load recovery evidence.
-      The explicit idle-only installer handoff above is not this future daemon authority.
+- [ ] An authoritative, health-checked `gentd` self-update distribution path with
+      update-under-load recovery evidence. The secure explicit idle-only installer
+      handoff above is install distribution, not this future daemon authority.
 
 The coverage manifest blocks an authority-transfer invocation while its real
 evidence records are absent. This is deliberate: recorded provider evidence

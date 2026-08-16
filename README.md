@@ -126,7 +126,8 @@ has no configured runtime-release metadata source, so it reports
 `releaseMetadataUnavailable`. To update from an already reviewed release, use
 the explicit external handoff below. It verifies the tag-bound installer
 bootstrap with Sigstore, and that installer independently verifies the archive,
-manifest, and supplied archive digest before staging both binaries. It refuses
+manifest, and supplied archive digest before staging the immutable binary pair.
+It refuses
 to switch the pair while `gentd` owns the selected data directory:
 
 ```sh

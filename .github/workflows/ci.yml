@@ -92,7 +92,7 @@ jobs:
           RELEASE_SUFFIX: ${{ matrix.suffix }}
         shell: bash
         run: |
-          cargo build --locked --release -p gent-cli -p gentd
+          cargo build --locked --release -p gent-cli -p gentd --bins
           python tools/package-release.py --target-dir target/release --out-dir dist \
             --version v0.0.0-ci --target "$RELEASE_TARGET" --format "$RELEASE_ARCHIVE" \
             --suffix "$RELEASE_SUFFIX"

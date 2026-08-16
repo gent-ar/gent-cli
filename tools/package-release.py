@@ -34,6 +34,8 @@ def source_date_epoch() -> int:
 
 def binaries(target_dir: Path, suffix: str) -> list[Path]:
     paths = [target_dir / f"gent{suffix}", target_dir / f"gentd{suffix}"]
+    if suffix == ".exe":
+        paths.append(target_dir / "gent-launcher.exe")
     missing = [str(path) for path in paths if not path.is_file()]
     if missing:
         raise SystemExit(f"missing release binary: {', '.join(missing)}")

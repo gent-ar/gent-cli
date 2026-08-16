@@ -71,7 +71,8 @@ contacts a source nor writes a ledger checkpoint. Separately, a user may invoke
 `gent update apply` only with a tag, exact target digest, and `--consent`. The
 client verifies the tag-bound signed installer bootstrap, then launches that
 external process; the installer independently verifies the signed archive and
-manifest, stages `gent` and `gentd` together, and takes the daemon host lock
+manifest, stages `gent` and `gentd` together (plus a signed native Windows
+launcher where applicable), and takes the daemon host lock
 during the atomic pointer switch. It refuses a live daemon rather than
 replacing it in process. This is install distribution, not an advertised
 daemon-update authority or a release-metadata protocol.
