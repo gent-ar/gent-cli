@@ -106,6 +106,7 @@ unverified `Invoke-Expression`/pipe bootstrap in high-assurance deployments.
 
 ```sh
 cargo run -p gent-cli -- doctor
+cargo run -p gent-cli -- update check
 cargo run -p gent-cli -- status
 cargo run -p gent-cli -- --conversations
 cargo run -p gent-cli -- conversation list
@@ -119,6 +120,11 @@ empty temporary directory when experimenting or testing. Set `GENTD_BIN` to a
 specific daemon binary when `gent` should not resolve a sibling executable.
 Pass `--no-autostart` to require an already-running daemon, which is useful for
 supervised deployments and deterministic smoke tests.
+
+`gent update check` is currently a truthful read-only status probe: this
+observer build has no configured trusted release-metadata source, so it reports
+`releaseMetadataUnavailable`. It never downloads, stages, or replaces a binary;
+use the signed installer above for an explicit paired update.
 
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
 read-only conversation browser. It lists durable identities and run counts, then

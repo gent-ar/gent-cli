@@ -6,4 +6,4 @@ mod state;
 mod terminal_loop;
 
 pub(crate) use state::UiState;
-pub(crate) use terminal_loop::run;
+pub(crate) use terminal_loop::{require_interactive, run};

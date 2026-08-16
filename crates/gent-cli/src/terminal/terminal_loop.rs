@@ -12,11 +12,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use super::{input, render, state::UiState};
 
 pub(crate) fn run(mut state: UiState) -> io::Result<()> {
-    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        return Err(io::Error::other(
-            "interactive browser requires a terminal; use `gent conversation list`",
-        ));
-    }
+    require_interactive()?;
     let mut terminal = TerminalSession::open()?;
     loop {
         terminal
@@ -28,6 +24,23 @@ pub(crate) fn run(mut state: UiState) -> io::Result<()> {
             }
         }
     }
+}
+
+/// Rejects a browser launch before it opens a local IPC connection or terminal session.
+///
+/// # Errors
+/// Returns an error unless both standard streams are interactive terminals.
+pub(crate) fn require_interactive() -> io::Result<()> {
+    require_terminal(io::stdin().is_terminal(), io::stdout().is_terminal())
+}
+
+fn require_terminal(stdin_is_terminal: bool, stdout_is_terminal: bool) -> io::Result<()> {
+    if stdin_is_terminal && stdout_is_terminal {
+        return Ok(());
+    }
+    Err(io::Error::other(
+        "interactive browser requires a terminal; use `gent conversation list`",
+    ))
 }
 
 struct TerminalSession {
@@ -58,5 +71,17 @@ impl Drop for TerminalSession {
         let _ = disable_raw_mode();
         let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let _ = self.terminal.show_cursor();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_terminal;
+
+    #[test]
+    fn browser_requires_both_interactive_standard_streams() {
+        assert!(require_terminal(true, true).is_ok());
+        assert!(require_terminal(false, true).is_err());
+        assert!(require_terminal(true, false).is_err());
     }
 }

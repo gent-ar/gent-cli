@@ -87,6 +87,8 @@ pub enum RuntimeUpdateFailure {
     IncompatibleProtocol,
     IncompatibleSchema,
     IncompatibleApp,
+    /// This build has no configured, independently trusted release metadata source.
+    ReleaseMetadataUnavailable,
     StagingFailed,
     HealthCheckFailed,
     ActivationFailed,
@@ -188,8 +190,8 @@ mod tests {
 
     use super::{
         RuntimeReleaseChannel, RuntimeUpdateCandidate, RuntimeUpdateCheckReport,
-        RuntimeUpdateCheckState, RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus,
-        RuntimeVersion,
+        RuntimeUpdateCheckState, RuntimeUpdateFailure, RuntimeUpdateRecord, RuntimeUpdateStage,
+        RuntimeUpdateStatus, RuntimeVersion,
     };
 
     #[test]
@@ -252,5 +254,24 @@ mod tests {
         assert!(encoded.get("failure").is_none());
         assert!(!encoded.to_string().contains("activate"));
         assert!(!encoded.to_string().contains("archiveName"));
+    }
+
+    #[test]
+    fn unavailable_check_distinguishes_missing_metadata_from_bad_signatures() {
+        let report = RuntimeUpdateCheckReport {
+            current_version: RuntimeVersion {
+                major: 1,
+                minor: 0,
+                patch: 0,
+            },
+            channel: RuntimeReleaseChannel::Stable,
+            state: RuntimeUpdateCheckState::Unavailable,
+            candidate: None,
+            failure: Some(RuntimeUpdateFailure::ReleaseMetadataUnavailable),
+        };
+        assert_eq!(
+            serde_json::to_value(report).unwrap()["failure"],
+            "releaseMetadataUnavailable"
+        );
     }
 }

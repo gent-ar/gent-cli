@@ -4,8 +4,8 @@ use gent_protocol::{
     CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame, DecisionRecoveryEvidence,
     DecisionSubmission, DependencyActionRequest, DependencyActionResult, DependencyPlan,
     DependencyPlanRequest, Hello, PublicRunInterruptRequest, PublicRunResponse,
-    PublicRunResumeRequest, PublicRunStartRequest, WireFrame, read_frame, read_json_frame,
-    write_frame, write_json_frame,
+    PublicRunResumeRequest, PublicRunStartRequest, RUNTIME_UPDATE_CHECK_CAPABILITY, WireFrame,
+    read_frame, read_json_frame, write_frame, write_json_frame,
 };
 use gent_runtime::ConversationActivityRead;
 use gent_types::{
@@ -103,12 +103,19 @@ impl RuntimeApi for ActivityRuntime {
 }
 
 #[test]
-fn observer_capabilities_do_not_advertise_activity() {
+fn observer_capabilities_do_not_advertise_authority_or_update_work() {
+    let capabilities = observed_capabilities();
     assert!(
-        !observed_capabilities()
+        !capabilities
             .0
             .iter()
             .any(|item| item == CONVERSATION_ACTIVITY_CAPABILITY)
+    );
+    assert!(
+        !capabilities
+            .0
+            .iter()
+            .any(|item| item == RUNTIME_UPDATE_CHECK_CAPABILITY)
     );
 }
 

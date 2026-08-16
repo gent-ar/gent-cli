@@ -64,6 +64,13 @@ lifecycle and the terminal client must remain content-free with its composer
 disabled. No client can use the future projection to bypass receipts, cursor
 resume, epoch fencing, or capability negotiation.
 
+The observer daemon does not advertise any runtime-update capability. The
+protocol retains an uncomposed metadata-only check contract, while `gent update
+check` locally reports that trusted release metadata is unavailable. Neither
+path contacts a source, writes a ledger checkpoint, downloads, stages, or
+activates binaries. This makes the command a truthful compatibility probe
+rather than a disguised updater.
+
 The standalone release design may later let a compatible `gentd` self-update
 without rebuilding an app: the runtime already verifies a versioned, signed
 release manifest and revalidates its offline cache before every use. Only a
@@ -74,8 +81,8 @@ migration, revoked build, failed health probe, or incompatible app range must
 instead leave ingress closed in a clear read-only/update-required state.
 The runtime coordinates trusted staging, health, and bootstrapper handoff only
 through fakeable ports behind a separately approved authority profile. Concrete
-distribution adapters, a real binary swap, and observer update APIs remain
-deliberately unimplemented and unadvertised.
+distribution adapters, a real binary swap, and every mutating observer update
+API remain deliberately unimplemented and unadvertised.
 
 Device pairing, LAN transport, relay hosting, and application automations stay
 Flutter-app-owned. They do not grant a second coordinator or become `gentd`

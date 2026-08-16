@@ -115,7 +115,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       incompatible release as read-only. Its uncomposed executor persists staging, health, and
       bootstrapper-handoff transitions, refuses to replay incomplete effects after restart, and
       keeps ingress closed after health or activation begins; no live release source, platform
-      staging adapter, binary swap, or observer update API exists yet.
+      staging adapter, binary swap, or observer update API exists yet. The
+      uncomposed `runtime-update-check-v1` contract and local `gent update check`
+      command truthfully report `releaseMetadataUnavailable`; they perform no
+      source access, durable write, download, staging, or activation.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not

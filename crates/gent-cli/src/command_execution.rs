@@ -11,7 +11,7 @@ use crate::local_ipc::request;
 use crate::{
     Args, CommandLine, ConversationCommand, DependencyCommand, conversation_activity,
     conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, terminal,
+    event_stream, terminal, update_check,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -25,6 +25,7 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         return Err("--conversations cannot be combined with a subcommand".into());
     }
     if conversations || command.is_none() {
+        terminal::require_interactive()?;
         let index = conversation_index::request(data_dir, no_autostart).await?;
         return Ok(terminal::run(terminal::UiState::new(index))?);
     }
@@ -42,53 +43,14 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Decision { action } => {
             print(request(data_dir, no_autostart, decision_frame(&action)).await?)?;
         }
-        CommandLine::Conversation { action } => match action {
-            ConversationCommand::List => {
-                print(conversation_index::request(data_dir, no_autostart).await?)?;
-            }
-            ConversationCommand::Status { conversation_id } => {
-                print(
-                    conversation_status::request(data_dir, no_autostart, conversation_id).await?,
-                )?;
-            }
-            ConversationCommand::Timeline { conversation_id } => {
-                print(
-                    conversation_timeline::request(data_dir, no_autostart, conversation_id).await?,
-                )?;
-            }
-            ConversationCommand::Activity {
-                conversation_id,
-                run_id,
-                after_cursor,
-            } => {
-                print(
-                    conversation_activity::request(
-                        data_dir,
-                        no_autostart,
-                        conversation_id,
-                        run_id,
-                        after_cursor,
-                    )
-                    .await?,
-                )?;
-            }
-            ConversationCommand::Content {
-                conversation_id,
-                before,
-                limit,
-            } => {
-                print(
-                    conversation_content::request(
-                        data_dir,
-                        no_autostart,
-                        conversation_id,
-                        before,
-                        limit,
-                    )
-                    .await?,
-                )?;
+        CommandLine::Update { action } => match action {
+            crate::UpdateCommand::Check { channel } => {
+                print(update_check::report(channel.into()))?;
             }
         },
+        CommandLine::Conversation { action } => {
+            conversation(data_dir, no_autostart, action).await?;
+        }
         CommandLine::Status => {
             print(request(data_dir, no_autostart, WireFrame::StatusRequest).await?)?;
         }
@@ -107,6 +69,57 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
                     data_dir,
                     no_autostart,
                     WireFrame::Subscribe { after_cursor },
+                )
+                .await?,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+async fn conversation(
+    data_dir: Option<std::path::PathBuf>,
+    no_autostart: bool,
+    action: ConversationCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        ConversationCommand::List => {
+            print(conversation_index::request(data_dir, no_autostart).await?)?;
+        }
+        ConversationCommand::Status { conversation_id } => {
+            print(conversation_status::request(data_dir, no_autostart, conversation_id).await?)?;
+        }
+        ConversationCommand::Timeline { conversation_id } => {
+            print(conversation_timeline::request(data_dir, no_autostart, conversation_id).await?)?;
+        }
+        ConversationCommand::Activity {
+            conversation_id,
+            run_id,
+            after_cursor,
+        } => {
+            print(
+                conversation_activity::request(
+                    data_dir,
+                    no_autostart,
+                    conversation_id,
+                    run_id,
+                    after_cursor,
+                )
+                .await?,
+            )?;
+        }
+        ConversationCommand::Content {
+            conversation_id,
+            before,
+            limit,
+        } => {
+            print(
+                conversation_content::request(
+                    data_dir,
+                    no_autostart,
+                    conversation_id,
+                    before,
+                    limit,
                 )
                 .await?,
             )?;

@@ -13,6 +13,8 @@ mod decision;
 mod event_stream;
 mod local_ipc;
 mod terminal;
+mod update_check;
+use crate::update_check::UpdateCommand;
 
 use crate::decision::DecisionCommandLine;
 
@@ -46,6 +48,11 @@ enum CommandLine {
     Decision {
         #[command(subcommand)]
         action: DecisionCommandLine,
+    },
+    /// Inspect signed runtime-release availability without downloading or changing binaries.
+    Update {
+        #[command(subcommand)]
+        action: UpdateCommand,
     },
     /// Read durable conversation, run, and active-turn status.
     Conversation {
@@ -140,8 +147,9 @@ mod tests {
     use clap::Parser;
     use gent_protocol::{DependencyAction, DependencyProvider, WireFrame};
 
-    use super::{Args, CommandLine, ConversationCommand, DependencyCommand};
+    use super::{Args, CommandLine, ConversationCommand, DependencyCommand, UpdateCommand};
     use crate::command_execution::dependency_plan_frame;
+    use crate::update_check::UpdateChannel;
 
     #[test]
     fn dependency_plan_is_read_only() {
@@ -255,5 +263,20 @@ mod tests {
         assert!(
             Args::try_parse_from(["gent", "decision", "settle", "--decision-id", "d1"]).is_err()
         );
+    }
+
+    #[test]
+    fn update_check_parses_without_an_apply_escape_hatch() {
+        let args =
+            Args::try_parse_from(["gent", "update", "check", "--channel", "canary"]).unwrap();
+        assert!(matches!(
+            args.command,
+            Some(CommandLine::Update {
+                action: UpdateCommand::Check {
+                    channel: UpdateChannel::Canary
+                }
+            })
+        ));
+        assert!(Args::try_parse_from(["gent", "update", "apply"]).is_err());
     }
 }
