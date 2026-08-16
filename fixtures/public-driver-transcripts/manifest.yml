@@ -22,7 +22,7 @@ cells:
   - { vendor: codex, scenario: tool_error, state: recorded, path: codex-tool-error-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: thinking, state: recorded, path: codex-thinking-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: permission_prompt, state: recorded, path: codex-permission-prompt-gpt-5-6-luna-20260816.jsonl }
-  - { vendor: codex, scenario: permission_persistent, state: capture_required }
+  - { vendor: codex, scenario: permission_persistent, state: recorded, path: codex-permission-persistent-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: plan_mode, state: recorded, path: codex-plan-mode-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: subagent, state: capture_required }
   - { vendor: codex, scenario: compaction, state: capture_required }
