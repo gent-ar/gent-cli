@@ -49,14 +49,23 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
 }
 
 function Invoke-Installer([string]$version, [string]$installRoot, [bool]$force = $false,
-    [bool]$mustSucceed = $true) {
+    [bool]$mustSucceed = $true, [string]$expected = "", [string]$idleData = "") {
     $oldPreference = $ErrorActionPreference
     $failure = ""
     try {
         $ErrorActionPreference = "Continue"
         try {
-            if ($force) { & $installer -Version $version -InstallDir $installRoot -Force }
-            else { & $installer -Version $version -InstallDir $installRoot }
+            if ($force) {
+                if ($expected -and $idleData) {
+                    & $installer -Version $version -InstallDir $installRoot -Force -ExpectedSha256 $expected -IdleDataDir $idleData
+                } elseif ($expected) {
+                    & $installer -Version $version -InstallDir $installRoot -Force -ExpectedSha256 $expected
+                } else { & $installer -Version $version -InstallDir $installRoot -Force }
+            } elseif ($expected -and $idleData) {
+                & $installer -Version $version -InstallDir $installRoot -ExpectedSha256 $expected -IdleDataDir $idleData
+            } elseif ($expected) {
+                & $installer -Version $version -InstallDir $installRoot -ExpectedSha256 $expected
+            } else { & $installer -Version $version -InstallDir $installRoot }
             $code = $LASTEXITCODE
         } catch {
             $code = 1
@@ -77,10 +86,16 @@ function Get-CurrentRelease([string]$runtime) {
     return [string]$value.release
 }
 
+function Archive-Digest([string]$fixture, [string]$version) {
+    $archive = Join-Path $fixture "$version\gent-$version-$target.zip"
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+}
+
 try {
     Assert-True (Test-Path -LiteralPath $installer -PathType Leaf) "tools/install.ps1 missing"
     $fixture = Join-Path $work "releases"
     $installRoot = Join-Path $work "installed"
+    $dataRoot = Join-Path $work "data"
     $fakeBin = Join-Path $work "fake-bin"
     New-Item -ItemType Directory -Path $fixture, $fakeBin | Out-Null
     New-ReleaseFixture $fixture "v0.1.0"
@@ -107,7 +122,8 @@ try {
     try {
         $env:PATH = "$fakeBin;$oldPath"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.1.0"
-        Invoke-Installer -version "v0.1.0" -installRoot $installRoot
+        $firstDigest = Archive-Digest $fixture "v0.1.0"
+        Invoke-Installer -version "v0.1.0" -installRoot $installRoot -expected $firstDigest -idleData $dataRoot
         $runtime = $installRoot
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "first release was not activated"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gent.cmd")) "gent launcher missing"
@@ -117,6 +133,16 @@ try {
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "failed update changed current"
         Invoke-Installer -version "v0.2.0" -installRoot $installRoot -force $true
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "forced update was not activated"
+        $lockPath = Join-Path $dataRoot "gentd.lock"
+        New-Item -ItemType Directory -Force -Path $dataRoot | Out-Null
+        $lock = [System.IO.File]::Open($lockPath, "OpenOrCreate", "ReadWrite", "ReadWrite")
+        try {
+            $lock.Lock(0, 1)
+            $secondDigest = Archive-Digest $fixture "v0.2.0"
+            Invoke-Installer -version "v0.2.0" -installRoot $installRoot -force $true -mustSucceed $false `
+                -expected $secondDigest -idleData $dataRoot
+            Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "idle-lock refusal changed current"
+        } finally { $lock.Unlock(0, 1); $lock.Dispose() }
         $env:GENT_RELEASE_BASE_URL = "$base/v0.3.0"
         Invoke-Installer -version "v0.3.0" -installRoot $installRoot -force $true -mustSucceed $false
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "invalid update changed current"

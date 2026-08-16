@@ -164,6 +164,12 @@ not claim provider or app compatibility evidence that has not been recorded.
       a validated `current.json` file rather than a symlink; offline installer
       tests cover first install, refused replacement, successful forced update,
       and manifest-tamper preservation of the previous pair.
+- [x] User-invoked `gent update apply` verifies a tag-bound Sigstore installer
+      bootstrap before external handoff, requires a target archive digest and
+      explicit consent, and passes the selected data directory to activation.
+      The installer holds that daemon's host lock through its atomic pair-pointer
+      switch, refusing a live `gentd`; it never performs in-process replacement
+      or background release polling.
 - [x] Standalone discovery-first onboarding documentation with explicit dependency consent.
 - [x] Read-only `gent onboarding` projection with exactly Gent/Claurst, Claude, and Codex branches;
       it derives readiness only from `gent doctor`, never starts a provider or performs auth/install/download work.
@@ -194,6 +200,7 @@ not claim provider or app compatibility evidence that has not been recorded.
       ingress, app-compatible fallback, and the complete cross-process lifecycle race matrix.
 - [ ] A concrete signed, staged, health-checked `gentd` self-update distribution path with a
       platform binary swap, safe rollback boundaries, and update-under-load recovery evidence.
+      The explicit idle-only installer handoff above is not this future daemon authority.
 
 The coverage manifest blocks an authority-transfer invocation while its real
 evidence records are absent. This is deliberate: recorded provider evidence

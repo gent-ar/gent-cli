@@ -3,6 +3,8 @@
 param(
     [string]$Version = $env:GENT_VERSION,
     [string]$InstallDir = $env:GENT_INSTALL_DIR,
+    [string]$ExpectedSha256,
+    [string]$IdleDataDir,
     [switch]$Force
 )
 
@@ -32,6 +34,12 @@ function Get-ReleaseVersion {
 function Assert-Version([string]$Candidate) {
     if ($Candidate -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
         Fail "invalid release version: $Candidate"
+    }
+}
+
+function Assert-ExpectedDigest([string]$Digest) {
+    if ($Digest -and $Digest -notmatch '^[0-9a-f]{64}$') {
+        Fail "expected digest must be 64 lowercase hexadecimal characters"
     }
 }
 
@@ -145,9 +153,24 @@ if not exist "%ROOT%\releases\%RELEASE%\__BINARY__.exe" exit /b 1
     }
 }
 
+function Use-IdleDaemonLock([string]$DataDir, [scriptblock]$Action) {
+    if (-not $DataDir) { & $Action; return }
+    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+    $path = Join-Path $DataDir "gentd.lock"
+    $lock = [System.IO.File]::Open($path, "OpenOrCreate", "ReadWrite", "ReadWrite")
+    try {
+        try { $lock.Lock(0, 1) }
+        catch { Fail "gentd is running for $DataDir; stop it before updating" }
+        try { & $Action }
+        finally { $lock.Unlock(0, 1) }
+    }
+    finally { $lock.Dispose() }
+}
+
 Require-Command "cosign"
 $Version = Get-ReleaseVersion
 Assert-Version $Version
+Assert-ExpectedDigest $ExpectedSha256
 if (-not $InstallDir) {
     if (-not $env:LOCALAPPDATA) { Fail "LOCALAPPDATA is unavailable; pass --InstallDir" }
     $InstallDir = Join-Path $env:LOCALAPPDATA "Gent"
@@ -167,6 +190,10 @@ try {
     Assert-Signed $archive $archiveBundle $Version
     Assert-Signed $manifest $manifestBundle $Version
     Assert-Archive $archive $manifest $checksum $Version
+    $actualDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+    if ($ExpectedSha256 -and $ExpectedSha256 -ne $actualDigest) {
+        Fail "release digest does not match explicit update confirmation"
+    }
     Assert-ZipMembers $archive $Version
     $pointer = Join-Path $InstallDir "current.json"
     if ((Test-Path -LiteralPath $pointer) -and -not $Force) { Fail "Gent is already installed; pass --Force to update it" }
@@ -180,7 +207,7 @@ try {
         Move-Item -LiteralPath $source -Destination $release
         Remove-Item -LiteralPath $stage -Force -Recurse
     }
-    Write-CurrentPointer $InstallDir $releaseName
+    Use-IdleDaemonLock $IdleDataDir { Write-CurrentPointer $InstallDir $releaseName }
     Write-Launchers $InstallDir
     Write-Output "Installed Gent $Version in $(Join-Path $InstallDir 'bin')"
     Write-Output "Add $(Join-Path $InstallDir 'bin') to PATH, then run: gent doctor"

@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import fcntl
 from pathlib import Path
 
 
@@ -26,9 +27,12 @@ def release(root: Path, name: str, *, gentd: bool = True) -> Path:
     return directory
 
 
-def activate(root: Path, name: str) -> subprocess.CompletedProcess[str]:
+def activate(root: Path, name: str, data_dir: Path | None = None) -> subprocess.CompletedProcess[str]:
+    arguments = [sys.executable, str(ACTIVATOR), str(root), name]
+    if data_dir is not None:
+        arguments.extend(("--idle-data-dir", str(data_dir)))
     return subprocess.run(
-        [sys.executable, str(ACTIVATOR), str(root), name],
+        arguments,
         capture_output=True,
         text=True,
     )
@@ -88,11 +92,31 @@ def test_rejects_symlinked_release_binary() -> None:
         assert not (root / "current").exists()
 
 
+def test_idle_lock_refuses_activation_and_preserves_current_pair() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / "gent"
+        data = Path(temporary) / "data"
+        root.mkdir()
+        data.mkdir()
+        release(root, "v1-target")
+        release(root, "v2-target")
+        assert activate(root, "v1-target").returncode == 0
+        with (data / "gentd.lock").open("a+b") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = activate(root, "v2-target", data)
+            assert result.returncode != 0
+            assert "gentd is running" in result.stderr
+            assert current(root) == "releases/v1-target"
+        assert activate(root, "v2-target", data).returncode == 0
+        assert current(root) == "releases/v2-target"
+
+
 def main() -> None:
     test_first_activation_and_atomic_replacement()
     test_rejects_incomplete_release_without_changing_current()
     test_rejects_unsafe_current_or_release_paths()
     test_rejects_symlinked_release_binary()
+    test_idle_lock_refuses_activation_and_preserves_current_pair()
     print("install activation checks passed")
 
 

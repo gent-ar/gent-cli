@@ -14,6 +14,7 @@ mod event_stream;
 mod local_ipc;
 mod terminal;
 mod update_check;
+mod update_handoff;
 use crate::update_check::UpdateCommand;
 
 use crate::decision::DecisionCommandLine;
@@ -49,7 +50,7 @@ enum CommandLine {
         #[command(subcommand)]
         action: DecisionCommandLine,
     },
-    /// Inspect signed runtime-release availability without downloading or changing binaries.
+    /// Inspect signed runtime-release availability or explicitly hand off a paired update.
     Update {
         #[command(subcommand)]
         action: UpdateCommand,
@@ -266,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn update_check_parses_without_an_apply_escape_hatch() {
+    fn update_apply_requires_version_digest_and_explicit_consent() {
         let args =
             Args::try_parse_from(["gent", "update", "check", "--channel", "canary"]).unwrap();
         assert!(matches!(
@@ -278,5 +279,22 @@ mod tests {
             })
         ));
         assert!(Args::try_parse_from(["gent", "update", "apply"]).is_err());
+        let apply = Args::try_parse_from([
+            "gent",
+            "update",
+            "apply",
+            "--version",
+            "v1.2.3",
+            "--expected-sha256",
+            &"a".repeat(64),
+            "--consent",
+        ])
+        .unwrap();
+        assert!(matches!(
+            apply.command,
+            Some(CommandLine::Update {
+                action: UpdateCommand::Apply { consent: true, .. }
+            })
+        ));
     }
 }

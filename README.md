@@ -121,10 +121,26 @@ specific daemon binary when `gent` should not resolve a sibling executable.
 Pass `--no-autostart` to require an already-running daemon, which is useful for
 supervised deployments and deterministic smoke tests.
 
-`gent update check` is currently a truthful read-only status probe: this
-observer build has no configured trusted release-metadata source, so it reports
-`releaseMetadataUnavailable`. It never downloads, stages, or replaces a binary;
-use the signed installer above for an explicit paired update.
+`gent update check` is a truthful read-only status probe: this observer build
+has no configured runtime-release metadata source, so it reports
+`releaseMetadataUnavailable`. To update from an already reviewed release, use
+the explicit external handoff below. It verifies the tag-bound installer
+bootstrap with Sigstore, and that installer independently verifies the archive,
+manifest, and supplied archive digest before staging both binaries. It refuses
+to switch the pair while `gentd` owns the selected data directory:
+
+```sh
+digest='target archive digest from the signed manifest'
+gent --data-dir "$GENT_DATA_DIR" update apply \
+  --version vX.Y.Z \
+  --expected-sha256 "$digest" \
+  --consent
+```
+
+Pass `--install-dir DIR` when the runtime is not installed under the default
+root. The command never selects `latest`, starts or replaces `gentd`, or
+silently falls back to another archive. Stop the target daemon first; after a
+successful handoff, start `gent` normally to launch the selected pair.
 
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
 read-only conversation browser. It lists durable identities and run counts, then

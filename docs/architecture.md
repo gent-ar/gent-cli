@@ -66,10 +66,15 @@ resume, epoch fencing, or capability negotiation.
 
 The observer daemon does not advertise any runtime-update capability. The
 protocol retains an uncomposed metadata-only check contract, while `gent update
-check` locally reports that trusted release metadata is unavailable. Neither
-path contacts a source, writes a ledger checkpoint, downloads, stages, or
-activates binaries. This makes the command a truthful compatibility probe
-rather than a disguised updater.
+check` locally reports that trusted release metadata is unavailable. It neither
+contacts a source nor writes a ledger checkpoint. Separately, a user may invoke
+`gent update apply` only with a tag, exact target digest, and `--consent`. The
+client verifies the tag-bound signed installer bootstrap, then launches that
+external process; the installer independently verifies the signed archive and
+manifest, stages `gent` and `gentd` together, and takes the daemon host lock
+during the atomic pointer switch. It refuses a live daemon rather than
+replacing it in process. This is install distribution, not an advertised
+daemon-update authority or a release-metadata protocol.
 
 The standalone release design may later let a compatible `gentd` self-update
 without rebuilding an app: the runtime already verifies a versioned, signed

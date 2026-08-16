@@ -152,7 +152,7 @@ fn default_daemon_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(name))
 }
 
-fn default_data_dir() -> PathBuf {
+pub(crate) fn default_data_dir() -> PathBuf {
     directories::ProjectDirs::from("ar", "Gent", "Gent").map_or_else(
         || PathBuf::from(".gent"),
         |directories| directories.data_local_dir().to_path_buf(),

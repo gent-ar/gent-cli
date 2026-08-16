@@ -9,11 +9,18 @@ import stat
 import sys
 from pathlib import Path
 
+import fcntl
+
 
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runtime_root", type=Path)
     parser.add_argument("release_name")
+    parser.add_argument(
+        "--idle-data-dir",
+        type=Path,
+        help="require the target gentd host lock to remain unowned during activation",
+    )
     return parser.parse_args()
 
 
@@ -86,9 +93,28 @@ def activate(runtime_root: Path, release_name: str) -> Path:
     return release
 
 
+def activate_while_idle(runtime_root: Path, release_name: str, data_dir: Path | None) -> Path:
+    """Switch the pair while excluding an old daemon for one data directory."""
+    if data_dir is None:
+        return activate(runtime_root, release_name)
+    data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = data_dir / "gentd.lock"
+    with lock_path.open("a+b") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise SystemExit(
+                f"Gent activation refused: gentd is running for {data_dir}; stop it before updating"
+            ) from error
+        try:
+            return activate(runtime_root, release_name)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def main() -> None:
     args = arguments()
-    release = activate(args.runtime_root, args.release_name)
+    release = activate_while_idle(args.runtime_root, args.release_name, args.idle_data_dir)
     print(f"activated {release.name}")
 
 

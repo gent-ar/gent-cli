@@ -25,8 +25,16 @@ Use `GENT_VERSION=vX.Y.Z` to pin a release and `--force` only after reviewing a
 new release. It keeps immutable version pairs and atomically switches both
 launchers through one `current` pointer, so an interrupted update keeps the
 previous pair runnable. This installer is deliberately user-invoked; `gentd`
-does not yet self-update or expose an update protocol. Ensure `~/.local/bin`
+does not self-update or expose a daemon update protocol. Ensure `~/.local/bin`
 (or `GENT_INSTALL_DIR/bin`) is on `PATH`.
+
+For an installed runtime, `gent update apply --version vX.Y.Z
+--expected-sha256 <digest> --consent` is an equally explicit external handoff.
+It downloads and verifies the release tag's installer bootstrap before invoking
+it as a child process. The digest must be the target archive digest in its
+signed manifest. The installer refuses activation if `gentd` holds the chosen
+data directory's host lock, so stop that daemon first. It does not use a
+release feed, a background timer, or an in-process binary replacement.
 
 Windows x86_64 follows the same verified-bootstrap rule using
 `gent-install.ps1` and `gent-install.ps1.sigstore.json` from that tag. Its

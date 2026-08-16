@@ -11,7 +11,7 @@ use crate::local_ipc::request;
 use crate::{
     Args, CommandLine, ConversationCommand, DependencyCommand, conversation_activity,
     conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, terminal, update_check,
+    event_stream, terminal, update_check, update_handoff,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -46,6 +46,22 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Update { action } => match action {
             crate::UpdateCommand::Check { channel } => {
                 print(update_check::report(channel.into()))?;
+            }
+            crate::UpdateCommand::Apply {
+                version,
+                expected_sha256,
+                consent,
+                install_dir,
+            } => {
+                if !consent {
+                    return Err("runtime updates require --consent".into());
+                }
+                update_handoff::apply(&update_handoff::UpdateRequest {
+                    version,
+                    expected_sha256,
+                    data_dir: data_dir.unwrap_or_else(crate::local_ipc::default_data_dir),
+                    install_dir,
+                })?;
             }
         },
         CommandLine::Conversation { action } => {
