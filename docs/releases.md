@@ -41,6 +41,20 @@ execution rather than using a moving source URL.
 signer uses only the Python standard library so the same signed envelope can
 be produced and verified by the repository's macOS, Linux, and Windows gates.
 
+Before the first runtime-update release, generate the protected key material
+locally (the output file is mode `0600` and is never added to the repository):
+
+```sh
+python3 tools/generate-runtime-release-key.py \
+  --key-id runtime-2026-01 \
+  --private-key-out /secure/path/gent-runtime-release.pem
+```
+
+Set the PEM contents as `GENT_RUNTIME_RELEASE_PRIVATE_KEY`, and set the printed
+`GENT_RUNTIME_RELEASE_KEY_ID` and `GENT_RUNTIME_RELEASE_PUBLIC_KEY` as protected
+repository variables. The release workflow fails closed until all three values
+exist and agree; do not substitute a provider credential or archive-signing key.
+
 The runtime trust document is not itself permission to replace a running
 daemon. It only supplies public verification keys to the explicit cached
 status profile; staging, health confirmation, supervised activation, and

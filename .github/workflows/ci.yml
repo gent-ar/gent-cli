@@ -90,6 +90,7 @@ jobs:
       - run: python tools/test-release-tools.py
       - run: python -m py_compile tools/sign-runtime-release.py
       - run: python tools/test-sign-runtime-release.py
+      - run: python tools/test-generate-runtime-release-key.py
       - run: cargo run --quiet -p gent-testkit --bin validate-coverage-manifest -- fixtures/coverage-manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json

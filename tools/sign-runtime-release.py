@@ -153,12 +153,22 @@ def encode_point(point: tuple[int, int, int, int]) -> bytes:
     return bytes(encoded)
 
 
-def sign(key: Path, content: bytes) -> str:
-    digest = hashlib.sha512(load_seed(key)).digest()
+def public_key(seed: bytes) -> bytes:
+    """Derive the raw Ed25519 verifying key for a 32-byte signing seed."""
+    digest = hashlib.sha512(seed).digest()
     scalar = int.from_bytes(digest[:32], "little")
     scalar &= (1 << 254) - 8
     scalar |= 1 << 254
-    public = encode_point(scalar_multiply(scalar))
+    return encode_point(scalar_multiply(scalar))
+
+
+def sign(key: Path, content: bytes) -> str:
+    seed = load_seed(key)
+    digest = hashlib.sha512(seed).digest()
+    scalar = int.from_bytes(digest[:32], "little")
+    scalar &= (1 << 254) - 8
+    scalar |= 1 << 254
+    public = public_key(seed)
     nonce = int.from_bytes(hashlib.sha512(digest[32:] + content).digest(), "little") % ORDER
     encoded_nonce = encode_point(scalar_multiply(nonce))
     challenge = int.from_bytes(hashlib.sha512(encoded_nonce + public + content).digest(), "little") % ORDER
