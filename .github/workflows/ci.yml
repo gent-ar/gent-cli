@@ -43,10 +43,19 @@ jobs:
         include:
           - os: macos-latest
             smoke: bash tools/smoke-local-ipc.sh
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            suffix: ""
           - os: ubuntu-latest
             smoke: bash tools/smoke-local-ipc.sh
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            suffix: ""
           - os: windows-latest
             smoke: powershell -ExecutionPolicy Bypass -File tools/smoke-local-ipc.ps1
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            suffix: .exe
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -69,3 +78,19 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
       - run: ${{ matrix.smoke }}
+      - name: Package and structurally verify native release archive
+        env:
+          SOURCE_DATE_EPOCH: "1700000000"
+          RELEASE_TARGET: ${{ matrix.target }}
+          RELEASE_ARCHIVE: ${{ matrix.archive }}
+          RELEASE_SUFFIX: ${{ matrix.suffix }}
+        shell: bash
+        run: |
+          cargo build --locked --release -p gent-cli -p gentd
+          python tools/package-release.py --target-dir target/release --out-dir dist \
+            --version v0.0.0-ci --target "$RELEASE_TARGET" --format "$RELEASE_ARCHIVE" \
+            --suffix "$RELEASE_SUFFIX"
+          python tools/verify-release.py "dist/gent-v0.0.0-ci-$RELEASE_TARGET.$RELEASE_ARCHIVE" \
+            --manifest "dist/gent-v0.0.0-ci-$RELEASE_TARGET.$RELEASE_ARCHIVE.manifest.json" \
+            --checksum "dist/gent-v0.0.0-ci-$RELEASE_TARGET.$RELEASE_ARCHIVE.sha256" \
+            --version v0.0.0-ci --target "$RELEASE_TARGET"
