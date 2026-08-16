@@ -1,7 +1,6 @@
 use gent_ports::LedgerError;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use sha2::{Digest, Sha256};
-
 const BASE_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS host_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), epoch INTEGER NOT NULL, ingress TEXT NOT NULL DEFAULT 'open');
 CREATE TABLE IF NOT EXISTS receipts (idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, host_epoch INTEGER NOT NULL);
@@ -13,11 +12,9 @@ CREATE TABLE IF NOT EXISTS run_version_locks (run_id TEXT PRIMARY KEY NOT NULL R
 CREATE TABLE IF NOT EXISTS run_leases (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), coordinator_id TEXT NOT NULL, host_epoch INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS worktree_leases (worktree_id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id), lease_token TEXT NOT NULL UNIQUE, host_epoch INTEGER NOT NULL);
 ";
-
 const RUN_SESSION_BINDINGS: &str = "
 CREATE TABLE IF NOT EXISTS run_session_bindings (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), provider_session_id TEXT NOT NULL);
 ";
-
 const RUN_PROJECTIONS: &str = "
 CREATE TABLE IF NOT EXISTS run_projections (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), host_epoch INTEGER NOT NULL, cursor INTEGER NOT NULL, payload TEXT NOT NULL);
 ";
@@ -135,6 +132,7 @@ CREATE INDEX IF NOT EXISTS conversation_messages_by_run ON conversation_messages
 const CONVERSATION_CONTENT_ORDINALS: &str = include_str!("conversation_content_ordinals.sql");
 const CONVERSATION_ACTIVITY: &str = include_str!("conversation_activity.sql");
 const RUNTIME_UPDATE: &str = include_str!("runtime_update.sql");
+const AGENT_CHAT: &str = include_str!("agent_chat.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -146,7 +144,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 20] = [
+const MIGRATIONS: [Migration; 21] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -167,6 +165,7 @@ const MIGRATIONS: [Migration; 20] = [
     migration(18, CONVERSATION_CONTENT_ORDINALS),
     migration(19, CONVERSATION_ACTIVITY),
     migration(20, RUNTIME_UPDATE),
+    migration(21, AGENT_CHAT),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

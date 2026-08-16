@@ -8,6 +8,7 @@ use gent_types::{
 };
 use rusqlite::{Connection, params};
 use std::{path::Path, sync::Arc, sync::Mutex, time::Duration};
+mod agent_chat_ledger;
 mod attachment_ledger;
 mod capability_catalog;
 mod conversation_activity_ledger;
