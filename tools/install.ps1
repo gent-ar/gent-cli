@@ -77,8 +77,9 @@ function Assert-ZipMembers([string]$Archive, [string]$ReleaseVersion) {
     $expected = @("$root/gent.exe", "$root/gentd.exe")
     $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
     try {
-        $members = @($zip.Entries | ForEach-Object { $_.FullName })
-        if (($members | Sort-Object) -join ',' -ne ($expected | Sort-Object) -join ',') {
+        $members = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
+        $expectedMembers = @($expected | Sort-Object)
+        if (($members -join ',') -ne ($expectedMembers -join ',')) {
             Fail "release archive contains unsafe or unexpected paths"
         }
         foreach ($entry in $zip.Entries) {
