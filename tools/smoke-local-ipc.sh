@@ -34,20 +34,25 @@ if [[ ! -S "$data_dir/gentd.sock" ]]; then
   exit 1
 fi
 
-for _ in $(seq 1 40); do
-  if GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- --no-autostart status >"$data_dir/status.json" 2>"$data_dir/status.err"; then
-    break
-  fi
-  sleep 0.05
-done
-if [[ ! -s "$data_dir/status.json" ]]; then
-  cat "$data_dir/status.err" >&2 || true
-  exit 1
-fi
-GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- submit --kind ping --payload '{"message":"smoke"}' >"$data_dir/receipt.json"
-GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- events >"$data_dir/events.json"
-GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- decision submit --decision-id smoke-decision --idempotency-key smoke-key >"$data_dir/decision.json"
-GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- decision unprovable --decision-id smoke-decision >"$data_dir/decision-terminal.json"
+run_gent() {
+  local output=$1
+  shift
+  local error="${output%.json}.err"
+  for _ in $(seq 1 40); do
+    if GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- --no-autostart "$@" >"$output" 2>"$error"; then
+      return
+    fi
+    sleep 0.05
+  done
+  cat "$error" >&2 || true
+  return 1
+}
+
+run_gent "$data_dir/status.json" status
+run_gent "$data_dir/receipt.json" submit --kind ping --payload '{"message":"smoke"}' --idempotency-key smoke-ping
+run_gent "$data_dir/events.json" events
+run_gent "$data_dir/decision.json" decision submit --decision-id smoke-decision --idempotency-key smoke-key
+run_gent "$data_dir/decision-terminal.json" decision unprovable --decision-id smoke-decision
 
 python3 - "$data_dir" <<'PY'
 import json
