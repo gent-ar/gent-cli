@@ -1,4 +1,5 @@
 //! Coordinator orchestration over pure policy and durable ports.
+mod agent_chat_conversations;
 mod attachment_receipts;
 mod attachments;
 pub mod catalog;
@@ -24,6 +25,10 @@ mod runtime_update_executor;
 mod runtime_update_planner;
 mod tool_sources;
 mod workspaces;
+pub use agent_chat_conversations::{
+    AgentChatConversationAuthority, AgentChatConversationRequest, AgentChatConversationResult,
+    AgentChatConversationService,
+};
 pub use attachments::AttachmentService;
 pub use conversation_activity::{
     ConversationActivityAuthority, ConversationActivityRead, ConversationActivityResult,
