@@ -51,15 +51,37 @@ impl From<UpdateChannel> for RuntimeReleaseChannel {
     }
 }
 
-/// Reports this binary's version and the absence of a configured trusted source.
-///
-/// This intentionally does not connect to `gentd`, use the network, or inspect
-/// an installer. It is a safe CLI affordance until an externally supervised
-/// update source has an independently auditable trust contract.
-#[must_use]
+/// Reports an available release only after its tag-bound manifest verifies with Sigstore.
 pub(crate) fn report(channel: RuntimeReleaseChannel) -> RuntimeUpdateCheckReport {
+    let current_version = package_version();
+    if channel != RuntimeReleaseChannel::Stable {
+        return unavailable(current_version, channel);
+    }
+    match crate::update_discovery::discover() {
+        Ok(candidate) if candidate.release_version > current_version => RuntimeUpdateCheckReport {
+            current_version,
+            channel,
+            state: RuntimeUpdateCheckState::Available,
+            candidate: Some(candidate),
+            failure: None,
+        },
+        Ok(_) => RuntimeUpdateCheckReport {
+            current_version,
+            channel,
+            state: RuntimeUpdateCheckState::Current,
+            candidate: None,
+            failure: None,
+        },
+        Err(_) => unavailable(current_version, channel),
+    }
+}
+
+fn unavailable(
+    current_version: RuntimeVersion,
+    channel: RuntimeReleaseChannel,
+) -> RuntimeUpdateCheckReport {
     RuntimeUpdateCheckReport {
-        current_version: package_version(),
+        current_version,
         channel,
         state: RuntimeUpdateCheckState::Unavailable,
         candidate: None,
@@ -120,7 +142,7 @@ mod tests {
     use super::report;
 
     #[test]
-    fn check_never_claims_a_trusted_release_or_contacts_a_daemon() {
+    fn nonstable_check_never_discovers_or_contacts_a_daemon() {
         let result = report(RuntimeReleaseChannel::Canary);
         assert_eq!(result.channel, RuntimeReleaseChannel::Canary);
         assert_eq!(result.state, RuntimeUpdateCheckState::Unavailable);

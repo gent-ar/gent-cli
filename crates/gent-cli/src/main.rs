@@ -14,10 +14,10 @@ mod event_stream;
 mod local_ipc;
 mod terminal;
 mod update_check;
+mod update_discovery;
 mod update_handoff;
-use crate::update_check::UpdateCommand;
-
 use crate::decision::DecisionCommandLine;
+use crate::update_check::UpdateCommand;
 
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
