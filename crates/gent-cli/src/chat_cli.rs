@@ -8,8 +8,8 @@ use gent_protocol::{
     write_json_frame,
 };
 use gent_types::{
-    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId,
-    AgentChatSelection, ReceiptId,
+    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatPromptDelivery,
+    AgentChatProvider, AgentChatRequestId, AgentChatSelection, ReceiptId,
 };
 use serde_json::Value;
 
@@ -113,7 +113,7 @@ pub(crate) async fn send(
     no_autostart: bool,
     conversation_id: String,
     text: String,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<AgentChatPromptDelivery, Box<dyn std::error::Error>> {
     let response = exchange(
         data_dir,
         no_autostart,
@@ -125,9 +125,10 @@ pub(crate) async fn send(
         },
     )
     .await?;
-    matches!(response, AgentChatIntentFrame::Accepted { .. })
-        .then_some(())
-        .ok_or_else(|| "daemon did not accept the agent-chat prompt".into())
+    let AgentChatIntentFrame::Accepted { delivery, .. } = response else {
+        return Err("daemon did not accept the agent-chat prompt".into());
+    };
+    Ok(delivery)
 }
 
 async fn exchange(

@@ -9,16 +9,14 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use gent_types::ConversationListItem;
-
 use super::{
     input, render,
-    state::{UiEffect, UiRequest, UiState},
+    state::{UiEffect, UiRequest, UiRequestResult, UiState},
 };
 
 pub(crate) fn run<F>(mut state: UiState, mut request: F) -> io::Result<()>
 where
-    F: FnMut(UiRequest) -> Result<ConversationListItem, String>,
+    F: FnMut(UiRequest) -> Result<UiRequestResult, String>,
 {
     require_interactive()?;
     let mut terminal = TerminalSession::open()?;
@@ -31,7 +29,7 @@ where
                 match state.apply(command) {
                     UiEffect::Quit => return Ok(()),
                     UiEffect::Request(value) => match request(value) {
-                        Ok(conversation) => state.replace_conversation(conversation),
+                        Ok(result) => state.apply_request(result),
                         Err(error) => state.set_notice(error),
                     },
                     UiEffect::Continue => {}

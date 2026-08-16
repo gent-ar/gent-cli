@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY;
-use gent_types::ConversationListItem;
+use gent_types::{AgentChatPromptDelivery, ConversationListItem};
 
 use crate::{chat_cli, conversation_index, local_ipc, terminal};
 
@@ -33,7 +33,7 @@ fn submit(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     request: terminal::UiRequest,
-) -> Result<ConversationListItem, String> {
+) -> Result<terminal::UiRequestResult, String> {
     tokio::task::block_in_place(|| {
         runtime.block_on(async move {
             match request {
@@ -41,24 +41,56 @@ fn submit(
                     let (conversation_id, _) = chat_cli::create(data_dir, no_autostart, selection)
                         .await
                         .map_err(|error| error.to_string())?;
-                    Ok(ConversationListItem {
-                        conversation_id: conversation_id.0,
-                        run_count: 1,
-                    })
+                    Ok(result(
+                        conversation_id.0,
+                        "Conversation created; choose a prompt to persist.",
+                    ))
                 }
                 terminal::UiRequest::Send {
                     conversation_id,
                     text,
                 } => {
-                    chat_cli::send(data_dir, no_autostart, conversation_id.clone(), text)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                    Ok(ConversationListItem {
-                        conversation_id,
-                        run_count: 1,
-                    })
+                    let delivery =
+                        chat_cli::send(data_dir, no_autostart, conversation_id.clone(), text)
+                            .await
+                            .map_err(|error| error.to_string())?;
+                    Ok(result(conversation_id, delivery_notice(delivery)))
                 }
             }
         })
     })
+}
+
+fn result(conversation_id: String, notice: impl Into<String>) -> terminal::UiRequestResult {
+    terminal::UiRequestResult {
+        conversation: ConversationListItem {
+            conversation_id,
+            run_count: 1,
+        },
+        notice: notice.into(),
+    }
+}
+
+const fn delivery_notice(delivery: AgentChatPromptDelivery) -> &'static str {
+    match delivery {
+        AgentChatPromptDelivery::Queued => {
+            "Prompt queued locally; no provider delivery was attempted."
+        }
+        AgentChatPromptDelivery::AwaitingProvider => {
+            "Prompt is durable and awaiting an authorized provider lifecycle."
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gent_types::AgentChatPromptDelivery;
+
+    use super::delivery_notice;
+
+    #[test]
+    fn prompt_delivery_notice_never_claims_a_provider_started() {
+        assert!(delivery_notice(AgentChatPromptDelivery::Queued).contains("no provider"));
+        assert!(delivery_notice(AgentChatPromptDelivery::AwaitingProvider).contains("awaiting"));
+    }
 }

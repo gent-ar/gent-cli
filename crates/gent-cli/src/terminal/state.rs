@@ -30,6 +30,13 @@ pub(crate) enum UiRequest {
     },
 }
 
+/// Result returned by the terminal composition edge after one durable request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UiRequestResult {
+    pub(crate) conversation: ConversationListItem,
+    pub(crate) notice: String,
+}
+
 /// The terminal reducer result; only the outer composition edge performs IPC.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum UiEffect {
@@ -104,7 +111,8 @@ impl UiState {
         self.notice.as_deref()
     }
 
-    pub(crate) fn replace_conversation(&mut self, item: ConversationListItem) {
+    pub(crate) fn apply_request(&mut self, result: UiRequestResult) {
+        let item = result.conversation;
         let index = self
             .conversations
             .iter()
@@ -114,8 +122,7 @@ impl UiState {
                 0
             });
         self.selected = Some(index);
-        self.notice =
-            Some("Durable request accepted; no provider is connected to this profile.".into());
+        self.notice = Some(result.notice);
     }
 
     pub(crate) fn set_notice(&mut self, value: String) {

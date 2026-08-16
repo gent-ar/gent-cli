@@ -5,5 +5,5 @@ mod render;
 mod state;
 mod terminal_loop;
 
-pub(crate) use state::{UiRequest, UiState};
+pub(crate) use state::{UiRequest, UiRequestResult, UiState};
 pub(crate) use terminal_loop::{require_interactive, run};
