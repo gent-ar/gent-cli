@@ -70,6 +70,13 @@ pub enum AgentChatIntentFrame {
         request_id: AgentChatRequestId,
         reason: AgentChatSubscriptionEnd,
     },
+    /// Durable result of creating a conversation and its immutable root run.
+    Created {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
+    },
     Accepted {
         request_id: AgentChatRequestId,
         receipt: Receipt,
@@ -87,7 +94,10 @@ pub enum AgentChatSubscriptionEnd {
 #[cfg(test)]
 mod tests {
     use super::{AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd};
-    use gent_types::{AgentChatConversationId, AgentChatRequestId, AgentChatRunId, ReceiptId};
+    use gent_types::{
+        AgentChatConversationId, AgentChatRequestId, AgentChatRunId, HostEpoch, Receipt, ReceiptId,
+        ReceiptStatus,
+    };
     use serde_json::json;
 
     #[test]
@@ -129,6 +139,34 @@ mod tests {
         assert_eq!(
             serde_json::to_value(frame).unwrap(),
             json!({ "type": "subscriptionEnded", "body": { "requestId": "request-1", "reason": "resyncRequired" } })
+        );
+    }
+
+    #[test]
+    fn create_result_returns_only_durable_public_identities() {
+        let frame = AgentChatIntentFrame::Created {
+            request_id: AgentChatRequestId("request-1".into()),
+            receipt: Receipt {
+                receipt_id: ReceiptId("receipt-1".into()),
+                idempotency_key: "retry-1".into(),
+                status: ReceiptStatus::Settled,
+                host_epoch: HostEpoch(1),
+            },
+            conversation_id: AgentChatConversationId("conversation-1".into()),
+            run_id: AgentChatRunId("run-1".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(frame).unwrap(),
+            json!({
+                "type": "created",
+                "body": {
+                    "requestId": "request-1", "receipt": {
+                        "receiptId": "receipt-1", "idempotencyKey": "retry-1",
+                        "status": "settled", "hostEpoch": 1
+                    },
+                    "conversationId": "conversation-1", "runId": "run-1"
+                }
+            })
         );
     }
 

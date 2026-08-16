@@ -17,6 +17,16 @@ struct FakePort;
 impl IntentPort for FakePort {
     fn exchange(&self, request: AgentChatIntentFrame) -> Result<Vec<AgentChatIntentFrame>, String> {
         match request {
+            AgentChatIntentFrame::CreateConversation {
+                request_id,
+                receipt_id,
+                ..
+            } => Ok(vec![AgentChatIntentFrame::Created {
+                request_id,
+                receipt: receipt(receipt_id),
+                conversation_id: AgentChatConversationId("conversation-1".into()),
+                run_id: gent_types::AgentChatRunId("run-1".into()),
+            }]),
             AgentChatIntentFrame::SendPrompt {
                 request_id,
                 receipt_id,
@@ -57,15 +67,28 @@ impl IntentPort for BadReceiptPort {
     }
 }
 
+#[derive(Clone)]
+struct ObserverPort;
+
+impl IntentPort for ObserverPort {
+    fn exchange(&self, _: AgentChatIntentFrame) -> Result<Vec<AgentChatIntentFrame>, String> {
+        Err("observer-disabled".into())
+    }
+}
+
 fn accepted(request_id: AgentChatRequestId, receipt_id: ReceiptId) -> AgentChatIntentFrame {
     AgentChatIntentFrame::Accepted {
         request_id,
-        receipt: Receipt {
-            receipt_id,
-            idempotency_key: "retry-1".into(),
-            status: ReceiptStatus::Accepted,
-            host_epoch: gent_types::HostEpoch(1),
-        },
+        receipt: receipt(receipt_id),
+    }
+}
+
+fn receipt(receipt_id: ReceiptId) -> Receipt {
+    Receipt {
+        receipt_id,
+        idempotency_key: "retry-1".into(),
+        status: ReceiptStatus::Accepted,
+        host_epoch: gent_types::HostEpoch(1),
     }
 }
 
@@ -87,6 +110,20 @@ async fn prompt_reply_requires_a_correlated_receipt() {
     );
     assert!(
         matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Accepted { request_id, receipt } if request_id.0 == "request-1" && receipt.receipt_id.0 == "receipt-1")
+    );
+}
+
+#[tokio::test]
+async fn create_reply_includes_durable_conversation_and_run_identities() {
+    let (mut reader, mut writer) = duplex(4096);
+    let request = json!({ "type": "createConversation", "body": { "requestId": "create-1", "receiptId": "receipt-1", "selection": { "provider": "claude", "model": "haiku", "effort": "low", "mode": "ask" } } });
+    assert!(
+        dispatch_port(&mut writer, &FakePort, &capabilities(), &request)
+            .await
+            .unwrap()
+    );
+    assert!(
+        matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Created { conversation_id, run_id, .. } if conversation_id.0 == "conversation-1" && run_id.0 == "run-1")
     );
 }
 
@@ -138,7 +175,7 @@ async fn observer_port_error_is_a_protocol_error_without_a_provider_effect() {
     let (mut reader, mut writer) = duplex(4096);
     let request = json!({ "type": "createConversation", "body": { "requestId": "r", "receiptId": "x", "selection": { "provider": "claude", "model": "haiku", "effort": "low", "mode": "ask" } } });
     assert!(
-        dispatch_port(&mut writer, &FakePort, &capabilities(), &request)
+        dispatch_port(&mut writer, &ObserverPort, &capabilities(), &request)
             .await
             .unwrap()
     );

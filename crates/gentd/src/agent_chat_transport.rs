@@ -109,8 +109,15 @@ fn validate_replies(
             request_id,
             receipt_id,
             ..
-        }
-        | AgentChatIntentFrame::SendPrompt {
+        } => matches!(
+            replies,
+            [AgentChatIntentFrame::Created { request_id: reply_id, receipt, conversation_id, run_id }]
+                if reply_id == request_id && receipt.receipt_id == *receipt_id
+                    && !conversation_id.0.is_empty() && !run_id.0.is_empty()
+        )
+        .then_some(())
+        .ok_or("conversation creation requires one matching durable result"),
+        AgentChatIntentFrame::SendPrompt {
             request_id,
             receipt_id,
             ..
@@ -138,6 +145,7 @@ fn validate_replies(
         .ok_or("a chat command requires one matching accepted receipt"),
         AgentChatIntentFrame::SubscriptionEvent { .. }
         | AgentChatIntentFrame::SubscriptionEnded { .. }
+        | AgentChatIntentFrame::Created { .. }
         | AgentChatIntentFrame::Accepted { .. } => {
             Err("agent chat response frames are server-only")
         }
