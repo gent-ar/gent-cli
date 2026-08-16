@@ -30,6 +30,7 @@ jobs:
       - run: cargo fmt --check
       - run: python tools/check-architecture.py
       - run: sh -n tools/install.sh
+      - run: python tools/test-install-activation.py
       - run: python tools/test-release-tools.py
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
@@ -107,7 +108,9 @@ jobs:
         shell: bash
         run: |
           cp tools/install.sh release-artifacts/gent-install.sh
+          cp tools/activate-install.py release-artifacts/gent-activate-install.py
           cosign sign-blob --yes --bundle release-artifacts/gent-install.sh.sigstore.json release-artifacts/gent-install.sh
+          cosign sign-blob --yes --bundle release-artifacts/gent-activate-install.py.sigstore.json release-artifacts/gent-activate-install.py
       - name: Publish signed artifacts
         shell: bash
         env:

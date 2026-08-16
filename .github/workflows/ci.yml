@@ -56,6 +56,7 @@ jobs:
       - run: cargo fmt --check
       - run: python tools/check-architecture.py
       - run: sh -n tools/install.sh
+      - run: python tools/test-install-activation.py
       - run: python -m py_compile tools/capture-public-driver-transcript.py
       - run: python tools/test-capture-public-driver-transcript.py
       - run: python tools/test-release-tools.py

@@ -54,11 +54,17 @@ download "$base.sha256" "$name.sha256"
 download "$base.manifest.json" "$name.manifest.json"
 download "$base.sigstore.json" "$name.sigstore.json"
 download "$base.manifest.json.sigstore.json" "$name.manifest.json.sigstore.json"
+helper_base="https://github.com/$repo/releases/download/$version/gent-activate-install.py"
+download "$helper_base" 'gent-activate-install.py'
+download "$helper_base.sigstore.json" 'gent-activate-install.py.sigstore.json'
 
 cosign verify-blob "$temp/$name" --bundle "$temp/$name.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/v.+$" \
   --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
 cosign verify-blob "$temp/$name.manifest.json" --bundle "$temp/$name.manifest.json.sigstore.json" \
+  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$version$" \
+  --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
+cosign verify-blob "$temp/gent-activate-install.py" --bundle "$temp/gent-activate-install.py.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$version$" \
   --certificate-oidc-issuer 'https://github.com/login/oauth' >/dev/null
 
@@ -106,14 +112,7 @@ if [ ! -e "$release_path" ]; then
   chmod 755 "$stage/gent" "$stage/gentd"
   mv "$stage" "$release_path"
 fi
-python3 - "$runtime_root" "$release_name" <<'PY'
-import os, pathlib, sys
-root, release = map(pathlib.Path, sys.argv[1:])
-temporary = root / f'.current-{os.getpid()}'
-temporary.unlink(missing_ok=True)
-temporary.symlink_to(pathlib.Path('releases') / release)
-os.replace(temporary, root / 'current')
-PY
+python3 "$temp/gent-activate-install.py" "$runtime_root" "$release_name"
 for launcher in gent gentd; do
   cat >"$bin_dir/$launcher" <<'SH'
 #!/usr/bin/env sh
