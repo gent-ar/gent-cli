@@ -147,6 +147,9 @@ where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
+    if crate::agent_chat_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if crate::conversation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }

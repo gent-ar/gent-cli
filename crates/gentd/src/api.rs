@@ -1,9 +1,9 @@
 //! Daemon-facing runtime port. Transport adapters depend only on this boundary.
 
 use gent_protocol::{
-    AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest,
-    DependencyActionResult, DependencyPlan, DependencyPlanRequest, PublicRunInterruptRequest,
-    PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
+    AgentChatIntentFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
+    DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
+    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
 };
 use gent_runtime::ConversationActivityRead;
 use gent_types::{
@@ -46,6 +46,17 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         &self,
         request: PublicRunInterruptRequest,
     ) -> Result<PublicRunResponse, String>;
+    /// Handles a finite authority-gated agent-chat exchange.
+    ///
+    /// The transport validates that every response is correlated to `request`. Observer
+    /// implementations keep this default and therefore cannot accept chat commands merely by
+    /// negotiating the protocol capability.
+    fn agent_chat_intent(
+        &self,
+        _: AgentChatIntentFrame,
+    ) -> Result<Vec<AgentChatIntentFrame>, String> {
+        Err("agent chat is unavailable while gentd is observer-disabled".into())
+    }
     fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String>;
     fn conversations(&self) -> Result<Vec<ConversationListItem>, String> {
         Err("conversation discovery is unavailable for this runtime".into())
