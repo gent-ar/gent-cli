@@ -3,10 +3,7 @@
 use std::path::PathBuf;
 
 use clap::{Subcommand, ValueEnum};
-use gent_types::{
-    RuntimeReleaseChannel, RuntimeUpdateCheckReport, RuntimeUpdateCheckState, RuntimeUpdateFailure,
-    RuntimeVersion,
-};
+use gent_types::RuntimeReleaseChannel;
 
 /// Update commands intentionally stop at metadata-only status reporting.
 #[derive(Debug, Subcommand)]
@@ -51,66 +48,6 @@ impl From<UpdateChannel> for RuntimeReleaseChannel {
     }
 }
 
-/// Reports an available release only after its tag-bound manifest verifies with Sigstore.
-pub(crate) fn report(channel: RuntimeReleaseChannel) -> RuntimeUpdateCheckReport {
-    let current_version = package_version();
-    if channel != RuntimeReleaseChannel::Stable {
-        return unavailable(current_version, channel);
-    }
-    match crate::update_discovery::discover() {
-        Ok(candidate) if candidate.release_version > current_version => RuntimeUpdateCheckReport {
-            current_version,
-            channel,
-            state: RuntimeUpdateCheckState::Available,
-            candidate: Some(candidate),
-            failure: None,
-        },
-        Ok(_) => RuntimeUpdateCheckReport {
-            current_version,
-            channel,
-            state: RuntimeUpdateCheckState::Current,
-            candidate: None,
-            failure: None,
-        },
-        Err(_) => unavailable(current_version, channel),
-    }
-}
-
-fn unavailable(
-    current_version: RuntimeVersion,
-    channel: RuntimeReleaseChannel,
-) -> RuntimeUpdateCheckReport {
-    RuntimeUpdateCheckReport {
-        current_version,
-        channel,
-        state: RuntimeUpdateCheckState::Unavailable,
-        candidate: None,
-        failure: Some(RuntimeUpdateFailure::ReleaseMetadataUnavailable),
-    }
-}
-
-fn package_version() -> RuntimeVersion {
-    let mut parts = env!("CARGO_PKG_VERSION").split('.');
-    let major = parse_component(parts.next());
-    let minor = parse_component(parts.next());
-    let patch = parse_component(parts.next());
-    assert!(
-        parts.next().is_none(),
-        "package version must be major.minor.patch"
-    );
-    RuntimeVersion {
-        major,
-        minor,
-        patch,
-    }
-}
-
-fn parse_component(component: Option<&str>) -> u16 {
-    component
-        .and_then(|value| value.parse().ok())
-        .expect("package version must use u16 numeric components")
-}
-
 fn release_version(value: &str) -> Result<String, String> {
     let numeric = value
         .strip_prefix('v')
@@ -137,22 +74,6 @@ fn archive_digest(value: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use gent_types::{RuntimeReleaseChannel, RuntimeUpdateCheckState, RuntimeUpdateFailure};
-
-    use super::report;
-
-    #[test]
-    fn nonstable_check_never_discovers_or_contacts_a_daemon() {
-        let result = report(RuntimeReleaseChannel::Canary);
-        assert_eq!(result.channel, RuntimeReleaseChannel::Canary);
-        assert_eq!(result.state, RuntimeUpdateCheckState::Unavailable);
-        assert!(result.candidate.is_none());
-        assert_eq!(
-            result.failure,
-            Some(RuntimeUpdateFailure::ReleaseMetadataUnavailable)
-        );
-    }
-
     #[test]
     fn release_identity_and_digest_parsers_fail_closed() {
         assert!(super::release_version("v1.2.3").is_ok());

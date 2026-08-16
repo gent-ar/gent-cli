@@ -144,15 +144,16 @@ specific daemon binary when `gent` should not resolve a sibling executable.
 Pass `--no-autostart` to require an already-running daemon, which is useful for
 supervised deployments and deterministic smoke tests.
 
-`gent update check` is a read-only discovery probe. It fetches only the latest
-release tag and target manifest, then reports a candidate only when the
-manifest's Sigstore bundle verifies against that exact tag; unavailable means
-the source, `cosign`, or verification was unavailable. It never downloads an
-archive, writes a ledger, or starts/replaces `gentd`. To update from a verified
-candidate, use the explicit external handoff below. It verifies the tag-bound
-installer bootstrap, and that installer independently verifies the archive,
-manifest, and supplied archive digest before staging the immutable binary pair.
-It refuses to switch the pair while `gentd` owns the selected data directory:
+`gent update check` is a negotiated, read-only daemon operation. It is available
+only when a supervised `gentd` starts with `--runtime-update-check-authority`,
+a revalidated signed release cache, and its trusted public key. It never fetches
+metadata, downloads an archive, writes a ledger, or starts/replaces `gentd`.
+The ordinary auto-started observer daemon deliberately does not advertise this
+capability. To update from a verified candidate, use the explicit external
+handoff below. It verifies the tag-bound installer bootstrap, and that installer
+independently verifies the archive, manifest, and supplied archive digest before
+staging the immutable binary pair. It refuses to switch the pair while `gentd`
+owns the selected data directory:
 
 ```sh
 digest='target archive digest from the signed manifest'
@@ -296,5 +297,4 @@ surface, which remains unavailable on Windows until its named-pipe ACL boundary 
 
 ## License
 
-Apache-2.0. Gent is a trademark of its respective owner; this license grants
-no trademark rights.
+Apache-2.0. Gent is a trademark of its respective owner; this license grants no trademark rights.

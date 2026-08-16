@@ -65,12 +65,12 @@ only durable create/send/queue intent records under the usual fences, and never
 composes a provider, MCP, Git, or private bridge. No client can bypass receipts,
 cursor resume, epoch fencing, or capability negotiation.
 
-The observer daemon does not advertise any runtime-update capability. The
-protocol retains an uncomposed metadata-only check contract. Locally, `gent
-update check` can fetch a latest release tag and target manifest, but reports a
-candidate only after `cosign` verifies the manifest bundle against that tag; it
-never writes a ledger checkpoint or downloads an archive. Separately, a user
-may invoke `gent update apply` only with a tag, exact target digest, and
+The observer daemon does not advertise runtime-update work. An explicit
+`--runtime-update-check-authority` profile may advertise only the metadata-only
+check contract after it loads a locally cached, signed release with a trusted
+public key; the cache is revalidated on every request. It never fetches a tag,
+writes a ledger checkpoint, downloads an archive, or activates a runtime.
+Separately, a user may invoke `gent update apply` only with a tag, exact target digest, and
 `--consent`. The client verifies the tag-bound signed installer bootstrap, then
 launches that external process; the installer independently verifies the signed
 archive and manifest, stages `gent` and `gentd` together (plus a signed native

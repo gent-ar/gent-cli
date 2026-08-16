@@ -10,6 +10,7 @@ use gent_types::{
     CapabilitySet, Command, ConversationContentCursor, ConversationContentPage,
     ConversationListItem, ConversationStatus, ConversationTimeline, DecisionCommand,
     DecisionSettlement, DoctorReport, EventResume, HostStatus, OnboardingState, Receipt,
+    RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest,
 };
 
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
@@ -29,6 +30,13 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     /// Handles a capability-gated attachment transfer frame.
     fn attachment(&self, _: AttachmentFrame) -> Result<AttachmentFrame, String> {
         Err("attachments are unavailable for this runtime".into())
+    }
+    /// Reads a separately configured, signed cached release report.
+    fn runtime_update_check(
+        &self,
+        _: RuntimeUpdateCheckRequest,
+    ) -> Result<RuntimeUpdateCheckReport, String> {
+        Err("runtime update checks are observer-disabled".into())
     }
     fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String>;
     fn apply_decision_recovery(

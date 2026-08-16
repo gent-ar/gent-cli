@@ -124,11 +124,12 @@ not claim provider or app compatibility evidence that has not been recorded.
       incompatible release as read-only. Its uncomposed executor persists staging, health, and
       bootstrapper-handoff transitions, refuses to replay incomplete effects after restart, and
       keeps ingress closed after health or activation begins; no live release source, platform
-      staging adapter, binary swap, or observer update API exists yet. The
-      uncomposed `runtime-update-check-v1` contract remains unadvertised. The
-      local `gent update check` command now verifies a tag-bound target manifest
-      with Sigstore before reporting a candidate; it performs no durable write,
-      archive download, staging, or activation.
+      staging adapter, binary swap, or observer update API exists yet. An explicit
+      `--runtime-update-check-authority` composition can advertise the report-only
+      `runtime-update-check-v1` contract after loading a trusted cached signed release;
+      it revalidates the signature and expiry on every request and has no fetch,
+      durable-write, archive-download, staging, or activation capability. `gent update check`
+      now requires that negotiated daemon capability rather than performing client-owned discovery.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not

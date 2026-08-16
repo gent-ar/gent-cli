@@ -13,10 +13,10 @@ mod conversation_timeline;
 mod decision;
 mod event_stream;
 mod local_ipc;
+mod runtime_update_check;
 mod terminal;
 mod terminal_browser;
 mod update_check;
-mod update_discovery;
 mod update_handoff;
 use crate::{decision::DecisionCommandLine, update_check::UpdateCommand};
 

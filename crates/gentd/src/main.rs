@@ -27,6 +27,8 @@ mod provider_resolver;
 mod provider_resolver_tests;
 mod public_runs;
 mod runtime_facade;
+mod runtime_update_config;
+mod runtime_update_transport;
 mod startup;
 mod transport;
 #[cfg(test)]
@@ -45,7 +47,9 @@ mod transport_windows;
 mod transport_windows_tests;
 use crate::compatibility_assessment::CompatibilityAssessment;
 use clap::Parser;
-pub(crate) use runtime_facade::{RuntimeFacade, build_runtime};
+#[cfg(test)]
+pub(crate) use runtime_facade::build_runtime;
+pub(crate) use runtime_facade::{RuntimeFacade, build_runtime_with_update_checks};
 use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
@@ -70,6 +74,17 @@ struct Args {
     /// incomplete.
     #[arg(long, env = "GENT_AGENT_CHAT_AUTHORITY")]
     agent_chat_authority: bool,
+    /// Serve only a locally cached, revalidated signed runtime-release report.
+    ///
+    /// This does not enable downloads, staging, activation, or self-replacement.
+    #[arg(long, env = "GENT_RUNTIME_UPDATE_CHECK_AUTHORITY")]
+    runtime_update_check_authority: bool,
+    /// Cached signed release metadata required by the explicit read-only check profile.
+    #[arg(long, env = "GENT_RUNTIME_RELEASE_CACHE")]
+    runtime_release_cache: Option<PathBuf>,
+    /// Trusted release key as `key-id:lowercase-hex`; may be passed more than once.
+    #[arg(long = "runtime-release-key", env = "GENT_RUNTIME_RELEASE_KEY")]
+    runtime_release_keys: Vec<String>,
 }
 
 #[tokio::main]
@@ -84,13 +99,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
-    let observed_capabilities = transport::observed_capabilities(args.agent_chat_authority);
+    let update_checks = runtime_update_config::load(
+        args.runtime_update_check_authority,
+        args.runtime_release_cache.as_deref(),
+        &args.runtime_release_keys,
+        startup::unix_seconds(),
+    )?;
+    let observed_capabilities =
+        transport::observed_capabilities(args.agent_chat_authority, update_checks.is_some());
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
         &args.compatibility_keys,
         startup::unix_seconds(),
     );
-    let runtime = build_runtime(&data_dir, &observed_capabilities, compatibility)?;
+    let runtime = build_runtime_with_update_checks(
+        &data_dir,
+        &observed_capabilities,
+        compatibility,
+        update_checks,
+    )?;
     serve_local(runtime, &args, &data_dir).await
 }
 

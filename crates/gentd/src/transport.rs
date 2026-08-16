@@ -19,7 +19,10 @@ use crate::api::RuntimeApi;
 
 /// Reports the capabilities backed by concrete post-handshake handlers in this adapter.
 #[must_use]
-pub(crate) fn observed_capabilities(agent_chat_enabled: bool) -> CapabilitySet {
+pub(crate) fn observed_capabilities(
+    agent_chat_enabled: bool,
+    runtime_update_check_enabled: bool,
+) -> CapabilitySet {
     let mut capabilities = capability_set([
         RuntimeCapability::Attachments,
         RuntimeCapability::Decisions,
@@ -42,6 +45,11 @@ pub(crate) fn observed_capabilities(agent_chat_enabled: bool) -> CapabilitySet {
         capabilities
             .0
             .push(gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY.to_owned());
+    }
+    if runtime_update_check_enabled {
+        capabilities
+            .0
+            .push(gent_protocol::RUNTIME_UPDATE_CHECK_CAPABILITY.to_owned());
     }
     #[cfg(unix)]
     capabilities
@@ -159,6 +167,9 @@ where
         return Ok(true);
     }
     if crate::activity_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::runtime_update_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
     if extensions.supports(ATTACHMENTS_CAPABILITY) {

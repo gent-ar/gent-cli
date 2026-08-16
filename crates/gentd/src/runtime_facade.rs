@@ -26,6 +26,7 @@ use crate::decision_mapping;
 use crate::dependency_actions::SystemDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
+use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeFacade {
@@ -37,16 +38,31 @@ pub(crate) struct RuntimeFacade {
     dependency_actions:
         DependencyActionService<SqliteLedger, SystemDependencyExecutor<SystemDependencyInstaller>>,
     public_runs: DaemonPublicRuns,
+    runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
 }
 
 /// Builds the current observer-only daemon composition.
 ///
 /// # Errors
 /// Returns an error when capabilities drift or required local storage cannot open.
+#[cfg(test)]
 pub(crate) fn build_runtime(
     data_dir: &std::path::Path,
     observed_capabilities: &CapabilitySet,
     compatibility: CompatibilityAssessment,
+) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
+    build_runtime_with_update_checks(data_dir, observed_capabilities, compatibility, None)
+}
+
+/// Builds the daemon with an optional explicitly configured read-only update checker.
+///
+/// # Errors
+/// Returns an error when capabilities drift or required local storage cannot open.
+pub(crate) fn build_runtime_with_update_checks(
+    data_dir: &std::path::Path,
+    observed_capabilities: &CapabilitySet,
+    compatibility: CompatibilityAssessment,
+    runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
 ) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
     let capabilities = validate_observed_capabilities(observed_capabilities)?;
     let agent_chat_enabled = capabilities
@@ -78,6 +94,7 @@ pub(crate) fn build_runtime(
             },
         ),
         public_runs: observer_service(coordinator.clone(), compatibility.clone()),
+        runtime_update_checks,
         attachments,
         coordinator,
         dependencies: DependencyCatalog::with_compatibility(compatibility),
@@ -152,6 +169,16 @@ impl api::RuntimeApi for RuntimeFacade {
 
     fn attachment(&self, frame: AttachmentFrame) -> Result<AttachmentFrame, String> {
         attachment_api::handle(&self.attachments, frame)
+    }
+
+    fn runtime_update_check(
+        &self,
+        request: gent_types::RuntimeUpdateCheckRequest,
+    ) -> Result<gent_types::RuntimeUpdateCheckReport, String> {
+        self.runtime_update_checks
+            .as_ref()
+            .map(|checks| checks.check(request, crate::startup::unix_seconds()))
+            .ok_or_else(|| "runtime update checks are observer-disabled".into())
     }
 
     fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String> {

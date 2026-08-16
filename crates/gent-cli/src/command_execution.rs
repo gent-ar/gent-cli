@@ -11,7 +11,7 @@ use crate::local_ipc::request;
 use crate::{
     Args, CommandLine, ConversationCommand, DependencyCommand, chat_cli, conversation_activity,
     conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, terminal_browser, update_check, update_handoff,
+    event_stream, runtime_update_check, terminal_browser, update_handoff,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +43,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         }
         CommandLine::Update { action } => match action {
             crate::UpdateCommand::Check { channel } => {
-                print(update_check::report(channel.into()))?;
+                print(
+                    runtime_update_check::request(data_dir, no_autostart, channel.into()).await?,
+                )?;
             }
             crate::UpdateCommand::Apply {
                 version,
