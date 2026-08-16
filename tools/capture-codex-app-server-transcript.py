@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -92,11 +93,11 @@ class Session:
     def notify(self, method: str, params: dict[str, object]) -> None:
         self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method, "params": params}) + "\n")  # type: ignore[attr-defined]
         self.process.stdin.flush()  # type: ignore[attr-defined]
-    def receive(self) -> dict[str, object]:
+    def receive(self, timeout: float | None = None) -> dict[str, object]:
         if self.total > LIMIT:
             raise ValueError("app-server output exceeded the capture bound")
         try:
-            return self.events.get(timeout=self.timeout)
+            return self.events.get(timeout=self.timeout if timeout is None else timeout)
         except queue.Empty as error:
             raise ValueError("app-server did not provide the required scenario signal") from error
     def response(self, request_id: int) -> dict[str, object]:
@@ -165,6 +166,7 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
     process = popen([str(binary_path), "app-server", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, text=True, start_new_session=os.name != "nt")
     session = Session(process, timeout, "acceptForSession" if scenario == "permission_persistent" else "decline")
+    deadline = time.monotonic() + timeout
     try:
         session.response(session.send("initialize", {"clientInfo": {"name": "gent-cli-evidence", "version": "1"}, "capabilities": {"experimentalApi": True}}))
         session.notify("initialized", {})
@@ -172,7 +174,10 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
         turn_id = ids(session.response(session.send("turn/start", turn_params(thread_id, scenario, model))), "turn")
         def wait(predicate: object) -> None:
             while not predicate():
-                session.observe(session.receive())
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError("app-server did not finish the scenario before its capture deadline")
+                session.observe(session.receive(min(remaining, timeout)))
         def count(method: str) -> int:
             return sum(item.get("method") == method for item in session.seen)
         def completed(interrupted: bool = False) -> bool:
