@@ -63,7 +63,7 @@ function Invoke-Installer([string[]]$arguments, [bool]$mustSucceed = $true) {
     } finally {
         $ErrorActionPreference = $oldPreference
     }
-    if ($mustSucceed -and $code -ne 0) { throw "installer failed with exit $code: $failure" }
+    if ($mustSucceed -and $code -ne 0) { throw "installer failed with exit ${code}: $failure" }
     if (-not $mustSucceed -and $code -eq 0) { throw "installer unexpectedly succeeded" }
 }
 
