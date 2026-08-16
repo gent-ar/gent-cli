@@ -91,6 +91,8 @@ def test_missing_or_wrong_structural_conditions_never_validate() -> None:
     plan = {"method": "thread/settings/updated", "params": {"threadSettings": {"collaborationMode": {"mode": "plan"}}}}
     assert MODULE.required("plan_mode", [plan]) == {"thread/settings/updated"}
     assert not MODULE.required("plan_mode", [{"method": "thread/settings/updated", "params": {}}])
+    compaction = {"method": "item/completed", "params": {"item": {"type": "contextCompaction"}}}
+    assert MODULE.required("compaction", [compaction]) == {"item/completed"}
 
 
 def test_stderr_diagnostic_is_generic_and_redacted() -> None:

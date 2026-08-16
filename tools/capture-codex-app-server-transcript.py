@@ -174,6 +174,8 @@ def registered_mcp(result: dict[str, object], server: str) -> bool:
     data = result.get("data"); return isinstance(data, list) and any(isinstance(item, dict) and item.get("name") == server and isinstance(item.get("tools"), dict) and "gent_probe" in item["tools"] for item in data)
 def plan_mode_applied(event: dict[str, object]) -> bool:
     params = event.get("params"); settings = params.get("threadSettings") if isinstance(params, dict) else None; mode = settings.get("collaborationMode") if isinstance(settings, dict) else None; return event.get("method") == "thread/settings/updated" and isinstance(mode, dict) and mode.get("mode") == "plan"
+def compaction_completed(event: dict[str, object]) -> bool:
+    params = event.get("params"); item = params.get("item") if isinstance(params, dict) else None; return event.get("method") == "thread/compacted" or event.get("method") == "item/completed" and isinstance(item, dict) and item.get("type") == "contextCompaction"
 def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None = None,
             timeout: int = TIMEOUT, popen: object = subprocess.Popen) -> list[dict[str, object]]:
     process = popen([str(binary_path), "app-server", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -181,10 +183,8 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
     session = Session(process, timeout, "acceptForSession" if scenario == "permission_persistent" else "decline")
     deadline = time.monotonic() + timeout
     try:
-        session.response(session.send("initialize", {"clientInfo": {"name": "gent-cli-evidence", "version": "1"}, "capabilities": {"experimentalApi": True}}))
-        session.notify("initialized", {})
-        thread_id = ids(session.response(session.send("thread/start", thread_params(scenario, model))), "thread")
-        turn_id = ids(session.response(session.send("turn/start", turn_params(thread_id, scenario, model))), "turn")
+        session.response(session.send("initialize", {"clientInfo": {"name": "gent-cli-evidence", "version": "1"}, "capabilities": {"experimentalApi": True}})); session.notify("initialized", {})
+        thread_id = ids(session.response(session.send("thread/start", thread_params(scenario, model))), "thread"); turn_id = ids(session.response(session.send("turn/start", turn_params(thread_id, scenario, model))), "turn")
         def wait(predicate: object) -> None:
             while not predicate():
                 remaining = deadline - time.monotonic()
@@ -213,7 +213,7 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
         conditions = {"permission_prompt": lambda: count("item/commandExecution/requestApproval") >= 1,
             "permission_persistent": lambda: count("item/commandExecution/requestApproval") == 1 and completed() and sum(command_completed(item) for item in session.seen) >= 2,
             "plan_mode": lambda: any(plan_mode_applied(item) for item in session.seen),
-            "compaction": lambda: count("thread/compacted") >= 1,
+            "compaction": lambda: any(compaction_completed(item) for item in session.seen),
             "mcp_tool": lambda: count("item/mcpToolCall/progress") >= 1,
             "interrupt": lambda: completed(True), "steer": lambda: completed()}[scenario]
         wait(conditions)
@@ -224,12 +224,12 @@ def required(scenario: str, seen: list[dict[str, object]]) -> set[str]:
     methods = {item.get("method") for item in seen}
     value = {"permission_prompt": {"item/commandExecution/requestApproval"},
             "permission_persistent": {"item/commandExecution/requestApproval", "turn/completed"},
-            "plan_mode": {"thread/settings/updated"}, "compaction": {"thread/compacted"},
+            "plan_mode": {"thread/settings/updated"}, "compaction": {"item/completed"},
             "mcp_tool": {"item/mcpToolCall/progress"}, "interrupt": {"turn/completed"},
             "steer": {"turn/completed"}}[scenario]
     if scenario == "permission_persistent" and (sum(item.get("method") == "item/commandExecution/requestApproval" for item in seen) != 1 or sum(command_completed(item) for item in seen) < 2): return set()
     if scenario == "interrupt" and not any(item.get("method") == "turn/completed" and turn_status(item) == "interrupted" for item in seen): return set()
-    if scenario == "plan_mode" and not any(plan_mode_applied(item) for item in seen): return set()
+    if scenario == "plan_mode" and not any(plan_mode_applied(item) for item in seen) or scenario == "compaction" and not any(compaction_completed(item) for item in seen): return set()
     return value if value.issubset(methods) else set()
 def turn_status(event: dict[str, object]) -> object:
     params = event.get("params")

@@ -25,7 +25,7 @@ cells:
   - { vendor: codex, scenario: permission_persistent, state: recorded, path: codex-permission-persistent-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: plan_mode, state: recorded, path: codex-plan-mode-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: subagent, state: capture_required }
-  - { vendor: codex, scenario: compaction, state: capture_required }
+  - { vendor: codex, scenario: compaction, state: recorded, path: codex-compaction-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: mcp_tool, state: capture_required }
   - { vendor: codex, scenario: resume, state: recorded, path: codex-resume-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: interrupt, state: recorded, path: codex-interrupt-live.jsonl }
