@@ -69,6 +69,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] When a fresh authorized lock is available, a changed executable produces a separately
       reserved child run with immutable lineage; it never mutates the parent run or silently
       substitutes a provider.
+- [x] An already-created durable chat run can atomically acquire its first immutable executable
+      lock and daemon lease. Exact retries are stable; competing same-epoch owners and any lock
+      replacement are rejected before a provider spawn is possible.
 - [x] Immutable, restart-safe provider-native session bindings; resume ignores the legacy client wire value.
 - [x] Lease- and session-bound durable run lifecycle projections, with cursor-monotonic restart recovery.
 - [x] Durable immutable conversation → run → turn identity, provider-switch lineage, and monotonic turn lifecycle transitions.
