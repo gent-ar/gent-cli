@@ -132,7 +132,7 @@ def metadata(binary: Path, model: str, frames: list[dict[str, object]]) -> dict[
     system = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}.get(platform.system(), platform.system().lower())
     value: dict[str, object] = {
         "vendor": "claude", "scenario": "subagent", "capturedAt": now,
-        "cliVersion": provider_version(binary), "adapterSpecVersion": "1", "appVersion": "0.1.1",
+        "cliVersion": provider_version(binary), "adapterSpecVersion": "1", "appVersion": "0.1.3",
         "prompt": "Bounded native Agent-tool probe; provider response text redacted.", "repo": "gent-ar/gent-cli",
         "notes": "Live native Agent tool_use, matching tool_result, and successful terminal result were observed. Raw stream JSON and response text were discarded; this attestation covers only reviewed normalized facts.",
         "status": "recorded", "captureOrigin": "live_cli", "executablePath": str(binary),

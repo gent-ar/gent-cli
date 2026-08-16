@@ -155,6 +155,12 @@ fn validate_cell(root: &Path, cell: &Cell, require_live: bool, errors: &mut Vec<
         }
         CellState::Recorded => validate_fixture(root, cell, FixtureKind::Recorded, errors),
         CellState::RecordedAbsent => {
+            if require_live {
+                errors.push(format!(
+                    "recorded absence cannot satisfy live provider evidence for {}/{}",
+                    cell.vendor, cell.scenario
+                ));
+            }
             validate_fixture(root, cell, FixtureKind::RecordedAbsent, errors);
         }
     }

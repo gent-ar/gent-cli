@@ -12,12 +12,12 @@ fn live_metadata(vendor: &str, scenario: &str, status: &str) -> String {
     )
 }
 
-fn write_inventory(directory: &TempDir) -> std::path::PathBuf {
+fn write_inventory(directory: &TempDir, include_absence: bool) -> std::path::PathBuf {
     let mut cells = Vec::new();
     for vendor in PUBLIC_PROVIDERS {
         for scenario in REQUIRED_SCENARIOS {
             let name = format!("{vendor}-{scenario}.jsonl");
-            let recorded = vendor == "claude" && scenario == "full_turn";
+            let recorded = !(include_absence && vendor == "codex" && scenario == "tool_use");
             let status = if recorded {
                 "recorded"
             } else {
@@ -71,7 +71,7 @@ fn record(transcript: &str) -> Mapping {
 #[test]
 fn authority_record_links_to_matching_live_recording() {
     let directory = tempfile::tempdir().unwrap();
-    let manifest = write_inventory(&directory);
+    let manifest = write_inventory(&directory, false);
     assert!(
         validate_record_link(
             &record("claude-full_turn.jsonl"),
@@ -86,7 +86,7 @@ fn authority_record_links_to_matching_live_recording() {
 #[test]
 fn authority_record_rejects_absent_or_mismatched_transcripts() {
     let directory = tempfile::tempdir().unwrap();
-    let manifest = write_inventory(&directory);
+    let manifest = write_inventory(&directory, true);
     let absent = validate_record_link(
         &record("codex-tool_use.jsonl"),
         "public-run",
@@ -94,23 +94,29 @@ fn authority_record_rejects_absent_or_mismatched_transcripts() {
         Some(&manifest),
     )
     .unwrap_err();
-    assert!(absent.contains("must reference a recorded"));
+    assert!(absent.contains("recorded absence cannot satisfy live provider evidence"));
     let mut changed = record("claude-full_turn.jsonl");
     changed.insert(
         Value::String("provider_version".into()),
         Value::String("2".into()),
     );
+    let clean_manifest = write_inventory(&directory, false);
     assert!(
-        validate_record_link(&changed, "public-run", directory.path(), Some(&manifest))
-            .unwrap_err()
-            .contains("cliVersion does not match")
+        validate_record_link(
+            &changed,
+            "public-run",
+            directory.path(),
+            Some(&clean_manifest)
+        )
+        .unwrap_err()
+        .contains("cliVersion does not match")
     );
 }
 
 #[test]
 fn links_reject_missing_manifests_and_unsafe_transcript_paths() {
     let directory = tempfile::tempdir().unwrap();
-    let manifest = write_inventory(&directory);
+    let manifest = write_inventory(&directory, false);
     assert!(
         validate_record_link(
             &record("claude-full_turn.jsonl"),
@@ -131,7 +137,7 @@ fn links_reject_missing_manifests_and_unsafe_transcript_paths() {
 #[test]
 fn links_reject_metadata_mismatches_and_manifest_escape_attempts() {
     let directory = tempfile::tempdir().unwrap();
-    let manifest = write_inventory(&directory);
+    let manifest = write_inventory(&directory, false);
     for (field, value, expected) in [
         ("provider", "codex", "vendor does not match"),
         ("platform", "linux", "platform does not match"),

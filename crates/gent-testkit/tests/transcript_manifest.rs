@@ -166,10 +166,11 @@ fn rejects_duplicate_dimensions_and_paths_outside_the_manifest_root() {
 }
 
 #[test]
-fn strict_mode_accepts_complete_reasoned_live_probe_matrix() {
+fn strict_mode_rejects_recorded_absences_as_provider_evidence() {
     let directory = tempfile::tempdir().unwrap();
     let path = write_manifest(&directory, &recorded_absent_cells(&directory));
-    assert!(validate_public_driver_manifest(&path, true).is_ok());
+    let error = validate_public_driver_manifest(&path, true).unwrap_err();
+    assert!(error.contains("recorded absence cannot satisfy live provider evidence"));
 }
 
 #[test]

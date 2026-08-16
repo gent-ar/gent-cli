@@ -55,6 +55,11 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
 - [x] Phase-0 public-driver capture inventory with an explicit provenance-aware
       live-evidence gate.
+- [x] A bounded, redaction-first Codex app-server JSON-RPC capture harness for
+      documented approval, plan, compaction, MCP, interrupt, and steering
+      scenarios, with deterministic fake transport tests. It is a capture tool,
+      not evidence: no newly captured Codex matrix cell is claimed until a
+      reviewed live fixture is explicitly admitted to the manifest.
 - [x] Fail-closed cross-linking from passed public-provider coverage records to
       recorded driver transcripts with matching provider/version/platform/transport.
 - [x] Digest-bound signed compatibility entries, trusted-key revocation, fixed-expiry offline cache,
@@ -180,6 +185,11 @@ not claim provider or app compatibility evidence that has not been recorded.
       sessions, prompts, Claude/Codex drivers, the private Claurst bridge port, MCP, and Git;
       a future Flutter caller invokes `gent` rather than a provider executable. Device pairing
       and application automations remain Flutter-owned and have no `gentd` protocol or executor.
+- [x] Public capability-gated future agent-chat contract values: provider-neutral conversation
+      summary/detail and normalized transcript pages, model/effort/mode selection, and typed
+      create/send/queue/interrupt/decision/cursor-subscription frames with request and receipt
+      correlation. They are deliberately uncomposed by observer-mode `gentd`; no frame activates
+      a provider or creates a write surface today.
 
 ## Intentionally not claimed
 
@@ -193,8 +203,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       in a live daemon. The narrow Git status service above remains dormant until an
       authority-gated host profile is proven.
 - [ ] A separately authorized Flutter integration that invokes `gent` for agent-chat work.
-      It must not launch provider binaries directly. Device pairing and application automation
-      execution stay Flutter-owned and are intentionally excluded from `gentd`.
+      It must not launch provider binaries directly; the durable UI boundary is a negotiated,
+      long-lived `gentd` connection rather than one `gent` process per prompt. Device pairing and
+      application automation execution stay Flutter-owned and are intentionally excluded from
+      `gentd`.
 - [ ] A phase-4 legacy-observer host profile: it must consume a `LegacyEventTap`
       without Rust durable writes, mutation APIs, or worktree leases. The current
       standalone daemon's hard public-provider observer guard does not claim this.

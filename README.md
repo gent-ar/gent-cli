@@ -51,7 +51,16 @@ Gent owns the agent-chat runtime: durable conversations, sessions, prompts,
 Claude and Codex public-driver orchestration, the private Claurst bridge behind
 its port, MCP, and authorized Git work. A future Flutter integration invokes
 `gent`/`gentd` through this local protocol; it never spawns a provider binary
-directly. `gentd` is the only component allowed to compose those capabilities.
+directly. A long-lived negotiated `gentd` connection is the future app boundary;
+`gent` may launch or diagnose that host, but it is not a per-prompt process
+substitute for subscriptions, receipt retries, or cursor resumption. `gentd` is
+the only component allowed to compose those capabilities.
+
+The public protocol already reserves strictly typed, capability-gated
+agent-chat conversation/transcript reads and future create, send, queue,
+interrupt, decision, and cursor-subscription intents. Those frames are an
+uncomposed compatibility contract: negotiating them does not enable a provider,
+write a conversation, or change the observer daemon's refusal behavior.
 
 Device pairing and application automations are Flutter-app concerns, not a
 `gentd` API or execution domain. The workspace retains small pure policy/value
@@ -205,6 +214,24 @@ matching tool result, and successful terminal event—not prompt text. Other
 matrix rows need scenario-specific reviewed captures. Claurst remains
 private-bridge CI evidence and is rejected by public tools, preserving the
 no-credentials/no-endpoints boundary.
+
+An observed absence can be kept as diagnostic context, but never satisfies the
+real-provider `--require-live` gate: authority requires positive, redacted,
+scenario-specific live capture. A parser error before a provider turn, help
+output, or an unavailable flag is not provider evidence.
+
+Codex approval, persistent-permission, plan, compaction, MCP, interrupt, and
+steering scenarios use the documented app-server JSON-RPC harness rather than
+one-shot `codex exec`; it has a provider-free dry run and never changes the
+matrix automatically. It emits a candidate fixture only after the scenario's
+correlated native protocol conditions are observed. Review it before manually
+updating the manifest:
+
+```sh
+python3 tools/capture-codex-app-server-transcript.py plan_mode \
+  --model gpt-5.6-luna \
+  --output fixtures/public-driver-transcripts/codex-plan-mode.jsonl --dry-run
+```
 
 The repository’s architectural rules and phased migration decision record are
 in [docs/architecture.md](docs/architecture.md). The Flutter app is not a

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+mod agent_chat;
+mod agent_chat_intent;
 mod attachments;
 mod automation_executions;
 mod capability_catalog;
@@ -31,6 +33,15 @@ mod tool_activity;
 mod tool_sources;
 mod workspaces;
 
+pub use agent_chat::{
+    AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
+    AgentChatProvider, AgentChatRun, AgentChatRunState, AgentChatSelection,
+    NormalizedTranscriptEvent, NormalizedTranscriptKind, NormalizedTranscriptPage,
+};
+pub use agent_chat_intent::{
+    AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse, AgentChatRequestId,
+    AgentChatRunId,
+};
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
 };

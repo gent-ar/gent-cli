@@ -50,6 +50,13 @@ def test_public_tool_refuses_claurst_and_escape_paths() -> None:
     assert "fixtures/public-driver-transcripts" in escaped.stderr
 
 
+def test_codex_interactive_scenarios_refuse_one_shot_exec() -> None:
+    result = command("codex", "steer", "--model", "gpt-5.6-luna",
+                     "--output", output("x.jsonl"), "--dry-run")
+    assert result.returncode == 2
+    assert "app-server JSON-RPC" in result.stderr
+
+
 def test_attestation_only_covers_reviewed_normalized_facts() -> None:
     metadata = {"vendor": "claude", "scenario": "full_turn", "attestationScope": "redacted_normalized_fixture_v1"}
     frames = MODULE.normalized_frames("claude", "full_turn")
@@ -111,6 +118,7 @@ def test_manifest_replacement_is_prepared_without_writing() -> None:
 def main() -> None:
     test_dry_run_never_requires_a_provider_or_writes()
     test_public_tool_refuses_claurst_and_escape_paths()
+    test_codex_interactive_scenarios_refuse_one_shot_exec()
     test_attestation_only_covers_reviewed_normalized_facts()
     test_thinking_capture_requires_an_observed_vendor_signal()
     test_codex_resume_requires_native_same_thread_start_and_completed_turn()
