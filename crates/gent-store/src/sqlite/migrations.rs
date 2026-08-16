@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS run_session_bindings (run_id TEXT PRIMARY KEY NOT NUL
 const RUN_PROJECTIONS: &str = "
 CREATE TABLE IF NOT EXISTS run_projections (run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id), host_epoch INTEGER NOT NULL, cursor INTEGER NOT NULL, payload TEXT NOT NULL);
 ";
-
 const CONVERSATIONS_AND_TURNS: &str = "
 CREATE TABLE IF NOT EXISTS conversations (conversation_id TEXT PRIMARY KEY NOT NULL);
 ALTER TABLE runs ADD COLUMN conversation_id TEXT REFERENCES conversations(conversation_id);
@@ -133,6 +132,7 @@ const CONVERSATION_CONTENT_ORDINALS: &str = include_str!("conversation_content_o
 const CONVERSATION_ACTIVITY: &str = include_str!("conversation_activity.sql");
 const RUNTIME_UPDATE: &str = include_str!("runtime_update.sql");
 const AGENT_CHAT: &str = include_str!("agent_chat.sql");
+const AGENT_CHAT_PROMPTS: &str = include_str!("agent_chat_ledger/prompt.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -144,7 +144,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 21] = [
+const MIGRATIONS: [Migration; 22] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -166,6 +166,7 @@ const MIGRATIONS: [Migration; 21] = [
     migration(19, CONVERSATION_ACTIVITY),
     migration(20, RUNTIME_UPDATE),
     migration(21, AGENT_CHAT),
+    migration(22, AGENT_CHAT_PROMPTS),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

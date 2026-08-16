@@ -1,5 +1,7 @@
 //! Atomic `SQLite` ownership for an agent-chat conversation and its root run.
 
+mod prompt;
+
 use gent_ports::{AgentChatLedger, IngressMode, LedgerError};
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationCreated, AgentChatEffort, AgentChatMode,

@@ -7,6 +7,7 @@ use uuid::Uuid;
 mod agent_chat;
 mod agent_chat_intent;
 mod agent_chat_ledger;
+mod agent_chat_prompt;
 mod attachments;
 mod capability_catalog;
 mod conversation_activity;
@@ -43,6 +44,9 @@ pub use agent_chat_intent::{
     AgentChatRunId,
 };
 pub use agent_chat_ledger::{AgentChatConversationCreate, AgentChatConversationCreated};
+pub use agent_chat_prompt::{
+    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptSaved,
+};
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
 };

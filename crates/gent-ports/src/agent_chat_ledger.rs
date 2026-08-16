@@ -4,6 +4,9 @@ use gent_types::{AgentChatConversationCreate, AgentChatConversationCreated};
 
 use crate::LedgerError;
 
+mod prompt;
+pub use prompt::AgentChatPromptLedger;
+
 /// Durable creation boundary for an immutable conversation, root run, selection, and receipt.
 pub trait AgentChatLedger: Send + Sync {
     /// Atomically checks the host fence, owns the idempotency key, and creates the hierarchy.
