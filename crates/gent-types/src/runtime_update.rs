@@ -122,6 +122,55 @@ pub struct RuntimeUpdateRecord {
     pub status: RuntimeUpdateStatus,
 }
 
+/// A user-selected channel for a read-only runtime update check.
+///
+/// This request cannot authorize download, staging, activation, or a binary
+/// replacement. Those operations intentionally have no public DTO yet.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateCheckRequest {
+    pub channel: RuntimeReleaseChannel,
+}
+
+/// The content-free outcome of a read-only runtime update check.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RuntimeUpdateCheckState {
+    Current,
+    Available,
+    ReadOnlyUpdateRequired,
+    Unavailable,
+}
+
+/// A verified candidate reported by a read-only check.
+///
+/// The digest identifies the exact proposed release without exposing a source
+/// URL, credentials, or an activation mechanism.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateCandidate {
+    pub release_version: RuntimeVersion,
+    pub artifact_digest_sha256: String,
+    pub forward_only_schema: bool,
+}
+
+/// A read-only report describing the running runtime and any verified offer.
+///
+/// `candidate` is present only for [`RuntimeUpdateCheckState::Available`].
+/// `failure` is present only when the check requires a read-only state or
+/// cannot produce a trustworthy answer.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpdateCheckReport {
+    pub current_version: RuntimeVersion,
+    pub channel: RuntimeReleaseChannel,
+    pub state: RuntimeUpdateCheckState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate: Option<RuntimeUpdateCandidate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<RuntimeUpdateFailure>,
+}
+
 impl Default for RuntimeUpdateStatus {
     fn default() -> Self {
         Self {
@@ -137,7 +186,11 @@ impl Default for RuntimeUpdateStatus {
 mod tests {
     use serde_json::json;
 
-    use super::{RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion};
+    use super::{
+        RuntimeReleaseChannel, RuntimeUpdateCandidate, RuntimeUpdateCheckReport,
+        RuntimeUpdateCheckState, RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus,
+        RuntimeVersion,
+    };
 
     #[test]
     fn status_uses_a_stable_content_free_camel_case_contract() {
@@ -171,5 +224,33 @@ mod tests {
             status: RuntimeUpdateStatus::default(),
         };
         assert_eq!(serde_json::to_value(record).unwrap()["revision"], 2);
+    }
+
+    #[test]
+    fn check_report_is_content_free_and_does_not_imply_activation() {
+        let report = RuntimeUpdateCheckReport {
+            current_version: RuntimeVersion {
+                major: 1,
+                minor: 0,
+                patch: 0,
+            },
+            channel: RuntimeReleaseChannel::Stable,
+            state: RuntimeUpdateCheckState::Available,
+            candidate: Some(RuntimeUpdateCandidate {
+                release_version: RuntimeVersion {
+                    major: 1,
+                    minor: 1,
+                    patch: 0,
+                },
+                artifact_digest_sha256: "a".repeat(64),
+                forward_only_schema: false,
+            }),
+            failure: None,
+        };
+        let encoded = serde_json::to_value(report).unwrap();
+        assert_eq!(encoded["state"], "available");
+        assert!(encoded.get("failure").is_none());
+        assert!(!encoded.to_string().contains("activate"));
+        assert!(!encoded.to_string().contains("archiveName"));
     }
 }

@@ -3,9 +3,13 @@ use gent_protocol::{
     ConversationStatusFrame, DependencyAction, DependencyPlan, DependencyPlanRequest,
     DependencyProvider, EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame,
     ExternalProviderBridgeHello, Hello, MAX_FRAME_BYTES, PublicRunOutcome, PublicRunResponse,
-    WireFrame, negotiate, read_frame, read_json_frame, write_frame, write_json_frame,
+    RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame, WireFrame, negotiate, read_frame,
+    read_json_frame, write_frame, write_json_frame,
 };
-use gent_types::CapabilitySet;
+use gent_types::{
+    CapabilitySet, RuntimeReleaseChannel, RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest,
+    RuntimeUpdateCheckState, RuntimeVersion,
+};
 use tokio::io::{AsyncWriteExt, duplex};
 
 #[test]
@@ -155,4 +159,35 @@ fn reviewed_dependency_plan_digest_binds_every_visible_plan_field() {
     );
     assert_eq!(plan.reviewed_plan_digest.len(), 64);
     assert_ne!(plan.reviewed_plan_digest, changed.reviewed_plan_digest);
+}
+
+#[tokio::test]
+async fn update_check_is_a_capability_guarded_read_only_extension() {
+    let (mut writer, mut reader) = duplex(1024);
+    let frame = RuntimeUpdateCheckFrame::Report(RuntimeUpdateCheckReport {
+        current_version: RuntimeVersion {
+            major: 1,
+            minor: 0,
+            patch: 0,
+        },
+        channel: RuntimeReleaseChannel::Stable,
+        state: RuntimeUpdateCheckState::Current,
+        candidate: None,
+        failure: None,
+    });
+    write_json_frame(&mut writer, &frame).await.unwrap();
+    assert_eq!(
+        read_json_frame::<_, RuntimeUpdateCheckFrame>(&mut reader)
+            .await
+            .unwrap(),
+        frame
+    );
+    assert_eq!(RUNTIME_UPDATE_CHECK_CAPABILITY, "runtime-update-check-v1");
+    let request = RuntimeUpdateCheckFrame::Request(RuntimeUpdateCheckRequest {
+        channel: RuntimeReleaseChannel::Beta,
+    });
+    let encoded = serde_json::to_string(&request).unwrap();
+    assert!(encoded.contains("request"));
+    assert!(!encoded.contains("activate"));
+    assert!(!encoded.contains("stage"));
 }

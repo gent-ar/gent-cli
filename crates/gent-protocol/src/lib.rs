@@ -21,6 +21,7 @@ mod dependencies;
 mod event_stream;
 mod external_provider_bridge;
 mod runs;
+mod runtime_update;
 
 pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
 pub use conversation_activity::{CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame};
@@ -47,6 +48,7 @@ pub use runs::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
     PublicRunStartRequest,
 };
+pub use runtime_update::{RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
