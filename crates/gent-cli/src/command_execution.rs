@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::decision::decision_frame;
 use crate::local_ipc::request;
 use crate::{
-    Args, CommandLine, ConversationCommand, DependencyCommand, conversation_activity,
+    Args, CommandLine, ConversationCommand, DependencyCommand, chat_cli, conversation_activity,
     conversation_content, conversation_index, conversation_status, conversation_timeline,
     event_stream, terminal, update_check, update_handoff,
 };
@@ -66,6 +66,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         },
         CommandLine::Conversation { action } => {
             conversation(data_dir, no_autostart, action).await?;
+        }
+        CommandLine::Chat { action } => {
+            print(chat_cli::execute(data_dir, no_autostart, action).await?)?;
         }
         CommandLine::Status => {
             print(request(data_dir, no_autostart, WireFrame::StatusRequest).await?)?;

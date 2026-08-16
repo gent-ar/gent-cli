@@ -93,6 +93,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Unix-only `gent conversation content` reads of user-authored prompts, with conversation-bound
       keyset cursors, a SQLite page budget, and an exact protocol-frame budget; no provider output
       or observer-mode write path is exposed.
+- [x] Explicit `gentd --agent-chat-authority` local profile: negotiated `gent chat create`,
+      `send`, and `queue` persist through receipt and epoch fences without composing any provider,
+      MCP, Git, or private-bridge effect. The default daemon remains observer-only.
 - [x] Unix local-host privacy boundary: a non-symlink, owner-only daemon data directory and an
       owner-only Unix socket constrained beneath it before the ledger is opened.
 - [x] Additive normalized lifecycle signals for root phase and explicit generation activity,

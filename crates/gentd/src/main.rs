@@ -1,6 +1,7 @@
 mod activity_transport;
 #[cfg(test)]
 mod activity_transport_tests;
+mod agent_chat_api;
 mod agent_chat_transport;
 #[cfg(test)]
 mod agent_chat_transport_tests;
@@ -25,6 +26,7 @@ mod provider_resolver;
 #[cfg(test)]
 mod provider_resolver_tests;
 mod public_runs;
+mod runtime_facade;
 mod startup;
 mod transport;
 #[cfg(test)]
@@ -42,23 +44,8 @@ mod transport_windows;
 #[cfg(all(test, windows))]
 mod transport_windows_tests;
 use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::dependency_actions::SystemDependencyExecutor;
-use crate::dependency_catalog::DependencyCatalog;
-use crate::public_runs::{DaemonPublicRuns, observer_service};
 use clap::Parser;
-use gent_drivers::installer::SystemDependencyInstaller;
-use gent_protocol::{
-    AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest,
-    DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-};
-use gent_runtime::catalog::validate_observed_capabilities;
-use gent_runtime::{AttachmentService, Coordinator, DependencyActionService};
-use gent_store::{FileAttachmentBlobs, SqliteLedger};
-use gent_types::{
-    CapabilitySet, Command, ConversationContentCursor, ConversationContentPage, ConversationStatus,
-    ConversationTimeline, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
-    HostStatus, Receipt,
-};
+pub(crate) use runtime_facade::{RuntimeFacade, build_runtime};
 use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
@@ -76,6 +63,13 @@ struct Args {
     /// Trusted public key as `key-id:lowercase-hex`; may be passed more than once.
     #[arg(long = "compatibility-key", env = "GENT_COMPATIBILITY_KEY")]
     compatibility_keys: Vec<String>,
+    /// Enable only the durable agent-chat create/send/queue ledger profile.
+    ///
+    /// This is an explicit isolated-authority profile: it never starts a public provider,
+    /// MCP server, Git mutation, or private bridge. It is off by default while app cutover is
+    /// incomplete.
+    #[arg(long, env = "GENT_AGENT_CHAT_AUTHORITY")]
+    agent_chat_authority: bool,
 }
 
 #[tokio::main]
@@ -90,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
-    let observed_capabilities = transport::observed_capabilities();
+    let observed_capabilities = transport::observed_capabilities(args.agent_chat_authority);
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
         &args.compatibility_keys,
@@ -98,31 +92,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let runtime = build_runtime(&data_dir, &observed_capabilities, compatibility)?;
     serve_local(runtime, &args, &data_dir).await
-}
-
-fn build_runtime(
-    data_dir: &std::path::Path,
-    observed_capabilities: &CapabilitySet,
-    compatibility: CompatibilityAssessment,
-) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
-    let capabilities = validate_observed_capabilities(observed_capabilities)?;
-    let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
-    let attachments = AttachmentService::new(
-        ledger.clone(),
-        FileAttachmentBlobs::open(data_dir.join("attachments"))?,
-    );
-    let coordinator = Coordinator::new(ledger.clone(), capabilities);
-    coordinator.persist_capability_catalog()?;
-    Ok(RuntimeFacade {
-        public_runs: observer_service(coordinator.clone(), compatibility.clone()),
-        attachments,
-        coordinator,
-        dependencies: DependencyCatalog::with_compatibility(compatibility),
-        dependency_actions: DependencyActionService::new(
-            ledger,
-            SystemDependencyExecutor::new(SystemDependencyInstaller),
-        ),
-    })
 }
 
 #[cfg(unix)]
@@ -162,123 +131,6 @@ fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
         })
 }
 
-#[derive(Clone, Debug)]
-struct RuntimeFacade {
-    attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
-    coordinator: Coordinator<SqliteLedger>,
-    dependencies: DependencyCatalog,
-    dependency_actions:
-        DependencyActionService<SqliteLedger, SystemDependencyExecutor<SystemDependencyInstaller>>,
-    public_runs: DaemonPublicRuns,
-}
-
-impl api::RuntimeApi for RuntimeFacade {
-    fn capabilities(&self) -> Result<CapabilitySet, String> {
-        self.coordinator
-            .status()
-            .map(|status| status.capabilities)
-            .map_err(|error| error.to_string())
-    }
-
-    fn status(&self) -> Result<HostStatus, String> {
-        self.coordinator.status().map_err(|error| error.to_string())
-    }
-    fn submit(&self, command: Command) -> Result<Receipt, String> {
-        self.coordinator
-            .submit(&command)
-            .map_err(|error| error.to_string())
-    }
-    fn resume_events(&self, cursor: u64) -> Result<EventResume, String> {
-        self.coordinator
-            .resume_events(cursor)
-            .map_err(|error| error.to_string())
-    }
-    fn doctor(&self) -> DoctorReport {
-        self.dependencies.doctor()
-    }
-    fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
-        self.dependencies.plan(request)
-    }
-    fn dependency_action(
-        &self,
-        request: DependencyActionRequest,
-    ) -> Result<DependencyActionResult, String> {
-        let plan = self.dependencies.plan(DependencyPlanRequest {
-            provider: request.provider,
-            action: request.action,
-        });
-        self.dependency_actions
-            .execute(&request, &plan)
-            .map_err(|error| error.to_string())
-    }
-    fn attachment(&self, frame: AttachmentFrame) -> Result<AttachmentFrame, String> {
-        attachment_api::handle(&self.attachments, frame)
-    }
-    fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String> {
-        self.coordinator
-            .submit_decision(command)
-            .map(decision_mapping::submission)
-            .map_err(|error| error.to_string())
-    }
-    fn apply_decision_recovery(
-        &self,
-        decision_id: String,
-        evidence: DecisionRecoveryEvidence,
-    ) -> Result<DecisionSettlement, String> {
-        self.coordinator
-            .apply_decision_evidence(&decision_id, decision_mapping::recovery(evidence))
-            .map_err(|error| error.to_string())
-    }
-    fn start_public_run(
-        &self,
-        request: gent_protocol::PublicRunStartRequest,
-    ) -> Result<gent_protocol::PublicRunResponse, String> {
-        self.public_runs
-            .start(request)
-            .map_err(|error| error.to_string())
-    }
-    fn resume_public_run(
-        &self,
-        request: gent_protocol::PublicRunResumeRequest,
-    ) -> Result<gent_protocol::PublicRunResponse, String> {
-        self.public_runs
-            .resume(request)
-            .map_err(|error| error.to_string())
-    }
-    fn interrupt_public_run(
-        &self,
-        request: gent_protocol::PublicRunInterruptRequest,
-    ) -> Result<gent_protocol::PublicRunResponse, String> {
-        self.public_runs
-            .interrupt(request)
-            .map_err(|error| error.to_string())
-    }
-    fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String> {
-        self.coordinator
-            .conversation_status(conversation_id)
-            .map_err(|error| error.to_string())
-    }
-    fn conversations(&self) -> Result<Vec<gent_types::ConversationListItem>, String> {
-        self.coordinator
-            .conversations()
-            .map_err(|error| error.to_string())
-    }
-    fn conversation_timeline(&self, conversation_id: &str) -> Result<ConversationTimeline, String> {
-        self.coordinator
-            .conversation_timeline(conversation_id)
-            .map_err(|error| error.to_string())
-    }
-    fn conversation_content(
-        &self,
-        conversation_id: &str,
-        before: Option<ConversationContentCursor>,
-        limit: u16,
-    ) -> Result<ConversationContentPage, String> {
-        self.coordinator
-            .conversation_content(conversation_id, before.as_ref(), limit)
-            .map_err(|error| error.to_string())
-    }
-}
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;

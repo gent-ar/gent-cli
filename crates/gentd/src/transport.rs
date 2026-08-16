@@ -19,7 +19,7 @@ use crate::api::RuntimeApi;
 
 /// Reports the capabilities backed by concrete post-handshake handlers in this adapter.
 #[must_use]
-pub(crate) fn observed_capabilities() -> CapabilitySet {
+pub(crate) fn observed_capabilities(agent_chat_enabled: bool) -> CapabilitySet {
     let mut capabilities = capability_set([
         RuntimeCapability::Attachments,
         RuntimeCapability::Decisions,
@@ -38,6 +38,11 @@ pub(crate) fn observed_capabilities() -> CapabilitySet {
     capabilities
         .0
         .push(CONVERSATION_TIMELINE_CAPABILITY.to_owned());
+    if agent_chat_enabled {
+        capabilities
+            .0
+            .push(gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY.to_owned());
+    }
     #[cfg(unix)]
     capabilities
         .0

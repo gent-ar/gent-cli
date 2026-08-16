@@ -58,10 +58,12 @@ may render that projection or show transport staleness; it must not infer a
 lifecycle from provider text or timers.
 
 The existing run-level lifecycle reducers are foundations, not this public
-projection. Observer-mode `gentd` currently offers no authoritative provider
-lifecycle and the terminal client must remain content-free with its composer
-disabled. No client can use the future projection to bypass receipts, cursor
-resume, epoch fencing, or capability negotiation.
+projection. The default observer daemon offers no authoritative provider
+lifecycle and the terminal client remains content-free with its composer
+disabled. The explicit `--agent-chat-authority` profile is narrower: it writes
+only durable create/send/queue intent records under the usual fences, and never
+composes a provider, MCP, Git, or private bridge. No client can bypass receipts,
+cursor resume, epoch fencing, or capability negotiation.
 
 The observer daemon does not advertise any runtime-update capability. The
 protocol retains an uncomposed metadata-only check contract. Locally, `gent

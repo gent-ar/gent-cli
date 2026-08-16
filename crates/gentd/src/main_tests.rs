@@ -1,12 +1,15 @@
 use gent_core::DecisionCommandOutcome;
 use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
-    DecisionRecoveryEvidence, DependencyAction, DependencyActionRequest, DependencyPlanRequest,
-    DependencyProvider, PublicRunInterruptRequest, PublicRunOutcome, PublicRunResumeRequest,
-    PublicRunStartRequest,
+    AgentChatIntentFrame, DecisionRecoveryEvidence, DependencyAction, DependencyActionRequest,
+    DependencyPlanRequest, DependencyProvider, PublicRunInterruptRequest, PublicRunOutcome,
+    PublicRunResumeRequest, PublicRunStartRequest,
 };
-use gent_runtime::catalog::{CatalogError, declared_capabilities};
+use gent_runtime::catalog::{
+    CatalogError, declared_capabilities, declared_capabilities_with_agent_chat,
+};
 use gent_types::{
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase,
     EventResume, HostEpoch, McpPermissionStatus, ReceiptId,
 };
@@ -185,6 +188,62 @@ fn facade_decisions_are_idempotent_and_terminal() {
             .unwrap()
             .phase,
         DecisionSettlementPhase::Unprovable
+    );
+}
+
+#[test]
+fn approved_agent_chat_profile_persists_create_and_prompt_without_a_provider() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = build_runtime(
+        directory.path(),
+        &declared_capabilities_with_agent_chat(true),
+        super::CompatibilityAssessment::default(),
+    )
+    .unwrap();
+    let created = runtime
+        .agent_chat_intent(AgentChatIntentFrame::CreateConversation {
+            request_id: AgentChatRequestId("create-1".into()),
+            receipt_id: ReceiptId("receipt-create".into()),
+            selection: AgentChatSelection {
+                provider: AgentChatProvider::Claude,
+                model: "haiku".into(),
+                effort: AgentChatEffort::Low,
+                mode: AgentChatMode::Ask,
+            },
+        })
+        .unwrap();
+    let [
+        AgentChatIntentFrame::Created {
+            conversation_id,
+            run_id,
+            receipt,
+            ..
+        },
+    ] = &created[..]
+    else {
+        panic!("approved profile must return durable chat identities");
+    };
+    assert_eq!(receipt.status, gent_types::ReceiptStatus::Settled);
+    let prompt = runtime
+        .agent_chat_intent(AgentChatIntentFrame::SendPrompt {
+            request_id: AgentChatRequestId("prompt-1".into()),
+            receipt_id: ReceiptId("receipt-prompt".into()),
+            conversation_id: conversation_id.clone(),
+            text: "hello".into(),
+        })
+        .unwrap();
+    assert!(matches!(
+        prompt.as_slice(),
+        [AgentChatIntentFrame::Accepted { receipt, .. }]
+            if receipt.status == gent_types::ReceiptStatus::Settled
+    ));
+    assert_eq!(
+        runtime
+            .conversation_content(&conversation_id.0, None, 10)
+            .unwrap()
+            .entries[0]
+            .run_id,
+        run_id.0
     );
 }
 

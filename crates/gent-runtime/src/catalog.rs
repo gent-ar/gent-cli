@@ -2,8 +2,8 @@
 
 use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
-    ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
-    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
+    AGENT_CHAT_INTENTS_CAPABILITY, ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
+    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
 };
 use gent_types::{CapabilityCatalogRecord, CapabilitySet};
 
@@ -16,6 +16,7 @@ use crate::RuntimeError;
 /// A capability the runtime may advertise after its transport proves a handler exists.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeCapability {
+    AgentChatIntents,
     Attachments,
     Decisions,
     EventResync,
@@ -28,6 +29,7 @@ pub enum RuntimeCapability {
 impl RuntimeCapability {
     const fn wire_name(self) -> &'static str {
         match self {
+            Self::AgentChatIntents => AGENT_CHAT_INTENTS_CAPABILITY,
             Self::Attachments => ATTACHMENTS_CAPABILITY,
             Self::Decisions => "decisions",
             Self::EventResync => "event-resync",
@@ -78,7 +80,18 @@ pub fn reconcile(declared: &CapabilitySet, observed: &CapabilitySet) -> Result<(
 /// Returns the one runtime-owned catalog eligible for wire advertisement.
 #[must_use]
 pub fn declared_capabilities() -> CapabilitySet {
+    declared_capabilities_with_agent_chat(false)
+}
+
+/// Returns the catalog for an explicitly approved durable agent-chat authority profile.
+#[must_use]
+pub fn declared_capabilities_with_agent_chat(agent_chat_enabled: bool) -> CapabilitySet {
     let mut capabilities = capability_set(DECLARED);
+    if agent_chat_enabled {
+        capabilities
+            .0
+            .push(RuntimeCapability::AgentChatIntents.wire_name().into());
+    }
     capabilities
         .0
         .push(CONVERSATION_STATUS_CAPABILITY.to_owned());
@@ -113,7 +126,12 @@ pub fn capability_set(observed: impl IntoIterator<Item = RuntimeCapability>) -> 
 pub fn validate_observed_capabilities(
     observed: &CapabilitySet,
 ) -> Result<CapabilitySet, CatalogError> {
-    let declared = declared_capabilities();
+    let declared = declared_capabilities_with_agent_chat(
+        observed
+            .0
+            .iter()
+            .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY),
+    );
     reconcile(&declared, observed)?;
     Ok(declared)
 }

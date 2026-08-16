@@ -104,7 +104,7 @@ impl RuntimeApi for ActivityRuntime {
 
 #[test]
 fn observer_capabilities_do_not_advertise_authority_or_update_work() {
-    let capabilities = observed_capabilities();
+    let capabilities = observed_capabilities(false);
     assert!(
         !capabilities
             .0

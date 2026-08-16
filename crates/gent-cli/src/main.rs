@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use gent_protocol::{DependencyAction, DependencyProvider};
 
+mod chat_cli;
 mod command_execution;
 mod conversation_activity;
 mod conversation_content;
@@ -59,6 +60,11 @@ enum CommandLine {
     Conversation {
         #[command(subcommand)]
         action: ConversationCommand,
+    },
+    /// Create a conversation or persist a user prompt through local agent-chat IPC.
+    Chat {
+        #[command(subcommand)]
+        action: chat_cli::ChatCommand,
     },
     Status,
     Submit {
@@ -159,7 +165,6 @@ mod tests {
             WireFrame::DependencyPlanRequest(_)
         ));
     }
-
     #[test]
     fn dependency_install_parses_a_retry_key() {
         let args = Args::try_parse_from([
@@ -179,7 +184,6 @@ mod tests {
             }) if key == "retry-1"
         ));
     }
-
     #[test]
     fn conversation_status_is_a_dedicated_read_only_command() {
         let args = Args::try_parse_from([
@@ -197,7 +201,6 @@ mod tests {
             }) if conversation_id == "conversation-1"
         ));
     }
-
     #[test]
     fn conversation_list_is_a_dedicated_read_only_command() {
         let args = Args::try_parse_from(["gent", "conversation", "list"]).unwrap();
@@ -208,7 +211,6 @@ mod tests {
             })
         ));
     }
-
     #[test]
     fn default_and_conversations_flag_select_the_terminal_browser() {
         let default_args = Args::try_parse_from(["gent"]).unwrap();
@@ -217,7 +219,6 @@ mod tests {
         assert!(browser_args.conversations);
         assert!(browser_args.command.is_none());
     }
-
     #[test]
     fn conversation_timeline_is_a_dedicated_read_only_command() {
         let args = Args::try_parse_from([
@@ -235,7 +236,6 @@ mod tests {
             }) if conversation_id == "conversation-1"
         ));
     }
-
     #[test]
     fn conversation_activity_parses_its_cursor_bound_identity() {
         let args = Args::try_parse_from([

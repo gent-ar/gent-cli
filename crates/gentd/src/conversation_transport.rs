@@ -22,13 +22,15 @@ where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    if supports(capabilities, CONVERSATION_INDEX_CAPABILITY)
-        && matches!(
-            serde_json::from_value(raw.clone()),
-            Ok(ConversationIndexFrame::Request)
-        )
-    {
-        return write_index(stream, runtime).await;
+    if supports(capabilities, CONVERSATION_CONTENT_CAPABILITY) {
+        if let Ok(ConversationContentFrame::Request {
+            conversation_id,
+            before,
+            limit,
+        }) = serde_json::from_value(raw.clone())
+        {
+            return write_content(stream, runtime, &conversation_id, before, limit).await;
+        }
     }
     if supports(capabilities, CONVERSATION_STATUS_CAPABILITY) {
         if let Ok(ConversationStatusFrame::Request { conversation_id }) =
@@ -44,15 +46,13 @@ where
             return write_timeline(stream, runtime, &conversation_id).await;
         }
     }
-    if supports(capabilities, CONVERSATION_CONTENT_CAPABILITY) {
-        if let Ok(ConversationContentFrame::Request {
-            conversation_id,
-            before,
-            limit,
-        }) = serde_json::from_value(raw.clone())
-        {
-            return write_content(stream, runtime, &conversation_id, before, limit).await;
-        }
+    if supports(capabilities, CONVERSATION_INDEX_CAPABILITY)
+        && matches!(
+            serde_json::from_value(raw.clone()),
+            Ok(ConversationIndexFrame::Request)
+        )
+    {
+        return write_index(stream, runtime).await;
     }
     Ok(false)
 }
@@ -130,6 +130,9 @@ where
 fn supports(capabilities: &CapabilitySet, capability: &str) -> bool {
     capabilities.0.iter().any(|item| item == capability)
 }
+
+#[cfg(test)]
+mod collision_tests;
 
 #[cfg(test)]
 mod tests {

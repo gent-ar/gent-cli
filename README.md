@@ -26,8 +26,8 @@ than a second copy of application logic. The implemented vertical slice is:
   only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
   content and provider-native session identifiers.
 - A receipt-backed user-prompt ledger that atomically assigns an active turn and retains text outside
-  receipt/event payloads. Unix-only content reads are cursor-bound, page-byte-bounded, and limited
-  to user-authored prompt text; no provider output is exposed in this observer milestone.
+  receipt/event payloads. The default observer exposes only cursor-bound, page-byte-bounded reads;
+  an explicit local profile can durably accept create/send/queue requests, never provider output.
 - Durable workspace → repository → worktree identities, stored independently from worktree
   leases and any future Git execution.
 - Durable worktree-scoped Git-operation lifecycle records with optimistic, terminal-safe transitions;
@@ -43,7 +43,7 @@ than a second copy of application logic. The implemented vertical slice is:
   a claim that a live provider is attached to the daemon. Root generation activity is explicit,
   so waiting on detached work is never inferred from a root turn phase alone.
 
-### Intended product boundary (not wired in this observer milestone)
+### Intended product boundary
 
 Gent owns the agent-chat runtime: durable conversations, sessions, prompts,
 Claude and Codex public-driver orchestration, the private Claurst bridge behind
@@ -54,11 +54,12 @@ directly. A long-lived negotiated `gentd` connection is the future app boundary;
 substitute for subscriptions, receipt retries, or cursor resumption. `gentd` is
 the only component allowed to compose those capabilities.
 
-The public protocol already reserves strictly typed, capability-gated
-agent-chat conversation/transcript reads and future create, send, queue,
-interrupt, decision, and cursor-subscription intents. Those frames are an
-uncomposed compatibility contract: negotiating them does not enable a provider,
-write a conversation, or change the observer daemon's refusal behavior.
+The public protocol reserves strictly typed, capability-gated agent-chat reads
+and intents. By default the daemon refuses mutations. For isolated local
+testing, start `gentd --agent-chat-authority`: it advertises
+`agent-chat-intents-v1` and durably accepts create/send/queue requests through
+the same receipt and epoch checks. It still rejects provider lifecycle,
+transcript streaming, MCP, Git, and private-bridge actions.
 
 ### Milestone scope contract
 
@@ -68,8 +69,8 @@ write a conversation, or change the observer daemon's refusal behavior.
   Git mutation, MCP spawning, and private bridge routing for live provider execution.
 - Modules do not import each other as peers; only `gentd` and `gent` are allowed to
   compose stable interfaces across boundaries.
-- Public transport for Claude/Codex stays declarative and typed; `gentd` is not yet connected
-  to that authority today.
+- Public transport for Claude/Codex stays declarative and typed; the isolated ledger profile
+  never launches either binary.
 - Claurst support exists in protocol as a private-bridge capability only; no app-level credentials
   or endpoints are embedded in the public daemon.
 - Device pairing and application automations are Flutter-app responsibilities. They are outside
@@ -168,9 +169,9 @@ successful handoff, start `gent` normally to launch the selected pair.
 
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
 read-only conversation browser. It lists durable identities and run counts, then
-shows an explicitly disabled composer and model/effort/mode controls while the
-daemon is in observer mode. It never sends a prompt, a command receipt, or a
-provider lifecycle request.
+shows an explicitly disabled composer and model/effort/mode controls. The
+opt-in ledger profile can be exercised with `gent chat create`, `gent chat send`,
+and `gent chat queue`; these commands never start a provider lifecycle.
 
 ## Development
 
@@ -284,8 +285,8 @@ source-size rule.
 `gentd` never receives Claurst credentials or endpoint configuration. Provider
 installation or updates are explicit, receipt-backed user actions; `gent doctor`
 only observes dependencies. The present daemon does not route or start live provider
-runs, MCP servers, Git operations, or network listeners. Pairing and automation
-execution are deliberately outside its protocol surface.
+runs, MCP servers, Git operations, or network listeners. The opt-in agent-chat
+ledger is persistence only. Pairing and automation execution remain outside its protocol.
 
 On macOS and Linux, `gentd` creates its data directory with owner-only permissions
 and accepts a Unix socket only beneath that directory; the socket itself is also
