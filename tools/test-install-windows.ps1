@@ -48,13 +48,15 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
     Copy-ReleaseAssets $output $fixture $version
 }
 
-function Invoke-Installer([string[]]$installerArguments, [bool]$mustSucceed = $true) {
+function Invoke-Installer([string]$version, [string]$installRoot, [bool]$force = $false,
+    [bool]$mustSucceed = $true) {
     $oldPreference = $ErrorActionPreference
     $failure = ""
     try {
         $ErrorActionPreference = "Continue"
         try {
-            & $installer @installerArguments
+            if ($force) { & $installer -Version $version -InstallDir $installRoot -Force }
+            else { & $installer -Version $version -InstallDir $installRoot }
             $code = $LASTEXITCODE
         } catch {
             $code = 1
@@ -105,18 +107,18 @@ try {
     try {
         $env:PATH = "$fakeBin;$oldPath"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.1.0"
-        Invoke-Installer -installerArguments @("-Version", "v0.1.0", "-InstallDir", $installRoot)
+        Invoke-Installer -version "v0.1.0" -installRoot $installRoot
         $runtime = $installRoot
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "first release was not activated"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gent.cmd")) "gent launcher missing"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gentd.cmd")) "gentd launcher missing"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.2.0"
-        Invoke-Installer -installerArguments @("-Version", "v0.2.0", "-InstallDir", $installRoot) -mustSucceed $false
+        Invoke-Installer -version "v0.2.0" -installRoot $installRoot -mustSucceed $false
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "failed update changed current"
-        Invoke-Installer -installerArguments @("-Version", "v0.2.0", "-InstallDir", $installRoot, "-Force")
+        Invoke-Installer -version "v0.2.0" -installRoot $installRoot -force $true
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "forced update was not activated"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.3.0"
-        Invoke-Installer -installerArguments @("-Version", "v0.3.0", "-InstallDir", $installRoot, "-Force") -mustSucceed $false
+        Invoke-Installer -version "v0.3.0" -installRoot $installRoot -force $true -mustSucceed $false
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "invalid update changed current"
     } finally {
         $env:PATH = $oldPath
