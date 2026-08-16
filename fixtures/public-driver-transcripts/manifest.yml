@@ -2,7 +2,7 @@ schema_version: 1
 vendors: [claude, codex]
 scenarios: [full_turn, tool_use, tool_error, thinking, permission_prompt, permission_persistent, plan_mode, subagent, compaction, mcp_tool, resume, interrupt, steer, usage_cost, malformed_tolerance]
 cells:
-  - { vendor: claude, scenario: full_turn, state: capture_required }
+  - { vendor: claude, scenario: full_turn, state: recorded, path: claude-full-turn-haiku-20260816.jsonl }
   - { vendor: claude, scenario: tool_use, state: capture_required }
   - { vendor: claude, scenario: tool_error, state: capture_required }
   - { vendor: claude, scenario: thinking, state: capture_required }
@@ -17,7 +17,7 @@ cells:
   - { vendor: claude, scenario: steer, state: capture_required }
   - { vendor: claude, scenario: usage_cost, state: capture_required }
   - { vendor: claude, scenario: malformed_tolerance, state: capture_required }
-  - { vendor: codex, scenario: full_turn, state: capture_required }
+  - { vendor: codex, scenario: full_turn, state: recorded, path: codex-full-turn-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: tool_use, state: capture_required }
   - { vendor: codex, scenario: tool_error, state: capture_required }
   - { vendor: codex, scenario: thinking, state: capture_required }
