@@ -5,7 +5,7 @@ cells:
   - { vendor: claude, scenario: full_turn, state: recorded, path: claude-full-turn-haiku-20260816.jsonl }
   - { vendor: claude, scenario: tool_use, state: recorded, path: claude-tool-use-haiku-20260816.jsonl }
   - { vendor: claude, scenario: tool_error, state: recorded, path: claude-tool-error-haiku-20260816.jsonl }
-  - { vendor: claude, scenario: thinking, state: capture_required }
+  - { vendor: claude, scenario: thinking, state: recorded, path: claude-thinking-haiku-20260816.jsonl }
   - { vendor: claude, scenario: permission_prompt, state: capture_required }
   - { vendor: claude, scenario: permission_persistent, state: capture_required }
   - { vendor: claude, scenario: plan_mode, state: capture_required }
@@ -15,7 +15,7 @@ cells:
   - { vendor: claude, scenario: resume, state: capture_required }
   - { vendor: claude, scenario: interrupt, state: capture_required }
   - { vendor: claude, scenario: steer, state: capture_required }
-  - { vendor: claude, scenario: usage_cost, state: capture_required }
+  - { vendor: claude, scenario: usage_cost, state: recorded, path: claude-usage-cost-haiku-20260816.jsonl }
   - { vendor: claude, scenario: malformed_tolerance, state: capture_required }
   - { vendor: codex, scenario: full_turn, state: recorded, path: codex-full-turn-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: tool_use, state: recorded, path: codex-tool-use-gpt-5-6-luna-20260816.jsonl }
@@ -30,5 +30,5 @@ cells:
   - { vendor: codex, scenario: resume, state: capture_required }
   - { vendor: codex, scenario: interrupt, state: capture_required }
   - { vendor: codex, scenario: steer, state: capture_required }
-  - { vendor: codex, scenario: usage_cost, state: capture_required }
+  - { vendor: codex, scenario: usage_cost, state: recorded, path: codex-usage-cost-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: malformed_tolerance, state: capture_required }
