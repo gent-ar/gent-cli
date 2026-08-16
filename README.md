@@ -104,8 +104,9 @@ bash tools/smoke-local-ipc.sh
 ## Public-driver evidence inventory
 
 The phase-0 manifest lists every required Claude/Codex scenario without
-inventing recordings. It includes redacted live `full_turn` and `tool_use`
-captures for Claude Haiku and the requested Codex `gpt-5.6-luna`
+inventing recordings. It includes redacted live `full_turn`, `tool_use`,
+`tool_error`, and observed thinking/usage captures for Claude Haiku and the
+requested Codex `gpt-5.6-luna`
 configuration; every unexercised scenario remains explicitly capture-required.
 The coverage manifest
 links to that inventory, so an authority-evidence record for Claude or Codex

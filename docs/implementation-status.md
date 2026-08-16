@@ -167,8 +167,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 ## Intentionally not claimed
 
 - [ ] Complete real Claude/Codex recordings and installed-provider integration evidence.
-      Redacted macOS `full_turn` and `tool_use` captures exist for Claude Haiku
-      and Codex `gpt-5.6-luna`; the remaining required scenario matrix and
+      Redacted macOS `full_turn`, `tool_use`, `tool_error`, and observed
+      thinking/usage captures exist for Claude Haiku and Codex `gpt-5.6-luna`;
+      the remaining required scenario matrix and
       installed-provider integration evidence are still capture-required.
 - [ ] Authenticated private Claurst bridge evidence (private CI only).
 - [ ] MCP hosting, Git mutation/worktree operations, and provider process lifecycle ownership
