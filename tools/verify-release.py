@@ -128,7 +128,8 @@ def verify(archive: Path, manifest_path: Path, checksum_path: Path, version: str
         fail("archive name does not match manifest version and target")
     if archive.stat().st_size != size or sha256(archive) != digest:
         fail("archive size or sha256 does not match manifest")
-    if checksum_path.read_bytes() != f"{digest}  {archive.name}\n".encode():
+    expected_checksum = f"{digest}  {archive.name}".encode()
+    if checksum_path.read_bytes() not in (expected_checksum + b"\n", expected_checksum + b"\r\n"):
         fail("checksum file does not match manifest")
     root = f"gent-{manifest_version}-{manifest_target}"
     if extension == ".tar.gz":
