@@ -39,6 +39,8 @@ def test_dry_run_requires_an_explicit_isolated_home() -> None:
             "--output",
             str(output),
             "--dry-run",
+            "--timeout-seconds",
+            "1",
         ],
         text=True,
         capture_output=True,
@@ -63,10 +65,20 @@ def test_missing_isolated_home_cannot_start_a_capture() -> None:
     assert "isolated authenticated Codex home" in result.stderr
 
 
+def test_capture_deadline_terminates_its_child() -> None:
+    try:
+        MODULE.run_capture([sys.executable, "-c", "import time; time.sleep(60)"], 1)
+    except ValueError as error:
+        assert "bounded deadline" in str(error)
+    else:
+        raise AssertionError("a stalled capture must not outlive its deadline")
+
+
 def main() -> None:
     test_probe_config_has_one_fixed_stdio_tool()
     test_dry_run_requires_an_explicit_isolated_home()
     test_missing_isolated_home_cannot_start_a_capture()
+    test_capture_deadline_terminates_its_child()
     print("Codex MCP capture checks passed")
 
 

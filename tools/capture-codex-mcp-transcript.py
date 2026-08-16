@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--confirm-live-capture", action="store_true")
     parser.add_argument("--replace-existing", action="store_true")
     parser.add_argument("--update-manifest", action="store_true")
+    parser.add_argument("--timeout-seconds", type=int)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -77,6 +79,25 @@ def config_overrides() -> list[str]:
     ]
 
 
+def run_capture(command: list[str], timeout: int | None) -> int:
+    process = subprocess.Popen(command, cwd=ROOT, start_new_session=os.name != "nt")
+    try:
+        return process.wait(timeout=(timeout or 90) + 5)
+    except subprocess.TimeoutExpired as error:
+        if os.name != "nt":
+            os.killpg(process.pid, signal.SIGTERM)
+        else:
+            process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+        raise ValueError("Codex MCP capture exceeded its bounded deadline") from error
+
+
 def main() -> int:
     args = parse_args()
     if args.serve:
@@ -91,10 +112,12 @@ def main() -> int:
     ]
     for override in config_overrides():
         command.extend(["--codex-config", override])
+    if args.timeout_seconds is not None:
+        command.extend(["--timeout-seconds", str(args.timeout_seconds)])
     for name in ("confirm_live_capture", "replace_existing", "update_manifest", "dry_run"):
         if getattr(args, name):
             command.append("--" + name.replace("_", "-"))
-    return subprocess.call(command, cwd=ROOT)
+    return run_capture(command, args.timeout_seconds)
 
 
 if __name__ == "__main__":
