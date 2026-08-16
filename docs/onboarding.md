@@ -6,10 +6,17 @@ or starts a provider automatically.
 
 ## First run
 
-Install (or update) Gent from a signed GitHub release with:
+Install (or update) Gent from a signed GitHub release. Choose a published tag,
+verify its bootstrap asset, then execute it:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/gent-ar/gent-cli/main/tools/install.sh | sh
+version=vX.Y.Z
+curl -fLO "https://github.com/gent-ar/gent-cli/releases/download/$version/gent-install.sh"
+curl -fLO "https://github.com/gent-ar/gent-cli/releases/download/$version/gent-install.sh.sigstore.json"
+cosign verify-blob gent-install.sh --bundle gent-install.sh.sigstore.json \
+  --certificate-identity-regexp "^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/$version$" \
+  --certificate-oidc-issuer https://github.com/login/oauth
+sh gent-install.sh --version "$version"
 ```
 
 The script verifies the archive's GitHub OIDC Sigstore bundle and its manifest
@@ -19,6 +26,13 @@ new release. It keeps immutable version pairs and atomically switches both
 launchers through one `current` pointer, so an interrupted update keeps the
 previous pair runnable. Ensure `~/.local/bin` (or `GENT_INSTALL_DIR/bin`) is on
 `PATH`.
+
+Windows x86_64 follows the same verified-bootstrap rule using
+`gent-install.ps1` and `gent-install.ps1.sigstore.json` from that tag. Its
+default runtime root is `%LOCALAPPDATA%\Gent`; add `%LOCALAPPDATA%\Gent\bin`
+to `PATH`. The installer stages both `.exe` files, then atomically replaces a
+validated `current.json` pointer. It does not use a symlink or replace a
+running binary.
 
 1. Run `gent doctor`. It starts the local daemon if needed and reports Claude,
    Codex, Node.js, MCP observer state, private-bridge availability, executable

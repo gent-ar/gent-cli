@@ -67,16 +67,41 @@ until the migration plan's evidence, observer, and cutover gates are satisfied.
 
 ## Try it
 
-Install a signed release (or rerun with `--force` to update it):
+Install a signed release (or rerun with `--force` to update it). Choose a
+published tag, download the bootstrap asset and its Sigstore bundle, and verify
+the bootstrap before executing it:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/gent-ar/gent-cli/main/tools/install.sh | sh
+version=vX.Y.Z
+curl -fLO "https://github.com/gent-ar/gent-cli/releases/download/$version/gent-install.sh"
+curl -fLO "https://github.com/gent-ar/gent-cli/releases/download/$version/gent-install.sh.sigstore.json"
+cosign verify-blob gent-install.sh --bundle gent-install.sh.sigstore.json \
+  --certificate-identity-regexp "^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/$version$" \
+  --certificate-oidc-issuer https://github.com/login/oauth
+sh gent-install.sh --version "$version"
 ```
 
 The installer requires `curl`, `python3`, `tar`, and `cosign`; it verifies the
 GitHub OIDC signature and the archive manifest before it installs either binary.
 Set `GENT_VERSION=vX.Y.Z` to pin a release, or `GENT_INSTALL_DIR` to change the
 default `~/.local` install root.
+
+On Windows x86_64, use the signed PowerShell bootstrap (the default runtime
+root is `%LOCALAPPDATA%\Gent`):
+
+```powershell
+$version = "vX.Y.Z"
+$base = "https://github.com/gent-ar/gent-cli/releases/download/$version"
+Invoke-WebRequest "$base/gent-install.ps1" -OutFile gent-install.ps1
+Invoke-WebRequest "$base/gent-install.ps1.sigstore.json" -OutFile gent-install.ps1.sigstore.json
+cosign verify-blob gent-install.ps1 --bundle gent-install.ps1.sigstore.json --certificate-identity-regexp "^https://github.com/gent-ar/gent-cli/.github/workflows/release.yml@refs/tags/$version$" --certificate-oidc-issuer https://github.com/login/oauth
+.\gent-install.ps1 -Version $version
+```
+
+The Windows installer requires `cosign` and uses a ZIP archive. It atomically
+replaces a validated `current.json` pointer only after both `gent.exe` and
+`gentd.exe` have been staged. Add its `bin` directory to `PATH`. Do not use an
+unverified `Invoke-Expression`/pipe bootstrap in high-assurance deployments.
 
 ```sh
 cargo run -p gent-cli -- doctor

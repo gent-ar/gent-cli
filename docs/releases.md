@@ -15,8 +15,8 @@ files:
 - a JSON manifest naming the archive, target, version, digest, size, and
   contained binaries;
 - a Sigstore bundle for each of the preceding files.
-- signed `gent-install.sh` and `gent-activate-install.py` bootstrap assets,
-  each with a Sigstore bundle.
+- signed `gent-install.sh`, `gent-install.ps1`, and
+  `gent-activate-install.py` bootstrap assets, each with a Sigstore bundle.
 
 The package tool fixes archive metadata to `SOURCE_DATE_EPOCH`, derived from
 the tagged commit. This makes archive construction deterministic for identical

@@ -31,9 +31,14 @@ jobs:
       - run: python tools/check-architecture.py
       - run: sh -n tools/install.sh
       - run: python tools/test-install-activation.py
+      - run: python -m py_compile tools/capture-public-driver-transcript.py
+      - run: python tools/test-capture-public-driver-transcript.py
       - run: python tools/test-release-tools.py
+      - run: cargo run --quiet -p gent-testkit --bin validate-coverage-manifest -- fixtures/coverage-manifest.yml
+      - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
+      - run: bash tools/smoke-local-ipc.sh
 
   package:
     name: package (${{ matrix.target }})
@@ -73,6 +78,9 @@ jobs:
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
       - name: Build release binaries
         run: cargo build --locked --release -p gent-cli -p gentd
+      - if: runner.os == 'Windows'
+        name: Verify Windows installer activation
+        run: powershell -ExecutionPolicy Bypass -File tools/test-install-windows.ps1
       - name: Package binaries
         run: >-
           python tools/package-release.py --target-dir target/release --out-dir dist
@@ -108,8 +116,10 @@ jobs:
         shell: bash
         run: |
           cp tools/install.sh release-artifacts/gent-install.sh
+          cp tools/install.ps1 release-artifacts/gent-install.ps1
           cp tools/activate-install.py release-artifacts/gent-activate-install.py
           cosign sign-blob --yes --bundle release-artifacts/gent-install.sh.sigstore.json release-artifacts/gent-install.sh
+          cosign sign-blob --yes --bundle release-artifacts/gent-install.ps1.sigstore.json release-artifacts/gent-install.ps1
           cosign sign-blob --yes --bundle release-artifacts/gent-activate-install.py.sigstore.json release-artifacts/gent-activate-install.py
       - name: Publish signed artifacts
         shell: bash

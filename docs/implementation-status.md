@@ -156,6 +156,11 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Enforced 90% workspace line-coverage gate.
 - [x] Deterministic release packaging, checksum/manifest verification, and tag-only
       GitHub OIDC keyless-signing workflow for `gent` and `gentd` artifacts.
+- [x] Signed macOS/Linux and Windows x86_64 release bootstraps stage `gent` and
+      `gentd` as an immutable pair before atomically selecting them. Windows uses
+      a validated `current.json` file rather than a symlink; offline installer
+      tests cover first install, refused replacement, successful forced update,
+      and manifest-tamper preservation of the previous pair.
 - [x] Standalone discovery-first onboarding documentation with explicit dependency consent.
 - [x] Read-only `gent onboarding` projection with exactly Gent/Claurst, Claude, and Codex branches;
       it derives readiness only from `gent doctor`, never starts a provider or performs auth/install/download work.
