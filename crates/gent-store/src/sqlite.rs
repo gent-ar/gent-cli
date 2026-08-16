@@ -7,10 +7,11 @@ use gent_types::{
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
 use rusqlite::{Connection, params};
-use std::{path::Path, sync::Arc, sync::Mutex, time::Duration};
+use std::sync::{Arc, Mutex};
 mod agent_chat_ledger;
 mod attachment_ledger;
 mod capability_catalog;
+mod connection;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
 mod conversation_ledger;
@@ -49,37 +50,9 @@ use queries::{
 pub struct SqliteLedger {
     connection: Arc<Mutex<Connection>>,
 }
-impl SqliteLedger {
-    /// # Errors
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
-        Self::from_connection(Connection::open(path).map_err(storage_error)?)
-    }
-    /// # Errors
-    pub fn in_memory() -> Result<Self, LedgerError> {
-        Self::from_connection(Connection::open_in_memory().map_err(storage_error)?)
-    }
-    fn from_connection(mut connection: Connection) -> Result<Self, LedgerError> {
-        connection
-            .busy_timeout(Duration::from_secs(3))
-            .map_err(storage_error)?;
-        connection
-            .execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
-            .map_err(storage_error)?;
-        migrations::apply(&mut connection)?;
-        Ok(Self {
-            connection: Arc::new(Mutex::new(connection)),
-        })
-    }
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, LedgerError> {
-        self.connection
-            .lock()
-            .map_err(|error| LedgerError::Storage(error.to_string()))
-    }
-}
 impl Ledger for SqliteLedger {
     fn host_ingress(&self) -> Result<HostIngress, LedgerError> {
-        let connection = self.lock()?;
-        host_ingress(&connection)
+        host_ingress(&*self.lock()?)
     }
     fn close_ingress(&self, epoch: HostEpoch) -> Result<HostIngress, LedgerError> {
         let mut connection = self.lock()?;
@@ -212,8 +185,7 @@ impl Ledger for SqliteLedger {
         find_event(&*self.lock()?, event_id)
     }
     fn resume_events(&self, cursor: u64) -> Result<EventResume, LedgerError> {
-        let connection = self.lock()?;
-        snapshots::resume(&connection, cursor)
+        snapshots::resume(&*self.lock()?, cursor)
     }
     fn compact_events(&self, snapshot: &EventSnapshot) -> Result<(), LedgerError> {
         let mut connection = self.lock()?;
@@ -230,9 +202,15 @@ impl Ledger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         leases::reserve_run_start(self, run, lock, lease)
     }
+    fn activate_existing_run_start(
+        &self,
+        lock: &RunVersionLock,
+        lease: &RunLease,
+    ) -> Result<RunLeaseClaim, LedgerError> {
+        leases::activate_existing_run_start(self, lock, lease)
+    }
     fn find_run(&self, run_id: &str) -> Result<Option<RunRecord>, LedgerError> {
-        let connection = self.lock()?;
-        find_run(&connection, run_id)
+        find_run(&*self.lock()?, run_id)
     }
     fn save_run_version_lock(
         &self,

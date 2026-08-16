@@ -150,32 +150,16 @@ pub enum LedgerError {
     #[error("ledger failure: {0}")]
     Storage(String),
 }
+#[allow(clippy::missing_errors_doc)]
 pub trait Ledger: Send + Sync {
-    /// Returns the durable fence and whether it currently accepts mutation ingress.
-    /// # Errors
-    /// Returns an error when durable state cannot be read.
     fn host_ingress(&self) -> Result<HostIngress, LedgerError>;
-    /// Closes ingress if and only if `epoch` is still authoritative.
-    /// # Errors
-    /// Returns an error when the epoch is stale or durable state cannot be updated.
     fn close_ingress(&self, epoch: HostEpoch) -> Result<HostIngress, LedgerError>;
-    /// Atomically creates the next host epoch and opens it for its new writer.
-    /// # Errors
-    /// Returns an error when ingress is not closed, the epoch is stale, or persistence fails.
     fn fence_and_open(&self, epoch: HostEpoch) -> Result<HostIngress, LedgerError>;
-    /// Atomically checks the fence, claims an idempotency key, and appends acceptance.
-    ///
-    /// # Errors
-    /// Returns an error when ingress is closed, the epoch is stale, or the transaction fails.
     fn claim_command(
         &self,
         command: &Command,
         accepted: &Event,
     ) -> Result<ReceiptClaim, LedgerError>;
-    /// Atomically transitions one receipt to a terminal status and appends its event.
-    ///
-    /// # Errors
-    /// Returns an error when the receipt is absent, already terminal, or persistence fails.
     fn settle_receipt(
         &self,
         idempotency_key: &str,
@@ -239,6 +223,21 @@ pub trait Ledger: Send + Sync {
         lock: &RunVersionLock,
         lease: &RunLease,
     ) -> Result<(), LedgerError>;
+    /// Atomically locks and leases a run that was durably created before provider activation.
+    ///
+    /// # Errors
+    /// Returns an error when the existing run/provider differs, the lock would change, or the
+    /// current epoch cannot grant the requested lease.
+    fn activate_existing_run_start(
+        &self,
+        lock: &RunVersionLock,
+        lease: &RunLease,
+    ) -> Result<RunLeaseClaim, LedgerError> {
+        let _ = (lock, lease);
+        Err(LedgerError::Invariant(
+            "ledger does not support activation of an existing run".into(),
+        ))
+    }
     /// Reads one lineage node.
     ///
     /// # Errors

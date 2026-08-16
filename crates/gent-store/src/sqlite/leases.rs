@@ -3,8 +3,8 @@ use gent_types::RunVersionLock;
 use rusqlite::TransactionBehavior;
 
 use super::queries::{
-    find_run, find_run_lease, insert_run_lease, replace_run_lease, save_run_version_lock,
-    storage_error,
+    find_run, find_run_lease, find_run_version_lock, insert_run_lease, replace_run_lease,
+    save_run_version_lock, storage_error,
 };
 use super::{SqliteLedger, epoch::require_epoch, host_ingress};
 
@@ -88,4 +88,58 @@ pub(super) fn reserve_run_start(
     save_run_version_lock(&transaction, &run.run_id, lock)?;
     insert_run_lease(&transaction, lease)?;
     transaction.commit().map_err(storage_error)
+}
+
+/// Atomically attaches a lock and lease to a run created by a durable chat transaction.
+pub(super) fn activate_existing_run_start(
+    ledger: &SqliteLedger,
+    lock: &RunVersionLock,
+    lease: &RunLease,
+) -> Result<RunLeaseClaim, LedgerError> {
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    let ingress = host_ingress(&transaction)?;
+    require_epoch(lease.host_epoch, ingress.epoch)?;
+    if ingress.mode == IngressMode::Closed {
+        return Err(LedgerError::IngressClosed {
+            epoch: ingress.epoch,
+        });
+    }
+    let run = find_run(&transaction, &lease.run_id)?
+        .ok_or_else(|| LedgerError::Invariant("activation run does not exist".into()))?;
+    if run.provider != lock.provider {
+        return Err(LedgerError::Invariant(
+            "activation run and executable provider must agree".into(),
+        ));
+    }
+    match find_run_version_lock(&transaction, &lease.run_id)? {
+        Some(existing) if existing != *lock => {
+            return Err(LedgerError::Invariant(
+                "activation cannot replace an immutable run lock".into(),
+            ));
+        }
+        None => save_run_version_lock(&transaction, &lease.run_id, lock)?,
+        Some(_) => {}
+    }
+    let claim = match find_run_lease(&transaction, &lease.run_id)? {
+        None => {
+            insert_run_lease(&transaction, lease)?;
+            RunLeaseClaim::Acquired(lease.clone())
+        }
+        Some(existing) if existing == *lease => RunLeaseClaim::Acquired(existing),
+        Some(existing) if existing.host_epoch == ingress.epoch => {
+            RunLeaseClaim::Contended(existing)
+        }
+        Some(previous) => {
+            replace_run_lease(&transaction, lease)?;
+            RunLeaseClaim::Recovered {
+                previous,
+                current: lease.clone(),
+            }
+        }
+    };
+    transaction.commit().map_err(storage_error)?;
+    Ok(claim)
 }
