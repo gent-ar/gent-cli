@@ -88,6 +88,9 @@ def test_missing_or_wrong_structural_conditions_never_validate() -> None:
     assert MODULE.frames("mcp_tool", {"item/mcpToolCall/progress"})[0]["in"]["nativeType"] == "item/mcpToolCall/progress"
     assert MODULE.registered_mcp({"data": [{"name": "isolated", "tools": {"gent_probe": {}}}]}, "isolated")
     assert not MODULE.registered_mcp({"data": [{"name": "isolated", "tools": {}}]}, "isolated")
+    plan = {"method": "thread/settings/updated", "params": {"threadSettings": {"collaborationMode": {"mode": "plan"}}}}
+    assert MODULE.required("plan_mode", [plan]) == {"thread/settings/updated"}
+    assert not MODULE.required("plan_mode", [{"method": "thread/settings/updated", "params": {}}])
 
 
 def test_stderr_diagnostic_is_generic_and_redacted() -> None:
