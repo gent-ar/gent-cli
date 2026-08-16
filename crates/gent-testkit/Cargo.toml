@@ -29,5 +29,13 @@ path = "src/bin/validate-coverage-manifest.rs"
 name = "validate-public-driver-manifest"
 path = "src/bin/validate-public-driver-manifest.rs"
 
+[[bin]]
+name = "validate-ipc-fixtures"
+path = "src/bin/validate-ipc-fixtures.rs"
+
+[[bin]]
+name = "refresh-ipc-fixture-wires"
+path = "src/bin/refresh-ipc-fixture-wires.rs"
+
 [lints]
 workspace = true

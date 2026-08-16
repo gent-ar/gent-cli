@@ -1,0 +1,74 @@
+{
+  "capability": "agent-chat-conversations-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1"
+        },
+        "type": "summaryRequest"
+      },
+      "wireHex": "000000447b2274797065223a2273756d6d61727952657175657374222c22626f6479223a7b22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "selection": {
+            "effort": "medium",
+            "mode": "ask",
+            "model": "gpt-5.6-luna",
+            "provider": "codex"
+          },
+          "title": "Safe fixture",
+          "updatedAtUnixMs": 1
+        },
+        "type": "summary"
+      },
+      "wireHex": "000000bf7b2274797065223a2273756d6d617279222c22626f6479223a7b22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c227469746c65223a22536166652066697874757265222c22757064617465644174556e69784d73223a312c2273656c656374696f6e223a7b2270726f7669646572223a22636f646578222c226d6f64656c223a226770742d352e362d6c756e61222c226566666f7274223a226d656469756d222c226d6f6465223a2261736b227d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1"
+        },
+        "type": "detailRequest"
+      },
+      "wireHex": "000000437b2274797065223a2264657461696c52657175657374222c22626f6479223a7b22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "runs": [
+            {
+              "parentRunId": null,
+              "runId": "run-1",
+              "selection": {
+                "effort": "medium",
+                "mode": "ask",
+                "model": "gpt-5.6-luna",
+                "provider": "codex"
+              },
+              "state": "completed"
+            }
+          ],
+          "summary": {
+            "conversationId": "conversation-1",
+            "selection": {
+              "effort": "medium",
+              "mode": "ask",
+              "model": "gpt-5.6-luna",
+              "provider": "codex"
+            },
+            "title": "Safe fixture",
+            "updatedAtUnixMs": 1
+          }
+        },
+        "type": "detail"
+      },
+      "wireHex": "000001637b2274797065223a2264657461696c222c22626f6479223a7b2273756d6d617279223a7b22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c227469746c65223a22536166652066697874757265222c22757064617465644174556e69784d73223a312c2273656c656374696f6e223a7b2270726f7669646572223a22636f646578222c226d6f64656c223a226770742d352e362d6c756e61222c226566666f7274223a226d656469756d222c226d6f6465223a2261736b227d7d2c2272756e73223a5b7b2272756e4964223a2272756e2d31222c22706172656e7452756e4964223a6e756c6c2c2273656c656374696f6e223a7b2270726f7669646572223a22636f646578222c226d6f64656c223a226770742d352e362d6c756e61222c226566666f7274223a226d656469756d222c226d6f6465223a2261736b227d2c227374617465223a22636f6d706c65746564227d5d7d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

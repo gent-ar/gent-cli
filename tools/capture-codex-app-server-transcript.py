@@ -260,7 +260,7 @@ def write(path: Path, scenario: str, binary_path: Path, seen: list[dict[str, obj
     platform_name = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}.get(platform.system(), platform.system().lower())
     normalized = frames(scenario, observed)
     metadata: dict[str, object] = {"vendor": "codex", "scenario": scenario, "status": "recorded", "captureOrigin": "live_cli",
-        "transport": "json_rpc", "adapterSpecVersion": "1", "appVersion": "0.1.3", "prompt": PROMPTS[scenario], "repo": "gent-ar/gent-cli",
+        "transport": "json_rpc", "adapterSpecVersion": "1", "appVersion": "0.1.4", "prompt": PROMPTS[scenario], "repo": "gent-ar/gent-cli",
         "notes": "Generated from documented Codex app-server JSON-RPC. Raw payloads were bounded and discarded.", "capturedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "cliVersion": subprocess.run([str(binary_path), "--version"], text=True, capture_output=True, check=True, timeout=15).stdout.strip().removeprefix("codex-cli "),
         "executablePath": str(binary_path), "executableDigest": "sha256:" + hashlib.sha256(binary_path.read_bytes()).hexdigest(),

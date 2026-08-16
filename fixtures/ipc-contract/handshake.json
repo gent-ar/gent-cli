@@ -1,0 +1,30 @@
+{
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "capabilities": [
+            "event-stream-v1"
+          ],
+          "protocolMax": 1,
+          "protocolMin": 1
+        },
+        "type": "hello"
+      },
+      "wireHex": "0000005c7b2274797065223a2268656c6c6f222c22626f6479223a7b2270726f746f636f6c4d696e223a312c2270726f746f636f6c4d6178223a312c226361706162696c6974696573223a5b226576656e742d73747265616d2d7631225d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "capabilities": [
+            "event-stream-v1"
+          ],
+          "protocol": 1
+        },
+        "type": "negotiated"
+      },
+      "wireHex": "0000004e7b2274797065223a226e65676f746961746564222c22626f6479223a7b2270726f746f636f6c223a312c226361706162696c6974696573223a5b226576656e742d73747265616d2d7631225d7d7d"
+    }
+  ],
+  "schemaVersion": 1
+}

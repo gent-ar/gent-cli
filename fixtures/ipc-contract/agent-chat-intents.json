@@ -1,0 +1,126 @@
+{
+  "capability": "agent-chat-intents-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "receiptId": "receipt-1",
+          "requestId": "request-1",
+          "selection": {
+            "effort": "low",
+            "mode": "ask",
+            "model": "haiku",
+            "provider": "claude"
+          }
+        },
+        "type": "createConversation"
+      },
+      "wireHex": "000000a47b2274797065223a22637265617465436f6e766572736174696f6e222c22626f6479223a7b22726571756573744964223a22726571756573742d31222c22726563656970744964223a22726563656970742d31222c2273656c656374696f6e223a7b2270726f7669646572223a22636c61756465222c226d6f64656c223a226861696b75222c226566666f7274223a226c6f77222c226d6f6465223a2261736b227d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "receiptId": "receipt-2",
+          "requestId": "request-2",
+          "text": "Fixture prompt"
+        },
+        "type": "sendPrompt"
+      },
+      "wireHex": "000000887b2274797065223a2273656e6450726f6d7074222c22626f6479223a7b22726571756573744964223a22726571756573742d32222c22726563656970744964223a22726563656970742d32222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c2274657874223a22466978747572652070726f6d7074227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "receiptId": "receipt-3",
+          "requestId": "request-3",
+          "text": "Queued fixture prompt"
+        },
+        "type": "queuePrompt"
+      },
+      "wireHex": "000000907b2274797065223a22717565756550726f6d7074222c22626f6479223a7b22726571756573744964223a22726571756573742d33222c22726563656970744964223a22726563656970742d33222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c2274657874223a2251756575656420666978747572652070726f6d7074227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "receiptId": "receipt-4",
+          "requestId": "request-4",
+          "runId": "run-1"
+        },
+        "type": "interrupt"
+      },
+      "wireHex": "0000007f7b2274797065223a22696e74657272757074222c22626f6479223a7b22726571756573744964223a22726571756573742d34222c22726563656970744964223a22726563656970742d34222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c2272756e4964223a2272756e2d31227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "decisionId": "decision-1",
+          "receiptId": "receipt-5",
+          "requestId": "request-5",
+          "response": "approveOnce"
+        },
+        "type": "decision"
+      },
+      "wireHex": "000000a17b2274797065223a226465636973696f6e222c22626f6479223a7b22726571756573744964223a22726571756573742d35222c22726563656970744964223a22726563656970742d35222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c226465636973696f6e4964223a226465636973696f6e2d31222c22726573706f6e7365223a22617070726f76654f6e6365227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "afterCursor": 0,
+          "conversationId": "conversation-1",
+          "requestId": "request-6"
+        },
+        "type": "subscribe"
+      },
+      "wireHex": "000000677b2274797065223a22737562736372696265222c22626f6479223a7b22726571756573744964223a22726571756573742d36222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c226166746572437572736f72223a307d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "event": {
+            "cursor": 1,
+            "eventId": "event-1",
+            "isPartial": false,
+            "kind": "assistantMessage",
+            "runId": "run-1",
+            "text": "Fixture response",
+            "turnId": "turn-1"
+          },
+          "requestId": "request-6"
+        },
+        "type": "subscriptionEvent"
+      },
+      "wireHex": "000000ce7b2274797065223a22737562736372697074696f6e4576656e74222c22626f6479223a7b22726571756573744964223a22726571756573742d36222c226576656e74223a7b22637572736f72223a312c226576656e744964223a226576656e742d31222c227475726e4964223a227475726e2d31222c2272756e4964223a2272756e2d31222c226b696e64223a22617373697374616e744d657373616765222c2274657874223a224669787475726520726573706f6e7365222c2269735061727469616c223a66616c73657d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "reason": "resyncRequired",
+          "requestId": "request-6"
+        },
+        "type": "subscriptionEnded"
+      },
+      "wireHex": "000000577b2274797065223a22737562736372697074696f6e456e646564222c22626f6479223a7b22726571756573744964223a22726571756573742d36222c22726561736f6e223a22726573796e635265717569726564227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "receipt": {
+            "hostEpoch": 7,
+            "idempotencyKey": "key-6",
+            "receiptId": "receipt-6",
+            "status": "accepted"
+          },
+          "requestId": "request-6"
+        },
+        "type": "accepted"
+      },
+      "wireHex": "000000937b2274797065223a226163636570746564222c22626f6479223a7b22726571756573744964223a22726571756573742d36222c2272656365697074223a7b22726563656970744964223a22726563656970742d36222c226964656d706f74656e63794b6579223a226b65792d36222c22737461747573223a226163636570746564222c22686f737445706f6368223a377d7d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

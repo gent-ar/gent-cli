@@ -190,6 +190,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       create/send/queue/interrupt/decision/cursor-subscription frames with request and receipt
       correlation. They are deliberately uncomposed by observer-mode `gentd`; no frame activates
       a provider or creates a write surface today.
+- [x] Language-neutral local IPC fixtures with canonical JSON and exact length-prefixed wire
+      bytes for negotiation, errors, cursor replay, and every reserved agent-chat frame. The
+      validator rejects a composed declaration for any reserved capability, so fixture presence
+      cannot be mistaken for observer-mode authority.
 
 ## Intentionally not claimed
 

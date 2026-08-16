@@ -29,7 +29,9 @@ pub use agent_chat::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
     AgentChatConversationFrame, AgentChatTranscriptFrame,
 };
-pub use agent_chat_intent::{AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame};
+pub use agent_chat_intent::{
+    AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd,
+};
 pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
 pub use conversation_activity::{CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame};
 pub use conversation_content::{

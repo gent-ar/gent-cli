@@ -1,0 +1,67 @@
+{
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "hostEpoch": 7,
+          "idempotencyKey": "key-1",
+          "kind": "status",
+          "payload": {},
+          "receiptId": "receipt-1"
+        },
+        "type": "command"
+      },
+      "wireHex": "000000777b2274797065223a22636f6d6d616e64222c22626f6479223a7b22726563656970744964223a22726563656970742d31222c226964656d706f74656e63794b6579223a226b65792d31222c22686f737445706f6368223a372c226b696e64223a22737461747573222c227061796c6f6164223a7b7d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "hostEpoch": 7,
+          "idempotencyKey": "key-1",
+          "receiptId": "receipt-1",
+          "status": "accepted"
+        },
+        "type": "receipt"
+      },
+      "wireHex": "0000006e7b2274797065223a2272656365697074222c22626f6479223a7b22726563656970744964223a22726563656970742d31222c226964656d706f74656e63794b6579223a226b65792d31222c22737461747573223a226163636570746564222c22686f737445706f6368223a377d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "after_cursor": 0
+        },
+        "type": "subscribe"
+      },
+      "wireHex": "0000002e7b2274797065223a22737562736372696265222c22626f6479223a7b2261667465725f637572736f72223a307d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "events": [
+            {
+              "cursor": 1,
+              "eventId": "event-1",
+              "hostEpoch": 7,
+              "kind": "accepted",
+              "payload": {},
+              "receiptId": "receipt-1"
+            }
+          ]
+        },
+        "type": "events"
+      },
+      "wireHex": "0000008b7b2274797065223a226576656e7473222c22626f6479223a7b226576656e7473223a5b7b22637572736f72223a312c226576656e744964223a226576656e742d31222c22726563656970744964223a22726563656970742d31222c22686f737445706f6368223a372c226b696e64223a226163636570746564222c227061796c6f6164223a7b7d7d5d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "observerMode",
+          "message": "provider execution is unavailable"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000005d7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a226f627365727665724d6f6465222c226d657373616765223a2270726f766964657220657865637574696f6e20697320756e617661696c61626c65227d7d"
+    }
+  ],
+  "schemaVersion": 1
+}

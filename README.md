@@ -62,6 +62,17 @@ interrupt, decision, and cursor-subscription intents. Those frames are an
 uncomposed compatibility contract: negotiating them does not enable a provider,
 write a conversation, or change the observer daemon's refusal behavior.
 
+`fixtures/ipc-contract/manifest.json` is the language-neutral compatibility
+fixture for that local protocol. It records canonical JSON and the exact
+four-byte big-endian length-prefixed wire frames for handshake, errors, event
+resume, and reserved agent-chat values. A future Flutter client can validate
+its codec against it without embedding Rust or treating any reserved capability
+as available. Validate it with:
+
+```sh
+cargo run -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
+```
+
 Device pairing and application automations are Flutter-app concerns, not a
 `gentd` API or execution domain. The workspace retains small pure policy/value
 crates needed by the platform contract, but neither is wired into the daemon or

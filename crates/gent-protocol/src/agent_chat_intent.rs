@@ -5,7 +5,7 @@
 
 use gent_types::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, Receipt,
+    AgentChatRunId, AgentChatSelection, NormalizedTranscriptEvent, Receipt,
 };
 use serde::{Deserialize, Serialize};
 
@@ -60,15 +60,33 @@ pub enum AgentChatIntentFrame {
         conversation_id: AgentChatConversationId,
         after_cursor: u64,
     },
+    /// A cursor-ordered item delivered for one prior subscription request.
+    SubscriptionEvent {
+        request_id: AgentChatRequestId,
+        event: NormalizedTranscriptEvent,
+    },
+    /// Explicit terminal state for a subscription; a client must resubscribe.
+    SubscriptionEnded {
+        request_id: AgentChatRequestId,
+        reason: AgentChatSubscriptionEnd,
+    },
     Accepted {
         request_id: AgentChatRequestId,
         receipt: Receipt,
     },
 }
 
+/// Why a future agent-chat subscription has stopped producing events.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum AgentChatSubscriptionEnd {
+    ResyncRequired,
+    ServerClosing,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame};
+    use super::{AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd};
     use gent_types::{AgentChatConversationId, AgentChatRequestId, AgentChatRunId, ReceiptId};
     use serde_json::json;
 
@@ -100,6 +118,18 @@ mod tests {
             "body": { "requestId": "request-1", "conversationId": "conversation-1", "afterCursor": 7 }
         });
         assert!(serde_json::from_value::<AgentChatIntentFrame>(frame).is_ok());
+    }
+
+    #[test]
+    fn subscription_end_is_request_correlated_and_closed() {
+        let frame = AgentChatIntentFrame::SubscriptionEnded {
+            request_id: AgentChatRequestId("request-1".into()),
+            reason: AgentChatSubscriptionEnd::ResyncRequired,
+        };
+        assert_eq!(
+            serde_json::to_value(frame).unwrap(),
+            json!({ "type": "subscriptionEnded", "body": { "requestId": "request-1", "reason": "resyncRequired" } })
+        );
     }
 
     #[test]

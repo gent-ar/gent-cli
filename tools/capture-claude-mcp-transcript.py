@@ -180,7 +180,7 @@ def metadata(binary: Path, model: str, frames: list[dict[str, object]]) -> dict[
     system = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}.get(platform.system(), platform.system().lower())
     value: dict[str, object] = {
         "vendor": "claude", "scenario": "mcp_tool", "capturedAt": captured,
-        "cliVersion": provider_version(binary), "adapterSpecVersion": "1", "appVersion": "0.1.3",
+        "cliVersion": provider_version(binary), "adapterSpecVersion": "1", "appVersion": "0.1.4",
         "prompt": "Bounded local MCP probe; provider response text redacted.", "repo": "gent-ar/gent-cli",
         "notes": "Live Claude call to one disposable local stdio MCP probe was observed. The server exposes one argument-free fixed-marker tool and has no network, credential, filesystem, or subprocess capability. Raw stream JSON and response text were discarded; this attestation covers only reviewed normalized facts.",
         "status": "recorded", "captureOrigin": "live_cli", "executablePath": str(binary),

@@ -1,0 +1,39 @@
+{
+  "capability": "agent-chat-transcript-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "afterCursor": 0,
+          "conversationId": "conversation-1",
+          "limit": 50
+        },
+        "type": "pageRequest"
+      },
+      "wireHex": "0000005c7b2274797065223a227061676552657175657374222c22626f6479223a7b22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c226166746572437572736f72223a302c226c696d6974223a35307d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "events": [
+            {
+              "cursor": 1,
+              "eventId": "event-1",
+              "isPartial": false,
+              "kind": "assistantMessage",
+              "runId": "run-1",
+              "text": "Fixture response",
+              "turnId": "turn-1"
+            }
+          ],
+          "nextAfterCursor": null
+        },
+        "type": "page"
+      },
+      "wireHex": "000000e57b2274797065223a2270616765222c22626f6479223a7b22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c226576656e7473223a5b7b22637572736f72223a312c226576656e744964223a226576656e742d31222c227475726e4964223a227475726e2d31222c2272756e4964223a2272756e2d31222c226b696e64223a22617373697374616e744d657373616765222c2274657874223a224669787475726520726573706f6e7365222c2269735061727469616c223a66616c73657d5d2c226e6578744166746572437572736f72223a6e756c6c7d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

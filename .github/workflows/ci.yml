@@ -83,6 +83,7 @@ jobs:
       - run: python tools/test-release-tools.py
       - run: cargo run --quiet -p gent-testkit --bin validate-coverage-manifest -- fixtures/coverage-manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
+      - run: cargo run --quiet -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
       - run: ${{ matrix.smoke }}
