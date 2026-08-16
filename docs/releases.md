@@ -17,6 +17,8 @@ files:
 - a JSON manifest naming the archive, target, version, digest, size, and
   contained binaries;
 - a Sigstore bundle for each of the preceding files.
+- a target-specific `*.runtime-release.json` envelope signed with the release
+  Ed25519 key, its Sigstore bundle, and a Sigstore-signed public trust file;
 - signed `gent-install.sh`, `gent-install.ps1`, and
   `gent-activate-install.py` bootstrap assets, each with a Sigstore bundle.
 
@@ -26,8 +28,11 @@ binary inputs. It does not claim independently rebuilt Rust binaries are
 bit-for-bit reproducible across hosts.
 
 The workflow signs every published file keylessly with GitHub Actions OIDC.
-It needs `id-token: write` only in packaging/publishing jobs; no long-lived
-signing key or credential is stored in the repository. High-assurance
+It also uses the repository’s `GENT_RUNTIME_RELEASE_PRIVATE_KEY` secret only
+to sign the compact runtime-update envelope. Its matching key id and public
+key live in protected repository variables and are published in the signed
+trust file; neither private key material nor credentials are stored in the
+repository. High-assurance
 deployments should download the release bootstrap and verify its bundle before
 execution rather than using a moving source URL.
 
