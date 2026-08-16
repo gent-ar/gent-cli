@@ -122,9 +122,12 @@ Use `--require-live` only at the real-provider evidence gate. It deliberately
 fails until every cell is a redacted live recording or a reasoned recorded
 absence; synthetic fixtures never satisfy that gate. A claimed live capture
 also requires canonical executable identity and SHA-256, provider transport,
-platform, RFC3339 capture time, run identifier, and attestation digest.
-These are structural provenance checks, not a substitute for the planned
-signed real-provider artifact and normalized-event replay gate.
+platform, RFC3339 capture time, run identifier, and attestation digest. The
+capture helper's digest is a reproducible hash of reviewed redacted metadata
+and normalized frames; raw provider output is bounded, discarded, and
+deliberately not claimed as attested. These are structural provenance checks,
+not a substitute for the planned signed real-provider artifact and
+normalized-event replay gate.
 
 Refresh an approved safe Claude/Codex cell with the redaction-first helper:
 

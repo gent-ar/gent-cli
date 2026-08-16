@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Capture a bounded, redacted public-driver transcript fixture.
+"""Create one bounded, redacted public-driver transcript fixture.
 
-This tool intentionally supports only safe probes. It holds raw CLI output in
-memory, writes normalized facts only, and requires an explicit confirmation.
-Claurst is a private bridge: capture it in private CI, never in this repository.
+Raw provider output is held briefly in bounded memory, used only to check a
+fixed probe marker, then discarded. The committed attestation identifies the
+reviewed normalized fixture; it deliberately makes no claim about raw output.
+Claurst is private-bridge evidence and is never handled by this public tool.
 """
 
 from __future__ import annotations
@@ -12,14 +13,23 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import uuid
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parent.parent
+FIXTURE_ROOT = ROOT / "fixtures/public-driver-transcripts"
+MAX_CAPTURE_BYTES = 256 * 1024
+CAPTURE_TIMEOUT_SECONDS = 90
+MODEL_PATTERN = re.compile(r"[A-Za-z0-9._-]+$")
 PROBES = {
     "full_turn": "Reply with the exact text GENT_LIVE_CAPTURE_OK and nothing else.",
     "tool_use": "Run pwd exactly once. Then reply with the exact text GENT_TOOL_CAPTURE_OK and nothing else.",
@@ -34,14 +44,23 @@ MARKERS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("vendor", choices=("claude", "codex", "claurst"))
+    parser.add_argument("vendor", choices=("claude", "codex"))
     parser.add_argument("scenario", choices=sorted(PROBES))
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--confirm-live-capture", action="store_true")
     parser.add_argument("--update-manifest", action="store_true")
+    parser.add_argument("--replace-existing", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
+
+
+def fixture_path(output: Path) -> Path:
+    path = output.resolve()
+    root = FIXTURE_ROOT.resolve()
+    if path.parent != root or path.suffix != ".jsonl" or path.is_symlink():
+        raise ValueError("--output must be a non-symlink .jsonl directly in fixtures/public-driver-transcripts")
+    return path
 
 
 def executable(vendor: str) -> Path:
@@ -51,41 +70,78 @@ def executable(vendor: str) -> Path:
     return Path(found).resolve()
 
 
-def command(vendor: str, scenario: str, model: str) -> list[str]:
+def command(binary: Path, vendor: str, scenario: str, model: str) -> list[str]:
     prompt = PROBES[scenario]
     if vendor == "claude":
-        tools = [] if scenario == "full_turn" else ["--tools", "Bash"]
         allowed = []
         if scenario == "tool_use":
-            allowed = ["--allowedTools", "Bash(pwd)"]
+            allowed = ["--tools", "Bash", "--allowedTools", "Bash(pwd)"]
         if scenario == "tool_error":
-            allowed = ["--allowedTools", "Bash(false)"]
-        return ["claude", "--safe-mode", "--strict-mcp-config", *tools, *allowed,
+            allowed = ["--tools", "Bash", "--allowedTools", "Bash(false)"]
+        return [str(binary), "--safe-mode", "--strict-mcp-config", *allowed,
                 "--permission-mode", "dontAsk", "--print", "--model", model,
                 "--max-budget-usd", "0.05", "--no-session-persistence",
                 "--output-format", "stream-json", "--verbose", prompt]
-    return ["codex", "exec", "--ephemeral", "--ignore-rules", "--model", model,
+    return [str(binary), "exec", "--ephemeral", "--model", model,
             "--sandbox", "read-only", "--json", "--color", "never", prompt]
 
 
-def run_capture(args: argparse.Namespace) -> tuple[Path, str, str]:
-    binary = executable(args.vendor)
-    probe = command(args.vendor, args.scenario, args.model)
-    if args.dry_run:
-        print(json.dumps(probe))
-        raise SystemExit(0)
-    if not args.confirm_live_capture:
-        raise ValueError("pass --confirm-live-capture to invoke an authenticated provider")
-    completed = subprocess.run(probe, check=False, text=True, capture_output=True)
-    if completed.returncode:
-        raise ValueError(f"provider exited {completed.returncode}; no fixture was written")
-    raw = completed.stdout
-    if MARKERS[args.scenario] not in raw:
-        raise ValueError("probe marker was absent; no fixture was written")
-    return binary, raw, "stream_json"
+def dry_run_plan(args: argparse.Namespace) -> str:
+    if not MODEL_PATTERN.fullmatch(args.model):
+        raise ValueError("--model may contain only letters, digits, '.', '_', and '-'")
+    output = fixture_path(args.output)
+    planned = command(Path(f"<{args.vendor}-resolved-at-live-capture>"), args.vendor,
+                      args.scenario, args.model)
+    return json.dumps({"vendor": args.vendor, "scenario": args.scenario, "output": str(output),
+                       "command": planned, "rawOutput": "bounded-memory-only",
+                       "attestation": "redacted_normalized_fixture_v1"}, separators=(",", ":"))
 
 
-def normalized_frames(vendor: str, scenario: str, raw: str) -> list[dict[str, object]]:
+class BoundedReader:
+    def __init__(self) -> None:
+        self.data = bytearray()
+        self.total = 0
+
+    def drain(self, stream: object) -> None:
+        while chunk := stream.read(8192):
+            self.total += len(chunk)
+            if len(self.data) < MAX_CAPTURE_BYTES:
+                self.data.extend(chunk[:MAX_CAPTURE_BYTES - len(self.data)])
+
+
+def bounded_capture(probe: list[str]) -> str:
+    process = subprocess.Popen(probe, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert process.stdout is not None and process.stderr is not None
+    stdout, stderr = BoundedReader(), BoundedReader()
+    readers = [threading.Thread(target=reader.drain, args=(stream,)) for reader, stream in
+               ((stdout, process.stdout), (stderr, process.stderr))]
+    for reader in readers:
+        reader.start()
+    try:
+        status = process.wait(timeout=CAPTURE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        process.kill()
+        process.wait()
+        raise ValueError("provider capture timed out; no fixture was written") from error
+    for reader in readers:
+        reader.join()
+    if stdout.total > MAX_CAPTURE_BYTES or stderr.total > MAX_CAPTURE_BYTES:
+        raise ValueError("provider output exceeded the public-capture byte limit; no fixture was written")
+    if status:
+        raise ValueError(f"provider exited {status}; no fixture was written")
+    return bytes(stdout.data).decode("utf-8", errors="replace")
+
+
+def version(binary: Path) -> str:
+    completed = subprocess.run([str(binary), "--version"], check=False, text=True,
+                               capture_output=True, timeout=15)
+    value = completed.stdout.strip()
+    if completed.returncode or not value or len(value) > 256:
+        raise ValueError("could not obtain a bounded provider version; no fixture was written")
+    return value.removeprefix("codex-cli ")
+
+
+def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
     if scenario == "full_turn":
         return [{"in": {"nativeType": "completed_turn"}, "expect": "completed_turn",
                  "expectFields": {"terminal": True}}]
@@ -102,60 +158,84 @@ def normalized_frames(vendor: str, scenario: str, raw: str) -> list[dict[str, ob
     ]
 
 
-def metadata(args: argparse.Namespace, binary: Path, raw: str, transport: str) -> dict[str, object]:
-    version = subprocess.run([str(binary), "--version"], check=True, text=True,
-                             capture_output=True).stdout.strip()
+def attestation(metadata: dict[str, object], frames: list[dict[str, object]]) -> str:
+    reviewed = {"meta": {key: value for key, value in metadata.items() if key != "attestationDigest"},
+                "frames": frames}
+    encoded = json.dumps(reviewed, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def metadata(args: argparse.Namespace, binary: Path, transport: str,
+             frames: list[dict[str, object]]) -> dict[str, object]:
     captured = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    return {
+    platform_name = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}.get(platform.system(), platform.system().lower())
+    value: dict[str, object] = {
         "vendor": args.vendor, "scenario": args.scenario, "capturedAt": captured,
-        "cliVersion": version.removeprefix("codex-cli "), "adapterSpecVersion": "1",
-        "appVersion": "0.1.0", "prompt": PROBES[args.scenario], "repo": "gent-ar/gent-cli",
-        "notes": "Generated by the bounded redaction-first public-driver capture tool.",
+        "cliVersion": version(binary), "adapterSpecVersion": "1", "appVersion": "0.1.0",
+        "prompt": PROBES[args.scenario], "repo": "gent-ar/gent-cli",
+        "notes": "Generated by the bounded redaction-first capture tool. The attestation hashes only reviewed normalized metadata and frames; raw CLI output is discarded and is not attested.",
         "status": "recorded", "captureOrigin": "live_cli", "executablePath": str(binary),
         "executableDigest": "sha256:" + hashlib.sha256(binary.read_bytes()).hexdigest(),
-        "platform": platform_name() + "-" + subprocess.run(["uname", "-m"], text=True, check=True, capture_output=True).stdout.strip(),
-        "transport": transport, "captureRunId": str(uuid.uuid4()),
-        "attestationDigest": "sha256:" + hashlib.sha256(raw.encode()).hexdigest(),
+        "platform": f"{platform_name}-{platform.machine()}", "transport": transport,
+        "captureRunId": str(uuid.uuid4()), "attestationScope": "redacted_normalized_fixture_v1",
     }
+    value["attestationDigest"] = attestation(value, frames)
+    return value
 
 
-def write_fixture(path: Path, metadata: dict[str, object], frames: list[dict[str, object]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [json.dumps({"meta": metadata}, separators=(",", ":"))]
+def atomic_write(path: Path, content: str) -> None:
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as file:
+        file.write(content)
+        temporary = Path(file.name)
+    os.replace(temporary, path)
+
+
+def write_fixture(path: Path, value: dict[str, object], frames: list[dict[str, object]], replace: bool) -> None:
+    if path.exists() and not replace:
+        raise ValueError("fixture already exists; pass --replace-existing after reviewing the replacement")
+    lines = [json.dumps({"meta": value}, separators=(",", ":"))]
     lines.extend(json.dumps(frame, separators=(",", ":")) for frame in frames)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write(path, "\n".join(lines) + "\n")
 
 
-def update_manifest(path: Path, args: argparse.Namespace) -> None:
-    manifest = path / "manifest.yml"
-    new = f"{{ vendor: {args.vendor}, scenario: {args.scenario}, state: recorded, path: {args.output.name} }}"
+def manifest_update(args: argparse.Namespace, replace: bool) -> tuple[Path, str]:
+    manifest = FIXTURE_ROOT / "manifest.yml"
     text = manifest.read_text(encoding="utf-8")
-    pattern = rf"{{ vendor: {args.vendor}, scenario: {args.scenario}, state: (?:capture_required|recorded)(?:, path: [^}}]+)? }}"
-    updated, count = re.subn(pattern, new, text, count=1)
-    if count != 1:
-        raise ValueError("manifest cell is missing or has an unsupported state")
-    manifest.write_text(updated, encoding="utf-8")
-
-
-def platform_name() -> str:
-    return {"darwin": "macos", "linux": "linux", "win32": "windows"}.get(sys.platform, sys.platform)
+    pattern = rf"{{ vendor: {args.vendor}, scenario: {args.scenario}, state: (capture_required|recorded)(?:, path: [^}}]+)? }}"
+    match = re.search(pattern, text)
+    if match is None or (match.group(1) == "recorded" and not replace):
+        raise ValueError("manifest cell is already recorded; pass --replace-existing after reviewing the replacement")
+    replacement = f"{{ vendor: {args.vendor}, scenario: {args.scenario}, state: recorded, path: {args.output.name} }}"
+    return manifest, text[:match.start()] + replacement + text[match.end():]
 
 
 def main() -> int:
     args = parse_args()
-    if args.vendor == "claurst":
-        raise ValueError("Claurst evidence is private-bridge CI evidence and cannot be captured publicly")
-    binary, raw, transport = run_capture(args)
-    write_fixture(args.output, metadata(args, binary, raw, transport), normalized_frames(args.vendor, args.scenario, raw))
-    if args.update_manifest:
-        update_manifest(args.output.parent, args)
-    print(f"wrote redacted {args.vendor}/{args.scenario}: {args.output}")
+    plan = dry_run_plan(args)
+    if args.dry_run:
+        print(plan)
+        return 0
+    if not args.confirm_live_capture:
+        raise ValueError("pass --confirm-live-capture to invoke an authenticated provider")
+    output = fixture_path(args.output)
+    if output.exists() and not args.replace_existing:
+        raise ValueError("fixture already exists; pass --replace-existing after reviewing the replacement")
+    manifest = manifest_update(args, args.replace_existing) if args.update_manifest else None
+    binary = executable(args.vendor)
+    raw = bounded_capture(command(binary, args.vendor, args.scenario, args.model))
+    if MARKERS[args.scenario] not in raw:
+        raise ValueError("probe marker was absent; no fixture was written")
+    frames = normalized_frames(args.vendor, args.scenario)
+    write_fixture(output, metadata(args, binary, "stream_json", frames), frames, args.replace_existing)
+    if manifest is not None:
+        atomic_write(*manifest)
+    print(f"wrote redacted {args.vendor}/{args.scenario}: {output}")
     return 0
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except ValueError as error:
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(2)
