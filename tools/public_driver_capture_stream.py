@@ -57,6 +57,44 @@ class InterruptReader(BoundedReader):
                 self.interrupted.set()
 
 
+class SteerReader(BoundedReader):
+    """Recognizes a redacted, replayed steering input after tool use."""
+
+    def __init__(self, limit: int, marker: str) -> None:
+        super().__init__(limit)
+        self.marker = marker
+        self.pending = bytearray()
+        self.tool_started = threading.Event()
+        self.steer_sent = threading.Event()
+        self.steer_echoed = threading.Event()
+        self.terminal = threading.Event()
+
+    def drain(self, stream: object) -> None:
+        while chunk := stream.read(8192):
+            self.record(chunk)
+            if self.total <= self.limit:
+                self.pending.extend(chunk)
+                self.consume_lines()
+
+    def consume_lines(self) -> None:
+        while b"\n" in self.pending:
+            line, _, remainder = self.pending.partition(b"\n")
+            self.pending = bytearray(remainder)
+            try:
+                event = json.loads(line)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            message = event.get("message")
+            blocks = message.get("content", []) if isinstance(message, dict) else []
+            if any(isinstance(block, dict) and block.get("type") == "tool_use" for block in blocks):
+                self.tool_started.set()
+            if (self.steer_sent.is_set() and event.get("type") == "user"
+                    and self.marker.encode() in line):
+                self.steer_echoed.set()
+            if event.get("type") == "result":
+                self.terminal.set()
+
+
 def _join(readers: list[threading.Thread]) -> None:
     for reader in readers:
         reader.join()
@@ -115,3 +153,44 @@ def capture_interrupt(probe: list[str], limit: int, timeout: int) -> str:
     if not stdout.interrupted.is_set():
         raise ValueError("Claude cancellation result was absent; no fixture was written")
     return _check(status, stdout, stderr, limit)
+
+
+def capture_steer(probe: list[str], first: str, steer: str, marker: str,
+                  limit: int, timeout: int) -> None:
+    """Send a second safe user input only after Claude emits a tool-use event."""
+    if os.name == "nt":
+        raise ValueError("steer capture requires a POSIX process group; no fixture was written")
+    process = subprocess.Popen(probe, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, start_new_session=True)
+    assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+    stdout, stderr = SteerReader(limit, marker), BoundedReader(limit)
+    readers = [threading.Thread(target=reader.drain, args=(stream,)) for reader, stream in
+               ((stdout, process.stdout), (stderr, process.stderr))]
+    for reader in readers:
+        reader.start()
+    try:
+        process.stdin.write((json.dumps({"type": "user", "message": {"role": "user", "content": first}}) + "\n").encode())
+        process.stdin.flush()
+        if not stdout.tool_started.wait(timeout):
+            raise ValueError("Claude tool use was absent before steer; no fixture was written")
+        stdout.steer_sent.set()
+        process.stdin.write((json.dumps({"type": "user", "message": {"role": "user", "content": steer}}) + "\n").encode())
+        process.stdin.close()
+        status = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+        _join(readers)
+        raise ValueError("steered provider capture timed out; no fixture was written") from error
+    except (OSError, ValueError):
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+        _join(readers)
+        raise
+    _join(readers)
+    if stdout.total > limit or stderr.total > limit or status:
+        raise ValueError("steered provider output was invalid; no fixture was written")
+    if not stdout.steer_echoed.is_set() or not stdout.terminal.is_set():
+        raise ValueError("Claude steering signal was absent; no fixture was written")

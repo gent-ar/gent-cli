@@ -71,7 +71,10 @@ fn supported_platform(value: &str) -> bool {
 }
 
 fn supported_transport(value: &str) -> bool {
-    matches!(value, "stream_json" | "json_rpc" | "stdio")
+    matches!(
+        value,
+        "stream_json" | "stream_json_bidirectional" | "json_rpc" | "stdio"
+    )
 }
 
 fn rfc3339_timestamp(value: &str) -> bool {
