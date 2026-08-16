@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 
 from public_driver_capture_stream import capture, capture_interrupt, capture_steer
+from public_driver_resume_capture import capture_codex_resume, normalized_frames as resume_frames
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_ROOT = ROOT / "fixtures/public-driver-transcripts"
 MAX_CAPTURE_BYTES = 256 * 1024
@@ -35,6 +36,7 @@ PROBES = {
     "tool_use": "Run pwd exactly once. Then reply with the exact text GENT_TOOL_CAPTURE_OK and nothing else.",
     "tool_error": "Run the command false exactly once. Then reply with the exact text GENT_TOOL_ERROR_CAPTURE_OK and nothing else.",
     "permission_prompt": "Run `touch /tmp/gent-public-driver-permission-probe` exactly once. If permission is not granted, reply with exact text GENT_PERMISSION_CAPTURE_OK and nothing else.",
+    "resume": "Two fixed safe prompts are used: GENT_RESUME_SEED_OK then GENT_RESUME_OK. Neither provider response nor session identity is retained.",
     "interrupt": "Run the command sleep 30 exactly once using the available tool. Do not use any other tool. After it completes, reply exactly GENT_STOP_CAPTURE_OK.",
     "steer": "Run the command sleep 15 exactly once using Bash. Do not use any other tool. Wait for further instructions after it starts.",
 }
@@ -108,6 +110,8 @@ def version(binary: Path) -> str:
         raise ValueError("could not obtain a bounded provider version; no fixture was written")
     return value.removeprefix("codex-cli ")
 def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
+    if scenario == "resume":
+        return resume_frames()
     if scenario == "full_turn":
         return [{"in": {"nativeType": "completed_turn"}, "expect": "completed_turn",
                  "expectFields": {"terminal": True}}]
@@ -260,15 +264,20 @@ def main() -> int:
     manifest = manifest_update(args, args.replace_existing) if args.update_manifest else None
     binary = executable(args.vendor)
     probe = command(binary, args.vendor, args.scenario, args.model)
-    if args.scenario == "steer":
+    if args.scenario == "resume":
+        if args.vendor != "codex":
+            raise ValueError("only Codex resume uses the isolated public capture path")
+        capture_codex_resume(binary, args.model, MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
+        raw = ""
+    elif args.scenario == "steer":
         capture_steer(probe, PROBES["steer"], "Stop the in-progress request now. Reply with the exact text GENT_STEER_CAPTURE_OK and nothing else.", MARKERS["steer"], MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
         raw = ""
     else:
         raw = (capture_interrupt(probe, MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
                if args.scenario == "interrupt" else capture(probe, MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS))
-    if args.scenario not in ("interrupt", "steer") and MARKERS[args.scenario] not in raw:
+    if args.scenario not in ("resume", "interrupt", "steer") and MARKERS[args.scenario] not in raw:
         raise ValueError("probe marker was absent; no fixture was written")
-    if not scenario_was_observed(args.vendor, args.scenario, raw):
+    if args.scenario != "resume" and not scenario_was_observed(args.vendor, args.scenario, raw):
         raise ValueError("required normalized scenario signal was absent; no fixture was written")
     frames = normalized_frames(args.vendor, args.scenario)
     transport = "stream_json_bidirectional" if args.scenario == "steer" else "stream_json"
@@ -277,7 +286,6 @@ def main() -> int:
         atomic_write(*manifest)
     print(f"wrote redacted {args.vendor}/{args.scenario}: {output}")
     return 0
-
 
 if __name__ == "__main__":
     try:

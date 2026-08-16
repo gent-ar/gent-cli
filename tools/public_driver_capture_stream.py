@@ -108,8 +108,10 @@ def _check(status: int, stdout: BoundedReader, stderr: BoundedReader, limit: int
     return bytes(stdout.data).decode("utf-8", errors="replace")
 
 
-def capture(probe: list[str], limit: int, timeout: int) -> str:
-    process = subprocess.Popen(probe, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def capture(probe: list[str], limit: int, timeout: int, *,
+            environment: dict[str, str] | None = None, cwd: str | None = None) -> str:
+    process = subprocess.Popen(probe, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               env=environment, cwd=cwd)
     assert process.stdout is not None and process.stderr is not None
     stdout, stderr = BoundedReader(limit), BoundedReader(limit)
     readers = [threading.Thread(target=reader.drain, args=(stream,)) for reader, stream in

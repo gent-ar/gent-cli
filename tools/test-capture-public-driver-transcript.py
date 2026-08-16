@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import public_driver_resume_capture as RESUME
+
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "tools/capture-public-driver-transcript.py"
@@ -62,6 +64,22 @@ def test_thinking_capture_requires_an_observed_vendor_signal() -> None:
     assert MODULE.scenario_was_observed("claude", "thinking", '{"type":"thinking"}')
 
 
+def test_codex_resume_requires_native_same_thread_start_and_completed_turn() -> None:
+    first = '\n'.join((
+        '{"type":"thread.started","thread_id":"native-thread"}',
+        '{"type":"turn.completed"}',
+    ))
+    assert RESUME._thread_identity(first) == "native-thread"
+    for invalid in ('{"type":"turn.started","thread_id":"native-thread"}',
+                    '{"type":"thread.started","thread_id":"native-thread"}',
+                    first + '\n{"type":"thread.started","thread_id":"other-thread"}'):
+        try:
+            RESUME._thread_identity(invalid)
+        except ValueError:
+            continue
+        raise AssertionError("resume capture accepted insufficient native facts")
+
+
 def test_permission_capture_requires_a_manual_request_and_denial() -> None:
     stream = "\n".join((
         '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}',
@@ -95,6 +113,7 @@ def main() -> None:
     test_public_tool_refuses_claurst_and_escape_paths()
     test_attestation_only_covers_reviewed_normalized_facts()
     test_thinking_capture_requires_an_observed_vendor_signal()
+    test_codex_resume_requires_native_same_thread_start_and_completed_turn()
     test_permission_capture_requires_a_manual_request_and_denial()
     test_interrupt_capture_requires_a_tool_request_and_cancellation_result()
     test_manifest_replacement_is_prepared_without_writing()
