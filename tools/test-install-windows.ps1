@@ -50,6 +50,7 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
 
 function Invoke-Installer([string[]]$arguments, [bool]$mustSucceed = $true) {
     $oldPreference = $ErrorActionPreference
+    $failure = ""
     try {
         $ErrorActionPreference = "Continue"
         try {
@@ -57,11 +58,12 @@ function Invoke-Installer([string[]]$arguments, [bool]$mustSucceed = $true) {
             $code = $LASTEXITCODE
         } catch {
             $code = 1
+            $failure = $_.Exception.Message
         }
     } finally {
         $ErrorActionPreference = $oldPreference
     }
-    if ($mustSucceed -and $code -ne 0) { throw "installer failed with exit $code" }
+    if ($mustSucceed -and $code -ne 0) { throw "installer failed with exit $code: $failure" }
     if (-not $mustSucceed -and $code -eq 0) { throw "installer unexpectedly succeeded" }
 }
 
