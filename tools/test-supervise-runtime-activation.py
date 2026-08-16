@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""Offline activation-supervisor checks using a local fake Gent pair."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+ACTIVATOR = ROOT / "tools/activate-install.py"
+SUPERVISOR = ROOT / "tools/supervise-runtime-activation.py"
+
+
+def source(root: Path, name: str) -> Path:
+    directory = root / name
+    directory.mkdir(parents=True)
+    (directory / "gent").write_text("#!/bin/sh\nexit 0\n")
+    (directory / "gentd").write_text(
+        "#!/bin/sh\ndata=\"$2\"\nmkdir -p \"$data\"\ntouch \"$data/gentd.sock\"\nexec sleep 60\n"
+    )
+    for binary in (directory / "gent", directory / "gentd"):
+        binary.chmod(0o755)
+    return directory
+
+
+def activate(root: Path, name: str, source_dir: Path, bin_dir: Path) -> None:
+    subprocess.run([sys.executable, str(ACTIVATOR), str(root), name, "--source-release", str(source_dir), "--bin-dir", str(bin_dir)], check=True)
+
+
+def main() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        work = Path(temporary)
+        runtime, bin_dir, data = work / ".local/lib/gent", work / ".local/bin", work / "data"
+        first, second = source(work / "source", "v1"), source(work / "source", "v2")
+        activate(runtime, "v1", first, bin_dir)
+        subprocess.run([sys.executable, str(SUPERVISOR), "--runtime-root", str(runtime), "--release-name", "v2", "--source-release", str(second), "--bin-dir", str(bin_dir), "--data-dir", str(data)], check=True)
+        assert os.readlink(runtime / "current") == "releases/v2"
+        assert not list((runtime / "releases").glob(".gent-stage-*"))
+    print("runtime activation supervisor checks passed")
+
+
+if __name__ == "__main__":
+    main()
