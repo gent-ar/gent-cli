@@ -12,7 +12,7 @@ cells:
   - { vendor: claude, scenario: subagent, state: capture_required }
   - { vendor: claude, scenario: compaction, state: capture_required }
   - { vendor: claude, scenario: mcp_tool, state: capture_required }
-  - { vendor: claude, scenario: resume, state: capture_required }
+  - { vendor: claude, scenario: resume, state: recorded, path: claude-resume-haiku-20260816.jsonl }
   - { vendor: claude, scenario: interrupt, state: recorded, path: claude-interrupt-haiku-20260816.jsonl }
   - { vendor: claude, scenario: steer, state: capture_required }
   - { vendor: claude, scenario: usage_cost, state: recorded, path: claude-usage-cost-haiku-20260816.jsonl }
