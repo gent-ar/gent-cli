@@ -74,6 +74,7 @@ fn save(
         run_id: AgentChatRunId(run_id),
         message,
         disposition: prompt.disposition,
+        delivery: prompt.disposition.delivery(),
     })
 }
 
@@ -149,6 +150,7 @@ fn existing(
             text_digest_sha256: digest,
         },
         disposition: prompt.disposition,
+        delivery: prompt.disposition.delivery(),
     }))
 }
 

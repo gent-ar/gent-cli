@@ -118,6 +118,7 @@ where
         AgentChatPromptResult::Saved(saved) => Ok(vec![AgentChatIntentFrame::Accepted {
             request_id,
             receipt: saved.receipt.clone(),
+            delivery: saved.delivery,
         }]),
         AgentChatPromptResult::DeniedObserver => Err("agent-chat authority is disabled".into()),
     }

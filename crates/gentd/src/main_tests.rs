@@ -234,7 +234,7 @@ fn approved_agent_chat_profile_persists_create_and_prompt_without_a_provider() {
         .unwrap();
     assert!(matches!(
         prompt.as_slice(),
-        [AgentChatIntentFrame::Accepted { receipt, .. }]
+        [AgentChatIntentFrame::Accepted { receipt, delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider, .. }]
             if receipt.status == gent_types::ReceiptStatus::Settled
     ));
     assert_eq!(

@@ -138,7 +138,7 @@ fn validate_replies(
             ..
         } => matches!(
             replies,
-            [AgentChatIntentFrame::Accepted { request_id: reply_id, receipt }]
+            [AgentChatIntentFrame::Accepted { request_id: reply_id, receipt, .. }]
                 if reply_id == request_id && receipt.receipt_id == *receipt_id
         )
         .then_some(())

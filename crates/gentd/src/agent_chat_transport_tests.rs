@@ -80,6 +80,7 @@ fn accepted(request_id: AgentChatRequestId, receipt_id: ReceiptId) -> AgentChatI
     AgentChatIntentFrame::Accepted {
         request_id,
         receipt: receipt(receipt_id),
+        delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider,
     }
 }
 
@@ -109,7 +110,7 @@ async fn prompt_reply_requires_a_correlated_receipt() {
             .unwrap()
     );
     assert!(
-        matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Accepted { request_id, receipt } if request_id.0 == "request-1" && receipt.receipt_id.0 == "receipt-1")
+        matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Accepted { request_id, receipt, delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider } if request_id.0 == "request-1" && receipt.receipt_id.0 == "receipt-1")
     );
 }
 

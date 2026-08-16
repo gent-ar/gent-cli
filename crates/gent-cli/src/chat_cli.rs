@@ -232,6 +232,7 @@ fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIntentFrame) 
             AgentChatIntentFrame::Accepted {
                 request_id: reply,
                 receipt,
+                ..
             },
         ) => reply == request_id && receipt.receipt_id == *receipt_id,
         _ => false,

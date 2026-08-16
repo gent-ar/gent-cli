@@ -45,7 +45,8 @@ pub use agent_chat_intent::{
 };
 pub use agent_chat_ledger::{AgentChatConversationCreate, AgentChatConversationCreated};
 pub use agent_chat_prompt::{
-    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptSaved,
+    AgentChatPromptCreate, AgentChatPromptDelivery, AgentChatPromptDisposition,
+    AgentChatPromptSaved,
 };
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,

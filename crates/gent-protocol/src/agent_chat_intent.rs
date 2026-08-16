@@ -4,8 +4,9 @@
 //! never starts a provider, creates a conversation, or changes observer mode.
 
 use gent_types::{
-    AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, NormalizedTranscriptEvent, Receipt,
+    AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse,
+    AgentChatPromptDelivery, AgentChatRequestId, AgentChatRunId, AgentChatSelection,
+    NormalizedTranscriptEvent, Receipt,
 };
 use serde::{Deserialize, Serialize};
 
@@ -80,6 +81,8 @@ pub enum AgentChatIntentFrame {
     Accepted {
         request_id: AgentChatRequestId,
         receipt: Receipt,
+        /// Durable local delivery state; this never attests that a provider was launched.
+        delivery: AgentChatPromptDelivery,
     },
 }
 
