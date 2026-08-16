@@ -198,6 +198,17 @@ validates both manifests structurally:
 cargo run -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
 ```
 
+To refresh public-provider fixtures after a provider/version change, run:
+
+```sh
+python3 tools/update-public-driver-transcripts.py --vendor claude
+python3 tools/update-public-driver-transcripts.py --vendor codex
+```
+
+The helper prints exact provider-specific capture commands for each unrecorded
+cell, including model, transport, and canonical output path. Add `--run --confirm`
+only in an attended, reviewed capture session.
+
 Use `--require-live` only at the real-provider evidence gate. It deliberately
 fails until every cell is a redacted live recording or a reasoned recorded
 absence; synthetic fixtures never satisfy that gate. A claimed live capture
