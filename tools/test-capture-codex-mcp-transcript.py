@@ -20,9 +20,10 @@ SPEC.loader.exec_module(MODULE)
 
 def test_probe_config_has_one_fixed_stdio_tool() -> None:
     overrides = MODULE.config_overrides()
-    assert len(overrides) == 2
-    assert all("mcp_servers.gent_probe" in item for item in overrides)
-    assert "--serve" in overrides[1]
+    assert overrides[0] == "mcp_servers = {}"
+    assert len(overrides) == 3
+    assert all("mcp_servers.gent_probe" in item for item in overrides[1:])
+    assert "--serve" in overrides[2]
     assert "http" not in " ".join(overrides)
 
 

@@ -71,6 +71,7 @@ def config_overrides() -> list[str]:
     command = json.dumps(sys.executable)
     arguments = json.dumps([str(Path(__file__).resolve()), "--serve"])
     return [
+        "mcp_servers = {}",
         f"mcp_servers.{SERVER}.command = {command}",
         f"mcp_servers.{SERVER}.args = {arguments}",
     ]
