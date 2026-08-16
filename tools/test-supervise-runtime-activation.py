@@ -28,7 +28,7 @@ def source(root: Path, name: str) -> Path:
 
 
 def activate(root: Path, name: str, source_dir: Path, bin_dir: Path) -> None:
-    subprocess.run([sys.executable, str(ACTIVATOR), str(root), name, "--source-release", str(source_dir), "--bin-dir", str(bin_dir)], check=True)
+    subprocess.run([sys.executable, str(ACTIVATOR), str(root), name, "--source-release", str(source_dir), "--source-supervisor", str(SUPERVISOR), "--bin-dir", str(bin_dir)], check=True)
 
 
 def main() -> None:
@@ -37,8 +37,10 @@ def main() -> None:
         runtime, bin_dir, data = work / ".local/lib/gent", work / ".local/bin", work / "data"
         first, second = source(work / "source", "v1"), source(work / "source", "v2")
         activate(runtime, "v1", first, bin_dir)
-        subprocess.run([sys.executable, str(SUPERVISOR), "--runtime-root", str(runtime), "--release-name", "v2", "--source-release", str(second), "--bin-dir", str(bin_dir), "--data-dir", str(data)], check=True)
+        staged = runtime / "releases/v1/supervise-runtime-activation.py"
+        subprocess.run([sys.executable, str(staged), "--runtime-root", str(runtime), "--release-name", "v2", "--source-release", str(second), "--bin-dir", str(bin_dir), "--data-dir", str(data)], check=True)
         assert os.readlink(runtime / "current") == "releases/v2"
+        assert (runtime / "releases/v2/activate-install.py").is_file()
         assert not list((runtime / "releases").glob(".gent-stage-*"))
     print("runtime activation supervisor checks passed")
 

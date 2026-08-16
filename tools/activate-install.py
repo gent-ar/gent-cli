@@ -131,7 +131,9 @@ def identical(left: Path, right: Path) -> bool:
     return True
 
 
-def prepare_release(runtime_root: Path, release_name: str, source: Path, supervisor: Path | None) -> Path:
+def prepare_release(
+    runtime_root: Path, release_name: str, source: Path, supervisor: Path | None
+) -> Path:
     require_directory(source)
     for name in ("gent", "gentd"):
         require_executable(source / name)
@@ -141,7 +143,15 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
     destination = releases / release_name
     if destination.exists() or destination.is_symlink():
         release = release_path(runtime_root, release_name)
-        if all(identical(source / name, release / name) for name in ("gent", "gentd")):
+        names = ["gent", "gentd"]
+        if supervisor is not None:
+            names.extend(("supervise-runtime-activation.py", "activate-install.py"))
+        if all(identical(source / name, release / name) for name in ("gent", "gentd")) and (
+            supervisor is None
+            or all((release / name).is_file() for name in names[2:])
+            and identical(supervisor, release / "supervise-runtime-activation.py")
+            and identical(Path(__file__), release / "activate-install.py")
+        ):
             return release
         fail(f"existing {release_name} differs from the verified release")
     stage = Path(tempfile.mkdtemp(prefix=".gent-stage-", dir=releases))
@@ -154,6 +164,10 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
         if supervisor is not None:
             output = stage / "supervise-runtime-activation.py"
             shutil.copyfile(supervisor, output)
+            output.chmod(0o755)
+            fsync_file(output)
+            output = stage / "activate-install.py"
+            shutil.copyfile(Path(__file__), output)
             output.chmod(0o755)
             fsync_file(output)
         fsync_directory(stage)

@@ -13,7 +13,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-ACTIVATOR = ROOT / "tools/activate-install.py"
+
+
+def activator() -> Path:
+    staged = Path(__file__).with_name("activate-install.py")
+    if staged.is_file() and not staged.is_symlink():
+        return staged
+    return ROOT / "tools/activate-install.py"
 
 
 def args() -> argparse.Namespace:
@@ -40,9 +46,9 @@ def current(root: Path) -> str:
 
 
 def activate(values: argparse.Namespace, stage_only: bool = False, release: str | None = None) -> None:
-    command = ["python3", str(ACTIVATOR), str(values.runtime_root), release or values.release_name]
+    command = ["python3", str(activator()), str(values.runtime_root), release or values.release_name]
     if stage_only:
-        command.extend(("--source-release", str(values.source_release), "--bin-dir", str(values.bin_dir), "--force", "--stage-only"))
+        command.extend(("--source-release", str(values.source_release), "--source-supervisor", str(Path(__file__)), "--bin-dir", str(values.bin_dir), "--force", "--stage-only"))
     else:
         command.extend(("--idle-data-dir", str(values.data_dir)))
     run(command)
