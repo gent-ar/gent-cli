@@ -80,6 +80,14 @@ It intentionally stops before archive staging, health checks, or supervisor
 handoff; those effects remain unavailable until a separately evidenced daemon
 authority phase can acknowledge them after process exit.
 
+The paired staged successor may subsequently use
+`--runtime-update-recover-authority --runtime-update-attempt-id <id>` with the
+same trusted cache inputs. That profile is for the external supervisor only:
+it refuses any release, staging receipt, daemon version, or old host epoch
+mismatch and leaves ingress closed on failure. It confirms the durable handoff
+before fencing/opening the successor epoch; it is not a fetch, install, or
+provider-authority command.
+
 `gent doctor` is read-only discovery. It reports private Claurst integration as
 `notConfigured` in this public repository; it never accepts Claurst endpoint,
 credential, billing, or routing configuration.

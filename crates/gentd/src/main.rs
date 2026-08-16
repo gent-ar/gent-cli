@@ -29,6 +29,7 @@ mod public_runs;
 mod runtime_facade;
 mod runtime_update_authority;
 mod runtime_update_config;
+mod runtime_update_recovery;
 mod runtime_update_transport;
 mod startup;
 mod transport;
@@ -54,6 +55,7 @@ pub(crate) use runtime_facade::{RuntimeFacade, build_runtime_with_update_checks}
 use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host")]
+#[allow(clippy::struct_excessive_bools)] // Clap flags are independent authority opt-ins.
 struct Args {
     /// Directory containing the local IPC endpoint and durable `SQLite` ledger.
     #[arg(long, env = "GENT_DATA_DIR")]
@@ -87,6 +89,12 @@ struct Args {
     /// wired into a later migration phase.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_PLAN_AUTHORITY")]
     runtime_update_plan_authority: bool,
+    /// Confirm a staged successor and fence/open its new writer epoch.
+    ///
+    /// This is only for an external supervisor after it has verified and started the exact staged
+    /// Gent pair. It does not download, stage, replace, or launch another process.
+    #[arg(long, env = "GENT_RUNTIME_UPDATE_RECOVER_AUTHORITY")]
+    runtime_update_recover_authority: bool,
     /// Stable idempotency key for an explicitly approved local planning attempt.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_ATTEMPT_ID")]
     runtime_update_attempt_id: Option<String>,
@@ -115,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _host_lock = host_lock::acquire(&data_dir)?;
     if !args.runtime_update_check_authority
         && !args.runtime_update_plan_authority
+        && !args.runtime_update_recover_authority
         && (args.runtime_release_cache.is_some()
             || args.runtime_release_trust.is_some()
             || !args.runtime_release_keys.is_empty())
@@ -136,6 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .flatten();
     let observed_capabilities =
         transport::observed_capabilities(args.agent_chat_authority, update_checks.is_some());
+    if args.runtime_update_plan_authority && args.runtime_update_recover_authority {
+        return Err("runtime update planning and successor recovery are mutually exclusive".into());
+    }
     if let Some(record) = runtime_update_authority::plan_if_enabled(
         &data_dir,
         &observed_capabilities,
@@ -151,6 +163,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!(
             "planned runtime update {} at {:?}",
             record.attempt_id, record.status.stage
+        );
+    }
+    if let Some(epoch) = runtime_update_recovery::recover_if_enabled(
+        &data_dir,
+        runtime_update_recovery::RuntimeUpdateRecoverConfig {
+            enabled: args.runtime_update_recover_authority,
+            attempt_id: args.runtime_update_attempt_id.as_deref(),
+            cache_path: args.runtime_release_cache.as_deref(),
+            trust_path: args.runtime_release_trust.as_deref(),
+            keys: &args.runtime_release_keys,
+            now_unix_seconds: startup::unix_seconds(),
+        },
+    )? {
+        eprintln!(
+            "confirmed runtime update successor at host epoch {}",
+            epoch.0
         );
     }
     let compatibility = CompatibilityAssessment::load(

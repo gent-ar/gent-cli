@@ -92,6 +92,13 @@ through fakeable ports behind a separately approved authority profile. Concrete
 distribution adapters, a real binary swap, and every mutating observer update
 API remain deliberately unimplemented and unadvertised.
 
+After an external supervisor has staged and started the paired successor, its
+explicit `gentd --runtime-update-recover-authority` profile can revalidate the
+signed cached release, durable receipt, release identity, and closed old epoch.
+Only then does it confirm the durable handoff and atomically fence/open the new
+epoch. It does not fetch, stage, launch, or replace a process; the default
+daemon never enables this profile.
+
 Device pairing, LAN transport, relay hosting, and application automations stay
 Flutter-app-owned. They do not grant a second coordinator or become `gentd`
 APIs; any future app transport consumes the same negotiated projection and
