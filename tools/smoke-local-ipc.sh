@@ -25,7 +25,10 @@ trap report_failure ERR
 cargo run --quiet -p gentd -- --data-dir "$data_dir" >"$data_dir/gentd.log" 2>&1 &
 daemon_pid="$!"
 
-for _ in $(seq 1 120); do
+# A fresh dev-profile build can legitimately precede daemon startup. Keep this
+# separate from request retries so the smoke check never mistakes compilation
+# latency for a failed local IPC listener.
+for _ in $(seq 1 600); do
   [[ -S "$data_dir/gentd.sock" ]] && break
   sleep 0.05
 done
