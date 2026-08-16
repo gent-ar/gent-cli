@@ -98,7 +98,8 @@ not claim provider or app compatibility evidence that has not been recorded.
       or observer-mode write path is exposed.
 - [x] Explicit `gentd --agent-chat-authority` local profile: negotiated `gent chat create`,
       `send`, and `queue` persist through receipt and epoch fences without composing any provider,
-      MCP, Git, or private-bridge effect. The default daemon remains observer-only.
+      MCP, Git, or private-bridge effect. Accepted prompts expose durable `awaitingProvider` or
+      `queued` delivery rather than claiming execution. The default daemon remains observer-only.
 - [x] Unix local-host privacy boundary: a non-symlink, owner-only daemon data directory and an
       owner-only Unix socket constrained beneath it before the ledger is opened.
 - [x] Additive normalized lifecycle signals for root phase and explicit generation activity,
@@ -168,8 +169,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
 - [x] Enforced 90% workspace line-coverage gate.
-- [x] Deterministic release packaging, checksum/manifest verification, and tag-only
-      GitHub OIDC keyless-signing workflow for `gent` and `gentd` artifacts.
+- [x] Deterministic release packaging, checksum/manifest verification, portable Ed25519
+      runtime-metadata signing, and tag-only GitHub OIDC keyless-signing workflow for `gent` and
+      `gentd` artifacts.
 - [x] Signed macOS/Linux and Windows x86_64 release bootstraps stage `gent` and
       `gentd` as an immutable pair before atomically selecting them. The installer
       serializes the full transaction, byte-compares any existing release to the
