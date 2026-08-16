@@ -14,6 +14,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+report_failure() {
+  status=$?
+  printf 'Unix IPC smoke failed (exit %s). Daemon log follows:\n' "$status" >&2
+  cat "$data_dir/gentd.log" >&2 || true
+  exit "$status"
+}
+trap report_failure ERR
+
 cargo run --quiet -p gentd -- --data-dir "$data_dir" >"$data_dir/gentd.log" 2>&1 &
 daemon_pid="$!"
 
@@ -26,7 +34,16 @@ if [[ ! -S "$data_dir/gentd.sock" ]]; then
   exit 1
 fi
 
-GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- status >"$data_dir/status.json"
+for _ in $(seq 1 40); do
+  if GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- --no-autostart status >"$data_dir/status.json" 2>"$data_dir/status.err"; then
+    break
+  fi
+  sleep 0.05
+done
+if [[ ! -s "$data_dir/status.json" ]]; then
+  cat "$data_dir/status.err" >&2 || true
+  exit 1
+fi
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- submit --kind ping --payload '{"message":"smoke"}' >"$data_dir/receipt.json"
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- events >"$data_dir/events.json"
 GENT_DATA_DIR="$data_dir" cargo run --quiet -p gent-cli -- decision submit --decision-id smoke-decision --idempotency-key smoke-key >"$data_dir/decision.json"
