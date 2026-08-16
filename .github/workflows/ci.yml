@@ -67,6 +67,8 @@ jobs:
       - if: runner.os != 'Windows'
         run: sh -n tools/install.sh
       - if: runner.os != 'Windows'
+        run: bash -n tools/smoke-installed-ipc.sh
+      - if: runner.os != 'Windows'
         run: python tools/test-install-activation.py
       - if: runner.os != 'Windows'
         run: python tools/test-update-handoff.py
