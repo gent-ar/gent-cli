@@ -9,7 +9,7 @@ cells:
   - { vendor: claude, scenario: permission_prompt, state: recorded, path: claude-permission-prompt-haiku-20260816.jsonl }
   - { vendor: claude, scenario: permission_persistent, state: capture_required }
   - { vendor: claude, scenario: plan_mode, state: recorded, path: claude-plan-mode-20260816.jsonl }
-  - { vendor: claude, scenario: subagent, state: capture_required }
+  - { vendor: claude, scenario: subagent, state: recorded, path: claude-subagent-haiku-20260816.jsonl }
   - { vendor: claude, scenario: compaction, state: capture_required }
   - { vendor: claude, scenario: mcp_tool, state: capture_required }
   - { vendor: claude, scenario: resume, state: recorded, path: claude-resume-haiku-20260816.jsonl }

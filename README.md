@@ -181,10 +181,13 @@ python3 tools/capture-public-driver-transcript.py claude full_turn \
 ```
 
 It retains raw output only in memory, writes normalized facts, and refuses to
-run without explicit confirmation. It intentionally supports only `full_turn`,
-`tool_use`, and `tool_error`; other matrix rows need scenario-specific reviewed
-captures. Claurst remains private-bridge CI evidence and is rejected by this
-public tool, preserving the no-credentials/no-endpoints boundary.
+run without explicit confirmation. The native Claude subagent row uses the
+separate reviewed `tools/capture-claude-subagent-transcript.py` helper: it
+allows only `Task(gent_probe)` and records a correlated native `Agent` call,
+matching tool result, and successful terminal event—not prompt text. Other
+matrix rows need scenario-specific reviewed captures. Claurst remains
+private-bridge CI evidence and is rejected by public tools, preserving the
+no-credentials/no-endpoints boundary.
 
 The repository’s architectural rules and phased migration decision record are
 in [docs/architecture.md](docs/architecture.md). The Flutter app is not a
