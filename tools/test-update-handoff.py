@@ -66,6 +66,7 @@ def create_release(root: Path, version: str, runtime_target: str) -> str:
     for source_path, destination in (
         (ROOT / "tools" / "install.sh", root / "gent-install.sh"),
         (ROOT / "tools" / "activate-install.py", root / "gent-activate-install.py"),
+        (ROOT / "tools" / "supervise-runtime-activation.py", root / "gent-supervise-runtime-activation.py"),
     ):
         shutil.copy(source_path, destination)
         (root / f"{destination.name}.sigstore.json").write_text("{}", encoding="utf-8")

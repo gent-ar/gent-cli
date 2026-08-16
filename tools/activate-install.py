@@ -25,6 +25,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("runtime_root", type=Path)
     parser.add_argument("release_name")
     parser.add_argument("--source-release", type=Path)
+    parser.add_argument("--source-supervisor", type=Path)
     parser.add_argument("--bin-dir", type=Path)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--idle-data-dir", type=Path)
@@ -55,6 +56,12 @@ def require_executable(path: Path) -> None:
         fail(f"{path} must be a real file")
     if details.st_mode & 0o111 == 0:
         fail(f"{path} is not executable")
+
+
+def require_regular_file(path: Path) -> None:
+    details = lstat(path)
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+        fail(f"{path} must be a real file")
 
 
 def fsync_directory(path: Path) -> None:
@@ -124,10 +131,12 @@ def identical(left: Path, right: Path) -> bool:
     return True
 
 
-def prepare_release(runtime_root: Path, release_name: str, source: Path) -> Path:
+def prepare_release(runtime_root: Path, release_name: str, source: Path, supervisor: Path | None) -> Path:
     require_directory(source)
     for name in ("gent", "gentd"):
         require_executable(source / name)
+    if supervisor is not None:
+        require_regular_file(supervisor)
     releases = runtime_root / "releases"
     destination = releases / release_name
     if destination.exists() or destination.is_symlink():
@@ -140,6 +149,11 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path) -> Path
         for name in ("gent", "gentd"):
             output = stage / name
             shutil.copyfile(source / name, output)
+            output.chmod(0o755)
+            fsync_file(output)
+        if supervisor is not None:
+            output = stage / "supervise-runtime-activation.py"
+            shutil.copyfile(supervisor, output)
             output.chmod(0o755)
             fsync_file(output)
         fsync_directory(stage)
@@ -222,7 +236,7 @@ def install(args: argparse.Namespace) -> Path:
                 validate_current(args.runtime_root)
                 if not args.force:
                     fail(f"Gent is already installed in {args.bin_dir}; pass --force to replace it")
-            release = prepare_release(args.runtime_root, args.release_name, args.source_release)
+            release = prepare_release(args.runtime_root, args.release_name, args.source_release, args.source_supervisor)
             publish_launchers(args.bin_dir)
             if args.stage_only:
                 return release
