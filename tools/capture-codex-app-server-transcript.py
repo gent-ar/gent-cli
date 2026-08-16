@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Capture a redacted Codex app-server transcript after explicit live consent.
 This tool uses only Codex's documented JSON-RPC app-server methods.
-Fixtures must still be reviewed before being declared recorded.
 Raw JSON is bounded in memory and discarded; only structural facts are written.
 """
 from __future__ import annotations
@@ -42,6 +41,7 @@ def args() -> argparse.Namespace:
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mcp-server", help="pre-registered isolated MCP probe server for mcp_tool")
+    parser.add_argument("--codex-config", action="append", default=[], help="one isolated Codex -c TOML override")
     parser.add_argument("--timeout-seconds", type=int, default=TIMEOUT)
     parser.add_argument("--confirm-live-capture", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -176,9 +176,10 @@ def plan_mode_applied(event: dict[str, object]) -> bool:
     params = event.get("params"); settings = params.get("threadSettings") if isinstance(params, dict) else None; mode = settings.get("collaborationMode") if isinstance(settings, dict) else None; return event.get("method") == "thread/settings/updated" and isinstance(mode, dict) and mode.get("mode") == "plan"
 def compaction_completed(event: dict[str, object]) -> bool:
     params = event.get("params"); item = params.get("item") if isinstance(params, dict) else None; return event.get("method") == "thread/compacted" or event.get("method") == "item/completed" and isinstance(item, dict) and item.get("type") == "contextCompaction"
-def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None = None,
+def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None = None, configs: list[str] | None = None,
             timeout: int = TIMEOUT, popen: object = subprocess.Popen) -> list[dict[str, object]]:
-    process = popen([str(binary_path), "app-server", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    configs = configs or []
+    process = popen([str(binary_path), *(part for config in configs for part in ("-c", config)), "app-server", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE, text=True, start_new_session=os.name != "nt")
     session = Session(process, timeout, "acceptForSession" if scenario == "permission_persistent" else "decline")
     deadline = time.monotonic() + timeout
@@ -232,8 +233,7 @@ def required(scenario: str, seen: list[dict[str, object]]) -> set[str]:
     if scenario == "plan_mode" and not any(plan_mode_applied(item) for item in seen) or scenario == "compaction" and not any(compaction_completed(item) for item in seen): return set()
     return value if value.issubset(methods) else set()
 def turn_status(event: dict[str, object]) -> object:
-    params = event.get("params")
-    turn = params.get("turn") if isinstance(params, dict) else None
+    params = event.get("params"); turn = params.get("turn") if isinstance(params, dict) else None
     return turn.get("status") if isinstance(turn, dict) else None
 def frames(scenario: str, observed: set[str]) -> list[dict[str, object]]:
     return [{"in": {"nativeType": method}, "expect": method.replace("/", "_"), "expectFields": {"observed": True}}
@@ -283,7 +283,7 @@ def main() -> int:
     if not value.confirm_live_capture: raise ValueError("pass --confirm-live-capture to invoke authenticated Codex")
     path.parent.mkdir(parents=True, exist_ok=True); executable = binary()
     if value.scenario == "mcp_tool" and not value.mcp_server: raise ValueError("mcp_tool requires --mcp-server")
-    write(path, value.scenario, executable, capture(executable, value.scenario, value.model, value.mcp_server, value.timeout_seconds))
+    write(path, value.scenario, executable, capture(executable, value.scenario, value.model, value.mcp_server, value.codex_config, value.timeout_seconds))
     if manifest is not None:
         manifest_path, manifest_text = manifest
         with tempfile.NamedTemporaryFile(

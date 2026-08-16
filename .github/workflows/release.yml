@@ -37,6 +37,8 @@ jobs:
       - run: python -m py_compile tools/update-public-driver-transcripts.py
       - run: python -m py_compile tools/capture-codex-app-server-transcript.py
       - run: python tools/test-capture-codex-app-server-transcript.py
+      - run: python -m py_compile tools/capture-codex-mcp-transcript.py
+      - run: python tools/test-capture-codex-mcp-transcript.py
       - run: python -m py_compile tools/capture-claude-subagent-transcript.py
       - run: python tools/test-capture-claude-subagent-transcript.py
       - run: python -m py_compile tools/capture-claude-mcp-transcript.py

@@ -93,7 +93,6 @@ def command_for(vendor: str, scenario: str, model: str, run_capture: bool = Fals
         "permission_persistent",
         "plan_mode",
         "compaction",
-        "mcp_tool",
         "interrupt",
         "steer",
     }:
@@ -102,6 +101,20 @@ def command_for(vendor: str, scenario: str, model: str, run_capture: bool = Fals
             "python3",
             "tools/capture-codex-app-server-transcript.py",
             scenario,
+            "--model",
+            model,
+            "--output",
+            str(output.relative_to(ROOT)),
+            "--replace-existing",
+            "--update-manifest",
+            "--confirm-live-capture",
+            *dry_run,
+        ]
+    if vendor == "codex" and scenario == "mcp_tool":
+        dry_run = [] if run_capture else ["--dry-run"]
+        return [
+            "python3",
+            "tools/capture-codex-mcp-transcript.py",
             "--model",
             model,
             "--output",

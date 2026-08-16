@@ -252,8 +252,8 @@ Codex approval, persistent-permission, plan, compaction, MCP, interrupt, and
 steering scenarios use the documented app-server JSON-RPC harness rather than
 one-shot `codex exec`; it has a provider-free dry run and never changes the
 matrix automatically. It emits a candidate fixture only after the scenario's
-correlated native protocol conditions are observed. Review it before manually
-updating the manifest:
+correlated native protocol conditions are observed. Its MCP helper requires an
+already-authenticated, isolated `CODEX_HOME` and never copies or reads credentials:
 
 ```sh
 python3 tools/capture-codex-app-server-transcript.py plan_mode \
