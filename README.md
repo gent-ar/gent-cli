@@ -125,6 +125,20 @@ platform, RFC3339 capture time, run identifier, and attestation digest.
 These are structural provenance checks, not a substitute for the planned
 signed real-provider artifact and normalized-event replay gate.
 
+Refresh an approved safe Claude/Codex cell with the redaction-first helper:
+
+```sh
+python3 tools/capture-public-driver-transcript.py claude full_turn \
+  --model haiku --output fixtures/public-driver-transcripts/claude-full-turn.jsonl \
+  --confirm-live-capture --update-manifest
+```
+
+It retains raw output only in memory, writes normalized facts, and refuses to
+run without explicit confirmation. It intentionally supports only `full_turn`,
+`tool_use`, and `tool_error`; other matrix rows need scenario-specific reviewed
+captures. Claurst remains private-bridge CI evidence and is rejected by this
+public tool, preserving the no-credentials/no-endpoints boundary.
+
 The repository’s architectural rules and phased migration decision record are
 in [docs/architecture.md](docs/architecture.md). The Flutter app is not a
 dependency of this workspace and is not modified by this repository.

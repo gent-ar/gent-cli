@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""Capture a bounded, redacted public-driver transcript fixture.
+
+This tool intentionally supports only safe probes. It holds raw CLI output in
+memory, writes normalized facts only, and requires an explicit confirmation.
+Claurst is a private bridge: capture it in private CI, never in this repository.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+
+
+PROBES = {
+    "full_turn": "Reply with the exact text GENT_LIVE_CAPTURE_OK and nothing else.",
+    "tool_use": "Run pwd exactly once. Then reply with the exact text GENT_TOOL_CAPTURE_OK and nothing else.",
+    "tool_error": "Run the command false exactly once. Then reply with the exact text GENT_TOOL_ERROR_CAPTURE_OK and nothing else.",
+}
+MARKERS = {
+    "full_turn": "GENT_LIVE_CAPTURE_OK",
+    "tool_use": "GENT_TOOL_CAPTURE_OK",
+    "tool_error": "GENT_TOOL_ERROR_CAPTURE_OK",
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("vendor", choices=("claude", "codex", "claurst"))
+    parser.add_argument("scenario", choices=sorted(PROBES))
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--confirm-live-capture", action="store_true")
+    parser.add_argument("--update-manifest", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    return parser.parse_args()
+
+
+def executable(vendor: str) -> Path:
+    found = shutil.which(vendor)
+    if found is None:
+        raise ValueError(f"{vendor} is not on PATH")
+    return Path(found).resolve()
+
+
+def command(vendor: str, scenario: str, model: str) -> list[str]:
+    prompt = PROBES[scenario]
+    if vendor == "claude":
+        tools = [] if scenario == "full_turn" else ["--tools", "Bash"]
+        allowed = []
+        if scenario == "tool_use":
+            allowed = ["--allowedTools", "Bash(pwd)"]
+        if scenario == "tool_error":
+            allowed = ["--allowedTools", "Bash(false)"]
+        return ["claude", "--safe-mode", "--strict-mcp-config", *tools, *allowed,
+                "--permission-mode", "dontAsk", "--print", "--model", model,
+                "--max-budget-usd", "0.05", "--no-session-persistence",
+                "--output-format", "stream-json", "--verbose", prompt]
+    return ["codex", "exec", "--ephemeral", "--ignore-rules", "--model", model,
+            "--sandbox", "read-only", "--json", "--color", "never", prompt]
+
+
+def run_capture(args: argparse.Namespace) -> tuple[Path, str, str]:
+    binary = executable(args.vendor)
+    probe = command(args.vendor, args.scenario, args.model)
+    if args.dry_run:
+        print(json.dumps(probe))
+        raise SystemExit(0)
+    if not args.confirm_live_capture:
+        raise ValueError("pass --confirm-live-capture to invoke an authenticated provider")
+    completed = subprocess.run(probe, check=False, text=True, capture_output=True)
+    if completed.returncode:
+        raise ValueError(f"provider exited {completed.returncode}; no fixture was written")
+    raw = completed.stdout
+    if MARKERS[args.scenario] not in raw:
+        raise ValueError("probe marker was absent; no fixture was written")
+    return binary, raw, "stream_json"
+
+
+def normalized_frames(vendor: str, scenario: str, raw: str) -> list[dict[str, object]]:
+    if scenario == "full_turn":
+        return [{"in": {"nativeType": "completed_turn"}, "expect": "completed_turn",
+                 "expectFields": {"terminal": True}}]
+    success = scenario == "tool_use"
+    tool = "Bash" if vendor == "claude" else "command_execution"
+    return [
+        {"in": {"nativeType": tool, "status": "started"}, "expect": "tool_started",
+         "expectFields": {"tool": tool}},
+        {"in": {"nativeType": tool, "status": "completed" if success else "failed",
+                "succeeded": success}, "expect": "tool_completed" if success else "tool_failed",
+         "expectFields": {"succeeded": success}},
+        {"in": {"nativeType": "completed_turn"}, "expect": "completed_turn",
+         "expectFields": {"terminal": True}},
+    ]
+
+
+def metadata(args: argparse.Namespace, binary: Path, raw: str, transport: str) -> dict[str, object]:
+    version = subprocess.run([str(binary), "--version"], check=True, text=True,
+                             capture_output=True).stdout.strip()
+    captured = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return {
+        "vendor": args.vendor, "scenario": args.scenario, "capturedAt": captured,
+        "cliVersion": version.removeprefix("codex-cli "), "adapterSpecVersion": "1",
+        "appVersion": "0.1.0", "prompt": PROBES[args.scenario], "repo": "gent-ar/gent-cli",
+        "notes": "Generated by the bounded redaction-first public-driver capture tool.",
+        "status": "recorded", "captureOrigin": "live_cli", "executablePath": str(binary),
+        "executableDigest": "sha256:" + hashlib.sha256(binary.read_bytes()).hexdigest(),
+        "platform": platform_name() + "-" + subprocess.run(["uname", "-m"], text=True, check=True, capture_output=True).stdout.strip(),
+        "transport": transport, "captureRunId": str(uuid.uuid4()),
+        "attestationDigest": "sha256:" + hashlib.sha256(raw.encode()).hexdigest(),
+    }
+
+
+def write_fixture(path: Path, metadata: dict[str, object], frames: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps({"meta": metadata}, separators=(",", ":"))]
+    lines.extend(json.dumps(frame, separators=(",", ":")) for frame in frames)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def update_manifest(path: Path, args: argparse.Namespace) -> None:
+    manifest = path / "manifest.yml"
+    new = f"{{ vendor: {args.vendor}, scenario: {args.scenario}, state: recorded, path: {args.output.name} }}"
+    text = manifest.read_text(encoding="utf-8")
+    pattern = rf"{{ vendor: {args.vendor}, scenario: {args.scenario}, state: (?:capture_required|recorded)(?:, path: [^}}]+)? }}"
+    updated, count = re.subn(pattern, new, text, count=1)
+    if count != 1:
+        raise ValueError("manifest cell is missing or has an unsupported state")
+    manifest.write_text(updated, encoding="utf-8")
+
+
+def platform_name() -> str:
+    return {"darwin": "macos", "linux": "linux", "win32": "windows"}.get(sys.platform, sys.platform)
+
+
+def main() -> int:
+    args = parse_args()
+    if args.vendor == "claurst":
+        raise ValueError("Claurst evidence is private-bridge CI evidence and cannot be captured publicly")
+    binary, raw, transport = run_capture(args)
+    write_fixture(args.output, metadata(args, binary, raw, transport), normalized_frames(args.vendor, args.scenario, raw))
+    if args.update_manifest:
+        update_manifest(args.output.parent, args)
+    print(f"wrote redacted {args.vendor}/{args.scenario}: {args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)
+        raise SystemExit(2)
