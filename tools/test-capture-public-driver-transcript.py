@@ -72,9 +72,9 @@ def test_permission_capture_requires_a_manual_request_and_denial() -> None:
     assert not MODULE.scenario_was_observed("claude", "permission_prompt", stream.rsplit("\n", 1)[0])
 
 
-def test_manifest_update_is_prepared_without_writing() -> None:
+def test_manifest_replacement_is_prepared_without_writing() -> None:
     args = type("Args", (), {"vendor": "claude", "scenario": "permission_prompt", "output": Path(output("candidate.jsonl"))})()
-    manifest, updated = MODULE.manifest_update(args, False)
+    manifest, updated = MODULE.manifest_update(args, True)
     assert manifest == ROOT / "fixtures/public-driver-transcripts/manifest.yml"
     assert "scenario: permission_prompt, state: recorded, path: candidate.jsonl" in updated
     assert "vendor: claude, scenario: permission_prompt, state: capture_required" not in updated
@@ -85,7 +85,7 @@ def main() -> None:
     test_public_tool_refuses_claurst_and_escape_paths()
     test_attestation_only_covers_reviewed_normalized_facts()
     test_thinking_capture_requires_an_observed_vendor_signal()
-    test_manifest_update_is_prepared_without_writing()
+    test_manifest_replacement_is_prepared_without_writing()
     print("public-driver capture tool checks passed")
 
 
