@@ -32,11 +32,13 @@ CAPTURE_TIMEOUT_SECONDS = 90
 MODEL_PATTERN = re.compile(r"[A-Za-z0-9._-]+$")
 PROBES = {
     "full_turn": "Reply with the exact text GENT_LIVE_CAPTURE_OK and nothing else.",
+    "thinking": "Reply with the exact text GENT_THINKING_CAPTURE_OK and nothing else.",
     "tool_use": "Run pwd exactly once. Then reply with the exact text GENT_TOOL_CAPTURE_OK and nothing else.",
     "tool_error": "Run the command false exactly once. Then reply with the exact text GENT_TOOL_ERROR_CAPTURE_OK and nothing else.",
 }
 MARKERS = {
     "full_turn": "GENT_LIVE_CAPTURE_OK",
+    "thinking": "GENT_THINKING_CAPTURE_OK",
     "tool_use": "GENT_TOOL_CAPTURE_OK",
     "tool_error": "GENT_TOOL_ERROR_CAPTURE_OK",
 }
@@ -145,6 +147,12 @@ def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
     if scenario == "full_turn":
         return [{"in": {"nativeType": "completed_turn"}, "expect": "completed_turn",
                  "expectFields": {"terminal": True}}]
+    if scenario == "thinking":
+        if vendor == "codex":
+            return [{"in": {"nativeType": "turn.started"}, "expect": "turn_started",
+                     "expectFields": {"activity": "thinking"}}]
+        return [{"in": {"nativeType": "thinking", "observed": True}, "expect": "thinking",
+                 "expectFields": {"activity": "thinking"}}]
     success = scenario == "tool_use"
     tool = "Bash" if vendor == "claude" else "command_execution"
     return [
@@ -156,6 +164,13 @@ def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
         {"in": {"nativeType": "completed_turn"}, "expect": "completed_turn",
          "expectFields": {"terminal": True}},
     ]
+
+
+def scenario_was_observed(vendor: str, scenario: str, raw: str) -> bool:
+    if scenario != "thinking":
+        return True
+    required = '"type":"turn.started"' if vendor == "codex" else '"type":"thinking"'
+    return required in raw.replace(" ", "")
 
 
 def attestation(metadata: dict[str, object], frames: list[dict[str, object]]) -> str:
@@ -225,6 +240,8 @@ def main() -> int:
     raw = bounded_capture(command(binary, args.vendor, args.scenario, args.model))
     if MARKERS[args.scenario] not in raw:
         raise ValueError("probe marker was absent; no fixture was written")
+    if not scenario_was_observed(args.vendor, args.scenario, raw):
+        raise ValueError("required normalized scenario signal was absent; no fixture was written")
     frames = normalized_frames(args.vendor, args.scenario)
     write_fixture(output, metadata(args, binary, "stream_json", frames), frames, args.replace_existing)
     if manifest is not None:

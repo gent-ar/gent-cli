@@ -56,6 +56,12 @@ def test_attestation_only_covers_reviewed_normalized_facts() -> None:
     assert first != MODULE.attestation(metadata, MODULE.normalized_frames("claude", "tool_use"))
 
 
+def test_thinking_capture_requires_an_observed_vendor_signal() -> None:
+    assert MODULE.scenario_was_observed("codex", "thinking", '{"type":"turn.started"}')
+    assert not MODULE.scenario_was_observed("codex", "thinking", '{"type":"turn.completed"}')
+    assert MODULE.scenario_was_observed("claude", "thinking", '{"type":"thinking"}')
+
+
 def test_manifest_update_is_prepared_without_writing() -> None:
     args = type("Args", (), {"vendor": "claude", "scenario": "permission_prompt", "output": Path(output("candidate.jsonl"))})()
     manifest, updated = MODULE.manifest_update(args, False)
@@ -68,6 +74,7 @@ def main() -> None:
     test_dry_run_never_requires_a_provider_or_writes()
     test_public_tool_refuses_claurst_and_escape_paths()
     test_attestation_only_covers_reviewed_normalized_facts()
+    test_thinking_capture_requires_an_observed_vendor_signal()
     test_manifest_update_is_prepared_without_writing()
     print("public-driver capture tool checks passed")
 
