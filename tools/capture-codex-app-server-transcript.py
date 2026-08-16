@@ -42,6 +42,7 @@ def args() -> argparse.Namespace:
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mcp-server", help="pre-registered isolated MCP probe server for mcp_tool")
+    parser.add_argument("--timeout-seconds", type=int, default=TIMEOUT)
     parser.add_argument("--confirm-live-capture", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--replace-existing", action="store_true")
@@ -72,9 +73,10 @@ class Session:
         self.process, self.timeout, self.next_id = process, timeout, 1
         self.events: queue.Queue[dict[str, object]] = queue.Queue(); self.decision = decision
         self.seen: list[dict[str, object]] = []
-        self.total = 0
+        self.total = self.stderr_bytes = 0; self.stderr = "none"; self.stderr_truncated = False
         self.thread = threading.Thread(target=self._read, daemon=True)
-        self.thread.start()
+        self.stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
+        self.thread.start(); self.stderr_thread.start()
     def _read(self) -> None:
         for raw in self.process.stdout:  # type: ignore[attr-defined]
             self.total += len(raw.encode("utf-8", "replace"))
@@ -85,6 +87,17 @@ class Session:
                     continue
                 if isinstance(value, dict):
                     self.events.put(value)
+    def _read_stderr(self) -> None:
+        for raw in self.process.stderr:  # type: ignore[attr-defined]
+            size = len(raw.encode("utf-8", "replace")); self.stderr_truncated |= self.stderr_bytes + size > LIMIT
+            self.stderr_bytes = min(LIMIT, self.stderr_bytes + size)
+            if self.stderr == "none":
+                text = raw.lower()
+                self.stderr = next((name for marker, name in (("auth", "authentication"), ("rate limit", "rate-limit"), ("model", "model"), ("config", "configuration"), ("error", "error")) if marker in text), "other")
+    def diagnostic(self) -> str:
+        status = self.process.poll()  # type: ignore[attr-defined]
+        suffix = "+" if self.stderr_truncated else ""
+        return f"exit={'running' if status is None else status},stderr={self.stderr},stderrBytes={self.stderr_bytes}{suffix}"
     def send(self, method: str, params: dict[str, object]) -> int:
         request_id, self.next_id = self.next_id, self.next_id + 1
         self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}) + "\n")  # type: ignore[attr-defined]
@@ -95,11 +108,11 @@ class Session:
         self.process.stdin.flush()  # type: ignore[attr-defined]
     def receive(self, timeout: float | None = None) -> dict[str, object]:
         if self.total > LIMIT:
-            raise ValueError("app-server output exceeded the capture bound")
+            raise ValueError(f"app-server output exceeded the capture bound ({self.diagnostic()})")
         try:
             return self.events.get(timeout=self.timeout if timeout is None else timeout)
         except queue.Empty as error:
-            raise ValueError("app-server did not provide the required scenario signal") from error
+            raise ValueError(f"app-server did not provide the required scenario signal ({self.diagnostic()})") from error
     def response(self, request_id: int) -> dict[str, object]:
         while True:
             event = self.receive()
@@ -139,6 +152,7 @@ class Session:
                     else:
                         self.process.kill()  # type: ignore[attr-defined]
         self.thread.join(timeout=2)
+        self.stderr_thread.join(timeout=2)
 def thread_params(scenario: str, model: str) -> dict[str, object]:
     value: dict[str, object] = {"model": model, "ephemeral": True, "approvalPolicy": "untrusted",
                                 "sandbox": "read-only", "cwd": str(ROOT)}
@@ -164,7 +178,7 @@ def registered_mcp(result: dict[str, object], server: str) -> bool:
 def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None = None,
             timeout: int = TIMEOUT, popen: object = subprocess.Popen) -> list[dict[str, object]]:
     process = popen([str(binary_path), "app-server", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL, text=True, start_new_session=os.name != "nt")
+                    stderr=subprocess.PIPE, text=True, start_new_session=os.name != "nt")
     session = Session(process, timeout, "acceptForSession" if scenario == "permission_persistent" else "decline")
     deadline = time.monotonic() + timeout
     try:
@@ -176,7 +190,7 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
             while not predicate():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise ValueError("app-server did not finish the scenario before its capture deadline")
+                    raise ValueError(f"app-server did not finish the scenario before its capture deadline ({session.diagnostic()})")
                 session.observe(session.receive(min(remaining, timeout)))
         def count(method: str) -> int:
             return sum(item.get("method") == method for item in session.seen)
@@ -259,6 +273,7 @@ def manifest_update(scenario: str, output_name: str, replace: bool) -> tuple[Pat
     return manifest, text[:match.start()] + replacement + text[match.end():]
 def main() -> int:
     value = args(); path = output_path(value.output); summary = plan(value.scenario, value.model, path)
+    if not 1 <= value.timeout_seconds <= TIMEOUT: raise ValueError(f"--timeout-seconds must be 1..{TIMEOUT}")
     if value.dry_run:
         print(json.dumps(summary, separators=(",", ":")))
         return 0
@@ -268,7 +283,7 @@ def main() -> int:
     if not value.confirm_live_capture: raise ValueError("pass --confirm-live-capture to invoke authenticated Codex")
     path.parent.mkdir(parents=True, exist_ok=True); executable = binary()
     if value.scenario == "mcp_tool" and not value.mcp_server: raise ValueError("mcp_tool requires --mcp-server")
-    write(path, value.scenario, executable, capture(executable, value.scenario, value.model, value.mcp_server))
+    write(path, value.scenario, executable, capture(executable, value.scenario, value.model, value.mcp_server, value.timeout_seconds))
     if manifest is not None:
         manifest_path, manifest_text = manifest
         with tempfile.NamedTemporaryFile(

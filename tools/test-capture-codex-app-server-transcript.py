@@ -24,9 +24,10 @@ class Input(io.StringIO):
 
 
 class Process:
-    def __init__(self, events: list[dict[str, object]]) -> None:
-        self.stdin, self.stdout, self._alive = Input(), io.StringIO("".join(json.dumps(event) + "\n" for event in events)), True
-    def poll(self) -> None: return None if self._alive else 0
+    def __init__(self, events: list[dict[str, object]], stderr: str = "", exit_status: int = 0) -> None:
+        self.stdin, self.stdout, self.stderr = Input(), io.StringIO("".join(json.dumps(event) + "\n" for event in events)), io.StringIO(stderr)
+        self._alive, self.exit_status = True, exit_status
+    def poll(self) -> int | None: return None if self._alive else self.exit_status
     def terminate(self) -> None: self._alive = False
 
 
@@ -89,6 +90,14 @@ def test_missing_or_wrong_structural_conditions_never_validate() -> None:
     assert not MODULE.registered_mcp({"data": [{"name": "isolated", "tools": {}}]}, "isolated")
 
 
+def test_stderr_diagnostic_is_generic_and_redacted() -> None:
+    process = Process([], "authentication failed: token=super-secret", 23); process.terminate()
+    session = MODULE.Session(process, 1); session.thread.join(1); session.stderr_thread.join(1)
+    diagnostic = session.diagnostic()
+    assert "exit=23,stderr=authentication" in diagnostic
+    assert "super-secret" not in diagnostic and "token=" not in diagnostic
+
+
 def test_replay_plan_reports_manifest_state_without_side_effects() -> None:
     args = type(
         "Args",
@@ -111,6 +120,7 @@ def main() -> None:
     test_server_request_is_declined_with_the_same_json_rpc_id()
     test_live_consent_and_dry_run_are_safe()
     test_missing_or_wrong_structural_conditions_never_validate()
+    test_stderr_diagnostic_is_generic_and_redacted()
     print("Codex app-server capture checks passed")
 
 

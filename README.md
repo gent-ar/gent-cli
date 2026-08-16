@@ -171,8 +171,8 @@ Running `gent` with no subcommand, or `gent --conversations`, opens the local
 conversation browser. It lists durable identities and run counts. Observer mode
 shows a disabled composer; the opt-in ledger profile enables input, selected
 provider/model/effort/mode controls, `Ctrl+N` creation, and `Enter` prompt
-persistence. `gent chat create`, `send`, and `queue` remain available for
-scripts. None of these paths starts a provider lifecycle.
+persistence. `gent chat create`, `send`, and `queue` remain available for scripts;
+start that isolated profile with `GENT_AGENT_CHAT_AUTHORITY=1 gentd`; none starts a provider lifecycle.
 
 ## Development
 
