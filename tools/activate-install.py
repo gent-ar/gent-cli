@@ -28,6 +28,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--bin-dir", type=Path)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--idle-data-dir", type=Path)
+    parser.add_argument("--stage-only", action="store_true")
     return parser.parse_args()
 
 
@@ -221,8 +222,10 @@ def install(args: argparse.Namespace) -> Path:
                 validate_current(args.runtime_root)
                 if not args.force:
                     fail(f"Gent is already installed in {args.bin_dir}; pass --force to replace it")
-            prepare_release(args.runtime_root, args.release_name, args.source_release)
+            release = prepare_release(args.runtime_root, args.release_name, args.source_release)
             publish_launchers(args.bin_dir)
+            if args.stage_only:
+                return release
             return activate_while_idle(args.runtime_root, args.release_name, args.idle_data_dir)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -233,7 +236,7 @@ def main() -> None:
     release = install(args) if args.source_release else activate_while_idle(
         args.runtime_root, args.release_name, args.idle_data_dir
     )
-    print(f"activated {release.name}")
+    print(f"{'staged' if args.stage_only else 'activated'} {release.name}")
 
 
 if __name__ == "__main__":

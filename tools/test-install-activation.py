@@ -160,6 +160,21 @@ def test_install_publishes_launchers_before_idle_pointer_activation() -> None:
         assert not list((root / "releases").glob(".gent-stage-*"))
 
 
+def test_stage_only_preserves_the_current_pair_for_later_health_checks() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root, bin_dir = Path(temporary) / "gent", Path(temporary) / "bin"
+        first = release(Path(temporary) / "source", "v1-target")
+        second = release(Path(temporary) / "source", "v2-target")
+        assert install(root, "v1-target", first, bin_dir).returncode == 0
+        result = subprocess.run(
+            [sys.executable, str(ACTIVATOR), str(root), "v2-target", "--source-release", str(second), "--bin-dir", str(bin_dir), "--force", "--stage-only"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0 and "staged v2-target" in result.stdout
+        assert current(root) == "releases/v1-target"
+        assert (root / "releases" / "v2-target" / "gentd").is_file()
+
+
 def test_concurrent_installs_leave_no_stage_remnants() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root, bin_dir = Path(temporary) / "gent", Path(temporary) / "bin"
@@ -229,6 +244,7 @@ def main() -> None:
     test_idle_lock_refuses_activation_and_preserves_current_pair()
     test_install_rejects_tampered_existing_release_and_preserves_pointer()
     test_install_publishes_launchers_before_idle_pointer_activation()
+    test_stage_only_preserves_the_current_pair_for_later_health_checks()
     test_concurrent_installs_leave_no_stage_remnants()
     test_install_rejects_dangling_lock_symlink()
     test_installer_rejects_malformed_versions_before_download()
