@@ -15,7 +15,10 @@ curl -fsSL https://raw.githubusercontent.com/gent-ar/gent-cli/main/tools/install
 The script verifies the archive's GitHub OIDC Sigstore bundle and its manifest
 before replacing either binary. It supports macOS arm64/x86_64 and Linux x86_64.
 Use `GENT_VERSION=vX.Y.Z` to pin a release and `--force` only after reviewing a
-new release. Ensure `~/.local/bin` (or `GENT_INSTALL_DIR/bin`) is on `PATH`.
+new release. It keeps immutable version pairs and atomically switches both
+launchers through one `current` pointer, so an interrupted update keeps the
+previous pair runnable. Ensure `~/.local/bin` (or `GENT_INSTALL_DIR/bin`) is on
+`PATH`.
 
 1. Run `gent doctor`. It starts the local daemon if needed and reports Claude,
    Codex, Node.js, MCP observer state, private-bridge availability, executable

@@ -90,18 +90,38 @@ release_dir="$temp/gent-$version-$target"
 [ -x "$release_dir/gent" ] && [ -x "$release_dir/gentd" ] || { printf '%s\n' 'release archive has invalid binaries' >&2; exit 1; }
 
 bin_dir="$install_root/bin"
-mkdir -p "$bin_dir"
-if [ "$force" -ne 1 ] && { [ -e "$bin_dir/gent" ] || [ -e "$bin_dir/gentd" ]; }; then
+runtime_root="$install_root/lib/gent"
+release_name="$version-$target"
+release_path="$runtime_root/releases/$release_name"
+if [ "$force" -ne 1 ] && [ -e "$runtime_root/current" ]; then
   printf 'Gent is already installed in %s; pass --force to replace it.\n' "$bin_dir" >&2
   exit 1
 fi
-stage="$bin_dir/.gent-stage-$$"
-mkdir -p "$stage"
-cp "$release_dir/gent" "$stage/gent"
-cp "$release_dir/gentd" "$stage/gentd"
-chmod 755 "$stage/gent" "$stage/gentd"
-mv -f "$stage/gent" "$bin_dir/gent"
-mv -f "$stage/gentd" "$bin_dir/gentd"
-rmdir "$stage"
+mkdir -p "$bin_dir" "$runtime_root/releases"
+if [ ! -e "$release_path" ]; then
+  stage="$runtime_root/releases/.gent-stage-$$"
+  mkdir -p "$stage"
+  cp "$release_dir/gent" "$stage/gent"
+  cp "$release_dir/gentd" "$stage/gentd"
+  chmod 755 "$stage/gent" "$stage/gentd"
+  mv "$stage" "$release_path"
+fi
+python3 - "$runtime_root" "$release_name" <<'PY'
+import os, pathlib, sys
+root, release = map(pathlib.Path, sys.argv[1:])
+temporary = root / f'.current-{os.getpid()}'
+temporary.unlink(missing_ok=True)
+temporary.symlink_to(pathlib.Path('releases') / release)
+os.replace(temporary, root / 'current')
+PY
+for launcher in gent gentd; do
+  cat >"$bin_dir/$launcher" <<'SH'
+#!/usr/bin/env sh
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../lib/gent" && pwd)
+exec "$root/current/$(basename -- "$0")" "$@"
+SH
+  chmod 755 "$bin_dir/$launcher"
+done
 printf 'Installed Gent %s in %s\n' "$version" "$bin_dir"
 printf 'Add %s to PATH, then run: gent doctor\n' "$bin_dir"
