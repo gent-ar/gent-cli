@@ -20,9 +20,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import uuid
 from pathlib import Path
+
+from public_driver_capture_stream import capture, capture_interrupt
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +37,7 @@ PROBES = {
     "tool_use": "Run pwd exactly once. Then reply with the exact text GENT_TOOL_CAPTURE_OK and nothing else.",
     "tool_error": "Run the command false exactly once. Then reply with the exact text GENT_TOOL_ERROR_CAPTURE_OK and nothing else.",
     "permission_prompt": "Run `touch /tmp/gent-public-driver-permission-probe` exactly once. If permission is not granted, reply with exact text GENT_PERMISSION_CAPTURE_OK and nothing else.",
+    "interrupt": "Run the command sleep 30 exactly once using the available tool. Do not use any other tool. After it completes, reply exactly GENT_STOP_CAPTURE_OK.",
 }
 MARKERS = {
     "full_turn": "GENT_LIVE_CAPTURE_OK",
@@ -82,6 +84,8 @@ def command(binary: Path, vendor: str, scenario: str, model: str) -> list[str]:
             allowed = ["--tools", "Bash", "--allowedTools", "Bash(pwd)"]
         if scenario == "tool_error":
             allowed = ["--tools", "Bash", "--allowedTools", "Bash(false)"]
+        if scenario == "interrupt":
+            allowed = ["--tools", "Bash", "--allowedTools", "Bash(sleep 30)"]
         permission_mode = "manual" if scenario == "permission_prompt" else "dontAsk"
         tools = ["--tools", "Bash"] if scenario == "permission_prompt" else []
         return [str(binary), "--safe-mode", "--strict-mcp-config", *tools, *allowed,
@@ -101,41 +105,6 @@ def dry_run_plan(args: argparse.Namespace) -> str:
     return json.dumps({"vendor": args.vendor, "scenario": args.scenario, "output": str(output),
                        "command": planned, "rawOutput": "bounded-memory-only",
                        "attestation": "redacted_normalized_fixture_v1"}, separators=(",", ":"))
-
-
-class BoundedReader:
-    def __init__(self) -> None:
-        self.data = bytearray()
-        self.total = 0
-
-    def drain(self, stream: object) -> None:
-        while chunk := stream.read(8192):
-            self.total += len(chunk)
-            if len(self.data) < MAX_CAPTURE_BYTES:
-                self.data.extend(chunk[:MAX_CAPTURE_BYTES - len(self.data)])
-
-
-def bounded_capture(probe: list[str]) -> str:
-    process = subprocess.Popen(probe, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    assert process.stdout is not None and process.stderr is not None
-    stdout, stderr = BoundedReader(), BoundedReader()
-    readers = [threading.Thread(target=reader.drain, args=(stream,)) for reader, stream in
-               ((stdout, process.stdout), (stderr, process.stderr))]
-    for reader in readers:
-        reader.start()
-    try:
-        status = process.wait(timeout=CAPTURE_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired as error:
-        process.kill()
-        process.wait()
-        raise ValueError("provider capture timed out; no fixture was written") from error
-    for reader in readers:
-        reader.join()
-    if stdout.total > MAX_CAPTURE_BYTES or stderr.total > MAX_CAPTURE_BYTES:
-        raise ValueError("provider output exceeded the public-capture byte limit; no fixture was written")
-    if status:
-        raise ValueError(f"provider exited {status}; no fixture was written")
-    return bytes(stdout.data).decode("utf-8", errors="replace")
 
 
 def version(binary: Path) -> str:
@@ -166,6 +135,13 @@ def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
             {"in": {"nativeType": "result", "permissionDenials": 1, "terminalReason": "completed"},
              "expect": "completed_turn", "expectFields": {"terminal": True}},
         ]
+    if scenario == "interrupt":
+        return [
+            {"in": {"nativeType": "Bash", "status": "started"}, "expect": "tool_started",
+             "expectFields": {"tool": "Bash"}},
+            {"in": {"nativeType": "result", "subtype": "error_during_execution", "isError": True},
+             "expect": "interrupted", "expectFields": {"terminal": True, "reason": "interrupted"}},
+        ]
     success = scenario == "tool_use"
     tool = "Bash" if vendor == "claude" else "command_execution"
     return [
@@ -182,6 +158,8 @@ def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
 def scenario_was_observed(vendor: str, scenario: str, raw: str) -> bool:
     if scenario == "permission_prompt":
         return vendor == "claude" and claude_permission_was_observed(raw)
+    if scenario == "interrupt":
+        return vendor == "claude" and claude_interrupt_was_observed(raw)
     if scenario != "thinking":
         return True
     required = '"type":"turn.started"' if vendor == "codex" else '"type":"thinking"'
@@ -205,6 +183,23 @@ def claude_permission_was_observed(raw: str) -> bool:
         if event.get("type") == "result" and event.get("permission_denials"):
             denied = True
     return requested and denied
+
+
+def claude_interrupt_was_observed(raw: str) -> bool:
+    """Require a tool request and Claude's structural cancellation result."""
+    requested = interrupted = False
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = event.get("message")
+        blocks = message.get("content", []) if isinstance(message, dict) else []
+        requested |= any(isinstance(block, dict) and block.get("type") == "tool_use" for block in blocks)
+        interrupted |= (event.get("type") == "result"
+                        and event.get("subtype") == "error_during_execution"
+                        and event.get("is_error") is True)
+    return requested and interrupted
 
 
 def attestation(metadata: dict[str, object], frames: list[dict[str, object]]) -> str:
@@ -271,8 +266,10 @@ def main() -> int:
         raise ValueError("fixture already exists; pass --replace-existing after reviewing the replacement")
     manifest = manifest_update(args, args.replace_existing) if args.update_manifest else None
     binary = executable(args.vendor)
-    raw = bounded_capture(command(binary, args.vendor, args.scenario, args.model))
-    if MARKERS[args.scenario] not in raw:
+    probe = command(binary, args.vendor, args.scenario, args.model)
+    raw = (capture_interrupt(probe, MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
+           if args.scenario == "interrupt" else capture(probe, MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS))
+    if args.scenario != "interrupt" and MARKERS[args.scenario] not in raw:
         raise ValueError("probe marker was absent; no fixture was written")
     if not scenario_was_observed(args.vendor, args.scenario, raw):
         raise ValueError("required normalized scenario signal was absent; no fixture was written")
