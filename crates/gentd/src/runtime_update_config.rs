@@ -3,7 +3,7 @@
 //! This module is intentionally limited to loading already-verified metadata.
 //! It does not fetch, persist, stage, health-check, or activate a runtime.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use ed25519_dalek::VerifyingKey;
 use gent_ports::runtime_update::{RuntimeReleaseSource, RuntimeUpdatePortError};
@@ -45,21 +45,25 @@ impl RuntimeReleaseSource for CachedReleaseSource {
 pub(crate) fn load(
     enabled: bool,
     cache_path: Option<&Path>,
+    trust_path: Option<&Path>,
     keys: &[String],
     now_unix_seconds: u64,
 ) -> Result<Option<DaemonRuntimeUpdateChecks>, String> {
     if !enabled {
-        if cache_path.is_some() || !keys.is_empty() {
+        if cache_path.is_some() || trust_path.is_some() || !keys.is_empty() {
             return Err(
-                "runtime release cache and keys require --runtime-update-check-authority".into(),
+                "runtime release cache and trust settings require --runtime-update-check-authority"
+                    .into(),
             );
         }
         return Ok(None);
     }
     let cache_path = cache_path.ok_or("runtime update check requires --runtime-release-cache")?;
-    let trust = RuntimeReleaseTrust::new(parse_keys(keys)?);
-    if keys.is_empty() {
-        return Err("runtime update check requires at least one --runtime-release-key".into());
+    let trust = RuntimeReleaseTrust::new(load_keys(trust_path, keys)?);
+    if trust_path.is_none() && keys.is_empty() {
+        return Err(
+            "runtime update check requires a trust document or --runtime-release-key".into(),
+        );
     }
     let cached = CachedRuntimeRelease::load(cache_path, &trust, now_unix_seconds)
         .map_err(|error| format!("runtime release cache is not trusted: {error}"))?;
@@ -80,32 +84,72 @@ pub(crate) fn load(
     )))
 }
 
+fn load_keys(
+    trust_path: Option<&Path>,
+    explicit: &[String],
+) -> Result<BTreeMap<String, VerifyingKey>, String> {
+    let mut values = explicit.to_vec();
+    if let Some(path) = trust_path {
+        let metadata = fs::symlink_metadata(path)
+            .map_err(|_| "runtime release trust document is unavailable")?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err("runtime release trust document must be a real file".into());
+        }
+        let document: serde_json::Value = serde_json::from_slice(
+            &fs::read(path).map_err(|_| "runtime release trust document is unreadable")?,
+        )
+        .map_err(|_| "runtime release trust document is invalid JSON")?;
+        let Some(entries) = document.get("keys").and_then(serde_json::Value::as_array) else {
+            return Err("runtime release trust document has an unsupported shape".into());
+        };
+        if document
+            .get("schemaVersion")
+            .and_then(serde_json::Value::as_u64)
+            != Some(1)
+        {
+            return Err("runtime release trust document has an unsupported shape".into());
+        }
+        for entry in entries {
+            let key_id = entry.get("keyId").and_then(serde_json::Value::as_str);
+            let key = entry
+                .get("publicKeyHex")
+                .and_then(serde_json::Value::as_str);
+            let (Some(key_id), Some(key)) = (key_id, key) else {
+                return Err("runtime release trust document has an invalid key entry".into());
+            };
+            values.push(format!("{key_id}:{key}"));
+        }
+    }
+    parse_keys(&values)
+}
+
 fn parse_keys(values: &[String]) -> Result<BTreeMap<String, VerifyingKey>, String> {
-    values
-        .iter()
-        .map(|value| {
-            let (key_id, encoded) = value
-                .split_once(':')
-                .ok_or("runtime release key must be key-id:lowercase-hex")?;
-            if key_id.is_empty()
-                || encoded.len() != 64
-                || !encoded
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            {
-                return Err("runtime release key must be key-id:lowercase-hex".into());
-            }
-            let bytes = hex::decode(encoded).map_err(|_| "runtime release key is not hex")?;
-            let key = VerifyingKey::from_bytes(
-                bytes
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| "runtime release key must be 32 bytes")?,
-            )
-            .map_err(|_| "runtime release key is invalid")?;
-            Ok((key_id.to_owned(), key))
-        })
-        .collect()
+    let mut parsed = BTreeMap::new();
+    for value in values {
+        let (key_id, encoded) = value
+            .split_once(':')
+            .ok_or("runtime release key must be key-id:lowercase-hex")?;
+        if key_id.is_empty()
+            || encoded.len() != 64
+            || !encoded
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("runtime release key must be key-id:lowercase-hex".into());
+        }
+        let bytes = hex::decode(encoded).map_err(|_| "runtime release key is not hex")?;
+        let key = VerifyingKey::from_bytes(
+            bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "runtime release key must be 32 bytes")?,
+        )
+        .map_err(|_| "runtime release key is invalid")?;
+        if parsed.insert(key_id.to_owned(), key).is_some() {
+            return Err("runtime release trust repeats a key id".into());
+        }
+    }
+    Ok(parsed)
 }
 
 fn package_version() -> RuntimeVersion {
@@ -145,7 +189,7 @@ mod tests {
         SignedRuntimeRelease,
     };
 
-    use super::{load, parse_keys, platform_target};
+    use super::{load, load_keys, parse_keys, platform_target};
 
     #[test]
     fn key_parser_fails_closed() {
@@ -204,7 +248,9 @@ mod tests {
             .store(&path, &trust, 1)
             .unwrap();
         let key_text = format!("release-1:{}", hex::encode(key.verifying_key().to_bytes()));
-        let checks = load(true, Some(&path), &[key_text], 1).unwrap().unwrap();
+        let checks = load(true, Some(&path), None, &[key_text], 1)
+            .unwrap()
+            .unwrap();
         assert_eq!(
             checks
                 .check(
@@ -216,6 +262,24 @@ mod tests {
                 .state,
             RuntimeUpdateCheckState::Available
         );
-        assert!(load(true, Some(&path), &[], 1).is_err());
+        assert!(load(true, Some(&path), None, &[], 1).is_err());
+    }
+
+    #[test]
+    fn trust_document_is_strict_and_can_supply_the_only_key() {
+        let key = SigningKey::from_bytes(&[8; 32]);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("trust.json");
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"schemaVersion":1,"keys":[{{"keyId":"release-1","publicKeyHex":"{}"}}]}}"#,
+                hex::encode(key.verifying_key().to_bytes())
+            ),
+        )
+        .unwrap();
+        assert!(load_keys(Some(&path), &[]).is_ok());
+        std::fs::write(&path, r#"{"schemaVersion":2,"keys":[]}"#).unwrap();
+        assert!(load_keys(Some(&path), &[]).is_err());
     }
 }

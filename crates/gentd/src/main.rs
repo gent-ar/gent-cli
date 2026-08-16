@@ -82,6 +82,9 @@ struct Args {
     /// Cached signed release metadata required by the explicit read-only check profile.
     #[arg(long, env = "GENT_RUNTIME_RELEASE_CACHE")]
     runtime_release_cache: Option<PathBuf>,
+    /// Sigstore-verified public trust document published with runtime release metadata.
+    #[arg(long, env = "GENT_RUNTIME_RELEASE_TRUST")]
+    runtime_release_trust: Option<PathBuf>,
     /// Trusted release key as `key-id:lowercase-hex`; may be passed more than once.
     #[arg(long = "runtime-release-key", env = "GENT_RUNTIME_RELEASE_KEY")]
     runtime_release_keys: Vec<String>,
@@ -102,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let update_checks = runtime_update_config::load(
         args.runtime_update_check_authority,
         args.runtime_release_cache.as_deref(),
+        args.runtime_release_trust.as_deref(),
         &args.runtime_release_keys,
         startup::unix_seconds(),
     )?;

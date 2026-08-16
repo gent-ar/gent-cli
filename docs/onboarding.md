@@ -65,6 +65,13 @@ To assess an already-verified offline manifest, start `gentd` with
 `GENT_COMPATIBILITY_*` environment variables). This only revalidates local
 signed data; it neither downloads a manifest nor starts a provider.
 
+For a runtime-release status check, the equivalent explicit profile is
+`--runtime-update-check-authority --runtime-release-cache <path>
+--runtime-release-trust <path>`. The trust document is the Sigstore-verified
+public file published with runtime-release metadata; it can replace individual
+`--runtime-release-key <key-id:lowercase-hex>` arguments. This profile only
+revalidates cached signed metadata and cannot fetch, stage, or activate Gent.
+
 `gent doctor` is read-only discovery. It reports private Claurst integration as
 `notConfigured` in this public repository; it never accepts Claurst endpoint,
 credential, billing, or routing configuration.

@@ -36,6 +36,11 @@ repository. High-assurance
 deployments should download the release bootstrap and verify its bundle before
 execution rather than using a moving source URL.
 
+The runtime trust document is not itself permission to replace a running
+daemon. It only supplies public verification keys to the explicit cached
+status profile; staging, health confirmation, supervised activation, and
+rollback remain separate daemon authority gates.
+
 ## Verify a downloaded archive
 
 First check the archive digest and manifest without network access:
