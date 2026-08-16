@@ -30,7 +30,7 @@ def target() -> str:
     return values[(system, machine)]
 
 
-def create_release(root: Path, version: str, runtime_target: str) -> str:
+def create_release(root: Path, version: str, runtime_target: str, include_supervisor: bool = True) -> str:
     source, output = root / "source", root / "output"
     source.mkdir(parents=True)
     output.mkdir()
@@ -63,11 +63,15 @@ def create_release(root: Path, version: str, runtime_target: str) -> str:
         f"{archive.name}.manifest.json.sigstore.json",
     ):
         (root / name).write_text("{}", encoding="utf-8")
-    for source_path, destination in (
+    helpers = [
         (ROOT / "tools" / "install.sh", root / "gent-install.sh"),
         (ROOT / "tools" / "activate-install.py", root / "gent-activate-install.py"),
-        (ROOT / "tools" / "supervise-runtime-activation.py", root / "gent-supervise-runtime-activation.py"),
-    ):
+    ]
+    if include_supervisor:
+        helpers.append(
+            (ROOT / "tools" / "supervise-runtime-activation.py", root / "gent-supervise-runtime-activation.py")
+        )
+    for source_path, destination in helpers:
         shutil.copy(source_path, destination)
         (root / f"{destination.name}.sigstore.json").write_text("{}", encoding="utf-8")
     return hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -126,7 +130,7 @@ def main() -> None:
         releases.mkdir()
         fake.mkdir()
         runtime_target = target()
-        first = create_release(releases / "v1.2.3", "v1.2.3", runtime_target)
+        first = create_release(releases / "v1.2.3", "v1.2.3", runtime_target, include_supervisor=False)
         second = create_release(releases / "v1.2.4", "v1.2.4", runtime_target)
         cosign = fake / "cosign"
         cosign.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
@@ -143,6 +147,8 @@ def main() -> None:
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.3"
             subprocess.run(command("v1.2.3", first, install, data, env), cwd=ROOT, env=env, check=True)
             assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.3-" + runtime_target)
+            legacy = install / "lib" / "gent" / "releases" / f"v1.2.3-{runtime_target}"
+            assert not (legacy / "supervise-runtime-activation.py").exists()
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.4"
             lock = held_lock(data / "gentd.lock")
             try:
