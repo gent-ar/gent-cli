@@ -67,6 +67,17 @@ until the migration plan's evidence, observer, and cutover gates are satisfied.
 
 ## Try it
 
+Install a signed release (or rerun with `--force` to update it):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gent-ar/gent-cli/main/tools/install.sh | sh
+```
+
+The installer requires `curl`, `python3`, `tar`, and `cosign`; it verifies the
+GitHub OIDC signature and the archive manifest before it installs either binary.
+Set `GENT_VERSION=vX.Y.Z` to pin a release, or `GENT_INSTALL_DIR` to change the
+default `~/.local` install root.
+
 ```sh
 cargo run -p gent-cli -- doctor
 cargo run -p gent-cli -- status

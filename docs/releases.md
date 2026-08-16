@@ -15,6 +15,7 @@ files:
 - a JSON manifest naming the archive, target, version, digest, size, and
   contained binaries;
 - a Sigstore bundle for each of the preceding files.
+- a signed `gent-install.sh` bootstrap and its Sigstore bundle.
 
 The package tool fixes archive metadata to `SOURCE_DATE_EPOCH`, derived from
 the tagged commit. This makes archive construction deterministic for identical
@@ -22,8 +23,10 @@ binary inputs. It does not claim independently rebuilt Rust binaries are
 bit-for-bit reproducible across hosts.
 
 The workflow signs every published file keylessly with GitHub Actions OIDC.
-It needs `id-token: write` only in the packaging jobs; no long-lived signing
-key or credential is stored in the repository.
+It needs `id-token: write` only in packaging/publishing jobs; no long-lived
+signing key or credential is stored in the repository. High-assurance
+deployments should download the release bootstrap and verify its bundle before
+execution rather than using a moving source URL.
 
 ## Verify a downloaded archive
 

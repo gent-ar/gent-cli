@@ -6,6 +6,17 @@ or starts a provider automatically.
 
 ## First run
 
+Install (or update) Gent from a signed GitHub release with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gent-ar/gent-cli/main/tools/install.sh | sh
+```
+
+The script verifies the archive's GitHub OIDC Sigstore bundle and its manifest
+before replacing either binary. It supports macOS arm64/x86_64 and Linux x86_64.
+Use `GENT_VERSION=vX.Y.Z` to pin a release and `--force` only after reviewing a
+new release. Ensure `~/.local/bin` (or `GENT_INSTALL_DIR/bin`) is on `PATH`.
+
 1. Run `gent doctor`. It starts the local daemon if needed and reports Claude,
    Codex, Node.js, MCP observer state, private-bridge availability, executable
    identity, and remediation as JSON.
