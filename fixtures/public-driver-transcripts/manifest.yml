@@ -28,7 +28,7 @@ cells:
   - { vendor: codex, scenario: compaction, state: capture_required }
   - { vendor: codex, scenario: mcp_tool, state: capture_required }
   - { vendor: codex, scenario: resume, state: recorded, path: codex-resume-gpt-5-6-luna-20260816.jsonl }
-  - { vendor: codex, scenario: interrupt, state: capture_required }
-  - { vendor: codex, scenario: steer, state: capture_required }
+  - { vendor: codex, scenario: interrupt, state: recorded, path: codex-interrupt-live.jsonl }
+  - { vendor: codex, scenario: steer, state: recorded, path: codex-steer-live.jsonl }
   - { vendor: codex, scenario: usage_cost, state: recorded, path: codex-usage-cost-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: malformed_tolerance, state: capture_required }

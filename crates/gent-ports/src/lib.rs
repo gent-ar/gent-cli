@@ -6,7 +6,6 @@ use gent_types::{
 };
 mod attachment_blobs;
 mod attachment_ledger;
-mod automation_execution_ledger;
 mod capability_catalog;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
@@ -32,7 +31,6 @@ mod tool_source_ledger;
 mod workspace_ledger;
 pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
-pub use automation_execution_ledger::{AutomationExecutionLedger, AutomationExecutionUpdate};
 pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_activity_ledger::*;
 pub use conversation_artifacts::ConversationArtifactLedger;

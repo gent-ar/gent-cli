@@ -87,7 +87,9 @@ CREATE TABLE IF NOT EXISTS tool_sources (
 );
 ";
 
-const AUTOMATION_EXECUTIONS: &str = "
+// Migration 11 is retained byte-for-byte for existing-ledger checksum compatibility.
+// No public runtime, port, or daemon surface reads or writes this retired app-owned table.
+const RETIRED_AUTOMATION_EXECUTIONS: &str = "
 CREATE TABLE IF NOT EXISTS automation_executions (
     execution_id TEXT PRIMARY KEY NOT NULL,
     workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
@@ -155,7 +157,7 @@ const MIGRATIONS: [Migration; 20] = [
     migration(8, POLICIES),
     migration(9, GIT_OPERATIONS),
     migration(10, TOOL_SOURCES),
-    migration(11, AUTOMATION_EXECUTIONS),
+    migration(11, RETIRED_AUTOMATION_EXECUTIONS),
     migration(12, RUN_CHECKPOINTS),
     migration(13, ATTACHMENTS),
     migration(14, ATTACHMENT_TRANSFER_KEYS),

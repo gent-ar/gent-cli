@@ -27,11 +27,10 @@ composes them; callers, including a later Flutter integration, invoke `gent`
 or the local protocol rather than launching Claude, Codex, Claurst, or MCP
 processes directly.
 
-`gent-automations` and `gent-pairing` retain pure platform-contract policy and
-value boundaries, but device pairing and application automations are explicitly
-Flutter-app-owned. They are not `gentd` APIs, are not executable CLI domains,
-and will not receive a daemon composition path. No domain crate can obtain
-write authority or launch external work in this milestone.
+Device pairing and application automations are explicitly Flutter-app-owned.
+They are outside this workspace: they are not `gentd` APIs and have no CLI,
+persistence, or daemon composition path here. No agent-chat domain crate can
+obtain authority over those app-owned concerns.
 
 This is the standalone repository's current product-scope decision. It narrows
 older planning material that provisionally grouped pairing and automations with

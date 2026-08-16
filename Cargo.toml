@@ -2,7 +2,7 @@
 members = [
   "crates/gent-types", "crates/gent-ports", "crates/gent-core", "crates/gent-protocol",
   "crates/gent-adapters", "crates/gent-store", "crates/gent-drivers", "crates/gent-git",
-  "crates/gent-mcp", "crates/gent-automations", "crates/gent-pairing", "crates/gent-runtime",
+  "crates/gent-mcp", "crates/gent-runtime",
   "crates/gent-testkit", "crates/gentd", "crates/gent-cli",
 ]
 resolver = "3"

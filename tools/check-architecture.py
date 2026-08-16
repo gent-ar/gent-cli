@@ -17,8 +17,6 @@ ALLOWED = {
     "gent-drivers": {"gent-types", "gent-ports"},
     "gent-git": {"gent-types", "gent-ports"},
     "gent-mcp": {"gent-types", "gent-ports"},
-    "gent-automations": {"gent-types", "gent-ports"},
-    "gent-pairing": {"gent-types", "gent-protocol"},
     "gent-runtime": {"gent-types", "gent-ports", "gent-core", "gent-protocol"},
     "gent-testkit": {"gent-types", "gent-ports", "gent-protocol"},
     "gentd": None,
@@ -27,11 +25,9 @@ ALLOWED = {
 
 PRODUCT_DOMAINS = {
     "gent-adapters",
-    "gent-automations",
     "gent-drivers",
     "gent-git",
     "gent-mcp",
-    "gent-pairing",
     "gent-store",
 }
 

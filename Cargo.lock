@@ -499,14 +499,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gent-automations"
-version = "0.1.4"
-dependencies = [
- "gent-types",
- "sha2",
-]
-
-[[package]]
 name = "gent-cli"
 version = "0.1.4"
 dependencies = [
@@ -564,16 +556,6 @@ dependencies = [
 name = "gent-mcp"
 version = "0.1.4"
 dependencies = [
- "thiserror",
-]
-
-[[package]]
-name = "gent-pairing"
-version = "0.1.4"
-dependencies = [
- "gent-protocol",
- "gent-types",
- "serde_json",
  "thiserror",
 ]
 

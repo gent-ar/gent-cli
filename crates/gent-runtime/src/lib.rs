@@ -1,7 +1,6 @@
 //! Coordinator orchestration over pure policy and durable ports.
 mod attachment_receipts;
 mod attachments;
-mod automation_executions;
 pub mod catalog;
 mod conversation_activity;
 mod conversation_content;

@@ -1,7 +1,6 @@
 //! Pure runtime policy and reducer rules. This crate never opens a database or process.
 use gent_types::HostEpoch;
 mod attachment_transfer;
-mod automation_execution;
 mod conversation_activity;
 mod decision_settlement;
 mod git_operation;
@@ -14,7 +13,6 @@ mod runtime_update;
 mod tool_classification;
 mod turn_lifecycle;
 pub use attachment_transfer::*;
-pub use automation_execution::permits_automation_execution_transition;
 pub use conversation_activity::{
     ConversationActivityProjection, ConversationActivityUpdate, project_conversation_activity,
 };

@@ -7,7 +7,6 @@ use uuid::Uuid;
 mod agent_chat;
 mod agent_chat_intent;
 mod attachments;
-mod automation_executions;
 mod capability_catalog;
 mod conversation_activity;
 mod conversation_activity_record;
@@ -45,7 +44,6 @@ pub use agent_chat_intent::{
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
 };
-pub use automation_executions::{AutomationExecutionPhase, AutomationExecutionRecord};
 pub use capability_catalog::CapabilityCatalogRecord;
 pub use conversation_activity::{
     ActivityWork, ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivity,

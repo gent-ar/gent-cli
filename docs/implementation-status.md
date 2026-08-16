@@ -6,7 +6,7 @@ not claim provider or app compatibility evidence that has not been recorded.
 
 ## Implemented foundations
 
-- [x] Fifteen-crate Rust workspace with enforced dependency law.
+- [x] Thirteen-crate Rust workspace with enforced dependency law.
 - [x] Protocol negotiation and bounded length-prefixed JSON local IPC.
 - [x] SQLite receipt/event ledger, idempotency, event cursors, and epoch checks.
 - [x] Explicit public dependency actions are daemon-owned, plan-digest reviewed,
@@ -77,8 +77,6 @@ not claim provider or app compatibility evidence that has not been recorded.
       no Git process execution is enabled.
 - [x] Durable workspace tool-source declarations for MCP, built-in, and host integrations;
       declarations contain no credentials/endpoints and cannot connect or spawn a source.
-- [x] Durable workspace automation-execution records with duplicate-trigger prevention and
-      terminal-safe transitions; scheduler, webhook, and process execution remain disabled.
 - [x] Durable ordered run checkpoints with monotonic event cursors and digest-only state references;
       checkpoint persistence cannot resume or leave a provider process running.
 - [x] Durable, append-only workspace provider-permission policy revisions with canonical secret-free allow-lists.
@@ -157,7 +155,7 @@ not claim provider or app compatibility evidence that has not been recorded.
       dedicated SQLite message ledger while receipt/event payloads retain only identities,
       digest, byte length, and assigned sequence. Recovery safely retries its one idempotent
       database transaction; it is uncomposed by observer-mode `gentd` and never starts a provider.
-- [x] Worktree lease policy, MCP registry/lifecycle, automation policy, and pairing replay semantics.
+- [x] Worktree lease policy and MCP registry/lifecycle.
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.

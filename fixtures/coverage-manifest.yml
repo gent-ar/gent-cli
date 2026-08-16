@@ -68,7 +68,7 @@ features:
   subagents: { state: emulated, evidence: required, legacy_owner: app-session-host }
   turn_control: { state: supported, evidence: required, legacy_owner: app-session-host }
   checkpoints: { state: supported, evidence: required, legacy_owner: app-session-host }
-  automations: { state: supported, evidence: required, legacy_owner: app-automation-host }
+  automations: { state: not_applicable, evidence: required, legacy_owner: none, rationale: "application automations are Flutter-owned and outside gent-cli/gentd authority" }
   prompts_knowledge: { state: supported, evidence: required, legacy_owner: app-knowledge-host }
   canvas_web_preview: { state: supported, evidence: required, legacy_owner: app-preview-host }
   notifications_activity: { state: supported, evidence: required, legacy_owner: app-activity-host }
@@ -78,7 +78,7 @@ features:
   # worktree half.
   git_operations: { state: supported, evidence: required, legacy_owner: app-git-host }
   worktrees: { state: not_applicable, evidence: required, legacy_owner: none, rationale: "no git-worktree or lease code exists anywhere in the app; net-new per 00-PLATFORM-CONTRACT.md invariant #3" }
-  pairing: { state: supported, evidence: required, legacy_owner: app-pairing-host }
+  pairing: { state: not_applicable, evidence: required, legacy_owner: none, rationale: "device pairing is Flutter-owned and outside gent-cli/gentd authority" }
   # Newly represented: verified as real, shipped UI surfaces with no prior
   # manifest row (08-AUDIT-FINDINGS.md P1-12).
   terminals: { state: supported, evidence: required, legacy_owner: app-terminal-host }

@@ -9,8 +9,6 @@ use gent_types::{
 use rusqlite::{Connection, params};
 use std::{path::Path, sync::Arc, sync::Mutex, time::Duration};
 mod attachment_ledger;
-mod automation_execution_ledger;
-mod automation_executions;
 mod capability_catalog;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
