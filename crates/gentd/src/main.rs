@@ -27,6 +27,7 @@ mod provider_resolver;
 mod provider_resolver_tests;
 mod public_runs;
 mod runtime_facade;
+mod runtime_update_authority;
 mod runtime_update_config;
 mod runtime_update_transport;
 mod startup;
@@ -79,6 +80,16 @@ struct Args {
     /// This does not enable downloads, staging, activation, or self-replacement.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_CHECK_AUTHORITY")]
     runtime_update_check_authority: bool,
+    /// Durably plan one already-cached signed runtime release.
+    ///
+    /// This opt-in authority never downloads, stages, health-checks, or replaces this process.
+    /// It exists to make an approved external-supervisor handoff auditable before activation is
+    /// wired into a later migration phase.
+    #[arg(long, env = "GENT_RUNTIME_UPDATE_PLAN_AUTHORITY")]
+    runtime_update_plan_authority: bool,
+    /// Stable idempotency key for an explicitly approved local planning attempt.
+    #[arg(long, env = "GENT_RUNTIME_UPDATE_ATTEMPT_ID")]
+    runtime_update_attempt_id: Option<String>,
     /// Cached signed release metadata required by the explicit read-only check profile.
     #[arg(long, env = "GENT_RUNTIME_RELEASE_CACHE")]
     runtime_release_cache: Option<PathBuf>,
@@ -102,15 +113,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
-    let update_checks = runtime_update_config::load(
-        args.runtime_update_check_authority,
-        args.runtime_release_cache.as_deref(),
-        args.runtime_release_trust.as_deref(),
-        &args.runtime_release_keys,
-        startup::unix_seconds(),
-    )?;
+    if !args.runtime_update_check_authority
+        && !args.runtime_update_plan_authority
+        && (args.runtime_release_cache.is_some()
+            || args.runtime_release_trust.is_some()
+            || !args.runtime_release_keys.is_empty())
+    {
+        return Err("runtime release settings require explicit check or plan authority".into());
+    }
+    let update_checks = args
+        .runtime_update_check_authority
+        .then(|| {
+            runtime_update_config::load(
+                true,
+                args.runtime_release_cache.as_deref(),
+                args.runtime_release_trust.as_deref(),
+                &args.runtime_release_keys,
+                startup::unix_seconds(),
+            )
+        })
+        .transpose()?
+        .flatten();
     let observed_capabilities =
         transport::observed_capabilities(args.agent_chat_authority, update_checks.is_some());
+    if let Some(record) = runtime_update_authority::plan_if_enabled(
+        &data_dir,
+        &observed_capabilities,
+        runtime_update_authority::RuntimeUpdatePlanConfig {
+            enabled: args.runtime_update_plan_authority,
+            attempt_id: args.runtime_update_attempt_id.as_deref(),
+            cache_path: args.runtime_release_cache.as_deref(),
+            trust_path: args.runtime_release_trust.as_deref(),
+            keys: &args.runtime_release_keys,
+            now_unix_seconds: startup::unix_seconds(),
+        },
+    )? {
+        eprintln!(
+            "planned runtime update {} at {:?}",
+            record.attempt_id, record.status.stage
+        );
+    }
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
         &args.compatibility_keys,

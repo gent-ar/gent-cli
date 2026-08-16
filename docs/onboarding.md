@@ -72,6 +72,14 @@ public file published with runtime-release metadata; it can replace individual
 `--runtime-release-key <key-id:lowercase-hex>` arguments. This profile only
 revalidates cached signed metadata and cannot fetch, stage, or activate Gent.
 
+For an approved offline planning audit, add
+`--runtime-update-plan-authority --runtime-update-attempt-id <id>` with the
+same cache and trust inputs. It records the signed release's eligibility in the
+SQLite ledger and closes ingress when the pure lifecycle reducer requires it.
+It intentionally stops before archive staging, health checks, or supervisor
+handoff; those effects remain unavailable until a separately evidenced daemon
+authority phase can acknowledge them after process exit.
+
 `gent doctor` is read-only discovery. It reports private Claurst integration as
 `notConfigured` in this public repository; it never accepts Claurst endpoint,
 credential, billing, or routing configuration.

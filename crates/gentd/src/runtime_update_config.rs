@@ -1,4 +1,4 @@
-//! Daemon composition for an explicitly configured, cached update report.
+//! Daemon composition for explicitly configured, cached runtime-update metadata.
 //!
 //! This module is intentionally limited to loading already-verified metadata.
 //! It does not fetch, persist, stage, health-check, or activate a runtime.
@@ -16,10 +16,25 @@ use gent_types::{PROTOCOL_MAX, RuntimeReleaseChannel, RuntimeVersion, SignedRunt
 /// Concrete daemon checker assembled only after cache and trust configuration validate.
 pub(crate) type DaemonRuntimeUpdateChecks = RuntimeUpdateCheckService<CachedReleaseSource>;
 
+/// Verified local release material shared by the check and plan compositions.
+#[derive(Clone, Debug)]
+pub(crate) struct TrustedRuntimeRelease {
+    pub(crate) source: CachedReleaseSource,
+    pub(crate) trust: RuntimeReleaseTrust,
+    pub(crate) context: RuntimeUpdateCheckContext,
+}
+
 /// Immutable source backed by a release cache validated at daemon startup.
 #[derive(Clone, Debug)]
 pub(crate) struct CachedReleaseSource {
     release: SignedRuntimeRelease,
+}
+
+impl CachedReleaseSource {
+    #[must_use]
+    pub(crate) fn release(&self) -> &SignedRuntimeRelease {
+        &self.release
+    }
 }
 
 impl RuntimeReleaseSource for CachedReleaseSource {
@@ -58,21 +73,38 @@ pub(crate) fn load(
         }
         return Ok(None);
     }
-    let cache_path = cache_path.ok_or("runtime update check requires --runtime-release-cache")?;
-    let trust = RuntimeReleaseTrust::new(load_keys(trust_path, keys)?);
+    let trusted = load_trusted(cache_path, trust_path, keys, now_unix_seconds)?;
+    Ok(Some(RuntimeUpdateCheckService::new(
+        trusted.source,
+        trusted.trust,
+        trusted.context,
+        RuntimeUpdateCheckAuthority::CachedReadOnly,
+    )))
+}
+
+/// Loads one cached signed release for a separately approved local authority action.
+///
+/// No network source is accepted here: a caller must have already placed the signed cache
+/// through its own authenticated distribution path.
+pub(crate) fn load_trusted(
+    cache_path: Option<&Path>,
+    trust_path: Option<&Path>,
+    keys: &[String],
+    now_unix_seconds: u64,
+) -> Result<TrustedRuntimeRelease, String> {
+    let cache_path = cache_path.ok_or("runtime update requires --runtime-release-cache")?;
     if trust_path.is_none() && keys.is_empty() {
-        return Err(
-            "runtime update check requires a trust document or --runtime-release-key".into(),
-        );
+        return Err("runtime update requires a trust document or --runtime-release-key".into());
     }
+    let trust = RuntimeReleaseTrust::new(load_keys(trust_path, keys)?);
     let cached = CachedRuntimeRelease::load(cache_path, &trust, now_unix_seconds)
         .map_err(|error| format!("runtime release cache is not trusted: {error}"))?;
-    Ok(Some(RuntimeUpdateCheckService::new(
-        CachedReleaseSource {
+    Ok(TrustedRuntimeRelease {
+        source: CachedReleaseSource {
             release: cached.release().clone(),
         },
         trust,
-        RuntimeUpdateCheckContext {
+        context: RuntimeUpdateCheckContext {
             current_version: package_version(),
             target: platform_target()?,
             protocol: PROTOCOL_MAX,
@@ -80,8 +112,7 @@ pub(crate) fn load(
             app_version: package_version(),
             selected_cohort: true,
         },
-        RuntimeUpdateCheckAuthority::CachedReadOnly,
-    )))
+    })
 }
 
 fn load_keys(
@@ -167,7 +198,7 @@ fn package_version() -> RuntimeVersion {
     }
 }
 
-fn platform_target() -> Result<String, String> {
+pub(crate) fn platform_target() -> Result<String, String> {
     match (std::env::consts::ARCH, std::env::consts::OS) {
         ("aarch64", "macos") => Ok("aarch64-apple-darwin".into()),
         ("x86_64", "macos") => Ok("x86_64-apple-darwin".into()),
@@ -178,108 +209,5 @@ fn platform_target() -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use ed25519_dalek::{Signer, SigningKey};
-    use gent_runtime::{CachedRuntimeRelease, RuntimeReleaseTrust};
-    use gent_types::{
-        RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseArtifact, RuntimeReleaseChannel,
-        RuntimeReleaseManifest, RuntimeUpdateCheckRequest, RuntimeUpdateCheckState, RuntimeVersion,
-        SignedRuntimeRelease,
-    };
-
-    use super::{load, load_keys, parse_keys, platform_target};
-
-    #[test]
-    fn key_parser_fails_closed() {
-        assert!(parse_keys(&["key:00".into()]).is_err());
-        assert!(parse_keys(&[format!("key:{}", "A".repeat(64))]).is_err());
-    }
-
-    #[test]
-    fn target_is_one_of_the_published_release_targets() {
-        assert!(platform_target().is_ok());
-    }
-
-    #[test]
-    fn enabled_check_requires_a_trusted_cache_and_revalidates_it() {
-        let key = SigningKey::from_bytes(&[7; 32]);
-        let target = platform_target().unwrap();
-        let payload = RuntimeReleaseManifest {
-            manifest_version: RUNTIME_RELEASE_MANIFEST_VERSION,
-            release_version: RuntimeVersion {
-                major: 9,
-                minor: 0,
-                patch: 0,
-            },
-            protocol_min: 1,
-            protocol_max: gent_types::PROTOCOL_MAX,
-            schema_min: 1,
-            schema_max: gent_store::CURRENT_SCHEMA_VERSION,
-            minimum_app_version: RuntimeVersion {
-                major: 0,
-                minor: 1,
-                patch: 0,
-            },
-            channel: RuntimeReleaseChannel::Stable,
-            rollout_percent: 100,
-            expires_at_unix_seconds: 10,
-            revoked: false,
-            forward_only_schema: false,
-            artifact: RuntimeReleaseArtifact {
-                target,
-                archive_name: "gent.tar.gz".into(),
-                digest_sha256: "a".repeat(64),
-                size_bytes: 1,
-            },
-        };
-        let release = SignedRuntimeRelease {
-            key_id: "release-1".into(),
-            signature_hex: hex::encode(key.sign(&serde_json::to_vec(&payload).unwrap()).to_bytes()),
-            payload,
-        };
-        let trust =
-            RuntimeReleaseTrust::new(BTreeMap::from([("release-1".into(), key.verifying_key())]));
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("runtime-release.json");
-        CachedRuntimeRelease::verify(release, &trust, 1)
-            .unwrap()
-            .store(&path, &trust, 1)
-            .unwrap();
-        let key_text = format!("release-1:{}", hex::encode(key.verifying_key().to_bytes()));
-        let checks = load(true, Some(&path), None, &[key_text], 1)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            checks
-                .check(
-                    RuntimeUpdateCheckRequest {
-                        channel: RuntimeReleaseChannel::Stable,
-                    },
-                    1,
-                )
-                .state,
-            RuntimeUpdateCheckState::Available
-        );
-        assert!(load(true, Some(&path), None, &[], 1).is_err());
-    }
-
-    #[test]
-    fn trust_document_is_strict_and_can_supply_the_only_key() {
-        let key = SigningKey::from_bytes(&[8; 32]);
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("trust.json");
-        std::fs::write(
-            &path,
-            format!(
-                r#"{{"schemaVersion":1,"keys":[{{"keyId":"release-1","publicKeyHex":"{}"}}]}}"#,
-                hex::encode(key.verifying_key().to_bytes())
-            ),
-        )
-        .unwrap();
-        assert!(load_keys(Some(&path), &[]).is_ok());
-        std::fs::write(&path, r#"{"schemaVersion":2,"keys":[]}"#).unwrap();
-        assert!(load_keys(Some(&path), &[]).is_err());
-    }
-}
+#[path = "runtime_update_config_tests.rs"]
+mod tests;
