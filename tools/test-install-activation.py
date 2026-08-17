@@ -243,6 +243,9 @@ def test_installer_allows_an_omitted_optional_digest_before_download() -> None:
         curl = fake / "curl"
         curl.write_text(f"#!/usr/bin/env sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
         curl.chmod(0o755)
+        cosign = fake / "cosign"
+        cosign.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
+        cosign.chmod(0o755)
         result = subprocess.run(
             ["sh", str(INSTALLER), "--version", "v1.2.3"],
             env=os.environ | {"PATH": f"{fake}:{os.environ['PATH']}"},

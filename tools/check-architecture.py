@@ -66,7 +66,7 @@ def check_dependencies() -> list[str]:
 def check_file_lengths() -> list[str]:
     errors = []
     for source in source_files():
-        count = len(source.read_text().splitlines())
+        count = len(source.read_text(encoding="utf-8").splitlines())
         if count > 300:
             errors.append(f"{source.relative_to(ROOT)} has {count} lines (maximum is 300)")
     return errors
@@ -100,7 +100,7 @@ def check_production_imports() -> list[str]:
         crate = source.relative_to(ROOT / "crates").parts[0]
         if crate == "gentd":
             continue
-        lines = source.read_text().splitlines()
+        lines = source.read_text(encoding="utf-8").splitlines()
         ignored = test_module_lines(lines)
         for index, line in enumerate(lines):
             if index in ignored:
