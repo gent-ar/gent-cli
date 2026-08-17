@@ -65,7 +65,9 @@ fn runtime_root_from_executable(executable: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{runtime_root, runtime_root_from_executable};
+    use super::runtime_root;
+    #[cfg(unix)]
+    use super::runtime_root_from_executable;
 
     #[test]
     fn development_binary_is_not_mistaken_for_an_installed_runtime() {
