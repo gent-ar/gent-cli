@@ -80,6 +80,8 @@ jobs:
         run: python tools/test-installer-runtime-bootstrap.py
       - if: runner.os == 'Windows'
         run: powershell -ExecutionPolicy Bypass -File tools/test-install-windows.ps1
+      - if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File tools/test-gent-auto-update-windows.ps1
       - run: python -m py_compile tools/capture-public-driver-transcript.py
       - run: python tools/test-capture-public-driver-transcript.py
       - run: python -m py_compile tools/update-public-driver-transcripts.py

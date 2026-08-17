@@ -13,6 +13,8 @@ mod decision;
 mod event_stream;
 mod local_ipc;
 mod permissions_cli;
+mod provider_auth_cli;
+mod reviewed_plan_cli;
 mod runtime_maintenance;
 mod runtime_update_check;
 mod terminal;

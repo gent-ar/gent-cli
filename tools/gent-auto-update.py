@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run or install an opt-in external Gent paired-runtime update scheduler."""
+"""Run or install Gent's external paired-runtime update scheduler."""
 
 from __future__ import annotations
 
@@ -64,6 +64,26 @@ def require_install(root: Path) -> tuple[Path, tuple[int, int, int]]:
 
 def runtime_file(root: Path) -> Path:
     return root / "auto-update-state.json"
+
+
+def disabled_marker(root: Path) -> Path:
+    return root / ".gent-auto-update-disabled"
+
+
+def clear_disabled_marker(root: Path) -> None:
+    marker = disabled_marker(root)
+    if marker.exists() or marker.is_symlink():
+        if marker.is_symlink() or not marker.is_file():
+            fail("automatic-update preference marker is unsafe")
+        marker.unlink()
+
+
+def write_disabled_marker(root: Path) -> None:
+    marker = disabled_marker(root)
+    temporary = marker.with_name(f".{marker.name}.{os.getpid()}")
+    temporary.write_text("disabled\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    os.replace(temporary, marker)
 
 
 def read_state(root: Path) -> dict[str, object]:
@@ -181,6 +201,7 @@ def systemd_argument(value: str) -> str:
 
 def enable(values: argparse.Namespace) -> None:
     require_install(values.runtime_root)
+    clear_disabled_marker(values.runtime_root)
     if not MIN_INTERVAL <= values.interval_seconds <= MAX_INTERVAL:
         fail(f"interval must be {MIN_INTERVAL}..{MAX_INTERVAL} seconds")
     first, second = schedule_paths(values)
@@ -209,6 +230,7 @@ def disable(values: argparse.Namespace) -> None:
     for path in (first, second):
         if path is not None:
             path.unlink(missing_ok=True)
+    write_disabled_marker(values.runtime_root)
 
 
 def main() -> None:

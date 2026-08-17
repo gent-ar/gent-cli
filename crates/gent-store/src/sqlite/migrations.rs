@@ -88,12 +88,10 @@ CREATE TABLE IF NOT EXISTS automation_executions (
     UNIQUE (workspace_id, automation_id, trigger_key)
 );
 ";
-
 const RUN_CHECKPOINTS: &str = include_str!("run_checkpoints.sql");
 const ATTACHMENTS: &str = include_str!("attachments.sql");
 const ATTACHMENT_TRANSFER_KEYS: &str = include_str!("attachment_transfer_keys.sql");
 const RECEIPT_FINGERPRINTS: &str = include_str!("receipt_fingerprints.sql");
-
 const MCP_CONNECTORS: &str = "
 CREATE TABLE IF NOT EXISTS mcp_connectors (
     connector_id TEXT PRIMARY KEY NOT NULL,
@@ -128,6 +126,7 @@ const AGENT_CHAT: &str = include_str!("agent_chat.sql");
 const AGENT_CHAT_PROMPTS: &str = include_str!("agent_chat_ledger/prompt.sql");
 const AGENT_CHAT_SELECTION_SWITCHES: &str = include_str!("agent_chat_ledger/switch.sql");
 const POLICIES_PERMISSION_PROFILES: &str = include_str!("policies_permission_profiles.sql");
+const REVIEWED_PLANS: &str = include_str!("reviewed_plans.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -139,7 +138,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 24] = [
+const MIGRATIONS: [Migration; 25] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -164,6 +163,7 @@ const MIGRATIONS: [Migration; 24] = [
     migration(22, AGENT_CHAT_PROMPTS),
     migration(23, AGENT_CHAT_SELECTION_SWITCHES),
     migration(24, POLICIES_PERMISSION_PROFILES),
+    migration(25, REVIEWED_PLANS),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

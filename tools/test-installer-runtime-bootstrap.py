@@ -110,7 +110,12 @@ def main() -> None:
         server = Server(("127.0.0.1", port), partial(http.server.SimpleHTTPRequestHandler, directory=str(releases)))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        environment = os.environ | {"PATH": f"{fake}:{os.environ['PATH']}", "GENT_RELEASE_BASE_URL": f"http://127.0.0.1:{port}"}
+        scheduler = root / "scheduler"
+        environment = os.environ | {
+            "PATH": f"{fake}:{os.environ['PATH']}",
+            "GENT_RELEASE_BASE_URL": f"http://127.0.0.1:{port}",
+            "GENT_AUTO_UPDATE_SCHEDULER_DIR": str(scheduler),
+        }
         try:
             command_result = subprocess.run(
                 ["sh", str(ROOT / "tools/install.sh"), "--version", version, "--install-dir", str(install)],
@@ -128,11 +133,9 @@ def main() -> None:
         assert (install / "lib/gent/gent-auto-update.py").is_file()
         status = subprocess.run(
             [str(install / "bin/gent"), "--data-dir", str(root / "data"), "update", "auto", "status"],
-            check=True,
-            text=True,
-            capture_output=True,
+            check=True, text=True, capture_output=True, env=environment,
         )
-        assert json.loads(status.stdout) == {"enabled": False, "failureCount": 0, "nextEligibleAt": 0, "schemaVersion": 1}
+        assert json.loads(status.stdout) == {"enabled": True, "failureCount": 0, "nextEligibleAt": 0, "schemaVersion": 1}
     print("installer runtime bootstrap checks passed")
 
 

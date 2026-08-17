@@ -3,6 +3,7 @@
 This document records implemented repository work separately from live-runtime
 evidence. A checked box means code and deterministic tests exist here; it does
 not claim provider or app compatibility evidence that has not been recorded.
+For the current working-tree context and continuation order, read [the handoff](continuation-handoff.md).
 
 ## Implemented foundations
 
@@ -138,10 +139,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       durable-write, archive-download, staging, or activation capability. `gent update check`
       now requires that negotiated daemon capability rather than performing client-owned discovery.
 - [x] Signed, expiring release-index DTOs and runtime trust verification for target-specific,
-      tag/version-consistent, digest-bound release-manifest offers. A signed external macOS/Linux
-      helper provides opt-in LaunchAgent/systemd-user scheduling, serialized idle-only checks,
-      bounded retry backoff, and tag-bound bootstrap verification before it delegates activation.
-      It is not a daemon scheduler or observer update authority; Windows remains manual.
+      tag/version-consistent, digest-bound release-manifest offers. A signed external helper
+      provides default LaunchAgent/systemd-user/Scheduled Task scheduling, serialized idle-only
+      checks, bounded retry backoff, and tag-bound bootstrap verification before it delegates
+      activation. It is not a daemon scheduler or observer update authority.
 - [x] Authority-gated, versioned `runtime-maintenance-v1` status reads expose one durable
       update attempt's exact stage/failure/revision and host ingress state through negotiated
       local IPC. It is unavailable in observer mode and cannot fetch, schedule, stage, or
@@ -249,9 +250,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 1. [ ] `gentd` remains observer/intent-only: it must not route live Claude, Codex, Claurst,
    MCP, or Git work until each authority gate is proven. The dormant seams are not a claim of
    live authority.
-2. [ ] There is no authoritative provider-lifecycle ingress yet. Flutter and terminal clients
-   must not treat conversation activity as live truth; they must use negotiated authoritative
-   snapshots/deltas only after that ingress is approved.
+2. [ ] There is no authoritative provider-lifecycle ingress yet. The required realtime
+   browse/create/prompt/follow-up/reconnect path is in [the client contract](realtime-agent-chat-client-plan.md);
+   until approved, Flutter and terminal clients must not treat activity as live truth.
 3. [ ] The strict public evidence program has six Claude/Codex cells. Two Codex cells are
    recorded; four remain: Claude persistent-permission, compaction, malformed-tolerance, and
    Codex malformed-tolerance. Captures must be redacted, scenario-specific, and live. A malformed
@@ -270,8 +271,9 @@ not claim provider or app compatibility evidence that has not been recorded.
    public key/id configuration (`runtime-2026-08`). `v0.1.14` is published with all 46 assets,
    Sigstore sidecars (including the versioned runtime-release index), and successful hosted plus
    independent clean-install, terminal-IPC, automatic-update-status, and supervisor-rejection checks.
-7. [ ] `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching
-   with preserved context are follow-on runtime work, not shipped functionality.
+7. [ ] Reviewed-plan storage, exact approval/rejection, and receipt-backed context-boundary child reservations exist but remain unadvertised until lifecycle/evidence authority is approved; see [reviewed-plan execution](agent-chat-execution-plan.md). `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching are also follow-on work.
+8. [ ] Provider-auth discovery and consented Claude/Codex login require the typed `askTool`
+   contract, sandboxed authority, locked binaries, and redacted live evidence; see [provider-auth-plan.md](provider-auth-plan.md).
 
 Also required: a separately authorized Flutter integration must use the negotiated, long-lived
 `gentd` connection for agent-chat work and must not launch provider binaries directly. Pairing and
@@ -294,7 +296,5 @@ Claurst credentials. The later native domains and this continuity contract requi
 their own protocol, persistence, receipts, observer-disablement, and live-evidence
 work before they are advertised.
 
-The coverage manifest blocks an authority-transfer invocation while its real
-evidence records are absent. This is deliberate: recorded provider evidence is
-an external prerequisite, never a placeholder. A future app launch separately
-enforces its one-writer/host-epoch guard.
+The coverage manifest blocks authority transfer while real evidence is absent;
+recorded provider evidence is external, never a placeholder. A future app launch enforces one-writer/host-epoch.

@@ -1,4 +1,4 @@
-//! External, opt-in runtime update scheduler handoff.
+//! External runtime update scheduler handoff.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,12 +22,26 @@ pub(crate) enum AutoUpdateError {
 /// Invokes the signed helper next to the active runtime; never contacts a release source itself.
 pub(crate) fn invoke(action: &AutoUpdateAction, data_dir: PathBuf) -> Result<(), AutoUpdateError> {
     let runtime_root = runtime_root()?;
-    let helper = runtime_root.join("gent-auto-update.py");
+    let helper = runtime_root.join(helper_name());
     let metadata = std::fs::symlink_metadata(&helper).map_err(|_| AutoUpdateError::UnsafeHelper)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(AutoUpdateError::UnsafeHelper);
     }
-    let mut command = Command::new("python3");
+    let mut command = Command::new(helper_runner());
+    #[cfg(windows)]
+    command
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-File")
+        .arg(helper)
+        .arg(action.name())
+        .arg("-RuntimeRoot")
+        .arg(runtime_root)
+        .arg("-DataDir")
+        .arg(data_dir);
+    #[cfg(not(windows))]
     command
         .arg(helper)
         .arg(action.name())
@@ -36,10 +50,22 @@ pub(crate) fn invoke(action: &AutoUpdateAction, data_dir: PathBuf) -> Result<(),
         .arg("--data-dir")
         .arg(data_dir);
     if let Some(interval) = action.interval_seconds() {
+        #[cfg(windows)]
+        command.arg("-IntervalSeconds").arg(interval.to_string());
+        #[cfg(not(windows))]
         command.arg("--interval-seconds").arg(interval.to_string());
     }
     if action.force() {
+        #[cfg(windows)]
+        command.arg("-Force");
+        #[cfg(not(windows))]
         command.arg("--force");
+    }
+    if let Some(directory) = std::env::var_os("GENT_AUTO_UPDATE_SCHEDULER_DIR") {
+        #[cfg(windows)]
+        command.arg("-SchedulerDir").arg(directory);
+        #[cfg(not(windows))]
+        command.arg("--scheduler-dir").arg(directory);
     }
     command
         .status()?
@@ -54,13 +80,49 @@ fn runtime_root() -> Result<PathBuf, AutoUpdateError> {
 }
 
 fn runtime_root_from_executable(executable: &Path) -> Option<PathBuf> {
-    let executable = executable.canonicalize().ok()?;
-    let release = executable.parent()?;
-    let releases = release.parent()?;
-    let root = releases.parent()?;
-    let active_release = root.join("current").canonicalize().ok()?;
-    (releases.file_name().is_some_and(|name| name == "releases") && active_release == release)
-        .then(|| root.to_path_buf())
+    #[cfg(windows)]
+    {
+        let root = executable.parent()?.parent()?;
+        let release = std::fs::read_to_string(root.join("current.json")).ok()?;
+        let release = serde_json::from_str::<serde_json::Value>(&release)
+            .ok()?
+            .get("release")?
+            .as_str()?;
+        let expected = root.join("releases").join(release).join("gent.exe");
+        return (executable
+            .file_name()
+            .is_some_and(|name| name == "gent.exe")
+            && expected.is_file()
+            && root.join("releases").is_dir())
+        .then(|| root.to_path_buf());
+    }
+    #[cfg(not(windows))]
+    {
+        let executable = executable.canonicalize().ok()?;
+        let release = executable.parent()?;
+        let releases = release.parent()?;
+        let root = releases.parent()?;
+        let active_release = root.join("current").canonicalize().ok()?;
+        (releases.file_name().is_some_and(|name| name == "releases") && active_release == release)
+            .then(|| root.to_path_buf())
+    }
+}
+
+#[cfg(windows)]
+const fn helper_name() -> &'static str {
+    "gent-auto-update.ps1"
+}
+#[cfg(not(windows))]
+const fn helper_name() -> &'static str {
+    "gent-auto-update.py"
+}
+#[cfg(windows)]
+const fn helper_runner() -> &'static str {
+    "powershell.exe"
+}
+#[cfg(not(windows))]
+const fn helper_runner() -> &'static str {
+    "python3"
 }
 
 #[cfg(test)]

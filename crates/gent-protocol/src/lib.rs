@@ -23,6 +23,8 @@ mod dependencies;
 mod event_stream;
 mod external_provider_bridge;
 mod permission_policy;
+mod provider_auth;
+mod reviewed_plan;
 mod runs;
 mod runtime_maintenance;
 mod runtime_update;
@@ -56,6 +58,11 @@ pub use external_provider_bridge::{
     ExternalProviderBridgeNegotiated,
 };
 pub use permission_policy::{PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame};
+pub use provider_auth::{
+    MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame,
+    ProviderAuthFrameError, read_provider_auth_frame, write_provider_auth_frame,
+};
+pub use reviewed_plan::{REVIEWED_PLAN_CAPABILITY, ReviewedPlanFrame, ReviewedPlanFrameError};
 pub use runs::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
     PublicRunStartRequest,

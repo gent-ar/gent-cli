@@ -39,10 +39,10 @@ over local IPC before the pointer switch and rolls back on successor failure.
 An update handoff rejects a release without that signed supervisor. It does not
 use an in-process binary replacement.
 
-## Opt-in automatic updates
+## Automatic updates
 
-After installing a release that contains the signed updater companion, macOS
-and Linux users may enable a user-level scheduler:
+The signed updater companion registers a per-user scheduler during installation.
+Use these commands to inspect, re-enable, or disable it:
 
 ```sh
 gent update auto enable --interval-seconds 21600
@@ -56,8 +56,12 @@ that tag's installer and Sigstore bundle, verifies its tag-bound GitHub OIDC
 identity, then delegates to the same installer, staged health check, idle host
 lock, and rollback path as an explicit update. It serializes runs, bounds each
 operation, and records exponential-backoff state after failures. It never
-replaces `gentd` in process or starts provider work. Windows remains manual
-until an equivalent scheduler and lock implementation are shipped.
+replaces `gentd` in process or starts provider work. On Windows x86_64, the
+same command invokes the installed signed `gent-auto-update.ps1` helper and
+registers a uniquely named per-user Scheduled Task. That helper verifies the
+selected tag's signed PowerShell bootstrap before it delegates to the same
+idle-lock and staged local-IPC-health path; a failed candidate is never
+selected, preserving the prior immutable pair.
 
 Windows x86_64 follows the same verified-bootstrap rule using
 `gent-install.ps1` and `gent-install.ps1.sigstore.json` from that tag. Its

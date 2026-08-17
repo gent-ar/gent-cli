@@ -21,8 +21,10 @@ mod legacy_event_tap;
 mod mcp_connector_executor;
 mod mcp_connector_ledger;
 mod policy_ledger;
+mod provider_auth_discovery;
 mod public_provider_resolver;
 mod public_provider_runner;
+mod reviewed_plan_ledger;
 mod run_checkpoint_ledger;
 mod run_projections;
 mod run_sessions;
@@ -54,8 +56,13 @@ pub use mcp_connector_ledger::{
     McpConnectorLease, McpConnectorLeaseClaim, McpConnectorLedger, McpConnectorUpdate,
 };
 pub use policy_ledger::PolicyLedger;
+pub use provider_auth_discovery::{
+    ProviderAuthAuthentication, ProviderAuthDiscovery, ProviderAuthDiscoveryError,
+    ProviderAuthDiscoveryPort,
+};
 pub use public_provider_resolver::PublicProviderResolver;
 pub use public_provider_runner::{PublicProviderRunError, PublicProviderRunner};
+pub use reviewed_plan_ledger::ReviewedPlanLedger;
 pub use run_checkpoint_ledger::RunCheckpointLedger;
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
@@ -167,15 +174,9 @@ pub trait Ledger: Send + Sync {
         terminal: &Event,
     ) -> Result<Receipt, LedgerError>;
     /// Atomically creates a pending decision or returns the record owning either identifier.
-    ///
-    /// # Errors
-    /// Returns an error when the decision cannot be persisted or read.
     fn claim_decision(&self, command: &DecisionCommand) -> Result<DecisionClaim, LedgerError>;
-    /// # Errors
-    /// Returns an error when the decision cannot be read.
     fn find_decision(&self, decision_id: &str) -> Result<Option<DecisionSettlement>, LedgerError>;
     /// Advances a decision only if its durable phase still equals `expected`.
-    ///
     /// # Errors
     /// Returns an error when the decision is unknown or persistence fails.
     fn replace_decision_phase(
@@ -185,12 +186,10 @@ pub trait Ledger: Send + Sync {
         next: &DecisionSettlementPhase,
     ) -> Result<DecisionPhaseUpdate, LedgerError>;
     /// Appends a cursor-ordered event outside the command receipt transaction.
-    ///
     /// # Errors
     /// Returns an error when the event cannot be persisted.
     fn append_event(&self, event: &Event) -> Result<Event, LedgerError>;
     /// Finds one durable event by its producer-stable identity.
-    ///
     /// # Errors
     /// Returns an error when the event cannot be read.
     fn find_event(&self, event_id: &str) -> Result<Option<Event>, LedgerError> {

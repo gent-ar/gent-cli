@@ -8,7 +8,7 @@ use gent_types::RuntimeReleaseChannel;
 /// Update commands intentionally stop at metadata-only status reporting.
 #[derive(Debug, Subcommand)]
 pub(crate) enum UpdateCommand {
-    /// Run, inspect, enable, or disable the external opt-in paired-runtime scheduler.
+    /// Run, inspect, enable, or disable the external paired-runtime scheduler.
     Auto {
         #[command(subcommand)]
         action: AutoUpdateAction,
@@ -40,7 +40,7 @@ pub(crate) enum UpdateCommand {
     },
 }
 
-/// Automatic updates are external, opt-in, and only operate on an installed runtime pair.
+/// Automatic updates are external and only operate on an installed runtime pair.
 #[derive(Debug, Subcommand)]
 pub(crate) enum AutoUpdateAction {
     Enable {

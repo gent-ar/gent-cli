@@ -1,6 +1,6 @@
-//! Schema validation for the pure, portable declarative-adapter format.
+//! Validation nested below the manifest domain boundary.
 
-use crate::manifest::DeclarativeAdapterManifest;
+use super::DeclarativeAdapterManifest;
 
 const SUPPORTED_PROTOCOL_VERSION: u16 = 1;
 
@@ -16,7 +16,7 @@ pub enum ManifestError {
     UnsupportedEvent { frame_type: String, target: String },
 }
 
-pub fn validate(manifest: &DeclarativeAdapterManifest) -> Result<(), ManifestError> {
+pub(super) fn validate(manifest: &DeclarativeAdapterManifest) -> Result<(), ManifestError> {
     if manifest.id.is_empty() {
         return Err(ManifestError::EmptyId);
     }
@@ -61,9 +61,8 @@ fn is_supported_target(target: &str) -> bool {
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::manifest::DeclarativeAdapterManifest;
-
     use super::{ManifestError, validate};
+    use crate::manifest::DeclarativeAdapterManifest;
 
     fn manifest() -> DeclarativeAdapterManifest {
         DeclarativeAdapterManifest {

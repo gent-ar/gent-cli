@@ -29,6 +29,9 @@ mod permission_policy_transport;
 mod permission_workspace;
 #[cfg(unix)]
 mod private_paths;
+mod provider_auth_transport;
+#[cfg(test)]
+mod provider_auth_transport_tests;
 mod provider_effects;
 mod provider_resolver;
 #[cfg(test)]
@@ -38,6 +41,9 @@ mod public_driver_runtime;
 #[cfg(test)]
 mod public_driver_runtime_tests;
 mod public_runs;
+mod reviewed_plan_transport;
+#[cfg(test)]
+mod reviewed_plan_transport_tests;
 mod runtime_facade;
 mod runtime_maintenance_transport;
 mod runtime_update_authority;

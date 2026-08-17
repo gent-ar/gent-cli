@@ -1,33 +1,14 @@
-//! Declarative, pure adapter manifests for portable public protocols.
-
-use std::collections::BTreeMap;
+//! Frame interpretation nested below the manifest domain boundary.
 
 use gent_types::{
     NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, ToolActivity, ToolPhase,
     TurnPhase, WorkPhase,
 };
-use serde::{Deserialize, Serialize};
-
-pub use crate::manifest_validation::ManifestError;
 use serde_json::Value;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct DeclarativeAdapterManifest {
-    pub id: String,
-    pub protocol_version: u16,
-    /// Provider frame type to normalized event kind mapping.
-    pub event_map: BTreeMap<String, String>,
-}
+use super::DeclarativeAdapterManifest;
 
 impl DeclarativeAdapterManifest {
-    /// Validates the portable subset before an adapter is registered.
-    ///
-    /// # Errors
-    /// Returns an error for missing identity or unsupported event mappings.
-    pub fn validate(&self) -> Result<(), ManifestError> {
-        crate::manifest_validation::validate(self)
-    }
-
     /// Interprets a provider frame without process, persistence, or product-policy access.
     #[must_use]
     pub fn interpret(&self, frame: &Value) -> NormalizedProviderEvent {
@@ -152,10 +133,12 @@ fn tool_phase(value: &str) -> Option<ToolPhase> {
 
 #[cfg(test)]
 mod tests {
-    use super::DeclarativeAdapterManifest;
+    use std::collections::BTreeMap;
+
     use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase};
     use serde_json::json;
-    use std::collections::BTreeMap;
+
+    use super::super::DeclarativeAdapterManifest;
 
     #[test]
     fn manifest_interprets_only_declared_public_frames() {

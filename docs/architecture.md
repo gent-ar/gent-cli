@@ -83,12 +83,12 @@ and takes the daemon host lock during the atomic pointer switch. A signed
 external Unix supervisor health-checks a staged pair, waits for idle, and rolls
 back on successor-health failure. It never replaces a live daemon in process.
 
-The installed macOS/Linux pair also contains a signed external updater. Opt-in
-`gent update auto` registers a user LaunchAgent or systemd-user timer. GitHub
+The installed pair also contains a signed external updater. Default
+`gent update auto` registers a user LaunchAgent, systemd-user timer, or Windows
+Scheduled Task. GitHub
 `latest` is untrusted discovery only; every selected tag repeats bootstrap and
 archive verification and uses the same idle-only supervisor path. The helper
-serializes runs and records bounded retry backoff. Windows currently offers the
-signed manual pair only. This is distribution, not daemon-update authority:
+serializes runs and records bounded retry backoff. This is distribution, not daemon-update authority:
 observer `gentd` never fetches, schedules, stages, or activates itself.
 
 A future live daemon-update authority must still validate protocol/schema/app

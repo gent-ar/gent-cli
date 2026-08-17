@@ -65,15 +65,18 @@ The runtime trust document is not itself permission to replace a running
 daemon. The macOS/Linux signed installer uses it only to let the staged `gentd`
 validate the matching metadata and exact archive before it stores a
 revalidatable local cache. Windows currently installs the immutable pair but
-does not yet persist runtime-release cache material. Runtime staging, health
-confirmation, supervised activation, and rollback remain separate daemon
-authority gates on every platform.
+does not yet persist runtime-release cache material. Its signed default helper
+uses a per-user Scheduled Task, verifies the selected tag bootstrap, and
+requires a staged local-IPC health check before its idle-lock selection. Runtime
+metadata authority and durable recovery remain separate daemon authority gates
+on every platform.
 
-The signed external helper is opt-in: `gent update auto` registers a per-user
-LaunchAgent on macOS or systemd-user timer on Linux. GitHub `latest` is only an
-untrusted stable-tag hint. Before activation, the helper verifies the selected
-tag's signed bootstrap and delegates to the same paired idle-lock, health-check,
-and rollback path as `gent update apply`; it never makes `gentd` self-updating.
+The signed external helper is enabled at installation: `gent update auto` manages a per-user
+LaunchAgent on macOS, systemd-user timer on Linux, or Scheduled Task on Windows.
+GitHub `latest` is only an untrusted stable-tag hint. Before activation, the
+helper verifies the selected tag's signed bootstrap and delegates to the same
+paired idle-lock and health-check path as `gent update apply`; it never makes
+`gentd` self-updating.
 
 ## Verify a downloaded archive
 

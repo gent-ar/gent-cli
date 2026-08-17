@@ -47,6 +47,8 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
     $archive = "gent-$version-$target.zip"
     Set-Content -NoNewline -Encoding utf8 (Join-Path $output "$archive.sigstore.json") '{}'
     Set-Content -NoNewline -Encoding utf8 (Join-Path $output "$archive.manifest.json.sigstore.json") '{}'
+    Copy-Item (Join-Path $repo "tools\gent-auto-update.ps1") (Join-Path $output "gent-auto-update.ps1")
+    Set-Content -NoNewline -Encoding utf8 (Join-Path $output "gent-auto-update.ps1.sigstore.json") '{}'
     Copy-ReleaseAssets $output $fixture $version
 }
 
@@ -103,6 +105,7 @@ try {
     Assert-True ($launcherText.Contains("symlink_metadata")) "native launcher must reject reparse points"
     $installerText = Get-Content -Raw -LiteralPath $installer
     Assert-True ($installerText.Contains("ReparsePoint")) "installer must reject retained release reparse points"
+    Assert-True ($installerText.Contains("Test-StagedPair")) "installer must health-check auto-update candidates"
     $fixture = Join-Path $work "releases"
     $installRoot = Join-Path $work "installed"
     $dataRoot = Join-Path $work "data"
@@ -129,8 +132,10 @@ try {
 
     $oldPath = $env:PATH
     $oldBase = $env:GENT_RELEASE_BASE_URL
+    $oldScheduler = $env:GENT_AUTO_UPDATE_SCHEDULER_DIR
     try {
         $env:PATH = "$fakeBin;$oldPath"
+        $env:GENT_AUTO_UPDATE_SCHEDULER_DIR = Join-Path $work "scheduler"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.1.0"
         $firstDigest = Archive-Digest $fixture "v0.1.0"
         Invoke-Installer -version "v0.1.0" -installRoot $installRoot -expected $firstDigest -idleData $dataRoot
@@ -140,6 +145,8 @@ try {
         Assert-True ($pointerBytes.Length -gt 0 -and $pointerBytes[0] -eq [byte][char]'{') "current pointer has a UTF-8 BOM"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gent.exe")) "gent launcher missing"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gentd.exe")) "gentd launcher missing"
+        Assert-True (Test-Path (Join-Path $installRoot "gent-auto-update.ps1")) "signed automatic-update helper missing"
+        Assert-True (Test-Path (Join-Path $env:GENT_AUTO_UPDATE_SCHEDULER_DIR "gent-auto-update.task.json")) "automatic update is not enabled by default"
         Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gent.cmd"))) "unsafe gent.cmd survived"
         Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gentd.cmd"))) "unsafe gentd.cmd survived"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.2.0"
@@ -172,6 +179,7 @@ try {
     } finally {
         $env:PATH = $oldPath
         $env:GENT_RELEASE_BASE_URL = $oldBase
+        $env:GENT_AUTO_UPDATE_SCHEDULER_DIR = $oldScheduler
     }
     Write-Output "Windows installer checks passed"
 } finally {

@@ -72,6 +72,8 @@ def check_dependencies() -> list[str]:
 def check_file_lengths() -> list[str]:
     errors = []
     for source in source_files():
+        if not source.is_file():
+            continue
         count = len(source.read_text(encoding="utf-8").splitlines())
         if count > 300:
             errors.append(f"{source.relative_to(ROOT)} has {count} lines (maximum is 300)")

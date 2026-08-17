@@ -173,6 +173,12 @@ where
     if crate::permission_policy_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::provider_auth_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::reviewed_plan_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if crate::conversation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }

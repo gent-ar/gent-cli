@@ -160,9 +160,8 @@ gent --data-dir "$GENT_DATA_DIR" update apply \
 ```
 
 Pass `--install-dir DIR` when needed. It never selects `latest`, silently
-substitutes an archive, or replaces a live process in place.
-
-On an installed macOS/Linux pair, automatic checks are opt-in and external:
+substitutes an archive, or replaces a live process in place. On an installed
+pair, automatic checks are enabled by default and external:
 
 ```sh
 gent update auto enable --interval-seconds 21600
@@ -170,10 +169,11 @@ gent update auto status
 gent update auto disable
 ```
 
-`gent update auto run` performs a one-shot check. Its LaunchAgent/systemd-user
-timer treats GitHub `latest` only as an untrusted stable-tag hint, then repeats
-the signed idle-lock, health-check, and rollback path. It serializes/backoffs;
-never starts provider work or replaces `gentd` in process. Windows is manual.
+`gent update auto run` performs a one-shot check. Its LaunchAgent (macOS),
+systemd-user timer (Linux), or per-user Scheduled Task (Windows) treats GitHub
+`latest` only as an untrusted stable-tag hint, then repeats the signed idle-lock,
+health-check, and rollback path. It serializes/backoffs; never starts provider
+work or replaces `gentd` in process.
 
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
 conversation browser. It lists durable identities and run counts. Observer mode

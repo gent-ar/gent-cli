@@ -5,57 +5,48 @@ param(
     [string]$InstallDir = $env:GENT_INSTALL_DIR,
     [string]$ExpectedSha256,
     [string]$IdleDataDir,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$RequireHealth
 )
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-
 $Repository = "gent-ar/gent-cli"
 $Target = "x86_64-pc-windows-msvc"
 $Identity = "^https://github.com/$Repository/.github/workflows/release.yml@refs/tags/"
-
 function Fail([string]$Message) {
     throw "Gent install failed: $Message"
 }
-
 function Require-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
         Fail "$Name is required for signed Gent installs"
     }
 }
-
 function Get-ReleaseVersion {
     if ($Version) { return $Version }
     $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest"
     return [string]$latest.tag_name
 }
-
 function Assert-Version([string]$Candidate) {
     if (-not [regex]::IsMatch($Candidate, '\Av[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?\z')) {
         Fail "invalid release version: $Candidate"
     }
 }
-
 function Assert-ExpectedDigest([string]$Digest) {
     if ($Digest -and $Digest -notmatch '^[0-9a-f]{64}$') {
         Fail "expected digest must be 64 lowercase hexadecimal characters"
     }
 }
-
 function Get-AssetBase([string]$ReleaseVersion) {
     if ($env:GENT_RELEASE_BASE_URL) {
         return $env:GENT_RELEASE_BASE_URL.TrimEnd('/')
     }
     return "https://github.com/$Repository/releases/download/$ReleaseVersion"
 }
-
 function Get-Asset([string]$Base, [string]$Name, [string]$Directory) {
     $destination = Join-Path $Directory $Name
     Invoke-WebRequest -Uri "$Base/$Name" -OutFile $destination
     return $destination
 }
-
 function Assert-Signed([string]$Path, [string]$Bundle, [string]$ReleaseVersion) {
     $tag = [regex]::Escape($ReleaseVersion)
     & cosign verify-blob $Path --bundle $Bundle `
@@ -63,7 +54,6 @@ function Assert-Signed([string]$Path, [string]$Bundle, [string]$ReleaseVersion) 
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail "signature verification failed for $(Split-Path $Path -Leaf)" }
 }
-
 function Assert-Archive([string]$Archive, [string]$ManifestPath, [string]$ChecksumPath,
     [string]$ReleaseVersion) {
     $manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
@@ -80,7 +70,6 @@ function Assert-Archive([string]$Archive, [string]$ManifestPath, [string]$Checks
     $expectedBinaries = @("gent.exe", "gentd.exe", "gent-launcher.exe" | Sort-Object)
     if (($binaries -join ',') -ne ($expectedBinaries -join ',')) { Fail "release manifest has invalid binaries" }
 }
-
 function Assert-ZipMembers([string]$Archive, [string]$ReleaseVersion) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $root = "gent-$ReleaseVersion-$Target"
@@ -214,7 +203,6 @@ function Use-InstallLock([string]$Root, [scriptblock]$Action) {
     }
     finally { $lock.Dispose() }
 }
-
 function Use-IdleDaemonLock([string]$DataDir, [scriptblock]$Action) {
     if (-not $DataDir) { & $Action; return }
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
@@ -228,7 +216,31 @@ function Use-IdleDaemonLock([string]$DataDir, [scriptblock]$Action) {
     }
     finally { $lock.Dispose() }
 }
-
+function Test-StagedPair([string]$ReleasePath) {
+    $data = Join-Path ([IO.Path]::GetTempPath()) ("gent-health-" + [Guid]::NewGuid().ToString("N")); $process = $null
+    try {
+        $process = Start-Process -FilePath (Join-Path $ReleasePath "gentd.exe") -ArgumentList @("--data-dir", $data) -PassThru -WindowStyle Hidden
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            & (Join-Path $ReleasePath "gent.exe") --data-dir $data --no-autostart status 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { return }
+            if ($process.HasExited) { Fail "staged gentd exited before its local IPC health check" }
+            Start-Sleep -Milliseconds 100
+        }
+        Fail "staged runtime did not complete a local IPC health check"
+    } finally { if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }; Remove-Item -LiteralPath $data -Force -Recurse -ErrorAction SilentlyContinue }
+}
+function Write-AutoUpdater([string]$Source, [string]$Root) {
+    $destination = Join-Path $Root "gent-auto-update.ps1"; $temporary = Join-Path $Root (".gent-auto-update-" + [Guid]::NewGuid().ToString("N"))
+    [IO.File]::Copy($Source, $temporary); if (Test-Path -LiteralPath $destination) { Assert-PlainFile $destination "automatic-update helper"; Move-Atomically $temporary $destination } else { [IO.File]::Move($temporary, $destination) }
+}
+function Enable-AutoUpdater([string]$Root, [string]$DataDir) {
+    $marker = Join-Path $Root ".gent-auto-update-disabled"; if (Test-Path -LiteralPath $marker) { Assert-PlainFile $marker "automatic-update preference marker"; return }
+    $data = if ($DataDir) { $DataDir } else { Join-Path $env:LOCALAPPDATA "Gent\Gent\data" }; $arguments = @("enable", "-RuntimeRoot", $Root, "-DataDir", $data)
+    if ($env:GENT_AUTO_UPDATE_SCHEDULER_DIR) { $arguments += @("-SchedulerDir", $env:GENT_AUTO_UPDATE_SCHEDULER_DIR) }
+    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $Root "gent-auto-update.ps1") @arguments
+    if ($LASTEXITCODE -ne 0) { Fail "automatic-update scheduler setup failed" }
+}
 Require-Command "cosign"
 $Version = Get-ReleaseVersion
 Assert-Version $Version
@@ -249,8 +261,11 @@ try {
     $manifest = Get-Asset $base "$archiveName.manifest.json" $temporary
     $archiveBundle = Get-Asset $base "$archiveName.sigstore.json" $temporary
     $manifestBundle = Get-Asset $base "$archiveName.manifest.json.sigstore.json" $temporary
+    $autoUpdater = Get-Asset $base "gent-auto-update.ps1" $temporary
+    $autoUpdaterBundle = Get-Asset $base "gent-auto-update.ps1.sigstore.json" $temporary
     Assert-Signed $archive $archiveBundle $Version
     Assert-Signed $manifest $manifestBundle $Version
+    Assert-Signed $autoUpdater $autoUpdaterBundle $Version
     Assert-Archive $archive $manifest $checksum $Version
     $actualDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
     if ($ExpectedSha256 -and $ExpectedSha256 -ne $actualDigest) {
@@ -271,8 +286,11 @@ try {
         }
         else { Move-Item -LiteralPath $source -Destination $release }
         Remove-Item -LiteralPath $stage -Force -Recurse
+        if ($RequireHealth) { Test-StagedPair $release }
         Write-NativeLaunchers $InstallDir $release
         Use-IdleDaemonLock $IdleDataDir { Write-CurrentPointer $InstallDir $releaseName }
+        Write-AutoUpdater $autoUpdater $InstallDir
+        Enable-AutoUpdater $InstallDir $IdleDataDir
     }
     Write-Output "Installed Gent $Version in $(Join-Path $InstallDir 'bin')"
     Write-Output "Add $(Join-Path $InstallDir 'bin') to PATH, then run: gent doctor"

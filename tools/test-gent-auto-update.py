@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline checks for the external opt-in automatic Gent runtime updater."""
+"""Offline checks for the external default Gent runtime updater."""
 
 from __future__ import annotations
 

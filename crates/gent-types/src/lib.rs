@@ -28,6 +28,8 @@ mod mcp_connectors;
 mod observer_tap;
 mod onboarding;
 mod policies;
+mod provider_auth;
+mod reviewed_plan;
 mod run_checkpoints;
 mod run_projection;
 mod runtime_maintenance;
@@ -89,6 +91,17 @@ pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, 
 pub use policies::{
     PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
     SandboxEnforcement,
+};
+pub use provider_auth::{
+    ProviderAuthBinaryLock, ProviderAuthChallenge, ProviderAuthContractError,
+    ProviderAuthLifecycle, ProviderAuthMethod, ProviderAuthMethodSelection, ProviderAuthProvider,
+    ProviderAuthStatus,
+};
+pub use reviewed_plan::{
+    ContextPolicy, PlanAction, PlanActionKind, PlanArtifact, PlanDiff, PlanDiffKind,
+    PlanPermissionPreview, PlanRevision, PlanRisk, PlanRiskKind, PlanRiskSeverity, PlanStatus,
+    ReviewedPlanContractError, ReviewedPlanId, StartImplementationRequest,
+    StartImplementationResult,
 };
 pub use run_checkpoints::RunCheckpointRecord;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};

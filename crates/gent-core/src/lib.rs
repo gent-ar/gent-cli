@@ -10,6 +10,8 @@ mod lifecycle_state;
 mod observer_comparison;
 mod permission_policy;
 mod projection_snapshot;
+mod provider_auth;
+mod reviewed_plan;
 mod runtime_update;
 mod runtime_update_schedule;
 mod tool_classification;
@@ -33,6 +35,14 @@ pub use permission_policy::{
     PermissionDecision, evaluate_permission, evaluate_permission_with_sandbox,
 };
 pub use projection_snapshot::{restore_projection, snapshot_projection};
+pub use provider_auth::{
+    ProviderAuthEffect, ProviderAuthEvent, ProviderAuthRejection, ProviderAuthState,
+    reduce_provider_auth,
+};
+pub use reviewed_plan::{
+    ReviewedPlanEffect, ReviewedPlanEvent, ReviewedPlanRejection, ReviewedPlanState,
+    reduce_reviewed_plan,
+};
 pub use runtime_update::{
     RuntimeUpdateContext, RuntimeUpdateEligibility, RuntimeUpdateEvent, RuntimeUpdateIngress,
     RuntimeUpdateTransition, assess_runtime_update, reduce_runtime_update,

@@ -52,6 +52,9 @@ Never scrape human-oriented terminal output as the app protocol. `gent` is a
 convenient bootstrap and manual UI; local IPC plus the fixture is the durable
 app boundary.
 
+The required browse/create/prompt/follow-up/reconnect behavior is defined in
+[the realtime agent-chat client contract](realtime-agent-chat-client-plan.md).
+
 ## Current readable state
 
 | Need | Capability and frame family | Current authority |
@@ -77,7 +80,8 @@ provider truth because provider fact ingress is not enabled.
 `gent update auto status` is a signed external-helper command, not IPC and not
 a daemon scheduler. `runtime-maintenance-v1` reports a durable attempt only
 when its separate capability is negotiated; it cannot fetch or activate an
-update.
+update. The installed Gent pair enables its platform scheduler by default; a
+future native app relies on that pair rather than implementing a second updater.
 
 ## One writer and epoch rule
 
@@ -108,6 +112,13 @@ transcript streaming, live agent-chat intent authority, or a private bridge.
 `gentd --agent-chat-authority` is an isolated persistence test profile: its
 create/send/queue receipts mean `awaitingProvider` or `queued`, never a
 provider launch or response.
+
+Reviewed-plan approval, `Start implementing`, model/effort/mode selection at
+approval, and `Clear context and proceed` are planned typed Gent commands, not
+current Flutter controls. Their required child-run and context semantics are in
+[the reviewed-plan execution contract](agent-chat-execution-plan.md). Flutter
+must render Gent's state and submit its choices only; it must not duplicate the
+plan, permission, context, provider-selection, or lifecycle logic.
 
 Claurst remains an app-private bridge implementation and private-CI concern;
 no credential, endpoint, or routing configuration belongs in public Gent or

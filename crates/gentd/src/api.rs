@@ -3,8 +3,8 @@
 use gent_protocol::{
     AgentChatIntentFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
     DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-    PermissionPolicyFrame, PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest,
-    PublicRunStartRequest,
+    PermissionPolicyFrame, ProviderAuthFrame, PublicRunInterruptRequest, PublicRunResponse,
+    PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
 };
 use gent_runtime::ConversationActivityRead;
 use gent_types::{
@@ -77,6 +77,17 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     /// Reads or appends one local, provider-neutral permission-policy revision.
     fn permission_policy(&self, _: PermissionPolicyFrame) -> Result<PermissionPolicyFrame, String> {
         Err("permission policy is unavailable for this runtime".into())
+    }
+    /// Handles a secret-free provider-auth frame only in a future authority composition.
+    ///
+    /// The observer default refuses before any provider discovery, browser launch, or login
+    /// process can be reached.
+    fn provider_auth(&self, _: ProviderAuthFrame) -> Result<ProviderAuthFrame, String> {
+        Err("provider authentication is unavailable while gentd is observer-disabled".into())
+    }
+    /// Handles reviewed-plan reads and user decisions only in a future authority composition.
+    fn reviewed_plan(&self, _: ReviewedPlanFrame) -> Result<ReviewedPlanFrame, String> {
+        Err("reviewed plans are unavailable while gentd is observer-disabled".into())
     }
     fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String>;
     fn conversations(&self) -> Result<Vec<ConversationListItem>, String> {

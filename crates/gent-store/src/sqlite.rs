@@ -31,6 +31,8 @@ mod policy_columns;
 mod policy_ledger;
 mod projections;
 mod queries;
+mod reviewed_plan_values;
+mod reviewed_plans;
 mod run_checkpoint_ledger;
 mod run_checkpoints;
 mod runs;

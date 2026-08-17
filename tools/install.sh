@@ -176,6 +176,10 @@ install_auto_updater() {
   chmod 700 "$temporary"
   mv -f "$temporary" "$runtime_root/gent-auto-update.py"
 }
+enable_auto_updates() {
+  [ -e "$runtime_root/.gent-auto-update-disabled" ] && return
+  "$bin_dir/gent" update auto enable
+}
 if [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
   set -- python3 "$temp/gent-supervise-runtime-activation.py" \
     --runtime-root "$runtime_root" --release-name "$release_name" \
@@ -187,6 +191,7 @@ if [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
   fi
   "$@"
   install_auto_updater
+  enable_auto_updates
   printf 'Updated Gent %s in %s\n' "$version" "$bin_dir"
   exit 0
 fi
@@ -206,5 +211,6 @@ if [ -n "$idle_data_dir" ]; then
 fi
 python3 "$temp/gent-activate-install.py" "$@"
 install_auto_updater
+enable_auto_updates
 printf 'Installed Gent %s in %s\n' "$version" "$bin_dir"
 printf 'Add %s to PATH, then run: gent doctor\n' "$bin_dir"
