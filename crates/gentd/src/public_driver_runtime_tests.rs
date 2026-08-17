@@ -10,15 +10,18 @@ use gent_adapters::compatibility::{
 use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_drivers::SessionEffect;
 use gent_ports::{
-    ConversationActivityLedger, ConversationLedger, PublicProviderResolver, PublicProviderRunError,
-    PublicProviderRunner,
+    AgentChatLedger, AgentChatPromptLedger, ConversationActivityLedger, PublicProviderResolver,
+    PublicProviderRunError, PublicProviderRunner,
 };
 use gent_protocol::{DependencyProvider, PublicRunOutcome, PublicRunStartRequest};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, ConversationActivityFact, ConversationActivityScope, ConversationRecord,
-    HostEpoch, NormalizedProviderEvent, RunVersionLock,
+    AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
+    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
+    AgentChatRunId, AgentChatSelection, CapabilitySet, ConversationActivityFact,
+    ConversationActivityScope, HostEpoch, NormalizedProviderEvent, NormalizedTranscriptKind,
+    ReceiptId, RunVersionLock,
 };
 
 use crate::authority_profile::{
@@ -130,17 +133,21 @@ fn runtime(
 fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingress() {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
-        .create_conversation_run(
-            &ConversationRecord {
-                conversation_id: "conversation-a".into(),
+        .create_agent_chat_conversation(&AgentChatConversationCreate {
+            receipt_id: ReceiptId("receipt-conversation".into()),
+            idempotency_key: "conversation-key".into(),
+            host_epoch: HostEpoch(1),
+            conversation_id: AgentChatConversationId("conversation-a".into()),
+            run_id: AgentChatRunId("run-a".into()),
+            selection: AgentChatSelection {
+                provider: AgentChatProvider::Claude,
+                model: "claude".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Agent,
             },
-            &gent_ports::RunRecord {
-                run_id: "run-a".into(),
-                parent_run_id: None,
-                provider: "claude".into(),
-            },
-        )
+        })
         .unwrap();
+    let prompt = save_prompt(&ledger);
     let compatibility = compatibility();
     let (runtime, starts) = runtime(ledger.clone(), approved(&compatibility), compatibility);
     let request = PublicRunStartRequest {
@@ -209,12 +216,45 @@ fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingr
         )
         .unwrap();
     assert!(matches!(activity, PublicDriverFactResult::Activity(_)));
+    assert_transcript(&runtime, prompt.message.turn_id);
     assert!(
         ledger
             .find_conversation_activity("conversation-a", "run-a")
             .unwrap()
             .is_some()
     );
+}
+
+fn save_prompt(ledger: &SqliteLedger) -> gent_types::AgentChatPromptSaved {
+    ledger
+        .save_agent_chat_prompt(&AgentChatPromptCreate {
+            request_id: AgentChatRequestId("prompt-1".into()),
+            receipt_id: ReceiptId("receipt-prompt".into()),
+            host_epoch: HostEpoch(1),
+            conversation_id: AgentChatConversationId("conversation-a".into()),
+            disposition: AgentChatPromptDisposition::Send,
+            text: "hello".into(),
+        })
+        .unwrap()
+}
+
+fn assert_transcript(
+    runtime: &PublicDriversRuntime<SqliteLedger, Runner, Resolver>,
+    turn_id: String,
+) {
+    let fact = PublicDriverFact::Transcript(gent_runtime::AgentChatTranscriptAppendRequest {
+        conversation_id: AgentChatConversationId("conversation-a".into()),
+        run_id: AgentChatRunId("run-a".into()),
+        turn_id,
+        event_id: "assistant-1".into(),
+        kind: NormalizedTranscriptKind::AssistantMessage,
+        text: "done".into(),
+        is_partial: false,
+    });
+    assert!(matches!(
+        runtime.record("run-a".into(), "daemon-a", HostEpoch(1), fact),
+        Ok(PublicDriverFactResult::Transcript(_))
+    ));
 }
 
 #[test]

@@ -9,12 +9,13 @@ use std::sync::Arc;
 use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
 use gent_ports::{
     ConversationActivityLedger, Ledger, PublicProviderResolver, PublicProviderRunner,
-    RunProjectionLedger,
+    RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{
-    ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
-    Coordinator, ProviderActivityFact, ProviderActivityIngress, ProviderRunAuthority,
-    PublicRunService, RuntimeError,
+    AgentChatTranscriptAppendRequest, AgentChatTranscriptAppendResult,
+    AgentChatTranscriptAuthority, AgentChatTranscriptIngress, ConversationActivityAuthority,
+    ConversationActivityResult, ConversationActivityService, Coordinator, ProviderActivityFact,
+    ProviderActivityIngress, ProviderRunAuthority, PublicRunService, RuntimeError,
 };
 use gent_types::{HostEpoch, RunLiveStatus};
 
@@ -37,6 +38,8 @@ pub(crate) enum PublicDriverFact {
         fact: PublicWireFact,
     },
     Activity(ProviderActivityFact),
+    /// A daemon-mapped transcript fact. The daemon, not the driver, supplies durable IDs.
+    Transcript(AgentChatTranscriptAppendRequest),
 }
 
 /// Result of persisting a public-driver fact through its typed ingress.
@@ -44,6 +47,7 @@ pub(crate) enum PublicDriverFact {
 pub(crate) enum PublicDriverFactResult {
     Lifecycle(Option<RunLiveStatus>),
     Activity(ConversationActivityResult),
+    Transcript(AgentChatTranscriptAppendResult),
 }
 
 /// Refuses authority composition before profile and compatibility bindings agree.
@@ -66,11 +70,12 @@ pub(crate) struct PublicDriversRuntime<L, D, R> {
     runs: Arc<PublicRunService<L, D, CompatibilityAssessment, R>>,
     effects: ProviderEffectDispatcher<L>,
     activity: ProviderActivityIngress<L>,
+    transcripts: AgentChatTranscriptIngress<L>,
 }
 
 impl<L, D, R> PublicDriversRuntime<L, D, R>
 where
-    L: Clone + Ledger + RunProjectionLedger + ConversationActivityLedger,
+    L: Clone + Ledger + RunProjectionLedger + ConversationActivityLedger + TranscriptLedger,
     D: PublicProviderRunner,
     R: PublicProviderResolver,
 {
@@ -117,8 +122,17 @@ where
             ),
             activity: ProviderActivityIngress::new(
                 coordinator,
-                ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved),
+                ConversationActivityService::new(
+                    ledger.clone(),
+                    ConversationActivityAuthority::Approved,
+                ),
                 ProviderRunAuthority::PublicDrivers,
+            ),
+            // This composition is unreachable from the observer daemon. A runner must map each
+            // provider fact to the durable prompt turn before it may call this ingress.
+            transcripts: AgentChatTranscriptIngress::new(
+                ledger,
+                AgentChatTranscriptAuthority::Approved,
             ),
         })
     }
@@ -154,6 +168,10 @@ where
                 .activity
                 .record(coordinator_id, activity)
                 .map(PublicDriverFactResult::Activity),
+            PublicDriverFact::Transcript(append) => self
+                .transcripts
+                .append(&append)
+                .map(PublicDriverFactResult::Transcript),
         }
     }
 }

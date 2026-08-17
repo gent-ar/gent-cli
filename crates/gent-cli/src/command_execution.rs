@@ -122,7 +122,7 @@ async fn chat(
             chat_cli::follow(data_dir, no_autostart, args).await
         }
         action => {
-            print(chat_cli::execute(data_dir, no_autostart, action).await?)?;
+            print(chat_cli::execute_command(data_dir, no_autostart, action).await?)?;
             Ok(())
         }
     }

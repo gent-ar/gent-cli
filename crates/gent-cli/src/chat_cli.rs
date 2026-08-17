@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand, ValueEnum};
+use crate::local_ipc::connect_and_negotiate;
+use clap::Subcommand;
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, WireFrame, read_json_frame,
     write_json_frame,
@@ -13,11 +14,14 @@ use gent_types::{
 };
 use serde_json::Value;
 
-use crate::local_ipc::connect_and_negotiate;
-
+mod arguments;
 mod follow;
+mod reads;
 mod switch;
 
+pub(crate) use arguments::{
+    ConversationArgs, CreateArgs, Effort, Mode, PromptArgs, Provider, TranscriptArgs,
+};
 #[derive(Debug, Subcommand)]
 pub(crate) enum ChatCommand {
     Create(CreateArgs),
@@ -26,6 +30,12 @@ pub(crate) enum ChatCommand {
     Switch(switch::SwitchArgs),
     /// Follow daemon-normalized transcript events, resuming from a durable cursor after reconnect.
     Follow(follow::FollowArgs),
+    /// Read one provider-neutral conversation summary.
+    Summary(ConversationArgs),
+    /// Read one provider-neutral conversation and its normalized run hierarchy.
+    Detail(ConversationArgs),
+    /// Read one bounded page of daemon-normalized transcript events.
+    Transcript(TranscriptArgs),
 }
 
 /// Runs the long-lived transcript client when the caller selected `gent chat follow`.
@@ -37,53 +47,38 @@ pub(crate) async fn follow(
     follow::run(data_dir, no_autostart, args).await
 }
 
-#[derive(Debug, Args)]
-pub(crate) struct CreateArgs {
-    #[arg(long, value_enum)]
-    provider: Provider,
-    #[arg(long)]
-    model: String,
-    #[arg(long, value_enum, default_value_t = Effort::Medium)]
-    effort: Effort,
-    #[arg(long, value_enum, default_value_t = Mode::Ask)]
-    mode: Mode,
-    #[arg(long)]
-    request_id: Option<String>,
-    #[arg(long)]
-    receipt_id: Option<String>,
+/// Executes one short-lived agent-chat command and returns its public JSON response.
+pub(crate) async fn execute_command(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    action: ChatCommand,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let value = match action {
+        ChatCommand::Follow(_) => return Err("chat follow is a long-lived subscription".into()),
+        ChatCommand::Summary(args) => reads::summary(data_dir, no_autostart, args.conversation_id)
+            .await
+            .and_then(to_value)?,
+        ChatCommand::Detail(args) => reads::detail(data_dir, no_autostart, args.conversation_id)
+            .await
+            .and_then(to_value)?,
+        ChatCommand::Transcript(args) => reads::transcript(
+            data_dir,
+            no_autostart,
+            args.conversation_id,
+            args.after_cursor,
+            args.limit,
+        )
+        .await
+        .and_then(to_value)?,
+        action => execute(data_dir, no_autostart, action)
+            .await
+            .and_then(to_value)?,
+    };
+    Ok(value)
 }
 
-#[derive(Debug, Args)]
-pub(crate) struct PromptArgs {
-    #[arg(long)]
-    conversation_id: String,
-    #[arg(long)]
-    text: String,
-    #[arg(long)]
-    request_id: Option<String>,
-    #[arg(long)]
-    receipt_id: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub(crate) enum Provider {
-    Claude,
-    Codex,
-    Claurst,
-}
-#[derive(Clone, Copy, Debug, Default, ValueEnum)]
-pub(crate) enum Effort {
-    Low,
-    #[default]
-    Medium,
-    High,
-}
-#[derive(Clone, Copy, Debug, Default, ValueEnum)]
-pub(crate) enum Mode {
-    #[default]
-    Ask,
-    Plan,
-    Agent,
+fn to_value(value: impl serde::Serialize) -> Result<Value, Box<dyn std::error::Error>> {
+    Ok(serde_json::to_value(value)?)
 }
 
 /// Exchanges exactly one capability-gated agent-chat intent with the local daemon.
@@ -92,8 +87,14 @@ pub(crate) async fn execute(
     no_autostart: bool,
     action: ChatCommand,
 ) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
-    if matches!(&action, ChatCommand::Follow(_)) {
-        return Err("chat follow must be dispatched as a long-lived subscription".into());
+    if matches!(
+        &action,
+        ChatCommand::Follow(_)
+            | ChatCommand::Summary(_)
+            | ChatCommand::Detail(_)
+            | ChatCommand::Transcript(_)
+    ) {
+        return Err("agent-chat reads and follow bypass one-shot intent frames".into());
     }
     exchange(data_dir, no_autostart, frame(action)).await
 }
@@ -192,6 +193,9 @@ fn frame(action: ChatCommand) -> AgentChatIntentFrame {
         ChatCommand::Queue(args) => prompt_frame(args, true),
         ChatCommand::Switch(args) => switch::frame(args),
         ChatCommand::Follow(_) => unreachable!("long-lived subscriptions bypass one-shot frames"),
+        ChatCommand::Summary(_) | ChatCommand::Detail(_) | ChatCommand::Transcript(_) => {
+            unreachable!("agent-chat reads bypass intent frames")
+        }
     }
 }
 

@@ -3,7 +3,10 @@ use gent_protocol::{DependencyAction, DependencyProvider, WireFrame};
 
 use super::{Args, CommandLine, ConversationCommand, DependencyCommand};
 use crate::command_execution::dependency_plan_frame;
-use crate::update_check::{UpdateChannel, UpdateCommand};
+use crate::{
+    chat_cli::ChatCommand,
+    update_check::{UpdateChannel, UpdateCommand},
+};
 
 #[test]
 fn dependency_plan_is_read_only() {
@@ -108,6 +111,27 @@ fn conversation_activity_parses_its_cursor_bound_identity() {
         Some(CommandLine::Conversation {
             action: ConversationCommand::Activity { conversation_id, run_id, after_cursor }
         }) if conversation_id == "conversation-1" && run_id == "run-1" && after_cursor == 9
+    ));
+}
+
+#[test]
+fn chat_transcript_is_a_bounded_read_command() {
+    let args = Args::try_parse_from([
+        "gent",
+        "chat",
+        "transcript",
+        "--conversation-id",
+        "conversation-1",
+        "--after-cursor",
+        "9",
+        "--limit",
+        "20",
+    ])
+    .unwrap();
+    assert!(matches!(
+        args.command,
+        Some(CommandLine::Chat { action: ChatCommand::Transcript(value) })
+            if value.conversation_id == "conversation-1" && value.after_cursor == Some(9) && value.limit == 20
     ));
 }
 

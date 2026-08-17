@@ -3,6 +3,7 @@ mod agent_chat_conversations;
 mod agent_chat_prompts;
 mod agent_chat_reads;
 mod agent_chat_selection_switch;
+mod agent_chat_transcripts;
 mod attachment_receipts;
 mod attachments;
 pub mod catalog;
@@ -45,6 +46,10 @@ pub use agent_chat_reads::AgentChatReadService;
 pub use agent_chat_selection_switch::{
     AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchRequest,
     AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
+};
+pub use agent_chat_transcripts::{
+    AgentChatTranscriptAppendRequest, AgentChatTranscriptAppendResult,
+    AgentChatTranscriptAuthority, AgentChatTranscriptIngress,
 };
 pub use attachments::AttachmentService;
 pub use conversation_activity::{
