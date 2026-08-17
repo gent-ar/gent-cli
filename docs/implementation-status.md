@@ -158,6 +158,11 @@ not claim provider or app compatibility evidence that has not been recorded.
       local process; observer-mode `gentd` does not invoke this driver edge.
 - [x] `gentd` composes the public-run service only in hard-coded observer mode; every lifecycle
       request is denied before executable inspection, lock capture, or process launch.
+- [x] A dormant `PublicDriversRuntime` composition seam accepts only a validated approval whose
+      evidence reference and pinned SHA-256 match the exact signed compatibility envelope. Its
+      injected runner/resolver path connects run, lifecycle, and activity ingress, including
+      activation of an existing same-provider chat run; no startup flag reaches it, so the shipped
+      daemon remains hard observer and cannot launch a provider through this seam.
 - [x] Bounded stdout output pump connects chunk-tolerant NDJSON framing to the existing
       supervisor frame buffer and pure session reducer, retaining FIFO frames across backpressure
       without retaining oversized reads or lines.
@@ -240,7 +245,10 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [ ] Complete real Claude/Codex recordings and installed-provider integration evidence.
       The four strict missing cells are Claude persistent-permission, compaction,
       malformed-tolerance; and Codex malformed-tolerance.
-      They need redacted, scenario-specific live evidence, not an observed absence.
+      They need redacted, scenario-specific live evidence, not an observed absence. Malformed
+      evidence additionally requires a vendor-documented provider-emitted fault control, a
+      structural redacted fault/diagnostic, and a following ordinary provider frame; proxy or
+      injected corruption is rejected.
 - [ ] Authenticated private Claurst bridge implementation/evidence (private CI only);
       public Gent must not contain its credentials, endpoints, or routing implementation.
 - [ ] MCP hosting, Git mutation/worktree operations, and provider process lifecycle ownership
