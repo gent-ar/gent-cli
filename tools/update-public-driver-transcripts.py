@@ -153,6 +153,20 @@ def command_for(vendor: str, scenario: str, model: str, run_capture: bool = Fals
             "--confirm-live-capture",
             *dry_run,
         ]
+    if vendor == "codex" and scenario == "subagent":
+        dry_run = [] if run_capture else ["--dry-run"]
+        return [
+            "python3",
+            "tools/capture-codex-subagent-transcript.py",
+            "--model",
+            model,
+            "--output",
+            str(output.relative_to(ROOT)),
+            "--replace-existing",
+            "--update-manifest",
+            "--confirm-live-capture",
+            *dry_run,
+        ]
     return None
 
 
