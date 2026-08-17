@@ -64,15 +64,27 @@ impl ProcessStreams {
         recover_lock(&self.stdout).try_recv().ok()
     }
 
-    pub(crate) fn join_after_exit(&self) {
+    /// Joins readers after child exit and returns every remaining stdout chunk in FIFO order.
+    ///
+    /// The receiver is drained while joining so a bounded stdout sender cannot deadlock after
+    /// the child has exited. The caller remains responsible for reducing these protocol chunks
+    /// before it emits terminal state.
+    pub(crate) fn drain_after_exit(&self) -> Vec<Vec<u8>> {
+        let mut chunks = Vec::new();
         let mut readers = recover_lock(&self.readers).drain(..).collect::<Vec<_>>();
         while readers.iter().any(|reader| !reader.is_finished()) {
-            let _ = self.next_stdout_chunk();
-            thread::yield_now();
+            match self.next_stdout_chunk() {
+                Some(chunk) => chunks.push(chunk),
+                None => thread::yield_now(),
+            }
         }
         for reader in readers.drain(..) {
             let _ = reader.join();
         }
+        while let Some(chunk) = self.next_stdout_chunk() {
+            chunks.push(chunk);
+        }
+        chunks
     }
 }
 

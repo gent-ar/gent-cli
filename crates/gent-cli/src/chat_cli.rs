@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use crate::local_ipc::connect_and_negotiate;
 
+mod follow;
 mod switch;
 
 #[derive(Debug, Subcommand)]
@@ -23,6 +24,17 @@ pub(crate) enum ChatCommand {
     Send(PromptArgs),
     Queue(PromptArgs),
     Switch(switch::SwitchArgs),
+    /// Follow daemon-normalized transcript events, resuming from a durable cursor after reconnect.
+    Follow(follow::FollowArgs),
+}
+
+/// Runs the long-lived transcript client when the caller selected `gent chat follow`.
+pub(crate) async fn follow(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    args: follow::FollowArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    follow::run(data_dir, no_autostart, args).await
 }
 
 #[derive(Debug, Args)]
@@ -80,6 +92,9 @@ pub(crate) async fn execute(
     no_autostart: bool,
     action: ChatCommand,
 ) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
+    if matches!(&action, ChatCommand::Follow(_)) {
+        return Err("chat follow must be dispatched as a long-lived subscription".into());
+    }
     exchange(data_dir, no_autostart, frame(action)).await
 }
 
@@ -176,6 +191,7 @@ fn frame(action: ChatCommand) -> AgentChatIntentFrame {
         ChatCommand::Send(args) => prompt_frame(args, false),
         ChatCommand::Queue(args) => prompt_frame(args, true),
         ChatCommand::Switch(args) => switch::frame(args),
+        ChatCommand::Follow(_) => unreachable!("long-lived subscriptions bypass one-shot frames"),
     }
 }
 

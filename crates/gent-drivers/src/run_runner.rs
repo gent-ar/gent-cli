@@ -78,12 +78,31 @@ impl<L, P: ProviderProcess> DriverRunRunner<L, P> {
         &self,
         run_id: &str,
     ) -> Result<Option<Vec<SessionEffect>>, PublicProviderRunError> {
-        lock_runs(&self.runs)
-            .get_mut(run_id)
-            .ok_or(PublicProviderRunError::NotActive)?
-            .supervisor
-            .poll_stdout()
-            .map_err(map_error)
+        let mut runs = lock_runs(&self.runs);
+        let mut settled = false;
+        let effects = {
+            let run = runs
+                .get_mut(run_id)
+                .ok_or(PublicProviderRunError::NotActive)?;
+            match run.supervisor.poll_stdout().map_err(map_error)? {
+                some @ Some(_) => some,
+                None => match run.supervisor.try_exit_code().map_err(map_error)? {
+                    None => None,
+                    Some(code) => {
+                        if let some @ Some(_) = run.supervisor.poll_stdout().map_err(map_error)? {
+                            some
+                        } else {
+                            settled = true;
+                            Some(run.supervisor.process_exited(code))
+                        }
+                    }
+                },
+            }
+        };
+        if settled {
+            let _ = runs.remove(run_id);
+        }
+        Ok(effects)
     }
 
     /// Advances one scheduled escalation using caller-supplied monotonic time.

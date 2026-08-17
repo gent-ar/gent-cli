@@ -3,6 +3,7 @@
 //! It starts only lock-validated Claude or Codex executables. Output collection is bounded at
 //! the reader edge so an uncooperative provider cannot grow driver memory without limit.
 
+use std::collections::VecDeque;
 use std::io::{Read, Result as IoResult, Write};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -70,6 +71,7 @@ pub struct SystemProcess {
     child: Mutex<Child>,
     stdin: Mutex<ChildStdin>,
     streams: ProcessStreams,
+    drained_stdout: Mutex<VecDeque<Vec<u8>>>,
 }
 
 impl SystemProcess {
@@ -84,6 +86,7 @@ impl SystemProcess {
             child: Mutex::new(child),
             stdin: Mutex::new(stdin),
             streams: ProcessStreams::new(stdout, stderr, output_limit),
+            drained_stdout: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -93,8 +96,7 @@ impl SystemProcess {
     /// Returns an error when waiting for the operating-system process fails.
     pub fn wait(&self) -> IoResult<ExitStatus> {
         loop {
-            if let Some(status) = recover_lock(&self.child).try_wait()? {
-                self.streams.join_after_exit();
+            if let Some(status) = self.try_wait_status()? {
                 return Ok(status);
             }
             let _ = self.streams.next_stdout_chunk();
@@ -132,7 +134,26 @@ impl ProviderProcess for SystemProcess {
     }
 
     fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
-        Ok(self.streams.next_stdout_chunk())
+        Ok(self
+            .streams
+            .next_stdout_chunk()
+            .or_else(|| recover_lock(&self.drained_stdout).pop_front()))
+    }
+
+    fn try_exit_code(&self) -> Result<Option<Option<i32>>, ProcessTreeError> {
+        self.try_wait_status()
+            .map(|status| status.map(|status| status.code()))
+            .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+    }
+}
+
+impl SystemProcess {
+    fn try_wait_status(&self) -> IoResult<Option<ExitStatus>> {
+        let status = recover_lock(&self.child).try_wait()?;
+        if status.is_some() {
+            recover_lock(&self.drained_stdout).extend(self.streams.drain_after_exit());
+        }
+        Ok(status)
     }
 }
 

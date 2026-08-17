@@ -45,6 +45,17 @@ pub trait ProviderProcess: ProcessTreeControl {
     fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
         Ok(None)
     }
+
+    /// Reports a completed process after preserving any remaining stdout for later reads.
+    ///
+    /// The runner drains that output before it reduces the terminal session fact. Process
+    /// implementations that cannot observe child exit leave this at its safe default.
+    ///
+    /// # Errors
+    /// Returns an error when checking the process tree fails.
+    fn try_exit_code(&self) -> Result<Option<Option<i32>>, ProcessTreeError> {
+        Ok(None)
+    }
 }
 
 /// Process-spawning infrastructure. Production implementations belong at an outer edge.
@@ -167,6 +178,21 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
             effects.extend(self.drain_frame().0);
         }
         Ok(Some(effects))
+    }
+
+    /// Checks whether the process has exited without reducing terminal state yet.
+    ///
+    /// A runner must continue polling stdout after this returns an exit code, because a process
+    /// implementation can have bounded chunks captured while its readers finish draining.
+    ///
+    /// # Errors
+    /// Returns an error when no process is active or its process tree cannot be inspected.
+    pub fn try_exit_code(&self) -> Result<Option<Option<i32>>, SupervisorError> {
+        self.process
+            .as_ref()
+            .ok_or(SupervisorError::NoActiveProcess)?
+            .try_exit_code()
+            .map_err(SupervisorError::ProcessTree)
     }
 
     /// Reduces one buffered frame and returns normalized effects for the persistence edge.

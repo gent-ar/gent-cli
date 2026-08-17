@@ -1,6 +1,7 @@
 //! Public-driver contracts and pure policies; infrastructure owns provider processes.
 
 pub mod buffering;
+pub mod codex_bootstrap;
 pub mod discovery;
 pub mod installer;
 pub mod interrupt;

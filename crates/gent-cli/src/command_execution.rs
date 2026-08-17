@@ -77,9 +77,7 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Conversation { action } => {
             conversation(data_dir, no_autostart, action).await?;
         }
-        CommandLine::Chat { action } => {
-            print(chat_cli::execute(data_dir, no_autostart, action).await?)?;
-        }
+        CommandLine::Chat { action } => chat(data_dir, no_autostart, action).await?,
         CommandLine::Plan { action } => {
             print(reviewed_plan_cli::execute(data_dir, no_autostart, action).await?)?;
         }
@@ -113,6 +111,21 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         }
     }
     Ok(())
+}
+async fn chat(
+    data_dir: Option<std::path::PathBuf>,
+    no_autostart: bool,
+    action: crate::chat_cli::ChatCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        crate::chat_cli::ChatCommand::Follow(args) => {
+            chat_cli::follow(data_dir, no_autostart, args).await
+        }
+        action => {
+            print(chat_cli::execute(data_dir, no_autostart, action).await?)?;
+            Ok(())
+        }
+    }
 }
 
 async fn conversation(

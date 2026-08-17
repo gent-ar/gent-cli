@@ -17,11 +17,20 @@ use gent_testkit::{FakeProcess, FakeProcessSignal};
 use gent_types::RunVersionLock;
 
 #[derive(Debug)]
-struct FakeTree(Arc<FakeProcess>);
+struct FakeTree {
+    process: Arc<FakeProcess>,
+    exit_state: Arc<Mutex<ExitState>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ExitState {
+    Active,
+    Exited(Option<i32>),
+}
 
 impl ProcessTreeControl for FakeTree {
     fn signal_tree(&self, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-        self.0.signal(match signal {
+        self.process.signal(match signal {
             ProcessTreeSignal::Interrupt => FakeProcessSignal::Interrupt,
             ProcessTreeSignal::Terminate => FakeProcessSignal::Terminate,
             ProcessTreeSignal::Kill => FakeProcessSignal::Kill,
@@ -36,7 +45,14 @@ impl ProviderProcess for FakeTree {
     }
 
     fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
-        Ok(self.0.read_stdout())
+        Ok(self.process.read_stdout())
+    }
+
+    fn try_exit_code(&self) -> Result<Option<Option<i32>>, ProcessTreeError> {
+        Ok(match *self.exit_state.lock().unwrap() {
+            ExitState::Active => None,
+            ExitState::Exited(code) => Some(code),
+        })
     }
 }
 
@@ -44,6 +60,7 @@ impl ProviderProcess for FakeTree {
 struct FakeLauncher {
     process: Arc<FakeProcess>,
     launches: Arc<Mutex<Vec<ProviderLaunch>>>,
+    exit_state: Arc<Mutex<ExitState>>,
     fail: bool,
 }
 
@@ -52,8 +69,13 @@ impl FakeLauncher {
         Self {
             process,
             launches,
+            exit_state: Arc::new(Mutex::new(ExitState::Active)),
             fail: false,
         }
+    }
+
+    fn exit(&self, code: Option<i32>) {
+        *self.exit_state.lock().unwrap() = ExitState::Exited(code);
     }
 }
 
@@ -65,7 +87,10 @@ impl ProcessLauncher for FakeLauncher {
             return Err(SupervisorError::Launch("scripted failure".into()));
         }
         self.launches.lock().unwrap().push(launch.clone());
-        Ok(FakeTree(Arc::clone(&self.process)))
+        Ok(FakeTree {
+            process: Arc::clone(&self.process),
+            exit_state: Arc::clone(&self.exit_state),
+        })
     }
 }
 
@@ -173,6 +198,7 @@ fn changed_locks_and_launcher_failures_are_never_silently_accepted() {
     let launcher = FakeLauncher {
         process: Arc::new(FakeProcess::default()),
         launches: Arc::new(Mutex::new(Vec::new())),
+        exit_state: Arc::new(Mutex::new(ExitState::Active)),
         fail: true,
     };
     assert!(matches!(
@@ -232,33 +258,42 @@ fn interrupt_deadlines_escalate_and_exit_cancels_the_remaining_ladder() {
 }
 
 #[test]
-fn runner_polls_stdout_through_its_owned_supervisor() {
+fn runner_drains_stdout_before_settling_and_releasing_an_exited_process() {
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("claude");
     fs::write(&executable, "public").unwrap();
     let process = Arc::new(FakeProcess::default());
-    let runner = runner(FakeLauncher::new(
-        Arc::clone(&process),
-        Arc::new(Mutex::new(Vec::new())),
-    ));
-    runner.start("output", &lock(&executable)).unwrap();
-
+    let launcher = FakeLauncher::new(Arc::clone(&process), Arc::new(Mutex::new(Vec::new())));
+    let runner = runner(FakeLauncher {
+        process: Arc::clone(&launcher.process),
+        launches: Arc::clone(&launcher.launches),
+        exit_state: Arc::clone(&launcher.exit_state),
+        fail: false,
+    });
+    runner.start("exit-drain", &lock(&executable)).unwrap();
     process.push_stdout(
         br#"{"type":"session_started","session_id":"s"}
 "#,
     );
-    assert_eq!(
-        runner.poll_stdout("output").unwrap(),
-        Some(vec![SessionEffect::SessionStarted {
-            provider_session_id: "s".into(),
-        }])
-    );
+    let _ = runner.poll_stdout("exit-drain").unwrap();
     process.push_stdout(
-        br#"{"type":"output","text":"ok"}
+        br#"{"type":"output","text":"last"}
 "#,
     );
+    launcher.exit(Some(0));
+
     assert!(matches!(
-        runner.poll_stdout("output").unwrap().as_deref(),
-        Some([gent_drivers::SessionEffect::Normalized { .. }])
+        runner.poll_stdout("exit-drain").unwrap().as_deref(),
+        Some([SessionEffect::Normalized { .. }])
     ));
+    assert_eq!(
+        runner.poll_stdout("exit-drain").unwrap(),
+        Some(vec![SessionEffect::Terminal {
+            reason: "providerExited:0".into()
+        }])
+    );
+    assert_eq!(
+        runner.poll_stdout("exit-drain"),
+        Err(PublicProviderRunError::NotActive)
+    );
 }
