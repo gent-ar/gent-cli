@@ -1,6 +1,8 @@
 //! Pure evaluation of durable user permission policy.
 
-use gent_types::{PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord};
+use gent_types::{
+    PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, SandboxEnforcement,
+};
 
 /// The only outcomes a future provider ingress may act upon.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8,6 +10,7 @@ pub enum PermissionDecision {
     Allow,
     Prompt,
     Deny,
+    SandboxRequired,
 }
 
 /// Evaluates one typed request without I/O, provider knowledge, or mutable state.
@@ -16,8 +19,25 @@ pub fn evaluate_permission(
     policy: &PolicyRecord,
     request: &PermissionRequest,
 ) -> PermissionDecision {
+    evaluate_permission_with_sandbox(policy, request, SandboxEnforcement::Unavailable)
+}
+
+/// Evaluates one request with a daemon-verified OS-sandbox result.
+///
+/// A broad unattended policy fails closed before any exact or category approval when containment
+/// is unavailable. This prevents a future provider launch from treating a client setting as proof
+/// that it may run unsandboxed.
+#[must_use]
+pub fn evaluate_permission_with_sandbox(
+    policy: &PolicyRecord,
+    request: &PermissionRequest,
+    sandbox: SandboxEnforcement,
+) -> PermissionDecision {
     if policy.mode == PermissionMode::Plan && request.category != PermissionCategory::Read {
         return PermissionDecision::Deny;
+    }
+    if policy.mode.requires_sandbox() && sandbox != SandboxEnforcement::Enforced {
+        return PermissionDecision::SandboxRequired;
     }
     if mode_allows(policy.mode, request.category)
         || policy
@@ -53,9 +73,10 @@ fn mode_allows(mode: PermissionMode, category: PermissionCategory) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{PermissionDecision, evaluate_permission};
+    use super::{PermissionDecision, evaluate_permission, evaluate_permission_with_sandbox};
     use gent_types::{
         PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
+        SandboxEnforcement,
     };
 
     fn policy(mode: PermissionMode) -> PolicyRecord {
@@ -123,11 +144,37 @@ mod tests {
         );
         assert_eq!(
             evaluate_permission(&autonomous, &request("shell", PermissionCategory::Command)),
+            PermissionDecision::SandboxRequired
+        );
+        assert_eq!(
+            evaluate_permission_with_sandbox(
+                &autonomous,
+                &request("shell", PermissionCategory::Command),
+                SandboxEnforcement::Enforced,
+            ),
             PermissionDecision::Allow
         );
         assert_eq!(
-            evaluate_permission(&autonomous, &request("http", PermissionCategory::Network)),
+            evaluate_permission_with_sandbox(
+                &autonomous,
+                &request("http", PermissionCategory::Network),
+                SandboxEnforcement::Enforced,
+            ),
             PermissionDecision::Prompt
+        );
+    }
+
+    #[test]
+    fn bypass_never_uses_a_stored_grant_to_escape_missing_containment() {
+        let policy = policy(PermissionMode::Bypass);
+        let request = request("http:post", PermissionCategory::Network);
+        assert_eq!(
+            evaluate_permission(&policy, &request),
+            PermissionDecision::SandboxRequired
+        );
+        assert_eq!(
+            evaluate_permission_with_sandbox(&policy, &request, SandboxEnforcement::Enforced),
+            PermissionDecision::Allow
         );
     }
 }

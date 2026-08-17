@@ -1,0 +1,82 @@
+# Sandboxed Autonomous Execution
+
+## Status
+
+Gent does not currently launch a provider. This document is therefore a
+launch-authority contract, not a claim that the observer daemon contains a
+provider today.
+
+`Autonomous` and `Bypass` are durable permission modes. The one-time
+`--consent-bypass` flag only changes into Bypass; it is never a required flag
+for later `gent`, `gentd`, or app connections. A future provider launch in
+either broad mode must fail before spawn unless its daemon-owned launcher has
+verified OS sandbox enforcement. It must never silently retry unsandboxed.
+
+## Permission model
+
+| Mode | Prompt behavior | Sandbox requirement |
+| --- | --- | --- |
+| Default | Prompts unless an exact tool/category approval is durable | None |
+| Plan | Read-only; non-read is denied | None |
+| Auto-Accept Edits | Reads and edits are automatic | None |
+| Autonomous | Reads, edits, and commands are automatic; other categories still prompt | Required |
+| Bypass | No category-level permission prompts | Required |
+
+The pure `gent-core` evaluator receives a non-serializable
+`SandboxEnforcement` value from the future daemon process edge. If it is not
+`Enforced`, Autonomous and Bypass return `SandboxRequired` before exact or
+category approvals are considered. A client, protocol frame, SQLite record,
+or provider output cannot assert that a sandbox exists.
+
+## Required containment contract
+
+The future launcher builds a canonical, immutable profile from the selected
+workspace and policy, then rechecks the provider executable lock immediately
+before launching that exact binary. The profile must minimally constrain:
+
+- workspace read/write roots and no ambient home-directory access;
+- network disabled by default, with separately reviewed egress policy when
+  required;
+- an allowlist of inherited environment variables, with credentials excluded;
+- process-tree containment, resource ceilings, and no child escape path.
+
+The launcher must bind the profile digest, backend identity, and enforcement
+result to the durable run before the process is considered active. These facts
+are daemon-owned diagnostics only; they are never sent by clients as authority
+claims. A lock change, unsupported profile, failed backend preflight, or failed
+attestation produces a terminal sandbox failure with zero provider spawn.
+
+## Platform strategy
+
+| Platform | Future supported path | Current broad-mode result |
+| --- | --- | --- |
+| Linux | Landlock filesystem policy plus a separately enforced network/process boundary | Denied until implemented and preflighted |
+| macOS standalone CLI | A supportable signed helper or app-distributed sandbox boundary | Denied; deprecated `sandbox-exec` is not an acceptable security claim |
+| Windows | AppContainer/restricted token plus a Job Object for the full process tree | Denied until implemented and preflighted |
+
+The application may later provide a platform-specific signed helper, but that
+does not relax the public process boundary. `gent-cli` remains responsible for
+rejecting a requested required sandbox that cannot be enforced.
+
+## Crate boundary
+
+`gent-types` holds the serializable mode and runtime-only sandbox result value.
+`gent-core` makes the pure no-prompt/fail-closed decision. `gent-ports` will
+define the sandboxed process-launch port. `gent-drivers` implements platform
+launchers at the operating-system edge. `gent-runtime` records trusted launch
+facts and `gentd` is the only composition root. `gent-cli` and Flutter remain
+protocol clients and may only read diagnostics.
+
+## Required proof before authority
+
+- A missing, unsupported, or failed backend causes zero launches.
+- Paths outside the profile are inaccessible; child processes cannot escape.
+- Ambient credentials are absent from the provider environment.
+- Network policy is enforced rather than merely passed as a provider flag.
+- A changed executable between lock resolution and sandbox spawn is rejected.
+- Resume follows the same enforcement and lock recheck.
+- macOS, Linux, and Windows claims each have platform-native integration
+  evidence; an unsupported platform advertises no broad provider authority.
+
+Provider authority remains blocked by the separate transcript, compatibility,
+private Claurst, MCP, Git, and lifecycle gates in `implementation-status.md`.

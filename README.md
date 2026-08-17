@@ -37,8 +37,8 @@ than a second copy of application logic. The implemented vertical slice is:
 - Durable ordered run checkpoints with monotonic event cursors and SHA-256 state references;
   checkpoint records never contain opaque provider state or resume a live process.
 - Versioned, append-only permission policies with Default, Plan, Auto-Accept Edits, Autonomous,
-  and explicitly confirmed Bypass modes plus canonical exact-tool/category approvals; they exclude
-  credentials, provider endpoints, bridge configuration, and any ability to start a provider.
+  and persistent Bypass modes plus canonical exact-tool/category approvals. One confirmation selects
+  Bypass; later normal Gent/App connections reuse it. Broad execution requires [OS containment](docs/sandboxing.md).
 - Additive, provider-neutral lifecycle signals for thinking, compacting, permission/question
   waits, subagent work, command work, and attention; these are durable status foundations, not
   a claim that a live provider is attached to the daemon. Root generation activity is explicit,

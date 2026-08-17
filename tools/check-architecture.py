@@ -31,19 +31,21 @@ PRODUCT_DOMAINS = {
     "gent-store",
 }
 
-SOURCE_SUFFIXES = {".ps1", ".py", ".rs", ".sh", ".yaml", ".yml"}
+SOURCE_SUFFIXES = {".md", ".ps1", ".py", ".rs", ".sh", ".toml", ".yaml", ".yml"}
 SCRIPT_NAMES = {"validate-coverage-manifest"}
+GENERATED_OR_FIXTURE_ROOTS = {"fixtures", "target"}
 
 
 def source_files() -> list[pathlib.Path]:
-    """Returns checked source, test, automation, and CI files, never generated data."""
-    roots = (ROOT / "crates", ROOT / "tools", ROOT / ".github" / "workflows")
+    """Returns tracked hand-authored files, never generated data or fixture recordings."""
+    output = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT, text=True)
     return [
-        path
-        for root in roots
-        if root.exists()
-        for path in root.rglob("*")
-        if path.is_file() and (path.suffix in SOURCE_SUFFIXES or path.name in SCRIPT_NAMES)
+        ROOT / relative
+        for value in output.split("\0")
+        if value
+        for relative in [pathlib.PurePosixPath(value)]
+        if not (set(relative.parts) & GENERATED_OR_FIXTURE_ROOTS)
+        and (relative.suffix in SOURCE_SUFFIXES or relative.name in SCRIPT_NAMES)
     ]
 
 
@@ -56,7 +58,11 @@ def check_dependencies() -> list[str]:
             continue
         if ALLOWED[name] is None:
             continue
-        direct = {dep["name"] for dep in package["dependencies"] if dep["name"].startswith("gent-") and dep.get("kind") is None}
+        direct = {
+            dep["name"]
+            for dep in package["dependencies"]
+            if dep["name"].startswith("gent-") and dep.get("kind") != "dev"
+        }
         illegal = direct - ALLOWED[name]
         if illegal:
             errors.append(f"{name} illegally depends on {', '.join(sorted(illegal))}")

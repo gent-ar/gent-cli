@@ -83,8 +83,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] Durable ordered run checkpoints with monotonic event cursors and digest-only state references;
       checkpoint persistence cannot resume or leave a provider process running.
 - [x] Negotiated `gent permissions show|set` stores append-only, secret-free revisions: Default,
-      Plan, Auto-Accept Edits, Autonomous, or explicitly consented Bypass with exact-tool and
-      typed-category approvals. The pure evaluator keeps Plan non-escalating; no policy starts a provider.
+      Plan, Auto-Accept Edits, Autonomous, or persistent Bypass after one explicit confirmation.
+      The pure evaluator keeps Plan non-escalating; broad modes fail closed without containment and no policy starts a provider.
 - [x] Read-only conversation status derivation from durable lineage and run projections, with no provider session disclosure.
 - [x] Durable title/recap provenance records: source turns, provider/model version, input digest,
       immutable lineage, and atomic supersession.
@@ -267,7 +267,7 @@ not claim provider or app compatibility evidence that has not been recorded.
    zero-user, single-developer cutover. A future Flutter launch must nevertheless enforce protocol
    compatibility and exactly one active writer/host epoch.
 6. [x] Production release automation has its dedicated GitHub Actions signing secret and matching
-   public key/id configuration (`runtime-2026-08`). `v0.1.12` is published with all 46 assets,
+   public key/id configuration (`runtime-2026-08`). `v0.1.14` is published with all 46 assets,
    Sigstore sidecars (including the versioned runtime-release index), and successful hosted plus
    independent clean-install, terminal-IPC, automatic-update-status, and supervisor-rejection checks.
 7. [ ] `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching

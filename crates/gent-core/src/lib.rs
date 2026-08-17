@@ -29,7 +29,9 @@ pub use lifecycle_projection::{
 pub use lifecycle_signal::project_lifecycle_signal;
 pub use lifecycle_state::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 pub use observer_comparison::{ObserverComparison, ObserverProjection, compare_legacy_tap};
-pub use permission_policy::{PermissionDecision, evaluate_permission};
+pub use permission_policy::{
+    PermissionDecision, evaluate_permission, evaluate_permission_with_sandbox,
+};
 pub use projection_snapshot::{restore_projection, snapshot_projection};
 pub use runtime_update::{
     RuntimeUpdateContext, RuntimeUpdateEligibility, RuntimeUpdateEvent, RuntimeUpdateIngress,

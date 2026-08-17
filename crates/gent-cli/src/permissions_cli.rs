@@ -32,7 +32,8 @@ pub(crate) struct PermissionSetArgs {
     /// Approve a complete typed category, such as `read` or `network`.
     #[arg(long = "allow-category", value_enum)]
     pub(crate) allowed_categories: Vec<PermissionCategoryArgument>,
-    /// Required only when persisting the intentionally broad bypass mode.
+    /// One-time confirmation required only when changing into the broad bypass mode.
+    /// A persisted bypass policy applies to later normal `gent` and app connections.
     #[arg(long)]
     pub(crate) consent_bypass: bool,
 }
@@ -74,7 +75,7 @@ async fn save(
 ) -> Result<PolicyRecord, Box<dyn std::error::Error>> {
     let mode: PermissionMode = args.mode.into();
     if mode == PermissionMode::Bypass && !args.consent_bypass {
-        return Err("bypass mode requires --consent-bypass".into());
+        return Err("changing to bypass mode requires --consent-bypass".into());
     }
     let current = current(data_dir.clone(), no_autostart).await?;
     let revision = current.as_ref().map_or(1, |policy| policy.revision + 1);
@@ -187,9 +188,22 @@ mod tests {
     use crate::{Args, CommandLine};
 
     #[test]
-    fn bypass_cannot_be_selected_without_the_explicit_terminal_flag() {
+    fn bypass_is_a_mode_with_a_one_time_configuration_confirmation() {
         let args =
             Args::try_parse_from(["gent", "permissions", "set", "--mode", "bypass"]).unwrap();
+        assert!(matches!(
+            args.command,
+            Some(CommandLine::Permissions { .. })
+        ));
+        let args = Args::try_parse_from([
+            "gent",
+            "permissions",
+            "set",
+            "--mode",
+            "bypass",
+            "--consent-bypass",
+        ])
+        .unwrap();
         assert!(matches!(
             args.command,
             Some(CommandLine::Permissions { .. })

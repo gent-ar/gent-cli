@@ -42,7 +42,7 @@ where
     L: Ledger + PolicyLedger,
 {
     if policy.mode == PermissionMode::Bypass && !bypass_consent {
-        return Err("bypass mode requires explicit bypass consent".into());
+        return Err("changing to bypass mode requires explicit bypass consent".into());
     }
     coordinator
         .save_policy(&policy)
@@ -71,7 +71,7 @@ mod tests {
     }
 
     #[test]
-    fn bypass_requires_consent_and_other_modes_append_a_revision() {
+    fn bypass_requires_one_time_consent_then_persists_as_the_selected_mode() {
         let coordinator =
             Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
         coordinator
@@ -93,13 +93,28 @@ mod tests {
             &coordinator,
             PermissionPolicyFrame::Save {
                 request_id: "request-2".into(),
-                policy: policy(PermissionMode::Plan),
-                bypass_consent: false,
+                policy: policy(PermissionMode::Bypass),
+                bypass_consent: true,
             },
         )
         .unwrap();
         assert!(
-            matches!(saved, PermissionPolicyFrame::Saved { policy, .. } if policy.mode == PermissionMode::Plan)
+            matches!(saved, PermissionPolicyFrame::Saved { policy, .. } if policy.mode == PermissionMode::Bypass)
         );
+        let current = exchange(
+            &coordinator,
+            PermissionPolicyFrame::Current {
+                request_id: "request-3".into(),
+                workspace_id: "workspace-1".into(),
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            current,
+            PermissionPolicyFrame::CurrentPolicy {
+                policy: Some(policy),
+                ..
+            } if policy.mode == PermissionMode::Bypass
+        ));
     }
 }

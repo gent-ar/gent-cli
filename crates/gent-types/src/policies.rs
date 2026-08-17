@@ -29,6 +29,25 @@ pub enum PermissionMode {
     Bypass,
 }
 
+impl PermissionMode {
+    /// Returns whether unattended execution for this mode requires verified OS containment.
+    #[must_use]
+    pub const fn requires_sandbox(self) -> bool {
+        matches!(self, Self::Autonomous | Self::Bypass)
+    }
+}
+
+/// Trusted process-launch containment state, never accepted from a protocol client.
+///
+/// The future daemon-owned launcher derives this after preparing the OS sandbox immediately
+/// before spawning the exact locked executable. It is deliberately not serializable because a
+/// client-provided value would be a forgeable security claim.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SandboxEnforcement {
+    Enforced,
+    Unavailable,
+}
+
 /// A stable, provider-neutral class of requested capability.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,7 +89,9 @@ pub struct PolicyRecord {
 
 #[cfg(test)]
 mod tests {
-    use super::{PermissionCategory, PermissionMode, PolicyRecord, PolicyScope};
+    use super::{
+        PermissionCategory, PermissionMode, PolicyRecord, PolicyScope, SandboxEnforcement,
+    };
     use serde_json::json;
 
     #[test]
@@ -96,5 +117,13 @@ mod tests {
             json!("autoAcceptEdits")
         );
         let _ = PolicyScope::ProviderPermissions;
+    }
+
+    #[test]
+    fn broad_modes_require_a_daemon_verified_sandbox() {
+        assert!(PermissionMode::Autonomous.requires_sandbox());
+        assert!(PermissionMode::Bypass.requires_sandbox());
+        assert!(!PermissionMode::Plan.requires_sandbox());
+        let _ = SandboxEnforcement::Enforced;
     }
 }

@@ -88,6 +88,7 @@ pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosti
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
 pub use policies::{
     PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
+    SandboxEnforcement,
 };
 pub use run_checkpoints::RunCheckpointRecord;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
