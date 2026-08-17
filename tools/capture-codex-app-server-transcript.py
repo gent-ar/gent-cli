@@ -18,10 +18,8 @@ import threading
 import time
 import uuid
 from pathlib import Path
-
-from codex_mcp_probe import capture_probe, probe_result, registered_mcp
-ROOT = Path(__file__).resolve().parent.parent
-FIXTURES = ROOT / "fixtures/public-driver-transcripts"
+from codex_mcp_probe import capture_direct, capture_probe, probe_result, registered_mcp
+ROOT = Path(__file__).resolve().parent.parent; FIXTURES = ROOT / "fixtures/public-driver-transcripts"
 LIMIT, TIMEOUT = 256 * 1024, 90
 SCENARIOS = (
     "permission_prompt", "permission_persistent", "plan_mode", "compaction",
@@ -36,6 +34,7 @@ PROMPTS = {
     "interrupt": "Run sleep 30 exactly once. Do not use any other tool.",
     "steer": "Run sleep 30 exactly once. Do not use any other tool.",
 }
+
 def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scenario", choices=SCENARIOS)
@@ -65,12 +64,10 @@ def plan(scenario: str, model: str, output: Path) -> dict[str, object]:
     methods = ["initialize", "thread/start", *extra_methods(scenario)]
     if scenario != "mcp_tool": methods.append("turn/start")
     return {
-        "scenario": scenario,
-        "output": str(output),
+        "scenario": scenario, "output": str(output),
         "command": ["<codex-resolved-at-live-capture>", "app-server", "--stdio"],
         "methods": methods,
-        "rawOutput": f"bounded-memory-only:{LIMIT}",
-        "manifest": "unchanged",
+        "rawOutput": f"bounded-memory-only:{LIMIT}", "manifest": "unchanged",
     }
 def extra_methods(scenario: str) -> list[str]:
     return {"permission_persistent": ["turn/start"], "compaction": ["thread/compact/start"],
@@ -81,20 +78,20 @@ class Session:
         self.process, self.timeout, self.next_id = process, timeout, 1
         self.events: queue.Queue[dict[str, object]] = queue.Queue(); self.decision = decision
         self.seen: list[dict[str, object]] = []
-        self.total = self.stderr_bytes = 0; self.stderr = "none"; self.stderr_truncated = False
+        self.total = self.stderr_bytes = 0; self.stderr = "none"; self.stderr_truncated = False; self.reader_failure = "none"
         self.thread = threading.Thread(target=self._read, daemon=True)
         self.stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
         self.thread.start(); self.stderr_thread.start()
     def _read(self) -> None:
-        for raw in self.process.stdout:  # type: ignore[attr-defined]
-            self.total += len(raw.encode("utf-8", "replace"))
-            if self.total <= LIMIT:
-                try:
-                    value = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(value, dict):
-                    self.events.put(value)
+        try:
+            while raw := self.process.stdout.readline():  # type: ignore[attr-defined]
+                self.total += len(raw.encode("utf-8", "replace"))
+                if self.total <= LIMIT:
+                    try: value = json.loads(raw)
+                    except json.JSONDecodeError: continue
+                    if isinstance(value, dict): self.events.put(value)
+        except (OSError, UnicodeError):
+            self.reader_failure = "read-error"
     def _read_stderr(self) -> None:
         for raw in self.process.stderr:  # type: ignore[attr-defined]
             size = len(raw.encode("utf-8", "replace")); self.stderr_truncated |= self.stderr_bytes + size > LIMIT
@@ -105,7 +102,8 @@ class Session:
     def diagnostic(self) -> str:
         status = self.process.poll()  # type: ignore[attr-defined]
         suffix = "+" if self.stderr_truncated else ""
-        return f"exit={'running' if status is None else status},stderr={self.stderr},stderrBytes={self.stderr_bytes}{suffix}"
+        methods = sorted({str(event.get("method")) for event in self.seen if isinstance(event.get("method"), str)})
+        return f"exit={'running' if status is None else status},stdout={self.reader_failure},events={len(self.seen)},methods={methods},queued={self.events.qsize()},stderr={self.stderr},stderrBytes={self.stderr_bytes}{suffix}"
     def send(self, method: str, params: dict[str, object]) -> int:
         request_id, self.next_id = self.next_id, self.next_id + 1
         self.process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}) + "\n")  # type: ignore[attr-defined]
@@ -185,8 +183,11 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
     configs = configs or []
     process = popen([str(binary_path), *(part for config in configs for part in ("-c", config)), "app-server", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE, text=True, start_new_session=os.name != "nt")
-    session = Session(process, timeout, "acceptForSession" if scenario == "permission_persistent" else "decline")
     deadline = time.monotonic() + timeout
+    if scenario == "mcp_tool" and popen is subprocess.Popen:
+        if not mcp_server: raise ValueError("mcp_tool requires --mcp-server for a reviewed isolated probe")
+        return capture_direct(process, mcp_server, deadline)
+    session = Session(process, timeout, "acceptForSession" if scenario == "permission_persistent" else "decline")
     try:
         session.response(session.send("initialize", {"clientInfo": {"name": "gent-cli-evidence", "version": "1"}, "capabilities": {"experimentalApi": True}})); session.notify("initialized", {})
         thread_id = ids(session.response(session.send("thread/start", thread_params(scenario, model))), "thread")
@@ -264,9 +265,7 @@ def write(path: Path, scenario: str, binary_path: Path, seen: list[dict[str, obj
 def manifest_update(scenario: str, output_name: str, replace: bool) -> tuple[Path, str]:
     manifest = FIXTURES / "manifest.yml"
     text = manifest.read_text(encoding="utf-8")
-    pattern = re.compile(
-        rf"\{{\s*vendor:\s*codex,\s*scenario:\s*{scenario},\s*state:\s*(capture_required|recorded)(?:,\s*path:\s*[^}}]+)?\s*}}"
-    )
+    pattern = re.compile(rf"\{{\s*vendor:\s*codex,\s*scenario:\s*{scenario},\s*state:\s*(capture_required|recorded)(?:,\s*path:\s*[^}}]+)?\s*}}")
     match = pattern.search(text)
     if match is None or (match.group(1) == "recorded" and not replace):
         raise ValueError(

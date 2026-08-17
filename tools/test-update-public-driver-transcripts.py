@@ -37,11 +37,10 @@ def test_run_rejects_mixed_unsupported_request_before_any_capture() -> None:
     assert "malformed_tolerance" in result.stdout
 
 
-def test_codable_mcp_cell_still_prints_its_isolated_capture_command() -> None:
+def test_recorded_mcp_cell_is_not_replayed_without_a_new_gap() -> None:
     result = run("--vendor", "codex", "--scenario", "mcp_tool")
     assert result.returncode == 0, result.stderr
-    assert "capture-codex-mcp-transcript.py" in result.stdout
-    assert "--dry-run" in result.stdout
+    assert result.stdout.strip() == "No unrecorded cells match this query."
 
 
 def test_claude_persistent_permission_has_a_bounded_capture_command() -> None:
@@ -53,7 +52,7 @@ def test_claude_persistent_permission_has_a_bounded_capture_command() -> None:
 def main() -> None:
     test_gap_reports_external_prerequisite_without_a_live_call()
     test_run_rejects_mixed_unsupported_request_before_any_capture()
-    test_codable_mcp_cell_still_prints_its_isolated_capture_command()
+    test_recorded_mcp_cell_is_not_replayed_without_a_new_gap()
     print("transcript refresh planning checks passed")
 
 

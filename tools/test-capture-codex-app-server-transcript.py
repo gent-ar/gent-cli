@@ -113,7 +113,7 @@ def test_stderr_diagnostic_is_generic_and_redacted() -> None:
     process = Process([], "authentication failed: token=super-secret", 23); process.terminate()
     session = MODULE.Session(process, 1); session.thread.join(1); session.stderr_thread.join(1)
     diagnostic = session.diagnostic()
-    assert "exit=23,stderr=authentication" in diagnostic
+    assert "exit=23,stdout=none,events=0,methods=[],queued=0,stderr=authentication" in diagnostic
     assert "super-secret" not in diagnostic and "token=" not in diagnostic
 
 
