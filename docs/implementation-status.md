@@ -100,6 +100,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       `send`, and `queue` persist through receipt and epoch fences without composing any provider,
       MCP, Git, or private-bridge effect. Accepted prompts expose durable `awaitingProvider` or
       `queued` delivery rather than claiming execution. The default daemon remains observer-only.
+- [x] Receipt-backed `gent chat switch` creates a new immutable, selected child run only when
+      the expected parent is still the durable current run. It records a frozen conversation
+      history ordinal before the child begins; retries are stable and later prompts target the
+      child. No provider, MCP, Git, or private bridge is launched or inspected by this switch.
 - [x] Unix local-host privacy boundary: a non-symlink, owner-only daemon data directory and an
       owner-only Unix socket constrained beneath it before the ledger is opened.
 - [x] Additive normalized lifecycle signals for root phase and explicit generation activity,

@@ -4,6 +4,8 @@ use gent_protocol::AgentChatIntentFrame;
 use gent_runtime::{
     AgentChatConversationRequest, AgentChatConversationResult, AgentChatConversationService,
     AgentChatPromptRequest, AgentChatPromptResult, AgentChatPromptService,
+    AgentChatSelectionSwitchRequest, AgentChatSelectionSwitchResult,
+    AgentChatSelectionSwitchService,
 };
 use gent_types::{AgentChatPromptDisposition, HostEpoch};
 
@@ -11,11 +13,14 @@ use gent_types::{AgentChatPromptDisposition, HostEpoch};
 pub(crate) fn exchange<L>(
     conversations: &AgentChatConversationService<L>,
     prompts: &AgentChatPromptService<L>,
+    switches: &AgentChatSelectionSwitchService<L>,
     host_epoch: HostEpoch,
     frame: AgentChatIntentFrame,
 ) -> Result<Vec<AgentChatIntentFrame>, String>
 where
-    L: gent_ports::AgentChatLedger + gent_ports::AgentChatPromptLedger,
+    L: gent_ports::AgentChatLedger
+        + gent_ports::AgentChatPromptLedger
+        + gent_ports::AgentChatSelectionLedger,
 {
     match frame {
         AgentChatIntentFrame::CreateConversation {
@@ -51,6 +56,21 @@ where
             text,
             AgentChatPromptDisposition::Queue,
         ),
+        AgentChatIntentFrame::SwitchSelection {
+            request_id,
+            receipt_id,
+            conversation_id,
+            parent_run_id,
+            selection,
+        } => switch(
+            switches,
+            host_epoch,
+            request_id,
+            receipt_id,
+            conversation_id,
+            parent_run_id,
+            selection,
+        ),
         AgentChatIntentFrame::Interrupt { .. } | AgentChatIntentFrame::Decision { .. } => {
             Err("agent-chat provider lifecycle is not configured".into())
         }
@@ -58,6 +78,45 @@ where
             Err("agent-chat transcript streaming is not configured".into())
         }
         _ => Err("agent-chat response frames are server-only".into()),
+    }
+}
+
+fn switch<L>(
+    service: &AgentChatSelectionSwitchService<L>,
+    host_epoch: HostEpoch,
+    request_id: gent_types::AgentChatRequestId,
+    receipt_id: gent_types::ReceiptId,
+    conversation_id: gent_types::AgentChatConversationId,
+    parent_run_id: gent_types::AgentChatRunId,
+    selection: gent_types::AgentChatSelection,
+) -> Result<Vec<AgentChatIntentFrame>, String>
+where
+    L: gent_ports::AgentChatSelectionLedger,
+{
+    match service
+        .switch(&AgentChatSelectionSwitchRequest {
+            request_id: request_id.clone(),
+            receipt_id,
+            host_epoch,
+            conversation_id,
+            parent_run_id,
+            selection,
+        })
+        .map_err(|error| error.to_string())?
+    {
+        AgentChatSelectionSwitchResult::Switched(switched) => {
+            Ok(vec![AgentChatIntentFrame::Switched {
+                request_id,
+                receipt: switched.receipt,
+                conversation_id: switched.conversation_id,
+                parent_run_id: switched.parent_run_id,
+                run_id: switched.run_id,
+                context_through_ordinal: switched.context_through_ordinal,
+            }])
+        }
+        AgentChatSelectionSwitchResult::DeniedObserver => {
+            Err("agent-chat authority is disabled".into())
+        }
     }
 }
 

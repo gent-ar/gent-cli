@@ -1,6 +1,7 @@
 //! Coordinator orchestration over pure policy and durable ports.
 mod agent_chat_conversations;
 mod agent_chat_prompts;
+mod agent_chat_selection_switch;
 mod attachment_receipts;
 mod attachments;
 pub mod catalog;
@@ -34,6 +35,10 @@ pub use agent_chat_conversations::{
 };
 pub use agent_chat_prompts::{
     AgentChatPromptAuthority, AgentChatPromptRequest, AgentChatPromptResult, AgentChatPromptService,
+};
+pub use agent_chat_selection_switch::{
+    AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchRequest,
+    AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
 };
 pub use attachments::AttachmentService;
 pub use conversation_activity::{

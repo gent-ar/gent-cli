@@ -5,7 +5,9 @@ use gent_types::{AgentChatConversationCreate, AgentChatConversationCreated};
 use crate::LedgerError;
 
 mod prompt;
+mod switch;
 pub use prompt::AgentChatPromptLedger;
+pub use switch::AgentChatSelectionLedger;
 
 /// Durable creation boundary for an immutable conversation, root run, selection, and receipt.
 pub trait AgentChatLedger: Send + Sync {

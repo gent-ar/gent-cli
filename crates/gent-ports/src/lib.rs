@@ -30,7 +30,7 @@ mod run_version_authorizer;
 pub mod runtime_update;
 mod tool_source_ledger;
 mod workspace_ledger;
-pub use agent_chat_ledger::{AgentChatLedger, AgentChatPromptLedger};
+pub use agent_chat_ledger::{AgentChatLedger, AgentChatPromptLedger, AgentChatSelectionLedger};
 pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
 pub use capability_catalog::CapabilityCatalogLedger;

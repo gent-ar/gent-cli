@@ -15,11 +15,14 @@ use serde_json::Value;
 
 use crate::local_ipc::connect_and_negotiate;
 
+mod switch;
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum ChatCommand {
     Create(CreateArgs),
     Send(PromptArgs),
     Queue(PromptArgs),
+    Switch(switch::SwitchArgs),
 }
 
 #[derive(Debug, Args)]
@@ -51,20 +54,20 @@ pub(crate) struct PromptArgs {
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
-enum Provider {
+pub(crate) enum Provider {
     Claude,
     Codex,
     Claurst,
 }
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
-enum Effort {
+pub(crate) enum Effort {
     Low,
     #[default]
     Medium,
     High,
 }
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
-enum Mode {
+pub(crate) enum Mode {
     #[default]
     Ask,
     Plan,
@@ -172,6 +175,7 @@ fn frame(action: ChatCommand) -> AgentChatIntentFrame {
         },
         ChatCommand::Send(args) => prompt_frame(args, false),
         ChatCommand::Queue(args) => prompt_frame(args, true),
+        ChatCommand::Switch(args) => switch::frame(args),
     }
 }
 
@@ -200,6 +204,9 @@ fn prompt_frame(args: PromptArgs, queued: bool) -> AgentChatIntentFrame {
 }
 
 fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIntentFrame) -> bool {
+    if let Some(valid) = switch::valid_reply(request, response) {
+        return valid;
+    }
     match (request, response) {
         (
             AgentChatIntentFrame::CreateConversation {
@@ -246,21 +253,21 @@ fn request_id(value: Option<String>) -> AgentChatRequestId {
 fn receipt_id(value: Option<String>) -> ReceiptId {
     value.map_or_else(ReceiptId::new, ReceiptId)
 }
-const fn provider(value: Provider) -> AgentChatProvider {
+pub(crate) const fn provider(value: Provider) -> AgentChatProvider {
     match value {
         Provider::Claude => AgentChatProvider::Claude,
         Provider::Codex => AgentChatProvider::Codex,
         Provider::Claurst => AgentChatProvider::Claurst,
     }
 }
-const fn effort(value: Effort) -> AgentChatEffort {
+pub(crate) const fn effort(value: Effort) -> AgentChatEffort {
     match value {
         Effort::Low => AgentChatEffort::Low,
         Effort::Medium => AgentChatEffort::Medium,
         Effort::High => AgentChatEffort::High,
     }
 }
-const fn mode(value: Mode) -> AgentChatMode {
+pub(crate) const fn mode(value: Mode) -> AgentChatMode {
     match value {
         Mode::Ask => AgentChatMode::Ask,
         Mode::Plan => AgentChatMode::Plan,

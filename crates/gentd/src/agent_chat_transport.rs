@@ -89,6 +89,7 @@ fn is_client_request(frame: &AgentChatIntentFrame) -> bool {
         AgentChatIntentFrame::CreateConversation { .. }
             | AgentChatIntentFrame::SendPrompt { .. }
             | AgentChatIntentFrame::QueuePrompt { .. }
+            | AgentChatIntentFrame::SwitchSelection { .. }
             | AgentChatIntentFrame::Interrupt { .. }
             | AgentChatIntentFrame::Decision { .. }
             | AgentChatIntentFrame::Subscribe { .. }
@@ -117,6 +118,20 @@ fn validate_replies(
         )
         .then_some(())
         .ok_or("conversation creation requires one matching durable result"),
+        AgentChatIntentFrame::SwitchSelection {
+            request_id,
+            receipt_id,
+            conversation_id,
+            parent_run_id,
+            ..
+        } => matches!(
+            replies,
+            [AgentChatIntentFrame::Switched { request_id: reply_id, receipt, conversation_id: reply_conversation, parent_run_id: reply_parent, run_id, .. }]
+                if reply_id == request_id && receipt.receipt_id == *receipt_id
+                    && reply_conversation == conversation_id && reply_parent == parent_run_id && !run_id.0.is_empty()
+        )
+        .then_some(())
+        .ok_or("selection switching requires one matching durable child run"),
         AgentChatIntentFrame::SendPrompt {
             request_id,
             receipt_id,
@@ -146,6 +161,7 @@ fn validate_replies(
         AgentChatIntentFrame::SubscriptionEvent { .. }
         | AgentChatIntentFrame::SubscriptionEnded { .. }
         | AgentChatIntentFrame::Created { .. }
+        | AgentChatIntentFrame::Switched { .. }
         | AgentChatIntentFrame::Accepted { .. } => {
             Err("agent chat response frames are server-only")
         }

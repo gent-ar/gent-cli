@@ -40,11 +40,9 @@ CREATE TABLE IF NOT EXISTS conversation_artifacts (
 );
 CREATE INDEX IF NOT EXISTS conversation_artifacts_by_conversation ON conversation_artifacts (conversation_id);
 ";
-
 const CAPABILITY_CATALOG: &str = "
 CREATE TABLE IF NOT EXISTS capability_catalog (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), schema_version INTEGER NOT NULL, capabilities TEXT NOT NULL);
 ";
-
 const WORKSPACE_HIERARCHY: &str = "
 CREATE TABLE IF NOT EXISTS workspaces (workspace_id TEXT PRIMARY KEY NOT NULL, canonical_path TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS repositories (repository_id TEXT PRIMARY KEY NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id), canonical_path TEXT NOT NULL UNIQUE);
@@ -133,6 +131,7 @@ const CONVERSATION_ACTIVITY: &str = include_str!("conversation_activity.sql");
 const RUNTIME_UPDATE: &str = include_str!("runtime_update.sql");
 const AGENT_CHAT: &str = include_str!("agent_chat.sql");
 const AGENT_CHAT_PROMPTS: &str = include_str!("agent_chat_ledger/prompt.sql");
+const AGENT_CHAT_SELECTION_SWITCHES: &str = include_str!("agent_chat_ledger/switch.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -144,7 +143,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 22] = [
+const MIGRATIONS: [Migration; 23] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -167,6 +166,7 @@ const MIGRATIONS: [Migration; 22] = [
     migration(20, RUNTIME_UPDATE),
     migration(21, AGENT_CHAT),
     migration(22, AGENT_CHAT_PROMPTS),
+    migration(23, AGENT_CHAT_SELECTION_SWITCHES),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

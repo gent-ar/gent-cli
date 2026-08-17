@@ -8,6 +8,7 @@ mod agent_chat;
 mod agent_chat_intent;
 mod agent_chat_ledger;
 mod agent_chat_prompt;
+mod agent_chat_switch;
 mod attachments;
 mod capability_catalog;
 mod conversation_activity;
@@ -48,6 +49,7 @@ pub use agent_chat_prompt::{
     AgentChatPromptCreate, AgentChatPromptDelivery, AgentChatPromptDisposition,
     AgentChatPromptSaved,
 };
+pub use agent_chat_switch::{AgentChatSelectionSwitch, AgentChatSelectionSwitched};
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
 };

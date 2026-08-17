@@ -192,7 +192,7 @@ jobs:
             python tools/sign-runtime-release.py \
               --archive-manifest "$manifest" --version "$RELEASE_TAG" --target "$target" \
               --key-id "$RUNTIME_RELEASE_KEY_ID" --private-key "$key" --expires-at "$expires_at" \
-              --protocol-min 1 --protocol-max 1 --schema-min 1 --schema-max 22 \
+              --protocol-min 1 --protocol-max 1 --schema-max 23 \
               --minimum-app-version "${RELEASE_TAG#v}" --out "$output"
           done < <(find release-artifacts -name '*.manifest.json' -type f | sort)
           set -- --key-id "$RUNTIME_RELEASE_KEY_ID" --private-key "$key" --expires-at "$expires_at" \

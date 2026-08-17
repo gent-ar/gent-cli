@@ -9,7 +9,8 @@ use gent_protocol::{
 use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{
     AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
-    AgentChatPromptService, AttachmentService, Coordinator, DependencyActionService,
+    AgentChatPromptService, AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchService,
+    AttachmentService, Coordinator, DependencyActionService,
 };
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::{
@@ -32,6 +33,7 @@ use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 pub(crate) struct RuntimeFacade {
     agent_chat_conversations: AgentChatConversationService<SqliteLedger>,
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
+    agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger>,
     attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
     coordinator: Coordinator<SqliteLedger>,
     dependencies: DependencyCatalog,
@@ -93,6 +95,14 @@ pub(crate) fn build_runtime_with_update_checks(
                 AgentChatPromptAuthority::Observer
             },
         ),
+        agent_chat_switches: AgentChatSelectionSwitchService::new(
+            ledger.clone(),
+            if agent_chat_enabled {
+                AgentChatSelectionSwitchAuthority::Approved
+            } else {
+                AgentChatSelectionSwitchAuthority::Observer
+            },
+        ),
         public_runs: observer_service(coordinator.clone(), compatibility.clone()),
         runtime_update_checks,
         attachments,
@@ -141,6 +151,7 @@ impl api::RuntimeApi for RuntimeFacade {
         agent_chat_api::exchange(
             &self.agent_chat_conversations,
             &self.agent_chat_prompts,
+            &self.agent_chat_switches,
             host_epoch,
             frame,
         )

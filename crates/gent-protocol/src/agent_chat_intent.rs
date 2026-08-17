@@ -43,6 +43,13 @@ pub enum AgentChatIntentFrame {
         conversation_id: AgentChatConversationId,
         text: String,
     },
+    SwitchSelection {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        conversation_id: AgentChatConversationId,
+        parent_run_id: AgentChatRunId,
+        selection: AgentChatSelection,
+    },
     Interrupt {
         request_id: AgentChatRequestId,
         receipt_id: gent_types::ReceiptId,
@@ -77,6 +84,15 @@ pub enum AgentChatIntentFrame {
         receipt: Receipt,
         conversation_id: AgentChatConversationId,
         run_id: AgentChatRunId,
+    },
+    /// Durable result of selecting a new immutable child run for one conversation.
+    Switched {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        conversation_id: AgentChatConversationId,
+        parent_run_id: AgentChatRunId,
+        run_id: AgentChatRunId,
+        context_through_ordinal: u64,
     },
     Accepted {
         request_id: AgentChatRequestId,
@@ -170,6 +186,27 @@ mod tests {
                     "conversationId": "conversation-1", "runId": "run-1"
                 }
             })
+        );
+    }
+
+    #[test]
+    fn switch_is_receipt_bound_to_an_expected_parent_run() {
+        let frame = AgentChatIntentFrame::SwitchSelection {
+            request_id: AgentChatRequestId("request-1".into()),
+            receipt_id: ReceiptId("receipt-1".into()),
+            conversation_id: gent_types::AgentChatConversationId("conversation-1".into()),
+            parent_run_id: AgentChatRunId("run-1".into()),
+            selection: gent_types::AgentChatSelection {
+                provider: gent_types::AgentChatProvider::Codex,
+                model: "gpt-5.6".into(),
+                effort: gent_types::AgentChatEffort::High,
+                mode: gent_types::AgentChatMode::Agent,
+            },
+        };
+        assert!(
+            serde_json::to_value(frame).unwrap()["body"]
+                .get("parentRunId")
+                .is_some()
         );
     }
 

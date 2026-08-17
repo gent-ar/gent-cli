@@ -1,0 +1,145 @@
+use gent_ports::{ConversationContentReader, ConversationLedger};
+use gent_runtime::{
+    AgentChatConversationAuthority, AgentChatConversationRequest, AgentChatConversationResult,
+    AgentChatConversationService, AgentChatPromptAuthority, AgentChatPromptRequest,
+    AgentChatPromptResult, AgentChatPromptService, AgentChatSelectionSwitchAuthority,
+    AgentChatSelectionSwitchRequest, AgentChatSelectionSwitchResult,
+    AgentChatSelectionSwitchService,
+};
+use gent_store::SqliteLedger;
+use gent_types::{
+    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatPromptDisposition,
+    AgentChatProvider, AgentChatRequestId, AgentChatRunId, AgentChatSelection, HostEpoch,
+    ReceiptId,
+};
+
+fn selection(provider: AgentChatProvider, model: &str) -> AgentChatSelection {
+    AgentChatSelection {
+        provider,
+        model: model.into(),
+        effort: AgentChatEffort::Low,
+        mode: AgentChatMode::Ask,
+    }
+}
+
+fn conversation(ledger: SqliteLedger) -> (AgentChatConversationId, AgentChatRunId) {
+    let result =
+        AgentChatConversationService::new(ledger, AgentChatConversationAuthority::Approved)
+            .create(&AgentChatConversationRequest {
+                request_id: AgentChatRequestId("conversation".into()),
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                host_epoch: HostEpoch(1),
+                selection: selection(AgentChatProvider::Claude, "haiku"),
+            })
+            .unwrap();
+    let AgentChatConversationResult::Created(created) = result else {
+        panic!("approved authority must create a conversation");
+    };
+    (created.conversation_id, created.run_id)
+}
+
+fn save(
+    ledger: SqliteLedger,
+    conversation_id: AgentChatConversationId,
+    request_id: &str,
+) -> AgentChatRunId {
+    let result = AgentChatPromptService::new(ledger, AgentChatPromptAuthority::Approved)
+        .submit(&AgentChatPromptRequest {
+            request_id: AgentChatRequestId(request_id.into()),
+            receipt_id: ReceiptId(format!("{request_id}-receipt")),
+            host_epoch: HostEpoch(1),
+            conversation_id,
+            disposition: AgentChatPromptDisposition::Send,
+            text: format!("prompt {request_id}"),
+        })
+        .unwrap();
+    let AgentChatPromptResult::Saved(saved) = result else {
+        panic!("approved authority must save a prompt");
+    };
+    saved.run_id
+}
+
+fn request(
+    conversation_id: AgentChatConversationId,
+    parent_run_id: AgentChatRunId,
+) -> AgentChatSelectionSwitchRequest {
+    AgentChatSelectionSwitchRequest {
+        request_id: AgentChatRequestId("switch".into()),
+        receipt_id: ReceiptId("switch-receipt".into()),
+        host_epoch: HostEpoch(1),
+        conversation_id,
+        parent_run_id,
+        selection: selection(AgentChatProvider::Codex, "gpt-5.6"),
+    }
+}
+
+#[test]
+fn switch_creates_a_retry_stable_child_and_freezes_prior_history() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let (conversation_id, root_run_id) = conversation(ledger.clone());
+    assert_eq!(
+        save(ledger.clone(), conversation_id.clone(), "before"),
+        root_run_id
+    );
+    let service = AgentChatSelectionSwitchService::new(
+        ledger.clone(),
+        AgentChatSelectionSwitchAuthority::Approved,
+    );
+    let request = request(conversation_id.clone(), root_run_id.clone());
+    let first = service.switch(&request).unwrap();
+    let second = service.switch(&request).unwrap();
+    assert_eq!(first, second);
+    let AgentChatSelectionSwitchResult::Switched(switched) = first else {
+        panic!("approved authority must create a selected child run");
+    };
+    assert_eq!(switched.context_through_ordinal, 1);
+    assert_eq!(switched.parent_run_id, root_run_id);
+    assert_eq!(switched.selection.provider, AgentChatProvider::Codex);
+    assert_eq!(
+        save(ledger.clone(), conversation_id.clone(), "after"),
+        switched.run_id
+    );
+    let content = ledger
+        .read_conversation_content(&conversation_id.0, Some(2), 10)
+        .unwrap();
+    assert_eq!(content.entries.len(), 1);
+    assert_eq!(content.entries[0].text, "prompt before");
+    let runs = ledger.list_conversation_runs(&conversation_id.0).unwrap();
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].run_id, root_run_id.0);
+    assert_eq!(
+        runs[1].parent_run_id.as_deref(),
+        Some(root_run_id.0.as_str())
+    );
+}
+
+#[test]
+fn stale_parent_and_observer_switches_cannot_create_a_child() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let (conversation_id, root_run_id) = conversation(ledger.clone());
+    let request = request(conversation_id.clone(), root_run_id.clone());
+    let observer = AgentChatSelectionSwitchService::new(
+        ledger.clone(),
+        AgentChatSelectionSwitchAuthority::Observer,
+    );
+    assert_eq!(
+        observer.switch(&request).unwrap(),
+        AgentChatSelectionSwitchResult::DeniedObserver
+    );
+    let approved = AgentChatSelectionSwitchService::new(
+        ledger.clone(),
+        AgentChatSelectionSwitchAuthority::Approved,
+    );
+    approved.switch(&request).unwrap();
+    let mut stale = request;
+    stale.request_id = AgentChatRequestId("stale".into());
+    stale.receipt_id = ReceiptId("stale-receipt".into());
+    assert!(approved.switch(&stale).is_err());
+    assert_eq!(
+        ledger
+            .list_conversation_runs(&conversation_id.0)
+            .unwrap()
+            .len(),
+        2
+    );
+}

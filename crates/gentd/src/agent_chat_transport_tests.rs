@@ -32,6 +32,20 @@ impl IntentPort for FakePort {
                 receipt_id,
                 ..
             } => Ok(vec![accepted(request_id, receipt_id)]),
+            AgentChatIntentFrame::SwitchSelection {
+                request_id,
+                receipt_id,
+                conversation_id,
+                parent_run_id,
+                ..
+            } => Ok(vec![AgentChatIntentFrame::Switched {
+                request_id,
+                receipt: receipt(receipt_id),
+                conversation_id,
+                parent_run_id,
+                run_id: gent_types::AgentChatRunId("run-2".into()),
+                context_through_ordinal: 3,
+            }]),
             AgentChatIntentFrame::Subscribe { request_id, .. } => Ok(vec![
                 AgentChatIntentFrame::SubscriptionEvent {
                     request_id: request_id.clone(),
@@ -126,6 +140,25 @@ async fn create_reply_includes_durable_conversation_and_run_identities() {
     assert!(
         matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Created { conversation_id, run_id, .. } if conversation_id.0 == "conversation-1" && run_id.0 == "run-1")
     );
+}
+
+#[tokio::test]
+async fn switch_reply_binds_the_expected_parent_and_new_child_run() {
+    let (mut reader, mut writer) = duplex(4096);
+    let request = json!({ "type": "switchSelection", "body": {
+        "requestId": "switch-1", "receiptId": "receipt-1", "conversationId": "conversation-1",
+        "parentRunId": "run-1", "selection": { "provider": "codex", "model": "gpt-5.6", "effort": "high", "mode": "agent" }
+    } });
+    assert!(
+        dispatch_port(&mut writer, &FakePort, &capabilities(), &request)
+            .await
+            .unwrap()
+    );
+    assert!(matches!(
+        read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(),
+        AgentChatIntentFrame::Switched { parent_run_id, run_id, context_through_ordinal, .. }
+            if parent_run_id.0 == "run-1" && run_id.0 == "run-2" && context_through_ordinal == 3
+    ));
 }
 
 #[tokio::test]
