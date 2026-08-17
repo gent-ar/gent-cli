@@ -238,8 +238,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 ## Intentionally not claimed
 
 - [ ] Complete real Claude/Codex recordings and installed-provider integration evidence.
-      The five strict missing cells are Claude persistent-permission, compaction,
-      malformed-tolerance; and Codex subagent, malformed-tolerance.
+      The four strict missing cells are Claude persistent-permission, compaction,
+      malformed-tolerance; and Codex malformed-tolerance.
       They need redacted, scenario-specific live evidence, not an observed absence.
 - [ ] Authenticated private Claurst bridge implementation/evidence (private CI only);
       public Gent must not contain its credentials, endpoints, or routing implementation.
