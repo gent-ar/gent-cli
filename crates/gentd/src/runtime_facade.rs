@@ -15,6 +15,7 @@ use gent_types::CapabilitySet;
 use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::dependency_actions::SystemDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
+use crate::node_runtime;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 
@@ -96,10 +97,16 @@ pub(crate) fn build_runtime_with_update_checks(
         runtime_update_checks,
         attachments,
         coordinator,
-        dependencies: DependencyCatalog::with_compatibility(compatibility),
+        dependencies: DependencyCatalog::with_private_prefix(
+            compatibility,
+            data_dir.join("providers").join("npm-global"),
+        ),
         dependency_actions: DependencyActionService::new(
             ledger,
-            SystemDependencyExecutor::new(SystemDependencyInstaller),
+            SystemDependencyExecutor::new(
+                SystemDependencyInstaller,
+                node_runtime::private_npm_prefix(data_dir),
+            ),
         ),
     })
 }

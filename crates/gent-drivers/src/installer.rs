@@ -1,12 +1,41 @@
 //! Explicit vendor-installer execution with fixed argument vectors and no shell.
 
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 /// A reviewed installer command. Arguments are never interpreted by a shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstallerInvocation {
     pub executable: String,
     pub arguments: Vec<String>,
+}
+
+/// Private `npm` prefix used only for daemon-owned public provider installation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NpmGlobalPrefix {
+    npm: PathBuf,
+    prefix: PathBuf,
+}
+
+impl NpmGlobalPrefix {
+    #[must_use]
+    pub fn new(npm: PathBuf, prefix: PathBuf) -> Self {
+        Self { npm, prefix }
+    }
+
+    /// Builds a fixed global package installation without a shell or ambient `PATH` lookup.
+    #[must_use]
+    pub fn install(&self, package: &str) -> InstallerInvocation {
+        InstallerInvocation {
+            executable: self.npm.to_string_lossy().into_owned(),
+            arguments: vec![
+                "install".into(),
+                "--global".into(),
+                "--prefix".into(),
+                self.prefix.to_string_lossy().into_owned(),
+                package.into(),
+            ],
+        }
+    }
 }
 
 /// Runs an already-approved provider installer to completion.
@@ -47,6 +76,8 @@ pub enum InstallerError {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{
         DependencyInstaller, InstallerError, InstallerInvocation, SystemDependencyInstaller,
     };
@@ -64,6 +95,26 @@ mod tests {
             SystemDependencyInstaller.execute(&invocation),
             Err(InstallerError::Failed(_))
         ));
+    }
+
+    #[test]
+    fn npm_install_uses_only_the_private_prefix_and_fixed_arguments() {
+        let invocation = super::NpmGlobalPrefix::new(
+            PathBuf::from("/app/node/bin/npm"),
+            PathBuf::from("/private/gentd/providers/npm-global"),
+        )
+        .install("@openai/codex");
+        assert_eq!(invocation.executable, "/app/node/bin/npm");
+        assert_eq!(
+            invocation.arguments,
+            [
+                "install",
+                "--global",
+                "--prefix",
+                "/private/gentd/providers/npm-global",
+                "@openai/codex"
+            ]
+        );
     }
 
     #[cfg(unix)]

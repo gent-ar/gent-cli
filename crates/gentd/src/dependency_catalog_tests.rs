@@ -4,6 +4,7 @@ use gent_types::{
     CompatibilityTrust, DependencyStatus, ExecutableIdentity, McpPermissionStatus,
     PrivateBridgeAvailability, PublicProviderStatus,
 };
+use std::fs;
 
 fn provider(present: bool) -> (DependencyStatus, PublicProviderStatus) {
     (
@@ -75,4 +76,22 @@ fn plans_are_read_only_and_private_providers_are_unrepresentable() {
     });
     assert!(plan.consent_required);
     assert!(plan.instruction.contains("Anthropic"));
+}
+
+#[test]
+fn doctor_prefers_the_private_gent_provider_prefix() {
+    let root = tempfile::tempdir().unwrap();
+    let prefix = root.path().join("npm-global");
+    let bin = prefix.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(bin.join("claude"), "provider").unwrap();
+    let report =
+        DependencyCatalog::with_private_prefix(crate::CompatibilityAssessment::default(), prefix)
+            .doctor();
+    assert!(
+        report
+            .public_providers
+            .iter()
+            .any(|provider| provider.provider == "claude" && provider.executable.is_some())
+    );
 }

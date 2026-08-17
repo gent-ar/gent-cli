@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug)]
 pub struct DependencyCatalog {
     compatibility: CompatibilityAssessment,
+    provider_prefix: Option<PathBuf>,
 }
 impl Default for DependencyCatalog {
     fn default() -> Self {
@@ -21,7 +22,21 @@ impl Default for DependencyCatalog {
 impl DependencyCatalog {
     #[must_use]
     pub(crate) fn with_compatibility(compatibility: CompatibilityAssessment) -> Self {
-        Self { compatibility }
+        Self {
+            compatibility,
+            provider_prefix: None,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn with_private_prefix(
+        compatibility: CompatibilityAssessment,
+        provider_prefix: PathBuf,
+    ) -> Self {
+        Self {
+            compatibility,
+            provider_prefix: Some(provider_prefix),
+        }
     }
 }
 
@@ -31,7 +46,13 @@ impl DependencyCatalog {
     pub fn doctor(&self) -> DoctorReport {
         let providers = [DependencyProvider::Claude, DependencyProvider::Codex]
             .into_iter()
-            .map(|provider| observe_provider(provider, &self.compatibility))
+            .map(|provider| {
+                observe_provider(
+                    provider,
+                    &self.compatibility,
+                    self.provider_prefix.as_deref(),
+                )
+            })
             .collect::<Vec<_>>();
         doctor_report(providers, discover_node())
     }
@@ -78,9 +99,10 @@ pub(crate) fn doctor_report(
 fn observe_provider(
     provider: DependencyProvider,
     compatibility: &CompatibilityAssessment,
+    provider_prefix: Option<&Path>,
 ) -> (DependencyStatus, PublicProviderStatus) {
     let (name, remediation) = provider_details(provider);
-    let executable = find_executable(name);
+    let executable = find_executable(name, provider_prefix);
     // Observer-mode discovery never executes a provider binary, including `--version`.
     // A later, authority-gated lifecycle captures version and rechecks identity before spawn.
     let version = None;
@@ -121,11 +143,27 @@ fn provider_details(provider: DependencyProvider) -> (&'static str, &'static str
     }
 }
 
-fn find_executable(name: &str) -> Option<PathBuf> {
+fn find_executable(name: &str, provider_prefix: Option<&Path>) -> Option<PathBuf> {
+    if let Some(candidate) =
+        provider_prefix.map(|prefix| prefix.join("bin").join(provider_name(name)))
+        && candidate.is_file()
+    {
+        return Some(candidate);
+    }
     let paths = env::var_os("PATH")?;
     env::split_paths(&paths)
         .map(|directory| directory.join(name))
         .find(|candidate| candidate.is_file())
+}
+
+#[cfg(windows)]
+fn provider_name(name: &str) -> String {
+    format!("{name}.cmd")
+}
+
+#[cfg(not(windows))]
+fn provider_name(name: &str) -> String {
+    name.into()
 }
 
 fn executable_identity(
@@ -149,13 +187,17 @@ fn executable_identity(
 }
 
 fn discover_node() -> DependencyStatus {
-    let executable = find_executable("node");
+    let executable = env::var_os("GENT_NODE_BINARY")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+        .or_else(|| find_executable("node", None));
     DependencyStatus {
         name: "node".into(),
         present: executable.is_some(),
         version: None,
-        remediation: "Node discovery is read-only; MCP remains hard-disabled until a later authority-gated release."
-            .into(),
+        remediation:
+            "Set GENT_NODE_BINARY to the app-supplied Node executable; discovery remains read-only."
+                .into(),
     }
 }
 
