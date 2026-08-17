@@ -182,7 +182,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo llvm-cov --workspace --all-targets --all-features --summary-only \
-  --ignore-filename-regex '(^|/)(gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/' \
+  --ignore-filename-regex '(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/' \
   --fail-under-lines 90
 bash tools/smoke-local-ipc.sh
 ```
