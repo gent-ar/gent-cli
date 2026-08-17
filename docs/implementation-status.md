@@ -260,8 +260,9 @@ not claim provider or app compatibility evidence that has not been recorded.
    zero-user, single-developer cutover. A future Flutter launch must nevertheless enforce protocol
    compatibility and exactly one active writer/host epoch.
 6. [x] Production release automation has its dedicated GitHub Actions signing secret and matching
-   public key/id configuration (`runtime-2026-08`). The current source revision still needs a
-   tag-triggered release and artifact verification before users rely on it.
+   public key/id configuration (`runtime-2026-08`). `v0.1.10` is published with all 46 assets,
+   Sigstore sidecars (including the versioned runtime-release index), and successful hosted plus
+   independent installed-IPC and automatic-update-status verification.
 7. [ ] `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching
    with preserved context are follow-on runtime work, not shipped functionality.
 
