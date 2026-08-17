@@ -9,16 +9,12 @@ use gent_protocol::{
     PublicRunStartRequest,
 };
 use gent_types::ReceiptId;
-/// Explicit daemon authority required before a public process can be started or signaled.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProviderRunAuthority {
-    /// Observer behavior: the process lifecycle is hard-disabled.
     #[default]
     Observer,
-    /// A future authority-gated daemon may construct this only after all evidence gates pass.
     PublicDrivers,
 }
-/// Owns the durable-before-spawn ordering while delegating process effects through one port.
 #[derive(Debug)]
 pub struct PublicRunService<L, D, A, R> {
     coordinator: Coordinator<L>,
@@ -27,6 +23,7 @@ pub struct PublicRunService<L, D, A, R> {
     resolver: R,
     authority: ProviderRunAuthority,
 }
+#[allow(clippy::missing_errors_doc)] // Kept compact under the repository's 300-line source cap.
 impl<L, D, A, R> PublicRunService<L, D, A, R>
 where
     L: Ledger,
@@ -34,7 +31,6 @@ where
     A: RunVersionAuthorizer,
     R: PublicProviderResolver,
 {
-    /// Constructs a service. `Observer` is the safe default used by the shipped daemon.
     #[must_use]
     pub fn new(
         coordinator: Coordinator<L>,
@@ -52,10 +48,6 @@ where
         }
     }
 
-    /// Resolves and durably reserves or activates a run before invoking the process owner.
-    ///
-    /// # Errors
-    /// Returns an error when durable reservation fails after daemon-owned resolution succeeds.
     pub fn start(&self, request: PublicRunStartRequest) -> Result<PublicRunResponse, RuntimeError> {
         if !self.is_authoritative() {
             return Ok(denied(request.run_id));
@@ -95,10 +87,28 @@ where
         }
     }
 
-    /// Reclaims a durable run lease then lets the process owner recheck its immutable lock.
-    ///
-    /// # Errors
-    /// Returns an error when the run or lock is absent or durable lease processing fails.
+    pub fn start_or_resume(
+        &self,
+        request: PublicRunStartRequest,
+    ) -> Result<PublicRunResponse, RuntimeError> {
+        if !self.is_authoritative() {
+            return Ok(denied(request.run_id));
+        }
+        if self
+            .coordinator
+            .public_run_session(&request.run_id)?
+            .is_some()
+        {
+            return self.resume(PublicRunResumeRequest {
+                run_id: request.run_id,
+                coordinator_id: request.coordinator_id,
+                host_epoch: request.host_epoch,
+                session_id: String::new(),
+            });
+        }
+        self.start(request)
+    }
+
     pub fn resume(
         &self,
         request: PublicRunResumeRequest,
@@ -147,13 +157,6 @@ where
         }
     }
 
-    /// Records the provider-native session announced by an owned public-driver process.
-    ///
-    /// This is an internal daemon lifecycle entry point, deliberately not a protocol request.
-    /// A client therefore cannot select the session used by [`Self::resume`].
-    ///
-    /// # Errors
-    /// Returns an error when this daemon is not authoritative or no longer owns the run.
     pub fn record_provider_session(
         &self,
         run_id: String,
@@ -184,10 +187,6 @@ where
             })
     }
 
-    /// Signals only a run whose durable lease still names this coordinator and epoch.
-    ///
-    /// # Errors
-    /// Returns an error only when the owned process cannot be interrupted or storage fails.
     pub fn interrupt(
         &self,
         request: PublicRunInterruptRequest,

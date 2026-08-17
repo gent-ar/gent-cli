@@ -37,11 +37,12 @@ pub(crate) struct Runner {
 #[derive(Default, Debug)]
 pub(crate) struct State {
     pending: Option<(String, CodexPromptStart)>,
-    starts: usize,
+    pub(crate) starts: usize,
     effects: VecDeque<Vec<CodexRunnerEffect>>,
     pub(crate) poll_failure: bool,
     session_active: bool,
     submitted: Vec<String>,
+    pub(crate) resumes: usize,
 }
 
 impl PublicProviderRunner for Runner {
@@ -57,8 +58,20 @@ impl PublicProviderRunner for Runner {
         Ok(())
     }
 
-    fn resume(&self, _: &str, _: &RunVersionLock, _: &str) -> Result<(), PublicProviderRunError> {
-        Err(PublicProviderRunError::Failed("unused resume".into()))
+    fn resume(
+        &self,
+        run_id: &str,
+        _: &RunVersionLock,
+        _: &str,
+    ) -> Result<(), PublicProviderRunError> {
+        let mut state = self.state.lock().unwrap();
+        assert_eq!(
+            state.pending.as_ref().map(|entry| entry.0.as_str()),
+            Some(run_id)
+        );
+        state.resumes += 1;
+        state.session_active = true;
+        Ok(())
     }
 
     fn interrupt(&self, _: &str) -> Result<(), PublicProviderRunError> {
@@ -116,7 +129,7 @@ impl PublicProviderResolver for Resolver {
     }
 }
 
-fn lock() -> RunVersionLock {
+pub(crate) fn lock() -> RunVersionLock {
     RunVersionLock {
         provider: "codex".into(),
         canonical_path: "/verified/codex".into(),

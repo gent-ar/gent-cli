@@ -52,18 +52,19 @@ where
         runner.cancel_codex_prompt(&run_id);
         return Err(error);
     }
-    let response = match runtime
-        .runs()
-        .start(request(&run_id, coordinator_id, host_epoch))
-    {
-        Ok(response) => response,
-        Err(error) => {
-            runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-            return Err(error);
-        }
-    };
+    let response =
+        match runtime
+            .runs()
+            .start_or_resume(request(&run_id, coordinator_id, host_epoch))
+        {
+            Ok(response) => response,
+            Err(error) => {
+                runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+                return Err(error);
+            }
+        };
     match response.outcome {
-        PublicRunOutcome::Started => {
+        PublicRunOutcome::Started | PublicRunOutcome::Resumed => {
             if let Err(error) =
                 runtime.confirm_prompt_started(&message_id, coordinator_id, host_epoch)
             {
@@ -85,9 +86,7 @@ where
             runtime.release_unstarted_prompt_launch(&message_id, coordinator_id, host_epoch)?;
             Ok(CodexPromptDispatchOutcome::Empty)
         }
-        PublicRunOutcome::ProviderChanged
-        | PublicRunOutcome::Interrupted
-        | PublicRunOutcome::Resumed => {
+        PublicRunOutcome::ProviderChanged | PublicRunOutcome::Interrupted => {
             runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
             Ok(CodexPromptDispatchOutcome::Unprovable { run_id })
         }
