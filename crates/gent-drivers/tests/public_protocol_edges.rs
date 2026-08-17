@@ -1,6 +1,6 @@
 use gent_drivers::{
     PublicProvider,
-    public_protocol::{PublicWireFact, normalize_public_frame},
+    public_protocol::{PublicWireFact, normalize_public_frame, replay_public_frames},
 };
 use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, ToolPhase, TurnPhase};
 use serde_json::{Value, json};
@@ -108,4 +108,43 @@ fn codex_covers_terminal_statuses_tools_and_unknown_frames() {
     ] {
         diagnostic(PublicProvider::Codex, &frame, expected);
     }
+}
+
+#[test]
+fn a_public_parser_fault_does_not_poison_the_following_provider_frame() {
+    let claude = replay_public_frames(
+        PublicProvider::Claude,
+        &[
+            json!({"type":"assistant"}),
+            json!({"type":"result","is_error":false}),
+        ],
+    );
+    assert!(claude.contains(&PublicWireFact::Event(
+        NormalizedProviderEvent::TransportDiagnostic {
+            classification: "malformedClaudeAssistant".into(),
+        }
+    )));
+    assert!(claude.contains(&PublicWireFact::Lifecycle(
+        NormalizedLifecycleSignal::RootPhase {
+            phase: TurnPhase::Ready
+        }
+    )));
+
+    let codex = replay_public_frames(
+        PublicProvider::Codex,
+        &[
+            json!({"jsonrpc":"2.0"}),
+            json!({"method":"turn/started","params":{"turn":{"id":"after-fault"}}}),
+        ],
+    );
+    assert!(codex.contains(&PublicWireFact::Event(
+        NormalizedProviderEvent::TransportDiagnostic {
+            classification: "malformedCodexFrame".into(),
+        }
+    )));
+    assert!(codex.contains(&PublicWireFact::Event(
+        NormalizedProviderEvent::TurnStarted {
+            turn_id: "after-fault".into(),
+        }
+    )));
 }

@@ -61,11 +61,20 @@ def test_codex_subagent_has_a_documented_bounded_capture_command() -> None:
     assert "--dry-run" in command
 
 
+def test_malformed_cells_explain_the_exact_safe_future_boundary() -> None:
+    result = run("--vendor", "codex", "--scenario", "malformed_tolerance")
+    assert result.returncode == 1
+    assert "vendor-documented bounded output-fault control" in result.stdout
+    assert "never inject or proxy output" in result.stdout
+    assert "validate-malformed-driver-evidence.py" in result.stdout
+
+
 def main() -> None:
     test_gap_reports_external_prerequisite_without_a_live_call()
     test_run_rejects_mixed_unsupported_request_before_any_capture()
     test_recorded_mcp_cell_is_not_replayed_without_a_new_gap()
     test_codex_subagent_has_a_documented_bounded_capture_command()
+    test_malformed_cells_explain_the_exact_safe_future_boundary()
     print("transcript refresh planning checks passed")
 
 

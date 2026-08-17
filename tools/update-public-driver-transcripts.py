@@ -25,16 +25,18 @@ CAPTURE_PREREQUISITES = {
         "an unbounded context-overflow capture."
     ),
     ("claude", "malformed_tolerance"): (
-        "requires an evidence-contract decision: malformed provider input is an "
-        "adapter parser test, not a safe live-provider probe."
+        "requires a vendor-documented bounded output-fault control during an "
+        "attended read-only/tool-free run; never inject or proxy output. Validate "
+        "a reviewed candidate with tools/validate-malformed-driver-evidence.py."
     ),
     ("codex", "subagent"): (
         "requires a documented Codex native-subagent control and correlated event "
         "surface; do not infer a subagent from model text."
     ),
     ("codex", "malformed_tolerance"): (
-        "requires an evidence-contract decision: malformed provider input is an "
-        "adapter parser test, not a safe live-provider probe."
+        "requires a vendor-documented bounded output-fault control during an "
+        "attended read-only/tool-free run; never inject or proxy output. Validate "
+        "a reviewed candidate with tools/validate-malformed-driver-evidence.py."
     ),
 }
 CELL_RE = re.compile(
