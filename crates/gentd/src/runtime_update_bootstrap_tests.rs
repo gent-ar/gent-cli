@@ -35,10 +35,13 @@ impl Fixture {
 fn fixture(root: &std::path::Path) -> Fixture {
     let key = SigningKey::from_bytes(&[3; 32]);
     let target = platform_target().unwrap();
-    let archive = root.join("gent-v0.1.5-target.tar.gz");
+    let version = package_version();
+    let archive = root.join(format!(
+        "gent-v{}.{}.{}-target.tar.gz",
+        version.major, version.minor, version.patch
+    ));
     fs::write(&archive, b"verified archive bytes").unwrap();
     let digest = hex::encode(Sha256::digest(fs::read(&archive).unwrap()));
-    let version = package_version();
     let archive_name = archive.file_name().unwrap().to_str().unwrap().to_owned();
     let archive_manifest = root.join("archive.json");
     fs::write(

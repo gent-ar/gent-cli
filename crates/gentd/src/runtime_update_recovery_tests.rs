@@ -13,14 +13,10 @@ use gent_types::{
 };
 
 use super::{RuntimeUpdateRecoverConfig, confirm_if_enabled, open_confirmed};
-use crate::runtime_update_config::platform_target;
+use crate::runtime_update_config::{package_version, platform_target};
 
 fn version() -> RuntimeVersion {
-    RuntimeVersion {
-        major: 0,
-        minor: 1,
-        patch: 5,
-    }
+    package_version()
 }
 
 fn prepared(directory: &std::path::Path) -> (String, std::path::PathBuf) {
