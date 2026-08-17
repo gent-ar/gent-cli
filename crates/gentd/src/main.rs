@@ -8,6 +8,7 @@ mod agent_chat_transport_tests;
 mod api;
 mod attachment_api;
 mod attachment_transport;
+mod authority_profile;
 mod compatibility_assessment;
 #[cfg(test)]
 mod compatibility_lock_tests;
@@ -50,11 +51,10 @@ mod transport_windows;
 #[cfg(all(test, windows))]
 mod transport_windows_tests;
 use crate::compatibility_assessment::CompatibilityAssessment;
-use clap::Parser;
 #[cfg(test)]
 pub(crate) use runtime_facade::build_runtime;
 pub(crate) use runtime_facade::{RuntimeFacade, build_runtime_with_update_checks};
-use std::path::PathBuf;
+use {clap::Parser, std::path::PathBuf};
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host", version)]
 #[allow(clippy::struct_excessive_bools)] // Clap flags are independent authority opt-ins.
@@ -119,6 +119,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    let _authority_profile = authority_profile::shipped_observer_profile();
     if verify_staged_material(&args)? {
         return Ok(());
     }
@@ -284,7 +285,6 @@ async fn serve_local(
 fn pipe_name(data_dir: &std::path::Path) -> String {
     format!(r"\\.\pipe\gentd-{:016x}", endpoint_hash(data_dir))
 }
-
 #[cfg(windows)]
 fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
     data_dir
