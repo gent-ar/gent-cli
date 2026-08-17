@@ -214,7 +214,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] The daemon's target product boundary is recorded: it will own agent-chat conversations,
       sessions, prompts, Claude/Codex drivers, the private Claurst bridge port, MCP, and Git;
       a future Flutter caller invokes `gent` rather than a provider executable. Device pairing
-      and application automations remain Flutter-owned and have no `gentd` protocol or executor.
+      and application-specific UI automations remain Flutter-owned. A future agent-chat
+      `gent-automations` domain is separate and has no current `gentd` protocol or executor.
 - [x] Public capability-gated future agent-chat contract values: provider-neutral conversation
       summary/detail and normalized transcript pages, model/effort/mode selection, and typed
       create/send/queue/interrupt/decision/cursor-subscription frames with request and receipt
@@ -243,8 +244,8 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [ ] A separately authorized Flutter integration that invokes `gent` for agent-chat work.
       It must not launch provider binaries directly; the durable UI boundary is a negotiated,
       long-lived `gentd` connection rather than one `gent` process per prompt. Device pairing and
-      application automation execution stay Flutter-owned and are intentionally excluded from
-      `gentd`.
+      application-specific UI automation execution stay Flutter-owned and are intentionally
+      excluded from `gentd`.
 - [ ] A phase-4 legacy-observer host profile: it must consume a `LegacyEventTap`
       without Rust durable writes, mutation APIs, or worktree leases. The current
       standalone daemon's hard public-provider observer guard does not claim this.
