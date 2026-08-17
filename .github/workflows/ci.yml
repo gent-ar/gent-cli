@@ -81,6 +81,7 @@ jobs:
       - run: python -m py_compile tools/capture-public-driver-transcript.py
       - run: python tools/test-capture-public-driver-transcript.py
       - run: python -m py_compile tools/update-public-driver-transcripts.py
+      - run: python tools/test-update-public-driver-transcripts.py
       - run: python -m py_compile tools/capture-codex-app-server-transcript.py
       - run: python tools/test-capture-codex-app-server-transcript.py
       - run: python -m py_compile tools/capture-codex-mcp-transcript.py

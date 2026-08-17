@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Capture a redacted Codex app-server transcript after explicit live consent.
-This tool uses only Codex's documented JSON-RPC app-server methods.
-Raw JSON is bounded in memory and discarded; only structural facts are written.
-"""
+"""Capture a bounded, redacted Codex app-server transcript after live consent."""
 from __future__ import annotations
 import argparse
 import datetime as dt
@@ -21,17 +18,21 @@ import threading
 import time
 import uuid
 from pathlib import Path
+
+from codex_mcp_probe import capture_probe, probe_result, registered_mcp
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures/public-driver-transcripts"
 LIMIT, TIMEOUT = 256 * 1024, 90
-SCENARIOS = ("permission_prompt", "permission_persistent", "plan_mode", "compaction",
-             "mcp_tool", "interrupt", "steer")
+SCENARIOS = (
+    "permission_prompt", "permission_persistent", "plan_mode", "compaction",
+    "mcp_tool", "interrupt", "steer",
+)
 PROMPTS = {
     "permission_prompt": "Delete /tmp/gent-cli-permission-prompt-test. Do not create or edit any other files.",
     "permission_persistent": "Delete /tmp/gent-cli-permission-persistent-1 and then delete /tmp/gent-cli-permission-persistent-2 again. Do this twice in total without making any other file changes.",
     "plan_mode": "Give a two-step plan for reading a text file. Do not use tools.",
     "compaction": "Reply with the exact text GENT_COMPACTION_SEED_OK and do not use tools.",
-    "mcp_tool": "Call the configured gent_probe MCP tool exactly once with no arguments.",
+    "mcp_tool": "Direct documented app-server call to the isolated gent_probe MCP tool.",
     "interrupt": "Run sleep 30 exactly once. Do not use any other tool.",
     "steer": "Run sleep 30 exactly once. Do not use any other tool.",
 }
@@ -61,9 +62,16 @@ def binary() -> Path:
 def plan(scenario: str, model: str, output: Path) -> dict[str, object]:
     if not model.replace("-", "").replace("_", "").replace(".", "").isalnum():
         raise ValueError("--model must be an identifier")
-    return {"scenario": scenario, "output": str(output), "command": ["<codex-resolved-at-live-capture>", "app-server", "--stdio"],
-            "methods": ["initialize", "thread/start", "turn/start", *extra_methods(scenario)],
-            "rawOutput": f"bounded-memory-only:{LIMIT}", "manifest": "unchanged"}
+    methods = ["initialize", "thread/start", *extra_methods(scenario)]
+    if scenario != "mcp_tool": methods.append("turn/start")
+    return {
+        "scenario": scenario,
+        "output": str(output),
+        "command": ["<codex-resolved-at-live-capture>", "app-server", "--stdio"],
+        "methods": methods,
+        "rawOutput": f"bounded-memory-only:{LIMIT}",
+        "manifest": "unchanged",
+    }
 def extra_methods(scenario: str) -> list[str]:
     return {"permission_persistent": ["turn/start"], "compaction": ["thread/compact/start"],
             "mcp_tool": ["mcpServerStatus/list", "mcpServer/tool/call"], "interrupt": ["turn/interrupt"],
@@ -154,8 +162,7 @@ class Session:
         self.thread.join(timeout=2)
         self.stderr_thread.join(timeout=2)
 def thread_params(scenario: str, model: str) -> dict[str, object]:
-    value: dict[str, object] = {"model": model, "ephemeral": True, "approvalPolicy": "untrusted",
-                                "sandbox": "read-only", "cwd": str(ROOT)}
+    value: dict[str, object] = {"model": model, "ephemeral": True, "approvalPolicy": "untrusted", "sandbox": "read-only", "cwd": str(ROOT)}
     return value
 def turn_params(thread_id: str, scenario: str, model: str) -> dict[str, object]:
     value: dict[str, object] = {"threadId": thread_id, "input": [{"type": "text", "text": PROMPTS[scenario]}]}
@@ -163,15 +170,12 @@ def turn_params(thread_id: str, scenario: str, model: str) -> dict[str, object]:
     return value
 def ids(result: dict[str, object], key: str) -> str:
     value = result.get(key)
-    if isinstance(value, dict) and isinstance(value.get("id"), str):
-        return value["id"]
+    if isinstance(value, dict) and isinstance(value.get("id"), str): return value["id"]
     raise ValueError(f"app-server {key} response lacked an id")
 def command_started(event: dict[str, object]) -> bool:
     params = event.get("params"); item = params.get("item") if isinstance(params, dict) else None; return event.get("method") == "item/started" and isinstance(item, dict) and item.get("type") == "commandExecution"
 def command_completed(event: dict[str, object]) -> bool:
     params = event.get("params"); item = params.get("item") if isinstance(params, dict) else None; return event.get("method") == "item/completed" and isinstance(item, dict) and item.get("type") == "commandExecution"
-def registered_mcp(result: dict[str, object], server: str) -> bool:
-    data = result.get("data"); return isinstance(data, list) and any(isinstance(item, dict) and item.get("name") == server and isinstance(item.get("tools"), dict) and "gent_probe" in item["tools"] for item in data)
 def plan_mode_applied(event: dict[str, object]) -> bool:
     params = event.get("params"); settings = params.get("threadSettings") if isinstance(params, dict) else None; mode = settings.get("collaborationMode") if isinstance(settings, dict) else None; return event.get("method") == "thread/settings/updated" and isinstance(mode, dict) and mode.get("mode") == "plan"
 def compaction_completed(event: dict[str, object]) -> bool:
@@ -185,7 +189,13 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
     deadline = time.monotonic() + timeout
     try:
         session.response(session.send("initialize", {"clientInfo": {"name": "gent-cli-evidence", "version": "1"}, "capabilities": {"experimentalApi": True}})); session.notify("initialized", {})
-        thread_id = ids(session.response(session.send("thread/start", thread_params(scenario, model))), "thread"); turn_id = ids(session.response(session.send("turn/start", turn_params(thread_id, scenario, model))), "turn")
+        thread_id = ids(session.response(session.send("thread/start", thread_params(scenario, model))), "thread")
+        if scenario == "mcp_tool":
+            if not mcp_server:
+                raise ValueError("mcp_tool requires --mcp-server for a reviewed isolated probe")
+            capture_probe(session, thread_id, mcp_server, deadline)
+            return session.seen
+        turn_id = ids(session.response(session.send("turn/start", turn_params(thread_id, scenario, model))), "turn")
         def wait(predicate: object) -> None:
             while not predicate():
                 remaining = deadline - time.monotonic()
@@ -201,11 +211,6 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
             return session.seen
         if scenario == "compaction":
             wait(completed); session.send("thread/compact/start", {"threadId": thread_id})
-        if scenario == "mcp_tool":
-            if not mcp_server: raise ValueError("mcp_tool requires --mcp-server for a reviewed isolated probe")
-            status = session.response(session.send("mcpServerStatus/list", {"threadId": thread_id, "detail": "full"}))
-            if not registered_mcp(status, mcp_server): raise ValueError("named isolated MCP probe was not registered with gent_probe")
-            session.send("mcpServer/tool/call", {"threadId": thread_id, "server": mcp_server, "tool": "gent_probe", "arguments": {}})
         if scenario == "interrupt":
             wait(lambda: any(command_started(item) for item in session.seen)); session.send("turn/interrupt", {"threadId": thread_id, "turnId": turn_id})
         if scenario == "steer":
@@ -215,7 +220,6 @@ def capture(binary_path: Path, scenario: str, model: str, mcp_server: str | None
             "permission_persistent": lambda: count("item/commandExecution/requestApproval") == 1 and completed() and sum(command_completed(item) for item in session.seen) >= 2,
             "plan_mode": lambda: any(plan_mode_applied(item) for item in session.seen),
             "compaction": lambda: any(compaction_completed(item) for item in session.seen),
-            "mcp_tool": lambda: count("item/mcpToolCall/progress") >= 1,
             "interrupt": lambda: completed(True), "steer": lambda: completed()}[scenario]
         wait(conditions)
         return session.seen
@@ -226,7 +230,7 @@ def required(scenario: str, seen: list[dict[str, object]]) -> set[str]:
     value = {"permission_prompt": {"item/commandExecution/requestApproval"},
             "permission_persistent": {"item/commandExecution/requestApproval", "turn/completed"},
             "plan_mode": {"thread/settings/updated"}, "compaction": {"item/completed"},
-            "mcp_tool": {"item/mcpToolCall/progress"}, "interrupt": {"turn/completed"},
+            "mcp_tool": {"mcpServer/tool/call"}, "interrupt": {"turn/completed"},
             "steer": {"turn/completed"}}[scenario]
     if scenario == "permission_persistent" and (sum(item.get("method") == "item/commandExecution/requestApproval" for item in seen) != 1 or sum(command_completed(item) for item in seen) < 2): return set()
     if scenario == "interrupt" and not any(item.get("method") == "turn/completed" and turn_status(item) == "interrupted" for item in seen): return set()
@@ -244,8 +248,7 @@ def write(path: Path, scenario: str, binary_path: Path, seen: list[dict[str, obj
         raise ValueError("required documented condition was absent; no fixture was written")
     platform_name = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}.get(platform.system(), platform.system().lower())
     normalized = frames(scenario, observed)
-    metadata: dict[str, object] = {"vendor": "codex", "scenario": scenario, "status": "recorded", "captureOrigin": "live_cli",
-        "transport": "json_rpc", "adapterSpecVersion": "1", "appVersion": "0.1.4", "prompt": PROMPTS[scenario], "repo": "gent-ar/gent-cli",
+    metadata: dict[str, object] = {"vendor": "codex", "scenario": scenario, "status": "recorded", "captureOrigin": "live_cli", "transport": "json_rpc", "adapterSpecVersion": "1", "appVersion": "0.1.4", "prompt": PROMPTS[scenario], "repo": "gent-ar/gent-cli",
         "notes": "Generated from documented Codex app-server JSON-RPC. Raw payloads were bounded and discarded.", "capturedAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "cliVersion": subprocess.run([str(binary_path), "--version"], text=True, capture_output=True, check=True, timeout=15).stdout.strip().removeprefix("codex-cli "),
         "executablePath": str(binary_path), "executableDigest": "sha256:" + hashlib.sha256(binary_path.read_bytes()).hexdigest(),
@@ -286,9 +289,7 @@ def main() -> int:
     write(path, value.scenario, executable, capture(executable, value.scenario, value.model, value.mcp_server, value.codex_config, value.timeout_seconds))
     if manifest is not None:
         manifest_path, manifest_text = manifest
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=manifest_path.parent, delete=False
-        ) as manifest_file:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=manifest_path.parent, delete=False) as manifest_file:
             manifest_file.write(manifest_text)
             manifest_file_temporary = Path(manifest_file.name)
         os.replace(manifest_file_temporary, manifest_path)
@@ -296,5 +297,4 @@ def main() -> int:
     return 0
 if __name__ == "__main__":
     try: raise SystemExit(main())
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f"error: {error}", file=sys.stderr); raise SystemExit(2)
+    except (OSError, ValueError, subprocess.SubprocessError) as error: print(f"error: {error}", file=sys.stderr); raise SystemExit(2)

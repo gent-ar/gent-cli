@@ -65,6 +65,20 @@ def test_server_request_is_declined_with_the_same_json_rpc_id() -> None:
     assert MODULE.required("permission_prompt", seen) == {"item/commandExecution/requestApproval"}
 
 
+def test_mcp_capture_uses_the_direct_verified_response_without_a_model_turn() -> None:
+    process = Process([
+        {"id": 1, "result": {}}, {"id": 2, "result": {"thread": {"id": "thread-1"}}},
+        {"id": 3, "result": {"data": [{"name": "gent_probe", "tools": {"gent_probe": {}}}]}},
+        {"id": 4, "result": {"content": [{"type": "text", "text": "GENT_CODEX_MCP_PROBE_OK"}], "isError": False}},
+    ])
+    seen = MODULE.capture(Path("/fake/codex"), "mcp_tool", "gpt-5.6-luna", "gent_probe", None, 1, fake_popen(process))
+    methods = [request["method"] for request in process.stdin.requests if "method" in request and "id" in request]
+    assert methods == ["initialize", "thread/start", "mcpServerStatus/list", "mcpServer/tool/call"]
+    assert MODULE.required("mcp_tool", seen) == {"mcpServer/tool/call"}
+    assert MODULE.probe_result({"content": [{"type": "text", "text": "GENT_CODEX_MCP_PROBE_OK"}]})
+    assert not MODULE.probe_result({"content": [{"type": "text", "text": "wrong"}]})
+
+
 def test_live_consent_and_dry_run_are_safe() -> None:
     output = ROOT / "fixtures/public-driver-transcripts/codex-app-server-test.jsonl"
     result = subprocess.run([sys.executable, str(SCRIPT), "steer", "--model", "gpt-5.6-luna", "--output", str(output), "--dry-run"], text=True, capture_output=True, check=False)
@@ -85,7 +99,7 @@ def test_missing_or_wrong_structural_conditions_never_validate() -> None:
     permission.append({"method": "item/commandExecution/requestApproval", "params": {}})
     assert not MODULE.required("permission_persistent", permission)
     assert not MODULE.required("interrupt", [{"method": "turn/completed", "params": {"turn": {"status": "completed"}}}])
-    assert MODULE.frames("mcp_tool", {"item/mcpToolCall/progress"})[0]["in"]["nativeType"] == "item/mcpToolCall/progress"
+    assert MODULE.frames("mcp_tool", {"mcpServer/tool/call"})[0]["in"]["nativeType"] == "mcpServer/tool/call"
     assert MODULE.registered_mcp({"data": [{"name": "isolated", "tools": {"gent_probe": {}}}]}, "isolated")
     assert not MODULE.registered_mcp({"data": [{"name": "isolated", "tools": {}}]}, "isolated")
     plan = {"method": "thread/settings/updated", "params": {"threadSettings": {"collaborationMode": {"mode": "plan"}}}}
@@ -123,6 +137,7 @@ def test_replay_plan_reports_manifest_state_without_side_effects() -> None:
 def main() -> None:
     test_json_rpc_correlation_and_interrupt_shape()
     test_server_request_is_declined_with_the_same_json_rpc_id()
+    test_mcp_capture_uses_the_direct_verified_response_without_a_model_turn()
     test_live_consent_and_dry_run_are_safe()
     test_missing_or_wrong_structural_conditions_never_validate()
     test_stderr_diagnostic_is_generic_and_redacted()

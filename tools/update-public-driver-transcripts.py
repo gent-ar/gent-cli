@@ -13,6 +13,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "fixtures/public-driver-transcripts/manifest.yml"
 DEFAULT_MODEL = {"claude": "haiku", "codex": "gpt-5.6-luna"}
+CAPTURE_PREREQUISITES = {
+    ("claude", "permission_persistent"): (
+        "requires a reviewed Claude noninteractive approval channel that proves one "
+        "approval permits two otherwise identical disposable operations; do not "
+        "substitute an always-allow permission mode."
+    ),
+    ("claude", "compaction"): (
+        "requires a documented Claude compaction signal or control; do not induce "
+        "an unbounded context-overflow capture."
+    ),
+    ("claude", "malformed_tolerance"): (
+        "requires an evidence-contract decision: malformed provider input is an "
+        "adapter parser test, not a safe live-provider probe."
+    ),
+    ("codex", "subagent"): (
+        "requires a documented Codex native-subagent control and correlated event "
+        "surface; do not infer a subagent from model text."
+    ),
+    ("codex", "malformed_tolerance"): (
+        "requires an evidence-contract decision: malformed provider input is an "
+        "adapter parser test, not a safe live-provider probe."
+    ),
+}
 CELL_RE = re.compile(
     r"^\s*-\s*\{\s*vendor:\s*(?P<vendor>[a-z]+),\s*"
     r"scenario:\s*(?P<scenario>[a-z_]+),\s*"
@@ -139,6 +162,13 @@ def should_handle_cell(cell: dict[str, str], vendor: str | None, scenario: str |
     return True
 
 
+def prerequisite_for(vendor: str, scenario: str) -> str:
+    return CAPTURE_PREREQUISITES.get(
+        (vendor, scenario),
+        "requires a reviewed scenario-specific capture design before any live invocation.",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vendor", choices=("claude", "codex"))
@@ -169,13 +199,23 @@ def main() -> int:
         return 0
 
     failures: list[str] = []
+    unsupported = [
+        cell for cell in todo
+        if command_for(cell["vendor"], cell["scenario"], model or DEFAULT_MODEL[cell["vendor"]], args.run) is None
+    ]
+    if args.run and unsupported:
+        print("Capture prerequisites:")
+        for cell in unsupported:
+            print(f"- {cell['vendor']}:{cell['scenario']}: {prerequisite_for(cell['vendor'], cell['scenario'])}")
+        print("No live capture was invoked because this request includes an unsupported cell.")
+        return 1
     for cell in todo:
         vendor = cell["vendor"]
         scenario = cell["scenario"]
         resolved_model = model or DEFAULT_MODEL[vendor]
         cmd = command_for(vendor, scenario, resolved_model, args.run)
         if cmd is None:
-            failures.append(f"{vendor}:{scenario} (state={cell['state']}) has no scripted capture path")
+            failures.append(f"{vendor}:{scenario} (state={cell['state']}): {prerequisite_for(vendor, scenario)}")
             continue
         if args.run:
             print(f"RUN {cell['vendor']} {cell['scenario']} ({cell['state']})")
@@ -186,7 +226,7 @@ def main() -> int:
             print(format_command(cmd))
 
     if failures:
-        print("Unsupported cells:")
+        print("Capture prerequisites:")
         for failure in failures:
             print(f"- {failure}")
         return 1
