@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "gent-adapters"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "ed25519-dalek",
  "gent-ports",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "gent-cli"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "clap",
  "crossterm",
@@ -518,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "gent-core"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "gent-drivers"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "gent-ports",
  "gent-testkit",
@@ -542,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "gent-git"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -554,14 +554,14 @@ dependencies = [
 
 [[package]]
 name = "gent-mcp"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "gent-ports"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "async-trait",
  "gent-types",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "gent-protocol"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "gent-types",
  "hex",
@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "gent-runtime"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "ed25519-dalek",
  "gent-core",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "gent-store"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "gent-testkit"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "async-trait",
  "clap",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "gent-types"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64",
  "serde",
@@ -644,7 +644,7 @@ dependencies = [
 
 [[package]]
 name = "gentd"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64",
  "clap",

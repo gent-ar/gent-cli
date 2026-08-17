@@ -57,7 +57,6 @@ CREATE TABLE IF NOT EXISTS policies (
     UNIQUE (workspace_id, scope, revision)
 );
 ";
-
 const GIT_OPERATIONS: &str = "
 CREATE TABLE IF NOT EXISTS git_operations (
     operation_id TEXT PRIMARY KEY NOT NULL,
@@ -67,7 +66,6 @@ CREATE TABLE IF NOT EXISTS git_operations (
     phase TEXT NOT NULL
 );
 ";
-
 const TOOL_SOURCES: &str = "
 CREATE TABLE IF NOT EXISTS tool_sources (
     tool_source_id TEXT PRIMARY KEY NOT NULL,
@@ -78,7 +76,6 @@ CREATE TABLE IF NOT EXISTS tool_sources (
     UNIQUE (workspace_id, source_name)
 );
 ";
-
 // Migration 11 is retained byte-for-byte for existing-ledger checksum compatibility.
 // No public runtime, port, or daemon surface reads or writes this retired app-owned table.
 const RETIRED_AUTOMATION_EXECUTIONS: &str = "
@@ -184,6 +181,9 @@ pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
             transaction
                 .execute_batch(migration.sql)
                 .map_err(storage_error)?;
+            if migration.version == 24 {
+                super::policy_columns::ensure(&transaction)?;
+            }
             ensure_ingress(&transaction)?;
             transaction
                 .execute(

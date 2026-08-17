@@ -27,6 +27,7 @@ mod mcp_connector_ledger;
 mod mcp_connectors;
 mod migrations;
 mod policies;
+mod policy_columns;
 mod policy_ledger;
 mod projections;
 mod queries;
