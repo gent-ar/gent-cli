@@ -113,6 +113,22 @@ def executable() -> Path:
     return Path(found).resolve()
 
 
+def permission_prompt_supported(help_text: str) -> bool:
+    """Keep the version gate independent from a live provider invocation."""
+    return "--permission-prompt-tool" in help_text
+
+
+def require_permission_prompt_support(binary: Path) -> None:
+    help_text = subprocess.run(
+        [str(binary), "--help"], text=True, capture_output=True, check=True, timeout=15,
+    ).stdout
+    if not permission_prompt_supported(help_text):
+        raise ValueError(
+            "installed Claude does not expose --permission-prompt-tool; install a "
+            "version with that documented session-scoped approval interface before retrying"
+        )
+
+
 def config(command: str, counter: Path) -> str:
     return json.dumps({"mcpServers": {SERVER: {"command": sys.executable, "args": [
         str(Path(__file__).resolve()), "--serve", "--expected-command", command, "--counter", str(counter),
@@ -203,10 +219,12 @@ def main() -> int:
     if not args.confirm_live_capture: raise ValueError("pass --confirm-live-capture to invoke authenticated Claude")
     if output.exists() and not args.replace_existing: raise ValueError("fixture already exists; pass --replace-existing after review")
     manifest = update_manifest(output, args.replace_existing) if args.update_manifest else None
+    binary = executable()
+    require_permission_prompt_support(binary)
     with tempfile.TemporaryDirectory(prefix="gent-claude-permission-") as directory:
         expected = f"mkdir -p {Path(directory) / 'approved'}"
         counter = Path(directory) / "approval-count"
-        binary, items = executable(), frames()
+        items = frames()
         raw = capture(command(binary, args.model, config(expected, counter), expected), MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
         approvals = counter.read_text(encoding="utf-8") if counter.exists() else "0"
         if approvals != "1" or not observed(raw, expected): raise ValueError("one approval plus two matching executions was absent; no fixture was written")

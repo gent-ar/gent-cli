@@ -46,9 +46,15 @@ def test_exact_command_and_correlated_two_call_facts_are_required() -> None:
     assert not MODULE.observed(stream.replace('"id":"two"', '"id":"one"', 1), expected)
 
 
+def test_permission_prompt_version_gate_is_explicit() -> None:
+    assert MODULE.permission_prompt_supported("usage: claude --permission-prompt-tool tool")
+    assert not MODULE.permission_prompt_supported("usage: claude --permission-mode manual")
+
+
 def main() -> None:
     test_dry_run_does_not_start_provider()
     test_exact_command_and_correlated_two_call_facts_are_required()
+    test_permission_prompt_version_gate_is_explicit()
     print("Claude persistent-permission capture checks passed")
 
 
