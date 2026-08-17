@@ -88,6 +88,11 @@ mismatch and leaves ingress closed on failure. It confirms the durable handoff,
 binds its local endpoint while still closed, then fences/opens the successor
 epoch; it is not a fetch, install, or provider-authority command.
 
+While either explicit profile is running, `gent update status --attempt-id <id>`
+can read that attempt's durable stage, revision, failure, host epoch, and
+ingress state through the local protocol. It cannot fetch, schedule, stage, or
+activate an update.
+
 `gent doctor` is read-only discovery. It reports private Claurst integration as
 `notConfigured` in this public repository; it never accepts Claurst endpoint,
 credential, billing, or routing configuration.
