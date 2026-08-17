@@ -26,13 +26,28 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: >-
-          python -c "import os,re,sys; sys.exit(not bool(re.fullmatch(r'v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?', os.environ['RELEASE_TAG'])))"
+          python -c "import os,re,sys; sys.exit(not bool(re.fullmatch(r'v[0-9]+\\.[0-9]+\\.[0-9]+', os.environ['RELEASE_TAG'])))"
+      - name: Require tag and shipped binary versions to agree
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          cargo metadata --locked --no-deps --format-version 1 > metadata.json
+          python - metadata.json "$RELEASE_TAG" <<'PY'
+          import json, pathlib, sys
+          packages = {item['name']: item['version'] for item in json.loads(pathlib.Path(sys.argv[1]).read_text())['packages']}
+          expected = sys.argv[2].removeprefix('v')
+          if any(packages.get(name) != expected for name in ('gent-cli', 'gentd')):
+              raise SystemExit('release tag must equal both gent-cli and gentd package versions')
+          PY
       - run: cargo fmt --check
       - run: python tools/check-architecture.py
       - run: sh -n tools/install.sh
       - run: python tools/test-install-activation.py
       - run: python tools/test-supervise-runtime-activation.py
       - run: python tools/test-update-handoff.py
+      - run: python tools/test-install-update-material.py
+      - run: python tools/test-installer-runtime-bootstrap.py
       - run: python -m py_compile tools/capture-public-driver-transcript.py
       - run: python tools/test-capture-public-driver-transcript.py
       - run: python -m py_compile tools/update-public-driver-transcripts.py
@@ -160,6 +175,16 @@ jobs:
           key="$RUNNER_TEMP/gent-runtime-release.pem"
           umask 077
           printf '%s\n' "$RUNTIME_RELEASE_PRIVATE_KEY" > "$key"
+          derived_key=$(python - "$key" <<'PY'
+          import importlib.util, pathlib, sys
+          path = pathlib.Path('tools/sign-runtime-release.py')
+          spec = importlib.util.spec_from_file_location('runtime_release_signer', path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          print(module.public_key(module.load_seed(pathlib.Path(sys.argv[1]))).hex())
+          PY
+          )
+          test "$derived_key" = "$RUNTIME_RELEASE_PUBLIC_KEY"
           expires_at=$(date -u --date '+90 days' +%s)
           while IFS= read -r manifest; do
             target=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["target"])' "$manifest")

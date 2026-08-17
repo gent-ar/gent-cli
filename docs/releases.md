@@ -60,9 +60,12 @@ repository variables. The release workflow fails closed until all three values
 exist and agree; do not substitute a provider credential or archive-signing key.
 
 The runtime trust document is not itself permission to replace a running
-daemon. It only supplies public verification keys to the explicit cached
-status profile; staging, health confirmation, supervised activation, and
-rollback remain separate daemon authority gates.
+daemon. The macOS/Linux signed installer uses it only to let the staged `gentd`
+validate the matching metadata and exact archive before it stores a
+revalidatable local cache. Windows currently installs the immutable pair but
+does not yet persist runtime-release cache material. Runtime staging, health
+confirmation, supervised activation, and rollback remain separate daemon
+authority gates on every platform.
 
 ## Verify a downloaded archive
 
