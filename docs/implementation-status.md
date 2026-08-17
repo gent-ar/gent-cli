@@ -260,6 +260,8 @@ not claim provider or app compatibility evidence that has not been recorded.
       application-specific UI automation execution stay Flutter-owned and are intentionally
       excluded from `gentd`. Its first launch must enforce one writer/host epoch and
       protocol compatibility; the zero-user/single-developer path has no legacy migration gate.
+      The versioned client handoff is documented in `docs/flutter-handoff-v1.md`; provider
+      authority is still unavailable until the other gates in this section pass.
 - [ ] An authoritative, advertised `ConversationActivity` service backed by approved provider
       ingress, app-compatible fallback, and the complete cross-process lifecycle race matrix.
 - [ ] An authoritative, health-checked `gentd` self-update path with update-under-load
