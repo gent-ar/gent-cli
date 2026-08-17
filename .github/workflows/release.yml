@@ -170,6 +170,12 @@ jobs:
               --protocol-min 1 --protocol-max 1 --schema-min 1 --schema-max 22 \
               --minimum-app-version "${RELEASE_TAG#v}" --out "$output"
           done < <(find release-artifacts -name '*.manifest.json' -type f | sort)
+          set -- --key-id "$RUNTIME_RELEASE_KEY_ID" --private-key "$key" --expires-at "$expires_at" \
+            --out "release-artifacts/gent-$RELEASE_TAG.runtime-release-index.json"
+          while IFS= read -r release; do
+            set -- "$@" --runtime-release "$release"
+          done < <(find release-artifacts -name '*.runtime-release.json' -type f | sort)
+          python tools/sign-runtime-index.py "$@"
           python - <<'PY'
           import json, os, pathlib
           pathlib.Path('release-artifacts/gent-runtime-release-trust.json').write_text(json.dumps({
@@ -178,7 +184,7 @@ jobs:
           }, separators=(',', ':')) + '\n', encoding='utf-8')
           PY
           rm -f "$key"
-          find release-artifacts \( -name '*.runtime-release.json' -o -name 'gent-runtime-release-trust.json' \) -type f -print0 \
+          find release-artifacts \( -name '*.runtime-release.json' -o -name 'gent-runtime-release-index.json' -o -name 'gent-runtime-release-trust.json' \) -type f -print0 \
             | xargs -0 -n1 sh -c 'cosign sign-blob --yes --bundle "$0.sigstore.json" "$0"'
       - name: Sign the installer bootstrap
         shell: bash

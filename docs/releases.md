@@ -19,6 +19,10 @@ files:
 - a Sigstore bundle for each of the preceding files.
 - a target-specific `*.runtime-release.json` envelope signed with the release
   Ed25519 key, its Sigstore bundle, and a Sigstore-signed public trust file;
+- an expiring, Ed25519-signed `gent-vX.Y.Z.runtime-release-index.json` with
+  digest-bound, channel/target-specific pointers to those envelopes, plus its
+  Sigstore bundle; it is discovery metadata only and cannot authorize an
+  archive without independently verified referenced release metadata;
 - signed `gent-install.sh`, `gent-install.ps1`, and
   `gent-activate-install.py`, and `gent-supervise-runtime-activation.py`
   bootstrap assets, each with a Sigstore bundle.
