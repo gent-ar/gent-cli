@@ -99,6 +99,16 @@ impl CodexTurnDriver {
         }
         Ok(effects)
     }
+
+    /// Encodes one later user turn on the same ready native thread.
+    ///
+    /// # Errors
+    /// Returns an error until the previous turn is terminal or when the prompt is invalid.
+    pub fn submit(&mut self, prompt: &str) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
+        Ok(vec![CodexTurnEffect::Write(
+            self.session.start_turn(prompt)?,
+        )])
+    }
 }
 
 fn writes(effects: &mut Vec<CodexTurnEffect>, frames: Vec<Vec<u8>>) {

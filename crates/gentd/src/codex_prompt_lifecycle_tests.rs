@@ -18,8 +18,8 @@ use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, NormalizedProviderEvent,
-    ReceiptId, RunVersionLock,
+    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, NormalizedLifecycleSignal,
+    NormalizedProviderEvent, ReceiptId, RunVersionLock, TurnPhase,
 };
 
 use crate::authority_profile::{AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest};
@@ -30,15 +30,18 @@ use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::public_driver_runtime::PublicDriversRuntime;
 
 #[derive(Clone, Debug, Default)]
-struct Runner {
-    state: Arc<Mutex<State>>,
+pub(crate) struct Runner {
+    pub(crate) state: Arc<Mutex<State>>,
 }
 
 #[derive(Default, Debug)]
-struct State {
+pub(crate) struct State {
     pending: Option<(String, CodexPromptStart)>,
     starts: usize,
     effects: VecDeque<Vec<CodexRunnerEffect>>,
+    pub(crate) poll_failure: bool,
+    session_active: bool,
+    submitted: Vec<String>,
 }
 
 impl PublicProviderRunner for Runner {
@@ -50,6 +53,7 @@ impl PublicProviderRunner for Runner {
             Some(run_id)
         );
         state.starts += 1;
+        state.session_active = true;
         Ok(())
     }
 
@@ -75,21 +79,34 @@ impl CodexPromptExecution for Runner {
         state.pending = Some((run_id, prompt));
         Ok(())
     }
-
     fn cancel_codex_prompt(&self, _: &str) {
         self.state.lock().unwrap().pending = None;
     }
-
     fn poll_codex_prompt(
         &self,
         _: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError> {
-        Ok(self.state.lock().unwrap().effects.pop_front())
+        let mut state = self.state.lock().unwrap();
+        if state.poll_failure {
+            return Err(PublicProviderRunError::Failed(
+                "private runner detail".into(),
+            ));
+        }
+        Ok(state.effects.pop_front())
+    }
+
+    fn has_codex_session(&self, _: &str) -> bool {
+        self.state.lock().unwrap().session_active
+    }
+
+    fn submit_codex_prompt(&self, _: &str, prompt: &str) -> Result<(), PublicProviderRunError> {
+        self.state.lock().unwrap().submitted.push(prompt.into());
+        Ok(())
     }
 }
 
 #[derive(Debug)]
-struct Resolver;
+pub(crate) struct Resolver;
 
 impl PublicProviderResolver for Resolver {
     fn resolve(&self, provider: &str) -> Result<RunVersionLock, PublicProviderRunError> {
@@ -110,7 +127,7 @@ fn lock() -> RunVersionLock {
     }
 }
 
-fn compatibility() -> CompatibilityAssessment {
+pub(crate) fn compatibility() -> CompatibilityAssessment {
     let key = SigningKey::from_bytes(&[7; 32]);
     let payload = CompatibilityManifest {
         manifest_version: 1,
@@ -137,7 +154,7 @@ fn compatibility() -> CompatibilityAssessment {
     )
 }
 
-fn profile(
+pub(crate) fn profile(
     compatibility: &CompatibilityAssessment,
 ) -> crate::authority_profile::ValidatedAuthorityProfile {
     AuthorityProfileConfig {
@@ -188,7 +205,11 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
             text: "hello back".into(),
         })),
-        CodexRunnerEffect::Exited { code: Some(0) },
+        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        )),
     ]);
     let compatibility = compatibility();
     let runtime = PublicDriversRuntime::new(
@@ -208,12 +229,30 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         }
     );
     assert_eq!(runner.state.lock().unwrap().starts, 1);
-    assert!(host.poll("run-a", HostEpoch(1)).unwrap().unwrap().exited);
+    assert!(!host.poll("run-a", HostEpoch(1)).unwrap().unwrap().exited);
     let transcript = ledger
         .normalized_transcript_page(&conversation_id, 0, 10)
         .unwrap();
     assert_eq!(transcript.events.len(), 1);
     assert_eq!(transcript.events[0].text, "hello back");
+    ledger
+        .save_agent_chat_prompt(&AgentChatPromptCreate {
+            request_id: AgentChatRequestId("prompt-b".into()),
+            receipt_id: ReceiptId("prompt-receipt-b".into()),
+            host_epoch: HostEpoch(1),
+            conversation_id,
+            disposition: AgentChatPromptDisposition::Send,
+            text: "follow up".into(),
+        })
+        .unwrap();
+    assert!(matches!(
+        host.dispatch_next(HostEpoch(1)).unwrap(),
+        CodexPromptDispatchOutcome::Started { .. }
+    ));
+    let state = runner.state.lock().unwrap();
+    assert_eq!(state.starts, 1);
+    assert_eq!(state.submitted, ["follow up"]);
+    drop(state);
     assert!(
         ledger
             .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)

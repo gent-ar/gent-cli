@@ -35,6 +35,9 @@ where
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    if runner.has_codex_session(&run_id) {
+        return submit(runtime, runner, coordinator_id, active, prompt, host_epoch);
+    }
     if let Err(error) = runner.prepare_codex_prompt(
         run_id.clone(),
         CodexPromptStart {
@@ -89,6 +92,46 @@ where
             Ok(CodexPromptDispatchOutcome::Unprovable { run_id })
         }
     }
+}
+
+fn submit<L, D, R>(
+    runtime: &PublicDriversRuntime<L, D, R>,
+    runner: &D,
+    coordinator_id: &str,
+    active: &mut BTreeMap<String, Binding>,
+    prompt: AgentChatPromptSaved,
+    host_epoch: HostEpoch,
+) -> Result<CodexPromptDispatchOutcome, RuntimeError>
+where
+    L: Clone
+        + Ledger
+        + RunProjectionLedger
+        + ConversationActivityLedger
+        + TranscriptLedger
+        + AgentChatPromptDispatchLedger,
+    D: CodexPromptExecution + Clone,
+    R: PublicProviderResolver,
+{
+    let run_id = prompt.run_id.0.clone();
+    let message_id = prompt.message.message_id.clone();
+    runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch)?;
+    if let Err(error) = runner.submit_codex_prompt(&run_id, &prompt.message.text) {
+        runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+        return Err(error.into());
+    }
+    if let Err(error) = runtime.confirm_prompt_started(&message_id, coordinator_id, host_epoch) {
+        let _ = runner.interrupt(&run_id);
+        runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+        return Err(error);
+    }
+    active.insert(
+        run_id.clone(),
+        Binding {
+            prompt,
+            sequence: 0,
+        },
+    );
+    Ok(CodexPromptDispatchOutcome::Started { run_id })
 }
 
 fn request(run_id: &str, coordinator_id: &str, host_epoch: HostEpoch) -> PublicRunStartRequest {

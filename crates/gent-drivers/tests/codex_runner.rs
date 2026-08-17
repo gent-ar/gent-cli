@@ -200,3 +200,37 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
     PublicProviderRunner::start(&runner, "run-1", &request.lock).unwrap();
     assert_eq!(method(&state.writes.lock().unwrap()[0]), "initialize");
 }
+
+#[test]
+fn owned_process_reuses_ready_thread_for_later_prompt() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = CodexAppServerRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(4, 128 * 1024, 0, 0).unwrap(),
+    );
+    runner.start(start("run-1", directory.path())).unwrap();
+    for frame in [
+        br#"{"id":1,"result":{}}
+"# as &[u8],
+        br#"{"method":"thread/started","params":{"thread":{"id":"private-thread"}}}
+"#,
+        br#"{"id":2,"result":{"thread":{"id":"private-thread"}}}
+"#,
+        br#"{"method":"turn/started","params":{"threadId":"private-thread","turn":{"id":"turn-1"}}}
+"#,
+        br#"{"id":3,"result":{"turn":{"id":"turn-1"}}}
+"#,
+        br#"{"method":"turn/completed","params":{"threadId":"private-thread","turn":{"id":"turn-1"}}}
+"#,
+    ] {
+        state.output.lock().unwrap().push_back(frame.into());
+        runner.poll("run-1").unwrap();
+    }
+    runner.submit_turn("run-1", "follow-up").unwrap();
+    let frame = state.writes.lock().unwrap().last().unwrap().clone();
+    let value: serde_json::Value = serde_json::from_slice(&frame[..frame.len() - 1]).unwrap();
+    assert_eq!(value["method"], "turn/start");
+    assert_eq!(value["params"]["threadId"], "private-thread");
+    assert_eq!(value["params"]["input"][0]["text"], "follow-up");
+}

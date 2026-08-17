@@ -69,3 +69,30 @@ fn malformed_raw_frame_is_a_normalized_diagnostic_and_oversized_input_is_refused
     ));
     assert!(driver.receive(&vec![b'x'; 65_537]).is_err());
 }
+
+#[test]
+fn reuses_the_ready_native_thread_for_a_later_prompt() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "first".into()).unwrap();
+    driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    driver
+        .receive(br#"{"method":"thread/started","params":{"thread":{"id":"thread-private"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"id":2,"result":{"thread":{"id":"thread-private"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"method":"turn/started","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"id":3,"result":{"turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    assert_eq!(
+        frames(&driver.submit("follow-up").unwrap()),
+        vec![
+            json!({"id":4,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"follow-up"}]}})
+        ]
+    );
+}

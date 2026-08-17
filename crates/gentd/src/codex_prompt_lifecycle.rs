@@ -27,6 +27,7 @@ pub(crate) use execution::CodexPromptExecution;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodexPromptDispatchOutcome {
     Denied,
+    Busy,
     Empty,
     Started { run_id: String },
     Unprovable { run_id: String },
@@ -95,15 +96,25 @@ where
         )? {
             AgentChatPromptDispatchResult::DeniedObserver => Ok(CodexPromptDispatchOutcome::Denied),
             AgentChatPromptDispatchResult::Empty => Ok(CodexPromptDispatchOutcome::Empty),
-            AgentChatPromptDispatchResult::Claimed(prompt) => start::prompt(
-                &self.runtime,
-                &self.runner,
-                &self.coordinator_id,
-                self.working_directory.as_deref(),
-                &mut self.active,
-                *prompt,
-                host_epoch,
-            ),
+            AgentChatPromptDispatchResult::Claimed(prompt) => {
+                if self.active.contains_key(&prompt.run_id.0) {
+                    self.runtime.release_prompt_claim(
+                        &prompt.message.message_id,
+                        &self.coordinator_id,
+                        host_epoch,
+                    )?;
+                    return Ok(CodexPromptDispatchOutcome::Busy);
+                }
+                start::prompt(
+                    &self.runtime,
+                    &self.runner,
+                    &self.coordinator_id,
+                    self.working_directory.as_deref(),
+                    &mut self.active,
+                    *prompt,
+                    host_epoch,
+                )
+            }
         }
     }
 
@@ -113,7 +124,10 @@ where
         run_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<Option<CodexPromptPoll>, RuntimeError> {
-        let Some(effects) = self.runner.poll_codex_prompt(run_id)? else {
+        let Ok(effects) = self.runner.poll_codex_prompt(run_id) else {
+            return self.settle_poll_failure(run_id, host_epoch);
+        };
+        let Some(effects) = effects else {
             return Ok(None);
         };
         let binding = self
@@ -125,8 +139,20 @@ where
         for effect in effects {
             match effect {
                 CodexRunnerEffect::Fact(fact) => {
-                    self.record_wire(run_id, host_epoch, &binding, &fact)?;
+                    let terminal = self.record_wire(run_id, host_epoch, &binding, &fact)?;
                     facts += 1;
+                    if terminal {
+                        self.runtime.settle_prompt(
+                            &binding.prompt.message.message_id,
+                            &self.coordinator_id,
+                            host_epoch,
+                        )?;
+                        self.active.remove(run_id);
+                        return Ok(Some(CodexPromptPoll {
+                            facts,
+                            exited: false,
+                        }));
+                    }
                 }
                 CodexRunnerEffect::Exited { code } => {
                     let event_id = self.next_event_id(run_id, "exit")?;
@@ -166,13 +192,49 @@ where
         }))
     }
 
+    fn settle_poll_failure(
+        &mut self,
+        run_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<Option<CodexPromptPoll>, RuntimeError> {
+        let binding = self
+            .active
+            .get(run_id)
+            .cloned()
+            .ok_or_else(missing_binding)?;
+        let event_id = self.next_event_id(run_id, "poll")?;
+        self.runtime.record(
+            run_id.into(),
+            &self.coordinator_id,
+            host_epoch,
+            PublicDriverFact::SessionEffect {
+                event_id,
+                // Runner error details can contain provider-local paths or frames. The durable
+                // public lifecycle records only this stable, normalized classification.
+                effect: gent_drivers::SessionEffect::Terminal {
+                    reason: "providerPollFailure".into(),
+                },
+            },
+        )?;
+        self.runtime.settle_prompt(
+            &binding.prompt.message.message_id,
+            &self.coordinator_id,
+            host_epoch,
+        )?;
+        self.active.remove(run_id);
+        Ok(Some(CodexPromptPoll {
+            facts: 0,
+            exited: true,
+        }))
+    }
+
     fn record_wire(
         &mut self,
         run_id: &str,
         host_epoch: HostEpoch,
         binding: &Binding,
         fact: &PublicWireFact,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<bool, RuntimeError> {
         let event_id = self.next_event_id(run_id, "wire")?;
         self.runtime.record(
             run_id.into(),
@@ -211,7 +273,16 @@ where
                 PublicDriverFact::Activity(ProviderActivityFact { event_id, activity }),
             )?;
         }
-        Ok(())
+        Ok(matches!(
+            fact,
+            PublicWireFact::Lifecycle(gent_types::NormalizedLifecycleSignal::RootPhase { phase })
+                if matches!(
+                    phase,
+                    gent_types::TurnPhase::Ready
+                        | gent_types::TurnPhase::Interrupted
+                        | gent_types::TurnPhase::Failed
+                )
+        ))
     }
 
     fn next_event_id(&mut self, run_id: &str, kind: &str) -> Result<String, RuntimeError> {

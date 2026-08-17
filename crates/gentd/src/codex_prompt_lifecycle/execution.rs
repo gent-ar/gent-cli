@@ -16,6 +16,9 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         &self,
         run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError>;
+    fn has_codex_session(&self, run_id: &str) -> bool;
+    fn submit_codex_prompt(&self, run_id: &str, prompt: &str)
+    -> Result<(), PublicProviderRunError>;
 }
 
 impl<L, P> CodexPromptExecution for CodexPromptRunner<L, P>
@@ -40,5 +43,17 @@ where
         run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError> {
         self.poll(run_id)
+    }
+
+    fn has_codex_session(&self, run_id: &str) -> bool {
+        self.owns(run_id)
+    }
+
+    fn submit_codex_prompt(
+        &self,
+        run_id: &str,
+        prompt: &str,
+    ) -> Result<(), PublicProviderRunError> {
+        self.submit(run_id, prompt)
     }
 }

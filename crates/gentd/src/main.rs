@@ -16,6 +16,8 @@ mod authority_profile;
 #[allow(dead_code)]
 mod codex_prompt_lifecycle;
 #[cfg(test)]
+mod codex_prompt_lifecycle_failure_tests;
+#[cfg(test)]
 mod codex_prompt_lifecycle_tests;
 mod compatibility_assessment;
 #[cfg(test)]

@@ -151,6 +151,28 @@ where
         Ok(Some(vec![CodexRunnerEffect::Exited { code }]))
     }
 
+    /// Writes one later prompt only after the owned native session reports its prior turn ended.
+    ///
+    /// # Errors
+    /// Returns a controlled error if the run is absent, its prior turn is still active, or the
+    /// owned process rejects the bounded next-turn frame.
+    pub fn submit_turn(&mut self, run_id: &str, prompt: &str) -> Result<(), CodexRunnerError> {
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(CodexRunnerError::NotActive)?;
+        for effect in run.turn.submit(prompt)? {
+            write(&run.process, effect)?;
+        }
+        Ok(())
+    }
+
+    /// Reports whether this process owner still owns the named native session.
+    #[must_use]
+    pub fn owns(&self, run_id: &str) -> bool {
+        self.runs.contains_key(run_id)
+    }
+
     /// Sends one explicit tree signal to an owned process; scheduling remains daemon-owned.
     ///
     /// # Errors

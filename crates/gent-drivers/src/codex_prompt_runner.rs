@@ -81,6 +81,25 @@ where
         lock(&self.runner).poll(run_id).map_err(map_error)
     }
 
+    /// Submits a later prompt on the already-owned, ready Codex native session.
+    ///
+    /// The daemon must durably mark its dispatch boundary before calling this method. It cannot
+    /// launch, select a session, or replace the process.
+    ///
+    /// # Errors
+    /// Returns a controlled failure when no ready owned session can accept the prompt.
+    pub fn submit(&self, run_id: &str, prompt: &str) -> Result<(), PublicProviderRunError> {
+        lock(&self.runner)
+            .submit_turn(run_id, prompt)
+            .map_err(map_error)
+    }
+
+    /// Reports whether the daemon-owned runner still owns the named Codex native session.
+    #[must_use]
+    pub fn owns(&self, run_id: &str) -> bool {
+        lock(&self.runner).owns(run_id)
+    }
+
     fn launch(
         &self,
         run_id: &str,
