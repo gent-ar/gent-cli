@@ -12,7 +12,8 @@ use crate::codex_session::{
 };
 use crate::public_protocol::{PublicWireFact, normalize_public_frame};
 
-const MAX_PROVIDER_FRAME_BYTES: usize = 64 * 1024;
+/// Maximum retained Codex app-server line accepted by this driver boundary.
+pub const MAX_CODEX_FRAME_BYTES: usize = 64 * 1024;
 
 /// A write or a secret-free normalized fact owned by the daemon process edge.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -67,7 +68,7 @@ impl CodexTurnDriver {
     /// # Errors
     /// Returns only for oversized input or an invalid correlated response; no raw payload is kept.
     pub fn receive(&mut self, raw: &[u8]) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
-        if raw.len() > MAX_PROVIDER_FRAME_BYTES {
+        if raw.len() > MAX_CODEX_FRAME_BYTES {
             return Err(CodexTurnError::FrameTooLarge);
         }
         let Ok(frame) = serde_json::from_slice::<Value>(raw) else {

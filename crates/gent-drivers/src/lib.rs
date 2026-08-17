@@ -2,6 +2,7 @@
 
 pub mod buffering;
 pub mod codex_bootstrap;
+pub mod codex_runner;
 pub mod codex_session;
 pub mod codex_turn;
 pub mod discovery;
