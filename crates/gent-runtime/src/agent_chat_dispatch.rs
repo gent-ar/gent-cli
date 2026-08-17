@@ -1,7 +1,7 @@
 //! Pure authority-gated access to the durable agent-chat provider-dispatch outbox.
 
 use gent_ports::AgentChatPromptDispatchLedger;
-use gent_types::{AgentChatPromptSaved, HostEpoch};
+use gent_types::{AgentChatPromptSaved, AgentChatProvider, HostEpoch};
 
 use crate::RuntimeError;
 
@@ -47,13 +47,14 @@ impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
         &self,
         coordinator_id: &str,
         host_epoch: HostEpoch,
+        provider: AgentChatProvider,
     ) -> Result<AgentChatPromptDispatchResult, RuntimeError> {
         if self.authority != AgentChatPromptDispatchAuthority::Approved {
             return Ok(AgentChatPromptDispatchResult::DeniedObserver);
         }
         Ok(self
             .ledger
-            .claim_agent_chat_prompt_dispatch(coordinator_id, host_epoch)?
+            .claim_agent_chat_prompt_dispatch(coordinator_id, host_epoch, provider)?
             .map_or(AgentChatPromptDispatchResult::Empty, |saved| {
                 AgentChatPromptDispatchResult::Claimed(Box::new(saved))
             }))
@@ -105,7 +106,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use gent_ports::{AgentChatPromptDispatchLedger, LedgerError};
-    use gent_types::{AgentChatPromptSaved, HostEpoch};
+    use gent_types::{AgentChatPromptSaved, AgentChatProvider, HostEpoch};
 
     use super::{
         AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult,
@@ -120,6 +121,7 @@ mod tests {
             &self,
             _: &str,
             _: HostEpoch,
+            _: AgentChatProvider,
         ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
             *self.0.lock().unwrap() += 1;
             Ok(None)
@@ -152,7 +154,9 @@ mod tests {
             AgentChatPromptDispatchAuthority::Observer,
         );
         assert_eq!(
-            service.claim("daemon-a", HostEpoch(1)).unwrap(),
+            service
+                .claim("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
+                .unwrap(),
             AgentChatPromptDispatchResult::DeniedObserver
         );
         assert_eq!(*ledger.0.lock().unwrap(), 0);
@@ -166,7 +170,9 @@ mod tests {
             AgentChatPromptDispatchAuthority::Approved,
         );
         assert_eq!(
-            service.claim("daemon-a", HostEpoch(1)).unwrap(),
+            service
+                .claim("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
+                .unwrap(),
             AgentChatPromptDispatchResult::Empty
         );
         assert_eq!(*ledger.0.lock().unwrap(), 1);

@@ -3,12 +3,14 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use gent_drivers::buffering::BufferPolicy;
+use gent_drivers::codex_prompt_runner::{CodexPromptRunner, CodexPromptStart};
 use gent_drivers::codex_runner::{CodexAppServerRunner, CodexRunStart, CodexRunnerEffect};
 use gent_drivers::codex_session::CodexSessionConfig;
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
 use gent_drivers::lock::capture;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
+use gent_ports::PublicProviderRunner;
 
 #[derive(Default)]
 struct State {
@@ -164,4 +166,37 @@ fn failed_initial_write_terminates_the_new_process_tree() {
         state.signals.lock().unwrap().as_slice(),
         &[ProcessTreeSignal::Terminate]
     );
+}
+
+#[test]
+fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let runner = CodexPromptRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+    );
+    runner
+        .prepare(
+            "run-1".into(),
+            CodexPromptStart {
+                working_directory: Some("/work".into()),
+                prompt: "first".into(),
+            },
+        )
+        .unwrap();
+    assert!(
+        runner
+            .prepare(
+                "run-1".into(),
+                CodexPromptStart {
+                    working_directory: Some("/other".into()),
+                    prompt: "must-not-replace".into(),
+                },
+            )
+            .is_err()
+    );
+    let request = start("run-1", directory.path());
+    PublicProviderRunner::start(&runner, "run-1", &request.lock).unwrap();
+    assert_eq!(method(&state.writes.lock().unwrap()[0]), "initialize");
 }

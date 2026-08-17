@@ -61,13 +61,13 @@ fn only_send_prompts_enter_a_single_owner_durable_outbox() {
         AgentChatPromptDisposition::Queue,
     );
     let claimed = ledger
-        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1))
+        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
         .unwrap()
         .unwrap();
     assert_eq!(claimed.message, send.message);
     assert!(
         ledger
-            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1))
+            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
             .unwrap()
             .is_none()
     );
@@ -76,7 +76,7 @@ fn only_send_prompts_enter_a_single_owner_durable_outbox() {
         .unwrap();
     assert_eq!(
         ledger
-            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1))
+            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
             .unwrap()
             .unwrap()
             .message
@@ -95,7 +95,7 @@ fn settlement_and_epoch_fences_prevent_duplicate_or_stale_provider_delivery() {
         AgentChatPromptDisposition::Send,
     );
     let _ = ledger
-        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1))
+        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
         .unwrap();
     assert!(
         ledger
@@ -107,7 +107,7 @@ fn settlement_and_epoch_fences_prevent_duplicate_or_stale_provider_delivery() {
         .unwrap();
     assert!(
         ledger
-            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1))
+            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
             .unwrap()
             .is_none()
     );

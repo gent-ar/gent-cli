@@ -2,8 +2,8 @@
 
 use gent_ports::{AgentChatPromptDispatchLedger, IngressMode, LedgerError};
 use gent_types::{
-    AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatRunId, HostEpoch, Receipt,
-    ReceiptId, ReceiptStatus,
+    AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, HostEpoch,
+    Receipt, ReceiptId, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -16,8 +16,9 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         &self,
         coordinator_id: &str,
         host_epoch: HostEpoch,
+        provider: AgentChatProvider,
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
-        claim(self, coordinator_id, host_epoch)
+        claim(self, coordinator_id, host_epoch, provider)
     }
 
     fn release_agent_chat_prompt_dispatch(
@@ -57,6 +58,7 @@ fn claim(
     ledger: &SqliteLedger,
     coordinator_id: &str,
     host_epoch: HostEpoch,
+    provider: AgentChatProvider,
 ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
     valid_owner(coordinator_id)?;
     let mut connection = ledger.lock()?;
@@ -66,8 +68,8 @@ fn claim(
     require_open(&transaction, host_epoch)?;
     let message_id = transaction
         .query_row(
-            "SELECT message_id FROM agent_chat_prompt_dispatches WHERE state = 'pending' OR (state = 'claimed' AND host_epoch < ?1) ORDER BY created_rowid LIMIT 1",
-            [host_epoch.0],
+            "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND (d.state = 'pending' OR (d.state = 'claimed' AND d.host_epoch < ?2)) ORDER BY d.created_rowid LIMIT 1",
+            params![provider_name(provider), host_epoch.0],
             |row| row.get::<_, String>(0),
         )
         .optional()
@@ -82,6 +84,14 @@ fn claim(
     let saved = saved(&transaction, &message_id)?;
     transaction.commit().map_err(storage_error)?;
     Ok(Some(saved))
+}
+
+const fn provider_name(provider: AgentChatProvider) -> &'static str {
+    match provider {
+        AgentChatProvider::Claude => "claude",
+        AgentChatProvider::Codex => "codex",
+        AgentChatProvider::Claurst => "claurst",
+    }
 }
 
 fn transition(

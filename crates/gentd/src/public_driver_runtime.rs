@@ -19,7 +19,7 @@ use gent_runtime::{
     Coordinator, ProviderActivityFact, ProviderActivityIngress, ProviderRunAuthority,
     PublicRunService, RuntimeError,
 };
-use gent_types::{HostEpoch, RunLiveStatus};
+use gent_types::{AgentChatProvider, HostEpoch, RunLiveStatus};
 
 use crate::authority_profile::ValidatedAuthorityProfile;
 use crate::compatibility_assessment::CompatibilityAssessment;
@@ -195,7 +195,8 @@ where
         &self,
         coordinator_id: &str,
         host_epoch: HostEpoch,
+        provider: AgentChatProvider,
     ) -> Result<AgentChatPromptDispatchResult, RuntimeError> {
-        self.dispatches.claim(coordinator_id, host_epoch)
+        self.dispatches.claim(coordinator_id, host_epoch, provider)
     }
 }

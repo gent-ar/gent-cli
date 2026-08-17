@@ -1,6 +1,6 @@
 //! Durable claim and settlement ownership for provider-bound agent-chat prompts.
 
-use gent_types::{AgentChatPromptSaved, HostEpoch};
+use gent_types::{AgentChatPromptSaved, AgentChatProvider, HostEpoch};
 
 use crate::LedgerError;
 
@@ -15,6 +15,7 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         &self,
         coordinator_id: &str,
         host_epoch: HostEpoch,
+        provider: AgentChatProvider,
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError>;
 
     /// Returns a failed-to-start prompt to the durable outbox only for its current owner.
