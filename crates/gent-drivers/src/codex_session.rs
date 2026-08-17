@@ -54,9 +54,7 @@ impl CodexAppServerSession {
     /// # Errors
     /// Rejects an out-of-order turn, a concurrent turn, an empty prompt, or request-ID exhaustion.
     pub fn start_turn(&mut self, prompt: &str) -> Result<Vec<u8>, CodexSessionError> {
-        if prompt.is_empty() || prompt.len() > MAX_PROMPT_BYTES {
-            return Err(CodexSessionError::InvalidPrompt);
-        }
+        Self::validate_prompt(prompt)?;
         let thread_id = match &self.phase {
             CodexSessionPhase::Ready {
                 thread_id,
@@ -101,6 +99,16 @@ impl CodexAppServerSession {
     #[must_use]
     pub fn is_ready(&self) -> bool {
         matches!(self.phase, CodexSessionPhase::Ready { turn_id: None, .. })
+    }
+
+    /// Validates a prompt before a daemon-owned process is launched.
+    ///
+    /// # Errors
+    /// Rejects an empty or unbounded prompt without retaining its content.
+    pub fn validate_prompt(prompt: &str) -> Result<(), CodexSessionError> {
+        (!prompt.is_empty() && prompt.len() <= MAX_PROMPT_BYTES)
+            .then_some(())
+            .ok_or(CodexSessionError::InvalidPrompt)
     }
 
     fn response(
