@@ -83,7 +83,8 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             assert!(matches!(
                 read_frame(&mut stream).await.unwrap(),
-                gent_protocol::WireFrame::Hello(Hello { .. })
+                gent_protocol::WireFrame::Hello(Hello { capabilities, .. })
+                    if capabilities.0.iter().any(|item| item == RUNTIME_MAINTENANCE_CAPABILITY)
             ));
             write_frame(
                 &mut stream,
