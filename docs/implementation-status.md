@@ -241,35 +241,33 @@ not claim provider or app compatibility evidence that has not been recorded.
       validator rejects a composed declaration for any reserved capability, so fixture presence
       cannot be mistaken for observer-mode authority.
 
-## Intentionally not claimed
+## Required before Gent is a live app backend
 
-- [ ] Complete real Claude/Codex recordings and installed-provider integration evidence.
-      The four strict missing cells are Claude persistent-permission, compaction,
-      malformed-tolerance; and Codex malformed-tolerance.
-      They need redacted, scenario-specific live evidence, not an observed absence. Malformed
-      evidence additionally requires a vendor-documented provider-emitted fault control, a
-      structural redacted fault/diagnostic, and a following ordinary provider frame; proxy or
-      injected corruption is rejected.
-- [ ] Authenticated private Claurst bridge implementation/evidence (private CI only);
-      public Gent must not contain its credentials, endpoints, or routing implementation.
-- [ ] MCP hosting, Git mutation/worktree operations, and provider process lifecycle ownership
-      in a live daemon. The narrow Git status service above remains dormant until an
-      authority-gated host profile is proven.
-- [ ] A separately authorized Flutter integration that invokes `gent` for agent-chat work.
-      It must not launch provider binaries directly; the durable UI boundary is a negotiated,
-      long-lived `gentd` connection rather than one `gent` process per prompt. Device pairing and
-      application-specific UI automation execution stay Flutter-owned and are intentionally
-      excluded from `gentd`. Its first launch must enforce one writer/host epoch and
-      protocol compatibility; the zero-user/single-developer path has no legacy migration gate.
-      The versioned client handoff is documented in `docs/flutter-handoff-v1.md`; provider
-      authority is still unavailable until the other gates in this section pass.
-- [ ] An authoritative, advertised `ConversationActivity` service backed by approved provider
-      ingress, app-compatible fallback, and the complete cross-process lifecycle race matrix.
-- [ ] An authoritative, health-checked `gentd` self-update path with update-under-load
-      recovery evidence. The shipped external automatic updater is signed, idle-only
-      distribution; it is not future daemon authority.
-- [ ] Production release publication for the current source revision. Verify/configure the
-      repository's tag-release signing configuration before users rely on a new release.
+1. [ ] `gentd` remains observer/intent-only: it must not route live Claude, Codex, Claurst,
+   MCP, or Git work until each authority gate is proven. The dormant seams are not a claim of
+   live authority.
+2. [ ] There is no authoritative provider-lifecycle ingress yet. Flutter and terminal clients
+   must not treat conversation activity as live truth; they must use negotiated authoritative
+   snapshots/deltas only after that ingress is approved.
+3. [ ] The strict public evidence program has six Claude/Codex cells. Two Codex cells are
+   recorded; four remain: Claude persistent-permission, compaction, malformed-tolerance, and
+   Codex malformed-tolerance. Captures must be redacted, scenario-specific, and live. A malformed
+   capture additionally needs a documented provider-emitted fault control, diagnostic, and
+   following ordinary frame; proxy or injected corruption is rejected.
+4. [ ] The authenticated Claurst bridge and its CI evidence belong only in app-owned private
+   code. Public Gent must never contain Claurst credentials, endpoints, or routing implementation.
+5. [ ] No legacy migration or deployed fence-aware legacy release is required: this is a
+   zero-user, single-developer cutover. A future Flutter launch must nevertheless enforce protocol
+   compatibility and exactly one active writer/host epoch.
+6. [ ] Production release automation still needs its GitHub signing secret and public key/id
+   configuration before a release is published; it is not currently configured.
+7. [ ] `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching
+   with preserved context are follow-on runtime work, not shipped functionality.
+
+Also required: a separately authorized Flutter integration must use the negotiated, long-lived
+`gentd` connection for agent-chat work and must not launch provider binaries directly. Pairing and
+application-specific UI automations stay Flutter-owned. The client boundary is
+`docs/flutter-handoff-v1.md`.
 
 ## Recorded follow-on scope
 
