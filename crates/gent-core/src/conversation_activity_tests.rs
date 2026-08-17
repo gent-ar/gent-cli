@@ -23,7 +23,7 @@ fn project(facts: Vec<ConversationActivityFact>) -> ConversationActivityProjecti
 }
 
 #[test]
-fn terminal_root_keeps_live_descendant_visible_and_rejects_late_thinking() {
+fn terminal_root_phase_keeps_live_descendant_visible_and_rejects_late_thinking() {
     let state = project(vec![
         ConversationActivityFact::TurnStarted {
             scope: scope(1, "turn-1"),
@@ -34,7 +34,7 @@ fn terminal_root_keeps_live_descendant_visible_and_rejects_late_thinking() {
             kind: ActivityWorkKind::Subagent,
             phase: WorkPhase::Running,
         },
-        ConversationActivityFact::Terminal {
+        ConversationActivityFact::RootPhase {
             scope: scope(3, "turn-1"),
             phase: TurnPhase::Ready,
         },

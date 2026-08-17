@@ -152,8 +152,7 @@ fn reduce(
             projection.transition = None;
         }
         ConversationActivityFact::RootPhase { phase, .. } if active_and_open(projection, scope) => {
-            projection.snapshot.root_phase = phase.clone();
-            projection.transition = None;
+            set_root_phase(projection, &scope.turn_id, phase.clone());
         }
         ConversationActivityFact::WorkPhase {
             work_id,
@@ -184,10 +183,7 @@ fn reduce(
         ConversationActivityFact::Terminal { phase, .. }
             if projection.snapshot.active_turn_id.as_deref() == Some(&scope.turn_id) =>
         {
-            projection.terminal_turns.insert(scope.turn_id.clone());
-            projection.snapshot.root_phase = phase.clone();
-            projection.root_activity = RootActivity::Idle;
-            projection.transition = None;
+            set_root_phase(projection, &scope.turn_id, phase.clone());
         }
         _ => {}
     }
@@ -206,6 +202,22 @@ fn start_turn(projection: &mut ConversationActivityProjection, turn_id: &str) {
     projection.snapshot.pending_decision_id = None;
     projection.snapshot.work.clear();
     projection.transition = None;
+}
+fn set_root_phase(
+    projection: &mut ConversationActivityProjection,
+    turn_id: &str,
+    phase: TurnPhase,
+) {
+    let terminal = matches!(
+        phase,
+        TurnPhase::Ready | TurnPhase::Interrupted | TurnPhase::Dead | TurnPhase::Failed
+    );
+    projection.snapshot.root_phase = phase;
+    projection.transition = None;
+    if terminal {
+        projection.terminal_turns.insert(turn_id.into());
+        projection.root_activity = RootActivity::Idle;
+    }
 }
 fn active_and_open(
     projection: &ConversationActivityProjection,
