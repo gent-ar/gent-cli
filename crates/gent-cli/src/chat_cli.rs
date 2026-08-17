@@ -20,7 +20,8 @@ mod reads;
 mod switch;
 
 pub(crate) use arguments::{
-    ConversationArgs, CreateArgs, Effort, Mode, PromptArgs, Provider, TranscriptArgs,
+    ConversationArgs, CreateArgs, DirectPromptArgs, Effort, Mode, PromptArgs, Provider,
+    TranscriptArgs,
 };
 #[derive(Debug, Subcommand)]
 pub(crate) enum ChatCommand {
@@ -294,7 +295,6 @@ pub(crate) const fn mode(value: Mode) -> AgentChatMode {
         Mode::Agent => AgentChatMode::Agent,
     }
 }
-
 #[cfg(all(test, unix))]
 #[path = "chat_cli/tests.rs"]
 mod tests;

@@ -2,6 +2,23 @@
 
 use clap::{Args, ValueEnum};
 
+/// Prompt-first terminal arguments. A missing prompt preserves the conversation browser default.
+#[derive(Debug, Args)]
+pub(crate) struct DirectPromptArgs {
+    #[arg(value_name = "PROMPT")]
+    pub(crate) prompt: Option<String>,
+    #[arg(long, requires = "prompt")]
+    pub(crate) conversation_id: Option<String>,
+    #[arg(long, value_enum, default_value_t = Provider::Codex, requires = "prompt")]
+    pub(crate) provider: Provider,
+    #[arg(long, default_value = "default", requires = "prompt")]
+    pub(crate) model: String,
+    #[arg(long, value_enum, default_value_t = Effort::Medium, requires = "prompt")]
+    pub(crate) effort: Effort,
+    #[arg(long, value_enum, default_value_t = Mode::Agent, requires = "prompt")]
+    pub(crate) mode: Mode,
+}
+
 #[derive(Debug, Args)]
 pub(crate) struct CreateArgs {
     #[arg(long, value_enum)]

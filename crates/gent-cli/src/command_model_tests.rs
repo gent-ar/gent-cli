@@ -75,6 +75,41 @@ fn default_and_conversations_flag_select_the_terminal_browser() {
 }
 
 #[test]
+fn positional_prompt_selects_the_typed_prompt_first_flow() {
+    let args = Args::try_parse_from([
+        "gent",
+        "write a status report",
+        "--provider",
+        "codex",
+        "--mode",
+        "agent",
+    ])
+    .unwrap();
+    assert_eq!(
+        args.direct_prompt.prompt.as_deref(),
+        Some("write a status report")
+    );
+    assert!(args.command.is_none());
+    assert!(Args::try_parse_from(["gent", "--provider", "codex"]).is_err());
+}
+
+#[test]
+fn chat_subcommands_remain_distinct_from_a_positional_prompt() {
+    let args = Args::try_parse_from([
+        "gent",
+        "chat",
+        "send",
+        "--conversation-id",
+        "conversation-1",
+        "--text",
+        "hello",
+    ])
+    .unwrap();
+    assert!(args.direct_prompt.prompt.is_none());
+    assert!(matches!(args.command, Some(CommandLine::Chat { .. })));
+}
+
+#[test]
 fn conversation_timeline_is_a_dedicated_read_only_command() {
     let args = Args::try_parse_from([
         "gent",

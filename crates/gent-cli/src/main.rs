@@ -2,6 +2,7 @@
 
 mod auto_update_handoff;
 mod chat_cli;
+mod chat_command;
 mod command_execution;
 mod command_model;
 mod conversation_activity;
@@ -10,6 +11,7 @@ mod conversation_index;
 mod conversation_status;
 mod conversation_timeline;
 mod decision;
+mod direct_prompt;
 mod event_stream;
 mod local_ipc;
 mod permissions_cli;
@@ -20,10 +22,10 @@ mod runtime_update_check;
 mod terminal;
 mod terminal_browser;
 mod update_check;
+mod update_command;
 mod update_handoff;
 
 pub(crate) use command_model::{Args, CommandLine, ConversationCommand, DependencyCommand};
-pub(crate) use update_check::UpdateCommand;
 
 use clap::Parser;
 

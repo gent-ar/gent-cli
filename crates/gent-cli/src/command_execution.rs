@@ -9,10 +9,9 @@ use serde_json::Value;
 use crate::decision::decision_frame;
 use crate::local_ipc::request;
 use crate::{
-    Args, CommandLine, ConversationCommand, DependencyCommand, auto_update_handoff, chat_cli,
-    conversation_activity, conversation_content, conversation_index, conversation_status,
-    conversation_timeline, event_stream, permissions_cli, provider_auth_cli, reviewed_plan_cli,
-    runtime_maintenance, runtime_update_check, terminal_browser, update_handoff,
+    Args, CommandLine, ConversationCommand, DependencyCommand, conversation_activity,
+    conversation_content, conversation_index, conversation_status, conversation_timeline,
+    event_stream, permissions_cli, provider_auth_cli, reviewed_plan_cli, terminal_browser,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -20,10 +19,17 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         data_dir,
         no_autostart,
         conversations,
+        direct_prompt,
         command,
     } = args;
-    if conversations && command.is_some() {
-        return Err("--conversations cannot be combined with a subcommand".into());
+    if conversations && (command.is_some() || direct_prompt.prompt.is_some()) {
+        return Err("--conversations cannot be combined with a command or prompt".into());
+    }
+    if let Some(reply) =
+        crate::direct_prompt::execute(data_dir.clone(), no_autostart, direct_prompt).await?
+    {
+        print(reply)?;
+        return Ok(());
     }
     if conversations || command.is_none() {
         return terminal_browser::open(data_dir, no_autostart).await;
@@ -42,42 +48,23 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Decision { action } => {
             print(request(data_dir, no_autostart, decision_frame(&action)).await?)?;
         }
-        CommandLine::Update { action } => match action {
-            crate::UpdateCommand::Auto { action } => {
-                auto_update_handoff::invoke(
-                    &action,
-                    data_dir.unwrap_or_else(crate::local_ipc::default_data_dir),
-                )?;
+        CommandLine::Update { action } => {
+            if let Some(reply) =
+                crate::update_command::execute(data_dir, no_autostart, action).await?
+            {
+                print(reply)?;
             }
-            crate::UpdateCommand::Status { attempt_id } => {
-                print(runtime_maintenance::request(data_dir, no_autostart, attempt_id).await?)?;
-            }
-            crate::UpdateCommand::Check { channel } => {
-                print(
-                    runtime_update_check::request(data_dir, no_autostart, channel.into()).await?,
-                )?;
-            }
-            crate::UpdateCommand::Apply {
-                version,
-                expected_sha256,
-                consent,
-                install_dir,
-            } => {
-                if !consent {
-                    return Err("runtime updates require --consent".into());
-                }
-                update_handoff::apply(&update_handoff::UpdateRequest {
-                    version,
-                    expected_sha256,
-                    data_dir: data_dir.unwrap_or_else(crate::local_ipc::default_data_dir),
-                    install_dir,
-                })?;
-            }
-        },
+        }
         CommandLine::Conversation { action } => {
             conversation(data_dir, no_autostart, action).await?;
         }
-        CommandLine::Chat { action } => chat(data_dir, no_autostart, action).await?,
+        CommandLine::Chat { action } => {
+            if let Some(reply) =
+                crate::chat_command::execute(data_dir, no_autostart, action).await?
+            {
+                print(reply)?;
+            }
+        }
         CommandLine::Plan { action } => {
             print(reviewed_plan_cli::execute(data_dir, no_autostart, action).await?)?;
         }
@@ -112,22 +99,6 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
     }
     Ok(())
 }
-async fn chat(
-    data_dir: Option<std::path::PathBuf>,
-    no_autostart: bool,
-    action: crate::chat_cli::ChatCommand,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match action {
-        crate::chat_cli::ChatCommand::Follow(args) => {
-            chat_cli::follow(data_dir, no_autostart, args).await
-        }
-        action => {
-            print(chat_cli::execute_command(data_dir, no_autostart, action).await?)?;
-            Ok(())
-        }
-    }
-}
-
 async fn conversation(
     data_dir: Option<std::path::PathBuf>,
     no_autostart: bool,

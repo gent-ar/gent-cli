@@ -20,6 +20,9 @@ pub(crate) struct Args {
     /// Open the read-only conversation browser.
     #[arg(long, global = true)]
     pub(crate) conversations: bool,
+    /// Start or continue a local agent chat without entering the terminal browser.
+    #[command(flatten)]
+    pub(crate) direct_prompt: chat_cli::DirectPromptArgs,
     #[command(subcommand)]
     pub(crate) command: Option<CommandLine>,
 }
