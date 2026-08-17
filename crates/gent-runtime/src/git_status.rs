@@ -6,11 +6,14 @@ use gent_ports::{
     LeaseClaim, Ledger, ReceiptClaim, WorktreeLease,
 };
 use gent_types::{
-    Command, Event, GitOperationKind, GitOperationPhase, GitOperationRecord, HostEpoch, Receipt,
-    ReceiptId, ReceiptStatus,
+    Event, GitOperationKind, GitOperationPhase, GitOperationRecord, HostEpoch, Receipt, ReceiptId,
+    ReceiptStatus,
 };
 
 use crate::RuntimeError;
+use crate::git_status_events::{
+    accepted_event, command_for, receipt_status, summary_payload, terminal_event_id, terminal_kind,
+};
 /// Explicit receipt, operation, and lease identity for a status request.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GitStatusRequest {
@@ -31,6 +34,16 @@ pub enum GitStatusState {
     Unprovable,
 }
 
+/// Explicit authority required before the daemon may invoke the injected read-only executor.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum GitStatusAuthority {
+    /// Shipped observer behavior: no receipt, lease, operation, or operating-system effect.
+    #[default]
+    Observer,
+    /// A future reviewed composition may execute only the fixed status operation in this service.
+    ApprovedStatus,
+}
+
 /// Receipt result. Status output is represented only by an entry count and digest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GitStatusResult {
@@ -44,14 +57,14 @@ pub struct GitStatusResult {
 pub struct GitStatusService<L, E> {
     ledger: L,
     executor: E,
-    authority: bool,
+    authority: GitStatusAuthority,
     serial: Arc<Mutex<()>>,
 }
 
 impl<L, E> GitStatusService<L, E> {
-    /// Creates a service. `authority = false` makes every request a no-write observer denial.
+    /// Creates a service. Observer authority makes every request a no-write observer denial.
     #[must_use]
-    pub fn new(ledger: L, executor: E, authority: bool) -> Self {
+    pub fn new(ledger: L, executor: E, authority: GitStatusAuthority) -> Self {
         Self {
             ledger,
             executor,
@@ -72,7 +85,7 @@ impl<L: Ledger + GitOperationLedger + gent_ports::WorkspaceLedger, E: GitExecuto
     /// # Errors
     /// Returns an error only when durable receipt or lease infrastructure cannot respond.
     pub fn execute(&self, request: &GitStatusRequest) -> Result<GitStatusResult, RuntimeError> {
-        if !self.authority {
+        if self.authority != GitStatusAuthority::ApprovedStatus {
             return Ok(GitStatusResult {
                 state: GitStatusState::DeniedObserver,
                 receipt: None,
@@ -237,64 +250,4 @@ fn valid_request(request: &GitStatusRequest) -> bool {
         && request.operation.worktree_id == request.lease.worktree_id
         && request.operation.run_id == request.lease.run_id
         && request.host_epoch == request.lease.host_epoch
-}
-
-fn command_for(request: &GitStatusRequest) -> Command {
-    Command {
-        receipt_id: request.receipt_id.clone(),
-        idempotency_key: request.idempotency_key.clone(),
-        host_epoch: request.host_epoch,
-        kind: "gitStatus".into(),
-        payload: serde_json::json!({
-            "operationId": request.operation.operation_id,
-            "runId": request.operation.run_id,
-            "worktreeId": request.operation.worktree_id,
-        }),
-    }
-}
-
-fn accepted_event(command: &Command) -> Event {
-    Event {
-        cursor: 0,
-        event_id: format!("{}:git-status-accepted", command.receipt_id.0),
-        receipt_id: command.receipt_id.clone(),
-        host_epoch: command.host_epoch,
-        kind: "gitStatusAccepted".into(),
-        payload: command.payload.clone(),
-    }
-}
-
-fn terminal_event_id(receipt_id: &ReceiptId) -> String {
-    format!("{}:git-status-terminal", receipt_id.0)
-}
-const fn receipt_status(state: GitStatusState) -> ReceiptStatus {
-    match state {
-        GitStatusState::Completed => ReceiptStatus::Settled,
-        GitStatusState::Unprovable => ReceiptStatus::Unprovable,
-        GitStatusState::DeniedObserver | GitStatusState::Failed | GitStatusState::Rejected => {
-            ReceiptStatus::Rejected
-        }
-    }
-}
-
-const fn terminal_kind(state: GitStatusState) -> &'static str {
-    match state {
-        GitStatusState::Completed => "gitStatusCompleted",
-        GitStatusState::Unprovable => "gitStatusUnprovable",
-        GitStatusState::DeniedObserver => "gitStatusDeniedObserver",
-        GitStatusState::Failed => "gitStatusFailed",
-        GitStatusState::Rejected => "gitStatusRejected",
-    }
-}
-
-fn summary_payload(summary: Option<&GitStatusSummary>) -> serde_json::Value {
-    summary.map_or_else(
-        || serde_json::json!({}),
-        |summary| {
-            serde_json::json!({
-                "entryCount": summary.entry_count,
-                "outputDigestSha256": summary.output_digest_sha256,
-            })
-        },
-    )
 }

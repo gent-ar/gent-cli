@@ -14,6 +14,7 @@ mod dependency_actions;
 mod events;
 mod git_operations;
 mod git_status;
+mod git_status_events;
 mod legacy_observer;
 mod mcp_connectors;
 mod policies;
@@ -58,7 +59,9 @@ use gent_types::{
     CapabilitySet, Command, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptStatus,
     RunVersionLock,
 };
-pub use git_status::{GitStatusRequest, GitStatusResult, GitStatusService, GitStatusState};
+pub use git_status::{
+    GitStatusAuthority, GitStatusRequest, GitStatusResult, GitStatusService, GitStatusState,
+};
 pub use legacy_observer::{LegacyObserver, ObserverPoll};
 pub use mcp_connectors::*;
 pub use provider_activity::{ProviderActivityFact, ProviderActivityIngress};

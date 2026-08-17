@@ -19,6 +19,7 @@ mod dependency_catalog;
 #[cfg(test)]
 mod dependency_catalog_tests;
 mod event_stream;
+mod git_status_runtime;
 mod host_lock;
 #[cfg(unix)]
 mod private_paths;
@@ -90,7 +91,6 @@ struct Args {
     #[arg(long, env = "GENT_RUNTIME_UPDATE_PLAN_AUTHORITY")]
     runtime_update_plan_authority: bool,
     /// Confirm a staged successor and open its new writer epoch after binding local IPC.
-    ///
     /// This is only for an external supervisor after it has verified and started the exact staged
     /// Gent pair. It does not download, stage, replace, or launch another process.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_RECOVER_AUTHORITY")]
