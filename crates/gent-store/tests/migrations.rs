@@ -78,7 +78,7 @@ fn legacy_ledger_is_upgraded_without_losing_epoch_or_events() {
     assert!(
         reopened
             .query_row(
-                "SELECT 1 FROM schema_migrations WHERE version = 25",
+                "SELECT 1 FROM schema_migrations WHERE version = 26",
                 [],
                 |_| Ok(()),
             )
@@ -87,7 +87,7 @@ fn legacy_ledger_is_upgraded_without_losing_epoch_or_events() {
     assert!(
         reopened
             .query_row(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reviewed_plan_artifacts'",
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_chat_transcript_events'",
                 [],
                 |_| Ok(()),
             )
@@ -129,7 +129,7 @@ fn v13_attachment_uploads_gain_a_transfer_owned_staging_key() {
              DROP INDEX conversation_message_ordinals_by_conversation_ordinal;
              DROP TABLE conversation_message_ordinals;
              DROP TABLE receipts;
-             DELETE FROM schema_migrations WHERE version IN (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25);
+             DELETE FROM schema_migrations WHERE version IN (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26);
              CREATE TABLE receipts (
                  idempotency_key TEXT PRIMARY KEY NOT NULL, receipt_id TEXT NOT NULL UNIQUE,
                  status TEXT NOT NULL, host_epoch INTEGER NOT NULL

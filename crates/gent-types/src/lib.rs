@@ -41,7 +41,8 @@ mod workspaces;
 pub use agent_chat::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRun, AgentChatRunState, AgentChatSelection,
-    NormalizedTranscriptEvent, NormalizedTranscriptKind, NormalizedTranscriptPage,
+    NormalizedTranscriptAppend, NormalizedTranscriptEvent, NormalizedTranscriptKind,
+    NormalizedTranscriptPage,
 };
 pub use agent_chat_intent::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse, AgentChatRequestId,

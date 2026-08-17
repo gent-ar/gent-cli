@@ -1,10 +1,11 @@
 //! Daemon-facing runtime port. Transport adapters depend only on this boundary.
 
 use gent_protocol::{
-    AgentChatIntentFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
-    DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-    PermissionPolicyFrame, ProviderAuthFrame, PublicRunInterruptRequest, PublicRunResponse,
-    PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
+    AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
+    DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
+    DependencyPlan, DependencyPlanRequest, PermissionPolicyFrame, ProviderAuthFrame,
+    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
+    ReviewedPlanFrame,
 };
 use gent_runtime::ConversationActivityRead;
 use gent_types::{
@@ -73,6 +74,23 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         _: AgentChatIntentFrame,
     ) -> Result<Vec<AgentChatIntentFrame>, String> {
         Err("agent chat is unavailable while gentd is observer-disabled".into())
+    }
+    /// Reads a public, provider-neutral conversation view only in a composed chat authority.
+    ///
+    /// The hard observer deliberately keeps this unavailable and does not advertise its
+    /// capability, even though the protocol DTOs are stable for future clients.
+    fn agent_chat_conversation(
+        &self,
+        _: AgentChatConversationFrame,
+    ) -> Result<AgentChatConversationFrame, String> {
+        Err("agent-chat conversation reads are unavailable while gentd is observer-disabled".into())
+    }
+    /// Reads a normalized transcript page only in a composed chat authority.
+    fn agent_chat_transcript(
+        &self,
+        _: AgentChatTranscriptFrame,
+    ) -> Result<AgentChatTranscriptFrame, String> {
+        Err("agent-chat transcript reads are unavailable while gentd is observer-disabled".into())
     }
     /// Reads or appends one local, provider-neutral permission-policy revision.
     fn permission_policy(&self, _: PermissionPolicyFrame) -> Result<PermissionPolicyFrame, String> {

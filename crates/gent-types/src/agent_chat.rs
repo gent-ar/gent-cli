@@ -105,6 +105,20 @@ pub struct NormalizedTranscriptEvent {
     pub is_partial: bool,
 }
 
+/// Provider-normalized transcript content before the durable ledger assigns its cursor.
+///
+/// A producer supplies a stable event identity; clients never choose the cursor.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NormalizedTranscriptAppend {
+    pub event_id: String,
+    pub turn_id: String,
+    pub run_id: String,
+    pub kind: NormalizedTranscriptKind,
+    pub text: String,
+    pub is_partial: bool,
+}
+
 /// A cursor-paginated, ordered page of normalized transcript events.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -118,7 +132,8 @@ pub struct NormalizedTranscriptPage {
 mod tests {
     use super::{
         AgentChatConversationSummary, AgentChatEffort, AgentChatMode, AgentChatProvider,
-        AgentChatSelection, NormalizedTranscriptEvent, NormalizedTranscriptKind,
+        AgentChatSelection, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
+        NormalizedTranscriptKind,
     };
     use serde_json::json;
 
@@ -171,5 +186,14 @@ mod tests {
             .unwrap(),
             event
         );
+    }
+
+    #[test]
+    fn append_value_cannot_claim_a_durable_cursor() {
+        let append = serde_json::json!({
+            "eventId": "event-1", "turnId": "turn-1", "runId": "run-1",
+            "kind": "assistantMessage", "text": "Hello", "isPartial": false
+        });
+        assert!(serde_json::from_value::<NormalizedTranscriptAppend>(append).is_ok());
     }
 }

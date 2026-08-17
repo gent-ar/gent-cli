@@ -5,8 +5,10 @@ use gent_types::{AgentChatConversationCreate, AgentChatConversationCreated};
 use crate::LedgerError;
 
 mod prompt;
+mod read;
 mod switch;
 pub use prompt::AgentChatPromptLedger;
+pub use read::AgentChatReadLedger;
 pub use switch::AgentChatSelectionLedger;
 
 /// Durable creation boundary for an immutable conversation, root run, selection, and receipt.

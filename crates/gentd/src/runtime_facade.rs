@@ -1,30 +1,18 @@
-//! Daemon composition of the observer runtime and its infrastructure adapters.
+//! Daemon composition of observer and explicitly approved durable-chat services.
 
 use gent_drivers::installer::SystemDependencyInstaller;
-use gent_protocol::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AttachmentFrame, DecisionRecoveryEvidence,
-    DecisionSubmission, DependencyActionRequest, DependencyActionResult, DependencyPlan,
-    DependencyPlanRequest, PermissionPolicyFrame,
-};
+use gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY;
 use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{
     AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
-    AgentChatPromptService, AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchService,
-    AttachmentService, Coordinator, DependencyActionService, RuntimeMaintenanceAuthority,
-    RuntimeMaintenanceService,
+    AgentChatPromptService, AgentChatReadService, AgentChatSelectionSwitchAuthority,
+    AgentChatSelectionSwitchService, AttachmentService, Coordinator, DependencyActionService,
+    RuntimeMaintenanceAuthority, RuntimeMaintenanceService,
 };
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
-use gent_types::{
-    CapabilitySet, Command, ConversationContentCursor, ConversationContentPage, ConversationStatus,
-    ConversationTimeline, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
-    HostStatus, Receipt,
-};
+use gent_types::CapabilitySet;
 
-use crate::agent_chat_api;
-use crate::api;
-use crate::attachment_api;
 use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::decision_mapping;
 use crate::dependency_actions::SystemDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
@@ -35,6 +23,7 @@ pub(crate) struct RuntimeFacade {
     agent_chat_conversations: AgentChatConversationService<SqliteLedger>,
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger>,
+    agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
     runtime_maintenance: RuntimeMaintenanceService<SqliteLedger>,
     attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
     coordinator: Coordinator<SqliteLedger>,
@@ -58,7 +47,7 @@ pub(crate) fn build_runtime(
     build_runtime_with_update_checks(data_dir, observed_capabilities, compatibility, None)
 }
 
-/// Builds the daemon with an optional explicitly configured read-only update checker.
+/// Builds the daemon with explicitly configured read-only update checks and durable-chat reads.
 ///
 /// # Errors
 /// Returns an error when capabilities drift or required local storage cannot open.
@@ -88,35 +77,20 @@ pub(crate) fn build_runtime_with_update_checks(
     Ok(RuntimeFacade {
         agent_chat_conversations: AgentChatConversationService::new(
             ledger.clone(),
-            if agent_chat_enabled {
-                AgentChatConversationAuthority::Approved
-            } else {
-                AgentChatConversationAuthority::Observer
-            },
+            chat_authority(agent_chat_enabled),
         ),
         agent_chat_prompts: AgentChatPromptService::new(
             ledger.clone(),
-            if agent_chat_enabled {
-                AgentChatPromptAuthority::Approved
-            } else {
-                AgentChatPromptAuthority::Observer
-            },
+            prompt_authority(agent_chat_enabled),
         ),
         agent_chat_switches: AgentChatSelectionSwitchService::new(
             ledger.clone(),
-            if agent_chat_enabled {
-                AgentChatSelectionSwitchAuthority::Approved
-            } else {
-                AgentChatSelectionSwitchAuthority::Observer
-            },
+            switch_authority(agent_chat_enabled),
         ),
+        agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
         runtime_maintenance: RuntimeMaintenanceService::new(
             ledger.clone(),
-            if maintenance_enabled {
-                RuntimeMaintenanceAuthority::Approved
-            } else {
-                RuntimeMaintenanceAuthority::Observer
-            },
+            maintenance_authority(maintenance_enabled),
         ),
         public_runs: observer_service(coordinator.clone(), compatibility.clone()),
         runtime_update_checks,
@@ -130,169 +104,36 @@ pub(crate) fn build_runtime_with_update_checks(
     })
 }
 
-impl api::RuntimeApi for RuntimeFacade {
-    fn capabilities(&self) -> Result<CapabilitySet, String> {
-        self.coordinator
-            .status()
-            .map(|status| status.capabilities)
-            .map_err(|error| error.to_string())
-    }
-
-    fn status(&self) -> Result<HostStatus, String> {
-        self.coordinator.status().map_err(|error| error.to_string())
-    }
-
-    fn submit(&self, command: Command) -> Result<Receipt, String> {
-        self.coordinator
-            .submit(&command)
-            .map_err(|error| error.to_string())
-    }
-
-    fn resume_events(&self, cursor: u64) -> Result<EventResume, String> {
-        self.coordinator
-            .resume_events(cursor)
-            .map_err(|error| error.to_string())
-    }
-
-    fn agent_chat_intent(
-        &self,
-        frame: AgentChatIntentFrame,
-    ) -> Result<Vec<AgentChatIntentFrame>, String> {
-        let host_epoch = self
-            .coordinator
-            .status()
-            .map_err(|error| error.to_string())?
-            .host_epoch;
-        agent_chat_api::exchange(
-            &self.agent_chat_conversations,
-            &self.agent_chat_prompts,
-            &self.agent_chat_switches,
-            host_epoch,
-            frame,
-        )
-    }
-
-    fn permission_policy(
-        &self,
-        frame: PermissionPolicyFrame,
-    ) -> Result<PermissionPolicyFrame, String> {
-        crate::permission_policy_api::exchange(&self.coordinator, frame)
-    }
-
-    fn doctor(&self) -> DoctorReport {
-        self.dependencies.doctor()
-    }
-
-    fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
-        self.dependencies.plan(request)
-    }
-
-    fn dependency_action(
-        &self,
-        request: DependencyActionRequest,
-    ) -> Result<DependencyActionResult, String> {
-        let plan = self.dependencies.plan(DependencyPlanRequest {
-            provider: request.provider,
-            action: request.action,
-        });
-        self.dependency_actions
-            .execute(&request, &plan)
-            .map_err(|error| error.to_string())
-    }
-
-    fn attachment(&self, frame: AttachmentFrame) -> Result<AttachmentFrame, String> {
-        attachment_api::handle(&self.attachments, frame)
-    }
-
-    fn runtime_update_check(
-        &self,
-        request: gent_types::RuntimeUpdateCheckRequest,
-    ) -> Result<gent_types::RuntimeUpdateCheckReport, String> {
-        self.runtime_update_checks
-            .as_ref()
-            .map(|checks| checks.check(request, crate::startup::unix_seconds()))
-            .ok_or_else(|| "runtime update checks are observer-disabled".into())
-    }
-
-    fn runtime_maintenance(
-        &self,
-        request: gent_types::RuntimeMaintenanceRequest,
-    ) -> Result<gent_types::RuntimeMaintenanceReport, String> {
-        self.runtime_maintenance
-            .read(&request)
-            .map_err(|error| error.to_string())
-    }
-
-    fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String> {
-        self.coordinator
-            .submit_decision(command)
-            .map(decision_mapping::submission)
-            .map_err(|error| error.to_string())
-    }
-
-    fn apply_decision_recovery(
-        &self,
-        decision_id: String,
-        evidence: DecisionRecoveryEvidence,
-    ) -> Result<DecisionSettlement, String> {
-        self.coordinator
-            .apply_decision_evidence(&decision_id, decision_mapping::recovery(evidence))
-            .map_err(|error| error.to_string())
-    }
-
-    fn start_public_run(
-        &self,
-        request: gent_protocol::PublicRunStartRequest,
-    ) -> Result<gent_protocol::PublicRunResponse, String> {
-        self.public_runs
-            .start(request)
-            .map_err(|error| error.to_string())
-    }
-
-    fn resume_public_run(
-        &self,
-        request: gent_protocol::PublicRunResumeRequest,
-    ) -> Result<gent_protocol::PublicRunResponse, String> {
-        self.public_runs
-            .resume(request)
-            .map_err(|error| error.to_string())
-    }
-
-    fn interrupt_public_run(
-        &self,
-        request: gent_protocol::PublicRunInterruptRequest,
-    ) -> Result<gent_protocol::PublicRunResponse, String> {
-        self.public_runs
-            .interrupt(request)
-            .map_err(|error| error.to_string())
-    }
-
-    fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String> {
-        self.coordinator
-            .conversation_status(conversation_id)
-            .map_err(|error| error.to_string())
-    }
-
-    fn conversations(&self) -> Result<Vec<gent_types::ConversationListItem>, String> {
-        self.coordinator
-            .conversations()
-            .map_err(|error| error.to_string())
-    }
-
-    fn conversation_timeline(&self, conversation_id: &str) -> Result<ConversationTimeline, String> {
-        self.coordinator
-            .conversation_timeline(conversation_id)
-            .map_err(|error| error.to_string())
-    }
-
-    fn conversation_content(
-        &self,
-        conversation_id: &str,
-        before: Option<ConversationContentCursor>,
-        limit: u16,
-    ) -> Result<ConversationContentPage, String> {
-        self.coordinator
-            .conversation_content(conversation_id, before.as_ref(), limit)
-            .map_err(|error| error.to_string())
+fn chat_authority(enabled: bool) -> AgentChatConversationAuthority {
+    if enabled {
+        AgentChatConversationAuthority::Approved
+    } else {
+        AgentChatConversationAuthority::Observer
     }
 }
+
+fn prompt_authority(enabled: bool) -> AgentChatPromptAuthority {
+    if enabled {
+        AgentChatPromptAuthority::Approved
+    } else {
+        AgentChatPromptAuthority::Observer
+    }
+}
+
+fn switch_authority(enabled: bool) -> AgentChatSelectionSwitchAuthority {
+    if enabled {
+        AgentChatSelectionSwitchAuthority::Approved
+    } else {
+        AgentChatSelectionSwitchAuthority::Observer
+    }
+}
+
+fn maintenance_authority(enabled: bool) -> RuntimeMaintenanceAuthority {
+    if enabled {
+        RuntimeMaintenanceAuthority::Approved
+    } else {
+        RuntimeMaintenanceAuthority::Observer
+    }
+}
+
+include!("runtime_facade_api.rs");

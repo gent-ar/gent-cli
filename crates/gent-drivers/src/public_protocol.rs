@@ -8,6 +8,8 @@ use serde_json::Value;
 
 use crate::PublicProvider;
 
+mod codex_protocol;
+
 /// A provider-neutral fact extracted without process, ledger, or UI access.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PublicWireFact {
@@ -21,7 +23,7 @@ pub enum PublicWireFact {
 pub fn normalize_public_frame(provider: PublicProvider, frame: &Value) -> Vec<PublicWireFact> {
     match provider {
         PublicProvider::Claude => claude(frame),
-        PublicProvider::Codex => codex(frame),
+        PublicProvider::Codex => codex_protocol::normalize(frame),
     }
 }
 
@@ -105,85 +107,6 @@ fn claude_result(frame: &Value) -> Vec<PublicWireFact> {
         }),
         PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase { phase }),
     ]
-}
-
-fn codex(frame: &Value) -> Vec<PublicWireFact> {
-    match string(frame, "method") {
-        Some("thread/started") => session(
-            frame.pointer("/params/thread").unwrap_or(frame),
-            "id",
-            "malformedCodexThread",
-        ),
-        Some("turn/started") => turn(frame, true),
-        Some("turn/completed") => turn(frame, false),
-        Some("item/agentMessage/delta") => codex_delta(frame),
-        Some("item/started") => codex_item(frame, ToolPhase::Started),
-        Some("item/completed") => codex_item(frame, ToolPhase::Completed),
-        Some(method) if method.ends_with("requestApproval") => vec![PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::AttentionRequired,
-        )],
-        Some(_) => diagnostic("unsupportedCodexNotification"),
-        None if frame.get("error").is_some() => diagnostic("codexRpcError"),
-        None => diagnostic("malformedCodexFrame"),
-    }
-}
-
-fn turn(frame: &Value, started: bool) -> Vec<PublicWireFact> {
-    let Some(turn) = frame.pointer("/params/turn") else {
-        return diagnostic("malformedCodexTurn");
-    };
-    let Some(turn_id) = string(turn, "id").filter(|id| !id.is_empty()) else {
-        return diagnostic("malformedCodexTurn");
-    };
-    if started {
-        vec![PublicWireFact::Event(
-            NormalizedProviderEvent::TurnStarted {
-                turn_id: turn_id.into(),
-            },
-        )]
-    } else {
-        let phase = match string(turn, "status") {
-            Some("completed") => TurnPhase::Ready,
-            Some("interrupted") => TurnPhase::Interrupted,
-            Some("failed") => TurnPhase::Failed,
-            _ => return diagnostic("malformedCodexTurn"),
-        };
-        vec![
-            PublicWireFact::Event(NormalizedProviderEvent::TurnEnded {
-                turn_id: turn_id.into(),
-            }),
-            PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {
-                activity: RootActivity::Idle,
-            }),
-            PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase { phase }),
-        ]
-    }
-}
-
-fn codex_delta(frame: &Value) -> Vec<PublicWireFact> {
-    frame
-        .pointer("/params/delta")
-        .and_then(Value::as_str)
-        .filter(|text| !text.is_empty())
-        .map_or_else(
-            || diagnostic("malformedCodexMessageDelta"),
-            |text| {
-                vec![PublicWireFact::Event(NormalizedProviderEvent::Output {
-                    text: text.into(),
-                })]
-            },
-        )
-}
-
-fn codex_item(frame: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
-    let item = frame.pointer("/params/item").unwrap_or(frame);
-    let Some(kind) = string(item, "type") else {
-        return diagnostic("malformedCodexItem");
-    };
-    if !matches!(kind, "commandExecution" | "fileChange" | "mcpToolCall") {
-        return Vec::new();
-    }
-    tool_activity(item, phase, "malformedCodexItem", true)
 }
 
 fn tool_activity(

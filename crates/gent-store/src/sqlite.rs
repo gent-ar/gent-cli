@@ -9,6 +9,7 @@ use gent_types::{
 use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 mod agent_chat_ledger;
+mod agent_chat_read_ledger;
 mod attachment_ledger;
 mod capability_catalog;
 mod connection;
@@ -40,6 +41,7 @@ mod runtime_update_journal;
 mod snapshots;
 mod tool_source_ledger;
 mod tool_sources;
+mod transcript_ledger;
 mod workspace_ledger;
 mod workspaces;
 use epoch::require_epoch;

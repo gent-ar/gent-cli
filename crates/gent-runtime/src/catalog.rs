@@ -2,7 +2,8 @@
 
 use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
-    AGENT_CHAT_INTENTS_CAPABILITY, ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
+    AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
+    AGENT_CHAT_TRANSCRIPT_CAPABILITY, ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
     CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
     RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
@@ -105,6 +106,12 @@ pub fn declared_capabilities_with_profiles(
         capabilities
             .0
             .push(RuntimeCapability::AgentChatIntents.wire_name().into());
+        capabilities
+            .0
+            .push(AGENT_CHAT_CONVERSATIONS_CAPABILITY.to_owned());
+        capabilities
+            .0
+            .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
     }
     if runtime_update_check_enabled {
         capabilities

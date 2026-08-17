@@ -1,9 +1,10 @@
 //! Local IPC adapter. It only knows the `RuntimeApi` port, never persistence or providers.
 
 use gent_protocol::{
-    ATTACHMENTS_CAPABILITY, AttachmentFrame, CONVERSATION_INDEX_CAPABILITY,
-    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    EventStreamFrame, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
+    AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY, ATTACHMENTS_CAPABILITY,
+    AttachmentFrame, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
+    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, EventStreamFrame, WireFrame,
+    negotiate, read_frame, read_json_frame, write_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
@@ -47,6 +48,12 @@ pub(crate) fn observed_capabilities(
         capabilities
             .0
             .push(gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY.to_owned());
+        capabilities
+            .0
+            .push(AGENT_CHAT_CONVERSATIONS_CAPABILITY.to_owned());
+        capabilities
+            .0
+            .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
     }
     if runtime_update_check_enabled {
         capabilities
@@ -167,6 +174,9 @@ where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
+    if crate::agent_chat_read_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if crate::agent_chat_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }

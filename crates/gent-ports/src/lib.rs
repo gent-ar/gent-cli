@@ -31,8 +31,11 @@ mod run_sessions;
 mod run_version_authorizer;
 pub mod runtime_update;
 mod tool_source_ledger;
+mod transcript_ledger;
 mod workspace_ledger;
-pub use agent_chat_ledger::{AgentChatLedger, AgentChatPromptLedger, AgentChatSelectionLedger};
+pub use agent_chat_ledger::{
+    AgentChatLedger, AgentChatPromptLedger, AgentChatReadLedger, AgentChatSelectionLedger,
+};
 pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
 pub use capability_catalog::CapabilityCatalogLedger;
@@ -68,6 +71,7 @@ pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
 pub use run_version_authorizer::RunVersionAuthorizer;
 pub use tool_source_ledger::ToolSourceLedger;
+pub use transcript_ledger::TranscriptLedger;
 pub use workspace_ledger::WorkspaceLedger;
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
@@ -223,7 +227,6 @@ pub trait Ledger: Send + Sync {
         lease: &RunLease,
     ) -> Result<(), LedgerError>;
     /// Atomically locks and leases a run that was durably created before provider activation.
-    ///
     /// # Errors
     /// Returns an error when the existing run/provider differs, the lock would change, or the
     /// current epoch cannot grant the requested lease.
@@ -238,7 +241,6 @@ pub trait Ledger: Send + Sync {
         ))
     }
     /// Reads one lineage node.
-    ///
     /// # Errors
     /// Returns an error when the run cannot be read.
     fn find_run(&self, run_id: &str) -> Result<Option<RunRecord>, LedgerError>;
