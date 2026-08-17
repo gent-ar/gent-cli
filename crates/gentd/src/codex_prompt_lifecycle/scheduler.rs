@@ -1,0 +1,92 @@
+//! Bounded daemon tick and recovery for the approved-only Codex lifecycle.
+
+use gent_ports::{
+    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
+    RunProjectionLedger, TranscriptLedger,
+};
+use gent_runtime::RuntimeError;
+use gent_types::HostEpoch;
+
+use super::{CodexPromptDispatchOutcome, CodexPromptLifecycle};
+
+const MAX_POLLS_PER_TICK: usize = 16;
+
+/// One bounded scheduler pass, containing no provider-native frames.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CodexLifecycleTick {
+    pub dispatch: CodexPromptDispatchOutcome,
+    pub polled_runs: u16,
+    pub facts: u16,
+    pub exited_runs: u16,
+}
+
+/// Aggregate result of polling a bounded snapshot of owned Codex sessions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CodexPollBatch {
+    pub polled_runs: u16,
+    pub facts: u16,
+    pub exited_runs: u16,
+}
+
+impl<L, D, R> CodexPromptLifecycle<L, D, R>
+where
+    L: Clone
+        + Ledger
+        + RunProjectionLedger
+        + ConversationActivityLedger
+        + TranscriptLedger
+        + AgentChatPromptDispatchLedger,
+    D: super::CodexPromptExecution + Clone,
+    R: PublicProviderResolver,
+{
+    /// Recovers only work that is provably pre-launch under the new host epoch.
+    pub(crate) fn recover(&self, host_epoch: HostEpoch) -> Result<(), RuntimeError> {
+        self.runtime.recover_prompts(host_epoch)
+    }
+
+    #[must_use]
+    pub(crate) fn active_len(&self) -> usize {
+        self.active.len()
+    }
+
+    pub(crate) fn poll_active(
+        &mut self,
+        host_epoch: HostEpoch,
+        maximum: usize,
+    ) -> Result<CodexPollBatch, RuntimeError> {
+        let run_ids = self
+            .active
+            .keys()
+            .take(maximum)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut facts: u16 = 0;
+        let mut exited_runs: u16 = 0;
+        for run_id in &run_ids {
+            if let Some(result) = self.poll(run_id, host_epoch)? {
+                facts = facts.saturating_add(result.facts);
+                exited_runs += u16::from(result.exited);
+            }
+        }
+        Ok(CodexPollBatch {
+            polled_runs: u16::try_from(run_ids.len()).expect("bounded poll count fits u16"),
+            facts,
+            exited_runs,
+        })
+    }
+
+    /// Claims at most one prompt and polls at most sixteen owned sessions without blocking.
+    pub(crate) fn tick(
+        &mut self,
+        host_epoch: HostEpoch,
+    ) -> Result<CodexLifecycleTick, RuntimeError> {
+        let dispatch = self.dispatch_next(host_epoch)?;
+        let batch = self.poll_active(host_epoch, MAX_POLLS_PER_TICK)?;
+        Ok(CodexLifecycleTick {
+            dispatch,
+            polled_runs: batch.polled_runs,
+            facts: batch.facts,
+            exited_runs: batch.exited_runs,
+        })
+    }
+}

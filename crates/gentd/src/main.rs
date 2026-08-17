@@ -10,6 +10,8 @@ mod agent_chat_transport;
 #[cfg(test)]
 mod agent_chat_transport_tests;
 mod api;
+#[allow(dead_code)]
+mod approved_codex_host;
 mod attachment_api;
 mod attachment_transport;
 mod authority_profile;

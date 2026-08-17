@@ -279,4 +279,9 @@ where
         self.dispatches
             .settle(message_id, coordinator_id, host_epoch)
     }
+
+    /// Recovers only pre-launch work after a successor daemon has fenced the previous epoch.
+    pub(crate) fn recover_prompts(&self, host_epoch: HostEpoch) -> Result<(), RuntimeError> {
+        self.dispatches.recover(host_epoch)
+    }
 }

@@ -22,10 +22,9 @@ use gent_types::{
     NormalizedProviderEvent, ReceiptId, RunVersionLock, TurnPhase,
 };
 
+use crate::approved_codex_host::ApprovedCodexHost;
 use crate::authority_profile::{AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest};
-use crate::codex_prompt_lifecycle::{
-    CodexPromptDispatchOutcome, CodexPromptExecution, CodexPromptLifecycle,
-};
+use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptExecution};
 use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::public_driver_runtime::PublicDriversRuntime;
 
@@ -234,15 +233,25 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         Resolver,
     )
     .unwrap();
-    let mut host = CodexPromptLifecycle::new(runtime, "daemon-a".into(), Some("/work".into()));
+    let mut host = ApprovedCodexHost::new(
+        runtime,
+        "daemon-a".into(),
+        Some("/work".into()),
+        HostEpoch(1),
+        1,
+    );
+    let tick = host.tick().unwrap();
     assert_eq!(
-        host.dispatch_next(HostEpoch(1)).unwrap(),
-        CodexPromptDispatchOutcome::Started {
+        tick.dispatch,
+        Some(CodexPromptDispatchOutcome::Started {
             run_id: "run-a".into()
-        }
+        })
     );
     assert_eq!(runner.state.lock().unwrap().starts, 1);
-    assert!(!host.poll("run-a", HostEpoch(1)).unwrap().unwrap().exited);
+    assert_eq!(tick.polled_runs, 0);
+    let tick = host.tick().unwrap();
+    assert_eq!(tick.polled_runs, 1);
+    assert_eq!(tick.facts, 3);
     let transcript = ledger
         .normalized_transcript_page(&conversation_id, 0, 10)
         .unwrap();
@@ -259,8 +268,8 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         })
         .unwrap();
     assert!(matches!(
-        host.dispatch_next(HostEpoch(1)).unwrap(),
-        CodexPromptDispatchOutcome::Started { .. }
+        host.tick().unwrap().dispatch,
+        Some(CodexPromptDispatchOutcome::Started { .. })
     ));
     let state = runner.state.lock().unwrap();
     assert_eq!(state.starts, 1);

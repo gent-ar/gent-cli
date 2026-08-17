@@ -20,6 +20,7 @@ use crate::public_driver_runtime::{PublicDriverFact, PublicDriversRuntime};
 
 mod activity;
 mod execution;
+mod scheduler;
 mod start;
 pub(crate) use execution::CodexPromptExecution;
 
