@@ -8,14 +8,16 @@ use std::sync::Arc;
 
 use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
 use gent_ports::{
-    ConversationActivityLedger, Ledger, PublicProviderResolver, PublicProviderRunner,
-    RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
+    PublicProviderRunner, RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{
-    AgentChatTranscriptAppendRequest, AgentChatTranscriptAppendResult,
-    AgentChatTranscriptAuthority, AgentChatTranscriptIngress, ConversationActivityAuthority,
-    ConversationActivityResult, ConversationActivityService, Coordinator, ProviderActivityFact,
-    ProviderActivityIngress, ProviderRunAuthority, PublicRunService, RuntimeError,
+    AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult,
+    AgentChatPromptDispatchService, AgentChatTranscriptAppendRequest,
+    AgentChatTranscriptAppendResult, AgentChatTranscriptAuthority, AgentChatTranscriptIngress,
+    ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
+    Coordinator, ProviderActivityFact, ProviderActivityIngress, ProviderRunAuthority,
+    PublicRunService, RuntimeError,
 };
 use gent_types::{HostEpoch, RunLiveStatus};
 
@@ -71,11 +73,17 @@ pub(crate) struct PublicDriversRuntime<L, D, R> {
     effects: ProviderEffectDispatcher<L>,
     activity: ProviderActivityIngress<L>,
     transcripts: AgentChatTranscriptIngress<L>,
+    dispatches: AgentChatPromptDispatchService<L>,
 }
 
 impl<L, D, R> PublicDriversRuntime<L, D, R>
 where
-    L: Clone + Ledger + RunProjectionLedger + ConversationActivityLedger + TranscriptLedger,
+    L: Clone
+        + Ledger
+        + RunProjectionLedger
+        + ConversationActivityLedger
+        + TranscriptLedger
+        + AgentChatPromptDispatchLedger,
     D: PublicProviderRunner,
     R: PublicProviderResolver,
 {
@@ -131,8 +139,12 @@ where
             // This composition is unreachable from the observer daemon. A runner must map each
             // provider fact to the durable prompt turn before it may call this ingress.
             transcripts: AgentChatTranscriptIngress::new(
-                ledger,
+                ledger.clone(),
                 AgentChatTranscriptAuthority::Approved,
+            ),
+            dispatches: AgentChatPromptDispatchService::new(
+                ledger,
+                AgentChatPromptDispatchAuthority::Approved,
             ),
         })
     }
@@ -173,5 +185,17 @@ where
                 .append(&append)
                 .map(PublicDriverFactResult::Transcript),
         }
+    }
+
+    /// Claims the next durable prompt only for this approved daemon lifecycle owner.
+    ///
+    /// # Errors
+    /// Returns an error when the durable ownership fence rejects the claim.
+    pub(crate) fn claim_prompt(
+        &self,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<AgentChatPromptDispatchResult, RuntimeError> {
+        self.dispatches.claim(coordinator_id, host_epoch)
     }
 }

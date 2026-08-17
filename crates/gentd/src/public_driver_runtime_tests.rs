@@ -150,6 +150,11 @@ fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingr
     let prompt = save_prompt(&ledger);
     let compatibility = compatibility();
     let (runtime, starts) = runtime(ledger.clone(), approved(&compatibility), compatibility);
+    assert!(matches!(
+        runtime.claim_prompt("daemon-a", HostEpoch(1)).unwrap(),
+        gent_runtime::AgentChatPromptDispatchResult::Claimed(saved)
+            if saved.message == prompt.message
+    ));
     let request = PublicRunStartRequest {
         run_id: "run-a".into(),
         coordinator_id: "daemon-a".into(),

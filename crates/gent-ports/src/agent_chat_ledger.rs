@@ -5,9 +5,11 @@ use gent_types::{AgentChatConversationCreate, AgentChatConversationCreated};
 use crate::LedgerError;
 
 mod prompt;
+mod prompt_dispatch;
 mod read;
 mod switch;
 pub use prompt::AgentChatPromptLedger;
+pub use prompt_dispatch::AgentChatPromptDispatchLedger;
 pub use read::AgentChatReadLedger;
 pub use switch::AgentChatSelectionLedger;
 

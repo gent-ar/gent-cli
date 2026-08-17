@@ -1,5 +1,6 @@
 //! Coordinator orchestration over pure policy and durable ports.
 mod agent_chat_conversations;
+mod agent_chat_dispatch;
 mod agent_chat_prompts;
 mod agent_chat_reads;
 mod agent_chat_selection_switch;
@@ -38,6 +39,9 @@ mod workspaces;
 pub use agent_chat_conversations::{
     AgentChatConversationAuthority, AgentChatConversationRequest, AgentChatConversationResult,
     AgentChatConversationService,
+};
+pub use agent_chat_dispatch::{
+    AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult, AgentChatPromptDispatchService,
 };
 pub use agent_chat_prompts::{
     AgentChatPromptAuthority, AgentChatPromptRequest, AgentChatPromptResult, AgentChatPromptService,

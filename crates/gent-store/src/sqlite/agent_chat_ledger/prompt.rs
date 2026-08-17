@@ -68,6 +68,9 @@ fn save(
     };
     insert_receipt(&transaction, &receipt, &command)?;
     transaction.execute("INSERT INTO agent_chat_prompt_receipts (request_id, idempotency_key, conversation_id, run_id, turn_id, message_id, disposition) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![prompt.request_id.0, receipt.idempotency_key, prompt.conversation_id.0, run_id, message.turn_id, message.message_id, disposition(prompt.disposition)]).map_err(storage_error)?;
+    if prompt.disposition == AgentChatPromptDisposition::Send {
+        transaction.execute("INSERT INTO agent_chat_prompt_dispatches (message_id, state, coordinator_id, host_epoch, created_rowid) VALUES (?1, 'pending', NULL, NULL, (SELECT COALESCE(MAX(created_rowid), 0) + 1 FROM agent_chat_prompt_dispatches))", params![message.message_id]).map_err(storage_error)?;
+    }
     transaction.commit().map_err(storage_error)?;
     Ok(AgentChatPromptSaved {
         receipt,

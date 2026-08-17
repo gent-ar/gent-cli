@@ -105,7 +105,6 @@ CREATE TABLE IF NOT EXISTS mcp_connector_leases (
     host_epoch INTEGER NOT NULL
 );
 ";
-
 const CONVERSATION_MESSAGES: &str = "
 CREATE TABLE IF NOT EXISTS conversation_messages (
     message_id TEXT PRIMARY KEY NOT NULL,
@@ -128,16 +127,16 @@ const AGENT_CHAT_SELECTION_SWITCHES: &str = include_str!("agent_chat_ledger/swit
 const POLICIES_PERMISSION_PROFILES: &str = include_str!("policies_permission_profiles.sql");
 const REVIEWED_PLANS: &str = include_str!("reviewed_plans.sql");
 const AGENT_CHAT_TRANSCRIPT: &str = include_str!("agent_chat_transcript.sql");
+const AGENT_CHAT_PROMPT_DISPATCH: &str = include_str!("agent_chat_prompt_dispatch.sql");
 #[derive(Debug)]
 struct Migration {
     version: i64,
     sql: &'static str,
 }
-
 const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
-const MIGRATIONS: [Migration; 26] = [
+const MIGRATIONS: [Migration; 27] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -164,6 +163,7 @@ const MIGRATIONS: [Migration; 26] = [
     migration(24, POLICIES_PERMISSION_PROFILES),
     migration(25, REVIEWED_PLANS),
     migration(26, AGENT_CHAT_TRANSCRIPT),
+    migration(27, AGENT_CHAT_PROMPT_DISPATCH),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

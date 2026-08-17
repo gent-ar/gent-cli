@@ -34,7 +34,8 @@ mod tool_source_ledger;
 mod transcript_ledger;
 mod workspace_ledger;
 pub use agent_chat_ledger::{
-    AgentChatLedger, AgentChatPromptLedger, AgentChatReadLedger, AgentChatSelectionLedger,
+    AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatReadLedger,
+    AgentChatSelectionLedger,
 };
 pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
