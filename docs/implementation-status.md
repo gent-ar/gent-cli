@@ -171,13 +171,14 @@ not claim provider or app compatibility evidence that has not been recorded.
       interrupt → terminate → kill ladder or cancel it on process exit.
 - [x] Pure Git porcelain parsing plus a bounded, fixed-argv, canonical-path Git-status
       executor behind a receipt-backed, worktree-lease-fenced authority service. It returns
-      only a count and digest, is uncomposed by `gentd`, and observer mode denies it before
-      a receipt, lease, or process is created.
+      only a count and digest. A dormant injected-executor seam accepts an explicit approved
+      status token; observer mode denies it before a receipt, lease, or process is created, and
+      every mutation remains rejected and uncomposed.
 - [x] Receipt-backed, source-lease-fenced MCP connector lifecycle coordination. It resolves
       only durable credential-free MCP declarations, persists requested → connecting → terminal
-      state, and never replays an accepted receipt after restart. It is uncomposed by `gentd`
-      and has no process or network executor implementation; observer mode returns before a
-      receipt, lease, connector record, or executor call.
+      state, and never replays an accepted receipt after restart. A dormant injected-executor
+      seam requires an approved evidence/registry digest and validates declarations inside the
+      receipt/lease flow; normal startup remains observer-only and starts no MCP process/network.
 - [x] Receipt-backed user conversation-prompt persistence. Prompt text is stored only in a
       dedicated SQLite message ledger while receipt/event payloads retain only identities,
       digest, byte length, and assigned sequence. Recovery safely retries its one idempotent
