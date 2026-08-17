@@ -34,9 +34,10 @@ It downloads and verifies the release tag's installer bootstrap before invoking
 it as a child process. The digest must be the target archive digest in its
 signed manifest. The installer refuses activation if `gentd` holds the chosen
 data directory's host lock after a bounded drain wait. On updates where the
-signed supervisor is present, it stages and probes the exact paired successor
+signed supervisor is required: it stages and probes the exact paired successor
 over local IPC before the pointer switch and rolls back on successor failure.
-It does not use an in-process binary replacement.
+An update handoff rejects a release without that signed supervisor. It does not
+use an in-process binary replacement.
 
 ## Opt-in automatic updates
 

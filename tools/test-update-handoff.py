@@ -140,9 +140,12 @@ def main() -> None:
         releases.mkdir()
         fake.mkdir()
         runtime_target = target()
-        first = create_release(releases / "v1.2.3", "v1.2.3", runtime_target, include_supervisor=False)
+        first = create_release(releases / "v1.2.3", "v1.2.3", runtime_target)
         second = create_release(releases / "v1.2.4", "v1.2.4", runtime_target)
         third = create_release(releases / "v1.2.5", "v1.2.5", runtime_target)
+        missing_supervisor = create_release(
+            releases / "v1.2.6", "v1.2.6", runtime_target, include_supervisor=False
+        )
         cosign = fake / "cosign"
         cosign.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
         cosign.chmod(0o755)
@@ -161,9 +164,9 @@ def main() -> None:
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.3"
             subprocess.run(command("v1.2.3", first, install, data, env), cwd=ROOT, env=env, check=True)
             assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.3-" + runtime_target)
-            legacy = install / "lib" / "gent" / "releases" / f"v1.2.3-{runtime_target}"
-            assert not (legacy / "supervise-runtime-activation.py").exists()
-            assert (legacy / "gent-auto-update.py").is_file()
+            installed = install / "lib" / "gent" / "releases" / f"v1.2.3-{runtime_target}"
+            assert (installed / "supervise-runtime-activation.py").is_file()
+            assert (installed / "gent-auto-update.py").is_file()
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.4"
             subprocess.run(command("v1.2.4", second, install, data, env), cwd=ROOT, env=env, check=True)
             assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.4-" + runtime_target)
@@ -179,6 +182,17 @@ def main() -> None:
                 assert lock.stdin
                 lock.stdin.close()
                 lock.wait(timeout=5)
+            assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.4-" + runtime_target)
+            env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.6"
+            result = subprocess.run(
+                command("v1.2.6", missing_supervisor, install, data, env),
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode != 0
+            assert "activation supervisor is required" in result.stderr
             assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.4-" + runtime_target)
         finally:
             server.shutdown()

@@ -207,9 +207,10 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] User-invoked `gent update apply` verifies a tag-bound Sigstore installer
       bootstrap before external handoff, requires a target archive digest and
       explicit consent, and passes the selected data directory to activation.
-      On an installed Unix pair with the signed supervisor present, it stages
-      the exact release, health-checks local IPC, waits for the old host lock,
+      An installed Unix update requires the signed supervisor: it stages the
+      exact release, health-checks local IPC, waits for the old host lock,
       atomically selects the pair, and rolls back after successor-health failure.
+      A missing supervisor rejects the handoff without changing the active pair.
       It never performs in-process replacement or background release polling.
 - [x] `gent update auto enable|status|disable|run` delegates only to the signed
       installed external helper. GitHub `latest` is an untrusted stable-tag hint;

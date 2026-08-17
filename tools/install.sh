@@ -81,6 +81,10 @@ if download "$supervisor_base" 'gent-supervise-runtime-activation.py' 2>/dev/nul
   download "$supervisor_base.sigstore.json" 'gent-supervise-runtime-activation.py.sigstore.json' || exit 1
   has_supervisor=1
 fi
+if [ -n "$idle_data_dir" ] && [ "$has_supervisor" -ne 1 ]; then
+  printf '%s\n' 'signed runtime activation supervisor is required for an update handoff' >&2
+  exit 1
+fi
 trust_base="$release_base/gent-runtime-release-trust.json"
 release_metadata="gent-$version-$target.runtime-release.json"
 has_update_material=0
@@ -172,7 +176,7 @@ install_auto_updater() {
   chmod 700 "$temporary"
   mv -f "$temporary" "$runtime_root/gent-auto-update.py"
 }
-if [ "$has_supervisor" -eq 1 ] && [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
+if [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
   set -- python3 "$temp/gent-supervise-runtime-activation.py" \
     --runtime-root "$runtime_root" --release-name "$release_name" \
     --source-release "$release_dir" --bin-dir "$bin_dir" --data-dir "$idle_data_dir" \
