@@ -1,0 +1,152 @@
+//! Dormant composition edge for a separately approved public-driver host.
+//!
+//! `main` never constructs this type. It exists so the future authority handoff has one typed
+//! place to bind an approved profile, a signed compatibility envelope, process ports, lifecycle
+//! facts, and activity facts without adding an alternate startup switch to the observer daemon.
+
+use std::sync::Arc;
+
+use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
+use gent_ports::{
+    ConversationActivityLedger, Ledger, PublicProviderResolver, PublicProviderRunner,
+    RunProjectionLedger,
+};
+use gent_runtime::{
+    ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
+    Coordinator, ProviderActivityFact, ProviderActivityIngress, ProviderRunAuthority,
+    PublicRunService, RuntimeError,
+};
+use gent_types::{HostEpoch, RunLiveStatus};
+
+use crate::authority_profile::ValidatedAuthorityProfile;
+use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::provider_effects::ProviderEffectDispatcher;
+
+/// A fact emitted at the public-driver process boundary.
+///
+/// Each variant keeps its own durable source identity. Activity facts cannot share an event ID
+/// with lifecycle facts because they have distinct source schemas and idempotency contracts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum PublicDriverFact {
+    SessionEffect {
+        event_id: String,
+        effect: SessionEffect,
+    },
+    PublicWire {
+        event_id: String,
+        fact: PublicWireFact,
+    },
+    Activity(ProviderActivityFact),
+}
+
+/// Result of persisting a public-driver fact through its typed ingress.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum PublicDriverFactResult {
+    Lifecycle(Option<RunLiveStatus>),
+    Activity(ConversationActivityResult),
+}
+
+/// Refuses authority composition before profile and compatibility bindings agree.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub(crate) enum PublicDriversRuntimeError {
+    #[error("the observer profile cannot construct public-driver authority")]
+    ObserverProfile,
+    #[error("the approved compatibility manifest is unavailable")]
+    CompatibilityManifestUnavailable,
+    #[error("the approved compatibility manifest digest does not match the verified cache")]
+    CompatibilityManifestMismatch,
+}
+
+/// A fully injected, authority-gated public-driver runtime.
+///
+/// It is deliberately not a `RuntimeFacade`: the shipped facade uses the hard observer service.
+/// A reviewed future composition must explicitly select this value after all evidence gates pass.
+#[derive(Debug)]
+pub(crate) struct PublicDriversRuntime<L, D, R> {
+    runs: Arc<PublicRunService<L, D, CompatibilityAssessment, R>>,
+    effects: ProviderEffectDispatcher<L>,
+    activity: ProviderActivityIngress<L>,
+}
+
+impl<L, D, R> PublicDriversRuntime<L, D, R>
+where
+    L: Clone + Ledger + RunProjectionLedger + ConversationActivityLedger,
+    D: PublicProviderRunner,
+    R: PublicProviderResolver,
+{
+    /// Binds only a validated approved profile to one verified compatibility envelope and ports.
+    ///
+    /// # Errors
+    /// Returns an error before resolver or runner construction becomes reachable when the profile
+    /// is observer-only or its immutable approved digest differs from verified local material.
+    pub(crate) fn new(
+        profile: ValidatedAuthorityProfile,
+        coordinator: Coordinator<L>,
+        ledger: L,
+        compatibility: CompatibilityAssessment,
+        runner: D,
+        resolver: R,
+    ) -> Result<Self, PublicDriversRuntimeError> {
+        let ValidatedAuthorityProfile::PreparedPublicDrivers(approval) = profile else {
+            return Err(PublicDriversRuntimeError::ObserverProfile);
+        };
+        let Some(actual_digest) = compatibility.manifest_sha256() else {
+            return Err(PublicDriversRuntimeError::CompatibilityManifestUnavailable);
+        };
+        if actual_digest != approval.compatibility_manifest_sha256 {
+            return Err(PublicDriversRuntimeError::CompatibilityManifestMismatch);
+        }
+        Ok(Self {
+            runs: Arc::new(PublicRunService::new(
+                coordinator.clone(),
+                runner,
+                compatibility,
+                resolver,
+                ProviderRunAuthority::PublicDrivers,
+            )),
+            effects: ProviderEffectDispatcher::new(
+                coordinator.clone(),
+                ProviderRunAuthority::PublicDrivers,
+            ),
+            activity: ProviderActivityIngress::new(
+                coordinator,
+                ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved),
+                ProviderRunAuthority::PublicDrivers,
+            ),
+        })
+    }
+
+    /// Returns the only process lifecycle service constructed by this authority profile.
+    #[must_use]
+    pub(crate) fn runs(&self) -> &Arc<PublicRunService<L, D, CompatibilityAssessment, R>> {
+        &self.runs
+    }
+
+    /// Persists one runner-owned source fact through its matching durable ingress.
+    ///
+    /// # Errors
+    /// Returns an error when the run lease, epoch fence, session ordering, or activity projection
+    /// rejects the owned fact.
+    pub(crate) fn record(
+        &self,
+        run_id: String,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        fact: PublicDriverFact,
+    ) -> Result<PublicDriverFactResult, RuntimeError> {
+        match fact {
+            PublicDriverFact::SessionEffect { event_id, effect } => self
+                .effects
+                .record(event_id, run_id, coordinator_id, host_epoch, &effect)
+                .map(PublicDriverFactResult::Lifecycle),
+            PublicDriverFact::PublicWire { event_id, fact } => self
+                .effects
+                .record_public_wire_fact(event_id, run_id, coordinator_id, host_epoch, &fact)
+                .map(PublicDriverFactResult::Lifecycle),
+            PublicDriverFact::Activity(activity) => self
+                .activity
+                .record(coordinator_id, activity)
+                .map(PublicDriverFactResult::Activity),
+        }
+    }
+}

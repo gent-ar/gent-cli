@@ -1,5 +1,5 @@
 //! Durable public-provider run orchestration. The default observer authority never launches.
-
+use crate::{Coordinator, RuntimeError};
 use gent_ports::{
     Ledger, PublicProviderResolver, PublicProviderRunError, PublicProviderRunner, RunLease,
     RunLeaseClaim, RunRecord, RunSessionBinding, RunVersionAuthorizer,
@@ -9,9 +9,6 @@ use gent_protocol::{
     PublicRunStartRequest,
 };
 use gent_types::ReceiptId;
-
-use crate::{Coordinator, RuntimeError};
-
 /// Explicit daemon authority required before a public process can be started or signaled.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProviderRunAuthority {
@@ -21,7 +18,6 @@ pub enum ProviderRunAuthority {
     /// A future authority-gated daemon may construct this only after all evidence gates pass.
     PublicDrivers,
 }
-
 /// Owns the durable-before-spawn ordering while delegating process effects through one port.
 #[derive(Debug)]
 pub struct PublicRunService<L, D, A, R> {
@@ -31,7 +27,6 @@ pub struct PublicRunService<L, D, A, R> {
     resolver: R,
     authority: ProviderRunAuthority,
 }
-
 impl<L, D, A, R> PublicRunService<L, D, A, R>
 where
     L: Ledger,
@@ -57,7 +52,7 @@ where
         }
     }
 
-    /// Resolves and durably reserves a new root run before invoking the process owner.
+    /// Resolves and durably reserves or activates a run before invoking the process owner.
     ///
     /// # Errors
     /// Returns an error when durable reservation fails after daemon-owned resolution succeeds.
@@ -81,7 +76,13 @@ where
             coordinator_id: request.coordinator_id.clone(),
             host_epoch: request.host_epoch,
         };
-        self.coordinator.reserve_public_run(&run, &lock, &lease)?;
+        if matches!(
+            self.coordinator
+                .reserve_or_activate_public_run(&run, &lock, &lease)?,
+            RunLeaseClaim::Contended(_)
+        ) {
+            return Ok(response(request.run_id, PublicRunOutcome::LeaseContended));
+        }
         match self.runner.start(&request.run_id, &lock) {
             Ok(()) => Ok(response(request.run_id, PublicRunOutcome::Started)),
             Err(PublicProviderRunError::ProviderChanged) => self.provider_changed(
@@ -229,7 +230,7 @@ where
                 PublicRunOutcome::ProviderChanged,
             ));
         }
-        self.coordinator.reserve_public_run(
+        self.coordinator.reserve_or_activate_public_run(
             &RunRecord {
                 run_id: child_id.clone(),
                 parent_run_id: Some(parent_run_id.into()),
@@ -250,15 +251,18 @@ where
         }
     }
 }
-
 impl<L: Ledger> Coordinator<L> {
-    fn reserve_public_run(
+    fn reserve_or_activate_public_run(
         &self,
         run: &RunRecord,
         lock: &gent_types::RunVersionLock,
         lease: &RunLease,
-    ) -> Result<(), RuntimeError> {
-        Ok(self.ledger.reserve_run_start(run, lock, lease)?)
+    ) -> Result<RunLeaseClaim, RuntimeError> {
+        if self.ledger.find_run(&run.run_id)?.is_some() {
+            return Ok(self.ledger.activate_existing_run_start(lock, lease)?);
+        }
+        self.ledger.reserve_run_start(run, lock, lease)?;
+        Ok(RunLeaseClaim::Acquired(lease.clone()))
     }
 
     fn public_run_lock(

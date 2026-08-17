@@ -26,6 +26,10 @@ mod provider_effects;
 mod provider_resolver;
 #[cfg(test)]
 mod provider_resolver_tests;
+#[allow(dead_code)]
+mod public_driver_runtime;
+#[cfg(test)]
+mod public_driver_runtime_tests;
 mod public_runs;
 mod runtime_facade;
 mod runtime_maintenance_transport;
@@ -76,12 +80,10 @@ struct Args {
     #[arg(long, env = "GENT_AGENT_CHAT_AUTHORITY")]
     agent_chat_authority: bool,
     /// Serve only a locally cached, revalidated signed runtime-release report.
-    ///
     /// This does not enable downloads, staging, activation, or self-replacement.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_CHECK_AUTHORITY")]
     runtime_update_check_authority: bool,
     /// Durably plan one already-cached signed runtime release.
-    ///
     /// This opt-in authority never downloads, stages, health-checks, or replaces this process.
     /// It exists to make an approved external-supervisor handoff auditable before activation is
     /// wired into a later migration phase.
@@ -93,7 +95,6 @@ struct Args {
     /// Gent pair. It does not download, stage, replace, or launch another process.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_RECOVER_AUTHORITY")]
     runtime_update_recover_authority: bool,
-    /// Stable idempotency key for an explicitly approved local planning attempt.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_ATTEMPT_ID")]
     runtime_update_attempt_id: Option<String>,
     /// Cached signed release metadata required by the explicit read-only check profile.
@@ -294,7 +295,6 @@ fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
             (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
         })
 }
-
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;

@@ -7,6 +7,7 @@ use gent_adapters::compatibility::TrustedKeySet;
 use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_ports::{PublicProviderRunError, RunVersionAuthorizer};
 use gent_types::{CompatibilityTrust, ExecutableIdentity, RunVersionLock};
+use sha2::{Digest, Sha256};
 
 /// A verified cache and trusted key set injected by the daemon composition root.
 #[derive(Clone, Debug, Default)]
@@ -82,6 +83,20 @@ impl CompatibilityAssessment {
         } else {
             CompatibilityTrust::Untrusted
         }
+    }
+
+    /// Returns the digest of the exact signed compatibility envelope currently in use.
+    ///
+    /// A future authority composition binds its separately approved profile to this value before
+    /// an injected resolver is allowed to inspect an executable. The digest intentionally covers
+    /// the signer id and signature as well as the payload, not a lossy projection of entries.
+    #[must_use]
+    pub(crate) fn manifest_sha256(&self) -> Option<String> {
+        let manifest = &self.cached.as_ref()?.manifest;
+        let bytes = serde_json::to_vec(manifest).ok()?;
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        Some(format!("{:x}", hasher.finalize()))
     }
 
     pub(crate) fn remediation(
