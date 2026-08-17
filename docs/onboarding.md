@@ -126,9 +126,9 @@ spawn/lifecycle ingress, MCP process, Git mutation, automation engine, pairing
 transport, or network-listener authority. The local IPC socket exists only for
 the versioned `gent` ↔ `gentd` protocol.
 
-Six Claude/Codex evidence cells remain capture-required: Claude
+Five Claude/Codex evidence cells remain capture-required: Claude
 persistent-permission, compaction, malformed-tolerance; Codex subagent,
-MCP-tool, malformed-tolerance. Claurst requires an authenticated app-private
+malformed-tolerance. Claurst requires an authenticated app-private
 bridge and private CI. A future Flutter launch must enforce one active
 writer/host epoch and protocol compatibility; a single-user standalone install
 does not require a legacy migration or deployed fence-aware app release. These

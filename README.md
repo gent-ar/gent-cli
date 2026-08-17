@@ -198,9 +198,9 @@ bash tools/smoke-local-ipc.sh
 The phase-0 manifest lists every required Claude/Codex scenario without
 inventing recordings. It includes redacted live `full_turn`, `tool_use`,
 `tool_error`, plan-mode, and observed thinking/usage captures for Claude and
-the requested Codex `gpt-5.6-luna` configuration. Six strict cells remain:
+the requested Codex `gpt-5.6-luna` configuration. Five strict cells remain:
 Claude persistent-permission, compaction, and malformed-tolerance; Codex
-subagent, MCP-tool, and malformed-tolerance. They are capture-required.
+subagent and malformed-tolerance. They are capture-required.
 The coverage manifest
 links to that inventory, so an authority-evidence record for Claude or Codex
 must name a recorded transcript whose provider/version/platform/driver transport
