@@ -1,4 +1,4 @@
-use gent_ports::{AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger};
+use gent_ports::{AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, Ledger};
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
@@ -72,7 +72,7 @@ fn only_send_prompts_enter_a_single_owner_durable_outbox() {
             .is_none()
     );
     ledger
-        .release_agent_chat_prompt_dispatch(&send.message.message_id, "daemon-a", HostEpoch(1))
+        .release_agent_chat_prompt_claim(&send.message.message_id, "daemon-a", HostEpoch(1))
         .unwrap();
     assert_eq!(
         ledger
@@ -103,7 +103,94 @@ fn settlement_and_epoch_fences_prevent_duplicate_or_stale_provider_delivery() {
             .is_err()
     );
     ledger
+        .begin_agent_chat_prompt_launch(&send.message.message_id, "daemon-a", HostEpoch(1))
+        .unwrap();
+    ledger
+        .confirm_agent_chat_prompt_started(&send.message.message_id, "daemon-a", HostEpoch(1))
+        .unwrap();
+    ledger
         .settle_agent_chat_prompt_dispatch(&send.message.message_id, "daemon-a", HostEpoch(1))
+        .unwrap();
+    assert!(
+        ledger
+            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn successor_replays_only_known_prelaunch_work() {
+    let (ledger, conversation_id) = ledger();
+    let send = prompt(
+        &ledger,
+        &conversation_id,
+        "claimed",
+        AgentChatPromptDisposition::Send,
+    );
+    ledger
+        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
+        .unwrap();
+    ledger.close_ingress(HostEpoch(1)).unwrap();
+    ledger.fence_and_open(HostEpoch(1)).unwrap();
+    ledger
+        .recover_agent_chat_prompt_dispatches(HostEpoch(2))
+        .unwrap();
+    assert_eq!(
+        ledger
+            .claim_agent_chat_prompt_dispatch("daemon-b", HostEpoch(2), AgentChatProvider::Codex)
+            .unwrap()
+            .unwrap()
+            .message,
+        send.message
+    );
+}
+
+#[test]
+fn successor_never_replays_an_ambiguous_launch() {
+    let (ledger, conversation_id) = ledger();
+    let send = prompt(
+        &ledger,
+        &conversation_id,
+        "launching",
+        AgentChatPromptDisposition::Send,
+    );
+    ledger
+        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
+        .unwrap();
+    ledger
+        .begin_agent_chat_prompt_launch(&send.message.message_id, "daemon-a", HostEpoch(1))
+        .unwrap();
+    ledger.close_ingress(HostEpoch(1)).unwrap();
+    ledger.fence_and_open(HostEpoch(1)).unwrap();
+    ledger
+        .recover_agent_chat_prompt_dispatches(HostEpoch(2))
+        .unwrap();
+    assert!(
+        ledger
+            .claim_agent_chat_prompt_dispatch("daemon-b", HostEpoch(2), AgentChatProvider::Codex)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn daemon_marks_an_ambiguous_launch_unprovable_before_restart() {
+    let (ledger, conversation_id) = ledger();
+    let send = prompt(
+        &ledger,
+        &conversation_id,
+        "unprovable",
+        AgentChatPromptDisposition::Send,
+    );
+    ledger
+        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
+        .unwrap();
+    ledger
+        .begin_agent_chat_prompt_launch(&send.message.message_id, "daemon-a", HostEpoch(1))
+        .unwrap();
+    ledger
+        .mark_agent_chat_prompt_unprovable(&send.message.message_id, "daemon-a", HostEpoch(1))
         .unwrap();
     assert!(
         ledger

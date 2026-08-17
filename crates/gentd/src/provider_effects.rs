@@ -232,4 +232,29 @@ mod tests {
         let source = ledger.find_event("public-session").unwrap().unwrap();
         assert!(!source.payload.to_string().contains("provider-private-id"));
     }
+
+    #[test]
+    fn terminal_exit_is_durable_even_before_a_provider_session_is_announced() {
+        let ledger = SqliteLedger::in_memory().unwrap();
+        prepare(&ledger);
+        let dispatcher = ProviderEffectDispatcher::new(
+            Coordinator::new(ledger.clone(), CapabilitySet::default()),
+            ProviderRunAuthority::PublicDrivers,
+        );
+        assert_eq!(
+            dispatcher
+                .record(
+                    "provider-exit".into(),
+                    "run-a".into(),
+                    "daemon-a",
+                    HostEpoch(1),
+                    &SessionEffect::Terminal {
+                        reason: "providerExited:1".into(),
+                    },
+                )
+                .unwrap(),
+            None
+        );
+        assert!(ledger.find_event("provider-exit").unwrap().is_some());
+    }
 }

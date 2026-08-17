@@ -32,7 +32,7 @@ use crate::public_driver_runtime::{
     PublicDriverFact, PublicDriverFactResult, PublicDriversRuntime, PublicDriversRuntimeError,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Runner(Arc<AtomicUsize>);
 
 impl PublicProviderRunner for Runner {

@@ -12,6 +12,10 @@ mod api;
 mod attachment_api;
 mod attachment_transport;
 mod authority_profile;
+#[allow(dead_code)]
+mod codex_prompt_lifecycle;
+#[cfg(test)]
+mod codex_prompt_lifecycle_tests;
 mod compatibility_assessment;
 #[cfg(test)]
 mod compatibility_lock_tests;

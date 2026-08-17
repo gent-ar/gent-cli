@@ -37,7 +37,6 @@ impl<L> AgentChatPromptDispatchService<L> {
         Self { ledger, authority }
     }
 }
-
 impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
     /// Claims one durable provider-bound prompt for the supplied daemon ownership fence.
     ///
@@ -60,18 +59,89 @@ impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
             }))
     }
 
-    /// Releases a failed-to-start prompt without exposing provider state to this runtime layer.
+    /// Marks the durable boundary immediately before a provider invocation may occur.
     ///
     /// # Errors
     /// Returns an error when approved durable owner validation rejects the release.
-    pub fn release(
+    pub fn begin_launch(
         &self,
         message_id: &str,
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), RuntimeError> {
         if self.authority == AgentChatPromptDispatchAuthority::Approved {
-            self.ledger.release_agent_chat_prompt_dispatch(
+            self.ledger
+                .begin_agent_chat_prompt_launch(message_id, coordinator_id, host_epoch)?;
+        }
+        Ok(())
+    }
+
+    /// Confirms a launch only after the daemon-owned runner reports it successfully started.
+    ///
+    /// # Errors
+    /// Returns an error when approved durable owner validation rejects settlement.
+    pub fn confirm_started(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        if self.authority == AgentChatPromptDispatchAuthority::Approved {
+            self.ledger.confirm_agent_chat_prompt_started(
+                message_id,
+                coordinator_id,
+                host_epoch,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Releases a claim before a runner launch boundary has been crossed.
+    /// # Errors
+    /// Returns an error when the durable claim is no longer owned by this daemon.
+    pub fn release_claim(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        if self.authority == AgentChatPromptDispatchAuthority::Approved {
+            self.ledger
+                .release_agent_chat_prompt_claim(message_id, coordinator_id, host_epoch)?;
+        }
+        Ok(())
+    }
+
+    /// Releases a launch marker only after a local result proves no runner was invoked.
+    /// # Errors
+    /// Returns an error when the durable launch marker is no longer owned by this daemon.
+    pub fn release_unstarted_launch(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        if self.authority == AgentChatPromptDispatchAuthority::Approved {
+            self.ledger.release_agent_chat_prompt_unstarted_launch(
+                message_id,
+                coordinator_id,
+                host_epoch,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Retires an ambiguous launch without allowing it to be automatically replayed.
+    /// # Errors
+    /// Returns an error when the durable launch marker is no longer owned by this daemon.
+    pub fn mark_unprovable(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        if self.authority == AgentChatPromptDispatchAuthority::Approved {
+            self.ledger.mark_agent_chat_prompt_unprovable(
                 message_id,
                 coordinator_id,
                 host_epoch,
@@ -81,9 +151,8 @@ impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
     }
 
     /// Settles a provider-owned prompt after its daemon lifecycle has reached a terminal state.
-    ///
     /// # Errors
-    /// Returns an error when approved durable owner validation rejects settlement.
+    /// Returns an error when the durable started marker is no longer owned by this daemon.
     pub fn settle(
         &self,
         message_id: &str,
@@ -96,6 +165,17 @@ impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
                 coordinator_id,
                 host_epoch,
             )?;
+        }
+        Ok(())
+    }
+
+    /// Recovers only known-prelaunch work after a successor has fenced the old epoch.
+    /// # Errors
+    /// Returns an error when the supplied epoch is not an open successor epoch.
+    pub fn recover(&self, host_epoch: HostEpoch) -> Result<(), RuntimeError> {
+        if self.authority == AgentChatPromptDispatchAuthority::Approved {
+            self.ledger
+                .recover_agent_chat_prompt_dispatches(host_epoch)?;
         }
         Ok(())
     }
@@ -127,13 +207,49 @@ mod tests {
             Ok(None)
         }
 
-        fn release_agent_chat_prompt_dispatch(
+        fn begin_agent_chat_prompt_launch(
+            &self,
+            _: &str,
+            _: &str,
+            _: HostEpoch,
+        ) -> Result<(), LedgerError> {
+            unreachable!("observer test must not launch")
+        }
+
+        fn confirm_agent_chat_prompt_started(
+            &self,
+            _: &str,
+            _: &str,
+            _: HostEpoch,
+        ) -> Result<(), LedgerError> {
+            unreachable!("observer test must not confirm")
+        }
+
+        fn release_agent_chat_prompt_claim(
             &self,
             _: &str,
             _: &str,
             _: HostEpoch,
         ) -> Result<(), LedgerError> {
             unreachable!("observer test must not release")
+        }
+
+        fn release_agent_chat_prompt_unstarted_launch(
+            &self,
+            _: &str,
+            _: &str,
+            _: HostEpoch,
+        ) -> Result<(), LedgerError> {
+            unreachable!("observer test must not release")
+        }
+
+        fn mark_agent_chat_prompt_unprovable(
+            &self,
+            _: &str,
+            _: &str,
+            _: HostEpoch,
+        ) -> Result<(), LedgerError> {
+            unreachable!("observer test must not mark")
         }
 
         fn settle_agent_chat_prompt_dispatch(
@@ -143,6 +259,10 @@ mod tests {
             _: HostEpoch,
         ) -> Result<(), LedgerError> {
             unreachable!("observer test must not settle")
+        }
+
+        fn recover_agent_chat_prompt_dispatches(&self, _: HostEpoch) -> Result<(), LedgerError> {
+            unreachable!("observer test must not recover")
         }
     }
 

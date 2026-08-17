@@ -21,7 +21,7 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         claim(self, coordinator_id, host_epoch, provider)
     }
 
-    fn release_agent_chat_prompt_dispatch(
+    fn begin_agent_chat_prompt_launch(
         &self,
         message_id: &str,
         coordinator_id: &str,
@@ -32,8 +32,77 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             message_id,
             coordinator_id,
             host_epoch,
+            "claimed",
+            "launching",
+            true,
+        )
+    }
+
+    fn confirm_agent_chat_prompt_started(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        transition(
+            self,
+            message_id,
+            coordinator_id,
+            host_epoch,
+            "launching",
+            "started",
+            true,
+        )
+    }
+
+    fn release_agent_chat_prompt_claim(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        transition(
+            self,
+            message_id,
+            coordinator_id,
+            host_epoch,
+            "claimed",
             "pending",
             false,
+        )
+    }
+
+    fn release_agent_chat_prompt_unstarted_launch(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        transition(
+            self,
+            message_id,
+            coordinator_id,
+            host_epoch,
+            "launching",
+            "pending",
+            false,
+        )
+    }
+
+    fn mark_agent_chat_prompt_unprovable(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        transition(
+            self,
+            message_id,
+            coordinator_id,
+            host_epoch,
+            "launching",
+            "unprovable",
+            true,
         )
     }
 
@@ -48,9 +117,17 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             message_id,
             coordinator_id,
             host_epoch,
+            "started",
             "settled",
             true,
         )
+    }
+
+    fn recover_agent_chat_prompt_dispatches(
+        &self,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        recover(self, host_epoch)
     }
 }
 
@@ -68,8 +145,8 @@ fn claim(
     require_open(&transaction, host_epoch)?;
     let message_id = transaction
         .query_row(
-            "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND (d.state = 'pending' OR (d.state = 'claimed' AND d.host_epoch < ?2)) ORDER BY d.created_rowid LIMIT 1",
-            params![provider_name(provider), host_epoch.0],
+            "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' ORDER BY d.created_rowid LIMIT 1",
+            params![provider_name(provider)],
             |row| row.get::<_, String>(0),
         )
         .optional()
@@ -78,7 +155,7 @@ fn claim(
         return Ok(None);
     };
     transaction.execute(
-        "UPDATE agent_chat_prompt_dispatches SET state = 'claimed', coordinator_id = ?1, host_epoch = ?2 WHERE message_id = ?3",
+        "UPDATE agent_chat_prompt_dispatches SET state = 'claimed', coordinator_id = ?1, host_epoch = ?2 WHERE message_id = ?3 AND state = 'pending'",
         params![coordinator_id, host_epoch.0, message_id],
     ).map_err(storage_error)?;
     let saved = saved(&transaction, &message_id)?;
@@ -99,6 +176,7 @@ fn transition(
     message_id: &str,
     coordinator_id: &str,
     host_epoch: HostEpoch,
+    expected: &str,
     state: &str,
     retain_owner: bool,
 ) -> Result<(), LedgerError> {
@@ -115,13 +193,13 @@ fn transition(
     require_open(&transaction, host_epoch)?;
     let changed = if retain_owner {
         transaction.execute(
-            "UPDATE agent_chat_prompt_dispatches SET state = ?1 WHERE message_id = ?2 AND state = 'claimed' AND coordinator_id = ?3 AND host_epoch = ?4",
-            params![state, message_id, coordinator_id, host_epoch.0],
+            "UPDATE agent_chat_prompt_dispatches SET state = ?1 WHERE message_id = ?2 AND state = ?3 AND coordinator_id = ?4 AND host_epoch = ?5",
+            params![state, message_id, expected, coordinator_id, host_epoch.0],
         )
     } else {
         transaction.execute(
-            "UPDATE agent_chat_prompt_dispatches SET state = 'pending', coordinator_id = NULL, host_epoch = NULL WHERE message_id = ?1 AND state = 'claimed' AND coordinator_id = ?2 AND host_epoch = ?3",
-            params![message_id, coordinator_id, host_epoch.0],
+            "UPDATE agent_chat_prompt_dispatches SET state = ?1, coordinator_id = NULL, host_epoch = NULL WHERE message_id = ?2 AND state = ?3 AND coordinator_id = ?4 AND host_epoch = ?5",
+            params![state, message_id, expected, coordinator_id, host_epoch.0],
         )
     }.map_err(storage_error)?;
     if changed != 1 {
@@ -129,6 +207,23 @@ fn transition(
             "agent chat dispatch is not owned by this coordinator".into(),
         ));
     }
+    transaction.commit().map_err(storage_error)
+}
+
+fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<(), LedgerError> {
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    require_open(&transaction, host_epoch)?;
+    transaction.execute(
+        "UPDATE agent_chat_prompt_dispatches SET state = 'pending', coordinator_id = NULL, host_epoch = NULL WHERE state = 'claimed' AND host_epoch < ?1",
+        [host_epoch.0],
+    ).map_err(storage_error)?;
+    transaction.execute(
+        "UPDATE agent_chat_prompt_dispatches SET state = 'unprovable' WHERE state IN ('launching', 'started') AND host_epoch < ?1",
+        [host_epoch.0],
+    ).map_err(storage_error)?;
     transaction.commit().map_err(storage_error)
 }
 

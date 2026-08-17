@@ -117,7 +117,6 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 );
 CREATE INDEX IF NOT EXISTS conversation_messages_by_run ON conversation_messages (run_id);
 ";
-
 const CONVERSATION_CONTENT_ORDINALS: &str = include_str!("conversation_content_ordinals.sql");
 const CONVERSATION_ACTIVITY: &str = include_str!("conversation_activity.sql");
 const RUNTIME_UPDATE: &str = include_str!("runtime_update.sql");
@@ -128,6 +127,7 @@ const POLICIES_PERMISSION_PROFILES: &str = include_str!("policies_permission_pro
 const REVIEWED_PLANS: &str = include_str!("reviewed_plans.sql");
 const AGENT_CHAT_TRANSCRIPT: &str = include_str!("agent_chat_transcript.sql");
 const AGENT_CHAT_PROMPT_DISPATCH: &str = include_str!("agent_chat_prompt_dispatch.sql");
+const PROMPT_DISPATCH_RECOVERY: &str = include_str!("agent_chat_prompt_dispatch_recovery.sql");
 #[derive(Debug)]
 struct Migration {
     version: i64,
@@ -136,7 +136,7 @@ struct Migration {
 const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
-const MIGRATIONS: [Migration; 27] = [
+const MIGRATIONS: [Migration; 28] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -164,8 +164,8 @@ const MIGRATIONS: [Migration; 27] = [
     migration(25, REVIEWED_PLANS),
     migration(26, AGENT_CHAT_TRANSCRIPT),
     migration(27, AGENT_CHAT_PROMPT_DISPATCH),
+    migration(28, PROMPT_DISPATCH_RECOVERY),
 ];
-
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)

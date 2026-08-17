@@ -190,7 +190,10 @@ where
 }
 
 const fn needs_session(effect: &ProviderLifecycleEffect) -> bool {
-    !matches!(effect, ProviderLifecycleEffect::SessionStarted { .. })
+    !matches!(
+        effect,
+        ProviderLifecycleEffect::SessionStarted { .. } | ProviderLifecycleEffect::Terminal { .. }
+    )
 }
 
 const fn effect_name(effect: &ProviderLifecycleEffect) -> &'static str {

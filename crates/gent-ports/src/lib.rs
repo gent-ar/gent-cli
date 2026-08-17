@@ -202,7 +202,6 @@ pub trait Ledger: Send + Sync {
         Err(LedgerError::Invariant("event lookup is unavailable".into()))
     }
     /// Safely resumes an event feed, returning a replacement snapshot for stale cursors.
-    ///
     /// # Errors
     /// Returns an error when events cannot be read.
     fn resume_events(&self, cursor: u64) -> Result<EventResume, LedgerError>;
