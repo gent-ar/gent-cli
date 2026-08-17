@@ -10,7 +10,7 @@ use gent_drivers::lock::capture;
 use gent_ports::{PublicProviderResolver, PublicProviderRunError};
 
 use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::provider_resolver::DaemonProviderResolver;
+use crate::provider_resolver::{DaemonProviderResolver, PrivatePrefixFirstDiscovery};
 
 #[derive(Clone, Debug)]
 struct Found(PathBuf);
@@ -96,5 +96,23 @@ fn resolver_rejects_private_or_changed_provider_identity() {
     assert_eq!(
         resolver.resolve("claude"),
         Err(PublicProviderRunError::CompatibilityDenied)
+    );
+}
+
+#[test]
+fn private_prefix_discovery_precedes_its_injected_fallback() {
+    let directory = tempfile::tempdir().unwrap();
+    let prefix = directory.path().join("npm-global");
+    let bin = prefix.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let installed = bin.join("codex");
+    std::fs::write(&installed, "private provider binary").unwrap();
+    let fallback = directory.path().join("fallback-codex");
+    std::fs::write(&fallback, "fallback provider binary").unwrap();
+    let discovery = PrivatePrefixFirstDiscovery::new(prefix, Found(fallback));
+    assert_eq!(
+        discovery.find("codex").unwrap(),
+        Some(installed),
+        "Gent-owned npm installation must win over fallback discovery"
     );
 }

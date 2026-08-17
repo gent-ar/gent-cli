@@ -65,7 +65,46 @@ fn public_provider(provider: &str) -> Result<PublicProvider, PublicProviderRunEr
     }
 }
 
-/// PATH-based discovery adapter for a future authority-mode composition.
+/// Private-prefix-first discovery for a future authority-mode composition.
+///
+/// The native app supplies Node to Gent, and Gent installs public provider CLIs only below its
+/// own data directory. This adapter ensures a later approved host resolves that installation
+/// before it considers a user-controlled `PATH` fallback.
+#[derive(Clone, Debug)]
+pub struct PrivatePrefixFirstDiscovery<D> {
+    prefix: PathBuf,
+    fallback: D,
+}
+
+impl<D> PrivatePrefixFirstDiscovery<D> {
+    /// Binds one Gent-owned npm prefix and a separately injected fallback discovery port.
+    #[must_use]
+    pub(crate) fn new(prefix: PathBuf, fallback: D) -> Self {
+        Self { prefix, fallback }
+    }
+}
+
+impl<D: ExecutableDiscovery> ExecutableDiscovery for PrivatePrefixFirstDiscovery<D> {
+    fn find(&self, name: &str) -> Result<Option<PathBuf>, DiscoveryError> {
+        let candidate = self.prefix.join("bin").join(provider_binary_name(name));
+        if candidate.is_file() {
+            return Ok(Some(candidate));
+        }
+        self.fallback.find(name)
+    }
+}
+
+#[cfg(windows)]
+fn provider_binary_name(name: &str) -> String {
+    format!("{name}.cmd")
+}
+
+#[cfg(not(windows))]
+fn provider_binary_name(name: &str) -> String {
+    name.into()
+}
+
+/// PATH-based fallback adapter for a future authority-mode composition.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemExecutableDiscovery;
 
