@@ -75,6 +75,7 @@ def create_release(root: Path, version: str, runtime_target: str, include_superv
     helpers = [
         (ROOT / "tools" / "install.sh", root / "gent-install.sh"),
         (ROOT / "tools" / "activate-install.py", root / "gent-activate-install.py"),
+        (ROOT / "tools" / "gent-auto-update.py", root / "gent-auto-update.py"),
     ]
     if include_supervisor:
         helpers.append(
@@ -162,10 +163,12 @@ def main() -> None:
             assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.3-" + runtime_target)
             legacy = install / "lib" / "gent" / "releases" / f"v1.2.3-{runtime_target}"
             assert not (legacy / "supervise-runtime-activation.py").exists()
+            assert (legacy / "gent-auto-update.py").is_file()
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.4"
             subprocess.run(command("v1.2.4", second, install, data, env), cwd=ROOT, env=env, check=True)
             assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.4-" + runtime_target)
             assert (install / "lib" / "gent" / "releases" / f"v1.2.4-{runtime_target}" / "supervise-runtime-activation.py").is_file()
+            assert (install / "lib" / "gent" / "releases" / f"v1.2.4-{runtime_target}" / "gent-auto-update.py").is_file()
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.5"
             env["GENT_RUNTIME_ACTIVATION_TIMEOUT_SECONDS"] = "1"
             lock = held_lock(data / "gentd.lock")

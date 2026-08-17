@@ -26,58 +26,43 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("release_name")
     parser.add_argument("--source-release", type=Path)
     parser.add_argument("--source-supervisor", type=Path)
+    parser.add_argument("--source-auto-updater", type=Path)
     parser.add_argument("--source-update-material", type=Path)
     parser.add_argument("--bin-dir", type=Path)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--idle-data-dir", type=Path)
     parser.add_argument("--stage-only", action="store_true")
     return parser.parse_args()
-
-
 def fail(message: str) -> None:
     raise SystemExit(f"Gent activation refused: {message}")
-
-
 def lstat(path: Path) -> os.stat_result:
     try:
         return path.lstat()
     except FileNotFoundError:
         fail(f"missing {path}")
-
-
 def require_directory(path: Path) -> None:
     details = lstat(path)
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
         fail(f"{path} must be a real directory")
-
-
 def require_executable(path: Path) -> None:
     details = lstat(path)
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
         fail(f"{path} must be a real file")
     if details.st_mode & 0o111 == 0:
         fail(f"{path} is not executable")
-
-
 def require_regular_file(path: Path) -> None:
     details = lstat(path)
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
         fail(f"{path} must be a real file")
-
-
 def fsync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY)
     try:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-
-
 def fsync_file(path: Path) -> None:
     with path.open("rb") as file:
         os.fsync(file.fileno())
-
-
 def release_path(runtime_root: Path, release_name: str) -> Path:
     if not release_name or release_name in {".", ".."}:
         fail("release name is required")
@@ -144,14 +129,14 @@ def copy_update_material(stage: Path, source: Path | None) -> None:
         fsync_file(output)
 
 
-def prepare_release(
-    runtime_root: Path, release_name: str, source: Path, supervisor: Path | None, update_material: Path | None
-) -> Path:
+def prepare_release(runtime_root: Path, release_name: str, source: Path, supervisor: Path | None, auto_updater: Path | None, update_material: Path | None) -> Path:
     require_directory(source)
     for name in ("gent", "gentd"):
         require_executable(source / name)
     if supervisor is not None:
         require_regular_file(supervisor)
+    if auto_updater is not None:
+        require_regular_file(auto_updater)
     releases = runtime_root / "releases"
     destination = releases / release_name
     if destination.exists() or destination.is_symlink():
@@ -159,11 +144,14 @@ def prepare_release(
         names = ["gent", "gentd"]
         if supervisor is not None:
             names.extend(("supervise-runtime-activation.py", "activate-install.py"))
+        if auto_updater is not None:
+            names.append("gent-auto-update.py")
         if all(identical(source / name, release / name) for name in ("gent", "gentd")) and (
             supervisor is None
             or all((release / name).is_file() for name in names[2:])
             and identical(supervisor, release / "supervise-runtime-activation.py")
             and identical(Path(__file__), release / "activate-install.py")
+            and (auto_updater is None or identical(auto_updater, release / "gent-auto-update.py"))
         ):
             if update_material is not None:
                 require_directory(update_material)
@@ -190,6 +178,11 @@ def prepare_release(
             output = stage / "activate-install.py"
             shutil.copyfile(Path(__file__), output)
             output.chmod(0o755)
+            fsync_file(output)
+        if auto_updater is not None:
+            output = stage / "gent-auto-update.py"
+            shutil.copyfile(auto_updater, output)
+            output.chmod(0o700)
             fsync_file(output)
         copy_update_material(stage, update_material)
         fsync_directory(stage)
@@ -272,7 +265,7 @@ def install(args: argparse.Namespace) -> Path:
                 validate_current(args.runtime_root)
                 if not args.force:
                     fail(f"Gent is already installed in {args.bin_dir}; pass --force to replace it")
-            release = prepare_release(args.runtime_root, args.release_name, args.source_release, args.source_supervisor, args.source_update_material)
+            release = prepare_release(args.runtime_root, args.release_name, args.source_release, args.source_supervisor, args.source_auto_updater, args.source_update_material)
             publish_launchers(args.bin_dir)
             if args.stage_only:
                 return release

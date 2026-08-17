@@ -65,11 +65,14 @@ def release(directory: Path, target: str) -> None:
         "--expires-at", str(int(time.time()) + 3600), "--out", metadata,
     )
     key.unlink()
-    for source, name in ((ROOT / "tools/activate-install.py", "gent-activate-install.py"),):
+    for source, name in (
+        (ROOT / "tools/activate-install.py", "gent-activate-install.py"),
+        (ROOT / "tools/gent-auto-update.py", "gent-auto-update.py"),
+    ):
         shutil.copy(source, directory / name)
     for path in directory.iterdir():
         if path.name.endswith((".tar.gz", ".manifest.json", ".runtime-release.json")) or path.name in {
-            "gent-activate-install.py", "gent-runtime-release-trust.json",
+            "gent-activate-install.py", "gent-auto-update.py", "gent-runtime-release-trust.json",
         }:
             Path(f"{path}.sigstore.json").write_text("{}", encoding="utf-8")
 
@@ -106,9 +109,11 @@ def main() -> None:
             server.shutdown()
             thread.join(timeout=5)
         staged = install / "lib/gent/releases" / f"{VERSION}-{target}"
+        assert (staged / "gent-auto-update.py").is_file()
         cache = json.loads((staged / "runtime-release-cache.json").read_text(encoding="utf-8"))
         assert cache["release"]["keyId"] == "test-release"
         assert (staged / "runtime-release-trust.json").stat().st_mode & 0o777 == 0o600
+        assert (install / "lib/gent/gent-auto-update.py").is_file()
     print("installer runtime bootstrap checks passed")
 
 

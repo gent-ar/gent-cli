@@ -9,9 +9,10 @@ use serde_json::Value;
 use crate::decision::decision_frame;
 use crate::local_ipc::request;
 use crate::{
-    Args, CommandLine, ConversationCommand, DependencyCommand, chat_cli, conversation_activity,
-    conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, runtime_maintenance, runtime_update_check, terminal_browser, update_handoff,
+    Args, CommandLine, ConversationCommand, DependencyCommand, auto_update_handoff, chat_cli,
+    conversation_activity, conversation_content, conversation_index, conversation_status,
+    conversation_timeline, event_stream, runtime_maintenance, runtime_update_check,
+    terminal_browser, update_handoff,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -42,6 +43,12 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
             print(request(data_dir, no_autostart, decision_frame(&action)).await?)?;
         }
         CommandLine::Update { action } => match action {
+            crate::UpdateCommand::Auto { action } => {
+                auto_update_handoff::invoke(
+                    &action,
+                    data_dir.unwrap_or_else(crate::local_ipc::default_data_dir),
+                )?;
+            }
             crate::UpdateCommand::Status { attempt_id } => {
                 print(runtime_maintenance::request(data_dir, no_autostart, attempt_id).await?)?;
             }

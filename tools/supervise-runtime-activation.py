@@ -32,6 +32,7 @@ def args() -> argparse.Namespace:
     parser.add_argument("--runtime-root", type=Path, required=True)
     parser.add_argument("--release-name", required=True)
     parser.add_argument("--source-release", type=Path, required=True)
+    parser.add_argument("--source-auto-updater", type=Path)
     parser.add_argument("--source-update-material", type=Path)
     parser.add_argument("--activator", type=Path)
     parser.add_argument("--bin-dir", type=Path, required=True)
@@ -60,6 +61,8 @@ def activate(values: argparse.Namespace, stage_only: bool = False, release: str 
     command = ["python3", str(activator(values)), str(values.runtime_root), release or values.release_name]
     if stage_only:
         command.extend(("--source-release", str(values.source_release), "--source-supervisor", str(Path(__file__)), "--bin-dir", str(values.bin_dir), "--force", "--stage-only"))
+        if values.source_auto_updater is not None:
+            command.extend(("--source-auto-updater", str(values.source_auto_updater)))
         if values.source_update_material is not None:
             command.extend(("--source-update-material", str(values.source_update_material)))
     else:

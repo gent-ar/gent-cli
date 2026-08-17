@@ -46,6 +46,7 @@ jobs:
       - run: python tools/test-install-activation.py
       - run: python tools/test-supervise-runtime-activation.py
       - run: python tools/test-update-handoff.py
+      - run: python tools/test-gent-auto-update.py
       - run: python tools/test-install-update-material.py
       - run: python tools/test-installer-runtime-bootstrap.py
       - run: python -m py_compile tools/capture-public-driver-transcript.py
@@ -218,10 +219,12 @@ jobs:
           cp tools/install.sh release-artifacts/gent-install.sh
           cp tools/install.ps1 release-artifacts/gent-install.ps1
           cp tools/activate-install.py release-artifacts/gent-activate-install.py
+          cp tools/gent-auto-update.py release-artifacts/gent-auto-update.py
           cp tools/supervise-runtime-activation.py release-artifacts/gent-supervise-runtime-activation.py
           cosign sign-blob --yes --bundle release-artifacts/gent-install.sh.sigstore.json release-artifacts/gent-install.sh
           cosign sign-blob --yes --bundle release-artifacts/gent-install.ps1.sigstore.json release-artifacts/gent-install.ps1
           cosign sign-blob --yes --bundle release-artifacts/gent-activate-install.py.sigstore.json release-artifacts/gent-activate-install.py
+          cosign sign-blob --yes --bundle release-artifacts/gent-auto-update.py.sigstore.json release-artifacts/gent-auto-update.py
           cosign sign-blob --yes --bundle release-artifacts/gent-supervise-runtime-activation.py.sigstore.json release-artifacts/gent-supervise-runtime-activation.py
       - name: Publish signed artifacts
         shell: bash

@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use gent_protocol::{DependencyAction, DependencyProvider};
 use std::path::PathBuf;
 
+mod auto_update_handoff;
 mod chat_cli;
 mod command_execution;
 mod conversation_activity;

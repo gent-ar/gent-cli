@@ -8,6 +8,11 @@ use gent_types::RuntimeReleaseChannel;
 /// Update commands intentionally stop at metadata-only status reporting.
 #[derive(Debug, Subcommand)]
 pub(crate) enum UpdateCommand {
+    /// Run, inspect, enable, or disable the external opt-in paired-runtime scheduler.
+    Auto {
+        #[command(subcommand)]
+        action: AutoUpdateAction,
+    },
     /// Read one durable update planning or successor-recovery maintenance record.
     Status {
         #[arg(long)]
@@ -33,6 +38,43 @@ pub(crate) enum UpdateCommand {
         #[arg(long)]
         install_dir: Option<PathBuf>,
     },
+}
+
+/// Automatic updates are external, opt-in, and only operate on an installed runtime pair.
+#[derive(Debug, Subcommand)]
+pub(crate) enum AutoUpdateAction {
+    Enable {
+        #[arg(long, default_value_t = 6 * 60 * 60)]
+        interval_seconds: u32,
+    },
+    Disable,
+    Status,
+    Run {
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+impl AutoUpdateAction {
+    pub(crate) const fn name(&self) -> &'static str {
+        match self {
+            Self::Enable { .. } => "enable",
+            Self::Disable => "disable",
+            Self::Status => "status",
+            Self::Run { .. } => "run",
+        }
+    }
+
+    pub(crate) const fn interval_seconds(&self) -> Option<u32> {
+        match self {
+            Self::Enable { interval_seconds } => Some(*interval_seconds),
+            Self::Disable | Self::Status | Self::Run { .. } => None,
+        }
+    }
+
+    pub(crate) const fn force(&self) -> bool {
+        matches!(self, Self::Run { force: true })
+    }
 }
 
 /// Explicit selection for a future trusted release channel.
@@ -79,6 +121,10 @@ fn archive_digest(value: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use clap::Parser;
+
+    use super::{AutoUpdateAction, UpdateCommand};
+
     #[test]
     fn release_identity_and_digest_parsers_fail_closed() {
         assert!(super::release_version("v1.2.3").is_ok());
@@ -86,5 +132,25 @@ mod tests {
         assert!(super::release_version("v1.2.3-beta").is_err());
         assert!(super::archive_digest(&"a".repeat(64)).is_ok());
         assert!(super::archive_digest(&"A".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn automatic_update_requires_an_explicit_subcommand() {
+        #[derive(Parser)]
+        struct Command {
+            #[command(subcommand)]
+            action: UpdateCommand,
+        }
+        let command =
+            Command::try_parse_from(["gent", "auto", "enable", "--interval-seconds", "600"])
+                .unwrap();
+        assert!(matches!(
+            command.action,
+            UpdateCommand::Auto {
+                action: AutoUpdateAction::Enable {
+                    interval_seconds: 600
+                }
+            }
+        ));
     }
 }

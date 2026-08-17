@@ -72,6 +72,9 @@ download "$base.manifest.json.sigstore.json" "$name.manifest.json.sigstore.json"
 helper_base="$release_base/gent-activate-install.py"
 download "$helper_base" 'gent-activate-install.py'
 download "$helper_base.sigstore.json" 'gent-activate-install.py.sigstore.json'
+auto_update_base="$release_base/gent-auto-update.py"
+download "$auto_update_base" 'gent-auto-update.py'
+download "$auto_update_base.sigstore.json" 'gent-auto-update.py.sigstore.json'
 supervisor_base="$release_base/gent-supervise-runtime-activation.py"
 has_supervisor=0
 if download "$supervisor_base" 'gent-supervise-runtime-activation.py' 2>/dev/null; then
@@ -95,6 +98,9 @@ cosign verify-blob "$temp/$name.manifest.json" --bundle "$temp/$name.manifest.js
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 cosign verify-blob "$temp/gent-activate-install.py" --bundle "$temp/gent-activate-install.py.sigstore.json" \
+  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
+cosign verify-blob "$temp/gent-auto-update.py" --bundle "$temp/gent-auto-update.py.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 if [ "$has_supervisor" -eq 1 ]; then
@@ -160,16 +166,23 @@ fi
 bin_dir="$install_root/bin"
 runtime_root="$install_root/lib/gent"
 release_name="$version-$target"
+install_auto_updater() {
+  temporary="$runtime_root/.gent-auto-update.$$"
+  cp "$temp/gent-auto-update.py" "$temporary"
+  chmod 700 "$temporary"
+  mv -f "$temporary" "$runtime_root/gent-auto-update.py"
+}
 if [ "$has_supervisor" -eq 1 ] && [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
   set -- python3 "$temp/gent-supervise-runtime-activation.py" \
     --runtime-root "$runtime_root" --release-name "$release_name" \
     --source-release "$release_dir" --bin-dir "$bin_dir" --data-dir "$idle_data_dir" \
-    --activator "$temp/gent-activate-install.py" \
+    --activator "$temp/gent-activate-install.py" --source-auto-updater "$temp/gent-auto-update.py" \
     --timeout-seconds "${GENT_RUNTIME_ACTIVATION_TIMEOUT_SECONDS:-30}"
   if [ "$has_update_material" -eq 1 ]; then
     set -- "$@" --source-update-material "$temp/update-material"
   fi
   "$@"
+  install_auto_updater
   printf 'Updated Gent %s in %s\n' "$version" "$bin_dir"
   exit 0
 fi
@@ -177,6 +190,7 @@ set -- "$runtime_root" "$release_name" --source-release "$release_dir" --bin-dir
 if [ "$has_supervisor" -eq 1 ]; then
   set -- "$@" --source-supervisor "$temp/gent-supervise-runtime-activation.py"
 fi
+set -- "$@" --source-auto-updater "$temp/gent-auto-update.py"
 if [ "$has_update_material" -eq 1 ]; then
   set -- "$@" --source-update-material "$temp/update-material"
 fi
@@ -187,5 +201,6 @@ if [ -n "$idle_data_dir" ]; then
   set -- "$@" --idle-data-dir "$idle_data_dir"
 fi
 python3 "$temp/gent-activate-install.py" "$@"
+install_auto_updater
 printf 'Installed Gent %s in %s\n' "$version" "$bin_dir"
 printf 'Add %s to PATH, then run: gent doctor\n' "$bin_dir"

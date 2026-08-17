@@ -75,6 +75,8 @@ jobs:
       - if: runner.os != 'Windows'
         run: python tools/test-update-handoff.py
       - if: runner.os != 'Windows'
+        run: python tools/test-gent-auto-update.py
+      - if: runner.os != 'Windows'
         run: python tools/test-installer-runtime-bootstrap.py
       - if: runner.os == 'Windows'
         run: powershell -ExecutionPolicy Bypass -File tools/test-install-windows.ps1
