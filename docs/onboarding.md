@@ -136,5 +136,5 @@ persistent-permission, compaction, malformed-tolerance; and Codex
 malformed-tolerance. Claurst requires an authenticated app-private
 bridge and private CI. A future Flutter launch must enforce one active
 writer/host epoch and protocol compatibility; a single-user standalone install
-does not require a legacy migration or deployed fence-aware app release. These
+does not require an upgrade path or deployed fence-aware app release. These
 gates are described in [implementation status](implementation-status.md).

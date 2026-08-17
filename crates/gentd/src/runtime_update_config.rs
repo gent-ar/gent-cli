@@ -108,7 +108,7 @@ pub(crate) fn load_trusted(
             current_version: package_version(),
             target: platform_target()?,
             protocol: PROTOCOL_MAX,
-            schema: gent_store::CURRENT_SCHEMA_VERSION,
+            schema: gent_store::FRESH_SCHEMA_COMPATIBILITY_VERSION,
             app_version: package_version(),
             selected_cohort: true,
         },

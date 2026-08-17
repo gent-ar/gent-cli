@@ -34,7 +34,7 @@ fn enabled_check_requires_a_trusted_cache_and_revalidates_it() {
         protocol_min: 1,
         protocol_max: gent_types::PROTOCOL_MAX,
         schema_min: 1,
-        schema_max: gent_store::CURRENT_SCHEMA_VERSION,
+        schema_max: gent_store::FRESH_SCHEMA_COMPATIBILITY_VERSION,
         minimum_app_version: RuntimeVersion {
             major: 0,
             minor: 1,

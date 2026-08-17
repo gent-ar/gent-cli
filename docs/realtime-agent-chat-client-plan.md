@@ -89,6 +89,14 @@ persisted with a monotonically ordered cursor before it is emitted to clients.
 A provider failure, cancellation, refusal, or lost session similarly reaches a
 terminal durable state; a spinner never depends on a process-local callback.
 
+If the selected public provider CLI is missing, the prompt path may make one
+daemon-owned, receipt-backed provisioning attempt before the provider launch.
+The native app supplies a Node runtime location with its installed Gent pair;
+it does not bundle, launch, update, or retain Claude Code/Codex itself. Gent
+uses that runtime's `npm` with fixed `npm --global install` arguments and a
+private Gent provider prefix, then discovers and locks the resulting executable
+before launch. A retry never repeats an ambiguous install effect.
+
 ### Follow-ups and session continuity
 
 The active run remains daemon-owned. A follow-up is another typed prompt bound
@@ -139,6 +147,10 @@ Before this contract is advertised, implement and prove all of the following:
   provider terminal outcomes.
 - Redacted real-provider evidence for every required Claude/Codex cell and
   private Claurst bridge CI evidence.
+- Signed provider-package policy that binds each permitted `npm` package,
+  version, integrity, Node-runtime compatibility range, private install prefix,
+  receipt recovery, and locked-binary verification before prompt-triggered
+  provisioning can be advertised.
 
 ## Acceptance scenario
 

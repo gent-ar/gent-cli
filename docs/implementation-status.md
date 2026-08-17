@@ -21,7 +21,7 @@ For the current working-tree context and continuation order, read [the handoff](
       receipts. The shared receipt journal fingerprints each mutation command and records an
       accepted and terminal event before a retry is acknowledged.
 - [x] Durable event snapshots and transactional compaction with explicit stale-cursor resync.
-- [x] Versioned, checksummed, transactional SQLite migrations with legacy-ledger upgrade tests.
+- [x] Atomic fresh-only SQLite schema creation with a fixed identity and legacy-ledger refusal.
 - [x] Durable run and worktree lease arbitration with separate-connection contention tests.
 - [x] File-backed SQLite restart recovery for host epoch and cursor-ordered receipt events.
 - [x] Pure run-lineage, cursor-deduplicated lifecycle projection, and live-status reducers.
@@ -264,7 +264,7 @@ For the current working-tree context and continuation order, read [the handoff](
    is available until that changes.
 4. [ ] The authenticated Claurst bridge and its CI evidence belong only in app-owned private
    code. Public Gent must never contain Claurst credentials, endpoints, or routing implementation.
-5. [ ] No legacy migration or deployed fence-aware legacy release is required: this is a
+5. [ ] No data upgrade path or deployed fence-aware legacy release is required: this is a
    zero-user, single-developer cutover. A future Flutter launch must nevertheless enforce protocol
    compatibility and exactly one active writer/host epoch.
 6. [x] Production release automation has its dedicated GitHub Actions signing secret and matching
@@ -272,8 +272,8 @@ For the current working-tree context and continuation order, read [the handoff](
    Sigstore sidecars (including the versioned runtime-release index), and successful hosted plus
    independent clean-install, terminal-IPC, automatic-update-status, and supervisor-rejection checks.
 7. [ ] Reviewed-plan storage, exact approval/rejection, and receipt-backed context-boundary child reservations exist but remain unadvertised until lifecycle/evidence authority is approved; see [reviewed-plan execution](agent-chat-execution-plan.md). `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching are also follow-on work.
-8. [ ] Provider-auth discovery and consented Claude/Codex login require the typed `askTool`
-   contract, sandboxed authority, locked binaries, and redacted live evidence; see [provider-auth-plan.md](provider-auth-plan.md).
+8. [ ] Provider-auth discovery and consented Claude/Codex login require the typed `askTool` contract, sandboxed authority, locked binaries, and redacted live evidence; see [provider-auth-plan.md](provider-auth-plan.md).
+9. [ ] Prompt-triggered Claude/Codex provisioning needs the app-supplied Node runtime, a private Gent prefix, signed package/version/integrity policy, exact `npm` receipts, post-install locks, and ambiguous-effect refusal. The app never bundles or falls back to a direct provider CLI; see [provider-auth-plan.md](provider-auth-plan.md).
 
 Also required: a separately authorized Flutter integration must use the negotiated, long-lived
 `gentd` connection for agent-chat work and must not launch provider binaries directly. Pairing and

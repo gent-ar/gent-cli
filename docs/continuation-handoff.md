@@ -52,7 +52,7 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   status|login`, daemon adapter boundary, and observer-safe refusal. No live
   provider login is composed.
 - Reviewed-plan authority foundation: immutable trusted artifacts, pure reducer,
-  strict protocol frames, a `ReviewedPlanLedger`, migration 25, and atomic child
+  strict protocol frames, a `ReviewedPlanLedger`, fresh-schema storage, and atomic child
   reservation. Approval rechecks exact plan/digest, parent, epoch, policy,
   receipt/idempotency; clear context records ordinal zero and no native session.
   Observer `gentd` still does not advertise or compose this authority.

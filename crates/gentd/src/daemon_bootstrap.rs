@@ -36,7 +36,7 @@ struct Args {
     /// Durably plan one already-cached signed runtime release.
     /// This opt-in authority never downloads, stages, health-checks, or replaces this process.
     /// It exists to make an approved external-supervisor handoff auditable before activation is
-    /// wired into a later migration phase.
+    /// wired into a later delivery phase.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_PLAN_AUTHORITY")]
     runtime_update_plan_authority: bool,
     /// Confirm a staged successor and open its new writer epoch after binding local IPC.

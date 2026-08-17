@@ -58,6 +58,30 @@ state: `openingBrowser`, `awaitingDeviceApproval`, `verifying`, `authenticated`,
   profile and browser/local-callback support. It is distinct from a workspace
   provider-run sandbox.
 
+## Bundled-Node provider provisioning
+
+The native app distributes a supported Node runtime with its installed Gent
+pair, but it never distributes a Claude Code or Codex executable. It passes a
+versioned local Node-runtime descriptor to Gent at host bootstrap. Gent
+canonicalizes and identity-locks the Node and `npm` paths, rejects a descriptor
+outside the app's private runtime location, and owns every subsequent process.
+
+On the first prompt selecting a missing public provider, an approved Gent
+authority may perform exactly one receipt-backed provisioning transaction using
+fixed `npm --global install` arguments. The install target is a private Gent
+provider prefix, never the app bundle, system-global prefix, workspace, or
+`PATH`; the resulting executable is rediscovered, version-probed, digest-locked,
+and checked against a signed package/version/integrity compatibility policy
+before it can authenticate or run. A successful provider update follows the
+same transaction and creates a new immutable run lock. An interrupted or
+ambiguous `npm` process is `unprovable`, not retried automatically.
+
+The user prompt is the initiation point, not proof of package authority. Gent
+must surface terms/consent required by the selected vendor/package policy and
+record the decision durably. Observer mode, missing evidence, an unsigned
+package policy, changed Node runtime, or a lock mismatch fail before `npm`
+starts. Claurst is excluded: its private bridge never uses public `npm` policy.
+
 ## Authority and evidence gate
 
 The current observer milestone must keep all login commands hard-disabled. The

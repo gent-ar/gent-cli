@@ -5,6 +5,7 @@ mod activity_transport;
 mod activity_transport_tests;
 mod agent_chat_api;
 mod agent_chat_read_transport;
+mod agent_chat_subscription;
 mod agent_chat_transport;
 #[cfg(test)]
 mod agent_chat_transport_tests;

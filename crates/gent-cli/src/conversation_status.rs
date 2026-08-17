@@ -58,9 +58,9 @@ pub(crate) async fn request(
 }
 
 fn default_data_dir() -> PathBuf {
-    directories::ProjectDirs::from("ar", "Gent", "Gent").map_or_else(
-        || PathBuf::from(".gent"),
-        |directories| directories.data_local_dir().to_path_buf(),
+    directories::BaseDirs::new().map_or_else(
+        || PathBuf::from(".gentd"),
+        |directories| directories.home_dir().join(".gentd"),
     )
 }
 

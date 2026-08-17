@@ -104,6 +104,21 @@ writer. Starting `gent` concurrently is safe only because `gentd` owns the
 host lock and epoch. Flutter must not bypass that lock with its own daemon,
 alternate database writer, copied socket, or direct provider process.
 
+## Required native-app cutover
+
+When the Gent authority profile and provider evidence are approved, replace the
+app's direct Claude, Codex, and other provider drivers with this IPC contract
+surface-by-surface. Then delete the app launchers, stdout parsers, provider
+session state, lifecycle reducers, direct login flows, and provider-specific
+tests that they supported. The app must show Gent-unavailable/reconnect state
+when its host is unavailable; it must never retain a fallback direct driver.
+
+The retained app code is limited to presentation plus app-specific transport,
+IDE, system UI, voice, pairing, relay, and automation behavior. It sends typed
+choices to Gent and renders normalized durable state. CI must assert that the
+app launches no provider process, parses no provider stdout, and writes no
+Gent ledger data.
+
 ## Explicitly unavailable today
 
 The shipped observer daemon deliberately routes no live Claude, Codex,

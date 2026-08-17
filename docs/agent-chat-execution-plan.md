@@ -85,3 +85,27 @@ reducer tests, receipt/idempotency/epoch and policy-fence tests, cancellation
 and provider-drain tests, cursor-resumable lifecycle facts, native-app IPC
 fixture coverage, and redacted live provider evidence. The observer daemon must
 keep the capability absent until that work is approved.
+
+## Native-app driver retirement
+
+The native app’s direct Claude, Codex, and other provider drivers are temporary
+reference implementations, not a permanent dual architecture. After Gent has
+passed the authority and provider-evidence gates, app integration must proceed
+as one reviewed cutover:
+
+1. Move each app surface to the negotiated Gent IPC snapshot, delta, transcript,
+   plan, permission, login, and reconnect contracts; verify parity using the
+   same provider-neutral fixtures as `gent`.
+2. Delete the matching app driver, stdout parser, process launcher, provider
+   session store, lifecycle reducer, provider-auth path, and tests. No dormant
+   fallback or feature flag may retain a second provider authority.
+3. Preserve only app-owned local/LAN/relay transport, IDE/system/voice UI,
+   pairing, and app-only automations, all as typed Gent clients.
+4. Prove the result in CI: the app contains no provider process launch, raw
+   provider stdout parsing, or Gent-ledger writes; a disconnected Gent host is
+   visibly unavailable rather than silently falling back to an app driver.
+
+Claurst keeps its private bridge and CI evidence boundary, but its app-facing
+behavior follows the same cutover rule: the app may request it through Gent's
+typed contract and must not regain direct endpoint, credential, routing, or
+lifecycle ownership.

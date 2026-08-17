@@ -50,8 +50,8 @@ uses Gent, it must establish protocol compatibility and exactly one active
 writer/host epoch; no client may bypass that guard.
 
 The current daemon hard-disables public provider lifecycle work in observer
-mode. Existing legacy-tap utilities are compatibility experiments, not a
-required migration or an authority-transfer claim.
+mode. Existing legacy-tap utilities are compatibility experiments, not an
+authority-transfer claim.
 
 ## Future lifecycle and runtime-update boundary
 
@@ -90,6 +90,14 @@ Scheduled Task. GitHub
 archive verification and uses the same idle-only supervisor path. The helper
 serializes runs and records bounded retry backoff. This is distribution, not daemon-update authority:
 observer `gentd` never fetches, schedules, stages, or activates itself.
+
+The native app may supply a bundled Node runtime to the installed Gent pair,
+but provider CLIs remain Gent-managed dependencies. A future approved prompt
+path uses that runtime's locked `npm` to install only signed-policy Claude
+Code/Codex package versions into a private Gent prefix, then re-discovers and
+locks the executable. The app neither bundles nor updates those CLIs and has no
+direct-provider fallback. This provisioning is a separate receipt-backed
+authority from Gent pair auto-update and remains unreachable in observer mode.
 
 A future live daemon-update authority must still validate protocol/schema/app
 compatibility, retain rollback, and leave ingress closed on incompatible or

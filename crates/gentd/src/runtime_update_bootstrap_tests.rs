@@ -62,7 +62,7 @@ fn fixture(root: &std::path::Path) -> Fixture {
         protocol_min: 1,
         protocol_max: gent_types::PROTOCOL_MAX,
         schema_min: 1,
-        schema_max: gent_store::CURRENT_SCHEMA_VERSION,
+        schema_max: gent_store::FRESH_SCHEMA_COMPATIBILITY_VERSION,
         minimum_app_version: version,
         channel: RuntimeReleaseChannel::Stable,
         rollout_percent: 100,

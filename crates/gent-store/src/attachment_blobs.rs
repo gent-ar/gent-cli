@@ -143,7 +143,7 @@ fn staging_name(key: &str) -> Result<&str, LedgerError> {
     {
         return Ok(name);
     }
-    // Migration 14 preserves the v13 address for interrupted legacy transfers.
+    // Digest-addressed staging remains valid after an interrupted transfer.
     digest(key)
 }
 
