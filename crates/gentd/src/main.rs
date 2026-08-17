@@ -28,6 +28,7 @@ mod provider_resolver_tests;
 mod public_runs;
 mod runtime_facade;
 mod runtime_update_authority;
+mod runtime_update_bootstrap;
 mod runtime_update_config;
 mod runtime_update_recovery;
 mod runtime_update_transport;
@@ -70,11 +71,7 @@ struct Args {
     /// Trusted public key as `key-id:lowercase-hex`; may be passed more than once.
     #[arg(long = "compatibility-key", env = "GENT_COMPATIBILITY_KEY")]
     compatibility_keys: Vec<String>,
-    /// Enable only the durable agent-chat create/send/queue ledger profile.
-    ///
-    /// This is an explicit isolated-authority profile: it never starts a public provider,
-    /// MCP server, Git mutation, or private bridge. It is off by default while app cutover is
-    /// incomplete.
+    /// Durable chat persistence only; never providers, MCP, Git, or the private bridge.
     #[arg(long, env = "GENT_AGENT_CHAT_AUTHORITY")]
     agent_chat_authority: bool,
     /// Serve only a locally cached, revalidated signed runtime-release report.
@@ -107,11 +104,23 @@ struct Args {
     /// Trusted release key as `key-id:lowercase-hex`; may be passed more than once.
     #[arg(long = "runtime-release-key", env = "GENT_RUNTIME_RELEASE_KEY")]
     runtime_release_keys: Vec<String>,
+    /// Verify staged update metadata and write its cache, then exit without opening a host.
+    #[arg(long)]
+    verify_runtime_update_material: bool,
+    /// Bootstrap file paths, valid only with `--verify-runtime-update-material`.
+    #[arg(long)]
+    runtime_release_manifest: Option<PathBuf>,
+    #[arg(long)]
+    runtime_release_archive: Option<PathBuf>,
+    #[arg(long)]
+    runtime_release_archive_manifest: Option<PathBuf>,
 }
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    if verify_staged_material(&args)? {
+        return Ok(());
+    }
     let data_dir = args
         .data_dir
         .clone()
@@ -121,12 +130,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
+    let update_checks = configure_update_checks(&args)?;
+    let observed_capabilities =
+        transport::observed_capabilities(args.agent_chat_authority, update_checks.is_some());
+    let recovery = run_update_authorities(&args, &data_dir, &observed_capabilities)?;
+    let compatibility = CompatibilityAssessment::load(
+        args.compatibility_cache.as_deref(),
+        &args.compatibility_keys,
+        startup::unix_seconds(),
+    );
+    let runtime = build_runtime_with_update_checks(
+        &data_dir,
+        &observed_capabilities,
+        compatibility,
+        update_checks,
+    )?;
+    serve_local(runtime, &args, &data_dir, recovery.as_ref()).await
+}
+fn verify_staged_material(args: &Args) -> Result<bool, String> {
+    if args.verify_runtime_update_material
+        && (args.agent_chat_authority
+            || args.runtime_update_check_authority
+            || args.runtime_update_plan_authority
+            || args.runtime_update_recover_authority
+            || !args.runtime_release_keys.is_empty())
+    {
+        return Err("runtime update bootstrap cannot enable a daemon authority profile".into());
+    }
+    runtime_update_bootstrap::verify_if_enabled(
+        runtime_update_bootstrap::RuntimeUpdateBootstrapConfig {
+            enabled: args.verify_runtime_update_material,
+            cache_path: args.runtime_release_cache.as_deref(),
+            trust_path: args.runtime_release_trust.as_deref(),
+            release_path: args.runtime_release_manifest.as_deref(),
+            archive_path: args.runtime_release_archive.as_deref(),
+            archive_manifest_path: args.runtime_release_archive_manifest.as_deref(),
+            now_unix_seconds: startup::unix_seconds(),
+        },
+    )
+}
+fn configure_update_checks(
+    args: &Args,
+) -> Result<Option<runtime_update_config::DaemonRuntimeUpdateChecks>, String> {
     if !args.runtime_update_check_authority
         && !args.runtime_update_plan_authority
         && !args.runtime_update_recover_authority
         && (args.runtime_release_cache.is_some()
             || args.runtime_release_trust.is_some()
-            || !args.runtime_release_keys.is_empty())
+            || !args.runtime_release_keys.is_empty()
+            || args.runtime_release_manifest.is_some()
+            || args.runtime_release_archive.is_some()
+            || args.runtime_release_archive_manifest.is_some())
     {
         return Err(
             "runtime release settings require explicit check, plan, or recovery authority".into(),
@@ -145,14 +199,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .transpose()?
         .flatten();
-    let observed_capabilities =
-        transport::observed_capabilities(args.agent_chat_authority, update_checks.is_some());
+    Ok(update_checks)
+}
+fn run_update_authorities(
+    args: &Args,
+    data_dir: &std::path::Path,
+    observed_capabilities: &gent_types::CapabilitySet,
+) -> Result<Option<runtime_update_recovery::ConfirmedRuntimeUpdateRecovery>, String> {
     if args.runtime_update_plan_authority && args.runtime_update_recover_authority {
         return Err("runtime update planning and successor recovery are mutually exclusive".into());
     }
     if let Some(record) = runtime_update_authority::plan_if_enabled(
-        &data_dir,
-        &observed_capabilities,
+        data_dir,
+        observed_capabilities,
         runtime_update_authority::RuntimeUpdatePlanConfig {
             enabled: args.runtime_update_plan_authority,
             attempt_id: args.runtime_update_attempt_id.as_deref(),
@@ -168,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let recovery = runtime_update_recovery::confirm_if_enabled(
-        &data_dir,
+        data_dir,
         runtime_update_recovery::RuntimeUpdateRecoverConfig {
             enabled: args.runtime_update_recover_authority,
             attempt_id: args.runtime_update_attempt_id.as_deref(),
@@ -178,18 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             now_unix_seconds: startup::unix_seconds(),
         },
     )?;
-    let compatibility = CompatibilityAssessment::load(
-        args.compatibility_cache.as_deref(),
-        &args.compatibility_keys,
-        startup::unix_seconds(),
-    );
-    let runtime = build_runtime_with_update_checks(
-        &data_dir,
-        &observed_capabilities,
-        compatibility,
-        update_checks,
-    )?;
-    serve_local(runtime, &args, &data_dir, recovery.as_ref()).await
+    Ok(recovery)
 }
 
 #[cfg(unix)]

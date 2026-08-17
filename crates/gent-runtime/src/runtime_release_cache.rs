@@ -86,6 +86,10 @@ impl CachedRuntimeRelease {
         trust: &RuntimeReleaseTrust,
         now_unix_seconds: u64,
     ) -> Result<Self, RuntimeReleaseCacheError> {
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(RuntimeReleaseCacheError::InvalidPath);
+        }
         let cached: Self = serde_json::from_slice(&fs::read(path)?)?;
         cached.revalidate(trust, now_unix_seconds)?;
         Ok(cached)
@@ -110,6 +114,10 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), RuntimeReleaseCache
         .and_then(|name| name.to_str())
         .ok_or(RuntimeReleaseCacheError::InvalidPath)?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let metadata = fs::symlink_metadata(parent)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(RuntimeReleaseCacheError::InvalidPath);
+    }
     let temporary = parent.join(format!(".{file_name}.{}.tmp", Uuid::new_v4()));
     let write_result = (|| -> Result<(), std::io::Error> {
         let mut file = OpenOptions::new()

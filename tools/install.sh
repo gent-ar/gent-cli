@@ -78,6 +78,15 @@ if download "$supervisor_base" 'gent-supervise-runtime-activation.py' 2>/dev/nul
   download "$supervisor_base.sigstore.json" 'gent-supervise-runtime-activation.py.sigstore.json' || exit 1
   has_supervisor=1
 fi
+trust_base="$release_base/gent-runtime-release-trust.json"
+release_metadata="gent-$version-$target.runtime-release.json"
+has_update_material=0
+if download "$trust_base" 'gent-runtime-release-trust.json' 2>/dev/null; then
+  download "$trust_base.sigstore.json" 'gent-runtime-release-trust.json.sigstore.json'
+  download "$release_base/$release_metadata" "$release_metadata"
+  download "$release_base/$release_metadata.sigstore.json" "$release_metadata.sigstore.json"
+  has_update_material=1
+fi
 
 cosign verify-blob "$temp/$name" --bundle "$temp/$name.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
@@ -92,6 +101,16 @@ if [ "$has_supervisor" -eq 1 ]; then
   cosign verify-blob "$temp/gent-supervise-runtime-activation.py" --bundle "$temp/gent-supervise-runtime-activation.py.sigstore.json" \
     --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
+fi
+if [ "$has_update_material" -eq 1 ]; then
+  cosign verify-blob "$temp/gent-runtime-release-trust.json" --bundle "$temp/gent-runtime-release-trust.json.sigstore.json" \
+    --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
+    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
+  cosign verify-blob "$temp/$release_metadata" --bundle "$temp/$release_metadata.sigstore.json" \
+    --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
+    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
+  mkdir "$temp/update-material"
+  cp "$temp/gent-runtime-release-trust.json" "$temp/update-material/runtime-release-trust.json"
 fi
 
 python3 - "$temp/$name" "$temp/$name.manifest.json" "$temp/$name.sha256" "$version" "$target" <<'PY'
@@ -129,6 +148,14 @@ fi
 tar -xzf "$temp/$name" -C "$temp"
 release_dir="$temp/gent-$version-$target"
 [ -x "$release_dir/gent" ] && [ -x "$release_dir/gentd" ] || { printf '%s\n' 'release archive has invalid binaries' >&2; exit 1; }
+if [ "$has_update_material" -eq 1 ]; then
+  "$release_dir/gentd" --verify-runtime-update-material \
+    --runtime-release-cache "$temp/update-material/runtime-release-cache.json" \
+    --runtime-release-trust "$temp/update-material/runtime-release-trust.json" \
+    --runtime-release-manifest "$temp/$release_metadata" \
+    --runtime-release-archive "$temp/$name" \
+    --runtime-release-archive-manifest "$temp/$name.manifest.json"
+fi
 
 bin_dir="$install_root/bin"
 runtime_root="$install_root/lib/gent"
@@ -136,6 +163,9 @@ release_name="$version-$target"
 set -- "$runtime_root" "$release_name" --source-release "$release_dir" --bin-dir "$bin_dir"
 if [ "$has_supervisor" -eq 1 ]; then
   set -- "$@" --source-supervisor "$temp/gent-supervise-runtime-activation.py"
+fi
+if [ "$has_update_material" -eq 1 ]; then
+  set -- "$@" --source-update-material "$temp/update-material"
 fi
 if [ "$force" -eq 1 ]; then
   set -- "$@" --force

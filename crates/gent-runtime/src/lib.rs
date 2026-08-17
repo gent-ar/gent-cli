@@ -58,7 +58,9 @@ pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
 pub use runtime_release_cache::{CachedRuntimeRelease, RuntimeReleaseCacheError};
-pub use runtime_release_trust::{RuntimeReleaseTrust, RuntimeReleaseTrustError};
+pub use runtime_release_trust::{
+    RuntimeReleaseTrust, RuntimeReleaseTrustError, parse_trust_document,
+};
 pub use runtime_update_check::{
     RuntimeUpdateCheckAuthority, RuntimeUpdateCheckContext, RuntimeUpdateCheckService,
 };

@@ -9,7 +9,7 @@ use ed25519_dalek::VerifyingKey;
 use gent_ports::runtime_update::{RuntimeReleaseSource, RuntimeUpdatePortError};
 use gent_runtime::{
     CachedRuntimeRelease, RuntimeReleaseTrust, RuntimeUpdateCheckAuthority,
-    RuntimeUpdateCheckContext, RuntimeUpdateCheckService,
+    RuntimeUpdateCheckContext, RuntimeUpdateCheckService, parse_trust_document,
 };
 use gent_types::{PROTOCOL_MAX, RuntimeReleaseChannel, RuntimeVersion, SignedRuntimeRelease};
 
@@ -119,39 +119,31 @@ fn load_keys(
     trust_path: Option<&Path>,
     explicit: &[String],
 ) -> Result<BTreeMap<String, VerifyingKey>, String> {
-    let mut values = explicit.to_vec();
+    let mut parsed = parse_keys(explicit)?;
     if let Some(path) = trust_path {
         let metadata = fs::symlink_metadata(path)
             .map_err(|_| "runtime release trust document is unavailable")?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err("runtime release trust document must be a real file".into());
         }
-        let document: serde_json::Value = serde_json::from_slice(
-            &fs::read(path).map_err(|_| "runtime release trust document is unreadable")?,
-        )
-        .map_err(|_| "runtime release trust document is invalid JSON")?;
-        let Some(entries) = document.get("keys").and_then(serde_json::Value::as_array) else {
-            return Err("runtime release trust document has an unsupported shape".into());
-        };
-        if document
-            .get("schemaVersion")
-            .and_then(serde_json::Value::as_u64)
-            != Some(1)
+        let bytes = fs::read(path).map_err(|_| "runtime release trust document is unreadable")?;
+        for (key_id, key) in parse_trust_document(&bytes)
+            .map_err(|_| "runtime release trust document has an unsupported shape")?
         {
-            return Err("runtime release trust document has an unsupported shape".into());
-        }
-        for entry in entries {
-            let key_id = entry.get("keyId").and_then(serde_json::Value::as_str);
-            let key = entry
-                .get("publicKeyHex")
-                .and_then(serde_json::Value::as_str);
-            let (Some(key_id), Some(key)) = (key_id, key) else {
-                return Err("runtime release trust document has an invalid key entry".into());
-            };
-            values.push(format!("{key_id}:{key}"));
+            if parsed.insert(key_id, key).is_some() {
+                return Err("runtime release trust repeats a key id".into());
+            }
         }
     }
-    parse_keys(&values)
+    Ok(parsed)
+}
+
+/// Reads one strict trust file without accepting command-line key additions.
+///
+/// # Errors
+/// Returns an error when the file is unavailable, symlinked, or invalid.
+pub(crate) fn load_keys_from_file(path: &Path) -> Result<BTreeMap<String, VerifyingKey>, String> {
+    load_keys(Some(path), &[])
 }
 
 fn parse_keys(values: &[String]) -> Result<BTreeMap<String, VerifyingKey>, String> {
@@ -183,7 +175,7 @@ fn parse_keys(values: &[String]) -> Result<BTreeMap<String, VerifyingKey>, Strin
     Ok(parsed)
 }
 
-fn package_version() -> RuntimeVersion {
+pub(crate) fn package_version() -> RuntimeVersion {
     let mut parts = env!("CARGO_PKG_VERSION").split('.');
     let mut parse = || {
         parts

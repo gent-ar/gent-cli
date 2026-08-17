@@ -86,3 +86,20 @@ fn cache_rejects_corrupted_json() {
     std::fs::write(&path, b"not json").unwrap();
     assert!(CachedRuntimeRelease::load(&path, &trust, 1).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn cache_refuses_a_symlinked_parent_directory() {
+    let key = SigningKey::from_bytes(&[3; 32]);
+    let trust = trust(&key);
+    let cache = CachedRuntimeRelease::verify(release(&key, 10), &trust, 1).unwrap();
+    let directory = tempdir().unwrap();
+    let destination = directory.path().join("destination");
+    std::fs::create_dir(&destination).unwrap();
+    std::os::unix::fs::symlink(&destination, directory.path().join("link")).unwrap();
+    assert!(
+        cache
+            .store(&directory.path().join("link/cache.json"), &trust, 1)
+            .is_err()
+    );
+}

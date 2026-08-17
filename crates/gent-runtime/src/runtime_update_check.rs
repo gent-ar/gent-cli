@@ -183,7 +183,8 @@ fn trust_failure(error: &RuntimeReleaseTrustError) -> RuntimeUpdateFailure {
         | RuntimeReleaseTrustError::InvalidArtifact
         | RuntimeReleaseTrustError::InvalidCompatibilityRange
         | RuntimeReleaseTrustError::InvalidIndex
-        | RuntimeReleaseTrustError::InvalidOffer => RuntimeUpdateFailure::SignatureInvalid,
+        | RuntimeReleaseTrustError::InvalidOffer
+        | RuntimeReleaseTrustError::InvalidTrustDocument => RuntimeUpdateFailure::SignatureInvalid,
     }
 }
 

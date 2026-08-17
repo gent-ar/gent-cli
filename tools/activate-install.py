@@ -26,6 +26,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("release_name")
     parser.add_argument("--source-release", type=Path)
     parser.add_argument("--source-supervisor", type=Path)
+    parser.add_argument("--source-update-material", type=Path)
     parser.add_argument("--bin-dir", type=Path)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--idle-data-dir", type=Path)
@@ -131,8 +132,20 @@ def identical(left: Path, right: Path) -> bool:
     return True
 
 
+def copy_update_material(stage: Path, source: Path | None) -> None:
+    if source is None:
+        return
+    require_directory(source)
+    for name in ("runtime-release-trust.json", "runtime-release-cache.json"):
+        input_path, output = source / name, stage / name
+        require_regular_file(input_path)
+        shutil.copyfile(input_path, output)
+        output.chmod(0o600)
+        fsync_file(output)
+
+
 def prepare_release(
-    runtime_root: Path, release_name: str, source: Path, supervisor: Path | None
+    runtime_root: Path, release_name: str, source: Path, supervisor: Path | None, update_material: Path | None
 ) -> Path:
     require_directory(source)
     for name in ("gent", "gentd"):
@@ -152,6 +165,14 @@ def prepare_release(
             and identical(supervisor, release / "supervise-runtime-activation.py")
             and identical(Path(__file__), release / "activate-install.py")
         ):
+            if update_material is not None:
+                require_directory(update_material)
+                if not all(
+                    require_regular_file(update_material / name) is None
+                    and identical(update_material / name, release / name)
+                    for name in ("runtime-release-trust.json", "runtime-release-cache.json")
+                ):
+                    fail(f"existing {release_name} differs from the verified update material")
             return release
         fail(f"existing {release_name} differs from the verified release")
     stage = Path(tempfile.mkdtemp(prefix=".gent-stage-", dir=releases))
@@ -170,6 +191,7 @@ def prepare_release(
             shutil.copyfile(Path(__file__), output)
             output.chmod(0o755)
             fsync_file(output)
+        copy_update_material(stage, update_material)
         fsync_directory(stage)
         os.rename(stage, destination)
         fsync_directory(releases)
@@ -250,7 +272,7 @@ def install(args: argparse.Namespace) -> Path:
                 validate_current(args.runtime_root)
                 if not args.force:
                     fail(f"Gent is already installed in {args.bin_dir}; pass --force to replace it")
-            release = prepare_release(args.runtime_root, args.release_name, args.source_release, args.source_supervisor)
+            release = prepare_release(args.runtime_root, args.release_name, args.source_release, args.source_supervisor, args.source_update_material)
             publish_launchers(args.bin_dir)
             if args.stage_only:
                 return release

@@ -7,6 +7,7 @@ use gent_types::{
     RUNTIME_RELEASE_INDEX_VERSION, RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseIndex,
     RuntimeReleaseManifest, RuntimeReleaseOffer, SignedRuntimeRelease, SignedRuntimeReleaseIndex,
 };
+use serde::Deserialize;
 
 /// Keyring and explicit signer-revocation state for runtime release verification.
 #[derive(Clone, Debug, Default)]
@@ -44,6 +45,61 @@ pub enum RuntimeReleaseTrustError {
     InvalidIndex,
     #[error("runtime release index contains an invalid offer")]
     InvalidOffer,
+    #[error("runtime release trust document has an invalid shape or key")]
+    InvalidTrustDocument,
+}
+
+/// Parses the strict public trust document persisted with a signed runtime pair.
+///
+/// # Errors
+/// Returns an error for unknown fields, duplicate IDs, empty key sets, or invalid public keys.
+pub fn parse_trust_document(
+    bytes: &[u8],
+) -> Result<BTreeMap<String, VerifyingKey>, RuntimeReleaseTrustError> {
+    let document: TrustDocument = serde_json::from_slice(bytes)
+        .map_err(|_| RuntimeReleaseTrustError::InvalidTrustDocument)?;
+    if document.schema_version != 1 || document.keys.is_empty() {
+        return Err(RuntimeReleaseTrustError::InvalidTrustDocument);
+    }
+    let mut keys = BTreeMap::new();
+    for entry in document.keys {
+        if entry.key_id.is_empty()
+            || entry.public_key_hex.len() != 64
+            || !entry
+                .public_key_hex
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(RuntimeReleaseTrustError::InvalidTrustDocument);
+        }
+        let bytes = hex::decode(entry.public_key_hex)
+            .map_err(|_| RuntimeReleaseTrustError::InvalidTrustDocument)?;
+        let key = VerifyingKey::from_bytes(
+            bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| RuntimeReleaseTrustError::InvalidTrustDocument)?,
+        )
+        .map_err(|_| RuntimeReleaseTrustError::InvalidTrustDocument)?;
+        if keys.insert(entry.key_id, key).is_some() {
+            return Err(RuntimeReleaseTrustError::InvalidTrustDocument);
+        }
+    }
+    Ok(keys)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TrustDocument {
+    schema_version: u16,
+    keys: Vec<TrustDocumentKey>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TrustDocumentKey {
+    key_id: String,
+    public_key_hex: String,
 }
 
 impl RuntimeReleaseTrust {

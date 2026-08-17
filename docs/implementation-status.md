@@ -185,6 +185,11 @@ not claim provider or app compatibility evidence that has not been recorded.
       signed native launcher rather than a `.cmd` forwarding wrapper; offline
       tests cover first install, tamper refusal, forced update, live-host refusal,
       and manifest-tamper preservation of the previous pair.
+- [x] When a release publishes a Sigstore-verified public runtime trust document and
+      target release metadata, the staged `gentd` independently validates its signature,
+      expiry, exact archive digest/size/name, target, and version before atomically writing
+      a revalidatable local cache. The installer copies that trust/cache pair only after this
+      one-shot verification; local end-to-end tests use packaged real Gent binaries.
 - [x] User-invoked `gent update apply` verifies a tag-bound Sigstore installer
       bootstrap before external handoff, requires a target archive digest and
       explicit consent, and passes the selected data directory to activation.
