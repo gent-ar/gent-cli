@@ -160,6 +160,19 @@ fi
 bin_dir="$install_root/bin"
 runtime_root="$install_root/lib/gent"
 release_name="$version-$target"
+if [ "$has_supervisor" -eq 1 ] && [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
+  set -- python3 "$temp/gent-supervise-runtime-activation.py" \
+    --runtime-root "$runtime_root" --release-name "$release_name" \
+    --source-release "$release_dir" --bin-dir "$bin_dir" --data-dir "$idle_data_dir" \
+    --activator "$temp/gent-activate-install.py" \
+    --timeout-seconds "${GENT_RUNTIME_ACTIVATION_TIMEOUT_SECONDS:-30}"
+  if [ "$has_update_material" -eq 1 ]; then
+    set -- "$@" --source-update-material "$temp/update-material"
+  fi
+  "$@"
+  printf 'Updated Gent %s in %s\n' "$version" "$bin_dir"
+  exit 0
+fi
 set -- "$runtime_root" "$release_name" --source-release "$release_dir" --bin-dir "$bin_dir"
 if [ "$has_supervisor" -eq 1 ]; then
   set -- "$@" --source-supervisor "$temp/gent-supervise-runtime-activation.py"

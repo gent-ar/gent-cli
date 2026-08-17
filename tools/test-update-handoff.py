@@ -34,10 +34,19 @@ def create_release(root: Path, version: str, runtime_target: str, include_superv
     source, output = root / "source", root / "output"
     source.mkdir(parents=True)
     output.mkdir()
-    for name in ("gent", "gentd"):
-        binary = source / name
-        binary.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
-        binary.chmod(0o755)
+    gent = source / "gent"
+    gent.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
+    gent.chmod(0o755)
+    gentd = source / "gentd"
+    gentd.write_text(
+        "#!/usr/bin/env sh\n"
+        "data=\"$2\"\n"
+        "mkdir -p \"$data\"\n"
+        "touch \"$data/gentd.sock\"\n"
+        "exec sleep 60\n",
+        encoding="utf-8",
+    )
+    gentd.chmod(0o755)
     subprocess.run(
         [
             sys.executable,
@@ -132,6 +141,7 @@ def main() -> None:
         runtime_target = target()
         first = create_release(releases / "v1.2.3", "v1.2.3", runtime_target, include_supervisor=False)
         second = create_release(releases / "v1.2.4", "v1.2.4", runtime_target)
+        third = create_release(releases / "v1.2.5", "v1.2.5", runtime_target)
         cosign = fake / "cosign"
         cosign.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
         cosign.chmod(0o755)
@@ -142,7 +152,10 @@ def main() -> None:
         server = Server(("127.0.0.1", port), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        env = os.environ | {"PATH": f"{fake}:{os.environ['PATH']}"}
+        env = os.environ | {
+            "PATH": f"{fake}:{os.environ['PATH']}",
+            "GENT_RUNTIME_ACTIVATION_TIMEOUT_SECONDS": "30",
+        }
         try:
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.3"
             subprocess.run(command("v1.2.3", first, install, data, env), cwd=ROOT, env=env, check=True)
@@ -150,15 +163,20 @@ def main() -> None:
             legacy = install / "lib" / "gent" / "releases" / f"v1.2.3-{runtime_target}"
             assert not (legacy / "supervise-runtime-activation.py").exists()
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.4"
+            subprocess.run(command("v1.2.4", second, install, data, env), cwd=ROOT, env=env, check=True)
+            assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.4-" + runtime_target)
+            assert (install / "lib" / "gent" / "releases" / f"v1.2.4-{runtime_target}" / "supervise-runtime-activation.py").is_file()
+            env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.5"
+            env["GENT_RUNTIME_ACTIVATION_TIMEOUT_SECONDS"] = "1"
             lock = held_lock(data / "gentd.lock")
             try:
-                result = subprocess.run(command("v1.2.4", second, install, data, env), cwd=ROOT, env=env)
+                result = subprocess.run(command("v1.2.5", third, install, data, env), cwd=ROOT, env=env)
                 assert result.returncode != 0
             finally:
                 assert lock.stdin
                 lock.stdin.close()
                 lock.wait(timeout=5)
-            assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.3-" + runtime_target)
+            assert os.readlink(install / "lib" / "gent" / "current").endswith("v1.2.4-" + runtime_target)
         finally:
             server.shutdown()
             thread.join(timeout=5)

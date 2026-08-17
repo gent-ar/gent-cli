@@ -39,10 +39,17 @@ def main() -> None:
         first, second = source(work / "source", "v1"), source(work / "source", "v2")
         activate(runtime, "v1", first, bin_dir)
         staged = runtime / "releases/v1/supervise-runtime-activation.py"
+        material = work / "update-material"
+        material.mkdir()
+        (material / "runtime-release-cache.json").write_text("{}")
+        (material / "runtime-release-trust.json").write_text("{}")
         subprocess.run([sys.executable, str(staged), "--runtime-root", str(runtime), "--release-name", "v2", "--source-release", str(second), "--bin-dir", str(bin_dir), "--data-dir", str(data)], check=True)
         assert os.readlink(runtime / "current") == "releases/v2"
         assert (runtime / "releases/v2/activate-install.py").is_file()
         assert not list((runtime / "releases").glob(".gent-stage-*"))
+        subprocess.run([sys.executable, str(staged), "--runtime-root", str(runtime), "--release-name", "v3", "--source-release", str(second), "--source-update-material", str(material), "--bin-dir", str(bin_dir), "--data-dir", str(data)], check=True)
+        assert (runtime / "releases/v3/runtime-release-cache.json").read_text() == "{}"
+        assert (runtime / "releases/v3/runtime-release-trust.json").read_text() == "{}"
         cache, trust = work / "release.json", work / "trust.json"
         cache.write_text("{}")
         trust.write_text("{}")

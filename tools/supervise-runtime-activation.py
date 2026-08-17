@@ -15,10 +15,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def activator() -> Path:
-    staged = Path(__file__).with_name("activate-install.py")
-    if staged.is_file() and not staged.is_symlink():
-        return staged
+def activator(values: argparse.Namespace) -> Path:
+    if values.activator is not None:
+        if values.activator.is_file() and not values.activator.is_symlink():
+            return values.activator
+        raise ValueError("activation helper must be a real file")
+    for name in ("activate-install.py", "gent-activate-install.py"):
+        staged = Path(__file__).with_name(name)
+        if staged.is_file() and not staged.is_symlink():
+            return staged
     return ROOT / "tools/activate-install.py"
 
 
@@ -27,6 +32,8 @@ def args() -> argparse.Namespace:
     parser.add_argument("--runtime-root", type=Path, required=True)
     parser.add_argument("--release-name", required=True)
     parser.add_argument("--source-release", type=Path, required=True)
+    parser.add_argument("--source-update-material", type=Path)
+    parser.add_argument("--activator", type=Path)
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--recover-attempt-id")
@@ -50,9 +57,11 @@ def current(root: Path) -> str:
 
 
 def activate(values: argparse.Namespace, stage_only: bool = False, release: str | None = None) -> None:
-    command = ["python3", str(activator()), str(values.runtime_root), release or values.release_name]
+    command = ["python3", str(activator(values)), str(values.runtime_root), release or values.release_name]
     if stage_only:
         command.extend(("--source-release", str(values.source_release), "--source-supervisor", str(Path(__file__)), "--bin-dir", str(values.bin_dir), "--force", "--stage-only"))
+        if values.source_update_material is not None:
+            command.extend(("--source-update-material", str(values.source_update_material)))
     else:
         command.extend(("--idle-data-dir", str(values.data_dir)))
     run(command)
