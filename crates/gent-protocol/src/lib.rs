@@ -23,6 +23,7 @@ mod dependencies;
 mod event_stream;
 mod external_provider_bridge;
 mod runs;
+mod runtime_maintenance;
 mod runtime_update;
 
 pub use agent_chat::{
@@ -57,6 +58,7 @@ pub use runs::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
     PublicRunStartRequest,
 };
+pub use runtime_maintenance::{RUNTIME_MAINTENANCE_CAPABILITY, RuntimeMaintenanceFrame};
 pub use runtime_update::{RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

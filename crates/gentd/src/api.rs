@@ -10,7 +10,8 @@ use gent_types::{
     CapabilitySet, Command, ConversationContentCursor, ConversationContentPage,
     ConversationListItem, ConversationStatus, ConversationTimeline, DecisionCommand,
     DecisionSettlement, DoctorReport, EventResume, HostStatus, OnboardingState, Receipt,
-    RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest,
+    RuntimeMaintenanceReport, RuntimeMaintenanceRequest, RuntimeUpdateCheckReport,
+    RuntimeUpdateCheckRequest,
 };
 
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
@@ -37,6 +38,13 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         _: RuntimeUpdateCheckRequest,
     ) -> Result<RuntimeUpdateCheckReport, String> {
         Err("runtime update checks are observer-disabled".into())
+    }
+    /// Reads one separately enabled durable update-maintenance attempt.
+    fn runtime_maintenance(
+        &self,
+        _: RuntimeMaintenanceRequest,
+    ) -> Result<RuntimeMaintenanceReport, String> {
+        Err("runtime maintenance is observer-disabled".into())
     }
     fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String>;
     fn apply_decision_recovery(

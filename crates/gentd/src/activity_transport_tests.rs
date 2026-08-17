@@ -12,8 +12,9 @@ use gent_types::{
     CONVERSATION_ACTIVITY_SCHEMA_VERSION, CapabilitySet, Command, ConversationActivity,
     ConversationActivityState, ConversationStatus, ConversationTimeline, DecisionCommand,
     DecisionSettlement, DoctorReport, EventResume, HostEpoch, HostStatus, PROTOCOL_MAX,
-    PROTOCOL_MIN, Receipt, RuntimeReleaseChannel, RuntimeUpdateCheckReport,
-    RuntimeUpdateCheckRequest, RuntimeUpdateCheckState, RuntimeVersion, TurnPhase,
+    PROTOCOL_MIN, Receipt, RuntimeMaintenanceReport, RuntimeMaintenanceRequest,
+    RuntimeReleaseChannel, RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest,
+    RuntimeUpdateCheckState, RuntimeUpdateRecord, RuntimeUpdateStatus, RuntimeVersion, TurnPhase,
 };
 use tokio::io::duplex;
 
@@ -25,6 +26,7 @@ use crate::{
 #[derive(Clone, Debug)]
 struct ActivityRuntime {
     update_checks: bool,
+    maintenance: bool,
 }
 
 impl RuntimeApi for ActivityRuntime {
@@ -32,6 +34,9 @@ impl RuntimeApi for ActivityRuntime {
         let mut capabilities = vec![CONVERSATION_ACTIVITY_CAPABILITY.into()];
         if self.update_checks {
             capabilities.push(RUNTIME_UPDATE_CHECK_CAPABILITY.into());
+        }
+        if self.maintenance {
+            capabilities.push(gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY.into());
         }
         Ok(CapabilitySet(capabilities))
     }
@@ -101,6 +106,22 @@ impl RuntimeApi for ActivityRuntime {
             failure: None,
         })
     }
+    fn runtime_maintenance(
+        &self,
+        request: RuntimeMaintenanceRequest,
+    ) -> Result<RuntimeMaintenanceReport, String> {
+        Ok(RuntimeMaintenanceReport {
+            host_epoch: HostEpoch(4),
+            ingress_closed: false,
+            record: RuntimeUpdateRecord {
+                attempt_id: request.attempt_id,
+                revision: 2,
+                artifact_digest_sha256: "a".repeat(64),
+                status: RuntimeUpdateStatus::default(),
+                handoff: Default::default(),
+            },
+        })
+    }
     fn conversation_activity(
         &self,
         conversation_id: &str,
@@ -127,7 +148,7 @@ impl RuntimeApi for ActivityRuntime {
 
 #[test]
 fn observer_capabilities_do_not_advertise_authority_or_update_work() {
-    let capabilities = observed_capabilities(false, false);
+    let capabilities = observed_capabilities(false, false, false);
     assert!(
         !capabilities
             .0
@@ -149,6 +170,7 @@ async fn activity_snapshot_requires_a_negotiated_activity_capability() {
         server,
         ActivityRuntime {
             update_checks: false,
+            maintenance: false,
         },
     ));
     write_frame(
@@ -194,6 +216,7 @@ async fn cached_update_check_requires_its_negotiated_capability() {
         server,
         ActivityRuntime {
             update_checks: true,
+            maintenance: false,
         },
     ));
     write_frame(
@@ -227,6 +250,47 @@ async fn cached_update_check_requires_its_negotiated_capability() {
             state: RuntimeUpdateCheckState::Current,
             ..
         })
+    ));
+    drop(client);
+    assert!(task.await.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn maintenance_report_requires_the_negotiated_authority_capability() {
+    let (mut client, server) = duplex(1024);
+    let task = tokio::spawn(serve_connection(
+        server,
+        ActivityRuntime {
+            update_checks: false,
+            maintenance: true,
+        },
+    ));
+    write_frame(
+        &mut client,
+        &WireFrame::Hello(Hello {
+            protocol_min: PROTOCOL_MIN,
+            protocol_max: PROTOCOL_MAX,
+            capabilities: CapabilitySet(vec![gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY.into()]),
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(read_frame(&mut client).await.unwrap(), WireFrame::Negotiated(answer)
+        if answer.capabilities.0 == vec![gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY])
+    );
+    write_json_frame(
+        &mut client,
+        &gent_protocol::RuntimeMaintenanceFrame::Request(RuntimeMaintenanceRequest {
+            attempt_id: "attempt-1".into(),
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        read_json_frame::<_, gent_protocol::RuntimeMaintenanceFrame>(&mut client).await.unwrap(),
+        gent_protocol::RuntimeMaintenanceFrame::Report(report)
+            if report.record.attempt_id == "attempt-1" && report.record.revision == 2
     ));
     drop(client);
     assert!(task.await.unwrap().is_err());

@@ -27,6 +27,7 @@ mod provider_resolver;
 mod provider_resolver_tests;
 mod public_runs;
 mod runtime_facade;
+mod runtime_maintenance_transport;
 mod runtime_update_authority;
 mod runtime_update_bootstrap;
 mod runtime_update_config;
@@ -131,8 +132,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
     let update_checks = configure_update_checks(&args)?;
-    let observed_capabilities =
-        transport::observed_capabilities(args.agent_chat_authority, update_checks.is_some());
+    let observed_capabilities = transport::observed_capabilities(
+        args.agent_chat_authority,
+        update_checks.is_some(),
+        args.runtime_update_plan_authority || args.runtime_update_recover_authority,
+    );
     let recovery = run_update_authorities(&args, &data_dir, &observed_capabilities)?;
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
@@ -239,7 +243,6 @@ fn run_update_authorities(
     )?;
     Ok(recovery)
 }
-
 #[cfg(unix)]
 async fn serve_local(
     runtime: RuntimeFacade,
@@ -261,7 +264,6 @@ async fn serve_local(
     }
     transport::serve(listener, runtime).await
 }
-
 #[cfg(windows)]
 async fn serve_local(
     runtime: RuntimeFacade,
@@ -278,7 +280,6 @@ async fn serve_local(
     }
     transport_windows::serve_named_pipe(&pipe_name(data_dir), runtime).await
 }
-
 #[cfg(windows)]
 fn pipe_name(data_dir: &std::path::Path) -> String {
     format!(r"\\.\pipe\gentd-{:016x}", endpoint_hash(data_dir))

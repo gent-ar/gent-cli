@@ -21,6 +21,7 @@ mod provider_lifecycle;
 mod public_runs;
 mod run_checkpoints;
 mod run_projections;
+mod runtime_maintenance;
 mod runtime_release_cache;
 mod runtime_release_trust;
 mod runtime_update_check;
@@ -62,6 +63,7 @@ pub use mcp_connectors::*;
 pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
+pub use runtime_maintenance::{RuntimeMaintenanceAuthority, RuntimeMaintenanceService};
 pub use runtime_release_cache::{CachedRuntimeRelease, RuntimeReleaseCacheError};
 pub use runtime_release_trust::{
     RuntimeReleaseTrust, RuntimeReleaseTrustError, parse_trust_document,

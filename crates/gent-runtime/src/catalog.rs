@@ -4,7 +4,7 @@ use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
     CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    RUNTIME_UPDATE_CHECK_CAPABILITY,
+    RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
 use gent_types::{CapabilityCatalogRecord, CapabilitySet};
 
@@ -87,7 +87,7 @@ pub fn declared_capabilities() -> CapabilitySet {
 /// Returns the catalog for an explicitly approved durable agent-chat authority profile.
 #[must_use]
 pub fn declared_capabilities_with_agent_chat(agent_chat_enabled: bool) -> CapabilitySet {
-    declared_capabilities_with_profiles(agent_chat_enabled, false)
+    declared_capabilities_with_profiles(agent_chat_enabled, false, false)
 }
 
 /// Returns the catalog for explicit authority profiles that have concrete handlers.
@@ -95,6 +95,7 @@ pub fn declared_capabilities_with_agent_chat(agent_chat_enabled: bool) -> Capabi
 pub fn declared_capabilities_with_profiles(
     agent_chat_enabled: bool,
     runtime_update_check_enabled: bool,
+    runtime_maintenance_enabled: bool,
 ) -> CapabilitySet {
     let mut capabilities = capability_set(DECLARED);
     if agent_chat_enabled {
@@ -106,6 +107,11 @@ pub fn declared_capabilities_with_profiles(
         capabilities
             .0
             .push(RUNTIME_UPDATE_CHECK_CAPABILITY.to_owned());
+    }
+    if runtime_maintenance_enabled {
+        capabilities
+            .0
+            .push(RUNTIME_MAINTENANCE_CAPABILITY.to_owned());
     }
     capabilities
         .0
@@ -150,6 +156,10 @@ pub fn validate_observed_capabilities(
             .0
             .iter()
             .any(|capability| capability == RUNTIME_UPDATE_CHECK_CAPABILITY),
+        observed
+            .0
+            .iter()
+            .any(|capability| capability == RUNTIME_MAINTENANCE_CAPABILITY),
     );
     reconcile(&declared, observed)?;
     Ok(declared)

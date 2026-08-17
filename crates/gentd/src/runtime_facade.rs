@@ -10,7 +10,8 @@ use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{
     AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
     AgentChatPromptService, AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchService,
-    AttachmentService, Coordinator, DependencyActionService,
+    AttachmentService, Coordinator, DependencyActionService, RuntimeMaintenanceAuthority,
+    RuntimeMaintenanceService,
 };
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::{
@@ -34,6 +35,7 @@ pub(crate) struct RuntimeFacade {
     agent_chat_conversations: AgentChatConversationService<SqliteLedger>,
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger>,
+    runtime_maintenance: RuntimeMaintenanceService<SqliteLedger>,
     attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
     coordinator: Coordinator<SqliteLedger>,
     dependencies: DependencyCatalog,
@@ -71,6 +73,10 @@ pub(crate) fn build_runtime_with_update_checks(
         .0
         .iter()
         .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY);
+    let maintenance_enabled = capabilities
+        .0
+        .iter()
+        .any(|capability| capability == gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY);
     let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
     let attachments = AttachmentService::new(
         ledger.clone(),
@@ -101,6 +107,14 @@ pub(crate) fn build_runtime_with_update_checks(
                 AgentChatSelectionSwitchAuthority::Approved
             } else {
                 AgentChatSelectionSwitchAuthority::Observer
+            },
+        ),
+        runtime_maintenance: RuntimeMaintenanceService::new(
+            ledger.clone(),
+            if maintenance_enabled {
+                RuntimeMaintenanceAuthority::Approved
+            } else {
+                RuntimeMaintenanceAuthority::Observer
             },
         ),
         public_runs: observer_service(coordinator.clone(), compatibility.clone()),
@@ -190,6 +204,15 @@ impl api::RuntimeApi for RuntimeFacade {
             .as_ref()
             .map(|checks| checks.check(request, crate::startup::unix_seconds()))
             .ok_or_else(|| "runtime update checks are observer-disabled".into())
+    }
+
+    fn runtime_maintenance(
+        &self,
+        request: gent_types::RuntimeMaintenanceRequest,
+    ) -> Result<gent_types::RuntimeMaintenanceReport, String> {
+        self.runtime_maintenance
+            .read(&request)
+            .map_err(|error| error.to_string())
     }
 
     fn submit_decision(&self, command: DecisionCommand) -> Result<DecisionSubmission, String> {

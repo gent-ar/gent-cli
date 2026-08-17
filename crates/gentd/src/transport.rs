@@ -22,6 +22,7 @@ use crate::api::RuntimeApi;
 pub(crate) fn observed_capabilities(
     agent_chat_enabled: bool,
     runtime_update_check_enabled: bool,
+    runtime_maintenance_enabled: bool,
 ) -> CapabilitySet {
     let mut capabilities = capability_set([
         RuntimeCapability::Attachments,
@@ -50,6 +51,11 @@ pub(crate) fn observed_capabilities(
         capabilities
             .0
             .push(gent_protocol::RUNTIME_UPDATE_CHECK_CAPABILITY.to_owned());
+    }
+    if runtime_maintenance_enabled {
+        capabilities
+            .0
+            .push(gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY.to_owned());
     }
     #[cfg(unix)]
     capabilities
@@ -170,6 +176,9 @@ where
         return Ok(true);
     }
     if crate::runtime_update_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::runtime_maintenance_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
     if extensions.supports(ATTACHMENTS_CAPABILITY) {

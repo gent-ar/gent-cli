@@ -12,6 +12,7 @@ mod conversation_timeline;
 mod decision;
 mod event_stream;
 mod local_ipc;
+mod runtime_maintenance;
 mod runtime_update_check;
 mod terminal;
 mod terminal_browser;
@@ -257,7 +258,6 @@ mod tests {
             }) if conversation_id == "conversation-1" && run_id == "run-1" && after_cursor == 9
         ));
     }
-
     #[test]
     fn decision_acknowledgement_commands_are_not_public_client_actions() {
         assert!(Args::try_parse_from(["gent", "decision", "ack", "--decision-id", "d1"]).is_err());
@@ -265,7 +265,6 @@ mod tests {
             Args::try_parse_from(["gent", "decision", "settle", "--decision-id", "d1"]).is_err()
         );
     }
-
     #[test]
     fn update_apply_requires_version_digest_and_explicit_consent() {
         let args =

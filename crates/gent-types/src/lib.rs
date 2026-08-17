@@ -30,6 +30,7 @@ mod onboarding;
 mod policies;
 mod run_checkpoints;
 mod run_projection;
+mod runtime_maintenance;
 mod runtime_update;
 mod tool_activity;
 mod tool_sources;
@@ -88,6 +89,7 @@ pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, 
 pub use policies::{PolicyRecord, PolicyScope};
 pub use run_checkpoints::RunCheckpointRecord;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
+pub use runtime_maintenance::{RuntimeMaintenanceReport, RuntimeMaintenanceRequest};
 pub use runtime_update::{
     RUNTIME_RELEASE_INDEX_VERSION, RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseArtifact,
     RuntimeReleaseChannel, RuntimeReleaseIdentity, RuntimeReleaseIndex, RuntimeReleaseManifest,

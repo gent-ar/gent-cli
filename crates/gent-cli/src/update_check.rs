@@ -8,6 +8,11 @@ use gent_types::RuntimeReleaseChannel;
 /// Update commands intentionally stop at metadata-only status reporting.
 #[derive(Debug, Subcommand)]
 pub(crate) enum UpdateCommand {
+    /// Read one durable update planning or successor-recovery maintenance record.
+    Status {
+        #[arg(long)]
+        attempt_id: String,
+    },
     /// Read the local metadata-only runtime update status.
     Check {
         #[arg(long, value_enum, default_value_t = UpdateChannel::Stable)]

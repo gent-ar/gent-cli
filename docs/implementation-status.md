@@ -140,6 +140,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       policy checks only while idle, backs off boundedly after unavailable checks, and is hard
       disabled without explicit update authority. No network fetcher or daemon scheduler is
       composed from these primitives yet.
+- [x] Authority-gated, versioned `runtime-maintenance-v1` status reads expose one durable
+      update attempt's exact stage/failure/revision and host ingress state through negotiated
+      local IPC. It is unavailable in observer mode and cannot fetch, schedule, stage, or
+      activate an update; `gent update status --attempt-id <id>` is its protocol-only client.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not
