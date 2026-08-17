@@ -1,0 +1,68 @@
+{
+  "capability": "permission-policy-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "requestId": "request-1",
+          "workspaceId": "gent-local-settings"
+        },
+        "type": "current"
+      },
+      "wireHex": "000000577b2274797065223a2263757272656e74222c22626f6479223a7b22726571756573744964223a22726571756573742d31222c22776f726b73706163654964223a2267656e742d6c6f63616c2d73657474696e6773227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "policy": null,
+          "requestId": "request-1"
+        },
+        "type": "currentPolicy"
+      },
+      "wireHex": "000000477b2274797065223a2263757272656e74506f6c696379222c22626f6479223a7b22726571756573744964223a22726571756573742d31222c22706f6c696379223a6e756c6c7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "bypassConsent": false,
+          "policy": {
+            "allowedCategories": [
+              "read"
+            ],
+            "allowedTools": [],
+            "mode": "plan",
+            "policyId": "policy-1",
+            "revision": 1,
+            "scope": "providerPermissions",
+            "workspaceId": "gent-local-settings"
+          },
+          "requestId": "request-2"
+        },
+        "type": "save"
+      },
+      "wireHex": "000000f37b2274797065223a2273617665222c22626f6479223a7b22726571756573744964223a22726571756573742d32222c22706f6c696379223a7b22706f6c6963794964223a22706f6c6963792d31222c22776f726b73706163654964223a2267656e742d6c6f63616c2d73657474696e6773222c2273636f7065223a2270726f76696465725065726d697373696f6e73222c227265766973696f6e223a312c226d6f6465223a22706c616e222c22616c6c6f776564546f6f6c73223a5b5d2c22616c6c6f77656443617465676f72696573223a5b2272656164225d7d2c22627970617373436f6e73656e74223a66616c73657d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "policy": {
+            "allowedCategories": [
+              "read"
+            ],
+            "allowedTools": [],
+            "mode": "plan",
+            "policyId": "policy-1",
+            "revision": 1,
+            "scope": "providerPermissions",
+            "workspaceId": "gent-local-settings"
+          },
+          "requestId": "request-2"
+        },
+        "type": "saved"
+      },
+      "wireHex": "000000de7b2274797065223a227361766564222c22626f6479223a7b22726571756573744964223a22726571756573742d32222c22706f6c696379223a7b22706f6c6963794964223a22706f6c6963792d31222c22776f726b73706163654964223a2267656e742d6c6f63616c2d73657474696e6773222c2273636f7065223a2270726f76696465725065726d697373696f6e73222c227265766973696f6e223a312c226d6f6465223a22706c616e222c22616c6c6f776564546f6f6c73223a5b5d2c22616c6c6f77656443617465676f72696573223a5b2272656164225d7d7d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

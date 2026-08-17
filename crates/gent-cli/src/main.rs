@@ -12,6 +12,7 @@ mod conversation_timeline;
 mod decision;
 mod event_stream;
 mod local_ipc;
+mod permissions_cli;
 mod runtime_maintenance;
 mod runtime_update_check;
 mod terminal;

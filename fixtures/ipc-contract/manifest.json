@@ -7,6 +7,7 @@
     { "name": "event-stream", "path": "event-stream.json" },
     { "name": "agent-chat-conversations", "path": "agent-chat-conversations.json" },
     { "name": "agent-chat-transcript", "path": "agent-chat-transcript.json" },
-    { "name": "agent-chat-intents", "path": "agent-chat-intents.json" }
+    { "name": "agent-chat-intents", "path": "agent-chat-intents.json" },
+    { "name": "permission-policy", "path": "permission-policy.json" }
   ]
 }

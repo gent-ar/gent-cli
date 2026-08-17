@@ -86,7 +86,9 @@ pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkP
 pub use mcp_connectors::{McpConnectorPhase, McpConnectorRecord};
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
-pub use policies::{PolicyRecord, PolicyScope};
+pub use policies::{
+    PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
+};
 pub use run_checkpoints::RunCheckpointRecord;
 pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
 pub use runtime_maintenance::{RuntimeMaintenanceReport, RuntimeMaintenanceRequest};

@@ -8,6 +8,7 @@ mod lifecycle_projection;
 mod lifecycle_signal;
 mod lifecycle_state;
 mod observer_comparison;
+mod permission_policy;
 mod projection_snapshot;
 mod runtime_update;
 mod runtime_update_schedule;
@@ -28,6 +29,7 @@ pub use lifecycle_projection::{
 pub use lifecycle_signal::project_lifecycle_signal;
 pub use lifecycle_state::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 pub use observer_comparison::{ObserverComparison, ObserverProjection, compare_legacy_tap};
+pub use permission_policy::{PermissionDecision, evaluate_permission};
 pub use projection_snapshot::{restore_projection, snapshot_projection};
 pub use runtime_update::{
     RuntimeUpdateContext, RuntimeUpdateEligibility, RuntimeUpdateEvent, RuntimeUpdateIngress,

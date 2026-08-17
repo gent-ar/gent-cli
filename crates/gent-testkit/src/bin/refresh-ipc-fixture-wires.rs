@@ -1,19 +1,20 @@
 use clap::Parser;
 use gent_protocol::{
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, EventStreamFrame,
-    WireFrame,
+    PermissionPolicyFrame, WireFrame,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const FIXTURES: [&str; 6] = [
+const FIXTURES: [&str; 7] = [
     "handshake.json",
     "core.json",
     "event-stream.json",
     "agent-chat-conversations.json",
     "agent-chat-transcript.json",
     "agent-chat-intents.json",
+    "permission-policy.json",
 ];
 
 #[derive(Debug, Parser)]
@@ -66,6 +67,7 @@ fn canonical_record(name: &str, value: &Value) -> Result<Value, String> {
         "agent-chat-conversations.json" => canonical::<AgentChatConversationFrame>(value)?,
         "agent-chat-transcript.json" => canonical::<AgentChatTranscriptFrame>(value)?,
         "agent-chat-intents.json" => canonical::<AgentChatIntentFrame>(value)?,
+        "permission-policy.json" => canonical::<PermissionPolicyFrame>(value)?,
         _ => return Err(format!("unknown fixture {name}")),
     };
     Ok(Value::Object(Map::from_iter([

@@ -1,6 +1,6 @@
 use gent_ports::{PolicyLedger, WorkspaceLedger};
 use gent_store::SqliteLedger;
-use gent_types::{PolicyRecord, PolicyScope, WorkspaceRecord};
+use gent_types::{PermissionCategory, PermissionMode, PolicyRecord, PolicyScope, WorkspaceRecord};
 
 fn workspace() -> WorkspaceRecord {
     WorkspaceRecord {
@@ -15,8 +15,41 @@ fn policy(revision: u64, tools: &[&str]) -> PolicyRecord {
         workspace_id: "workspace-a".into(),
         scope: PolicyScope::ProviderPermissions,
         revision,
+        mode: PermissionMode::Default,
         allowed_tools: tools.iter().map(ToString::to_string).collect(),
+        allowed_categories: Vec::new(),
     }
+}
+
+#[test]
+fn permission_modes_and_category_approvals_are_durable() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    ledger.create_workspace(&workspace()).unwrap();
+    let mut record = policy(1, &[]);
+    record.mode = PermissionMode::AutoAcceptEdits;
+    record.allowed_categories = vec![PermissionCategory::Network];
+    ledger.save_policy(&record).unwrap();
+    assert_eq!(
+        ledger
+            .current_policy("workspace-a", PolicyScope::ProviderPermissions)
+            .unwrap(),
+        Some(record)
+    );
+}
+
+#[test]
+fn exact_policy_retries_return_without_appending_a_second_revision() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    ledger.create_workspace(&workspace()).unwrap();
+    let record = policy(1, &["git:status"]);
+    ledger.save_policy(&record).unwrap();
+    ledger.save_policy(&record).unwrap();
+    assert_eq!(
+        ledger
+            .current_policy("workspace-a", PolicyScope::ProviderPermissions)
+            .unwrap(),
+        Some(record)
+    );
 }
 
 #[test]

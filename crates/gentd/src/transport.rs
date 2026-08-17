@@ -31,6 +31,7 @@ pub(crate) fn observed_capabilities(
         RuntimeCapability::EventStream,
         RuntimeCapability::Events,
         RuntimeCapability::HostEpoch,
+        RuntimeCapability::PermissionPolicies,
         RuntimeCapability::Receipts,
     ]);
     capabilities
@@ -167,6 +168,9 @@ where
     R: RuntimeApi,
 {
     if crate::agent_chat_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::permission_policy_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
     if crate::conversation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {

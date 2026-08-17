@@ -1,7 +1,7 @@
 use super::{FixtureFrame, wire::encoded_frame_hex};
 use gent_protocol::{
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, EventStreamFrame,
-    WireFrame, negotiate,
+    PermissionPolicyFrame, WireFrame, negotiate,
 };
 
 pub(super) fn validate_handshake(records: &[FixtureFrame]) -> Result<(), String> {
@@ -94,6 +94,21 @@ pub(super) fn validate_chat_intents(records: &[FixtureFrame]) -> Result<(), Stri
     )
     .then_some(())
     .ok_or_else(|| "must contain every reserved agent-chat intent and subscription frame".into())
+}
+
+pub(super) fn validate_permission_policy(records: &[FixtureFrame]) -> Result<(), String> {
+    let frames: Vec<PermissionPolicyFrame> = canonical(records)?;
+    matches!(
+        frames.as_slice(),
+        [
+            PermissionPolicyFrame::Current { .. },
+            PermissionPolicyFrame::CurrentPolicy { .. },
+            PermissionPolicyFrame::Save { .. },
+            PermissionPolicyFrame::Saved { .. }
+        ]
+    )
+    .then_some(())
+    .ok_or_else(|| "must contain current, current policy, save, and saved frames".into())
 }
 
 fn canonical<T>(records: &[FixtureFrame]) -> Result<Vec<T>, String>

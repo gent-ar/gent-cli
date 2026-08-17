@@ -4,11 +4,11 @@ mod wire;
 
 use frames::{
     validate_chat_conversations, validate_chat_intents, validate_chat_transcript, validate_core,
-    validate_event_stream, validate_handshake,
+    validate_event_stream, validate_handshake, validate_permission_policy,
 };
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
-    AGENT_CHAT_TRANSCRIPT_CAPABILITY,
+    AGENT_CHAT_TRANSCRIPT_CAPABILITY, PERMISSION_POLICY_CAPABILITY,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -72,7 +72,13 @@ pub fn validate_ipc_fixture_manifest(path: &Path) -> Result<(), String> {
         "agent-chat-transcript",
         validate_chat_transcript,
     )?;
-    validate_fixture(root, &entries, "agent-chat-intents", validate_chat_intents)
+    validate_fixture(root, &entries, "agent-chat-intents", validate_chat_intents)?;
+    validate_fixture(
+        root,
+        &entries,
+        "permission-policy",
+        validate_permission_policy,
+    )
 }
 
 fn manifest_entries(entries: &[FixtureEntry]) -> Result<BTreeMap<String, PathBuf>, String> {
@@ -137,6 +143,13 @@ fn specs() -> BTreeMap<&'static str, FixtureSpec> {
             FixtureSpec {
                 path: "agent-chat-intents.json",
                 capability: Some(AGENT_CHAT_INTENTS_CAPABILITY),
+            },
+        ),
+        (
+            "permission-policy",
+            FixtureSpec {
+                path: "permission-policy.json",
+                capability: Some(PERMISSION_POLICY_CAPABILITY),
             },
         ),
     ]

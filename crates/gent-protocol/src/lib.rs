@@ -22,6 +22,7 @@ mod decision;
 mod dependencies;
 mod event_stream;
 mod external_provider_bridge;
+mod permission_policy;
 mod runs;
 mod runtime_maintenance;
 mod runtime_update;
@@ -54,6 +55,7 @@ pub use external_provider_bridge::{
     EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame, ExternalProviderBridgeHello,
     ExternalProviderBridgeNegotiated,
 };
+pub use permission_policy::{PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame};
 pub use runs::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
     PublicRunStartRequest,

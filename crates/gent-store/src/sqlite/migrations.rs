@@ -24,7 +24,6 @@ ALTER TABLE runs ADD COLUMN conversation_id TEXT REFERENCES conversations(conver
 CREATE TABLE IF NOT EXISTS turns (turn_id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id), run_id TEXT NOT NULL REFERENCES runs(run_id), sequence INTEGER NOT NULL CHECK (sequence > 0), phase TEXT NOT NULL, UNIQUE (run_id, sequence));
 CREATE INDEX IF NOT EXISTS turns_by_run_sequence ON turns (run_id, sequence);
 ";
-
 const CONVERSATION_ARTIFACTS: &str = "
 CREATE TABLE IF NOT EXISTS conversation_artifacts (
     artifact_id TEXT PRIMARY KEY NOT NULL,
@@ -48,7 +47,6 @@ CREATE TABLE IF NOT EXISTS workspaces (workspace_id TEXT PRIMARY KEY NOT NULL, c
 CREATE TABLE IF NOT EXISTS repositories (repository_id TEXT PRIMARY KEY NOT NULL, workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id), canonical_path TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS worktrees (worktree_id TEXT PRIMARY KEY NOT NULL, repository_id TEXT NOT NULL REFERENCES repositories(repository_id), canonical_path TEXT NOT NULL UNIQUE);
 ";
-
 const POLICIES: &str = "
 CREATE TABLE IF NOT EXISTS policies (
     policy_id TEXT PRIMARY KEY NOT NULL,
@@ -132,6 +130,7 @@ const RUNTIME_UPDATE: &str = include_str!("runtime_update.sql");
 const AGENT_CHAT: &str = include_str!("agent_chat.sql");
 const AGENT_CHAT_PROMPTS: &str = include_str!("agent_chat_ledger/prompt.sql");
 const AGENT_CHAT_SELECTION_SWITCHES: &str = include_str!("agent_chat_ledger/switch.sql");
+const POLICIES_PERMISSION_PROFILES: &str = include_str!("policies_permission_profiles.sql");
 
 #[derive(Debug)]
 struct Migration {
@@ -143,7 +142,7 @@ const fn migration(version: i64, sql: &'static str) -> Migration {
     Migration { version, sql }
 }
 
-const MIGRATIONS: [Migration; 23] = [
+const MIGRATIONS: [Migration; 24] = [
     migration(1, BASE_SCHEMA),
     migration(2, RUN_SESSION_BINDINGS),
     migration(3, RUN_PROJECTIONS),
@@ -167,6 +166,7 @@ const MIGRATIONS: [Migration; 23] = [
     migration(21, AGENT_CHAT),
     migration(22, AGENT_CHAT_PROMPTS),
     migration(23, AGENT_CHAT_SELECTION_SWITCHES),
+    migration(24, POLICIES_PERMISSION_PROFILES),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {

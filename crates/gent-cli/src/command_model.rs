@@ -4,7 +4,9 @@ use clap::{Parser, Subcommand};
 use gent_protocol::{DependencyAction, DependencyProvider};
 use std::path::PathBuf;
 
-use crate::{chat_cli, decision::DecisionCommandLine, update_check::UpdateCommand};
+use crate::{
+    chat_cli, decision::DecisionCommandLine, permissions_cli, update_check::UpdateCommand,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
@@ -52,6 +54,11 @@ pub(crate) enum CommandLine {
     Chat {
         #[command(subcommand)]
         action: chat_cli::ChatCommand,
+    },
+    /// Read or explicitly revise durable local permission preferences.
+    Permissions {
+        #[command(subcommand)]
+        action: permissions_cli::PermissionCommand,
     },
     Status,
     Submit {

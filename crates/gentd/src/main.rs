@@ -24,6 +24,9 @@ mod dependency_catalog_tests;
 mod event_stream;
 mod git_status_runtime;
 mod host_lock;
+mod permission_policy_api;
+mod permission_policy_transport;
+mod permission_workspace;
 #[cfg(unix)]
 mod private_paths;
 mod provider_effects;

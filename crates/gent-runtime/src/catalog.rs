@@ -24,6 +24,7 @@ pub enum RuntimeCapability {
     EventStream,
     Events,
     HostEpoch,
+    PermissionPolicies,
     Receipts,
 }
 
@@ -37,18 +38,20 @@ impl RuntimeCapability {
             Self::EventStream => EVENT_STREAM_CAPABILITY,
             Self::Events => "events",
             Self::HostEpoch => "host-epoch",
+            Self::PermissionPolicies => gent_protocol::PERMISSION_POLICY_CAPABILITY,
             Self::Receipts => "receipts",
         }
     }
 }
 
-const DECLARED: [RuntimeCapability; 7] = [
+const DECLARED: [RuntimeCapability; 8] = [
     RuntimeCapability::Attachments,
     RuntimeCapability::Decisions,
     RuntimeCapability::EventResync,
     RuntimeCapability::EventStream,
     RuntimeCapability::Events,
     RuntimeCapability::HostEpoch,
+    RuntimeCapability::PermissionPolicies,
     RuntimeCapability::Receipts,
 ];
 

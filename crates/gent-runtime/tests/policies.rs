@@ -1,6 +1,6 @@
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, PolicyRecord, PolicyScope, WorkspaceRecord};
+use gent_types::{CapabilitySet, PermissionMode, PolicyRecord, PolicyScope, WorkspaceRecord};
 
 #[test]
 fn coordinator_exposes_only_current_secret_free_policy_revision() {
@@ -17,7 +17,9 @@ fn coordinator_exposes_only_current_secret_free_policy_revision() {
         workspace_id: "workspace-a".into(),
         scope: PolicyScope::ProviderPermissions,
         revision: 1,
+        mode: PermissionMode::Plan,
         allowed_tools: vec!["git:status".into()],
+        allowed_categories: Vec::new(),
     };
     coordinator.save_policy(&policy).unwrap();
     assert_eq!(

@@ -4,7 +4,7 @@ use gent_drivers::installer::SystemDependencyInstaller;
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AttachmentFrame, DecisionRecoveryEvidence,
     DecisionSubmission, DependencyActionRequest, DependencyActionResult, DependencyPlan,
-    DependencyPlanRequest,
+    DependencyPlanRequest, PermissionPolicyFrame,
 };
 use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{
@@ -78,6 +78,7 @@ pub(crate) fn build_runtime_with_update_checks(
         .iter()
         .any(|capability| capability == gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY);
     let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
+    crate::permission_workspace::ensure(&ledger, data_dir)?;
     let attachments = AttachmentService::new(
         ledger.clone(),
         FileAttachmentBlobs::open(data_dir.join("attachments"))?,
@@ -169,6 +170,13 @@ impl api::RuntimeApi for RuntimeFacade {
             host_epoch,
             frame,
         )
+    }
+
+    fn permission_policy(
+        &self,
+        frame: PermissionPolicyFrame,
+    ) -> Result<PermissionPolicyFrame, String> {
+        crate::permission_policy_api::exchange(&self.coordinator, frame)
     }
 
     fn doctor(&self) -> DoctorReport {

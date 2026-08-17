@@ -20,6 +20,11 @@ The public crate dependency rules are encoded in the workspace layout:
 Driver-to-runtime conversion is composed only at the `gentd` edge. `gent-runtime` receives
 protocol, type, and port values rather than importing another product domain.
 
+Permission evaluation is a pure `gent-core` function over a typed request and an immutable policy
+revision. The `permission-policy-v1` local IPC extension only reads or appends those secret-free
+settings. It never launches a provider; Plan permits reads only, and Bypass requires an explicit
+terminal and daemon confirmation before it can be persisted.
+
 The agent-chat domains are `gent-adapters`, `gent-drivers`, `gent-git`,
 `gent-mcp`, the private external-provider bridge port, and the durable
 conversation/session runtime. In the future authority profile, only `gentd`

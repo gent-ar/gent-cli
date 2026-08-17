@@ -3,7 +3,8 @@
 use gent_protocol::{
     AgentChatIntentFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
     DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
+    PermissionPolicyFrame, PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest,
+    PublicRunStartRequest,
 };
 use gent_runtime::ConversationActivityRead;
 use gent_types::{
@@ -72,6 +73,10 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         _: AgentChatIntentFrame,
     ) -> Result<Vec<AgentChatIntentFrame>, String> {
         Err("agent chat is unavailable while gentd is observer-disabled".into())
+    }
+    /// Reads or appends one local, provider-neutral permission-policy revision.
+    fn permission_policy(&self, _: PermissionPolicyFrame) -> Result<PermissionPolicyFrame, String> {
+        Err("permission policy is unavailable for this runtime".into())
     }
     fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String>;
     fn conversations(&self) -> Result<Vec<ConversationListItem>, String> {

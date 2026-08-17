@@ -6,8 +6,8 @@ use std::process::Stdio;
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
     CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    Hello, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY, WireFrame, read_frame,
-    write_frame,
+    Hello, PERMISSION_POLICY_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY,
+    RUNTIME_UPDATE_CHECK_CAPABILITY, WireFrame, read_frame, write_frame,
 };
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
 
@@ -66,6 +66,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         CONVERSATION_TIMELINE_CAPABILITY.into(),
         RUNTIME_MAINTENANCE_CAPABILITY.into(),
         RUNTIME_UPDATE_CHECK_CAPABILITY.into(),
+        PERMISSION_POLICY_CAPABILITY.into(),
         "decisions".into(),
         "event-resync".into(),
         EVENT_STREAM_CAPABILITY.into(),
@@ -82,6 +83,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         CONVERSATION_TIMELINE_CAPABILITY.into(),
         RUNTIME_MAINTENANCE_CAPABILITY.into(),
         RUNTIME_UPDATE_CHECK_CAPABILITY.into(),
+        PERMISSION_POLICY_CAPABILITY.into(),
         "decisions".into(),
         "event-resync".into(),
         EVENT_STREAM_CAPABILITY.into(),
