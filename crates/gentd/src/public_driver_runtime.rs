@@ -87,8 +87,15 @@ where
         runner: D,
         resolver: R,
     ) -> Result<Self, PublicDriversRuntimeError> {
-        let ValidatedAuthorityProfile::PreparedPublicDrivers(approval) = profile else {
-            return Err(PublicDriversRuntimeError::ObserverProfile);
+        let approval = match profile {
+            ValidatedAuthorityProfile::PreparedPublicDrivers(approval)
+            | ValidatedAuthorityProfile::PreparedPublicDriversAndMcp {
+                public_drivers: approval,
+                ..
+            } => approval,
+            ValidatedAuthorityProfile::Observer | ValidatedAuthorityProfile::PreparedMcp(_) => {
+                return Err(PublicDriversRuntimeError::ObserverProfile);
+            }
         };
         let Some(actual_digest) = compatibility.manifest_sha256() else {
             return Err(PublicDriversRuntimeError::CompatibilityManifestUnavailable);

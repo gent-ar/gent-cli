@@ -149,6 +149,46 @@ impl ToolRegistry {
         self.tools.len()
     }
 
+    /// Returns whether a connector's complete declared tool set matches this registry.
+    ///
+    /// Declarations are compared as sets, so an executor cannot add a tool by repeating or
+    /// reordering input. Invalid identifiers are never accepted as a registered declaration.
+    #[must_use]
+    pub fn matches_declaration(&self, connector: &str, declared_tools: &[String]) -> bool {
+        let Ok(connector) = ConnectorId::parse(connector) else {
+            return false;
+        };
+        let Some(definition) = self.connector(&connector) else {
+            return false;
+        };
+        let declared = declared_tools
+            .iter()
+            .map(|tool| ToolName::parse(tool.clone()))
+            .collect::<Result<std::collections::BTreeSet<_>, _>>();
+        let Ok(declared) = declared else {
+            return false;
+        };
+        let registered = definition
+            .tools
+            .iter()
+            .map(|tool| tool.name.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        declared.len() == declared_tools.len() && declared == registered
+    }
+
+    /// Produces a stable, credential-free declaration for a composition-time integrity digest.
+    #[must_use]
+    pub fn canonical_declaration(&self) -> String {
+        self.connectors
+            .values()
+            .flat_map(|connector| {
+                connector.tools.iter().map(move |tool| {
+                    format!("{}\u{1f}{}\n", connector.id.as_str(), tool.name.as_str())
+                })
+            })
+            .collect()
+    }
+
     fn insert(&mut self, connector: ConnectorDefinition) -> Result<(), RegistryError> {
         if self.connectors.contains_key(&connector.id) {
             return Err(RegistryError::DuplicateConnector(connector.id));
@@ -206,59 +246,5 @@ fn valid_identifier(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        ConnectorDefinition, ConnectorId, IdentifierError, QualifiedToolId, RegistryError,
-        ToolDefinition, ToolName, ToolRegistry,
-    };
-
-    fn connector(id: &str, tools: &[&str]) -> ConnectorDefinition {
-        ConnectorDefinition {
-            id: ConnectorId::parse(id).unwrap(),
-            tools: tools
-                .iter()
-                .map(|name| ToolDefinition {
-                    name: ToolName::parse(*name).unwrap(),
-                })
-                .collect(),
-        }
-    }
-
-    #[test]
-    fn registry_indexes_tools_by_connector_and_name() {
-        let registry = ToolRegistry::build(vec![connector("github", &["issues"])]).unwrap();
-        let id = QualifiedToolId::new(
-            ConnectorId::parse("github").unwrap(),
-            ToolName::parse("issues").unwrap(),
-        );
-        assert_eq!(registry.connector_count(), 1);
-        assert_eq!(registry.tool_count(), 1);
-        assert_eq!(registry.tool(&id).unwrap().qualified_id(), id);
-    }
-
-    #[test]
-    fn duplicate_tools_are_rejected_before_registry_mutates() {
-        let error =
-            ToolRegistry::build(vec![connector("github", &["issues", "issues"])]).unwrap_err();
-        assert!(matches!(error, RegistryError::DuplicateTool(_)));
-    }
-
-    #[test]
-    fn duplicate_connectors_are_rejected() {
-        let error = ToolRegistry::build(vec![connector("github", &[]), connector("github", &[])])
-            .unwrap_err();
-        assert!(matches!(error, RegistryError::DuplicateConnector(_)));
-    }
-
-    #[test]
-    fn unsafe_or_ambiguous_identifiers_are_rejected() {
-        assert_eq!(
-            ConnectorId::parse("GitHub"),
-            Err(IdentifierError::InvalidConnectorId)
-        );
-        assert_eq!(
-            ToolName::parse("../shell"),
-            Err(IdentifierError::InvalidToolName)
-        );
-    }
-}
+#[path = "registry_tests.rs"]
+mod tests;
