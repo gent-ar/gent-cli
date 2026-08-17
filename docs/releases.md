@@ -2,7 +2,9 @@
 
 Gent releases are tag-only GitHub releases. The repository never treats an
 ordinary CI build, an unsigned archive, or a local developer binary as a
-release artifact.
+release artifact. A tag workflow fails closed until its protected signing
+configuration is present and agrees; this source revision is not itself a
+published release.
 
 ## What a release creates
 
@@ -23,9 +25,9 @@ files:
   digest-bound, channel/target-specific pointers to those envelopes, plus its
   Sigstore bundle; it is discovery metadata only and cannot authorize an
   archive without independently verified referenced release metadata;
-- signed `gent-install.sh`, `gent-install.ps1`, and
-  `gent-activate-install.py`, and `gent-supervise-runtime-activation.py`
-  bootstrap assets, each with a Sigstore bundle.
+- signed `gent-install.sh`, `gent-install.ps1`, `gent-activate-install.py`,
+  `gent-supervise-runtime-activation.py`, and the macOS/Linux external
+  `gent-auto-update.py` helper, each with a Sigstore bundle.
 
 The package tool fixes archive metadata to `SOURCE_DATE_EPOCH`, derived from
 the tagged commit. This makes archive construction deterministic for identical
@@ -66,6 +68,12 @@ revalidatable local cache. Windows currently installs the immutable pair but
 does not yet persist runtime-release cache material. Runtime staging, health
 confirmation, supervised activation, and rollback remain separate daemon
 authority gates on every platform.
+
+The signed external helper is opt-in: `gent update auto` registers a per-user
+LaunchAgent on macOS or systemd-user timer on Linux. GitHub `latest` is only an
+untrusted stable-tag hint. Before activation, the helper verifies the selected
+tag's signed bootstrap and delegates to the same paired idle-lock, health-check,
+and rollback path as `gent update apply`; it never makes `gentd` self-updating.
 
 ## Verify a downloaded archive
 

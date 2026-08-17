@@ -36,8 +36,27 @@ signed manifest. The installer refuses activation if `gentd` holds the chosen
 data directory's host lock after a bounded drain wait. On updates where the
 signed supervisor is present, it stages and probes the exact paired successor
 over local IPC before the pointer switch and rolls back on successor failure.
-It does not use a release feed, a background timer, or an in-process binary
-replacement.
+It does not use an in-process binary replacement.
+
+## Opt-in automatic updates
+
+After installing a release that contains the signed updater companion, macOS
+and Linux users may enable a user-level scheduler:
+
+```sh
+gent update auto enable --interval-seconds 21600
+gent update auto status
+gent update auto disable
+```
+
+`gent update auto run` is also available for a one-shot check. GitHub `latest`
+is untrusted discovery and can only choose a stable tag. The helper downloads
+that tag's installer and Sigstore bundle, verifies its tag-bound GitHub OIDC
+identity, then delegates to the same installer, staged health check, idle host
+lock, and rollback path as an explicit update. It serializes runs, bounds each
+operation, and records exponential-backoff state after failures. It never
+replaces `gentd` in process or starts provider work. Windows remains manual
+until an equivalent scheduler and lock implementation are shipped.
 
 Windows x86_64 follows the same verified-bootstrap rule using
 `gent-install.ps1` and `gent-install.ps1.sigstore.json` from that tag. Its
@@ -102,11 +121,15 @@ credential, billing, or routing configuration.
 
 ## Current authority boundary
 
-The shipped standalone daemon remains in observer mode. It has no provider
-spawn, MCP process, Git mutation, automation engine, pairing transport, or
-network-listener authority. The local IPC socket exists only for the versioned
-`gent` ↔ `gentd` protocol.
+The shipped standalone daemon remains in observer mode. It has no live provider
+spawn/lifecycle ingress, MCP process, Git mutation, automation engine, pairing
+transport, or network-listener authority. The local IPC socket exists only for
+the versioned `gent` ↔ `gentd` protocol.
 
-Provider live-capture, private bridge, observer parity, and app cutover are
-separate gates described in [implementation status](implementation-status.md).
-They cannot be completed by an onboarding command or an unsigned local build.
+Six Claude/Codex evidence cells remain capture-required: Claude
+persistent-permission, compaction, malformed-tolerance; Codex subagent,
+MCP-tool, malformed-tolerance. Claurst requires an authenticated app-private
+bridge and private CI. A future Flutter launch must enforce one active
+writer/host epoch and protocol compatibility; a single-user standalone install
+does not require a legacy migration or deployed fence-aware app release. These
+gates are described in [implementation status](implementation-status.md).

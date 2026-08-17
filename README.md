@@ -91,7 +91,7 @@ cargo run -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/m
 ## Try it
 
 Install a signed release (or explicitly rerun with `--force` to update it).
-This is a paired, manual installer update, not an automatic daemon self-update.
+This is a paired manual installer update by default; no daemon updates itself in-process.
 Choose a published tag, download the bootstrap asset and its Sigstore bundle,
 and verify the bootstrap before executing it:
 
@@ -144,19 +144,11 @@ specific daemon binary when `gent` should not resolve a sibling executable.
 Pass `--no-autostart` to require an already-running daemon, which is useful for
 supervised deployments and deterministic smoke tests.
 
-`gent update check` is a negotiated, read-only daemon operation. It is available
-only when a supervised `gentd` starts with `--runtime-update-check-authority`,
-a revalidated signed release cache, and its trusted public key. It never fetches
-metadata, downloads an archive, writes a ledger, or starts/replaces `gentd`.
-The ordinary auto-started observer daemon deliberately does not advertise this
-capability. To update from a verified candidate, use the explicit external
-handoff below. It verifies the tag-bound installer bootstrap, and that installer
-independently verifies the archive, manifest, and supplied archive digest before
-staging the immutable binary pair. It refuses to switch the pair while `gentd`
-owns the selected data directory. On a replacement, the signed external
-supervisor first health-checks the staged pair over local IPC, then waits a
-bounded time for the old host lock and rolls back the pointer if successor
-health fails:
+`gent update check` is read-only and requires the explicit supervised daemon
+profile; the ordinary observer daemon does not advertise it. For a verified
+update, the external handoff verifies its tag-bound bootstrap, archive, manifest,
+and supplied digest before staging the immutable pair. It refuses a live host,
+health-checks the successor, and rolls back a failed pointer switch:
 
 ```sh
 digest='target archive digest from the signed manifest'
@@ -166,10 +158,21 @@ gent --data-dir "$GENT_DATA_DIR" update apply \
   --consent
 ```
 
-Pass `--install-dir DIR` when the runtime is not installed under the default root.
-The command never selects `latest` or silently falls back to another archive.
-It only starts the staged pair for isolated health checks and never replaces a
-live process in place; stop or drain the target daemon before a handoff.
+Pass `--install-dir DIR` when needed. It never selects `latest`, silently
+substitutes an archive, or replaces a live process in place.
+
+On an installed macOS/Linux pair, automatic checks are opt-in and external:
+
+```sh
+gent update auto enable --interval-seconds 21600
+gent update auto status
+gent update auto disable
+```
+
+`gent update auto run` performs a one-shot check. Its LaunchAgent/systemd-user
+timer treats GitHub `latest` only as an untrusted stable-tag hint, then repeats
+the signed idle-lock, health-check, and rollback path. It serializes/backoffs;
+never starts provider work or replaces `gentd` in process. Windows is manual.
 
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
 conversation browser. It lists durable identities and run counts. Observer mode
@@ -194,9 +197,10 @@ bash tools/smoke-local-ipc.sh
 
 The phase-0 manifest lists every required Claude/Codex scenario without
 inventing recordings. It includes redacted live `full_turn`, `tool_use`,
-`tool_error`, plan-mode, and observed thinking/usage captures for Claude and the
-requested Codex `gpt-5.6-luna`
-configuration; every unexercised scenario remains explicitly capture-required.
+`tool_error`, plan-mode, and observed thinking/usage captures for Claude and
+the requested Codex `gpt-5.6-luna` configuration. Six strict cells remain:
+Claude persistent-permission, compaction, and malformed-tolerance; Codex
+subagent, MCP-tool, and malformed-tolerance. They are capture-required.
 The coverage manifest
 links to that inventory, so an authority-evidence record for Claude or Codex
 must name a recorded transcript whose provider/version/platform/driver transport
@@ -270,25 +274,19 @@ The Flutter app is not a dependency of this workspace. Setup is in
 
 ## Code architecture
 
-`main` is the only composition root: it wires ports, infrastructure, and the
-application together, then delegates immediately. Product modules communicate
-only through typed commands, value types, protocols, and exported ports. A
-module never reaches into another product domain or infrastructure detail.
-The architecture check rejects direct product-domain imports in every production
-module except the `gentd` composition root.
-Pure state transitions remain small functions that can be tested without I/O;
-adapters own I/O at the edge. Every hand-authored Rust source, test, script,
-and CI workflow file is kept at 300 lines or fewer and CI enforces that limit.
-Generated lockfiles and recorded evidence fixtures are excluded from this
-source-size rule.
+`main` is the only composition root; it delegates through typed commands,
+values, protocols, and ports. Product modules never reach into another domain
+or infrastructure detail; the architecture check rejects direct product-domain
+imports outside `gentd`. Pure transitions are testable without I/O; adapters own
+edge I/O. Every hand-authored source, test, script, and CI workflow is at most
+300 lines; generated lockfiles and evidence fixtures are excluded.
 
 ## Security boundary
 
-`gentd` never receives Claurst credentials or endpoint configuration. Provider
-installation or updates are explicit, receipt-backed user actions; `gent doctor`
-only observes dependencies. The present daemon does not route or start live provider
-runs, MCP servers, Git operations, or network listeners. The opt-in agent-chat
-ledger is persistence only. Pairing and application-specific automation remain outside its protocol.
+`gentd` never receives Claurst credentials or endpoints: its bridge is
+app-private and private-CI-only. Provider updates are explicit, receipt-backed;
+`gent doctor` only observes. The daemon routes no live provider, MCP, Git, or
+listener; its opt-in ledger is persistence only. Pairing/app automation is out.
 
 On macOS and Linux, `gentd` creates its data directory with owner-only permissions
 and accepts a Unix socket only beneath that directory; the socket itself is also

@@ -1,4 +1,4 @@
-# Architecture and migration boundary
+# Architecture and integration boundary
 
 This workspace implements the runtime-first portion of the Gent platform
 contract. `gentd` is the only future writer for the Gent ledger and `gent` is
@@ -38,15 +38,15 @@ older planning material that provisionally grouped pairing and automations with
 daemon-owned domains; it does not change that source material in the Flutter
 application repository.
 
-No migration authority transfers to this repository until recorded baseline
-transcripts, observer parity, public-driver evidence, app compatibility and
-the fence-aware legacy release all pass. In particular, this project does not
-currently replace any Flutter application behavior.
+The zero-user/single-developer standalone path has no legacy app or fleet to
+migrate, so it does not require a deployed fence-aware legacy release. This
+project still does not replace Flutter behavior. Before a future Flutter launch
+uses Gent, it must establish protocol compatibility and exactly one active
+writer/host epoch; no client may bypass that guard.
 
 The current daemon hard-disables public provider lifecycle work in observer
-mode, but that is not the phase-4 legacy observer profile. That later profile
-must consume a legacy event tap without opening a Rust ledger, exposing a
-mutation API, or acquiring a worktree lease.
+mode. Existing legacy-tap utilities are compatibility experiments, not a
+required migration or an authority-transfer claim.
 
 ## Future lifecycle and runtime-update boundary
 
@@ -71,29 +71,24 @@ The observer daemon does not advertise runtime-update work. An explicit
 check contract after it loads a locally cached, signed release with a trusted
 public key; the cache is revalidated on every request. It never fetches a tag,
 writes a ledger checkpoint, downloads an archive, or activates a runtime.
-Separately, a user may invoke `gent update apply` only with a tag, exact target digest, and
-`--consent`. The client verifies the tag-bound signed installer bootstrap, then
-launches that external process; the installer independently verifies the signed
-archive and manifest, stages `gent` and `gentd` together (plus a signed native
-Windows launcher where applicable), and takes the daemon host lock
-during the atomic pointer switch. A signed external supervisor health-checks a
-staged Unix pair before that switch, waits for an idle host lock, and restores
-the old pointer if successor health fails. It never replaces a live daemon in
-process. This is install distribution, not an advertised daemon-update
-authority or a release-metadata protocol.
+Separately, `gent update apply` requires a tag, exact target digest, and
+`--consent`. Its client verifies a tag-bound signed bootstrap; the installer
+independently verifies the archive/manifest, stages `gent`/`gentd` together,
+and takes the daemon host lock during the atomic pointer switch. A signed
+external Unix supervisor health-checks a staged pair, waits for idle, and rolls
+back on successor-health failure. It never replaces a live daemon in process.
 
-The standalone release design may later let a compatible `gentd` self-update
-without rebuilding an app: the runtime already verifies a versioned, signed
-release manifest and revalidates its offline cache before every use. Only a
-signed, digest-verified, protocol/schema/app-range-compatible artifact may be
-staged; activation must drain or durably hand off work, pass a local health
-handshake and read-only probe, and retain a safe rollback path. A forward-only
-migration, revoked build, failed health probe, or incompatible app range must
-instead leave ingress closed in a clear read-only/update-required state.
-The runtime coordinates trusted staging, health, and bootstrapper handoff only
-through fakeable ports behind a separately approved authority profile. Concrete
-distribution adapters, a real binary swap, and every mutating observer update
-API remain deliberately unimplemented and unadvertised.
+The installed macOS/Linux pair also contains a signed external updater. Opt-in
+`gent update auto` registers a user LaunchAgent or systemd-user timer. GitHub
+`latest` is untrusted discovery only; every selected tag repeats bootstrap and
+archive verification and uses the same idle-only supervisor path. The helper
+serializes runs and records bounded retry backoff. Windows currently offers the
+signed manual pair only. This is distribution, not daemon-update authority:
+observer `gentd` never fetches, schedules, stages, or activates itself.
+
+A future live daemon-update authority must still validate protocol/schema/app
+compatibility, retain rollback, and leave ingress closed on incompatible or
+unhealthy successors. It needs its own authority and update-under-load evidence.
 
 After an external supervisor has staged and started the paired successor, its
 explicit `gentd --runtime-update-recover-authority` profile can revalidate the

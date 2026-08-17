@@ -1,6 +1,6 @@
 # Implementation Status
 
-This document records implemented repository work separately from migration
+This document records implemented repository work separately from live-runtime
 evidence. A checked box means code and deterministic tests exist here; it does
 not claim provider or app compatibility evidence that has not been recorded.
 
@@ -136,10 +136,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       durable-write, archive-download, staging, or activation capability. `gent update check`
       now requires that negotiated daemon capability rather than performing client-owned discovery.
 - [x] Signed, expiring release-index DTOs and runtime trust verification for target-specific,
-      tag/version-consistent, digest-bound release-manifest offers. The pure opt-in scheduler
-      policy checks only while idle, backs off boundedly after unavailable checks, and is hard
-      disabled without explicit update authority. No network fetcher or daemon scheduler is
-      composed from these primitives yet.
+      tag/version-consistent, digest-bound release-manifest offers. A signed external macOS/Linux
+      helper provides opt-in LaunchAgent/systemd-user scheduling, serialized idle-only checks,
+      bounded retry backoff, and tag-bound bootstrap verification before it delegates activation.
+      It is not a daemon scheduler or observer update authority; Windows remains manual.
 - [x] Authority-gated, versioned `runtime-maintenance-v1` status reads expose one durable
       update attempt's exact stage/failure/revision and host ingress state through negotiated
       local IPC. It is unavailable in observer mode and cannot fetch, schedule, stage, or
@@ -205,6 +205,10 @@ not claim provider or app compatibility evidence that has not been recorded.
       the exact release, health-checks local IPC, waits for the old host lock,
       atomically selects the pair, and rolls back after successor-health failure.
       It never performs in-process replacement or background release polling.
+- [x] `gent update auto enable|status|disable|run` delegates only to the signed
+      installed external helper. GitHub `latest` is an untrusted stable-tag hint;
+      the helper repeats tag-bound Sigstore bootstrap verification and invokes
+      the same paired, idle-lock, staged-health, rollback-aware installer path.
 - [x] Read-only stable-channel update discovery: untrusted GitHub metadata only
       locates a tag; the matching target manifest and Sigstore bundle must verify
       before a candidate/digest is shown. Missing network or `cosign` truthfully
@@ -234,11 +238,11 @@ not claim provider or app compatibility evidence that has not been recorded.
 ## Intentionally not claimed
 
 - [ ] Complete real Claude/Codex recordings and installed-provider integration evidence.
-      Redacted macOS `full_turn`, `tool_use`, `tool_error`, Claude plan-mode,
-      and observed thinking/usage captures exist for Claude and Codex `gpt-5.6-luna`;
-      the remaining required scenario matrix and
-      installed-provider integration evidence are still capture-required.
-- [ ] Authenticated private Claurst bridge evidence (private CI only).
+      The six strict missing cells are Claude persistent-permission, compaction,
+      malformed-tolerance; and Codex subagent, MCP-tool, malformed-tolerance.
+      They need redacted, scenario-specific live evidence, not an observed absence.
+- [ ] Authenticated private Claurst bridge implementation/evidence (private CI only);
+      public Gent must not contain its credentials, endpoints, or routing implementation.
 - [ ] MCP hosting, Git mutation/worktree operations, and provider process lifecycle ownership
       in a live daemon. The narrow Git status service above remains dormant until an
       authority-gated host profile is proven.
@@ -246,16 +250,15 @@ not claim provider or app compatibility evidence that has not been recorded.
       It must not launch provider binaries directly; the durable UI boundary is a negotiated,
       long-lived `gentd` connection rather than one `gent` process per prompt. Device pairing and
       application-specific UI automation execution stay Flutter-owned and are intentionally
-      excluded from `gentd`.
-- [ ] A phase-4 legacy-observer host profile: it must consume a `LegacyEventTap`
-      without Rust durable writes, mutation APIs, or worktree leases. The current
-      standalone daemon's hard public-provider observer guard does not claim this.
-- [ ] Fence-aware legacy app release and authority-transfer state machine.
+      excluded from `gentd`. Its first launch must enforce one writer/host epoch and
+      protocol compatibility; the zero-user/single-developer path has no legacy migration gate.
 - [ ] An authoritative, advertised `ConversationActivity` service backed by approved provider
       ingress, app-compatible fallback, and the complete cross-process lifecycle race matrix.
-- [ ] An authoritative, health-checked `gentd` self-update distribution path with
-      update-under-load recovery evidence. The secure explicit idle-only installer
-      handoff above is install distribution, not this future daemon authority.
+- [ ] An authoritative, health-checked `gentd` self-update path with update-under-load
+      recovery evidence. The shipped external automatic updater is signed, idle-only
+      distribution; it is not future daemon authority.
+- [ ] Production release publication for the current source revision. Verify/configure the
+      repository's tag-release signing configuration before users rely on a new release.
 
 ## Recorded follow-on scope
 
@@ -274,5 +277,6 @@ their own protocol, persistence, receipts, observer-disablement, and live-eviden
 work before they are advertised.
 
 The coverage manifest blocks an authority-transfer invocation while its real
-evidence records are absent. This is deliberate: recorded provider evidence
-and a legacy-writer release are external prerequisites, never placeholders.
+evidence records are absent. This is deliberate: recorded provider evidence is
+an external prerequisite, never a placeholder. A future app launch separately
+enforces its one-writer/host-epoch guard.
