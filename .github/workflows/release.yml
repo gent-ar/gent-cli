@@ -215,7 +215,7 @@ jobs:
           }, separators=(',', ':')) + '\n', encoding='utf-8')
           PY
           rm -f "$key"
-          find release-artifacts \( -name '*.runtime-release.json' -o -name 'gent-runtime-release-index.json' -o -name 'gent-runtime-release-trust.json' \) -type f -print0 \
+          find release-artifacts \( -name '*.runtime-release.json' -o -name '*.runtime-release-index.json' -o -name 'gent-runtime-release-trust.json' \) -type f -print0 \
             | xargs -0 -n1 sh -c 'cosign sign-blob --yes --bundle "$0.sigstore.json" "$0"'
       - name: Sign the installer bootstrap
         shell: bash
@@ -230,6 +230,9 @@ jobs:
           cosign sign-blob --yes --bundle release-artifacts/gent-activate-install.py.sigstore.json release-artifacts/gent-activate-install.py
           cosign sign-blob --yes --bundle release-artifacts/gent-auto-update.py.sigstore.json release-artifacts/gent-auto-update.py
           cosign sign-blob --yes --bundle release-artifacts/gent-supervise-runtime-activation.py.sigstore.json release-artifacts/gent-supervise-runtime-activation.py
+          while IFS= read -r -d '' artifact; do
+            test -s "$artifact.sigstore.json"
+          done < <(find release-artifacts -type f ! -name '*.sigstore.json' -print0)
       - name: Publish signed artifacts
         shell: bash
         env:

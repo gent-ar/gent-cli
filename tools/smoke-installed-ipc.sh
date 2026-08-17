@@ -32,6 +32,16 @@ gentd_version="$("$bin_dir/gentd" --version)" || fail "gentd --version failed"
 if [[ -n "$expected_version" ]]; then
   [[ "$gent_version" == *"$expected_version" && "$gentd_version" == *"$expected_version" ]] || fail "installed pair does not match expected version"
 fi
+"$bin_dir/gent" --data-dir "$data_dir" update auto status >"$data_dir/auto-update.json" || fail "installed automatic update status failed"
+python3 - "$data_dir/auto-update.json" <<'PY'
+import json
+import pathlib
+import sys
+
+status = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert status["schemaVersion"] == 1
+assert status["enabled"] is False
+PY
 
 "$bin_dir/gentd" --data-dir "$data_dir" >"$data_dir/gentd.log" 2>&1 &
 daemon_pid="$!"

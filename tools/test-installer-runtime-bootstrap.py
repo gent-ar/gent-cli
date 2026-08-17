@@ -126,6 +126,13 @@ def main() -> None:
         assert cache["release"]["keyId"] == "test-release"
         assert (staged / "runtime-release-trust.json").stat().st_mode & 0o777 == 0o600
         assert (install / "lib/gent/gent-auto-update.py").is_file()
+        status = subprocess.run(
+            [str(install / "bin/gent"), "--data-dir", str(root / "data"), "update", "auto", "status"],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        assert json.loads(status.stdout) == {"enabled": False, "failureCount": 0, "nextEligibleAt": 0, "schemaVersion": 1}
     print("installer runtime bootstrap checks passed")
 
 
