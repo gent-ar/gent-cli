@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use ed25519_dalek::{Signer, SigningKey};
 use gent_types::{
-    RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseArtifact, RuntimeReleaseChannel,
-    RuntimeReleaseManifest, RuntimeVersion, SignedRuntimeRelease,
+    RUNTIME_RELEASE_INDEX_VERSION, RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseArtifact,
+    RuntimeReleaseChannel, RuntimeReleaseIndex, RuntimeReleaseManifest, RuntimeReleaseOffer,
+    RuntimeVersion, SignedRuntimeRelease, SignedRuntimeReleaseIndex,
 };
 
 use super::{RuntimeReleaseTrust, RuntimeReleaseTrustError};
@@ -48,10 +49,61 @@ fn trust(key: &SigningKey) -> RuntimeReleaseTrust {
     RuntimeReleaseTrust::new(BTreeMap::from([("release-1".into(), key.verifying_key())]))
 }
 
+fn index(key: &SigningKey) -> SignedRuntimeReleaseIndex {
+    let payload = RuntimeReleaseIndex {
+        index_version: RUNTIME_RELEASE_INDEX_VERSION,
+        expires_at_unix_seconds: 10,
+        revoked: false,
+        offers: vec![RuntimeReleaseOffer {
+            release_tag: "v1.2.3".into(),
+            release_version: RuntimeVersion {
+                major: 1,
+                minor: 2,
+                patch: 3,
+            },
+            channel: RuntimeReleaseChannel::Stable,
+            target: "aarch64-apple-darwin".into(),
+            manifest_name: "gent-v1.2.3-aarch64-apple-darwin.runtime-release.json".into(),
+            manifest_digest_sha256: "b".repeat(64),
+        }],
+    };
+    SignedRuntimeReleaseIndex {
+        key_id: "release-1".into(),
+        signature_hex: hex::encode(key.sign(&serde_json::to_vec(&payload).unwrap()).to_bytes()),
+        payload,
+    }
+}
+
 #[test]
 fn verifies_a_valid_release_at_its_expiry_boundary() {
     let key = SigningKey::from_bytes(&[7; 32]);
     assert!(trust(&key).verify_release(&release(&key), 10).is_ok());
+}
+
+#[test]
+fn verifies_only_valid_expiring_offer_indexes() {
+    let key = SigningKey::from_bytes(&[7; 32]);
+    assert!(trust(&key).verify_index(&index(&key), 10).is_ok());
+    let mut invalid = index(&key);
+    invalid.payload.offers[0].release_tag = "v9.9.9".into();
+    invalid.signature_hex = hex::encode(
+        key.sign(&serde_json::to_vec(&invalid.payload).unwrap())
+            .to_bytes(),
+    );
+    assert!(matches!(
+        trust(&key).verify_index(&invalid, 1),
+        Err(RuntimeReleaseTrustError::InvalidOffer)
+    ));
+    let mut expired = index(&key);
+    expired.payload.expires_at_unix_seconds = 0;
+    expired.signature_hex = hex::encode(
+        key.sign(&serde_json::to_vec(&expired.payload).unwrap())
+            .to_bytes(),
+    );
+    assert!(matches!(
+        trust(&key).verify_index(&expired, 1),
+        Err(RuntimeReleaseTrustError::InvalidIndex)
+    ));
 }
 
 #[test]

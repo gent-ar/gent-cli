@@ -181,9 +181,9 @@ fn trust_failure(error: &RuntimeReleaseTrustError) -> RuntimeUpdateFailure {
         | RuntimeReleaseTrustError::UnsupportedManifestVersion
         | RuntimeReleaseTrustError::InvalidRollout
         | RuntimeReleaseTrustError::InvalidArtifact
-        | RuntimeReleaseTrustError::InvalidCompatibilityRange => {
-            RuntimeUpdateFailure::SignatureInvalid
-        }
+        | RuntimeReleaseTrustError::InvalidCompatibilityRange
+        | RuntimeReleaseTrustError::InvalidIndex
+        | RuntimeReleaseTrustError::InvalidOffer => RuntimeUpdateFailure::SignatureInvalid,
     }
 }
 

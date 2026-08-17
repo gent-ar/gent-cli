@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 /// The only runtime release-manifest contract understood by this build.
 pub const RUNTIME_RELEASE_MANIFEST_VERSION: u16 = 1;
 
+/// The only signed channel-index contract understood by this build.
+pub const RUNTIME_RELEASE_INDEX_VERSION: u16 = 1;
+
 /// A three-part Gent runtime or app version.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +62,40 @@ pub struct RuntimeReleaseManifest {
 pub struct SignedRuntimeRelease {
     pub key_id: String,
     pub payload: RuntimeReleaseManifest,
+    pub signature_hex: String,
+}
+
+/// A signed, target-specific pointer to the exact release metadata asset.
+///
+/// The index selects an offer only. The referenced release envelope still has
+/// to verify independently before an archive can be staged.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeReleaseOffer {
+    pub release_tag: String,
+    pub release_version: RuntimeVersion,
+    pub channel: RuntimeReleaseChannel,
+    pub target: String,
+    pub manifest_name: String,
+    pub manifest_digest_sha256: String,
+}
+
+/// Expiring signed discovery metadata for all offers published with one release.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeReleaseIndex {
+    pub index_version: u16,
+    pub expires_at_unix_seconds: u64,
+    pub revoked: bool,
+    pub offers: Vec<RuntimeReleaseOffer>,
+}
+
+/// Signed envelope for a runtime release index.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignedRuntimeReleaseIndex {
+    pub key_id: String,
+    pub payload: RuntimeReleaseIndex,
     pub signature_hex: String,
 }
 

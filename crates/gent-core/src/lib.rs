@@ -10,6 +10,7 @@ mod lifecycle_state;
 mod observer_comparison;
 mod projection_snapshot;
 mod runtime_update;
+mod runtime_update_schedule;
 mod tool_classification;
 mod turn_lifecycle;
 pub use attachment_transfer::*;
@@ -31,6 +32,10 @@ pub use projection_snapshot::{restore_projection, snapshot_projection};
 pub use runtime_update::{
     RuntimeUpdateContext, RuntimeUpdateEligibility, RuntimeUpdateEvent, RuntimeUpdateIngress,
     RuntimeUpdateTransition, assess_runtime_update, reduce_runtime_update,
+};
+pub use runtime_update_schedule::{
+    RuntimeUpdateCheckOutcome, RuntimeUpdateSchedule, RuntimeUpdateScheduleDecision,
+    RuntimeUpdateScheduleState, record_runtime_update_check, schedule_runtime_update_check,
 };
 pub use tool_classification::ToolCatalog;
 pub use turn_lifecycle::permits_turn_transition;

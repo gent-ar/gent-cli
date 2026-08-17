@@ -131,6 +131,11 @@ not claim provider or app compatibility evidence that has not been recorded.
       it revalidates the signature and expiry on every request and has no fetch,
       durable-write, archive-download, staging, or activation capability. `gent update check`
       now requires that negotiated daemon capability rather than performing client-owned discovery.
+- [x] Signed, expiring release-index DTOs and runtime trust verification for target-specific,
+      tag/version-consistent, digest-bound release-manifest offers. The pure opt-in scheduler
+      policy checks only while idle, backs off boundedly after unavailable checks, and is hard
+      disabled without explicit update authority. No network fetcher or daemon scheduler is
+      composed from these primitives yet.
 - [x] Pure normalized driver frames and declarative adapter interpreter.
 - [x] Pure documented Claude stream-JSON and Codex app-server handshake/normalizers with
       ordered synthetic transcript replay; these preserve only typed facts and do not

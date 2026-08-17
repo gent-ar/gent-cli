@@ -3,7 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use gent_types::{RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseManifest, SignedRuntimeRelease};
+use gent_types::{
+    RUNTIME_RELEASE_INDEX_VERSION, RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseIndex,
+    RuntimeReleaseManifest, RuntimeReleaseOffer, SignedRuntimeRelease, SignedRuntimeReleaseIndex,
+};
 
 /// Keyring and explicit signer-revocation state for runtime release verification.
 #[derive(Clone, Debug, Default)]
@@ -37,6 +40,10 @@ pub enum RuntimeReleaseTrustError {
     InvalidCompatibilityRange,
     #[error("runtime release artifact digest is not a SHA-256 hex digest")]
     InvalidDigest,
+    #[error("runtime release index has expired or has been revoked")]
+    InvalidIndex,
+    #[error("runtime release index contains an invalid offer")]
+    InvalidOffer,
 }
 
 impl RuntimeReleaseTrust {
@@ -70,22 +77,85 @@ impl RuntimeReleaseTrust {
         if self.revoked_keys.contains(&release.key_id) {
             return Err(RuntimeReleaseTrustError::RevokedSigner);
         }
-        verify_signature(key, release)?;
+        verify_signed_payload(key, &release.payload, &release.signature_hex)?;
         validate_manifest(&release.payload, now_unix_seconds)
+    }
+
+    /// Verifies an expiring signed channel index before it is used for discovery.
+    ///
+    /// A verified index is not sufficient to stage an archive: its referenced
+    /// [`SignedRuntimeRelease`] must pass [`Self::verify_release`] separately.
+    ///
+    /// # Errors
+    /// Returns an error when the signer, signature, expiry, or offer shape is invalid.
+    pub fn verify_index(
+        &self,
+        index: &SignedRuntimeReleaseIndex,
+        now_unix_seconds: u64,
+    ) -> Result<(), RuntimeReleaseTrustError> {
+        let key = self
+            .trusted_keys
+            .get(&index.key_id)
+            .ok_or(RuntimeReleaseTrustError::UnknownSigner)?;
+        if self.revoked_keys.contains(&index.key_id) {
+            return Err(RuntimeReleaseTrustError::RevokedSigner);
+        }
+        verify_signed_payload(key, &index.payload, &index.signature_hex)?;
+        validate_index(&index.payload, now_unix_seconds)
     }
 }
 
-fn verify_signature(
+fn verify_signed_payload<T: serde::Serialize>(
     key: &VerifyingKey,
-    release: &SignedRuntimeRelease,
+    payload: &T,
+    signature_hex: &str,
 ) -> Result<(), RuntimeReleaseTrustError> {
-    let bytes = hex::decode(&release.signature_hex)
-        .map_err(|_| RuntimeReleaseTrustError::InvalidSignature)?;
+    let bytes =
+        hex::decode(signature_hex).map_err(|_| RuntimeReleaseTrustError::InvalidSignature)?;
     let signature =
         Signature::from_slice(&bytes).map_err(|_| RuntimeReleaseTrustError::InvalidSignature)?;
-    let payload = serde_json::to_vec(&release.payload)?;
+    let payload = serde_json::to_vec(payload)?;
     key.verify(&payload, &signature)
         .map_err(|_| RuntimeReleaseTrustError::InvalidSignature)
+}
+
+fn validate_index(
+    index: &RuntimeReleaseIndex,
+    now_unix_seconds: u64,
+) -> Result<(), RuntimeReleaseTrustError> {
+    if index.index_version != RUNTIME_RELEASE_INDEX_VERSION
+        || index.expires_at_unix_seconds < now_unix_seconds
+        || index.revoked
+        || index.offers.is_empty()
+    {
+        return Err(RuntimeReleaseTrustError::InvalidIndex);
+    }
+    let mut identities = BTreeSet::new();
+    for offer in &index.offers {
+        validate_offer(offer)?;
+        if !identities.insert((offer.channel as u8, offer.target.clone())) {
+            return Err(RuntimeReleaseTrustError::InvalidOffer);
+        }
+    }
+    Ok(())
+}
+
+fn validate_offer(offer: &RuntimeReleaseOffer) -> Result<(), RuntimeReleaseTrustError> {
+    let numeric_tag = format!(
+        "v{}.{}.{}",
+        offer.release_version.major, offer.release_version.minor, offer.release_version.patch
+    );
+    let digest = &offer.manifest_digest_sha256;
+    if offer.release_tag != numeric_tag
+        || offer.target.trim().is_empty()
+        || offer.manifest_name.trim().is_empty()
+        || offer.manifest_name.contains('/')
+        || digest.len() != 64
+        || !digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(RuntimeReleaseTrustError::InvalidOffer);
+    }
+    Ok(())
 }
 
 fn validate_manifest(
