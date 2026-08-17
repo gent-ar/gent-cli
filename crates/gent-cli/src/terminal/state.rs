@@ -2,6 +2,7 @@
 
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, ConversationListItem,
+    ConversationStatus,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,6 +53,7 @@ pub(crate) struct UiState {
     chat_enabled: bool,
     input: String,
     selection: AgentChatSelection,
+    status: Option<ConversationStatus>,
     notice: Option<String>,
 }
 
@@ -70,6 +72,7 @@ impl UiState {
                 effort: AgentChatEffort::Medium,
                 mode: AgentChatMode::Ask,
             },
+            status: None,
             notice: None,
         }
     }
@@ -77,6 +80,16 @@ impl UiState {
     #[must_use]
     pub(crate) fn with_chat_input(mut self, chat_enabled: bool) -> Self {
         self.chat_enabled = chat_enabled;
+        self
+    }
+
+    /// Adds one content-free status only while it belongs to the selected conversation.
+    #[must_use]
+    pub(crate) fn with_status(mut self, status: Option<ConversationStatus>) -> Self {
+        self.status = status.filter(|status| {
+            self.selected()
+                .is_some_and(|item| item.conversation_id == status.conversation_id)
+        });
         self
     }
 
@@ -89,6 +102,15 @@ impl UiState {
     pub(crate) fn selected(&self) -> Option<&ConversationListItem> {
         self.selected
             .and_then(|index| self.conversations.get(index))
+    }
+
+    /// Returns only status data that is known to match the current selection.
+    #[must_use]
+    pub(crate) fn selected_status(&self) -> Option<&ConversationStatus> {
+        self.status.as_ref().filter(|status| {
+            self.selected()
+                .is_some_and(|item| item.conversation_id == status.conversation_id)
+        })
     }
 
     #[must_use]
@@ -122,6 +144,7 @@ impl UiState {
                 0
             });
         self.selected = Some(index);
+        self.status = None;
         self.notice = Some(result.notice);
     }
 
@@ -202,55 +225,15 @@ impl UiState {
 
     fn select(&mut self, next: impl FnOnce(usize, usize) -> usize) {
         if let Some(current) = self.selected {
-            self.selected = Some(next(current, self.conversations.len()));
+            let selected = next(current, self.conversations.len());
+            if selected != current {
+                self.selected = Some(selected);
+                self.status = None;
+            }
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use gent_types::ConversationListItem;
-
-    use super::{UiCommand, UiEffect, UiRequest, UiState};
-
-    fn item(id: &str) -> ConversationListItem {
-        ConversationListItem {
-            conversation_id: id.into(),
-            run_count: 1,
-        }
-    }
-
-    #[test]
-    fn selection_is_clamped_and_empty_state_is_safe() {
-        let mut state = UiState::new(vec![item("one"), item("two")]);
-        state.apply(UiCommand::SelectPrevious);
-        assert_eq!(state.selected().unwrap().conversation_id, "one");
-        state.apply(UiCommand::SelectNext);
-        state.apply(UiCommand::SelectNext);
-        assert_eq!(state.selected().unwrap().conversation_id, "two");
-        let mut empty = UiState::new(Vec::new());
-        assert!(empty.selected().is_none());
-        assert_eq!(empty.apply(UiCommand::SelectNext), UiEffect::Continue);
-    }
-
-    #[test]
-    fn quit_is_the_only_terminal_action() {
-        let mut state = UiState::new(vec![item("one")]);
-        assert_eq!(state.apply(UiCommand::SelectNext), UiEffect::Continue);
-        assert_eq!(state.apply(UiCommand::Quit), UiEffect::Quit);
-    }
-
-    #[test]
-    fn enabled_input_emits_a_typed_request_without_doing_io() {
-        let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
-        state.apply(UiCommand::Insert('h'));
-        state.apply(UiCommand::Insert('i'));
-        assert_eq!(
-            state.apply(UiCommand::SubmitPrompt),
-            UiEffect::Request(UiRequest::Send {
-                conversation_id: "one".into(),
-                text: "hi".into(),
-            })
-        );
-    }
-}
+#[path = "state_tests.rs"]
+mod tests;

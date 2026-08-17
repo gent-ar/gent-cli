@@ -1,5 +1,6 @@
 //! Pure Ratatui rendering for conversation discovery and durable-input availability.
 
+use gent_types::{ConversationLiveStatus, ConversationStatus};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -59,11 +60,70 @@ fn index_widget(state: &UiState) -> List<'static> {
 fn detail_widget(state: &UiState) -> Paragraph<'static> {
     let body = state.selected().map_or_else(
         || "Select a conversation when one is available.\n\nNo transcript content is exposed in observer mode.".into(),
-        |item| format!("Conversation: {}\nRuns: {}\n\nUse gent conversation status or timeline for content-free metadata.", item.conversation_id, item.run_count),
+        |item| {
+            format!(
+                "Conversation: {}\nRuns: {}\n\n{}",
+                item.conversation_id,
+                item.run_count,
+                status_text(state.selected_status()),
+            )
+        },
     );
     Paragraph::new(body)
         .wrap(Wrap { trim: true })
         .block(Block::default().borders(Borders::ALL).title("Details"))
+}
+
+fn status_text(status: Option<&ConversationStatus>) -> String {
+    let Some(status) = status else {
+        return "Activity is unavailable for this selection; it is not inferred.\n\nUse gent conversation status or timeline for content-free metadata.".into();
+    };
+    if status.runs.is_empty() {
+        return "Runs: none\nActivity: idle".into();
+    }
+    status
+        .runs
+        .iter()
+        .map(|run| {
+            let lineage = run
+                .parent_run_id
+                .as_deref()
+                .map_or_else(String::new, |parent| format!(" ← {parent}"));
+            let activity = run.live_status.as_ref().map_or_else(
+                || "activity unavailable".into(),
+                |live| activity_text(&live.status),
+            );
+            format!(
+                "Run: {}{}\nProvider: {}\nActivity: {activity}",
+                run.run_id, lineage, run.provider
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn activity_text(status: &ConversationLiveStatus) -> String {
+    let mut labels = Vec::new();
+    if status.is_processing {
+        labels.push("thinking");
+    }
+    if status.is_waiting_for_subagents {
+        labels.push("waiting for subagents");
+    }
+    if status.is_waiting_for_command {
+        labels.push("waiting for command");
+    }
+    if status.needs_attention {
+        labels.push("requires attention");
+    }
+    if status.has_error {
+        labels.push("error");
+    }
+    if labels.is_empty() {
+        "idle".into()
+    } else {
+        labels.join(" • ")
+    }
 }
 
 fn composer_widget(state: &UiState) -> Paragraph<'static> {
@@ -101,9 +161,12 @@ fn composer_widget(state: &UiState) -> Paragraph<'static> {
 
 #[cfg(test)]
 mod tests {
+    use gent_types::{
+        ConversationLiveStatus, ConversationRunStatus, ConversationStatus, HostEpoch, RunLiveStatus,
+    };
     use ratatui::{Terminal, backend::TestBackend};
 
-    use super::render;
+    use super::{activity_text, render, status_text};
     use crate::terminal::UiState;
 
     #[test]
@@ -123,5 +186,36 @@ mod tests {
         assert!(output.contains("Input (disabled)"));
         assert!(output.contains("Chat execution is unavailable"));
         assert!(!output.contains("private prompt"));
+    }
+
+    #[test]
+    fn status_labels_render_only_explicit_lifecycle_facts() {
+        let status = ConversationLiveStatus {
+            is_processing: true,
+            is_waiting_for_subagents: true,
+            is_waiting_for_command: true,
+            ..ConversationLiveStatus::default()
+        };
+        assert_eq!(
+            activity_text(&status),
+            "thinking • waiting for subagents • waiting for command"
+        );
+        let text = status_text(Some(&ConversationStatus {
+            conversation_id: "conversation-1".into(),
+            runs: vec![ConversationRunStatus {
+                run_id: "run-1".into(),
+                parent_run_id: None,
+                provider: "claude".into(),
+                active_turn_id: None,
+                live_status: Some(RunLiveStatus {
+                    run_id: "run-1".into(),
+                    host_epoch: HostEpoch(2),
+                    status,
+                }),
+            }],
+        }));
+        assert!(text.contains("waiting for subagents"));
+        assert!(text.contains("Provider: claude"));
+        assert!(status_text(None).contains("not inferred"));
     }
 }

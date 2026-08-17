@@ -2,10 +2,10 @@
 
 use std::path::PathBuf;
 
-use gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY;
-use gent_types::{AgentChatPromptDelivery, ConversationListItem};
+use gent_protocol::{AGENT_CHAT_INTENTS_CAPABILITY, CONVERSATION_STATUS_CAPABILITY};
+use gent_types::{AgentChatPromptDelivery, ConversationListItem, ConversationStatus};
 
-use crate::{chat_cli, conversation_index, local_ipc, terminal};
+use crate::{chat_cli, conversation_index, conversation_status, local_ipc, terminal};
 
 /// Opens the terminal after negotiation has established the available authority profile.
 pub(crate) async fn open(
@@ -20,12 +20,33 @@ pub(crate) async fn open(
         .0
         .iter()
         .any(|value| value == AGENT_CHAT_INTENTS_CAPABILITY);
+    let status = initial_status(&index, &capabilities.0, data_dir.clone(), no_autostart).await;
     let runtime = tokio::runtime::Handle::current();
     terminal::run(
-        terminal::UiState::new(index).with_chat_input(enabled),
+        terminal::UiState::new(index)
+            .with_chat_input(enabled)
+            .with_status(status),
         move |intent| submit(&runtime, data_dir.clone(), no_autostart, intent),
     )?;
     Ok(())
+}
+
+async fn initial_status(
+    index: &[ConversationListItem],
+    capabilities: &[String],
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+) -> Option<ConversationStatus> {
+    let conversation_id = index.first()?.conversation_id.clone();
+    if !capabilities
+        .iter()
+        .any(|value| value == CONVERSATION_STATUS_CAPABILITY)
+    {
+        return None;
+    }
+    conversation_status::request(data_dir, no_autostart, conversation_id)
+        .await
+        .ok()
 }
 
 fn submit(
@@ -84,13 +105,22 @@ const fn delivery_notice(delivery: AgentChatPromptDelivery) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use gent_types::AgentChatPromptDelivery;
+    use gent_types::{AgentChatPromptDelivery, ConversationListItem};
 
-    use super::delivery_notice;
+    use super::{delivery_notice, initial_status};
 
     #[test]
     fn prompt_delivery_notice_never_claims_a_provider_started() {
         assert!(delivery_notice(AgentChatPromptDelivery::Queued).contains("no provider"));
         assert!(delivery_notice(AgentChatPromptDelivery::AwaitingProvider).contains("awaiting"));
+    }
+
+    #[tokio::test]
+    async fn status_preload_never_infers_activity_without_the_capability() {
+        let index = vec![ConversationListItem {
+            conversation_id: "conversation-1".into(),
+            run_count: 1,
+        }];
+        assert!(initial_status(&index, &[], None, true).await.is_none());
     }
 }
