@@ -254,6 +254,9 @@ not claim provider or app compatibility evidence that has not been recorded.
    Codex malformed-tolerance. Captures must be redacted, scenario-specific, and live. A malformed
    capture additionally needs a documented provider-emitted fault control, diagnostic, and
    following ordinary frame; proxy or injected corruption is rejected.
+   Installed Claude Code 2.1.233 has neither `--permission-prompt-tool` nor a structural bounded
+   compaction signal (only `--permission-mode` and `--autocompact` at 100k–1M tokens); Codex CLI
+   0.144.1 also exposes no provider-output fault control. No safe capture is available until that changes.
 4. [ ] The authenticated Claurst bridge and its CI evidence belong only in app-owned private
    code. Public Gent must never contain Claurst credentials, endpoints, or routing implementation.
 5. [ ] No legacy migration or deployed fence-aware legacy release is required: this is a
