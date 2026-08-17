@@ -34,7 +34,6 @@ def test_run_rejects_mixed_unsupported_request_before_any_capture() -> None:
     result = run("--vendor", "claude", "--run", "--confirm")
     assert result.returncode == 1
     assert "No live capture was invoked" in result.stdout
-    assert "permission_persistent" in result.stdout
     assert "malformed_tolerance" in result.stdout
 
 
@@ -43,6 +42,12 @@ def test_codable_mcp_cell_still_prints_its_isolated_capture_command() -> None:
     assert result.returncode == 0, result.stderr
     assert "capture-codex-mcp-transcript.py" in result.stdout
     assert "--dry-run" in result.stdout
+
+
+def test_claude_persistent_permission_has_a_bounded_capture_command() -> None:
+    result = run("--vendor", "claude", "--scenario", "permission_persistent")
+    assert result.returncode == 0, result.stderr
+    assert "capture-claude-persistent-permission-transcript.py" in result.stdout
 
 
 def main() -> None:

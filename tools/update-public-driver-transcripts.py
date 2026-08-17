@@ -15,9 +15,9 @@ MANIFEST = ROOT / "fixtures/public-driver-transcripts/manifest.yml"
 DEFAULT_MODEL = {"claude": "haiku", "codex": "gpt-5.6-luna"}
 CAPTURE_PREREQUISITES = {
     ("claude", "permission_persistent"): (
-        "requires a reviewed Claude noninteractive approval channel that proves one "
-        "approval permits two otherwise identical disposable operations; do not "
-        "substitute an always-allow permission mode."
+        "uses the bounded local MCP permission-prompt capture; it records only one "
+        "approval authorizing two identical disposable operations, never an "
+        "always-allow permission mode."
     ),
     ("claude", "compaction"): (
         "requires a documented Claude compaction signal or control; do not induce "
@@ -89,6 +89,12 @@ def command_for(vendor: str, scenario: str, model: str, run_capture: bool = Fals
             "--confirm-live-capture",
             "--replace-existing",
             "--update-manifest",
+        ]
+    if vendor == "claude" and scenario == "permission_persistent":
+        return [
+            "python3", "tools/capture-claude-persistent-permission-transcript.py",
+            "--model", model, "--output", str(output.relative_to(ROOT)),
+            "--confirm-live-capture", "--replace-existing", "--update-manifest",
         ]
     if vendor == "codex" and scenario in {
         "full_turn",
