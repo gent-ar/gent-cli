@@ -259,8 +259,9 @@ not claim provider or app compatibility evidence that has not been recorded.
 5. [ ] No legacy migration or deployed fence-aware legacy release is required: this is a
    zero-user, single-developer cutover. A future Flutter launch must nevertheless enforce protocol
    compatibility and exactly one active writer/host epoch.
-6. [ ] Production release automation still needs its GitHub signing secret and public key/id
-   configuration before a release is published; it is not currently configured.
+6. [x] Production release automation has its dedicated GitHub Actions signing secret and matching
+   public key/id configuration (`runtime-2026-08`). The current source revision still needs a
+   tag-triggered release and artifact verification before users rely on it.
 7. [ ] `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching
    with preserved context are follow-on runtime work, not shipped functionality.
 
