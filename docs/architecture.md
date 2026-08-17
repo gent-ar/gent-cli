@@ -27,9 +27,10 @@ composes them; callers, including a later Flutter integration, invoke `gent`
 or the local protocol rather than launching Claude, Codex, Claurst, or MCP
 processes directly.
 
-Device pairing and application automations are explicitly Flutter-app-owned.
-They are outside this workspace: they are not `gentd` APIs and have no CLI,
-persistence, or daemon composition path here. No agent-chat domain crate can
+Device pairing and application-specific UI automations are explicitly
+Flutter-app-owned. They are outside this workspace: they are not `gentd` APIs
+and have no CLI, persistence, or daemon composition path here. A later
+agent-chat `gent-automations` domain remains distinct, port-bound, and cannot
 obtain authority over those app-owned concerns.
 
 This is the standalone repository's current product-scope decision. It narrows
@@ -99,10 +100,12 @@ Only then does it confirm the durable handoff. It binds local IPC while ingress
 remains closed, then atomically fences/opens the new epoch. It does not fetch,
 stage, launch, or replace a process; the default daemon never enables this profile.
 
-Device pairing, LAN transport, relay hosting, and application automations stay
-Flutter-app-owned. They do not grant a second coordinator or become `gentd`
-APIs; any future app transport consumes the same negotiated projection and
-receipt/cursor protocol rather than duplicating lifecycle inference.
+Device pairing, LAN transport, relay hosting, and application-specific UI
+automations stay Flutter-app-owned. They do not grant a second coordinator or
+become `gentd` APIs; any future app transport consumes the same negotiated
+projection and receipt/cursor protocol rather than duplicating lifecycle
+inference. A future `gent-automations` agent domain is separate from that app
+scope and must establish its own port, receipt, evidence, and authority gates.
 
 ## Verification scope
 

@@ -73,8 +73,8 @@ transcript streaming, MCP, Git, and private-bridge actions.
   never launches either binary.
 - Claurst support exists in protocol as a private-bridge capability only; no app-level credentials
   or endpoints are embedded in the public daemon.
-- Device pairing and application automations are Flutter-app responsibilities. They are outside
-  the `gent-cli` workspace and have no `gentd` protocol, persistence, or executor surface.
+- Device pairing and application-specific UI automations are Flutter-app responsibilities. A later
+  agent-chat `gent-automations` domain is separate, port-bound, and must not subsume either concern.
 - No source file in this milestone should exceed 300 lines. This is enforced by
   `python tools/check-architecture.py`.
 `fixtures/ipc-contract/manifest.json` is the language-neutral compatibility
@@ -288,7 +288,7 @@ source-size rule.
 installation or updates are explicit, receipt-backed user actions; `gent doctor`
 only observes dependencies. The present daemon does not route or start live provider
 runs, MCP servers, Git operations, or network listeners. The opt-in agent-chat
-ledger is persistence only. Pairing and automation execution remain outside its protocol.
+ledger is persistence only. Pairing and application-specific automation remain outside its protocol.
 
 On macOS and Linux, `gentd` creates its data directory with owner-only permissions
 and accepts a Unix socket only beneath that directory; the socket itself is also
