@@ -201,9 +201,10 @@ not claim provider or app compatibility evidence that has not been recorded.
 - [x] User-invoked `gent update apply` verifies a tag-bound Sigstore installer
       bootstrap before external handoff, requires a target archive digest and
       explicit consent, and passes the selected data directory to activation.
-      The installer holds that daemon's host lock through its atomic pair-pointer
-      switch, refusing a live `gentd`; it never performs in-process replacement
-      or background release polling.
+      On an installed Unix pair with the signed supervisor present, it stages
+      the exact release, health-checks local IPC, waits for the old host lock,
+      atomically selects the pair, and rolls back after successor-health failure.
+      It never performs in-process replacement or background release polling.
 - [x] Read-only stable-channel update discovery: untrusted GitHub metadata only
       locates a tag; the matching target manifest and Sigstore bundle must verify
       before a candidate/digest is shown. Missing network or `cosign` truthfully

@@ -153,7 +153,10 @@ capability. To update from a verified candidate, use the explicit external
 handoff below. It verifies the tag-bound installer bootstrap, and that installer
 independently verifies the archive, manifest, and supplied archive digest before
 staging the immutable binary pair. It refuses to switch the pair while `gentd`
-owns the selected data directory:
+owns the selected data directory. On a replacement, the signed external
+supervisor first health-checks the staged pair over local IPC, then waits a
+bounded time for the old host lock and rolls back the pointer if successor
+health fails:
 
 ```sh
 digest='target archive digest from the signed manifest'
@@ -163,10 +166,10 @@ gent --data-dir "$GENT_DATA_DIR" update apply \
   --consent
 ```
 
-Pass `--install-dir DIR` when the runtime is not installed under the default
-root. The command never selects `latest`, starts or replaces `gentd`, or
-silently falls back to another archive. Stop the target daemon first; after a
-successful handoff, start `gent` normally to launch the selected pair.
+Pass `--install-dir DIR` when the runtime is not installed under the default root.
+The command never selects `latest` or silently falls back to another archive.
+It only starts the staged pair for isolated health checks and never replaces a
+live process in place; stop or drain the target daemon before a handoff.
 
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
 conversation browser. It lists durable identities and run counts. Observer mode
@@ -261,11 +264,8 @@ python3 tools/capture-codex-app-server-transcript.py plan_mode \
   --output fixtures/public-driver-transcripts/codex-plan-mode.jsonl --dry-run
 ```
 
-The repository’s architectural rules and phased migration decision record are
-in [docs/architecture.md](docs/architecture.md). The Flutter app is not a
-dependency of this workspace and is not modified by this repository.
-
-Standalone setup and signed-release verification are documented in
+The repository’s architectural rules are in [docs/architecture.md](docs/architecture.md).
+The Flutter app is not a dependency of this workspace. Setup is in
 [docs/onboarding.md](docs/onboarding.md) and [docs/releases.md](docs/releases.md).
 
 ## Code architecture

@@ -76,9 +76,11 @@ Separately, a user may invoke `gent update apply` only with a tag, exact target 
 launches that external process; the installer independently verifies the signed
 archive and manifest, stages `gent` and `gentd` together (plus a signed native
 Windows launcher where applicable), and takes the daemon host lock
-during the atomic pointer switch. It refuses a live daemon rather than
-replacing it in process. This is install distribution, not an advertised
-daemon-update authority or a release-metadata protocol.
+during the atomic pointer switch. A signed external supervisor health-checks a
+staged Unix pair before that switch, waits for an idle host lock, and restores
+the old pointer if successor health fails. It never replaces a live daemon in
+process. This is install distribution, not an advertised daemon-update
+authority or a release-metadata protocol.
 
 The standalone release design may later let a compatible `gentd` self-update
 without rebuilding an app: the runtime already verifies a versioned, signed

@@ -33,8 +33,11 @@ For an installed runtime, `gent update apply --version vX.Y.Z
 It downloads and verifies the release tag's installer bootstrap before invoking
 it as a child process. The digest must be the target archive digest in its
 signed manifest. The installer refuses activation if `gentd` holds the chosen
-data directory's host lock, so stop that daemon first. It does not use a
-release feed, a background timer, or an in-process binary replacement.
+data directory's host lock after a bounded drain wait. On updates where the
+signed supervisor is present, it stages and probes the exact paired successor
+over local IPC before the pointer switch and rolls back on successor failure.
+It does not use a release feed, a background timer, or an in-process binary
+replacement.
 
 Windows x86_64 follows the same verified-bootstrap rule using
 `gent-install.ps1` and `gent-install.ps1.sigstore.json` from that tag. Its
