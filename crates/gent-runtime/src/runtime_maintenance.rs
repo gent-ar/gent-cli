@@ -67,7 +67,8 @@ mod tests {
     use gent_ports::{Ledger, runtime_update::RuntimeUpdateJournal};
     use gent_store::SqliteLedger;
     use gent_types::{
-        HostEpoch, RuntimeMaintenanceRequest, RuntimeUpdateRecord, RuntimeUpdateStatus,
+        HostEpoch, RuntimeMaintenanceRequest, RuntimeUpdateHandoff, RuntimeUpdateRecord,
+        RuntimeUpdateStatus,
     };
 
     use super::{RuntimeMaintenanceAuthority, RuntimeMaintenanceService};
@@ -81,7 +82,7 @@ mod tests {
                 revision: 1,
                 artifact_digest_sha256: "a".repeat(64),
                 status: RuntimeUpdateStatus::default(),
-                handoff: Default::default(),
+                handoff: RuntimeUpdateHandoff::default(),
             })
             .unwrap();
         ledger.close_ingress(HostEpoch(1)).unwrap();

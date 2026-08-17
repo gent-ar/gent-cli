@@ -39,7 +39,7 @@ where
     };
     match runtime.runtime_maintenance(request) {
         Ok(report) => {
-            write_json_frame(stream, &RuntimeMaintenanceFrame::Report(Box::new(report))).await?
+            write_json_frame(stream, &RuntimeMaintenanceFrame::Report(Box::new(report))).await?;
         }
         Err(message) => write_error(stream, "runtimeMaintenanceUnavailable", &message).await?,
     }

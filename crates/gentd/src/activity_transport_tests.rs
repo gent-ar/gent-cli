@@ -14,7 +14,8 @@ use gent_types::{
     DecisionSettlement, DoctorReport, EventResume, HostEpoch, HostStatus, PROTOCOL_MAX,
     PROTOCOL_MIN, Receipt, RuntimeMaintenanceReport, RuntimeMaintenanceRequest,
     RuntimeReleaseChannel, RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest,
-    RuntimeUpdateCheckState, RuntimeUpdateRecord, RuntimeUpdateStatus, RuntimeVersion, TurnPhase,
+    RuntimeUpdateCheckState, RuntimeUpdateHandoff, RuntimeUpdateRecord, RuntimeUpdateStatus,
+    RuntimeVersion, TurnPhase,
 };
 use tokio::io::duplex;
 
@@ -118,7 +119,7 @@ impl RuntimeApi for ActivityRuntime {
                 revision: 2,
                 artifact_digest_sha256: "a".repeat(64),
                 status: RuntimeUpdateStatus::default(),
-                handoff: Default::default(),
+                handoff: RuntimeUpdateHandoff::default(),
             },
         })
     }

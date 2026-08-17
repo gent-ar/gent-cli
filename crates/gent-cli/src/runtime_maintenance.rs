@@ -45,7 +45,7 @@ mod tests {
     use gent_protocol::{Hello, Negotiated, read_frame, write_frame, write_json_frame};
     use gent_types::{
         CapabilitySet, HostEpoch, PROTOCOL_MAX, RuntimeMaintenanceReport,
-        RuntimeMaintenanceRequest, RuntimeUpdateRecord, RuntimeUpdateStatus,
+        RuntimeMaintenanceRequest, RuntimeUpdateHandoff, RuntimeUpdateRecord, RuntimeUpdateStatus,
     };
     use tokio::net::UnixListener;
 
@@ -107,7 +107,7 @@ mod tests {
                         revision: 2,
                         artifact_digest_sha256: "a".repeat(64),
                         status: RuntimeUpdateStatus::default(),
-                        handoff: Default::default(),
+                        handoff: RuntimeUpdateHandoff::default(),
                     },
                 })),
             )
