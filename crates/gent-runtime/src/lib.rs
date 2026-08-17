@@ -17,6 +17,7 @@ mod git_status;
 mod legacy_observer;
 mod mcp_connectors;
 mod policies;
+mod provider_activity;
 mod provider_lifecycle;
 mod public_runs;
 mod run_checkpoints;
@@ -60,6 +61,7 @@ use gent_types::{
 pub use git_status::{GitStatusRequest, GitStatusResult, GitStatusService, GitStatusState};
 pub use legacy_observer::{LegacyObserver, ObserverPoll};
 pub use mcp_connectors::*;
+pub use provider_activity::{ProviderActivityFact, ProviderActivityIngress};
 pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use run_projections::RunProjectionService;
