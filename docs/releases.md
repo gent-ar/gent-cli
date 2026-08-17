@@ -48,7 +48,7 @@ signer uses only the Python standard library so the same signed envelope can
 be produced and verified by the repository's macOS, Linux, and Windows gates.
 
 Before the first runtime-update release, generate the protected key material
-locally (the output file is mode `0600` and is never added to the repository):
+locally (the output file is mode `0600` on Unix and is never added to the repository):
 
 ```sh
 python3 tools/generate-runtime-release-key.py \

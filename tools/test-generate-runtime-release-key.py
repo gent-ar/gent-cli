@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -33,7 +34,8 @@ def main() -> None:
             text=True,
         )
         lines = dict(line.split("=", 1) for line in result.stdout.splitlines())
-        assert key.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":
+            assert key.stat().st_mode & 0o777 == 0o600
         assert lines["GENT_RUNTIME_RELEASE_KEY_ID"] == "release-1"
         assert lines["GENT_RUNTIME_RELEASE_PUBLIC_KEY"] == module().public_key(module().load_seed(key)).hex()
         assert subprocess.run(

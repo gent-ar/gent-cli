@@ -19,7 +19,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = "v0.1.5"
 
 
 def runtime_target() -> str:
@@ -29,6 +28,19 @@ def runtime_target() -> str:
         ("Linux", "x86_64"): "x86_64-unknown-linux-gnu",
     }
     return targets[(platform.system(), platform.machine().lower())]
+
+
+def release_version() -> str:
+    metadata = subprocess.check_output(
+        ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"],
+        cwd=ROOT,
+        text=True,
+    )
+    packages = {package["name"]: package["version"] for package in json.loads(metadata)["packages"]}
+    version = packages.get("gentd")
+    if version is None or version != packages.get("gent-cli"):
+        raise ValueError("gent and gentd must share a workspace release version")
+    return f"v{version}"
 
 
 def command(*values: str | Path) -> None:
@@ -42,11 +54,11 @@ def public_key(output: str) -> str:
     raise AssertionError("key generator did not report a public key")
 
 
-def release(directory: Path, target: str) -> None:
+def release(directory: Path, target: str, version: str) -> None:
     command("cargo", "build", "--quiet", "-p", "gent-cli", "-p", "gentd", "--bins")
     command(
         sys.executable, ROOT / "tools/package-release.py", "--target-dir", ROOT / "target/debug",
-        "--out-dir", directory, "--version", VERSION, "--target", target, "--format", "tar.gz",
+        "--out-dir", directory, "--version", version, "--target", target, "--format", "tar.gz",
     )
     key = directory / "release-private.pem"
     generated = subprocess.run(
@@ -57,11 +69,11 @@ def release(directory: Path, target: str) -> None:
         json.dumps({"schemaVersion": 1, "keys": [{"keyId": "test-release", "publicKeyHex": public_key(generated.stdout)}]}),
         encoding="utf-8",
     )
-    archive = directory / f"gent-{VERSION}-{target}.tar.gz"
-    metadata = directory / f"gent-{VERSION}-{target}.runtime-release.json"
+    archive = directory / f"gent-{version}-{target}.tar.gz"
+    metadata = directory / f"gent-{version}-{target}.runtime-release.json"
     command(
         sys.executable, ROOT / "tools/sign-runtime-release.py", "--archive-manifest", f"{archive}.manifest.json",
-        "--version", VERSION, "--target", target, "--key-id", "test-release", "--private-key", key,
+        "--version", version, "--target", target, "--key-id", "test-release", "--private-key", key,
         "--expires-at", str(int(time.time()) + 3600), "--out", metadata,
     )
     key.unlink()
@@ -87,8 +99,8 @@ def main() -> None:
         releases, install, fake = root / "releases", root / "install", root / "fake"
         releases.mkdir()
         fake.mkdir()
-        target = runtime_target()
-        release(releases, target)
+        target, version = runtime_target(), release_version()
+        release(releases, target, version)
         cosign = fake / "cosign"
         cosign.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
         cosign.chmod(0o755)
@@ -101,14 +113,14 @@ def main() -> None:
         environment = os.environ | {"PATH": f"{fake}:{os.environ['PATH']}", "GENT_RELEASE_BASE_URL": f"http://127.0.0.1:{port}"}
         try:
             command_result = subprocess.run(
-                ["sh", str(ROOT / "tools/install.sh"), "--version", VERSION, "--install-dir", str(install)],
+                ["sh", str(ROOT / "tools/install.sh"), "--version", version, "--install-dir", str(install)],
                 cwd=ROOT, env=environment, capture_output=True, text=True,
             )
             assert command_result.returncode == 0, command_result.stderr
         finally:
             server.shutdown()
             thread.join(timeout=5)
-        staged = install / "lib/gent/releases" / f"{VERSION}-{target}"
+        staged = install / "lib/gent/releases" / f"{version}-{target}"
         assert (staged / "gent-auto-update.py").is_file()
         cache = json.loads((staged / "runtime-release-cache.json").read_text(encoding="utf-8"))
         assert cache["release"]["keyId"] == "test-release"

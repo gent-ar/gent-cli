@@ -136,6 +136,8 @@ try {
         Invoke-Installer -version "v0.1.0" -installRoot $installRoot -expected $firstDigest -idleData $dataRoot
         $runtime = $installRoot
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "first release was not activated"
+        $pointerBytes = [IO.File]::ReadAllBytes((Join-Path $runtime "current.json"))
+        Assert-True ($pointerBytes.Length -gt 0 -and $pointerBytes[0] -eq [byte][char]'{') "current pointer has a UTF-8 BOM"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gent.exe")) "gent launcher missing"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gentd.exe")) "gentd launcher missing"
         Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gent.cmd"))) "unsafe gent.cmd survived"

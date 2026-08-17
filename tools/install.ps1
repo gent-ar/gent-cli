@@ -77,7 +77,8 @@ function Assert-Archive([string]$Archive, [string]$ManifestPath, [string]$Checks
         Fail "release archive verification failed"
     }
     $binaries = @($manifest.binaries | Sort-Object)
-    if (($binaries -join ',') -ne 'gent.exe,gentd.exe,gent-launcher.exe') { Fail "release manifest has invalid binaries" }
+    $expectedBinaries = @("gent.exe", "gentd.exe", "gent-launcher.exe" | Sort-Object)
+    if (($binaries -join ',') -ne ($expectedBinaries -join ',')) { Fail "release manifest has invalid binaries" }
 }
 
 function Assert-ZipMembers([string]$Archive, [string]$ReleaseVersion) {
@@ -150,7 +151,8 @@ function Write-CurrentPointer([string]$RuntimeRoot, [string]$ReleaseName) {
     }
     $pointer = Join-Path $RuntimeRoot "current.json"
     $temporary = Join-Path $RuntimeRoot (".current-" + [Guid]::NewGuid().ToString("N"))
-    @{ release = $ReleaseName } | ConvertTo-Json -Compress | Set-Content -LiteralPath $temporary -NoNewline -Encoding utf8
+    $json = @{ release = $ReleaseName } | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($temporary, $json, [System.Text.UTF8Encoding]::new($false))
     if (Test-Path -LiteralPath $pointer -PathType Container) { Fail "current pointer is not a file" }
     if (Test-Path -LiteralPath $pointer) {
         Assert-PlainFile $pointer "current pointer"
