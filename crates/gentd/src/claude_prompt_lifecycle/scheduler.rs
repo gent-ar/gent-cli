@@ -1,8 +1,9 @@
 //! Bounded daemon tick and recovery for the approved-only Claude lifecycle.
 
 use gent_ports::{
-    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
+    ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
+    TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 use gent_types::HostEpoch;
@@ -16,7 +17,9 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + AgentChatRunContextReader
+        + ConversationContentReader,
     D: super::ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {

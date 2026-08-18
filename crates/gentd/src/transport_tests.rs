@@ -1,9 +1,11 @@
 use gent_protocol::{
-    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, DecisionRecoveryEvidence,
-    DependencyAction, DependencyActionRequest, DependencyActionState, DependencyPlan,
-    DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome, PublicRunResponse,
-    PublicRunStartRequest, WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame,
+    DecisionRecoveryEvidence, DependencyAction, DependencyActionRequest, DependencyActionState,
+    DependencyPlan, DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome,
+    PublicRunResponse, PublicRunStartRequest, WireFrame, read_frame, read_json_frame, write_frame,
+    write_json_frame,
 };
+use gent_runtime::{TurnFollowRead, TurnFollowRequest};
 use gent_types::{
     CapabilitySet, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, DoctorReport,
     HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptId, ReceiptStatus,
@@ -20,6 +22,7 @@ impl RuntimeApi for FakeRuntime {
     fn capabilities(&self) -> Result<CapabilitySet, String> {
         Ok(CapabilitySet(vec![
             CONVERSATION_STATUS_CAPABILITY.into(),
+            AGENT_CHAT_TURN_FOLLOW_CAPABILITY.into(),
             "event-resync".into(),
             "events".into(),
         ]))
@@ -147,6 +150,9 @@ impl RuntimeApi for FakeRuntime {
             runs: Vec::new(),
             artifacts: Vec::new(),
         })
+    }
+    fn agent_chat_turn_follow(&self, _: TurnFollowRequest) -> Result<TurnFollowRead, String> {
+        Ok(crate::transport_turn_follow_tests::read())
     }
 }
 

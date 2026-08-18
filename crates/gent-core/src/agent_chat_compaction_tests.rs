@@ -36,7 +36,7 @@ fn too_few_groups_recovers_from_frozen_ledger_once() {
 }
 
 #[test]
-fn every_normalized_failure_recovers_without_a_provider_error() {
+fn unrelated_provider_failure_never_creates_a_recovery_child() {
     let (state, _) =
         reduce_agent_chat_compaction(AgentChatCompactionState::default(), 1, &started());
     let (state, effect) = reduce_agent_chat_compaction(
@@ -47,11 +47,34 @@ fn every_normalized_failure_recovers_without_a_provider_error() {
             failure: AgentChatCompactionFailure::ProviderFailed,
         },
     );
-    assert!(matches!(
+    assert_eq!(
         effect,
-        AgentChatCompactionEffect::RecoverFromFrozenLedger { .. }
-    ));
+        AgentChatCompactionEffect::Rejected(AgentChatCompactionRejection::NonRecoverableFailure)
+    );
     assert_eq!(state.active_turn_id, None);
+    assert_eq!(state.recovered_turn_id, None);
+    let (state, next_start) = reduce_agent_chat_compaction(
+        state,
+        3,
+        &AgentChatCompactionFact::Started {
+            turn_id: "turn-2".into(),
+        },
+    );
+    assert_eq!(next_start, AgentChatCompactionEffect::None);
+    let (_, recovery) = reduce_agent_chat_compaction(
+        state,
+        4,
+        &AgentChatCompactionFact::Failed {
+            turn_id: "turn-2".into(),
+            failure: AgentChatCompactionFailure::TooFewGroups,
+        },
+    );
+    assert_eq!(
+        recovery,
+        AgentChatCompactionEffect::RecoverFromFrozenLedger {
+            turn_id: "turn-2".into()
+        }
+    );
 }
 
 #[test]
@@ -173,7 +196,7 @@ fn a_later_turn_can_recover_after_the_previous_turn_did() {
         4,
         &AgentChatCompactionFact::Failed {
             turn_id: "turn-2".into(),
-            failure: AgentChatCompactionFailure::ProviderFailed,
+            failure: AgentChatCompactionFailure::TooFewGroups,
         },
     );
     assert_eq!(

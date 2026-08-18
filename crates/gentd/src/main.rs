@@ -11,6 +11,7 @@ mod agent_chat_subscription;
 mod agent_chat_transport;
 #[cfg(test)]
 mod agent_chat_transport_tests;
+mod agent_chat_turn_follow;
 mod api;
 #[allow(dead_code)]
 mod approved_claude_host;
@@ -100,6 +101,8 @@ mod transport_stream_tests;
 mod transport_tests;
 #[cfg(test)]
 mod transport_timeline_tests;
+#[cfg(test)]
+mod transport_turn_follow_tests;
 #[cfg(windows)]
 mod transport_windows;
 #[cfg(all(test, windows))]

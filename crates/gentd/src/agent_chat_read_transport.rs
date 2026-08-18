@@ -200,7 +200,7 @@ mod tests {
 
     #[tokio::test]
     async fn observer_does_not_advertise_or_dispatch_agent_chat_reads() {
-        let advertised = observed_capabilities(false, false, false);
+        let advertised = observed_capabilities(false, false, false, false);
         assert!(
             !advertised
                 .0

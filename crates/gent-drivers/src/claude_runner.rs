@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use gent_types::{GoalProjection, NormalizedProviderEvent, RunVersionLock};
+use gent_types::{
+    FrozenConversationContext, GoalProjection, NormalizedProviderEvent, RunVersionLock,
+};
 
 use crate::PublicProvider;
 use crate::buffering::BufferPolicy;
@@ -26,6 +28,8 @@ pub struct ClaudeRunStart {
     pub prompt: String,
     /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
     pub goal: Option<GoalProjection>,
+    /// Gent-owned history used only for a fresh provider-native session.
+    pub fresh_context: Option<FrozenConversationContext>,
     pub resume_session_id: Option<String>,
 }
 
@@ -171,8 +175,21 @@ fn input_frame(start: &ClaudeRunStart) -> Result<Vec<u8>, ClaudeRunnerError> {
     {
         return Err(ClaudeRunnerError::InvalidPrompt);
     }
-    let prompt = project_prompt(&start.prompt, start.goal.as_ref(), MAX_CLAUDE_FRAME_BYTES)
-        .map_err(|_| ClaudeRunnerError::InvalidPrompt)?;
+    if start.fresh_context.is_some() && start.resume_session_id.is_some() {
+        return Err(ClaudeRunnerError::InvalidPrompt);
+    }
+    let prompt = match &start.fresh_context {
+        Some(context) => crate::conversation_context_input::render_fresh_conversation_input(
+            context,
+            &start.prompt,
+            MAX_CLAUDE_FRAME_BYTES,
+        )
+        .map_err(|_| ClaudeRunnerError::InvalidPrompt)?
+        .prompt()
+        .to_owned(),
+        None => project_prompt(&start.prompt, start.goal.as_ref(), MAX_CLAUDE_FRAME_BYTES)
+            .map_err(|_| ClaudeRunnerError::InvalidPrompt)?,
+    };
     let mut value = serde_json::json!({
         "type": "user",
         "message": { "role": "user", "content": [{ "type": "text", "text": prompt }] },

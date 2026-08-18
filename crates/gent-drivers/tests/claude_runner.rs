@@ -9,8 +9,8 @@ use gent_drivers::lock::capture;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalProjection,
-    GoalRecord, GoalStatus, NormalizedProviderEvent,
+    AgentChatConversationId, AgentChatRunId, FrozenConversationContext, GOAL_SCHEMA_VERSION,
+    GoalBinding, GoalProjection, GoalRecord, GoalStatus, NormalizedProviderEvent,
 };
 
 #[derive(Default)]
@@ -71,6 +71,7 @@ fn start(run_id: &str, root: &Path, session: Option<&str>) -> ClaudeRunStart {
         lock: capture("claude", &executable, "2.1.0", "entry").unwrap(),
         prompt: "hello".into(),
         goal: None,
+        fresh_context: None,
         resume_session_id: session.map(Into::into),
     }
 }
@@ -159,4 +160,20 @@ fn resume_binds_the_prompt_and_exit_drains_before_settlement() {
         Some(vec![ClaudeRunnerEffect::Exited { code: Some(0) }])
     );
     assert!(runner.poll("run-1").is_err());
+}
+
+#[test]
+fn fresh_gent_context_never_reuses_a_claude_native_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = ClaudeStreamRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+    );
+    let mut request = start("run-1", directory.path(), Some("private-session"));
+    request.fresh_context = Some(FrozenConversationContext::cleared(AgentChatConversationId(
+        "conversation-1".into(),
+    )));
+    assert!(runner.start(request).is_err());
+    assert!(state.writes.lock().unwrap().is_empty());
 }

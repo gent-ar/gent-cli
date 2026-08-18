@@ -1,12 +1,12 @@
 //! Dormant daemon-owned Claude prompt lifecycle over durable dispatch and normalized facts.
-
 use std::collections::BTreeMap;
 
 use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
-    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
+    ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
+    TranscriptLedger,
 };
 use gent_runtime::{
     AgentChatPromptDispatchResult, AgentChatTranscriptAppendRequest, ProviderActivityFact,
@@ -66,7 +66,9 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + AgentChatRunContextReader
+        + ConversationContentReader,
     D: ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {

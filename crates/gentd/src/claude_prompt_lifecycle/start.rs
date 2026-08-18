@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use gent_ports::{
-    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
+    ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
+    TranscriptLedger,
 };
 use gent_protocol::{DependencyProvider, PublicRunOutcome, PublicRunStartRequest};
 use gent_runtime::RuntimeError;
@@ -27,18 +28,24 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + AgentChatRunContextReader
+        + ConversationContentReader,
     D: ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let fresh_context = runtime
+        .contexts
+        .fresh_context_for_child(&prompt.message.conversation_id, &run_id)?;
     let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
     if let Err(error) = runner.prepare_claude_prompt(
         run_id.clone(),
         ClaudePromptStart {
             prompt: prompt.message.text.clone(),
             goal,
+            fresh_context: fresh_context.clone(),
         },
     ) {
         runtime.release_prompt_claim(&message_id, coordinator_id, host_epoch)?;
@@ -48,10 +55,12 @@ where
         runner.cancel_claude_prompt(&run_id);
         return Err(error);
     }
-    match runtime
-        .runs()
-        .start_or_resume(request(&run_id, coordinator_id, host_epoch))
-    {
+    let request = request(&run_id, coordinator_id, host_epoch);
+    match if fresh_context.is_some() {
+        runtime.runs().start(request)
+    } else {
+        runtime.runs().start_or_resume(request)
+    } {
         Err(error) => {
             runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
             Err(error)

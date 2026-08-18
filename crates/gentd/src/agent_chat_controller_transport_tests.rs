@@ -80,7 +80,7 @@ impl super::ControllerStreamPort for DeltaSource {
 #[test]
 fn observer_never_advertises_the_unwired_controller_stream() {
     assert!(
-        !observed_capabilities(false, false, false)
+        !observed_capabilities(false, false, false, false)
             .0
             .iter()
             .any(|item| item == AGENT_CHAT_CONTROLLER_STREAM_CAPABILITY)

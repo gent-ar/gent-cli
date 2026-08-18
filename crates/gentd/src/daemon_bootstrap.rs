@@ -87,6 +87,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         args.agent_chat_authority,
         update_checks.is_some(),
         args.runtime_update_plan_authority || args.runtime_update_recover_authority,
+        false,
     );
     let recovery = run_update_authorities(&args, &data_dir, &observed_capabilities)?;
     let compatibility = CompatibilityAssessment::load(

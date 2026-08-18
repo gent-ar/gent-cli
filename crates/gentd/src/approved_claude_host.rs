@@ -1,8 +1,9 @@
 //! Bounded approved-only Claude host composition, absent from daemon bootstrap.
 
 use gent_ports::{
-    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
+    ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
+    TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 use gent_types::HostEpoch;
@@ -27,7 +28,9 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + AgentChatRunContextReader
+        + ConversationContentReader,
     D: ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {

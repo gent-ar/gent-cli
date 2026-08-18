@@ -2,11 +2,11 @@
 
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
-    AGENT_CHAT_TRANSCRIPT_CAPABILITY, ATTACHMENTS_CAPABILITY, AgentChatIntentFrame,
-    AttachmentFrame, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
-    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, EventStreamFrame, GOAL_CAPABILITY,
-    ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY, WireFrame, negotiate, read_frame,
-    read_json_frame, write_frame,
+    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
+    AgentChatIntentFrame, AgentChatTurnFollowFrame, AttachmentFrame, CONVERSATION_INDEX_CAPABILITY,
+    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
+    EventStreamFrame, GOAL_CAPABILITY, ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
+    WireFrame, negotiate, read_frame, read_json_frame, write_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
@@ -24,10 +24,12 @@ include!("transport_commands.rs");
 
 /// Reports the capabilities backed by concrete post-handshake handlers in this adapter.
 #[must_use]
+#[allow(clippy::fn_params_excessive_bools)] // Independent authority profiles remain explicit.
 pub(crate) fn observed_capabilities(
     agent_chat_enabled: bool,
     runtime_update_check_enabled: bool,
     runtime_maintenance_enabled: bool,
+    turn_follow_enabled: bool,
 ) -> CapabilitySet {
     let mut capabilities = capability_set([
         RuntimeCapability::Attachments,
@@ -61,6 +63,11 @@ pub(crate) fn observed_capabilities(
         capabilities.0.push(GOAL_CAPABILITY.to_owned());
         capabilities.0.push(REVIEWED_PLAN_CAPABILITY.to_owned());
         capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
+        if turn_follow_enabled {
+            capabilities
+                .0
+                .push(AGENT_CHAT_TURN_FOLLOW_CAPABILITY.to_owned());
+        }
     }
     if runtime_update_check_enabled {
         capabilities
@@ -133,6 +140,27 @@ where
                     runtime,
                     request_id,
                     conversation_id,
+                    after_cursor,
+                )
+                .await;
+            }
+        }
+        if extensions.supports(AGENT_CHAT_TURN_FOLLOW_CAPABILITY) {
+            if let Ok(AgentChatTurnFollowFrame::Follow {
+                request_id,
+                conversation_id,
+                run_id,
+                turn_id,
+                after_cursor,
+            }) = serde_json::from_value(raw.clone())
+            {
+                return crate::agent_chat_turn_follow::serve(
+                    stream,
+                    runtime,
+                    request_id,
+                    conversation_id,
+                    run_id,
+                    turn_id,
                     after_cursor,
                 )
                 .await;

@@ -27,12 +27,15 @@ pub enum AgentChatCompactionRejection {
     CompactionAlreadyActive,
     NoMatchingCompaction,
     AlreadyRecovered,
+    NonRecoverableFailure,
 }
 
 /// Applies one cursor-ordered normalized compaction fact without storage or provider access.
 ///
-/// A normalized failure always requests recovery from Gent's frozen durable history, never reuse
-/// of the failed provider-native session. Repeated facts cannot request another child run.
+/// Only the explicitly normalized `TooFewGroups` failure requests recovery from Gent's frozen
+/// durable history, never reuse of the failed provider-native session. Other provider failures
+/// are retained as facts but cannot create a child run. Repeated facts cannot request another
+/// child run.
 #[must_use]
 pub fn reduce_agent_chat_compaction(
     mut state: AgentChatCompactionState,
@@ -56,7 +59,7 @@ pub fn reduce_agent_chat_compaction(
     match fact {
         AgentChatCompactionFact::Started { .. } => start(state, turn_id),
         AgentChatCompactionFact::Completed { .. } => complete(state, turn_id),
-        AgentChatCompactionFact::Failed { .. } => fail(state, turn_id),
+        AgentChatCompactionFact::Failed { failure, .. } => fail(state, turn_id, *failure),
     }
 }
 
@@ -105,6 +108,7 @@ fn complete(
 fn fail(
     mut state: AgentChatCompactionState,
     turn_id: &str,
+    failure: gent_types::AgentChatCompactionFailure,
 ) -> (AgentChatCompactionState, AgentChatCompactionEffect) {
     if state.recovered_turn_id.as_deref() == Some(turn_id) {
         return (
@@ -119,6 +123,14 @@ fn fail(
         );
     }
     state.active_turn_id = None;
+    if failure != gent_types::AgentChatCompactionFailure::TooFewGroups {
+        return (
+            state,
+            AgentChatCompactionEffect::Rejected(
+                AgentChatCompactionRejection::NonRecoverableFailure,
+            ),
+        );
+    }
     state.recovered_turn_id = Some(turn_id.into());
     (
         state,

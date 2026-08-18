@@ -18,7 +18,7 @@ use crate::{CompatibilityAssessment, api::RuntimeApi, build_runtime};
 #[test]
 fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
     let directory = tempfile::tempdir().unwrap();
-    let capabilities = crate::transport::observed_capabilities(true, false, false);
+    let capabilities = crate::transport::observed_capabilities(true, false, false, false);
     assert_eq!(
         validate_observed_capabilities(&capabilities).unwrap(),
         declared_capabilities_with_agent_chat(true)

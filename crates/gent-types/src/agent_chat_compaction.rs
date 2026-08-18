@@ -11,6 +11,8 @@ pub enum AgentChatCompactionFailure {
     /// The provider reported that its own compactor had too few reducible groups.
     TooFewGroups,
     /// The provider failed its compaction attempt for another normalized reason.
+    ///
+    /// This is durable diagnostic state, not authority to create a recovery child.
     ProviderFailed,
 }
 

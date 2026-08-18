@@ -48,6 +48,7 @@ mod runtime_update_executor;
 mod runtime_update_planner;
 mod runtime_update_successor;
 mod tool_sources;
+mod turn_follow;
 mod workspaces;
 pub use agent_chat_compaction_recovery::{
     AgentChatCompactionRecoveryAuthority, AgentChatCompactionRecoveryRequest,
@@ -130,6 +131,7 @@ pub use runtime_update_successor::{
     RuntimeUpdateSuccessor, RuntimeUpdateSuccessorError, RuntimeUpdateSuccessorRequest,
     RuntimeUpdateSuccessorResult,
 };
+pub use turn_follow::{TurnFollowRead, TurnFollowRequest, TurnFollowService};
 #[derive(Clone, Debug)]
 pub struct Coordinator<L> {
     ledger: L,

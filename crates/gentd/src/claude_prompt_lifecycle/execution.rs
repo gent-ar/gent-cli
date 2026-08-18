@@ -7,13 +7,14 @@ use gent_drivers::claude_runner::{ClaudeRunStart, ClaudeRunnerEffect, ClaudeStre
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
-use gent_types::{GoalProjection, RunVersionLock};
+use gent_types::{FrozenConversationContext, GoalProjection, RunVersionLock};
 
 /// Prompt held only between a durable dispatch claim and a locked Claude launch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaudePromptStart {
     pub(crate) prompt: String,
     pub(crate) goal: Option<GoalProjection>,
+    pub(crate) fresh_context: Option<FrozenConversationContext>,
 }
 
 /// Binds each public-run reservation to one bounded Claude stream process.
@@ -81,6 +82,7 @@ where
                 lock: lock_value.clone(),
                 prompt: prompt.prompt,
                 goal: prompt.goal,
+                fresh_context: prompt.fresh_context,
                 resume_session_id,
             })
             .map_err(map_error)

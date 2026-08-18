@@ -8,7 +8,9 @@ use gent_protocol::{
     PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
     ReviewedPlanFrame,
 };
-use gent_runtime::{AgentChatControllerDeltaPage, ConversationActivityRead};
+use gent_runtime::{
+    AgentChatControllerDeltaPage, ConversationActivityRead, TurnFollowRead, TurnFollowRequest,
+};
 use gent_types::{
     CapabilitySet, Command, ConversationContentCursor, ConversationContentPage,
     ConversationListItem, ConversationStatus, ConversationTimeline, DecisionCommand,
@@ -92,6 +94,12 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         _: AgentChatTranscriptFrame,
     ) -> Result<AgentChatTranscriptFrame, String> {
         Err("agent-chat transcript reads are unavailable while gentd is observer-disabled".into())
+    }
+    /// Reads one epoch-fenced page of one exact normalized turn in an approved composition.
+    ///
+    /// The default keeps observer and persistence-only profiles unable to follow a turn.
+    fn agent_chat_turn_follow(&self, _: TurnFollowRequest) -> Result<TurnFollowRead, String> {
+        Err("agent-chat turn follow is unavailable while gentd is observer-disabled".into())
     }
     /// Reads one replacement projection for a future negotiated controller stream.
     ///
