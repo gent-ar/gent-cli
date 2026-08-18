@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use gent_ports::{
     ClaurstCheckpoint, ClaurstDrainRequest, ClaurstFactValue, ClaurstNormalizedFact,
-    ClaurstSessionBinding, ClaurstSourceId, Ledger, MAX_PRIVATE_CLAURST_DRAIN_FACTS,
-    PrivateClaurstBridge, RunCheckpointLedger, RunProjectionLedger,
+    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, Ledger,
+    MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge, RunCheckpointLedger,
+    RunProjectionLedger,
 };
 use gent_runtime::{
     Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
@@ -70,6 +71,29 @@ where
             coordinator_id,
             sources: BTreeMap::new(),
         }
+    }
+
+    /// Starts a fresh private source from daemon-owned normalized input, then persists its bind.
+    ///
+    /// The private bridge receives no app/client-owned provider configuration. A returned session
+    /// must exactly match the requested run and source before its lifecycle is recorded.
+    pub(crate) async fn start(
+        &mut self,
+        request: ClaurstStartRequest,
+        host_epoch: HostEpoch,
+    ) -> Result<ClaurstSessionBinding, RuntimeError> {
+        request
+            .validate()
+            .map_err(|_| invariant("private Claurst start input is invalid"))?;
+        if self.sources.contains_key(&request.source_id) {
+            return Err(invariant("private Claurst source is already bound"));
+        }
+        let binding = self.bridge.start(request.clone()).await?;
+        if binding.run_id != request.run_id || binding.source_id != request.source_id {
+            return Err(invariant("private Claurst start returned another source"));
+        }
+        self.bind(binding.clone(), host_epoch).await?;
+        Ok(binding)
     }
 
     /// Persists the opaque session binding before the bridge may be drained.

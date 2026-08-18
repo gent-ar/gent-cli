@@ -7,11 +7,37 @@ use gent_store::SqliteLedger;
 use gent_testkit::FakePrivateClaurstBridge;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
-    AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch,
-    NormalizedLifecycleSignal, ReceiptId, RootActivity,
+    AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet,
+    FrozenConversationContext, HostEpoch, NormalizedLifecycleSignal, ReceiptId, RootActivity,
 };
 
 use crate::private_claurst_ingress::PrivateClaurstIngress;
+
+#[tokio::test]
+async fn start_accepts_only_an_exact_daemon_owned_private_session() {
+    let ledger = prepared_ledger();
+    let bridge = FakePrivateClaurstBridge::default();
+    let binding = binding();
+    bridge.push_start_binding(binding.clone());
+    let mut ingress = PrivateClaurstIngress::new(
+        Coordinator::new(ledger.clone(), CapabilitySet::default()),
+        ledger.clone(),
+        bridge,
+        "daemon-a".into(),
+    );
+    assert_eq!(
+        ingress.start(start_request(), HostEpoch(1)).await.unwrap(),
+        binding
+    );
+    assert!(
+        ledger
+            .find_event(
+                "claurst:0f9f5ce47831e099e77e295ed8bb627f089efa8672ee6fbdc49eac6f0d7f5275:session"
+            )
+            .unwrap()
+            .is_some()
+    );
+}
 
 #[tokio::test]
 async fn drain_persists_normalized_facts_then_a_terminal_checkpoint() {
@@ -165,6 +191,19 @@ fn binding() -> ClaurstSessionBinding {
         run_id: "run-a".into(),
         source_id: ClaurstSourceId("source-a".into()),
         opaque_session_id: "private-session".into(),
+    }
+}
+
+fn start_request() -> gent_ports::ClaurstStartRequest {
+    gent_ports::ClaurstStartRequest {
+        run_id: "run-a".into(),
+        source_id: ClaurstSourceId("source-a".into()),
+        turn_id: "turn-a".into(),
+        prompt: "continue".into(),
+        context: FrozenConversationContext::cleared(AgentChatConversationId(
+            "conversation-a".into(),
+        )),
+        goal: None,
     }
 }
 

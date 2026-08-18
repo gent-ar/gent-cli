@@ -7,12 +7,14 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use gent_ports::{
     ClaurstDrainBatch, ClaurstDrainRequest, ClaurstNormalizedFact, ClaurstSessionBinding,
-    ClaurstSourceId, PortError, PrivateClaurstBridge,
+    ClaurstSourceId, ClaurstStartRequest, PortError, PrivateClaurstBridge,
 };
 
 #[derive(Debug, Default)]
 struct BridgeState {
     bindings: BTreeMap<ClaurstSourceId, ClaurstSessionBinding>,
+    starts: Vec<ClaurstStartRequest>,
+    start_bindings: VecDeque<Result<ClaurstSessionBinding, String>>,
     requests: Vec<ClaurstDrainRequest>,
     batches: VecDeque<Result<ClaurstDrainBatch, String>>,
     settled: BTreeSet<ClaurstSourceId>,
@@ -25,6 +27,15 @@ pub struct FakePrivateClaurstBridge {
 }
 
 impl FakePrivateClaurstBridge {
+    /// Queues the private session binding returned for the next valid daemon-owned start.
+    pub fn push_start_binding(&self, binding: ClaurstSessionBinding) {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .start_bindings
+            .push_back(Ok(binding));
+    }
+
     /// Queues one result for the next valid drain request.
     pub fn push_batch(&self, batch: ClaurstDrainBatch) {
         self.state
@@ -55,6 +66,16 @@ impl FakePrivateClaurstBridge {
             .collect()
     }
 
+    /// Returns normalized start input the daemon supplied, never provider configuration.
+    #[must_use]
+    pub fn starts(&self) -> Vec<ClaurstStartRequest> {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .starts
+            .clone()
+    }
+
     /// Returns drain requests in the order a daemon would have issued them.
     #[must_use]
     pub fn requests(&self) -> Vec<ClaurstDrainRequest> {
@@ -68,6 +89,28 @@ impl FakePrivateClaurstBridge {
 
 #[async_trait]
 impl PrivateClaurstBridge for FakePrivateClaurstBridge {
+    async fn start(
+        &self,
+        request: ClaurstStartRequest,
+    ) -> Result<ClaurstSessionBinding, PortError> {
+        request
+            .validate()
+            .map_err(|_| contract_error("start input is invalid"))?;
+        let mut state = self
+            .state
+            .lock()
+            .expect("private bridge fake mutex poisoned");
+        state.starts.push(request.clone());
+        let binding = state
+            .start_bindings
+            .pop_front()
+            .ok_or_else(|| contract_error("no queued start binding"))?
+            .map_err(PortError::Provider)?;
+        (binding.run_id == request.run_id && binding.source_id == request.source_id)
+            .then_some(binding)
+            .ok_or_else(|| contract_error("start binding does not match request"))
+    }
+
     async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
         if binding.run_id.is_empty()
             || binding.source_id.0.is_empty()
