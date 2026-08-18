@@ -58,9 +58,7 @@ the only component allowed to compose those capabilities.
 The public protocol reserves strictly typed, capability-gated agent-chat reads
 and intents. By default the daemon refuses mutations. For isolated local
 testing, start `gentd --agent-chat-authority`: it advertises
-`agent-chat-intents-v1` and durably accepts create/send/queue requests through
-the same receipt and epoch checks. It still rejects provider lifecycle,
-transcript streaming, MCP, Git, and private-bridge actions.
+`agent-chat-intents-v1` and `orchestration-v1`, and durably accepts create/send/queue and graph-record requests through the same receipt and epoch checks. It still rejects provider lifecycle, transcript streaming, MCP, Git, and private-bridge actions.
 
 ### Milestone scope contract
 
@@ -182,6 +180,9 @@ provider/model/effort/mode controls, `Ctrl+N` creation, and `Enter` prompt
 persistence. `gent chat create`, `send`, and `queue` remain available for scripts;
 start that isolated profile with `GENT_AGENT_CHAT_AUTHORITY=1 gentd`; none starts a provider lifecycle.
 
+`gent orchestration fanout --graph-json FILE` and `cross-review --request-json FILE` accept exact JSON `FanoutRequest`/`CrossReviewRequest` values; `read --conversation-id ID --graph-id ID` reads their graph.
+They require the explicit persistence profile's `orchestration-v1` capability, make/read only daemon-owned graph records, and never schedule or start a provider worker.
+
 ## Development
 
 ```sh
@@ -269,10 +270,9 @@ python3 tools/capture-codex-app-server-transcript.py plan_mode \
   --output fixtures/public-driver-transcripts/codex-plan-mode.jsonl --dry-run
 ```
 
-The repository’s architectural rules and planned `/fanout`/`/cross-review` domain are in [docs/architecture.md](docs/architecture.md) and [the orchestration plan](docs/multi-agent-orchestration-plan.md).
-The Flutter app is not a dependency of this workspace. Setup is in
-[docs/onboarding.md](docs/onboarding.md), [docs/releases.md](docs/releases.md), and the
-[Flutter consumer handoff](docs/flutter-handoff-v1.md).
+The repository’s architecture and orchestration boundary are in [docs/architecture.md](docs/architecture.md) and [the orchestration plan](docs/multi-agent-orchestration-plan.md).
+The Flutter app is not a dependency of this workspace. Setup is in [docs/onboarding.md](docs/onboarding.md),
+[docs/releases.md](docs/releases.md), and the [Flutter consumer handoff](docs/flutter-handoff-v1.md).
 
 ## Code architecture
 

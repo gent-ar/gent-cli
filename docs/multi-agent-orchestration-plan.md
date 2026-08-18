@@ -48,27 +48,28 @@ override a goal, bypass review, or relax those fences.
 
 `orchestration-v1` is a negotiated IPC extension with bounded typed frames,
 request correlation, receipt/idempotency keys, expected revision, host epoch,
-and policy/goal binding. It includes the following commands and matching
-read/snapshot/delta frames:
+and policy/goal binding. The current foundation exposes only graph persistence,
+and only from the explicit agent-chat persistence profile; the default daemon
+does not advertise this capability.
 
-- `Fanout`: creates one graph and its requested nodes atomically from typed
-  role/profile/dependency/worktree inputs. Terminal `/fanout` is only a parser
-  for this frame; it is not a prompt template or provider instruction.
-- `DispatchReady`: daemon scheduler action that reserves eligible nodes. It is
-  unavailable to clients as a provider-spawn primitive.
-- `CancelNode`, `RetryNode`, and `ResolveBlockedNode`: typed graph transitions
-  with terminal, retry, current-parent, receipt, epoch, policy, and goal fences.
-- `CrossReview`: creates reviewer nodes for exact immutable candidate artifact
-  digests. Terminal `/cross-review` maps to this frame, never asks a provider
-  to invent its own review protocol.
-- `GraphRead`, `GraphList`, and `GraphSubscribe`: cursor-resumable snapshots
-  and deltas for graph/node/worktree/review status.
+- `Fanout`: `gent orchestration fanout --graph-json FILE` reads one strict JSON
+  `FanoutRequest`, then atomically creates its daemon-owned graph and requested
+  nodes. It is neither a prompt template nor a provider instruction.
+- `CrossReview`: `gent orchestration cross-review --request-json FILE` reads one
+  strict JSON `CrossReviewRequest` to append an exact reviewer node for an
+  immutable candidate artifact.
+- `GraphRead`: `gent orchestration read --conversation-id ID --graph-id ID`
+  returns one scoped graph without provider-local run state.
 
-`/fanout` and `/cross-review` reject unknown flags, unbound conversation/run,
-unknown profile revisions, duplicate idempotency keys with changed payloads,
-cycles, self-dependencies, and attempts to supply provider-native sessions or
-raw provider plans. The terminal may offer guided inputs, but the daemon owns
-all validation and state transitions.
+Those commands reject malformed or unknown JSON fields, invalid typed bindings,
+duplicate idempotency keys with changed payloads, cycles, self-dependencies, and
+provider-native sessions or raw provider plans.
+They persist/read graph intent only: no provider worker, scheduler, worktree,
+or node attempt is created or implied.
+
+Future extensions may add `DispatchReady`, terminal node transitions,
+`GraphList`, and cursor-resumable `GraphSubscribe`. `DispatchReady` will remain
+daemon-only and never be a client provider-spawn primitive.
 
 ## Fanout and isolation
 
@@ -140,8 +141,9 @@ composes authority. `gent-cli` depends solely on protocol/types.
    review independence, and all stale/idempotency/policy/goal/epoch fences.
 2. Add fresh SQLite ledgers and transactional graph reservation/settlement,
    worktree leases, snapshots/deltas, restart/recovery, and contention tests.
-3. Add strict protocol frames and terminal `/fanout`/`/cross-review` clients;
-   prove observer capability absence and malformed/bounded-frame rejection.
+3. Add strict protocol frames and terminal graph clients; prove observer
+   capability absence and malformed/bounded-frame rejection. The persistence
+   foundation is complete; scheduler, snapshots, and dispatch remain future work.
 4. Compose no runner yet. Add fake runner/profile/worktree integration tests for
    bounded scheduling, process-tree drain, backpressure, reconnect, and
    persist-before-broadcast.
