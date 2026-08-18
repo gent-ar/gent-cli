@@ -1,0 +1,9 @@
+{
+  "format": "gent-driver-transcript-v1",
+  "provider": "codex",
+  "scenario": "goal-autonomous-plan-followup-replay",
+  "source": "synthetic",
+  "recordedAt": "2026-08-18T00:00:00Z",
+  "reviewedAt": "2026-08-18T00:00:00Z",
+  "notes": "Synthetic, offline-only regression record. It models Gent-owned /goal, an Autonomous policy selection, review then exact approval of one plan revision, a follow-up after normalized cursor replay, and durable goal settlement. It is not a provider capture, public evidence, or authority grant."
+}

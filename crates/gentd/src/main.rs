@@ -108,6 +108,8 @@ mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;
 mod provider_effects;
+#[allow(dead_code)]
+mod provider_lifecycle_host;
 mod provider_resolver;
 #[cfg(test)]
 mod provider_resolver_tests;

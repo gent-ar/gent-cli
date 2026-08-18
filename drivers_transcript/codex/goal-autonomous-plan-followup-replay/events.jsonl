@@ -1,0 +1,13 @@
+{"sequence":1,"type":"conversation","data":{"conversationId":"conversation-codex-goal-1","provider":"codex","model":"gpt-5.6","effort":"high","mode":"plan"}}
+{"sequence":2,"type":"run","data":{"runId":"run-codex-plan-1","contextPolicy":"preserve","historyOrdinal":4}}
+{"sequence":3,"type":"turn","data":{"turnId":"turn-codex-plan-1","ordinal":5}}
+{"sequence":4,"type":"activity","data":{"kind":"goal","goalId":"goal-codex-1","status":"active","revision":1,"summary":"Complete the bounded task without stopping."}}
+{"sequence":5,"type":"plan","data":{"planId":"plan-codex-1","revision":3,"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","status":"reviewed"}}
+{"sequence":6,"type":"plan","data":{"planId":"plan-codex-1","revision":3,"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","status":"approved"}}
+{"sequence":7,"type":"run","data":{"runId":"run-codex-autonomous-1","parentRunId":"run-codex-plan-1","provider":"codex","model":"gpt-5.6","effort":"high","mode":"agent","contextPolicy":"preserve","historyOrdinal":5}}
+{"sequence":8,"type":"activity","data":{"kind":"permission","status":"autonomous"}}
+{"sequence":9,"type":"turn","data":{"turnId":"turn-codex-followup-1","ordinal":6}}
+{"sequence":10,"type":"message","data":{"role":"user","text":"Continue with the approved plan and finish the goal."}}
+{"sequence":11,"type":"activity","data":{"kind":"reconnect","status":"cursor-replayed","fromCursor":7,"throughCursor":10}}
+{"sequence":12,"type":"activity","data":{"kind":"goal","goalId":"goal-codex-1","status":"completed","revision":2,"summary":"Complete the bounded task without stopping."}}
+{"sequence":13,"type":"terminal","data":{"outcome":"goal-completed-after-follow-up","cursor":13}}

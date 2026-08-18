@@ -36,10 +36,17 @@ def write_scenario(root: Path, events: list[dict[str, object]]) -> Path:
 
 def test_committed_corpus_replays_offline_without_event_text() -> None:
     summaries = MODULE.replay_corpus(ROOT / "drivers_transcript")
-    assert len(summaries) == 6
+    assert len(summaries) == 7
     assert {summary.provider for summary in summaries} == {"claude", "codex", "claurst"}
     assert all(summary.terminal_outcomes for summary in summaries)
     assert any("attachment" in summary.event_types for summary in summaries)
+    goal_replay = next(
+        summary for summary in summaries
+        if (summary.provider, summary.scenario)
+        == ("codex", "goal-autonomous-plan-followup-replay")
+    )
+    assert goal_replay.event_count == 13
+    assert goal_replay.terminal_outcomes == ("goal-completed-after-follow-up",)
 
 
 def test_replay_preserves_normalized_order_and_counts() -> None:
