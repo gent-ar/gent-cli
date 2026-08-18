@@ -35,11 +35,15 @@ mod orchestration_tests;
 mod permission_control;
 mod policies;
 mod provider_auth;
+mod provider_lifecycle_values;
 mod reviewed_plan;
 mod run_checkpoints;
 mod run_projection;
 mod runtime_maintenance;
 mod runtime_update;
+mod sandbox_launch;
+#[cfg(test)]
+mod sandbox_launch_tests;
 mod tool_activity;
 mod tool_sources;
 mod turn_follow;
@@ -113,6 +117,7 @@ pub use provider_auth::{
     ProviderAuthLifecycle, ProviderAuthMethod, ProviderAuthMethodSelection, ProviderAuthProvider,
     ProviderAuthStatus,
 };
+pub use provider_lifecycle_values::{NormalizedProviderEvent, ProviderEvent, RunVersionLock};
 pub use reviewed_plan::{
     ContextPolicy, PlanAction, PlanActionKind, PlanArtifact, PlanDiff, PlanDiffKind,
     PlanPermissionPreview, PlanRevision, PlanRisk, PlanRiskKind, PlanRiskSeverity, PlanStatus,
@@ -129,6 +134,10 @@ pub use runtime_update::{
     RuntimeUpdateCheckRequest, RuntimeUpdateCheckState, RuntimeUpdateFailure, RuntimeUpdateHandoff,
     RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion,
     SignedRuntimeRelease, SignedRuntimeReleaseIndex,
+};
+pub use sandbox_launch::{
+    SandboxBackendId, SandboxLaunchAttestation, SandboxLaunchContractError, SandboxLaunchProfile,
+    SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
 };
 pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
@@ -228,60 +237,6 @@ pub struct DoctorReport {
     pub mcp: McpDoctorStatus,
     pub private_bridge: PrivateBridgeAvailability,
     pub next_action: DoctorNextAction,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunVersionLock {
-    pub provider: String,
-    pub canonical_path: String,
-    pub file_identity: String,
-    pub digest_sha256: String,
-    pub version: String,
-    pub compatibility_entry: String,
-}
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum NormalizedProviderEvent {
-    Output {
-        text: String,
-        is_partial: bool,
-    },
-    TurnStarted {
-        turn_id: String,
-    },
-    TurnEnded {
-        turn_id: String,
-    },
-    RootActivity {
-        activity: RootActivity,
-    },
-    ChildStarted {
-        child_id: String,
-        parent_tool_use_id: String,
-    },
-    ChildTerminal {
-        child_id: String,
-        phase: WorkPhase,
-    },
-    CommandTerminal {
-        command_id: String,
-        phase: WorkPhase,
-    },
-    DecisionSettled {
-        decision_id: String,
-    },
-    TransportDiagnostic {
-        classification: String,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ProviderEvent {
-    Output { text: String },
-    DecisionSettled { decision_id: String },
-    Terminal { reason: String },
 }
 
 #[cfg(test)]

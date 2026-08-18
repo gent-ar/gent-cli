@@ -50,20 +50,31 @@ pub fn capture(
 /// # Errors
 /// Returns [`LockError::ProviderChanged`] instead of silently substituting a binary.
 pub fn recheck(lock: &RunVersionLock) -> Result<(), LockError> {
-    let current = capture(
-        &lock.provider,
-        Path::new(&lock.canonical_path),
-        &lock.version,
-        &lock.compatibility_entry,
-    )?;
+    let current = rechecked_identity(lock)?;
     (current.file_identity == lock.file_identity && current.digest_sha256 == lock.digest_sha256)
         .then_some(())
         .ok_or(LockError::ProviderChanged)
 }
 
+/// Re-discovers the immutable executable identity for a trusted launch preflight.
+///
+/// This returns no authorization decision and never launches a process. A sandbox-preflight edge
+/// compares the result against its saved lock before it can produce an attestation.
+///
+/// # Errors
+/// Returns an error when the executable cannot be resolved or read.
+pub fn rechecked_identity(lock: &RunVersionLock) -> Result<RunVersionLock, LockError> {
+    capture(
+        &lock.provider,
+        Path::new(&lock.canonical_path),
+        &lock.version,
+        &lock.compatibility_entry,
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{LockError, capture, recheck};
+    use super::{LockError, capture, recheck, rechecked_identity};
     use std::fs;
 
     #[test]
@@ -74,5 +85,14 @@ mod tests {
         let lock = capture("claude", &executable, "1", "entry").unwrap();
         fs::write(&executable, "second").unwrap();
         assert!(matches!(recheck(&lock), Err(LockError::ProviderChanged)));
+    }
+
+    #[test]
+    fn rechecked_identity_retains_the_exact_saved_lock_when_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("provider");
+        fs::write(&executable, "first").unwrap();
+        let lock = capture("claude", &executable, "1", "entry").unwrap();
+        assert_eq!(rechecked_identity(&lock).unwrap(), lock);
     }
 }

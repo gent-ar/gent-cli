@@ -21,7 +21,11 @@ mod approved_codex_host;
 mod approved_codex_host_bounds_tests;
 mod attachment_api;
 mod attachment_transport;
+#[allow(dead_code)]
+mod authority_evidence_input;
 mod authority_profile;
+#[allow(dead_code)]
+mod claude_authority_preflight;
 #[allow(dead_code)]
 mod claude_authority_supervisor;
 #[allow(dead_code)]

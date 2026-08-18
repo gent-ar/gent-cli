@@ -36,6 +36,7 @@ mod run_projections;
 mod run_sessions;
 mod run_version_authorizer;
 pub mod runtime_update;
+pub mod sandboxed_provider_preflight;
 mod tool_source_ledger;
 mod transcript_ledger;
 mod turn_follow;

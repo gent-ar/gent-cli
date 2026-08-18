@@ -1,5 +1,6 @@
 //! Home for public declarative provider manifests. No processes are started here.
 
+pub mod claude_authority_evidence;
 pub mod codex_authority_evidence;
 pub mod compatibility;
 pub mod compatibility_cache;
