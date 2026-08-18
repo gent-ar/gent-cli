@@ -90,6 +90,8 @@ mod private_claurst_ingress_tests;
 mod private_compaction_ingress;
 #[cfg(test)]
 mod private_compaction_ingress_tests;
+#[allow(dead_code)]
+mod private_lifecycle_loop;
 #[cfg(unix)]
 mod private_paths;
 #[allow(dead_code)]

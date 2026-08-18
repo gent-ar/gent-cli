@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::DependencyProvider;
-use gent_types::{Receipt, ReceiptStatus};
+use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
 
 use crate::node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError};
 
@@ -37,6 +37,10 @@ pub(crate) enum PrivateProvisionResult {
 pub(crate) enum PrivateProvisionError {
     #[error("private provisioning requires an accepted durable receipt")]
     ReceiptNotAccepted,
+    #[error("durable provisioning receipt is unavailable: {0}")]
+    ReceiptUnavailable(String),
+    #[error("durable provisioning receipt no longer matches the accepted request")]
+    ReceiptMismatch,
     #[error(transparent)]
     Runtime(#[from] AppNodeRuntimeLockError),
     #[error("signed package policy failed: {0}")]
@@ -74,34 +78,55 @@ pub(crate) trait ProvisionedProviderVerifier: Clone + Send + Sync {
     ) -> Result<ProvisionedProviderLock, String>;
 }
 
+/// Re-reads the one durable accepted receipt allowed to cause an npm effect.
+///
+/// This port keeps receipt ownership in the future ledger composition.  A caller-provided
+/// `Receipt` is only a claim: it must exactly match the current durable record before npm starts.
+pub(crate) trait ProvisionReceiptReader: Clone + Send + Sync {
+    /// Returns the current receipt for this exact receipt/idempotency/epoch binding.
+    fn accepted_receipt(
+        &self,
+        receipt_id: &ReceiptId,
+        idempotency_key: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<Receipt, String>;
+}
+
 /// Private composition edge for an app-supplied Node runtime, policy, and fixed npm installer.
 #[derive(Clone, Debug)]
-pub(crate) struct PrivateProviderProvisioner<I, P, V> {
+pub(crate) struct PrivateProviderProvisioner<I, P, V, R> {
     runtime: AppNodeRuntimeLock,
     installer: I,
     policy: P,
     verifier: Option<V>,
+    receipts: R,
 }
 
-impl<I, P, V> PrivateProviderProvisioner<I, P, V> {
+impl<I, P, V, R> PrivateProviderProvisioner<I, P, V, R> {
     #[must_use]
     pub(crate) fn new(
         runtime: AppNodeRuntimeLock,
         installer: I,
         policy: P,
         verifier: Option<V>,
+        receipts: R,
     ) -> Self {
         Self {
             runtime,
             installer,
             policy,
             verifier,
+            receipts,
         }
     }
 }
 
-impl<I: DependencyInstaller, P: PackageInstallPolicy, V: ProvisionedProviderVerifier>
-    PrivateProviderProvisioner<I, P, V>
+impl<
+    I: DependencyInstaller,
+    P: PackageInstallPolicy,
+    V: ProvisionedProviderVerifier,
+    R: ProvisionReceiptReader,
+> PrivateProviderProvisioner<I, P, V, R>
 {
     /// Captures the app runtime without enabling installation or registering a public handler.
     ///
@@ -112,12 +137,14 @@ impl<I: DependencyInstaller, P: PackageInstallPolicy, V: ProvisionedProviderVeri
         installer: I,
         policy: P,
         verifier: Option<V>,
+        receipts: R,
     ) -> Result<Self, PrivateProvisionError> {
         Ok(Self::new(
             AppNodeRuntimeLock::from_environment(data_dir)?,
             installer,
             policy,
             verifier,
+            receipts,
         ))
     }
 
@@ -139,6 +166,17 @@ impl<I: DependencyInstaller, P: PackageInstallPolicy, V: ProvisionedProviderVeri
         }
         if !request.consent_granted {
             return Ok(PrivateProvisionResult::ConsentRequired);
+        }
+        let durable_receipt = self
+            .receipts
+            .accepted_receipt(
+                &request.receipt.receipt_id,
+                &request.receipt.idempotency_key,
+                request.receipt.host_epoch,
+            )
+            .map_err(PrivateProvisionError::ReceiptUnavailable)?;
+        if durable_receipt != request.receipt || durable_receipt.status != ReceiptStatus::Accepted {
+            return Err(PrivateProvisionError::ReceiptMismatch);
         }
         let verifier = self
             .verifier
@@ -189,9 +227,34 @@ fn valid_lock(lock: &ProvisionedProviderLock, provider: DependencyProvider, pref
 }
 
 #[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct TestAcceptedReceiptReader;
+
+#[cfg(test)]
+impl ProvisionReceiptReader for TestAcceptedReceiptReader {
+    fn accepted_receipt(
+        &self,
+        receipt_id: &ReceiptId,
+        idempotency_key: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<Receipt, String> {
+        Ok(Receipt {
+            receipt_id: receipt_id.clone(),
+            idempotency_key: idempotency_key.into(),
+            status: ReceiptStatus::Accepted,
+            host_epoch,
+        })
+    }
+}
+
+#[cfg(test)]
 #[path = "private_provider_provisioning_tests.rs"]
 mod tests;
 
 #[cfg(test)]
 #[path = "private_provider_provisioning_error_tests.rs"]
 mod error_tests;
+
+#[cfg(test)]
+#[path = "private_provider_provisioning_receipt_tests.rs"]
+mod receipt_tests;

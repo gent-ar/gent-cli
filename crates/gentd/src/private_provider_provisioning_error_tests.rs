@@ -11,7 +11,7 @@ use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
 
 use super::{
     PrivateProviderProvisioner, PrivateProvisionError, ProvisionedProviderLock,
-    ProvisionedProviderVerifier,
+    ProvisionedProviderVerifier, TestAcceptedReceiptReader,
 };
 use crate::{
     node_runtime_lock::AppNodeRuntimeLock, private_provider_provisioning::PrivateProvisionRequest,
@@ -86,8 +86,13 @@ impl ProvisionedProviderVerifier for NeverVerifier {
 fn rejected_or_mismatched_policy_never_reaches_the_installer() {
     let (temp, runtime) = runtime();
     let installer = Installer::default();
-    let provisioner =
-        PrivateProviderProvisioner::new(runtime, installer.clone(), Reject, Some(NeverVerifier));
+    let provisioner = PrivateProviderProvisioner::new(
+        runtime,
+        installer.clone(),
+        Reject,
+        Some(NeverVerifier),
+        TestAcceptedReceiptReader,
+    );
     assert!(matches!(
         provisioner.provision(&request()),
         Err(PrivateProvisionError::Policy(_))
@@ -102,6 +107,7 @@ fn rejected_or_mismatched_policy_never_reaches_the_installer() {
         installer.clone(),
         Mismatch,
         Some(NeverVerifier),
+        TestAcceptedReceiptReader,
     );
     assert!(matches!(
         provisioner.provision(&request()),
@@ -119,6 +125,7 @@ fn installer_failure_is_reported_without_post_effect_verification() {
         installer.clone(),
         GoodPolicy,
         Some(NeverVerifier),
+        TestAcceptedReceiptReader,
     );
     assert!(matches!(
         provisioner.provision(&request()),

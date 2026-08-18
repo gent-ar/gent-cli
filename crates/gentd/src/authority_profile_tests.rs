@@ -2,6 +2,11 @@ use super::{
     AuthorityProfileConfig, AuthorityProfileError, DeferredSurfaceRequest, McpApproval, McpRequest,
     PublicDriverApproval, PublicDriverRequest, ValidatedAuthorityProfile,
 };
+use gent_protocol::{
+    AGENT_CHAT_CONTROLLER_STREAM_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, CONVERSATION_ACTIVITY_CAPABILITY,
+    EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, PROVIDER_AUTH_CAPABILITY,
+};
 
 fn approval() -> PublicDriverApproval {
     PublicDriverApproval {
@@ -15,6 +20,44 @@ fn default_profile_is_observer_and_all_deferred_surfaces_are_disabled() {
     let profile = AuthorityProfileConfig::default().validate().unwrap();
     assert_eq!(profile, ValidatedAuthorityProfile::Observer);
     assert!(matches!(profile, ValidatedAuthorityProfile::Observer));
+}
+
+#[test]
+fn observer_and_durable_chat_profiles_hide_every_dormant_provider_lifecycle_surface() {
+    let observer = crate::transport::observed_capabilities(false, false, false, false);
+    let durable_chat = crate::transport::observed_capabilities(true, false, false, false);
+    assert!(crate::authority_profile::shipped_observer_profile().is_hard_observer());
+
+    for capabilities in [&observer, &durable_chat] {
+        for capability in [
+            AGENT_CHAT_CONTROLLER_STREAM_CAPABILITY,
+            AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
+            CONVERSATION_ACTIVITY_CAPABILITY,
+            EXTERNAL_PROVIDER_BRIDGE_CAPABILITY,
+            PROVIDER_AUTH_CAPABILITY,
+        ] {
+            assert!(
+                !capabilities
+                    .0
+                    .iter()
+                    .any(|advertised| advertised == capability),
+                "dormant provider surface {capability} must not be negotiated"
+            );
+        }
+    }
+    assert!(
+        !observer
+            .0
+            .iter()
+            .any(|advertised| advertised == AGENT_CHAT_INTENTS_CAPABILITY)
+    );
+    assert!(
+        durable_chat
+            .0
+            .iter()
+            .any(|advertised| advertised == AGENT_CHAT_INTENTS_CAPABILITY),
+        "durable chat persistence is distinct from provider lifecycle authority"
+    );
 }
 
 #[test]

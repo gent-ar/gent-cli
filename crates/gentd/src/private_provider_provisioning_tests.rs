@@ -12,6 +12,7 @@ use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
 use super::{
     PrivateProviderProvisioner, PrivateProvisionError, PrivateProvisionRequest,
     PrivateProvisionResult, ProvisionedProviderLock, ProvisionedProviderVerifier,
+    TestAcceptedReceiptReader,
 };
 use crate::node_runtime_lock::AppNodeRuntimeLock;
 
@@ -102,6 +103,7 @@ fn consent_is_required_before_policy_or_npm_effects() {
         installer.clone(),
         Policy,
         Some(Verifier::valid()),
+        TestAcceptedReceiptReader,
     );
     assert_eq!(
         provisioner
@@ -125,6 +127,7 @@ fn changed_node_is_refused_before_the_fixed_installer_effect() {
         installer.clone(),
         Policy,
         Some(Verifier::valid()),
+        TestAcceptedReceiptReader,
     );
     assert!(matches!(
         provisioner.provision(&request()),
@@ -145,6 +148,7 @@ fn post_effect_runtime_change_is_ambiguous_and_never_claimed_installed() {
         installer.clone(),
         Policy,
         Some(Verifier::valid()),
+        TestAcceptedReceiptReader,
     );
     assert_eq!(
         provisioner.provision(&request()).unwrap(),
@@ -161,6 +165,7 @@ fn only_accepted_receipts_can_reach_the_private_seam() {
         Installer::default(),
         Policy,
         Some(Verifier::valid()),
+        TestAcceptedReceiptReader,
     );
     let mut request = request();
     request.receipt.status = ReceiptStatus::Settled;
@@ -174,8 +179,13 @@ fn only_accepted_receipts_can_reach_the_private_seam() {
 fn missing_post_install_verifier_refuses_before_npm_effects() {
     let (runtime, _) = runtime();
     let installer = Installer::default();
-    let provisioner =
-        PrivateProviderProvisioner::new(runtime, installer.clone(), Policy, None::<Verifier>);
+    let provisioner = PrivateProviderProvisioner::new(
+        runtime,
+        installer.clone(),
+        Policy,
+        None::<Verifier>,
+        TestAcceptedReceiptReader,
+    );
     assert!(matches!(
         provisioner.provision(&request()),
         Err(PrivateProvisionError::VerificationUnavailable)
@@ -195,6 +205,7 @@ fn unsupported_post_install_provider_is_ambiguous_after_the_effect() {
             unsupported: true,
             changed: false,
         }),
+        TestAcceptedReceiptReader,
     );
     assert_eq!(
         provisioner.provision(&request()).unwrap(),
@@ -214,6 +225,7 @@ fn changed_or_missing_post_install_executable_is_ambiguous() {
             unsupported: false,
             changed: true,
         }),
+        TestAcceptedReceiptReader,
     );
     assert_eq!(
         provisioner.provision(&request()).unwrap(),
@@ -229,6 +241,7 @@ fn valid_post_install_executable_version_and_digest_lock_can_settle_installed() 
         Installer::default(),
         Policy,
         Some(Verifier::valid()),
+        TestAcceptedReceiptReader,
     );
     assert!(matches!(
         provisioner.provision(&request()).unwrap(),

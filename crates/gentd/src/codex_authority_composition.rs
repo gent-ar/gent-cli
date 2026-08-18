@@ -23,6 +23,7 @@ use crate::codex_authority_supervisor::{
     PrivateCodexEscalation, PrivateCodexShutdown, PrivateCodexSupervisor, PrivateCodexWake,
 };
 use crate::codex_prompt_lifecycle::SandboxedCodexPromptExecution;
+use crate::private_lifecycle_loop::PrivateLifecycleOwner;
 use crate::provider_resolver::{
     CodexOnlyResolver, DaemonProviderResolver, PrivatePrefixDiscovery, SystemVersionProbe,
 };
@@ -93,6 +94,28 @@ where
     pub(crate) fn escalate_shutdown(
         &mut self,
     ) -> Result<PrivateCodexEscalation, gent_runtime::RuntimeError> {
+        self.supervisor.escalate_shutdown()
+    }
+}
+
+impl<S> PrivateLifecycleOwner for PrivateCodexAuthorityHost<S>
+where
+    S: SandboxedProviderPreflight + 'static,
+{
+    type Wake = PrivateCodexWake;
+    type Shutdown = PrivateCodexShutdown;
+    type Escalation = PrivateCodexEscalation;
+    type Error = gent_runtime::RuntimeError;
+
+    fn wake(&mut self) -> Result<Self::Wake, Self::Error> {
+        self.supervisor.wake()
+    }
+
+    fn request_shutdown(&mut self) -> Result<Self::Shutdown, Self::Error> {
+        self.supervisor.request_shutdown()
+    }
+
+    fn escalate_shutdown(&mut self) -> Result<Self::Escalation, Self::Error> {
         self.supervisor.escalate_shutdown()
     }
 }

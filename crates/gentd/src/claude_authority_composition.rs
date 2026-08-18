@@ -25,6 +25,7 @@ use crate::claude_authority_supervisor::{
 };
 use crate::claude_private_resolver::ClaudeOnlyResolver;
 use crate::claude_prompt_lifecycle::{ClaudePromptRunner, SandboxedClaudePromptExecution};
+use crate::private_lifecycle_loop::PrivateLifecycleOwner;
 use crate::provider_resolver::{
     DaemonProviderResolver, PrivatePrefixDiscovery, SystemVersionProbe,
 };
@@ -92,6 +93,28 @@ where
     pub(crate) fn escalate_shutdown(
         &mut self,
     ) -> Result<PrivateClaudeEscalation, gent_runtime::RuntimeError> {
+        self.supervisor.escalate_shutdown()
+    }
+}
+
+impl<S> PrivateLifecycleOwner for PrivateClaudeAuthorityHost<S>
+where
+    S: SandboxedProviderPreflight + std::fmt::Debug + 'static,
+{
+    type Wake = PrivateClaudeWake;
+    type Shutdown = PrivateClaudeShutdown;
+    type Escalation = PrivateClaudeEscalation;
+    type Error = gent_runtime::RuntimeError;
+
+    fn wake(&mut self) -> Result<Self::Wake, Self::Error> {
+        self.supervisor.wake()
+    }
+
+    fn request_shutdown(&mut self) -> Result<Self::Shutdown, Self::Error> {
+        self.supervisor.request_shutdown()
+    }
+
+    fn escalate_shutdown(&mut self) -> Result<Self::Escalation, Self::Error> {
         self.supervisor.escalate_shutdown()
     }
 }
