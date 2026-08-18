@@ -10,7 +10,7 @@ use gent_runtime::{
     AgentChatSelectionSwitchService, AttachmentService, Coordinator, DependencyActionService,
     GoalAuthority, GoalService, OrchestrationAuthority, OrchestrationService,
     ReviewedPlanAuthority, ReviewedPlanService, RuntimeMaintenanceAuthority,
-    RuntimeMaintenanceService,
+    RuntimeMaintenanceService, TurnFollowService,
 };
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::CapabilitySet;
@@ -27,6 +27,7 @@ pub(crate) struct RuntimeFacade {
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
+    turn_follow_source: Option<SqliteLedger>,
     goals: GoalService<SqliteLedger>,
     reviewed_plans: ReviewedPlanService<SqliteLedger>,
     orchestration: OrchestrationService<SqliteLedger>,
@@ -136,6 +137,28 @@ impl RuntimeFacade {
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::from_state_inner(state, runtime_update_checks, false)
+    }
+
+    /// Builds an explicit future authority seam for exact, read-only turn following.
+    ///
+    /// No shipped bootstrap calls this constructor or advertises the corresponding capability.
+    ///
+    /// # Errors
+    /// Returns an error when the durable attachment store cannot open.
+    #[allow(dead_code)] // Reserved for an explicit future authority composition only.
+    pub(crate) fn from_state_with_turn_follow_authority(
+        state: DaemonCompositionState,
+        runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::from_state_inner(state, runtime_update_checks, true)
+    }
+
+    fn from_state_inner(
+        state: DaemonCompositionState,
+        runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
+        turn_follow_enabled: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let DaemonCompositionState {
             data_dir,
             ledger,
@@ -155,6 +178,7 @@ impl RuntimeFacade {
             ledger.clone(),
             FileAttachmentBlobs::open(data_dir.join("attachments"))?,
         );
+        let turn_follow_source = turn_follow_enabled.then(|| ledger.clone());
         Ok(Self {
             agent_chat_conversations: AgentChatConversationService::new(
                 ledger.clone(),
@@ -169,6 +193,7 @@ impl RuntimeFacade {
                 switch_authority(agent_chat_enabled),
             ),
             agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
+            turn_follow_source,
             goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),
             reviewed_plans: ReviewedPlanService::new(
                 ledger.clone(),

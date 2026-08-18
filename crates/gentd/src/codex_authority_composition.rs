@@ -68,7 +68,9 @@ pub(crate) enum PrivateCodexAuthorityError {
 ///
 /// Evidence and the exact compatibility envelope are revalidated before this function creates a
 /// resolver or runner. It does not discover, probe, launch, or advertise a provider; the caller
-/// must retain the returned host and schedule its bounded `recover` and `tick` methods.
+/// must retain the returned host and schedule its bounded `recover` and `tick` methods. This is
+/// not yet a supervisor: it has no prompt wake source, shutdown request, or timer-driven process
+/// tree escalation/drain loop, so daemon bootstrap must not compose it.
 ///
 /// # Errors
 /// Returns before runner construction if the coordinator or signed evidence/compatibility fence

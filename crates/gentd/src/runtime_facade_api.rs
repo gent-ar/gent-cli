@@ -102,6 +102,16 @@ impl api::RuntimeApi for RuntimeFacade {
         }
     }
 
+    fn agent_chat_turn_follow(
+        &self,
+        request: gent_runtime::TurnFollowRequest,
+    ) -> Result<gent_runtime::TurnFollowRead, String> {
+        let source = self.turn_follow_source.as_ref().ok_or_else(|| {
+            "agent-chat turn follow is unavailable while gentd is observer-disabled".to_owned()
+        })?;
+        TurnFollowService::read(source, &request).map_err(|error| error.to_string())
+    }
+
     fn permission_policy(
         &self,
         frame: PermissionPolicyFrame,

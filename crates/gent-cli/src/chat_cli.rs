@@ -15,9 +15,10 @@ use gent_types::{
 use serde_json::Value;
 
 mod arguments;
-mod follow;
+pub(crate) mod follow;
 mod reads;
 mod switch;
+pub(crate) mod turn_follow;
 
 pub(crate) use arguments::{
     ConversationArgs, CreateArgs, DirectPromptArgs, Effort, Mode, PromptArgs, Provider,
@@ -31,21 +32,14 @@ pub(crate) enum ChatCommand {
     Switch(switch::SwitchArgs),
     /// Follow daemon-normalized transcript events, resuming from a durable cursor after reconnect.
     Follow(follow::FollowArgs),
+    /// Follow exactly one normalized durable turn through its terminal record.
+    FollowTurn(turn_follow::FollowTurnArgs),
     /// Read one provider-neutral conversation summary.
     Summary(ConversationArgs),
     /// Read one provider-neutral conversation and its normalized run hierarchy.
     Detail(ConversationArgs),
     /// Read one bounded page of daemon-normalized transcript events.
     Transcript(TranscriptArgs),
-}
-
-/// Runs the long-lived transcript client when the caller selected `gent chat follow`.
-pub(crate) async fn follow(
-    data_dir: Option<PathBuf>,
-    no_autostart: bool,
-    args: follow::FollowArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
-    follow::run(data_dir, no_autostart, args).await
 }
 
 /// Executes one short-lived agent-chat command and returns its public JSON response.
@@ -55,7 +49,9 @@ pub(crate) async fn execute_command(
     action: ChatCommand,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let value = match action {
-        ChatCommand::Follow(_) => return Err("chat follow is a long-lived subscription".into()),
+        ChatCommand::Follow(_) | ChatCommand::FollowTurn(_) => {
+            return Err("chat follow is a long-lived subscription".into());
+        }
         ChatCommand::Summary(args) => reads::summary(data_dir, no_autostart, args.conversation_id)
             .await
             .and_then(to_value)?,
@@ -91,6 +87,7 @@ pub(crate) async fn execute(
     if matches!(
         &action,
         ChatCommand::Follow(_)
+            | ChatCommand::FollowTurn(_)
             | ChatCommand::Summary(_)
             | ChatCommand::Detail(_)
             | ChatCommand::Transcript(_)
@@ -194,6 +191,7 @@ fn frame(action: ChatCommand) -> AgentChatIntentFrame {
         ChatCommand::Queue(args) => prompt_frame(args, true),
         ChatCommand::Switch(args) => switch::frame(args),
         ChatCommand::Follow(_) => unreachable!("long-lived subscriptions bypass one-shot frames"),
+        ChatCommand::FollowTurn(_) => unreachable!("turn follow bypasses one-shot frames"),
         ChatCommand::Summary(_) | ChatCommand::Detail(_) | ChatCommand::Transcript(_) => {
             unreachable!("agent-chat reads bypass intent frames")
         }

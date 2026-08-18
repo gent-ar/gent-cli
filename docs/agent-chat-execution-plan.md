@@ -89,6 +89,11 @@ the clear-context path.
 - A normalized `tooFewGroups` recovery reducer can reserve one fresh,
   preserve-context child; its live Codex ingress remains disabled because the
   recorded fixture has no turn identity or failure discriminator.
+- The private Codex composition can only construct a bounded host after signed
+  evidence and compatibility revalidation. It has no bootstrap wiring or
+  supervisor yet: a future owner must durably wake on new work, recover once,
+  tick/drain bounded processes, drive interrupt/terminate/kill deadlines, and
+  settle terminal prompts before it can be advertised.
 - Every plan approval, clear-context choice, provider change, and launch result
   has a durable receipt and an explicit terminal result even if the provider
   never acknowledges it.

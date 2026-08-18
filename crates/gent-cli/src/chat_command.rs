@@ -11,7 +11,11 @@ pub(crate) async fn execute(
 ) -> Result<Option<serde_json::Value>, Box<dyn std::error::Error>> {
     match action {
         chat_cli::ChatCommand::Follow(args) => {
-            chat_cli::follow(data_dir, no_autostart, args).await?;
+            chat_cli::follow::run(data_dir, no_autostart, args).await?;
+            Ok(None)
+        }
+        chat_cli::ChatCommand::FollowTurn(args) => {
+            chat_cli::turn_follow::run(data_dir, no_autostart, args).await?;
             Ok(None)
         }
         action => Ok(Some(
