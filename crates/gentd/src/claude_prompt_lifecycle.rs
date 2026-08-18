@@ -5,8 +5,8 @@ use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
-    ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
-    TranscriptLedger,
+    ConversationContentReader, Ledger, PublicProviderResolver, PublicProviderRunError,
+    RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{
     AgentChatPromptDispatchResult, AgentChatTranscriptAppendRequest, ProviderActivityFact,
@@ -125,9 +125,11 @@ where
         run_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<Option<ClaudePromptPoll>, RuntimeError> {
-        let Ok(effects) = self.runner.poll_claude_prompt(run_id) else {
-            return self.settle_poll_failure(run_id, host_epoch);
-        };
+        let effects = self.runner.poll_claude_prompt(run_id).map_err(|_| {
+            RuntimeError::ProviderRun(PublicProviderRunError::Failed(
+                "provider poll unavailable".into(),
+            ))
+        })?;
         let Some(effects) = effects else {
             return Ok(None);
         };
@@ -159,20 +161,6 @@ where
         Ok(Some(ClaudePromptPoll {
             facts,
             exited: false,
-        }))
-    }
-
-    fn settle_poll_failure(
-        &mut self,
-        run_id: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Option<ClaudePromptPoll>, RuntimeError> {
-        self.record_terminal(run_id, host_epoch, "providerPollFailure")?;
-        self.settle_if_open(run_id, host_epoch)?;
-        self.active.remove(run_id);
-        Ok(Some(ClaudePromptPoll {
-            facts: 0,
-            exited: true,
         }))
     }
 

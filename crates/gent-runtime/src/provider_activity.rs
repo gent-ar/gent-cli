@@ -87,7 +87,10 @@ where
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), RuntimeError> {
-        if self.authority != ProviderRunAuthority::PublicDrivers {
+        if !matches!(
+            self.authority,
+            ProviderRunAuthority::PublicDrivers | ProviderRunAuthority::PrivateClaurstBridge
+        ) {
             return Err(invariant(
                 "observer mode cannot accept provider activity facts",
             ));

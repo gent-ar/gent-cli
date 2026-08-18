@@ -25,8 +25,6 @@ fn approved_host_polls_before_claiming_one_queued_follow_up_at_a_time() {
         host.tick().unwrap().dispatch,
         Some(CodexPromptDispatchOutcome::Started { .. })
     ));
-    save(&ledger, &conversation_id, "prompt-2", "second");
-    save(&ledger, &conversation_id, "prompt-3", "third");
     runner.state.lock().unwrap().effects.push_back(vec![
         CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
             provider_session_id: "daemon-owned-session".into(),
@@ -41,6 +39,17 @@ fn approved_host_polls_before_claiming_one_queued_follow_up_at_a_time() {
     let tick = host.tick().unwrap();
     assert_eq!(tick.polled_runs, 1);
     assert_eq!(tick.facts, 2);
+    host.signal_active(gent_drivers::interrupt::ProcessTreeSignal::Interrupt)
+        .unwrap();
+    assert_eq!(
+        runner.state.lock().unwrap().signals,
+        [gent_drivers::interrupt::ProcessTreeSignal::Interrupt],
+        "a terminal turn fact must not discard the owned Codex process"
+    );
+    save(&ledger, &conversation_id, "prompt-2", "second");
+    save(&ledger, &conversation_id, "prompt-3", "third");
+
+    let tick = host.tick().unwrap();
     assert!(matches!(
         tick.dispatch,
         Some(CodexPromptDispatchOutcome::Started { .. })
@@ -60,7 +69,7 @@ fn approved_host_polls_before_claiming_one_queued_follow_up_at_a_time() {
 }
 
 #[test]
-fn approved_host_settles_a_poll_failure_before_considering_more_work() {
+fn approved_host_preserves_owned_process_after_an_unproven_poll_failure() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = setup_conversation(&ledger);
     save(&ledger, &conversation_id, "prompt-1", "first");
@@ -72,14 +81,15 @@ fn approved_host_settles_a_poll_failure_before_considering_more_work() {
     ));
     runner.state.lock().unwrap().poll_failure = true;
 
-    let tick = host.tick().unwrap();
-    assert_eq!(tick.polled_runs, 1);
-    assert_eq!(tick.exited_runs, 1);
-    assert_eq!(tick.dispatch, Some(CodexPromptDispatchOutcome::Empty));
-    let event = ledger.find_event("codex:run-a:poll:1").unwrap().unwrap();
-    assert!(event.payload.to_string().contains("providerPollFailure"));
-    assert!(!event.payload.to_string().contains("private runner detail"));
-    assert_eq!(host.tick().unwrap().polled_runs, 0);
+    let error = host.tick().unwrap_err();
+    assert!(error.to_string().contains("provider poll unavailable"));
+    assert!(ledger.find_event("codex:run-a:poll:1").unwrap().is_none());
+    host.signal_active(gent_drivers::interrupt::ProcessTreeSignal::Interrupt)
+        .unwrap();
+    assert_eq!(
+        runner.state.lock().unwrap().signals,
+        [gent_drivers::interrupt::ProcessTreeSignal::Interrupt]
+    );
 }
 
 fn host(

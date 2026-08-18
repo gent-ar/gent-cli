@@ -35,6 +35,7 @@ pub(crate) struct State {
     starts: usize,
     resumes: usize,
     pub(crate) effects: VecDeque<Vec<ClaudeRunnerEffect>>,
+    pub(crate) poll_failure: bool,
     pub(crate) signals: Vec<gent_drivers::interrupt::ProcessTreeSignal>,
 }
 
@@ -75,7 +76,13 @@ impl ClaudePromptExecution for Runner {
         &self,
         _: &str,
     ) -> Result<Option<Vec<ClaudeRunnerEffect>>, PublicProviderRunError> {
-        Ok(self.0.lock().unwrap().effects.pop_front())
+        let mut state = self.0.lock().unwrap();
+        if state.poll_failure {
+            return Err(PublicProviderRunError::Failed(
+                "private runner detail".into(),
+            ));
+        }
+        Ok(state.effects.pop_front())
     }
     fn signal_claude_process(
         &self,

@@ -93,6 +93,7 @@ where
                 Binding {
                     prompt,
                     sequence: 0,
+                    settled: false,
                 },
             );
             Ok(CodexPromptDispatchOutcome::Started { run_id })
@@ -146,6 +147,7 @@ where
         Binding {
             prompt,
             sequence: 0,
+            settled: false,
         },
     );
     Ok(CodexPromptDispatchOutcome::Started { run_id })

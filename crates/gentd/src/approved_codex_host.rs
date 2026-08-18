@@ -103,9 +103,10 @@ where
     pub(crate) fn tick(&mut self) -> Result<ApprovedCodexTick, RuntimeError> {
         let batch = self.lifecycle.poll_active(self.host_epoch, self.max_active);
         let batch = batch?;
-        let dispatch = (self.lifecycle.active_len() < self.max_active)
-            .then(|| self.lifecycle.dispatch_next(self.host_epoch))
-            .transpose()?;
+        let dispatch = (self.lifecycle.active_len() < self.max_active
+            || self.lifecycle.has_settled_session())
+        .then(|| self.lifecycle.dispatch_next(self.host_epoch))
+        .transpose()?;
         Ok(ApprovedCodexTick {
             dispatch,
             polled_runs: batch.polled_runs,

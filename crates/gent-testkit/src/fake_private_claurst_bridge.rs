@@ -138,6 +138,7 @@ fn validate_batch(
             .facts
             .iter()
             .any(|fact| invalid_fact(request, binding, fact))
+        || !strictly_increasing(&batch.facts)
     {
         return Err(contract_error(
             "batch violates ordered bounded fact contract",
@@ -147,7 +148,15 @@ fn validate_batch(
         if checkpoint.run_id != request.run_id
             || checkpoint.source_id != request.source_id
             || checkpoint.cursor < request.after_cursor
-            || checkpoint.state_digest_sha256.is_empty()
+            || checkpoint.cursor
+                < batch
+                    .facts
+                    .last()
+                    .map_or(request.after_cursor, |fact| fact.cursor)
+            || !valid_digest(&checkpoint.state_digest_sha256)
+            || checkpoint
+                .state_digest_sha256
+                .contains(&binding.opaque_session_id)
         {
             return Err(contract_error("checkpoint does not bind this drain"));
         }
@@ -165,6 +174,14 @@ fn validate_batch(
         return Err(contract_error("batch would echo an opaque session"));
     }
     Ok(())
+}
+
+fn strictly_increasing(facts: &[ClaurstNormalizedFact]) -> bool {
+    facts.windows(2).all(|pair| pair[0].cursor < pair[1].cursor)
+}
+
+fn valid_digest(digest: &str) -> bool {
+    digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn invalid_fact(

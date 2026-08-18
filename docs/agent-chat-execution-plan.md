@@ -89,12 +89,14 @@ the clear-context path.
 - A normalized `tooFewGroups` recovery reducer can reserve one fresh,
   preserve-context child; its live Codex ingress remains disabled because the
   recorded fixture has no turn identity or failure discriminator.
-- Private Codex and Claude compositions can only construct bounded hosts after
-  signed evidence and compatibility revalidation. Their unadvertised
-  supervisors recover once, tick/drain bounded work, and escalate daemon-owned
-  process trees interrupt → terminate → kill without fabricating settlement.
-  They still have no bootstrap wiring, authority capability, complete evidence,
-  or sandbox proof, so no client can start or advertise either lifecycle.
+- The private Codex composition can construct a bounded host only after signed
+  evidence and compatibility revalidation. Claude currently has only an
+  uncomposed bounded host/supervisor, not a matching authority composition.
+  Their unadvertised supervisors recover once, tick/drain bounded work, and
+  escalate daemon-owned process trees interrupt → terminate → kill without
+  fabricating settlement. Neither has bootstrap wiring, an authority
+  capability, complete evidence, or sandbox proof, so no client can start or
+  advertise either lifecycle.
 - Every plan approval, clear-context choice, provider change, and launch result
   has a durable receipt and an explicit terminal result even if the provider
   never acknowledges it.

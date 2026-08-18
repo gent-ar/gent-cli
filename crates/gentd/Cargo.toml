@@ -30,6 +30,7 @@ thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+gent-testkit = { path = "../gent-testkit" }
 tempfile.workspace = true
 
 [[bin]]

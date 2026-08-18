@@ -114,7 +114,10 @@ where
         host_epoch: HostEpoch,
         requires_session: bool,
     ) -> Result<(), RuntimeError> {
-        if self.authority != ProviderRunAuthority::PublicDrivers {
+        if !matches!(
+            self.authority,
+            ProviderRunAuthority::PublicDrivers | ProviderRunAuthority::PrivateClaurstBridge
+        ) {
             return Err(invariant(
                 "observer mode cannot accept provider lifecycle effects",
             ));

@@ -6,7 +6,7 @@ use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    RunProjectionLedger, TranscriptLedger,
+    PublicProviderRunError, RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{
     AgentChatPromptDispatchResult, AgentChatTranscriptAppendRequest, ProviderActivityFact,
@@ -43,6 +43,7 @@ pub(crate) struct CodexPromptPoll {
 pub(super) struct Binding {
     prompt: AgentChatPromptSaved,
     sequence: u64,
+    settled: bool,
 }
 
 #[derive(Debug)]
@@ -98,7 +99,15 @@ where
             AgentChatPromptDispatchResult::DeniedObserver => Ok(CodexPromptDispatchOutcome::Denied),
             AgentChatPromptDispatchResult::Empty => Ok(CodexPromptDispatchOutcome::Empty),
             AgentChatPromptDispatchResult::Claimed(prompt) => {
-                if self.active.contains_key(&prompt.run_id.0) {
+                let active_run = self.active.get(&prompt.run_id.0);
+                let reuses_settled_session = active_run.is_some_and(|binding| binding.settled)
+                    && self.runner.has_codex_session(&prompt.run_id.0);
+                let another_session_is_owned = self.active.iter().any(|(run_id, binding)| {
+                    run_id != &prompt.run_id.0
+                        && binding.settled
+                        && self.runner.has_codex_session(run_id)
+                });
+                if (active_run.is_some() && !reuses_settled_session) || another_session_is_owned {
                     self.runtime.release_prompt_claim(
                         &prompt.message.message_id,
                         &self.coordinator_id,
@@ -119,66 +128,37 @@ where
         }
     }
 
+    pub(crate) fn has_settled_session(&self) -> bool {
+        self.active
+            .iter()
+            .any(|(run_id, binding)| binding.settled && self.runner.has_codex_session(run_id))
+    }
+
     /// Persists each normalized fact before it becomes a transcript or activity update.
     pub(crate) fn poll(
         &mut self,
         run_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<Option<CodexPromptPoll>, RuntimeError> {
-        let Ok(effects) = self.runner.poll_codex_prompt(run_id) else {
-            return self.settle_poll_failure(run_id, host_epoch);
-        };
+        let effects = self.runner.poll_codex_prompt(run_id).map_err(|_| {
+            RuntimeError::ProviderRun(PublicProviderRunError::Failed(
+                "provider poll unavailable".into(),
+            ))
+        })?;
         let Some(effects) = effects else {
             return Ok(None);
         };
-        let binding = self
-            .active
-            .get(run_id)
-            .cloned()
-            .ok_or_else(missing_binding)?;
         let mut facts = 0;
+        let mut terminal = false;
         for effect in effects {
             match effect {
                 CodexRunnerEffect::Fact(fact) => {
-                    let terminal = self.record_wire(run_id, host_epoch, &binding, &fact)?;
+                    terminal |= self.record_wire(run_id, host_epoch, &fact)?;
                     facts += 1;
-                    if terminal {
-                        self.runtime.settle_prompt(
-                            &binding.prompt.message.message_id,
-                            &self.coordinator_id,
-                            host_epoch,
-                        )?;
-                        self.active.remove(run_id);
-                        return Ok(Some(CodexPromptPoll {
-                            facts,
-                            exited: false,
-                        }));
-                    }
                 }
                 CodexRunnerEffect::Exited { code } => {
-                    let event_id = self.next_event_id(run_id, "exit")?;
-                    self.runtime.record(
-                        run_id.into(),
-                        &self.coordinator_id,
-                        host_epoch,
-                        PublicDriverFact::SessionEffect {
-                            event_id,
-                            effect: gent_drivers::SessionEffect::Terminal {
-                                reason: format!(
-                                    "providerExited:{}",
-                                    code.map_or_else(
-                                        || "unknown".into(),
-                                        |value| value.to_string()
-                                    )
-                                ),
-                            },
-                        },
-                    )?;
-                    self.runtime.settle_prompt(
-                        &binding.prompt.message.message_id,
-                        &self.coordinator_id,
-                        host_epoch,
-                    )?;
+                    self.record_exit(run_id, host_epoch, code)?;
+                    self.settle_if_open(run_id, host_epoch)?;
                     self.active.remove(run_id);
                     return Ok(Some(CodexPromptPoll {
                         facts,
@@ -187,45 +167,12 @@ where
                 }
             }
         }
+        if terminal {
+            self.settle_if_open(run_id, host_epoch)?;
+        }
         Ok(Some(CodexPromptPoll {
             facts,
             exited: false,
-        }))
-    }
-
-    fn settle_poll_failure(
-        &mut self,
-        run_id: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Option<CodexPromptPoll>, RuntimeError> {
-        let binding = self
-            .active
-            .get(run_id)
-            .cloned()
-            .ok_or_else(missing_binding)?;
-        let event_id = self.next_event_id(run_id, "poll")?;
-        self.runtime.record(
-            run_id.into(),
-            &self.coordinator_id,
-            host_epoch,
-            PublicDriverFact::SessionEffect {
-                event_id,
-                // Runner error details can contain provider-local paths or frames. The durable
-                // public lifecycle records only this stable, normalized classification.
-                effect: gent_drivers::SessionEffect::Terminal {
-                    reason: "providerPollFailure".into(),
-                },
-            },
-        )?;
-        self.runtime.settle_prompt(
-            &binding.prompt.message.message_id,
-            &self.coordinator_id,
-            host_epoch,
-        )?;
-        self.active.remove(run_id);
-        Ok(Some(CodexPromptPoll {
-            facts: 0,
-            exited: true,
         }))
     }
 
@@ -233,9 +180,13 @@ where
         &mut self,
         run_id: &str,
         host_epoch: HostEpoch,
-        binding: &Binding,
         fact: &PublicWireFact,
     ) -> Result<bool, RuntimeError> {
+        let binding = self
+            .active
+            .get(run_id)
+            .cloned()
+            .ok_or_else(missing_binding)?;
         let event_id = self.next_event_id(run_id, "wire")?;
         self.runtime.record(
             run_id.into(),
@@ -265,7 +216,7 @@ where
                 }),
             )?;
         }
-        if let Some(activity) = activity::fact(binding, host_epoch, fact) {
+        if let Some(activity) = activity::fact(&binding, host_epoch, fact) {
             let event_id = self.next_event_id(run_id, "activity")?;
             self.runtime.record(
                 run_id.into(),
@@ -284,6 +235,43 @@ where
                         | gent_types::TurnPhase::Failed
                 )
         ))
+    }
+
+    fn record_exit(
+        &mut self,
+        run_id: &str,
+        host_epoch: HostEpoch,
+        code: Option<i32>,
+    ) -> Result<(), RuntimeError> {
+        let event_id = self.next_event_id(run_id, "exit")?;
+        self.runtime.record(
+            run_id.into(),
+            &self.coordinator_id,
+            host_epoch,
+            PublicDriverFact::SessionEffect {
+                event_id,
+                effect: gent_drivers::SessionEffect::Terminal {
+                    reason: format!(
+                        "providerExited:{}",
+                        code.map_or_else(|| "unknown".into(), |value| value.to_string())
+                    ),
+                },
+            },
+        )?;
+        Ok(())
+    }
+
+    fn settle_if_open(&mut self, run_id: &str, host_epoch: HostEpoch) -> Result<(), RuntimeError> {
+        let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
+        if !binding.settled {
+            self.runtime.settle_prompt(
+                &binding.prompt.message.message_id,
+                &self.coordinator_id,
+                host_epoch,
+            )?;
+            binding.settled = true;
+        }
+        Ok(())
     }
 
     fn next_event_id(&mut self, run_id: &str, kind: &str) -> Result<String, RuntimeError> {

@@ -14,6 +14,7 @@ pub enum ProviderRunAuthority {
     #[default]
     Observer,
     PublicDrivers,
+    PrivateClaurstBridge,
 }
 #[derive(Debug)]
 pub struct PublicRunService<L, D, A, R> {

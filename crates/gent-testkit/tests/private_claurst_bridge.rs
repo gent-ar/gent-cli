@@ -56,6 +56,10 @@ fn private_goal_dto_maps_only_a_valid_active_goal_without_bridge_configuration()
         ..active_goal()
     };
     assert!(ClaurstGoalProjection::from_active_goal(source(), &terminal).is_err());
+    assert!(
+        ClaurstGoalProjection::from_active_goal(ClaurstSourceId(String::new()), &active_goal())
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -75,7 +79,7 @@ async fn bridge_drains_ordered_normalized_facts_and_terminal_once() {
             run_id: "run-a".into(),
             source_id: source(),
             cursor: 4,
-            state_digest_sha256: "digest".into(),
+            state_digest_sha256: "a".repeat(64),
         }),
         session_binding: None,
         terminal: Some(ClaurstTerminal::Completed),
@@ -108,4 +112,81 @@ async fn bridge_rejects_unbounded_or_opaque_session_echoes() {
         terminal: None,
     });
     assert!(bridge.drain(request(0, 1)).await.is_err());
+}
+
+#[tokio::test]
+async fn bridge_rejects_non_monotonic_facts_and_stale_checkpoints() {
+    let bridge = FakePrivateClaurstBridge::default();
+    bridge.bind_session(binding()).await.unwrap();
+    bridge.push_batch(ClaurstDrainBatch {
+        facts: vec![fact(2), fact(1)],
+        checkpoint: None,
+        session_binding: None,
+        terminal: None,
+    });
+    assert!(bridge.drain(request(0, 2)).await.is_err());
+
+    let bridge = FakePrivateClaurstBridge::default();
+    bridge.bind_session(binding()).await.unwrap();
+    bridge.push_batch(ClaurstDrainBatch {
+        facts: vec![fact(2)],
+        checkpoint: Some(ClaurstCheckpoint {
+            run_id: "run-a".into(),
+            source_id: source(),
+            cursor: 1,
+            state_digest_sha256: "a".repeat(64),
+        }),
+        session_binding: None,
+        terminal: None,
+    });
+    assert!(bridge.drain(request(0, 1)).await.is_err());
+}
+
+#[tokio::test]
+async fn bridge_rejects_private_session_material_in_checkpoint_digest() {
+    let bridge = FakePrivateClaurstBridge::default();
+    bridge.bind_session(binding()).await.unwrap();
+    bridge.push_batch(ClaurstDrainBatch {
+        facts: Vec::new(),
+        checkpoint: Some(ClaurstCheckpoint {
+            run_id: "run-a".into(),
+            source_id: source(),
+            cursor: 0,
+            state_digest_sha256: "private-session-a".into(),
+        }),
+        session_binding: None,
+        terminal: Some(ClaurstTerminal::Failed {
+            classification: gent_ports::ClaurstFailureClassification::Protocol,
+        }),
+    });
+    assert!(bridge.drain(request(0, 1)).await.is_err());
+}
+
+#[tokio::test]
+async fn bridge_rejects_non_sha256_checkpoint_digest() {
+    let bridge = FakePrivateClaurstBridge::default();
+    bridge.bind_session(binding()).await.unwrap();
+    bridge.push_batch(ClaurstDrainBatch {
+        facts: Vec::new(),
+        checkpoint: Some(ClaurstCheckpoint {
+            run_id: "run-a".into(),
+            source_id: source(),
+            cursor: 0,
+            state_digest_sha256: "not-a-digest".into(),
+        }),
+        session_binding: None,
+        terminal: None,
+    });
+    assert!(bridge.drain(request(0, 1)).await.is_err());
+}
+
+fn fact(cursor: u64) -> ClaurstNormalizedFact {
+    ClaurstNormalizedFact {
+        source_id: source(),
+        cursor,
+        value: ClaurstFactValue::Event(NormalizedProviderEvent::Output {
+            text: "safe normalized reply".into(),
+            is_partial: false,
+        }),
+    }
 }

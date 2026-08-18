@@ -27,6 +27,8 @@ mod claude_authority_supervisor;
 #[allow(dead_code)]
 mod claude_prompt_lifecycle;
 #[cfg(test)]
+mod claude_prompt_lifecycle_failure_tests;
+#[cfg(test)]
 mod claude_prompt_lifecycle_tests;
 #[allow(dead_code)]
 mod codex_authority_composition;
@@ -72,6 +74,10 @@ mod orchestration_transport_tests;
 mod permission_policy_api;
 mod permission_policy_transport;
 mod permission_workspace;
+#[allow(dead_code)]
+mod private_claurst_ingress;
+#[cfg(test)]
+mod private_claurst_ingress_tests;
 #[cfg(unix)]
 mod private_paths;
 #[allow(dead_code)]

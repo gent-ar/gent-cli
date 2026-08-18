@@ -7,12 +7,12 @@ use gent_types::{
     AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, ReceiptId,
 };
 
-use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptLifecycle};
-use crate::codex_prompt_lifecycle_tests::{Resolver, Runner, compatibility, profile};
+use crate::approved_claude_host::ApprovedClaudeHost;
+use crate::claude_prompt_lifecycle_tests::{Runner, compatibility, profile};
 use crate::public_driver_runtime::PublicDriversRuntime;
 
 #[test]
-fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement() {
+fn claude_poll_failure_retains_ownership_without_fabricating_terminal_settlement() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
@@ -20,11 +20,11 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
             receipt_id: ReceiptId("conversation-receipt".into()),
             idempotency_key: "conversation-key".into(),
             host_epoch: HostEpoch(1),
-            conversation_id,
+            conversation_id: conversation_id.clone(),
             run_id: AgentChatRunId("run-a".into()),
             selection: AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt-5.6".into(),
+                provider: AgentChatProvider::Claude,
+                model: "claude-test".into(),
                 effort: AgentChatEffort::Medium,
                 mode: AgentChatMode::Agent,
             },
@@ -35,7 +35,7 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
             request_id: AgentChatRequestId("prompt-a".into()),
             receipt_id: ReceiptId("prompt-receipt".into()),
             host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
+            conversation_id,
             disposition: AgentChatPromptDisposition::Send,
             text: "hello".into(),
         })
@@ -48,26 +48,25 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
         ledger.clone(),
         compatibility,
         runner.clone(),
-        Resolver,
+        crate::claude_prompt_lifecycle_tests::Resolver,
     )
     .unwrap();
-    let mut host = CodexPromptLifecycle::new(runtime, "daemon-a".into(), None);
-    assert!(matches!(
-        host.dispatch_next(HostEpoch(1)).unwrap(),
-        CodexPromptDispatchOutcome::Started { .. }
-    ));
-    runner.state.lock().unwrap().poll_failure = true;
-    let error = host.poll("run-a", HostEpoch(1)).unwrap_err();
+    let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
+    host.tick().unwrap();
+    runner.0.lock().unwrap().poll_failure = true;
+
+    let error = host.tick().unwrap_err();
     assert!(error.to_string().contains("provider poll unavailable"));
-    assert!(!error.to_string().contains("private runner detail"));
     assert!(
-        ledger.find_event("codex:run-a:poll:1").unwrap().is_none(),
-        "an unproven poll error must not create a terminal fact"
+        ledger
+            .find_event("claude:run-a:terminal:1")
+            .unwrap()
+            .is_none()
     );
     host.signal_active(gent_drivers::interrupt::ProcessTreeSignal::Interrupt)
         .unwrap();
     assert_eq!(
-        runner.state.lock().unwrap().signals,
+        runner.0.lock().unwrap().signals,
         [gent_drivers::interrupt::ProcessTreeSignal::Interrupt]
     );
 }

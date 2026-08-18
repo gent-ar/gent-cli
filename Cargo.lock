@@ -662,6 +662,7 @@ dependencies = [
  "gent-protocol",
  "gent-runtime",
  "gent-store",
+ "gent-testkit",
  "gent-types",
  "hex",
  "serde",
