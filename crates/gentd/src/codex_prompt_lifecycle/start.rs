@@ -51,6 +51,7 @@ where
             working_directory: working_directory.map(str::to_owned),
             prompt: prompt.message.text.clone(),
             goal,
+            fresh_context: None,
             turn_options,
         },
     ) {

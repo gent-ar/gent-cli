@@ -199,6 +199,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                 working_directory: Some("/work".into()),
                 prompt: "first".into(),
                 goal: None,
+                fresh_context: None,
                 turn_options: options(),
             },
         )
@@ -211,6 +212,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                     working_directory: Some("/other".into()),
                     prompt: "must-not-replace".into(),
                     goal: None,
+                    fresh_context: None,
                     turn_options: options(),
                 },
             )

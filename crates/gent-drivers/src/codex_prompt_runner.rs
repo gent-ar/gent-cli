@@ -4,13 +4,16 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
-use gent_types::{GoalProjection, RunVersionLock};
+use gent_types::{FrozenConversationContext, GoalProjection, RunVersionLock};
 
 use crate::buffering::BufferPolicy;
 use crate::codex_runner::{
     CodexAppServerRunner, CodexRunStart, CodexRunnerEffect, CodexRunnerError,
 };
 use crate::codex_session::{CodexSessionConfig, CodexTurnOptions};
+use crate::conversation_context_input::{
+    MAX_FRESH_CONTEXT_INPUT_BYTES, render_fresh_conversation_input,
+};
 use crate::supervisor::{ProcessLauncher, ProviderProcess};
 
 /// Prompt fields held only between daemon dispatch claim and locked process launch.
@@ -20,6 +23,8 @@ pub struct CodexPromptStart {
     pub prompt: String,
     /// Optional active goal copied from the Gent ledger before durable run dispatch.
     pub goal: Option<GoalProjection>,
+    /// Ledger-frozen history for a fresh session, never provider-native session state.
+    pub fresh_context: Option<FrozenConversationContext>,
     pub turn_options: CodexTurnOptions,
 }
 
@@ -117,6 +122,25 @@ where
         let prompt = lock(&self.pending).remove(run_id).ok_or_else(|| {
             PublicProviderRunError::Failed("Codex run has no durable pending prompt".into())
         })?;
+        if prompt.fresh_context.is_some() && resume_thread_id.is_some() {
+            return Err(PublicProviderRunError::Failed(
+                "fresh Codex context cannot resume a native session".into(),
+            ));
+        }
+        let rendered_prompt = prompt.fresh_context.as_ref().map_or_else(
+            || Ok(prompt.prompt.clone()),
+            |context| {
+                render_fresh_conversation_input(
+                    context,
+                    &prompt.prompt,
+                    MAX_FRESH_CONTEXT_INPUT_BYTES,
+                )
+                .map(|input| input.prompt().to_owned())
+                .map_err(|_| {
+                    PublicProviderRunError::Failed("Codex frozen context is invalid".into())
+                })
+            },
+        )?;
         lock(&self.runner)
             .start(CodexRunStart {
                 run_id: run_id.into(),
@@ -126,7 +150,7 @@ where
                     resume_thread_id,
                     turn_options: prompt.turn_options,
                 },
-                prompt: prompt.prompt,
+                prompt: rendered_prompt,
                 goal: prompt.goal,
             })
             .map_err(map_error)

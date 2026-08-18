@@ -7,6 +7,7 @@ pub mod codex_prompt_runner;
 pub mod codex_runner;
 pub mod codex_session;
 pub mod codex_turn;
+pub mod conversation_context_input;
 pub mod discovery;
 pub mod goal_projection;
 pub mod installer;

@@ -138,6 +138,73 @@ fn preserve_rejects_a_page_beyond_its_frozen_boundary() {
     );
 }
 
+#[test]
+fn preserve_zero_is_empty_but_malformed_transcript_pages_are_rejected() {
+    let reader = Reader::default();
+    let empty = ConversationContextArtifactService::new(reader.clone())
+        .project(&request(ContextPolicy::Preserve, 0))
+        .unwrap();
+    assert!(empty.entries.is_empty());
+    assert_eq!(*reader.reads.lock().unwrap(), 0);
+
+    let malformed = Reader {
+        content: Arc::new(Mutex::new(vec![(
+            Some(2),
+            content_page(vec![entry(1, "one")], None),
+        )])),
+        transcript: Arc::new(Mutex::new(vec![(
+            0,
+            NormalizedTranscriptPage {
+                conversation_id: "another-conversation".into(),
+                events: Vec::new(),
+                next_after_cursor: None,
+            },
+        )])),
+        reads: Arc::new(Mutex::new(0)),
+    };
+    assert!(
+        ConversationContextArtifactService::new(malformed)
+            .project(&request(ContextPolicy::Preserve, 1))
+            .is_err()
+    );
+}
+
+#[test]
+fn preserve_rejects_non_advancing_transcript_events_and_continuations() {
+    for page in [
+        transcript_page(vec![transcript(
+            0,
+            "turn-1",
+            NormalizedTranscriptKind::AssistantMessage,
+            false,
+        )]),
+        NormalizedTranscriptPage {
+            conversation_id: "conversation".into(),
+            events: vec![transcript(
+                1,
+                "turn-1",
+                NormalizedTranscriptKind::AssistantMessage,
+                false,
+            )],
+            next_after_cursor: Some(1),
+        },
+    ] {
+        let reader = Reader {
+            content: Arc::new(Mutex::new(vec![(
+                Some(2),
+                content_page(vec![entry(1, "one")], None),
+            )])),
+            transcript: Arc::new(Mutex::new(vec![(0, page)])),
+            reads: Arc::new(Mutex::new(0)),
+        };
+        assert!(
+            ConversationContextArtifactService::new(reader)
+                .project(&request(ContextPolicy::Preserve, 1))
+                .is_err()
+        );
+    }
+}
+
 fn find_content(
     pages: &ContentPages,
     before: Option<u64>,
