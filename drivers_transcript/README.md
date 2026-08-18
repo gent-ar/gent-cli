@@ -25,6 +25,10 @@ boundary for behavior that is not already represented:
 Use one scenario directory per provider and behavior, with a concise
 `manifest.json` and bounded `events.jsonl`. Keep records typed and ordered;
 tests must replay the normalized records rather than calling a provider.
+Run `python3 tools/validate-driver-transcript-corpus.py` before committing;
+it rejects raw-session fields, known credential markers, source paths, unsafe
+files, and malformed scenario records. This automated screen supplements,
+rather than replaces, human review of real conversation text.
 
 Never commit credentials, API keys, tokens, cookies, account details, private
 endpoints or routing, provider-native session/resume IDs, raw process frames,
