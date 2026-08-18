@@ -43,6 +43,10 @@ mod dependency_catalog;
 mod dependency_catalog_tests;
 mod event_stream;
 mod git_status_runtime;
+mod goal_api;
+mod goal_transport;
+#[cfg(test)]
+mod goal_transport_tests;
 mod host_lock;
 #[allow(dead_code)]
 mod node_runtime_lock;

@@ -6,7 +6,7 @@ use gent_runtime::{
     AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
     AgentChatPromptService, AgentChatReadService, AgentChatSelectionSwitchAuthority,
     AgentChatSelectionSwitchService, AttachmentService, Coordinator, DependencyActionService,
-    RuntimeMaintenanceAuthority, RuntimeMaintenanceService,
+    GoalAuthority, GoalService, RuntimeMaintenanceAuthority, RuntimeMaintenanceService,
 };
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::CapabilitySet;
@@ -23,6 +23,7 @@ pub(crate) struct RuntimeFacade {
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
+    goals: GoalService<SqliteLedger>,
     runtime_maintenance: RuntimeMaintenanceService<SqliteLedger>,
     attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
     coordinator: Coordinator<SqliteLedger>,
@@ -86,6 +87,7 @@ pub(crate) fn build_runtime_with_update_checks(
             switch_authority(agent_chat_enabled),
         ),
         agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
+        goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),
         runtime_maintenance: RuntimeMaintenanceService::new(
             ledger.clone(),
             maintenance_authority(maintenance_enabled),
@@ -131,6 +133,14 @@ fn maintenance_authority(enabled: bool) -> RuntimeMaintenanceAuthority {
         RuntimeMaintenanceAuthority::Approved
     } else {
         RuntimeMaintenanceAuthority::Observer
+    }
+}
+
+fn goal_authority(enabled: bool) -> GoalAuthority {
+    if enabled {
+        GoalAuthority::Approved
+    } else {
+        GoalAuthority::Observer
     }
 }
 

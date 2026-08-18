@@ -4,8 +4,8 @@ use gent_protocol::{
     AgentChatControllerSnapshot, AgentChatConversationFrame, AgentChatIntentFrame,
     AgentChatTranscriptFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
     DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-    PermissionPolicyFrame, ProviderAuthFrame, PublicRunInterruptRequest, PublicRunResponse,
-    PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
+    GoalFrame, PermissionPolicyFrame, ProviderAuthFrame, PublicRunInterruptRequest,
+    PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
 };
 use gent_runtime::{AgentChatControllerDeltaPage, ConversationActivityRead};
 use gent_types::{
@@ -127,6 +127,12 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     /// Handles reviewed-plan reads and user decisions only in a future authority composition.
     fn reviewed_plan(&self, _: ReviewedPlanFrame) -> Result<ReviewedPlanFrame, String> {
         Err("reviewed plans are unavailable while gentd is observer-disabled".into())
+    }
+    /// Handles provider-neutral `/goal` records only in an approved chat persistence profile.
+    ///
+    /// This default deliberately refuses before a ledger write or any provider path can occur.
+    fn goal(&self, _: GoalFrame) -> Result<GoalFrame, String> {
+        Err("goals are unavailable while gentd is observer-disabled".into())
     }
     fn conversation_status(&self, conversation_id: &str) -> Result<ConversationStatus, String>;
     fn conversations(&self) -> Result<Vec<ConversationListItem>, String> {
