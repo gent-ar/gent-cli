@@ -1,8 +1,6 @@
-use crate::approved_codex_host::ApprovedCodexHost;
 use crate::authority_profile::{AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest};
-use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptExecution};
+use crate::codex_prompt_lifecycle::CodexPromptExecution;
 use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::public_driver_runtime::PublicDriversRuntime;
 use ed25519_dalek::{Signer, SigningKey};
 use gent_adapters::compatibility::{
     CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest, TrustedKeySet,
@@ -11,18 +9,10 @@ use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_drivers::codex_prompt_runner::CodexPromptStart;
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::codex_session::CodexTurnOptions;
-use gent_drivers::public_protocol::PublicWireFact;
-use gent_ports::{
-    AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, PublicProviderResolver,
-    PublicProviderRunError, PublicProviderRunner, TranscriptLedger,
-};
-use gent_runtime::Coordinator;
-use gent_store::SqliteLedger;
+use gent_drivers::interrupt::ProcessTreeSignal;
+use gent_ports::{PublicProviderResolver, PublicProviderRunError, PublicProviderRunner};
 use gent_types::{
-    AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
-    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, NormalizedLifecycleSignal,
-    NormalizedProviderEvent, ReceiptId, RunVersionLock, TurnPhase,
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, RunVersionLock,
 };
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -41,6 +31,7 @@ pub(crate) struct State {
     pub(crate) prepared_goals: Vec<Option<gent_types::GoalProjection>>,
     pub(crate) submitted_goals: Vec<Option<gent_types::GoalProjection>>,
     pub(crate) resumes: usize,
+    pub(crate) signals: Vec<ProcessTreeSignal>,
 }
 impl PublicProviderRunner for Runner {
     fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
@@ -120,6 +111,15 @@ impl CodexPromptExecution for Runner {
         state.submitted_goals.push(goal.cloned());
         Ok(())
     }
+
+    fn signal_codex_process(
+        &self,
+        _: &str,
+        signal: ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError> {
+        self.state.lock().unwrap().signals.push(signal);
+        Ok(())
+    }
 }
 #[derive(Debug)]
 pub(crate) struct Resolver;
@@ -191,110 +191,11 @@ pub(crate) fn selection() -> AgentChatSelection {
     }
 }
 
-fn assert_prepared_options(runner: &Runner) {
+pub(crate) fn assert_prepared_options(runner: &Runner) {
     let expected = CodexTurnOptions::from_selection(&selection(), Some("/work")).unwrap();
     let state = runner.state.lock().unwrap();
     assert_eq!(
         state.pending.as_ref().map(|entry| &entry.1.turn_options),
         Some(&expected)
     );
-}
-#[test]
-fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
-    let ledger = SqliteLedger::in_memory().unwrap();
-    let conversation_id = AgentChatConversationId("conversation-a".into());
-    ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: selection(),
-        })
-        .unwrap();
-    let prompt = ledger
-        .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("prompt-a".into()),
-            receipt_id: ReceiptId("prompt-receipt".into()),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            disposition: AgentChatPromptDisposition::Send,
-            text: "hello".into(),
-        })
-        .unwrap();
-    let runner = Runner::default();
-    runner.state.lock().unwrap().effects.push_back(vec![
-        CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
-            provider_session_id: "private-thread".into(),
-        }),
-        CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
-            text: "hello back".into(),
-            is_partial: false,
-        })),
-        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Ready,
-            },
-        )),
-    ]);
-    let compatibility = compatibility();
-    let runtime = PublicDriversRuntime::new(
-        profile(&compatibility),
-        Coordinator::new(ledger.clone(), CapabilitySet::default()),
-        ledger.clone(),
-        compatibility,
-        runner.clone(),
-        Resolver,
-    )
-    .unwrap();
-    let mut host = ApprovedCodexHost::new(
-        runtime,
-        "daemon-a".into(),
-        Some("/work".into()),
-        HostEpoch(1),
-        1,
-    );
-    let tick = host.tick().unwrap();
-    assert_eq!(
-        tick.dispatch,
-        Some(CodexPromptDispatchOutcome::Started {
-            run_id: "run-a".into()
-        })
-    );
-    assert_eq!(runner.state.lock().unwrap().starts, 1);
-    assert_prepared_options(&runner);
-    assert_eq!(tick.polled_runs, 0);
-    let tick = host.tick().unwrap();
-    assert_eq!(tick.polled_runs, 1);
-    assert_eq!(tick.facts, 3);
-    let transcript = ledger
-        .normalized_transcript_page(&conversation_id, 0, 10)
-        .unwrap();
-    assert_eq!(transcript.events.len(), 1);
-    assert_eq!(transcript.events[0].text, "hello back");
-    ledger
-        .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("prompt-b".into()),
-            receipt_id: ReceiptId("prompt-receipt-b".into()),
-            host_epoch: HostEpoch(1),
-            conversation_id,
-            disposition: AgentChatPromptDisposition::Send,
-            text: "follow up".into(),
-        })
-        .unwrap();
-    assert!(matches!(
-        host.tick().unwrap().dispatch,
-        Some(CodexPromptDispatchOutcome::Started { .. })
-    ));
-    let state = runner.state.lock().unwrap();
-    assert_eq!(state.starts, 1);
-    assert_eq!(state.submitted, ["follow up"]);
-    assert!(
-        ledger
-            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(prompt.message.text, "hello");
 }

@@ -1,10 +1,10 @@
-use gent_ports::{ConversationContentReader, ConversationLedger};
+use gent_ports::{AgentChatRunContextReader, ConversationContentReader, ConversationLedger};
 use gent_runtime::{
     AgentChatConversationAuthority, AgentChatConversationRequest, AgentChatConversationResult,
     AgentChatConversationService, AgentChatPromptAuthority, AgentChatPromptRequest,
-    AgentChatPromptResult, AgentChatPromptService, AgentChatSelectionSwitchAuthority,
-    AgentChatSelectionSwitchRequest, AgentChatSelectionSwitchResult,
-    AgentChatSelectionSwitchService,
+    AgentChatPromptResult, AgentChatPromptService, AgentChatReadService,
+    AgentChatRunContextService, AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchRequest,
+    AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -176,5 +176,70 @@ fn stale_parent_and_observer_switches_cannot_create_a_child() {
             .unwrap()
             .len(),
         2
+    );
+}
+
+#[test]
+fn selection_changes_create_fresh_children_for_claude_preserve_and_claurst_clear() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let (conversation_id, root_run_id) = conversation(ledger.clone());
+    save(ledger.clone(), conversation_id.clone(), "before");
+    let service = AgentChatSelectionSwitchService::new(
+        ledger.clone(),
+        AgentChatSelectionSwitchAuthority::Approved,
+    );
+    let mut preserve = request(conversation_id.clone(), root_run_id);
+    preserve.request_id = AgentChatRequestId("claude-sonnet".into());
+    preserve.receipt_id = ReceiptId("claude-sonnet-receipt".into());
+    preserve.selection = AgentChatSelection {
+        provider: AgentChatProvider::Claude,
+        model: "sonnet".into(),
+        effort: AgentChatEffort::High,
+        mode: AgentChatMode::Agent,
+    };
+    let AgentChatSelectionSwitchResult::Switched(claude) = service.switch(&preserve).unwrap()
+    else {
+        panic!("switch must create a child")
+    };
+    assert_eq!(
+        AgentChatReadService::new(ledger.clone())
+            .run_selection(&conversation_id.0, &claude.run_id.0)
+            .unwrap(),
+        preserve.selection
+    );
+    let context = AgentChatRunContextService::new(ledger.clone())
+        .resolve(&conversation_id, &claude.run_id)
+        .unwrap();
+    assert!(context.requires_fresh_provider_session());
+    assert_eq!(
+        (context.context_policy, context.context_through_ordinal),
+        (ContextPolicy::Preserve, 1)
+    );
+
+    let mut clear = request(conversation_id.clone(), claude.run_id);
+    clear.request_id = AgentChatRequestId("claurst-clear".into());
+    clear.receipt_id = ReceiptId("claurst-clear-receipt".into());
+    clear.context_policy = ContextPolicy::Clear;
+    clear.selection = AgentChatSelection {
+        provider: AgentChatProvider::Claurst,
+        model: "private-model".into(),
+        effort: AgentChatEffort::Medium,
+        mode: AgentChatMode::Plan,
+    };
+    let AgentChatSelectionSwitchResult::Switched(claurst) = service.switch(&clear).unwrap() else {
+        panic!("switch must create a child")
+    };
+    assert_eq!(
+        AgentChatReadService::new(ledger.clone())
+            .run_selection(&conversation_id.0, &claurst.run_id.0)
+            .unwrap(),
+        clear.selection
+    );
+    assert_eq!(
+        ledger
+            .read_agent_chat_run_context(&conversation_id, &claurst.run_id)
+            .unwrap()
+            .context_through_ordinal,
+        0
     );
 }

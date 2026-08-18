@@ -40,7 +40,14 @@ impl AppNodeRuntimeLock {
         Self::capture(env::var_os(NODE_BINARY_ENV), data_dir)
     }
 
-    fn capture(node: Option<OsString>, data_dir: &Path) -> Result<Self, AppNodeRuntimeLockError> {
+    /// Captures a caller-supplied app runtime for a private, uncomposed authority seam.
+    ///
+    /// # Errors
+    /// Returns an error when the supplied runtime cannot be locked.
+    pub(crate) fn capture(
+        node: Option<OsString>,
+        data_dir: &Path,
+    ) -> Result<Self, AppNodeRuntimeLockError> {
         let node = node.ok_or(AppNodeRuntimeLockError::MissingNode)?;
         Ok(Self {
             lock: NodeRuntimeLock::capture(Path::new(&node))?,

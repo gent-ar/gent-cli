@@ -157,7 +157,9 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
                 }
             }
             match page.next_after_cursor {
-                Some(next) if next > previous && previous > after => after = next,
+                // Transcript cursors resume strictly after the last emitted event, so the
+                // continuation token is that event's cursor rather than a new synthetic one.
+                Some(next) if next == previous && previous > after => after = next,
                 Some(_) => {
                     return Err(invariant("conversation transcript continuation is invalid"));
                 }

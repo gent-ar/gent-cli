@@ -2,6 +2,7 @@
 
 use gent_drivers::codex_prompt_runner::{CodexPromptRunner, CodexPromptStart};
 use gent_drivers::codex_runner::CodexRunnerEffect;
+use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
 use gent_types::GoalProjection;
@@ -23,6 +24,11 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         run_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
+    ) -> Result<(), PublicProviderRunError>;
+    fn signal_codex_process(
+        &self,
+        run_id: &str,
+        signal: ProcessTreeSignal,
     ) -> Result<(), PublicProviderRunError>;
 }
 
@@ -61,5 +67,13 @@ where
         goal: Option<&GoalProjection>,
     ) -> Result<(), PublicProviderRunError> {
         self.submit(run_id, prompt, goal)
+    }
+
+    fn signal_codex_process(
+        &self,
+        run_id: &str,
+        signal: ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError> {
+        self.signal_process(run_id, signal)
     }
 }

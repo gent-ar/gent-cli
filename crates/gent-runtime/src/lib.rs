@@ -16,6 +16,8 @@ mod conversation_activity;
 mod conversation_content;
 mod conversation_context;
 #[cfg(test)]
+mod conversation_context_pagination_tests;
+#[cfg(test)]
 mod conversation_context_tests;
 mod conversation_prompts;
 mod conversations;

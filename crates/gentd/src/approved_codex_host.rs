@@ -1,5 +1,6 @@
 //! Bounded approved-only Codex host composition, intentionally absent from daemon bootstrap.
 
+use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
     RunProjectionLedger, TranscriptLedger,
@@ -14,6 +15,14 @@ use crate::public_driver_runtime::PublicDriversRuntime;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ApprovedCodexTick {
     pub dispatch: Option<CodexPromptDispatchOutcome>,
+    pub polled_runs: u16,
+    pub facts: u16,
+    pub exited_runs: u16,
+}
+
+/// Bounded process drain result without a new prompt claim.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ApprovedCodexDrain {
     pub polled_runs: u16,
     pub facts: u16,
     pub exited_runs: u16,
@@ -65,6 +74,29 @@ where
     #[must_use]
     pub(crate) fn active_len(&self) -> usize {
         self.lifecycle.active_len()
+    }
+
+    /// Signals all currently owned provider process trees without claiming work.
+    ///
+    /// # Errors
+    /// Returns an error when an owned process rejects the daemon-selected signal.
+    pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
+        self.lifecycle.signal_active(signal)
+    }
+
+    /// Drains at most the host active bound without accepting another prompt.
+    ///
+    /// # Errors
+    /// Returns an error only when existing durable lifecycle polling fails.
+    pub(crate) fn drain(&mut self) -> Result<ApprovedCodexDrain, RuntimeError> {
+        let batch = self
+            .lifecycle
+            .poll_active(self.host_epoch, self.max_active)?;
+        Ok(ApprovedCodexDrain {
+            polled_runs: batch.polled_runs,
+            facts: batch.facts,
+            exited_runs: batch.exited_runs,
+        })
     }
 
     /// Polls a bounded active snapshot before claiming at most one additional prompt.

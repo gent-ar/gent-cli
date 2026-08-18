@@ -227,3 +227,7 @@ fn diagnostic(classification: &str) -> Vec<PublicWireFact> {
         },
     )]
 }
+
+#[cfg(test)]
+#[path = "claude_runner_tests.rs"]
+mod tests;

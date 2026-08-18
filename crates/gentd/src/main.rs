@@ -39,6 +39,8 @@ mod codex_prompt_lifecycle;
 #[cfg(test)]
 mod codex_prompt_lifecycle_failure_tests;
 #[cfg(test)]
+mod codex_prompt_lifecycle_host_tests;
+#[cfg(test)]
 mod codex_prompt_lifecycle_resume_tests;
 #[cfg(test)]
 mod codex_prompt_lifecycle_tests;
@@ -70,6 +72,8 @@ mod permission_policy_transport;
 mod permission_workspace;
 #[cfg(unix)]
 mod private_paths;
+#[allow(dead_code)]
+mod private_provider_provisioning;
 mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;

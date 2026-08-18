@@ -1,5 +1,6 @@
 //! Bounded daemon tick and recovery for the approved-only Codex lifecycle.
 
+use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
     RunProjectionLedger, TranscriptLedger,
@@ -76,6 +77,18 @@ where
             facts,
             exited_runs,
         })
+    }
+
+    /// Signals a stable active snapshot without accepting another durable prompt.
+    ///
+    /// # Errors
+    /// Returns an error when any owned process tree rejects the daemon-selected signal.
+    pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
+        let run_ids = self.active.keys().cloned().collect::<Vec<_>>();
+        for run_id in &run_ids {
+            self.runner.signal_codex_process(run_id, signal)?;
+        }
+        Ok(u16::try_from(run_ids.len()).expect("active run count fits u16"))
     }
 
     /// Claims at most one prompt and polls at most sixteen owned sessions without blocking.

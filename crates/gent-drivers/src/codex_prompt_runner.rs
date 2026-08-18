@@ -122,6 +122,18 @@ where
         lock(&self.runner).owns(run_id)
     }
 
+    /// Sends one daemon-chosen signal to an owned Codex process tree.
+    ///
+    /// # Errors
+    /// Returns an error when the run is absent or the process tree cannot be signaled.
+    pub fn signal_process(
+        &self,
+        run_id: &str,
+        signal: crate::interrupt::ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError> {
+        lock(&self.runner).signal(run_id, signal).map_err(map_error)
+    }
+
     fn launch(
         &self,
         run_id: &str,
@@ -194,9 +206,7 @@ where
     }
 
     fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
-        lock(&self.runner)
-            .signal(run_id, crate::interrupt::ProcessTreeSignal::Interrupt)
-            .map_err(map_error)
+        self.signal_process(run_id, crate::interrupt::ProcessTreeSignal::Interrupt)
     }
 }
 
