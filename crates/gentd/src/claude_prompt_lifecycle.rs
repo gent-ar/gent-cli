@@ -168,6 +168,19 @@ where
         host_epoch: HostEpoch,
         fact: &PublicWireFact,
     ) -> Result<bool, RuntimeError> {
+        if matches!(fact, PublicWireFact::SessionStarted { .. }) {
+            let event_id = self.next_event_id(run_id, "session")?;
+            self.runtime.record(
+                run_id.into(),
+                &self.coordinator_id,
+                host_epoch,
+                PublicDriverFact::PublicWire {
+                    event_id,
+                    fact: fact.clone(),
+                },
+            )?;
+            return Ok(false);
+        }
         let binding = self
             .active
             .get(run_id)
