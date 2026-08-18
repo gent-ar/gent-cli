@@ -30,12 +30,17 @@ where
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger
-        + gent_ports::AgentChatReadLedger,
+        + gent_ports::AgentChatReadLedger
+        + gent_ports::AgentChatRunContextReader
+        + gent_ports::ConversationContentReader,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let fresh_context = runtime
+        .contexts
+        .fresh_context_for_child(&prompt.message.conversation_id, &run_id)?;
     let turn_options = gent_drivers::codex_session::CodexTurnOptions::from_selection(
         &runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?,
         working_directory,
@@ -51,7 +56,7 @@ where
             working_directory: working_directory.map(str::to_owned),
             prompt: prompt.message.text.clone(),
             goal,
-            fresh_context: None,
+            fresh_context: fresh_context.clone(),
             turn_options,
         },
     ) {
@@ -62,17 +67,18 @@ where
         runner.cancel_codex_prompt(&run_id);
         return Err(error);
     }
-    let response =
-        match runtime
-            .runs()
-            .start_or_resume(request(&run_id, coordinator_id, host_epoch))
-        {
-            Ok(response) => response,
-            Err(error) => {
-                runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-                return Err(error);
-            }
-        };
+    let request = request(&run_id, coordinator_id, host_epoch);
+    let response = match if fresh_context.is_some() {
+        runtime.runs().start(request)
+    } else {
+        runtime.runs().start_or_resume(request)
+    } {
+        Ok(response) => response,
+        Err(error) => {
+            runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+            return Err(error);
+        }
+    };
     match response.outcome {
         PublicRunOutcome::Started | PublicRunOutcome::Resumed => {
             if let Err(error) =

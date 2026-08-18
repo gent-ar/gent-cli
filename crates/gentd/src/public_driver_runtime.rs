@@ -40,7 +40,6 @@ pub(crate) enum PublicDriverFactResult {
     Activity(ConversationActivityResult),
     Transcript(AgentChatTranscriptAppendResult),
 }
-
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub(crate) enum PublicDriversRuntimeError {
     #[error("the observer profile cannot construct public-driver authority")]
@@ -50,7 +49,6 @@ pub(crate) enum PublicDriversRuntimeError {
     #[error("the approved compatibility manifest digest does not match the verified cache")]
     CompatibilityManifestMismatch,
 }
-
 /// A fully injected, authority-gated runtime deliberately absent from `RuntimeFacade`.
 #[derive(Debug)]
 pub(crate) struct PublicDriversRuntime<L, D, R> {
@@ -61,9 +59,9 @@ pub(crate) struct PublicDriversRuntime<L, D, R> {
     transcripts: AgentChatTranscriptIngress<L>,
     dispatches: AgentChatPromptDispatchService<L>,
     reads: AgentChatReadService<L>,
+    pub(crate) contexts: context::RunContextProjection<L>,
     goal_resolver: Option<Arc<dyn ActiveGoalResolver>>,
 }
-
 impl<L, D, R> PublicDriversRuntime<L, D, R>
 where
     L: Clone
@@ -131,7 +129,8 @@ where
                 ledger.clone(),
                 AgentChatPromptDispatchAuthority::Approved,
             ),
-            reads: AgentChatReadService::new(ledger),
+            reads: AgentChatReadService::new(ledger.clone()),
+            contexts: context::RunContextProjection::new(ledger),
             goal_resolver: None,
         })
     }
@@ -288,7 +287,6 @@ where
         self.dispatches.recover(host_epoch)
     }
 }
-
 impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {
     pub(crate) fn selection_for_run(
         &self,
@@ -298,3 +296,5 @@ impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {
         self.reads.run_selection(conversation_id, run_id)
     }
 }
+
+mod context;

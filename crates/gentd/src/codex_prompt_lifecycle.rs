@@ -33,14 +33,12 @@ pub(crate) enum CodexPromptDispatchOutcome {
     Started { run_id: String },
     Unprovable { run_id: String },
 }
-
 /// Bounded result from draining one daemon-owned Codex process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CodexPromptPoll {
     pub facts: u16,
     pub exited: bool,
 }
-
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
     prompt: AgentChatPromptSaved,
@@ -64,7 +62,9 @@ where
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger
-        + gent_ports::AgentChatReadLedger,
+        + gent_ports::AgentChatReadLedger
+        + gent_ports::AgentChatRunContextReader
+        + gent_ports::ConversationContentReader,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {

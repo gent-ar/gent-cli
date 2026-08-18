@@ -4,6 +4,7 @@ use gent_types::{
 };
 mod active_goal_resolver;
 mod agent_chat_ledger;
+mod agent_chat_run_context;
 mod attachment_blobs;
 mod attachment_ledger;
 mod capability_catalog;
@@ -43,6 +44,7 @@ pub use agent_chat_ledger::{
     AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatReadLedger,
     AgentChatSelectionLedger,
 };
+pub use agent_chat_run_context::AgentChatRunContextReader;
 pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
 pub use capability_catalog::CapabilityCatalogLedger;
@@ -230,10 +232,7 @@ pub trait Ledger: Send + Sync {
         lock: &RunVersionLock,
         lease: &RunLease,
     ) -> Result<(), LedgerError>;
-    /// Atomically locks and leases a run that was durably created before provider activation.
-    /// # Errors
-    /// Returns an error when the existing run/provider differs, the lock would change, or the
-    /// current epoch cannot grant the requested lease.
+    /// Atomically locks and leases a pre-created run; errors when identity, lock, or epoch differs.
     fn activate_existing_run_start(
         &self,
         lock: &RunVersionLock,
@@ -244,9 +243,7 @@ pub trait Ledger: Send + Sync {
             "ledger does not support activation of an existing run".into(),
         ))
     }
-    /// Reads one lineage node.
-    /// # Errors
-    /// Returns an error when the run cannot be read.
+    /// Reads one lineage node; errors when the run cannot be read.
     fn find_run(&self, run_id: &str) -> Result<Option<RunRecord>, LedgerError>;
     /// Persists the immutable executable identity attributed to a run.
     /// # Errors: Returns an error if the run does not exist, already has a lock, or persistence fails.

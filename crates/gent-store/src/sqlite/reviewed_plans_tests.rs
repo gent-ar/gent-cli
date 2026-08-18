@@ -1,12 +1,14 @@
 use gent_ports::{
-    AgentChatLedger, AgentChatPromptLedger, PolicyLedger, ReviewedPlanLedger, WorkspaceLedger,
+    AgentChatLedger, AgentChatPromptLedger, AgentChatRunContextReader, PolicyLedger,
+    ReviewedPlanLedger, WorkspaceLedger,
 };
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, ContextPolicy, HostEpoch, PermissionMode, PlanAction,
-    PlanActionKind, PlanArtifact, PlanRevision, PlanStatus, PolicyRecord, PolicyScope, ReceiptId,
-    ReviewedPlanId, StartImplementationRequest, WorkspaceRecord,
+    AgentChatRunContextOrigin, AgentChatRunId, AgentChatSelection, ContextPolicy, HostEpoch,
+    PermissionMode, PlanAction, PlanActionKind, PlanArtifact, PlanRevision, PlanStatus,
+    PolicyRecord, PolicyScope, ReceiptId, ReviewedPlanId, StartImplementationRequest,
+    WorkspaceRecord,
 };
 
 use super::SqliteLedger;
@@ -102,6 +104,12 @@ fn trusted_plan_approval_is_atomic_retry_safe_and_clear_has_no_session_boundary(
     let retry = ledger.approve_reviewed_plan(&request).unwrap();
     assert_eq!(first, retry);
     assert_eq!(first.context_through_ordinal, 0);
+    let context = ledger
+        .read_agent_chat_run_context(&first.conversation_id, &first.implementation_run_id)
+        .unwrap();
+    assert_eq!(context.origin, AgentChatRunContextOrigin::ReviewedPlan);
+    assert_eq!(context.context_policy, ContextPolicy::Clear);
+    assert_eq!(context.context_through_ordinal, 0);
     assert_eq!(first.receipt.host_epoch, HostEpoch(1));
     let bindings: u64 = ledger
         .lock()

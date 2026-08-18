@@ -10,6 +10,7 @@ use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 mod agent_chat_ledger;
 mod agent_chat_read_ledger;
+mod agent_chat_run_context_ledger;
 mod attachment_ledger;
 mod capability_catalog;
 mod connection;

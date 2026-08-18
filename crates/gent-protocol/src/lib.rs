@@ -31,6 +31,7 @@ mod reviewed_plan;
 mod runs;
 mod runtime_maintenance;
 mod runtime_update;
+mod turn_follow;
 
 pub use agent_chat::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
@@ -81,6 +82,9 @@ pub use runs::{
 };
 pub use runtime_maintenance::{RUNTIME_MAINTENANCE_CAPABILITY, RuntimeMaintenanceFrame};
 pub use runtime_update::{RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame};
+pub use turn_follow::{
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, AgentChatTurnFollowEnd, AgentChatTurnFollowFrame,
+};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

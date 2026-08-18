@@ -60,11 +60,15 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
         request: &ConversationContextRequest,
     ) -> Result<FrozenConversationContext, RuntimeError> {
         let entries = self.entries(request)?;
+        let transcript_events = self.transcript(request, &entries)?;
         let artifact = FrozenConversationContext {
             conversation_id: request.conversation_id.clone(),
             context_through_ordinal: request.context_through_ordinal,
             content_digest_sha256: digest(&entries),
-            transcript_events: self.transcript(request, &entries)?,
+            transcript_digest_sha256: FrozenConversationContext::transcript_digest(
+                &transcript_events,
+            ),
+            transcript_events,
             entries,
         };
         (serde_json::to_vec(&artifact)

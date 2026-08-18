@@ -7,6 +7,7 @@ mod agent_chat_compaction;
 mod agent_chat_intent;
 mod agent_chat_ledger;
 mod agent_chat_prompt;
+mod agent_chat_run_context;
 mod agent_chat_switch;
 mod attachments;
 mod capability_catalog;
@@ -41,6 +42,7 @@ mod runtime_maintenance;
 mod runtime_update;
 mod tool_activity;
 mod tool_sources;
+mod turn_follow;
 mod workspaces;
 pub use agent_chat::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
@@ -58,6 +60,7 @@ pub use agent_chat_prompt::{
     AgentChatPromptCreate, AgentChatPromptDelivery, AgentChatPromptDisposition,
     AgentChatPromptSaved,
 };
+pub use agent_chat_run_context::{AgentChatRunContext, AgentChatRunContextOrigin};
 pub use agent_chat_switch::{AgentChatSelectionSwitch, AgentChatSelectionSwitched};
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
@@ -129,6 +132,7 @@ pub use runtime_update::{
 };
 pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
+pub use turn_follow::TurnTerminal;
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;
@@ -175,7 +179,6 @@ pub struct Command {
     #[serde(default)]
     pub payload: Value,
 }
-
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Event {
@@ -188,7 +191,6 @@ pub struct Event {
 }
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CapabilitySet(pub Vec<String>);
-
 impl CapabilitySet {
     #[must_use]
     pub fn intersection(&self, other: &Self) -> Self {
@@ -211,7 +213,6 @@ pub struct HostStatus {
     pub protocol_max: u16,
     pub capabilities: CapabilitySet,
 }
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DependencyStatus {
@@ -220,7 +221,6 @@ pub struct DependencyStatus {
     pub version: Option<String>,
     pub remediation: String,
 }
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DoctorReport {
     pub dependencies: Vec<DependencyStatus>,

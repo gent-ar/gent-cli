@@ -138,6 +138,7 @@ fn validate_context(
     if context.context_through_ordinal == 0 {
         return (context.entries.is_empty()
             && context.transcript_events.is_empty()
+            && context.transcript_digest_sha256 == "0".repeat(64)
             && context.content_digest_sha256 == "0".repeat(64))
         .then_some(())
         .ok_or(ConversationContextInputError::InvalidContext);
@@ -155,6 +156,9 @@ fn validate_context(
     }
     if context.entries.is_empty()
         || digest_entries(&context.entries) != context.content_digest_sha256
+        || !valid_digest(&context.transcript_digest_sha256)
+        || FrozenConversationContext::transcript_digest(&context.transcript_events)
+            != context.transcript_digest_sha256
     {
         return Err(ConversationContextInputError::InvalidContext);
     }
@@ -183,11 +187,14 @@ fn validate_context(
 }
 
 fn digest_matches(text: &str, expected: &str) -> bool {
-    expected.len() == 64
-        && expected
+    valid_digest(expected) && format!("{:x}", Sha256::digest(text.as_bytes())) == expected
+}
+
+fn valid_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        && format!("{:x}", Sha256::digest(text.as_bytes())) == expected
 }
 
 fn digest_entries(entries: &[ConversationContentEntry]) -> String {
@@ -199,7 +206,6 @@ fn digest_entries(entries: &[ConversationContentEntry]) -> String {
     }
     format!("{:x}", hasher.finalize())
 }
-
 #[cfg(test)]
 mod tests {
     use gent_types::{
@@ -237,6 +243,12 @@ mod tests {
             render_fresh_conversation_input(&tampered, "continue", 4_096),
             Err(ConversationContextInputError::InvalidContext)
         );
+        let mut transcript_tampered = context();
+        transcript_tampered.transcript_events[0].text.push('!');
+        assert_eq!(
+            render_fresh_conversation_input(&transcript_tampered, "continue", 4_096),
+            Err(ConversationContextInputError::InvalidContext)
+        );
         assert_eq!(
             render_fresh_conversation_input(&context(), "continue", 8),
             Err(ConversationContextInputError::TooLarge)
@@ -254,7 +266,7 @@ mod tests {
             digest.update(entry.text_digest_sha256.as_bytes());
             digest.update([0]);
         }
-        FrozenConversationContext {
+        let mut context = FrozenConversationContext {
             conversation_id: AgentChatConversationId("c".into()),
             context_through_ordinal: 2,
             entries,
@@ -267,8 +279,12 @@ mod tests {
                 text: "first reply".into(),
                 is_partial: false,
             }],
+            transcript_digest_sha256: String::new(),
             content_digest_sha256: format!("{:x}", digest.finalize()),
-        }
+        };
+        context.transcript_digest_sha256 =
+            FrozenConversationContext::transcript_digest(&context.transcript_events);
+        context
     }
 
     fn entry(ordinal: u64, turn_id: &str, text: &str) -> ConversationContentEntry {

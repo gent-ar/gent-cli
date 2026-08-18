@@ -6,6 +6,7 @@ mod agent_chat_conversations;
 mod agent_chat_dispatch;
 mod agent_chat_prompts;
 mod agent_chat_reads;
+mod agent_chat_run_context;
 mod agent_chat_selection_switch;
 mod agent_chat_transcripts;
 mod attachment_receipts;
@@ -71,6 +72,7 @@ pub use agent_chat_prompts::{
     AgentChatPromptAuthority, AgentChatPromptRequest, AgentChatPromptResult, AgentChatPromptService,
 };
 pub use agent_chat_reads::AgentChatReadService;
+pub use agent_chat_run_context::AgentChatRunContextService;
 pub use agent_chat_selection_switch::{
     AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchRequest,
     AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,

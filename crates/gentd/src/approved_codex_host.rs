@@ -35,7 +35,9 @@ where
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger
-        + gent_ports::AgentChatReadLedger,
+        + gent_ports::AgentChatReadLedger
+        + gent_ports::AgentChatRunContextReader
+        + gent_ports::ConversationContentReader,
     D: crate::codex_prompt_lifecycle::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
