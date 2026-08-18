@@ -75,6 +75,7 @@ where
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader
         + ConversationContentReader,
     D: crate::claude_prompt_lifecycle::ClaudePromptExecution + Clone,

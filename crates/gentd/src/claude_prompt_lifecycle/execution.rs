@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gent_drivers::claude_runner::{ClaudeRunStart, ClaudeRunnerEffect, ClaudeStreamRunner};
+use gent_drivers::claude_turn_options::ClaudeTurnOptions;
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
@@ -13,6 +14,7 @@ use gent_types::{FrozenConversationContext, GoalProjection, RunVersionLock};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaudePromptStart {
     pub(crate) prompt: String,
+    pub(crate) turn_options: ClaudeTurnOptions,
     pub(crate) goal: Option<GoalProjection>,
     pub(crate) fresh_context: Option<FrozenConversationContext>,
 }
@@ -90,6 +92,7 @@ where
                 run_id: run_id.into(),
                 lock: lock_value.clone(),
                 prompt: prompt.prompt,
+                turn_options: prompt.turn_options,
                 goal: prompt.goal,
                 fresh_context: prompt.fresh_context,
                 resume_session_id,

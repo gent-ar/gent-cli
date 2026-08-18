@@ -1,9 +1,11 @@
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, FrozenConversationContext, GOAL_SCHEMA_VERSION,
-    GoalBinding, GoalProjection, GoalRecord, GoalStatus, RunVersionLock,
+    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
+    AgentChatSelection, FrozenConversationContext, GOAL_SCHEMA_VERSION, GoalBinding,
+    GoalProjection, GoalRecord, GoalStatus, RunVersionLock,
 };
 
 use super::{ClaudeRunStart, ClaudeRunnerError, input_frame};
+use crate::claude_turn_options::ClaudeTurnOptions;
 
 #[test]
 fn fresh_claude_context_cannot_resume_a_native_session() {
@@ -79,6 +81,13 @@ fn start() -> ClaudeRunStart {
             compatibility_entry: "entry".into(),
         },
         prompt: "prompt".into(),
+        turn_options: ClaudeTurnOptions::from_selection(&AgentChatSelection {
+            provider: AgentChatProvider::Claude,
+            model: "claude-sonnet".into(),
+            effort: AgentChatEffort::High,
+            mode: AgentChatMode::Ask,
+        })
+        .unwrap(),
         goal: None,
         fresh_context: None,
         resume_session_id: None,

@@ -2,6 +2,7 @@
 
 pub mod buffering;
 pub mod claude_runner;
+pub mod claude_turn_options;
 pub mod codex_bootstrap;
 pub mod codex_prompt_runner;
 pub mod codex_runner;

@@ -9,6 +9,7 @@ use gent_types::{
 
 use crate::PublicProvider;
 use crate::buffering::BufferPolicy;
+use crate::claude_turn_options::ClaudeTurnOptions;
 use crate::goal_projection::project_prompt;
 use crate::interrupt::ProcessTreeSignal;
 use crate::launch_spec::{LaunchIntent, arguments};
@@ -26,6 +27,8 @@ pub struct ClaudeRunStart {
     pub run_id: String,
     pub lock: RunVersionLock,
     pub prompt: String,
+    /// Bounded model and permission fields derived from this run's durable selection.
+    pub turn_options: ClaudeTurnOptions,
     /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
     pub goal: Option<GoalProjection>,
     /// Gent-owned history used only for a fresh provider-native session.
@@ -111,11 +114,13 @@ where
             .map_or(LaunchIntent::Start, |session_id| LaunchIntent::Resume {
                 session_id: session_id.clone(),
             });
+        let mut arguments = arguments("claude", &intent)
+            .map_err(|error| SupervisorError::Launch(error.to_string()))?;
+        start.turn_options.append_arguments(&mut arguments);
         let launch = ProviderLaunch {
             provider: "claude".into(),
             executable: PathBuf::from(&start.lock.canonical_path),
-            arguments: arguments("claude", &intent)
-                .map_err(|error| SupervisorError::Launch(error.to_string()))?,
+            arguments,
             intent,
         };
         let process = self.launcher.launch(&launch)?;

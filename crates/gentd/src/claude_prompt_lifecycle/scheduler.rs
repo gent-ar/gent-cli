@@ -19,6 +19,7 @@ where
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader
         + ConversationContentReader,
     D: super::ClaudePromptExecution + Clone,

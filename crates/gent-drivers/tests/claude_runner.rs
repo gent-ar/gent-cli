@@ -4,19 +4,22 @@ use std::sync::{Arc, Mutex};
 
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::claude_runner::{ClaudeRunStart, ClaudeRunnerEffect, ClaudeStreamRunner};
+use gent_drivers::claude_turn_options::ClaudeTurnOptions;
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
 use gent_drivers::lock::capture;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, FrozenConversationContext, GOAL_SCHEMA_VERSION,
-    GoalBinding, GoalProjection, GoalRecord, GoalStatus, NormalizedProviderEvent,
+    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
+    AgentChatSelection, FrozenConversationContext, GOAL_SCHEMA_VERSION, GoalBinding,
+    GoalProjection, GoalRecord, GoalStatus, NormalizedProviderEvent,
 };
 
 #[derive(Default)]
 struct State {
     output: Mutex<VecDeque<Vec<u8>>>,
     writes: Mutex<Vec<Vec<u8>>>,
+    launches: Mutex<Vec<ProviderLaunch>>,
     exit: Mutex<Option<i32>>,
     signals: Mutex<Vec<ProcessTreeSignal>>,
 }
@@ -59,6 +62,7 @@ impl ProcessLauncher for Launcher {
                 .windows(2)
                 .any(|pair| pair == ["--output-format", "stream-json"])
         );
+        self.0.launches.lock().unwrap().push(launch.clone());
         Ok(Process(Arc::clone(&self.0)))
     }
 }
@@ -70,6 +74,13 @@ fn start(run_id: &str, root: &Path, session: Option<&str>) -> ClaudeRunStart {
         run_id: run_id.into(),
         lock: capture("claude", &executable, "2.1.0", "entry").unwrap(),
         prompt: "hello".into(),
+        turn_options: ClaudeTurnOptions::from_selection(&AgentChatSelection {
+            provider: AgentChatProvider::Claude,
+            model: "claude-haiku".into(),
+            effort: AgentChatEffort::Low,
+            mode: AgentChatMode::Ask,
+        })
+        .unwrap(),
         goal: None,
         fresh_context: None,
         resume_session_id: session.map(Into::into),
@@ -138,6 +149,42 @@ fn locked_claude_runner_writes_one_documented_prompt_and_normalizes_stdout() {
         ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output { text, is_partial: false }))
             if text == "done"
     )));
+}
+
+#[test]
+fn locked_claude_runner_launches_only_the_durable_model_and_bounded_plan_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = ClaudeStreamRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+    );
+    let mut request = start("run-1", directory.path(), None);
+    request.turn_options = ClaudeTurnOptions::from_selection(&AgentChatSelection {
+        provider: AgentChatProvider::Claude,
+        model: "claude-sonnet".into(),
+        effort: AgentChatEffort::Medium,
+        mode: AgentChatMode::Plan,
+    })
+    .unwrap();
+    runner.start(request).unwrap();
+
+    let arguments = &state.launches.lock().unwrap()[0].arguments;
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--model", "claude-sonnet"])
+    );
+    assert!(
+        arguments
+            .windows(2)
+            .any(|pair| pair == ["--permission-mode", "plan"])
+    );
+    assert!(
+        !arguments
+            .iter()
+            .any(|value| value == "auto" || value == "bypassPermissions")
+    );
 }
 
 #[test]

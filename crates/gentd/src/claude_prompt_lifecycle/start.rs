@@ -29,6 +29,7 @@ where
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader
         + ConversationContentReader,
     D: ClaudePromptExecution + Clone,
@@ -39,11 +40,16 @@ where
     let fresh_context = runtime
         .contexts
         .fresh_context_for_child(&prompt.message.conversation_id, &run_id)?;
+    let turn_options = gent_drivers::claude_turn_options::ClaudeTurnOptions::from_selection(
+        &runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?,
+    )
+    .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?;
     let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
     if let Err(error) = runner.prepare_claude_prompt(
         run_id.clone(),
         ClaudePromptStart {
             prompt: prompt.message.text.clone(),
+            turn_options,
             goal,
             fresh_context: fresh_context.clone(),
         },
