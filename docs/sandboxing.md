@@ -51,7 +51,7 @@ attestation produces a terminal sandbox failure with zero provider spawn.
 | Platform | Future supported path | Current broad-mode result |
 | --- | --- | --- |
 | Linux | Landlock filesystem policy plus a separately enforced network/process boundary | Denied until implemented and preflighted |
-| macOS standalone CLI | A supportable signed helper or app-distributed sandbox boundary | Denied; deprecated `sandbox-exec` is not an acceptable security claim |
+| macOS standalone CLI | A Gent-owned, Developer-ID-signed helper bundle with App Sandbox and hardened-runtime proof | Denied; deprecated `sandbox-exec` is not an acceptable security claim |
 | Windows | AppContainer/restricted token plus a Job Object for the full process tree | Denied until implemented and preflighted |
 
 The application may later provide a platform-specific signed helper, but that
@@ -80,3 +80,37 @@ protocol clients and may only read diagnostics.
 
 Provider authority remains blocked by the separate transcript, compatibility,
 private Claurst, MCP, Git, and lifecycle gates in `implementation-status.md`.
+
+## macOS delivery decision
+
+The standalone terminal and the native app must use the same Gent-owned helper
+protocol. A terminal process cannot claim App Sandbox containment merely from
+an in-memory profile or a provider's own sandbox flag. Apple documents App
+Sandbox inheritance only for an appropriately entitled child of a sandboxed
+app; its recommended packaging route is a signed embedded helper or XPC
+service. Gent therefore needs a separately signed helper bundle that proves
+its code signature, App Sandbox entitlement, hardened runtime, and exact
+parent/helper identity before it can return `Enforced`.
+
+The current native-app Release entitlement file was inspected read-only on
+2026-08-18 and explicitly has `com.apple.security.app-sandbox` set to false.
+Gent must not treat that app process as a sandbox parent. This is not a request
+to modify the app: the Gent release needs an independently updateable helper
+delivery path so future provider and containment fixes ship with Gent alone.
+
+The helper design must satisfy all of the following before macOS authority can
+be enabled:
+
+1. CI signs and notarizes the helper with a Gent-owned identity and verifies
+   the exact entitlements and hardened-runtime flag after packaging.
+2. The daemon verifies the helper's immutable lock and obtains a per-launch
+   attestation bound to the provider lock/profile before it delegates spawn.
+3. The helper gives provider children only the minimum inherited static rights;
+   the daemon supplies normalized prompt/context input over private local IPC.
+4. A macOS integration test proves denied filesystem/network/child-escape
+   operations, bounded process-tree teardown, and zero spawn on a bad lock or
+   invalid signature.
+
+Until all four proofs exist, the macOS sandbox-preflight port remains
+unavailable. This is deliberately stricter than invoking the deprecated
+`sandbox-exec` or trusting a provider CLI's advertised sandbox mode.
