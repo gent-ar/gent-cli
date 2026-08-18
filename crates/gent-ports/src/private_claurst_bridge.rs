@@ -69,6 +69,38 @@ impl ClaurstStartRequest {
     }
 }
 
+/// Daemon-owned follow-up input for an already bound private Claurst session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaurstSubmitRequest {
+    pub binding: ClaurstSessionBinding,
+    pub turn_id: String,
+    pub prompt: String,
+    pub goal: Option<ClaurstGoalProjection>,
+}
+
+impl ClaurstSubmitRequest {
+    /// Validates one follow-up against its daemon-owned session binding.
+    ///
+    /// # Errors
+    /// Returns before bridge submission for malformed identities or a goal from another source.
+    pub fn validate(&self) -> Result<(), GoalContractError> {
+        if self.binding.run_id.trim().is_empty()
+            || self.binding.source_id.0.trim().is_empty()
+            || self.binding.opaque_session_id.is_empty()
+            || self.turn_id.trim().is_empty()
+            || self.prompt.trim().is_empty()
+        {
+            return Err(GoalContractError::InvalidMetadata);
+        }
+        if let Some(goal) = &self.goal
+            && (goal.run_id != self.binding.run_id || goal.source_id != self.binding.source_id)
+        {
+            return Err(GoalContractError::InvalidMetadata);
+        }
+        Ok(())
+    }
+}
+
 /// Secret-free active-goal context for a private Claurst bridge.
 ///
 /// It intentionally carries no endpoint, credential, routing, provider-native session, plan, or
@@ -195,6 +227,15 @@ pub trait PrivateClaurstBridge: Send + Sync {
 
     /// Associates an opaque private session with an already-reserved daemon run.
     async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError>;
+
+    /// Submits a daemon-owned follow-up to one already bound private session.
+    ///
+    /// The default keeps follow-up unavailable until the private bridge implements the same
+    /// lifecycle contract as start/drain; no public client can invoke this port directly.
+    async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), PortError> {
+        let _ = request;
+        Err(PortError::Unavailable("private Claurst submit".into()))
+    }
 
     /// Drains one bounded ordered batch from one daemon-owned private source.
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError>;

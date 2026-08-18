@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use gent_ports::{
     ClaurstCheckpoint, ClaurstDrainRequest, ClaurstFactValue, ClaurstNormalizedFact,
-    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, Ledger,
+    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, Ledger,
     MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge, RunCheckpointLedger,
     RunProjectionLedger,
 };
@@ -33,10 +33,10 @@ struct BoundSource {
     terminal: bool,
 }
 
-/// Daemon-only drain owner for a bridge source that was reserved elsewhere.
+/// Daemon-only lifecycle owner for a bridge source that was reserved elsewhere.
 ///
-/// This type neither starts Claurst nor exposes a transport. Its only outward result is an
-/// aggregate that is returned after durable lifecycle records and recovery checkpoints exist.
+/// It starts and follows up only through the typed private bridge and exposes no public
+/// transport. Drain results return only after durable lifecycle records and checkpoints exist.
 #[derive(Debug)]
 pub(crate) struct PrivateClaurstIngress<L, B> {
     coordinator: Coordinator<L>,
@@ -125,6 +125,24 @@ where
                 terminal,
             },
         );
+        Ok(())
+    }
+
+    /// Sends one daemon-owned follow-up only to the exact active private session.
+    pub(crate) async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), RuntimeError> {
+        request
+            .validate()
+            .map_err(|_| invariant("private Claurst follow-up input is invalid"))?;
+        let state = self
+            .sources
+            .get(&request.binding.source_id)
+            .ok_or_else(|| invariant("private Claurst source is not bound"))?;
+        if state.terminal || state.binding != request.binding {
+            return Err(invariant(
+                "private Claurst follow-up session is unavailable",
+            ));
+        }
+        self.bridge.submit(request).await?;
         Ok(())
     }
 

@@ -7,13 +7,14 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use gent_ports::{
     ClaurstDrainBatch, ClaurstDrainRequest, ClaurstNormalizedFact, ClaurstSessionBinding,
-    ClaurstSourceId, ClaurstStartRequest, PortError, PrivateClaurstBridge,
+    ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, PortError, PrivateClaurstBridge,
 };
 
 #[derive(Debug, Default)]
 struct BridgeState {
     bindings: BTreeMap<ClaurstSourceId, ClaurstSessionBinding>,
     starts: Vec<ClaurstStartRequest>,
+    submissions: Vec<ClaurstSubmitRequest>,
     start_bindings: VecDeque<Result<ClaurstSessionBinding, String>>,
     requests: Vec<ClaurstDrainRequest>,
     batches: VecDeque<Result<ClaurstDrainBatch, String>>,
@@ -76,6 +77,16 @@ impl FakePrivateClaurstBridge {
             .clone()
     }
 
+    /// Returns follow-up inputs accepted for an already bound private source.
+    #[must_use]
+    pub fn submissions(&self) -> Vec<ClaurstSubmitRequest> {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .submissions
+            .clone()
+    }
+
     /// Returns drain requests in the order a daemon would have issued them.
     #[must_use]
     pub fn requests(&self) -> Vec<ClaurstDrainRequest> {
@@ -131,6 +142,21 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
                 Ok(())
             }
         }
+    }
+
+    async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), PortError> {
+        request
+            .validate()
+            .map_err(|_| contract_error("submit input is invalid"))?;
+        let mut state = self
+            .state
+            .lock()
+            .expect("private bridge fake mutex poisoned");
+        (state.bindings.get(&request.binding.source_id) == Some(&request.binding))
+            .then_some(())
+            .ok_or_else(|| contract_error("submit source has no matching session"))?;
+        state.submissions.push(request);
+        Ok(())
     }
 
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {

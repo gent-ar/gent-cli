@@ -40,6 +40,29 @@ async fn start_accepts_only_an_exact_daemon_owned_private_session() {
 }
 
 #[tokio::test]
+async fn follow_up_requires_the_exact_bound_private_session() {
+    let ledger = prepared_ledger();
+    let bridge = FakePrivateClaurstBridge::default();
+    let binding = binding();
+    bridge.push_start_binding(binding.clone());
+    let mut ingress = PrivateClaurstIngress::new(
+        Coordinator::new(ledger.clone(), CapabilitySet::default()),
+        ledger,
+        bridge,
+        "daemon-a".into(),
+    );
+    // The sidecar must be bound through start before it can receive a follow-up.
+    ingress.start(start_request(), HostEpoch(1)).await.unwrap();
+    ingress
+        .submit(submit_request(binding.clone()))
+        .await
+        .unwrap();
+    let mut other_binding = binding;
+    other_binding.opaque_session_id = "other-session".into();
+    assert!(ingress.submit(submit_request(other_binding)).await.is_err());
+}
+
+#[tokio::test]
 async fn drain_persists_normalized_facts_then_a_terminal_checkpoint() {
     let ledger = prepared_ledger();
     let bridge = FakePrivateClaurstBridge::default();
@@ -203,6 +226,15 @@ fn start_request() -> gent_ports::ClaurstStartRequest {
         context: FrozenConversationContext::cleared(AgentChatConversationId(
             "conversation-a".into(),
         )),
+        goal: None,
+    }
+}
+
+fn submit_request(binding: ClaurstSessionBinding) -> gent_ports::ClaurstSubmitRequest {
+    gent_ports::ClaurstSubmitRequest {
+        binding,
+        turn_id: "turn-b".into(),
+        prompt: "continue".into(),
         goal: None,
     }
 }

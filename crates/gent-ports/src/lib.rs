@@ -79,8 +79,8 @@ pub use policy_ledger::PolicyLedger;
 pub use private_claurst_bridge::{
     ClaurstCheckpoint, ClaurstDrainBatch, ClaurstDrainRequest, ClaurstFactValue,
     ClaurstFailureClassification, ClaurstGoalProjection, ClaurstNormalizedFact,
-    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstTerminal,
-    MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge,
+    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest,
+    ClaurstTerminal, MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge,
 };
 pub use provider_auth_discovery::{
     ProviderAuthAuthentication, ProviderAuthDiscovery, ProviderAuthDiscoveryError,
