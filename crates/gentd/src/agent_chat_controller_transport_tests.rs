@@ -3,6 +3,7 @@ use gent_protocol::{
     AgentChatControllerStreamEnd, AgentChatControllerStreamFrame, WireFrame, read_frame,
     write_json_frame,
 };
+use gent_runtime::AgentChatControllerDeltaPage;
 use gent_types::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatSelection, ConversationStatus, HostEpoch,
@@ -19,6 +20,9 @@ struct Source;
 #[derive(Clone)]
 struct Unavailable;
 
+#[derive(Clone)]
+struct DeltaSource;
+
 impl super::ControllerStreamPort for Source {
     fn snapshot(
         &self,
@@ -27,11 +31,49 @@ impl super::ControllerStreamPort for Source {
     ) -> Result<AgentChatControllerSnapshot, String> {
         Ok(snapshot(conversation_id, after_cursor))
     }
+
+    fn delta(
+        &self,
+        _: &str,
+        _: u64,
+        host_epoch: HostEpoch,
+    ) -> Result<AgentChatControllerDeltaPage, String> {
+        Ok(AgentChatControllerDeltaPage {
+            host_epoch,
+            events: Vec::new(),
+        })
+    }
 }
 
 impl super::ControllerStreamPort for Unavailable {
     fn snapshot(&self, _: &str, _: u64) -> Result<AgentChatControllerSnapshot, String> {
         Err("observer-disabled".into())
+    }
+
+    fn delta(&self, _: &str, _: u64, _: HostEpoch) -> Result<AgentChatControllerDeltaPage, String> {
+        Err("observer-disabled".into())
+    }
+}
+
+impl super::ControllerStreamPort for DeltaSource {
+    fn snapshot(
+        &self,
+        conversation_id: &str,
+        after_cursor: u64,
+    ) -> Result<AgentChatControllerSnapshot, String> {
+        Ok(snapshot(conversation_id, after_cursor))
+    }
+
+    fn delta(
+        &self,
+        _: &str,
+        after_cursor: u64,
+        host_epoch: HostEpoch,
+    ) -> Result<AgentChatControllerDeltaPage, String> {
+        Ok(AgentChatControllerDeltaPage {
+            host_epoch,
+            events: (after_cursor < 2).then(|| event(2)).into_iter().collect(),
+        })
     }
 }
 
@@ -60,6 +102,46 @@ async fn attach_receives_snapshot_and_accepts_a_bounded_ack() {
     write_json_frame(
         &mut writer,
         &AgentChatControllerStreamFrame::Ack { cursor: 1 },
+    )
+    .await
+    .unwrap();
+    drop(writer);
+    drop(reader);
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn durable_delta_waits_for_the_snapshot_ack_then_requires_its_own_ack() {
+    let (client, server) = duplex(4096);
+    let task = tokio::spawn(serve(server, DeltaSource));
+    let (mut reader, mut writer) = tokio::io::split(client);
+    attach(&mut writer).await;
+    let snapshot = gent_protocol::read_json_frame::<_, AgentChatControllerStreamFrame>(&mut reader)
+        .await
+        .unwrap();
+    assert!(
+        matches!(snapshot, AgentChatControllerStreamFrame::Snapshot(value) if value.cursor == 1)
+    );
+    write_json_frame(
+        &mut writer,
+        &AgentChatControllerStreamFrame::Ack { cursor: 1 },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            gent_protocol::read_json_frame::<_, AgentChatControllerStreamFrame>(&mut reader)
+        )
+        .await
+        .unwrap()
+        .unwrap(),
+        AgentChatControllerStreamFrame::Delta(AgentChatControllerDelta::Transcript { event, .. })
+            if event.cursor == 2
+    ));
+    write_json_frame(
+        &mut writer,
+        &AgentChatControllerStreamFrame::Ack { cursor: 2 },
     )
     .await
     .unwrap();

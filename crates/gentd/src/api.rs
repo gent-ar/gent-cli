@@ -7,7 +7,7 @@ use gent_protocol::{
     PermissionPolicyFrame, ProviderAuthFrame, PublicRunInterruptRequest, PublicRunResponse,
     PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
 };
-use gent_runtime::ConversationActivityRead;
+use gent_runtime::{AgentChatControllerDeltaPage, ConversationActivityRead};
 use gent_types::{
     CapabilitySet, Command, ConversationContentCursor, ConversationContentPage,
     ConversationListItem, ConversationStatus, ConversationTimeline, DecisionCommand,
@@ -102,6 +102,15 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         _: &str,
         _: u64,
     ) -> Result<AgentChatControllerSnapshot, String> {
+        Err("agent-chat controller stream is unavailable while gentd is observer-disabled".into())
+    }
+    /// Reads one bounded normalized controller delta batch for the expected host epoch.
+    fn agent_chat_controller_delta(
+        &self,
+        _: &str,
+        _: u64,
+        _: gent_types::HostEpoch,
+    ) -> Result<AgentChatControllerDeltaPage, String> {
         Err("agent-chat controller stream is unavailable while gentd is observer-disabled".into())
     }
     /// Reads or appends one local, provider-neutral permission-policy revision.

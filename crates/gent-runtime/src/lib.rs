@@ -1,4 +1,5 @@
 //! Coordinator orchestration over pure policy and durable ports.
+mod agent_chat_controller_delta;
 mod agent_chat_controller_snapshot;
 mod agent_chat_conversations;
 mod agent_chat_dispatch;
@@ -37,6 +38,10 @@ mod runtime_update_planner;
 mod runtime_update_successor;
 mod tool_sources;
 mod workspaces;
+pub use agent_chat_controller_delta::{
+    AgentChatControllerDeltaPage, AgentChatControllerDeltaReader, AgentChatControllerDeltaRequest,
+    AgentChatControllerDeltaSource,
+};
 pub use agent_chat_controller_snapshot::{
     AgentChatControllerSnapshot, AgentChatControllerSnapshotBuilder,
     AgentChatControllerSnapshotRequest, AgentChatControllerSnapshotSource,
