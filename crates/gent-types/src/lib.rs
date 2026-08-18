@@ -26,6 +26,9 @@ mod lifecycle_state;
 mod mcp_connectors;
 mod observer_tap;
 mod onboarding;
+mod orchestration;
+#[cfg(test)]
+mod orchestration_tests;
 mod permission_control;
 mod policies;
 mod provider_auth;
@@ -92,6 +95,7 @@ pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkP
 pub use mcp_connectors::{McpConnectorPhase, McpConnectorRecord};
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
+pub use orchestration::*;
 pub use permission_control::*;
 pub use policies::{
     PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
@@ -142,7 +146,6 @@ impl Default for ReceiptId {
         Self::new()
     }
 }
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ReceiptStatus {
@@ -151,7 +154,6 @@ pub enum ReceiptStatus {
     Unprovable,
     Rejected,
 }
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Receipt {
@@ -228,7 +230,6 @@ pub struct DoctorReport {
     pub next_action: DoctorNextAction,
 }
 
-/// Immutable provenance captured before a public-provider process is allowed to start.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunVersionLock {
@@ -239,7 +240,6 @@ pub struct RunVersionLock {
     pub version: String,
     pub compatibility_entry: String,
 }
-/// Provider-neutral events suitable for persistence and client projection.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum NormalizedProviderEvent {

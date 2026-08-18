@@ -210,6 +210,9 @@ where
     if crate::reviewed_plan_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::orchestration_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if crate::goal_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }

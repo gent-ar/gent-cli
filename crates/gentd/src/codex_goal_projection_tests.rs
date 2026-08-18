@@ -21,7 +21,12 @@ use crate::public_driver_runtime::PublicDriversRuntime;
 struct FreshGoals(Mutex<VecDeque<GoalProjection>>);
 
 impl ActiveGoalResolver for FreshGoals {
-    fn resolve_active_goal(&self, _: &str, _: &str) -> Result<Option<GoalProjection>, LedgerError> {
+    fn resolve_active_goal(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<Option<GoalProjection>, LedgerError> {
+        let _ = (conversation_id, run_id);
         Ok(self.0.lock().unwrap().pop_front())
     }
 }
@@ -92,20 +97,20 @@ fn codex_resolves_a_fresh_goal_projection_for_initial_and_follow_up_turns() {
             .revision(),
         1
     );
-    runner
-        .state
-        .lock()
-        .unwrap()
-        .effects
-        .push_back(vec![CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+    runner.state.lock().unwrap().effects.push_back(vec![
+        CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
+            provider_session_id: "daemon-owned-thread".into(),
+        }),
+        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
             gent_types::NormalizedLifecycleSignal::RootPhase {
                 phase: TurnPhase::Ready,
             },
-        ))]);
+        )),
+    ]);
     host.tick().unwrap();
     save(&ledger, "follow-up", "follow up");
     host.tick().unwrap();
     let state = runner.state.lock().unwrap();
     assert_eq!(state.submitted, ["follow up"]);
-    assert_eq!(state.submitted_goals[0].as_ref().unwrap().revision(), 4);
+    assert_eq!(state.submitted_goals, [Some(projection(4))]);
 }

@@ -219,5 +219,8 @@ fn matches_plan(plan: &PlanArtifact, request: &StartImplementationRequest) -> bo
 }
 
 #[cfg(test)]
+#[path = "reviewed_plan_reducer_tests.rs"]
+mod reducer_tests;
+#[cfg(test)]
 #[path = "reviewed_plan_tests.rs"]
 mod tests;

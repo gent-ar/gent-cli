@@ -4,8 +4,9 @@ use gent_protocol::{
     AgentChatControllerSnapshot, AgentChatConversationFrame, AgentChatIntentFrame,
     AgentChatTranscriptFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
     DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-    GoalFrame, PermissionPolicyFrame, ProviderAuthFrame, PublicRunInterruptRequest,
-    PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
+    GoalFrame, OrchestrationFrame, PermissionPolicyFrame, ProviderAuthFrame,
+    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
+    ReviewedPlanFrame,
 };
 use gent_runtime::{AgentChatControllerDeltaPage, ConversationActivityRead};
 use gent_types::{
@@ -127,6 +128,12 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     /// Handles reviewed-plan reads and user decisions only in a future authority composition.
     fn reviewed_plan(&self, _: ReviewedPlanFrame) -> Result<ReviewedPlanFrame, String> {
         Err("reviewed plans are unavailable while gentd is observer-disabled".into())
+    }
+    /// Reads or mutates a Gent-owned task graph only in a future authority composition.
+    ///
+    /// The hard observer refuses before a graph read/write, worktree lease, or provider path.
+    fn orchestration(&self, _: OrchestrationFrame) -> Result<OrchestrationFrame, String> {
+        Err("orchestration is unavailable while gentd is observer-disabled".into())
     }
     /// Handles provider-neutral `/goal` records only in an approved chat persistence profile.
     ///

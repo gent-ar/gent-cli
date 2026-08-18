@@ -10,7 +10,7 @@ use super::{
     reduce_reviewed_plan,
 };
 
-fn plan() -> PlanArtifact {
+pub(super) fn plan() -> PlanArtifact {
     PlanArtifact {
         plan_id: ReviewedPlanId("plan-1".into()),
         conversation_id: AgentChatConversationId("conversation-1".into()),
@@ -33,7 +33,7 @@ fn plan() -> PlanArtifact {
     }
 }
 
-fn approval(policy: ContextPolicy) -> StartImplementationRequest {
+pub(super) fn approval(policy: ContextPolicy) -> StartImplementationRequest {
     StartImplementationRequest {
         request_id: AgentChatRequestId("request-1".into()),
         receipt_id: ReceiptId("receipt-1".into()),
@@ -56,7 +56,7 @@ fn approval(policy: ContextPolicy) -> StartImplementationRequest {
     }
 }
 
-fn reviewed_state() -> ReviewedPlanState {
+pub(super) fn reviewed_state() -> ReviewedPlanState {
     reduce_reviewed_plan(
         ReviewedPlanState::default(),
         ReviewedPlanEvent::Observed(plan()),

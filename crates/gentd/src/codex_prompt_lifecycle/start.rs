@@ -36,7 +36,6 @@ where
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
-    let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
     let turn_options = gent_drivers::codex_session::CodexTurnOptions::from_selection(
         &runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?,
         working_directory,
@@ -45,6 +44,7 @@ where
     if runner.has_codex_session(&run_id) {
         return submit(runtime, runner, coordinator_id, active, prompt, host_epoch);
     }
+    let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
     if let Err(error) = runner.prepare_codex_prompt(
         run_id.clone(),
         CodexPromptStart {
