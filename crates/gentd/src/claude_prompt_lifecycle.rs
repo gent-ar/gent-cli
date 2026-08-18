@@ -195,7 +195,7 @@ where
                 fact: fact.clone(),
             },
         )?;
-        if let PublicWireFact::Event(NormalizedProviderEvent::Output { text }) = fact {
+        if let PublicWireFact::Event(NormalizedProviderEvent::Output { text, is_partial }) = fact {
             let event_id = self.next_event_id(run_id, "transcript")?;
             self.runtime.record(
                 run_id.into(),
@@ -210,7 +210,7 @@ where
                     event_id,
                     kind: NormalizedTranscriptKind::AssistantMessage,
                     text: text.clone(),
-                    is_partial: true,
+                    is_partial: *is_partial,
                 }),
             )?;
         }

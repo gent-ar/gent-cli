@@ -19,6 +19,7 @@ impl DeclarativeAdapterManifest {
         match self.event_map.get(source).map(String::as_str) {
             Some("output") => NormalizedProviderEvent::Output {
                 text: string(frame, "text"),
+                is_partial: false,
             },
             Some("turnStarted") => NormalizedProviderEvent::TurnStarted {
                 turn_id: string(frame, "turn_id"),
@@ -150,7 +151,10 @@ mod tests {
         assert!(manifest.validate().is_ok());
         assert_eq!(
             manifest.interpret(&json!({ "type": "text", "text": "hi" })),
-            NormalizedProviderEvent::Output { text: "hi".into() }
+            NormalizedProviderEvent::Output {
+                text: "hi".into(),
+                is_partial: false
+            }
         );
         assert!(matches!(
             manifest.interpret(&json!({ "type": "other" })),

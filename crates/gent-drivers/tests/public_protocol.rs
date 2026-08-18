@@ -20,7 +20,8 @@ fn claude_stream_json_init_assistant_tool_and_result_are_normalized() {
     }));
     assert!(
         facts.contains(&PublicWireFact::Event(NormalizedProviderEvent::Output {
-            text: "hello".into()
+            text: "hello".into(),
+            is_partial: false,
         }))
     );
     assert!(facts.contains(&PublicWireFact::Lifecycle(
@@ -39,6 +40,7 @@ fn codex_app_server_turns_messages_tools_and_approvals_are_normalized() {
             json!({"method":"thread/started","params":{"thread":{"id":"thread-1"}}}),
             json!({"method":"turn/started","params":{"turn":{"id":"turn-1"}}}),
             json!({"method":"item/agentMessage/delta","params":{"delta":"hello"}}),
+            json!({"method":"item/completed","params":{"item":{"type":"agentMessage","id":"message-1","text":"hello"}}}),
             json!({"method":"item/started","params":{"item":{"type":"commandExecution","id":"tool-1"}}}),
             json!({"method":"item/commandExecution/requestApproval","params":{}}),
             json!({"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}),
@@ -52,6 +54,18 @@ fn codex_app_server_turns_messages_tools_and_approvals_are_normalized() {
             turn_id: "turn-1".into()
         }
     )));
+    assert!(
+        facts.contains(&PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: "hello".into(),
+            is_partial: false,
+        }))
+    );
+    assert!(
+        facts.contains(&PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: "hello".into(),
+            is_partial: true,
+        }))
+    );
     assert!(facts.contains(&PublicWireFact::Lifecycle(
         NormalizedLifecycleSignal::AttentionRequired
     )));

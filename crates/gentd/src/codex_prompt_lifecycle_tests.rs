@@ -198,7 +198,6 @@ fn assert_prepared_options(runner: &Runner) {
         Some(&expected)
     );
 }
-
 #[test]
 fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let ledger = SqliteLedger::in_memory().unwrap();
@@ -230,6 +229,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         }),
         CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
             text: "hello back".into(),
+            is_partial: false,
         })),
         CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
             NormalizedLifecycleSignal::RootPhase {

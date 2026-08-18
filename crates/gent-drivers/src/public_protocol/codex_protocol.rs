@@ -105,6 +105,7 @@ fn agent_message_delta(frame: &Value) -> Vec<PublicWireFact> {
             |text| {
                 vec![PublicWireFact::Event(NormalizedProviderEvent::Output {
                     text: text.into(),
+                    is_partial: true,
                 })]
             },
         )
@@ -126,11 +127,31 @@ fn item(frame: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
 }
 
 fn completed_item(frame: &Value) -> Vec<PublicWireFact> {
+    let Some(completed) = frame.pointer("/params/item") else {
+        return diagnostic("malformedCodexItem");
+    };
+    if string(completed, "type") == Some("agentMessage") {
+        return completed_agent_message(completed);
+    }
     let phase = match frame.pointer("/params/item/status").and_then(Value::as_str) {
         Some("failed") => ToolPhase::Failed,
         _ => ToolPhase::Completed,
     };
     item(frame, phase)
+}
+
+fn completed_agent_message(item: &Value) -> Vec<PublicWireFact> {
+    string(item, "text")
+        .filter(|text| !text.is_empty())
+        .map_or_else(
+            || diagnostic("malformedCodexAgentMessage"),
+            |text| {
+                vec![PublicWireFact::Event(NormalizedProviderEvent::Output {
+                    text: text.into(),
+                    is_partial: false,
+                })]
+            },
+        )
 }
 
 fn tool_activity(item: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {

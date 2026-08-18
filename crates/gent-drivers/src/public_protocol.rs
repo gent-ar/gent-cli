@@ -81,6 +81,7 @@ fn claude_content(block: &Value) -> Vec<PublicWireFact> {
                 |text| {
                     vec![PublicWireFact::Event(NormalizedProviderEvent::Output {
                         text: text.into(),
+                        is_partial: false,
                     })]
                 },
             ),

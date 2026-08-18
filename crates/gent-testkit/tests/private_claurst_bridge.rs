@@ -37,6 +37,7 @@ async fn bridge_drains_ordered_normalized_facts_and_terminal_once() {
             cursor: 4,
             value: ClaurstFactValue::Event(NormalizedProviderEvent::Output {
                 text: "safe normalized reply".into(),
+                is_partial: false,
             }),
         }],
         checkpoint: Some(ClaurstCheckpoint {
@@ -68,6 +69,7 @@ async fn bridge_rejects_unbounded_or_opaque_session_echoes() {
             cursor: 1,
             value: ClaurstFactValue::Event(NormalizedProviderEvent::Output {
                 text: "private-session-a".into(),
+                is_partial: false,
             }),
         }],
         checkpoint: None,

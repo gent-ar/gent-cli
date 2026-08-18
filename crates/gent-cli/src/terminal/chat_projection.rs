@@ -1,6 +1,8 @@
 //! Pure selected-conversation projection for a future reconnectable terminal stream.
 
-use gent_types::{HostEpoch, NormalizedTranscriptEvent, NormalizedTranscriptPage};
+use gent_types::{
+    HostEpoch, NormalizedTranscriptEvent, NormalizedTranscriptKind, NormalizedTranscriptPage,
+};
 
 /// A selected conversation's durable transcript view and cursor boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,6 +58,9 @@ impl ChatProjection {
         if event.cursor <= self.cursor {
             return Err(ProjectionError::NonMonotonicCursor);
         }
+        if event.kind == NormalizedTranscriptKind::AssistantMessage && !event.is_partial {
+            self.replace_partial_tail(&event);
+        }
         self.cursor = event.cursor;
         self.events.push(event);
         Ok(())
@@ -70,6 +75,17 @@ impl ChatProjection {
     pub(crate) fn events(&self) -> &[NormalizedTranscriptEvent] {
         &self.events
     }
+
+    fn replace_partial_tail(&mut self, final_event: &NormalizedTranscriptEvent) {
+        while self.events.last().is_some_and(|event| {
+            event.kind == NormalizedTranscriptKind::AssistantMessage
+                && event.is_partial
+                && event.run_id == final_event.run_id
+                && event.turn_id == final_event.turn_id
+        }) {
+            self.events.pop();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -78,15 +94,15 @@ mod tests {
 
     use super::{ChatProjection, HostEpoch, ProjectionError};
 
-    fn event(cursor: u64) -> gent_types::NormalizedTranscriptEvent {
+    fn event(cursor: u64, text: &str, is_partial: bool) -> gent_types::NormalizedTranscriptEvent {
         gent_types::NormalizedTranscriptEvent {
             cursor,
             event_id: format!("event-{cursor}"),
             turn_id: "turn".into(),
             run_id: "run".into(),
             kind: NormalizedTranscriptKind::AssistantMessage,
-            text: "normalized".into(),
-            is_partial: false,
+            text: text.into(),
+            is_partial,
         }
     }
 
@@ -94,21 +110,37 @@ mod tests {
     fn snapshot_replaces_state_and_deltas_are_strictly_cursor_and_epoch_bound() {
         let page = NormalizedTranscriptPage {
             conversation_id: "conversation".into(),
-            events: vec![event(2)],
+            events: vec![event(2, "normalized", false)],
             next_after_cursor: Some(2),
         };
         let mut view =
             ChatProjection::from_page("conversation".into(), HostEpoch(4), 1, page).unwrap();
-        view.apply(HostEpoch(4), event(3)).unwrap();
+        view.apply(HostEpoch(4), event(3, "normalized", false))
+            .unwrap();
         assert_eq!(view.cursor(), 3);
         assert_eq!(view.events().len(), 2);
         assert_eq!(
-            view.apply(HostEpoch(4), event(3)),
+            view.apply(HostEpoch(4), event(3, "normalized", false)),
             Err(ProjectionError::NonMonotonicCursor)
         );
         assert_eq!(
-            view.apply(HostEpoch(5), event(4)),
+            view.apply(HostEpoch(5), event(4, "normalized", false)),
             Err(ProjectionError::WrongEpoch)
         );
+    }
+
+    #[test]
+    fn final_assistant_output_replaces_only_its_partial_tail() {
+        let page = NormalizedTranscriptPage {
+            conversation_id: "conversation".into(),
+            events: vec![event(1, "hel", true), event(2, "lo", true)],
+            next_after_cursor: None,
+        };
+        let mut view =
+            ChatProjection::from_page("conversation".into(), HostEpoch(1), 0, page).unwrap();
+        view.apply(HostEpoch(1), event(3, "hello", false)).unwrap();
+        assert_eq!(view.events().len(), 1);
+        assert_eq!(view.events()[0].text, "hello");
+        assert!(!view.events()[0].is_partial);
     }
 }

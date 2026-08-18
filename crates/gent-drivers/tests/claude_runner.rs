@@ -95,7 +95,7 @@ fn locked_claude_runner_writes_one_documented_prompt_and_normalizes_stdout() {
     let effects = runner.poll("run-1").unwrap().unwrap();
     assert!(effects.iter().any(|effect| matches!(
         effect,
-        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output { text }))
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output { text, is_partial: false }))
             if text == "done"
     )));
 }

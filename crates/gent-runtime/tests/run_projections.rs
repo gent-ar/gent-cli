@@ -172,6 +172,7 @@ fn projection_requires_current_owner_and_server_owned_session() {
         1,
         &NormalizedProviderEvent::Output {
             text: "ignored".into(),
+            is_partial: false,
         },
     );
     assert!(matches!(error, Err(RuntimeError::Ledger(_))));
@@ -201,6 +202,7 @@ fn projection_refuses_a_leased_run_without_a_server_owned_session() {
         1,
         &NormalizedProviderEvent::Output {
             text: "ignored".into(),
+            is_partial: false,
         },
     );
     assert!(matches!(error, Err(RuntimeError::Ledger(_))));

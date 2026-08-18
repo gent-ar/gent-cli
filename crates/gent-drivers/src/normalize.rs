@@ -14,6 +14,10 @@ pub fn normalize(frame: &Value) -> NormalizedProviderEvent {
     match kind {
         Some("output") => NormalizedProviderEvent::Output {
             text: field(frame, "text").unwrap_or_default().into(),
+            is_partial: frame
+                .get("is_partial")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         },
         Some("turn_started") => NormalizedProviderEvent::TurnStarted {
             turn_id: field(frame, "turn_id").unwrap_or_default().into(),

@@ -99,6 +99,10 @@ fn codex_covers_terminal_statuses_tools_and_unknown_frames() {
             "malformedCodexMessageDelta",
         ),
         (
+            json!({"method":"item/completed","params":{"item":{"type":"agentMessage"}}}),
+            "malformedCodexAgentMessage",
+        ),
+        (
             json!({"method":"item/started","params":{"item":{}}}),
             "malformedCodexItem",
         ),

@@ -239,13 +239,13 @@ pub struct RunVersionLock {
     pub version: String,
     pub compatibility_entry: String,
 }
-
 /// Provider-neutral events suitable for persistence and client projection.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum NormalizedProviderEvent {
     Output {
         text: String,
+        is_partial: bool,
     },
     TurnStarted {
         turn_id: String,

@@ -179,6 +179,7 @@ fn ready_settles_but_keeps_one_shot_claude_binding_until_exit_then_resumes() {
         }),
         ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
             text: "done".into(),
+            is_partial: false,
         })),
         ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
             NormalizedLifecycleSignal::RootPhase {
