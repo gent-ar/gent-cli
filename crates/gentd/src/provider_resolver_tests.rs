@@ -10,7 +10,9 @@ use gent_drivers::lock::capture;
 use gent_ports::{PublicProviderResolver, PublicProviderRunError};
 
 use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::provider_resolver::{DaemonProviderResolver, PrivatePrefixFirstDiscovery};
+use crate::provider_resolver::{
+    DaemonProviderResolver, PrivatePrefixDiscovery, PrivatePrefixFirstDiscovery,
+};
 
 #[derive(Clone, Debug)]
 struct Found(PathBuf);
@@ -115,4 +117,28 @@ fn private_prefix_discovery_precedes_its_injected_fallback() {
         Some(installed),
         "Gent-owned npm installation must win over fallback discovery"
     );
+}
+
+#[test]
+fn private_prefix_authority_discovery_never_uses_path_fallback() {
+    let directory = tempfile::tempdir().unwrap();
+    let prefix = directory.path().join("npm-global");
+    let discovery = PrivatePrefixDiscovery::new(prefix.clone());
+    assert_eq!(discovery.find("codex").unwrap(), None);
+
+    let bin = prefix.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let installed = bin.join(binary_name());
+    std::fs::write(&installed, "private provider binary").unwrap();
+    assert_eq!(discovery.find("codex").unwrap(), Some(installed));
+}
+
+#[cfg(windows)]
+fn binary_name() -> &'static str {
+    "codex.cmd"
+}
+
+#[cfg(not(windows))]
+fn binary_name() -> &'static str {
+    "codex"
 }

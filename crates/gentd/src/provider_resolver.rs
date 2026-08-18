@@ -94,6 +94,31 @@ impl<D: ExecutableDiscovery> ExecutableDiscovery for PrivatePrefixFirstDiscovery
     }
 }
 
+/// Gent-private executable discovery for an approved public-driver composition.
+///
+/// Unlike diagnostic discovery, authority-mode resolution must never fall back to a
+/// user-controlled `PATH`. Provisioning is a separate consented operation that places the
+/// locked executable below this prefix before this discovery is reachable.
+#[derive(Clone, Debug)]
+pub struct PrivatePrefixDiscovery {
+    prefix: PathBuf,
+}
+
+impl PrivatePrefixDiscovery {
+    /// Binds the one Gent-owned npm prefix allowed to supply an authority-mode executable.
+    #[must_use]
+    pub(crate) fn new(prefix: PathBuf) -> Self {
+        Self { prefix }
+    }
+}
+
+impl ExecutableDiscovery for PrivatePrefixDiscovery {
+    fn find(&self, name: &str) -> Result<Option<PathBuf>, DiscoveryError> {
+        let candidate = self.prefix.join("bin").join(provider_binary_name(name));
+        Ok(candidate.is_file().then_some(candidate))
+    }
+}
+
 #[cfg(windows)]
 fn provider_binary_name(name: &str) -> String {
     format!("{name}.cmd")
