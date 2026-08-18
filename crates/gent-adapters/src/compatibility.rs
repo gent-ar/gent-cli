@@ -66,6 +66,17 @@ impl TrustedKeySet {
         self.revoked_key_ids.insert(key_id.into());
     }
 
+    /// Returns a trusted, non-revoked verification key for another signed
+    /// adapter document in this crate.
+    pub(crate) fn key(&self, key_id: &str) -> Result<&VerifyingKey, CompatibilityError> {
+        if self.revoked_key_ids.contains(key_id) {
+            return Err(CompatibilityError::RevokedKey(key_id.into()));
+        }
+        self.keys
+            .get(key_id)
+            .ok_or_else(|| CompatibilityError::UnknownKey(key_id.into()))
+    }
+
     /// Verifies a manifest using its declared key identifier.
     ///
     /// # Errors
@@ -101,13 +112,7 @@ impl TrustedKeySet {
         manifest: &SignedCompatibilityManifest,
         now: u64,
     ) -> Result<(), CompatibilityError> {
-        if self.revoked_key_ids.contains(&manifest.key_id) {
-            return Err(CompatibilityError::RevokedKey(manifest.key_id.clone()));
-        }
-        let key = self
-            .keys
-            .get(&manifest.key_id)
-            .ok_or_else(|| CompatibilityError::UnknownKey(manifest.key_id.clone()))?;
+        let key = self.key(&manifest.key_id)?;
         manifest.verify_signature_and_expiry(key, now)
     }
 }

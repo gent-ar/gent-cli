@@ -17,9 +17,11 @@ mod dependency_action_executor;
 mod external_provider_bridge;
 mod git_executor;
 mod git_operation_ledger;
+mod ingress;
 mod legacy_event_tap;
 mod mcp_connector_executor;
 mod mcp_connector_ledger;
+mod package_install;
 mod policy_ledger;
 mod provider_auth_discovery;
 mod public_provider_resolver;
@@ -52,12 +54,16 @@ pub use external_provider_bridge::ExternalProviderBridge;
 pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_executor::{GitExecutor, GitExecutorError, GitStatusOperation, GitStatusSummary};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
+pub use ingress::{HostIngress, IngressMode};
 pub use legacy_event_tap::LegacyEventTap;
 pub use mcp_connector_executor::{
     McpConnectOperation, McpConnectionSummary, McpConnectorError, McpConnectorExecutor,
 };
 pub use mcp_connector_ledger::{
     McpConnectorLease, McpConnectorLeaseClaim, McpConnectorLedger, McpConnectorUpdate,
+};
+pub use package_install::{
+    ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError,
 };
 pub use policy_ledger::PolicyLedger;
 pub use provider_auth_discovery::{
@@ -84,16 +90,6 @@ pub enum PortError {
 #[async_trait]
 pub trait ProviderDriver: Send + Sync {
     async fn submit(&self, command: Command) -> Result<(), PortError>;
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum IngressMode {
-    Open,
-    Closed,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct HostIngress {
-    pub epoch: HostEpoch,
-    pub mode: IngressMode,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReceiptClaim {

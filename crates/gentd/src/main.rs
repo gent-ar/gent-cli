@@ -36,6 +36,7 @@ mod dependency_catalog_tests;
 mod event_stream;
 mod git_status_runtime;
 mod host_lock;
+#[allow(dead_code)]
 mod node_runtime;
 mod permission_policy_api;
 mod permission_policy_transport;

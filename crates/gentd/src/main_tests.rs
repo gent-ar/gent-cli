@@ -19,7 +19,6 @@ use crate::api::RuntimeApi;
 
 use super::{RuntimeFacade, build_runtime};
 use crate::decision_mapping::{recovery as decision_recovery, submission as decision_submission};
-
 fn runtime() -> (tempfile::TempDir, RuntimeFacade) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
@@ -30,7 +29,6 @@ fn runtime() -> (tempfile::TempDir, RuntimeFacade) {
     .unwrap();
     (directory, runtime)
 }
-
 #[test]
 fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
     let directory = tempfile::tempdir().unwrap();
@@ -49,7 +47,6 @@ fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
     );
     assert!(!directory.path().join("gent.db").exists());
 }
-
 #[test]
 fn facade_exposes_only_durable_or_read_only_observer_operations() {
     let (directory, runtime) = runtime();
@@ -99,7 +96,6 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
     );
     assert_observer_operations(&runtime, status.host_epoch);
 }
-
 fn assert_observer_operations(runtime: &RuntimeFacade, epoch: HostEpoch) {
     assert_eq!(
         runtime
@@ -115,6 +111,25 @@ fn assert_observer_operations(runtime: &RuntimeFacade, epoch: HostEpoch) {
             .unwrap()
             .state,
         gent_protocol::DependencyActionState::ConsentRequired
+    );
+    let plan = runtime.dependency_plan(DependencyPlanRequest {
+        provider: DependencyProvider::Codex,
+        action: DependencyAction::Install,
+    });
+    assert_eq!(
+        runtime
+            .dependency_action(DependencyActionRequest {
+                provider: DependencyProvider::Codex,
+                action: DependencyAction::Install,
+                consent_granted: true,
+                receipt_id: ReceiptId("observer-dependency".into()),
+                idempotency_key: "observer-dependency".into(),
+                host_epoch: epoch,
+                reviewed_plan_digest: plan.reviewed_plan_digest,
+            })
+            .unwrap()
+            .state,
+        gent_protocol::DependencyActionState::Failed
     );
     assert_eq!(
         runtime

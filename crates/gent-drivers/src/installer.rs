@@ -2,6 +2,8 @@
 
 use std::{path::PathBuf, process::Command};
 
+use gent_ports::ApprovedPackageInstall;
+
 /// A reviewed installer command. Arguments are never interpreted by a shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstallerInvocation {
@@ -24,7 +26,7 @@ impl NpmGlobalPrefix {
 
     /// Builds a fixed global package installation without a shell or ambient `PATH` lookup.
     #[must_use]
-    pub fn install(&self, package: &str) -> InstallerInvocation {
+    pub fn install(&self, package: &ApprovedPackageInstall) -> InstallerInvocation {
         InstallerInvocation {
             executable: self.npm.to_string_lossy().into_owned(),
             arguments: vec![
@@ -32,7 +34,7 @@ impl NpmGlobalPrefix {
                 "--global".into(),
                 "--prefix".into(),
                 self.prefix.to_string_lossy().into_owned(),
-                package.into(),
+                package.selector(),
             ],
         }
     }
@@ -78,6 +80,8 @@ pub enum InstallerError {
 mod tests {
     use std::path::PathBuf;
 
+    use gent_ports::ApprovedPackageInstall;
+
     use super::{
         DependencyInstaller, InstallerError, InstallerInvocation, SystemDependencyInstaller,
     };
@@ -103,7 +107,12 @@ mod tests {
             PathBuf::from("/app/node/bin/npm"),
             PathBuf::from("/private/gentd/providers/npm-global"),
         )
-        .install("@openai/codex");
+        .install(&ApprovedPackageInstall {
+            provider: "codex".into(),
+            package_name: "@openai/codex".into(),
+            version: "0.147.0".into(),
+            integrity: "sha512-test".into(),
+        });
         assert_eq!(invocation.executable, "/app/node/bin/npm");
         assert_eq!(
             invocation.arguments,
@@ -112,7 +121,7 @@ mod tests {
                 "--global",
                 "--prefix",
                 "/private/gentd/providers/npm-global",
-                "@openai/codex"
+                "@openai/codex@0.147.0"
             ]
         );
     }

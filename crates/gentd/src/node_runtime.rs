@@ -32,6 +32,8 @@ const fn npm_name() -> &'static str {
 mod tests {
     use std::fs;
 
+    use gent_ports::ApprovedPackageInstall;
+
     use super::private_npm_prefix_for;
 
     #[test]
@@ -47,7 +49,13 @@ mod tests {
         let runtime =
             private_npm_prefix_for(Some(node.into_os_string()), &root.path().join("gentd"))
                 .unwrap();
-        assert!(runtime.install("package").executable.ends_with("/npm"));
-        assert!(runtime.install("package").arguments[3].ends_with("providers/npm-global"));
+        let package = ApprovedPackageInstall {
+            provider: "codex".into(),
+            package_name: "package".into(),
+            version: "1.0.0".into(),
+            integrity: "sha512-test".into(),
+        };
+        assert!(runtime.install(&package).executable.ends_with("/npm"));
+        assert!(runtime.install(&package).arguments[3].ends_with("providers/npm-global"));
     }
 }

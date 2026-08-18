@@ -4,7 +4,6 @@ This document records implemented repository work separately from live-runtime
 evidence. A checked box means code and deterministic tests exist here; it does
 not claim provider or app compatibility evidence that has not been recorded.
 For the current working-tree context and continuation order, read [the handoff](continuation-handoff.md).
-
 ## Implemented foundations
 
 - [x] Thirteen-crate Rust workspace with enforced dependency law.
@@ -42,9 +41,10 @@ For the current working-tree context and continuation order, read [the handoff](
       observer mode remains denied.
 - [x] Protocol-only CLI status/events/submit and filesystem-only read-only doctor discovery;
       it does not execute provider binaries, including version probes, in observer mode.
-- [x] `gent deps` requires explicit consent, then invokes only fixed, shell-free vendor installer
-      commands for public Claude/Codex dependencies and waits for their terminal result; it never
-      installs private Claurst components or runs during `gent doctor`.
+- [x] `gent deps` produces explicit, receipt-fenced consent plans but the shipped observer daemon
+      rejects every external install. A dormant approved executor accepts only signer-verified,
+      exact package/version/integrity policy entries; it never installs private Claurst components
+      or runs during `gent doctor`.
 - [x] Capability-gated local event attachment: initial replay, snapshot resync, cursor-ordered
       bounded batches, client acknowledgements, and `gent events --follow` over the existing IPC.
       The daemon polls its durable ledger at a bounded interval; it does not yet claim a producer

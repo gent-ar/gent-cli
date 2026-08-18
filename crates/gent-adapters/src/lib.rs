@@ -3,6 +3,7 @@
 pub mod compatibility;
 pub mod compatibility_cache;
 pub mod manifest;
+pub mod package_policy;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdapterManifest {

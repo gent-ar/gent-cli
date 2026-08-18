@@ -1,6 +1,5 @@
 //! Daemon composition of observer and explicitly approved durable-chat services.
 
-use gent_drivers::installer::SystemDependencyInstaller;
 use gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY;
 use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{
@@ -13,9 +12,8 @@ use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::CapabilitySet;
 
 use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::dependency_actions::SystemDependencyExecutor;
+use crate::dependency_actions::ObserverDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
-use crate::node_runtime;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 
@@ -29,8 +27,7 @@ pub(crate) struct RuntimeFacade {
     attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
     coordinator: Coordinator<SqliteLedger>,
     dependencies: DependencyCatalog,
-    dependency_actions:
-        DependencyActionService<SqliteLedger, SystemDependencyExecutor<SystemDependencyInstaller>>,
+    dependency_actions: DependencyActionService<SqliteLedger, ObserverDependencyExecutor>,
     public_runs: DaemonPublicRuns,
     runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
 }
@@ -101,13 +98,7 @@ pub(crate) fn build_runtime_with_update_checks(
             compatibility,
             data_dir.join("providers").join("npm-global"),
         ),
-        dependency_actions: DependencyActionService::new(
-            ledger,
-            SystemDependencyExecutor::new(
-                SystemDependencyInstaller,
-                node_runtime::private_npm_prefix(data_dir),
-            ),
-        ),
+        dependency_actions: DependencyActionService::new(ledger, ObserverDependencyExecutor),
     })
 }
 

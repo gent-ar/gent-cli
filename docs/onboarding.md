@@ -76,13 +76,12 @@ It does not use a symlink or replace a running binary.
    identity, and remediation as JSON.
 2. Review an explicit dependency action with `gent deps plan install claude`
    or `gent deps plan install codex`.
-3. Set `GENT_NODE_BINARY` to the app-bundled Node executable. An install/update
-   request must include `--consent`, for example `gent deps install claude --consent`.
-   The daemon re-fetches the reviewed plan and active host epoch, then runs only
-   sibling `npm` with a private `.gentd/providers/npm-global` prefix. It records
-   acceptance and the terminal result under one durable
-   receipt. Use `--idempotency-key <key>` to retry the exact action; an
-   ambiguous previously accepted effect is marked `unprovable`, never rerun.
+3. Set `GENT_NODE_BINARY` to the app-bundled Node executable only when composing
+   an approved provider host. `gent deps install <provider> --consent` remains
+   observer-disabled today. The future host must re-fetch the reviewed plan and
+   active epoch, select an exact signed package/version/integrity entry, use only
+   sibling `npm` with a private `.gentd/providers/npm-global` prefix, and mark an
+   ambiguous accepted effect `unprovable`, never rerun.
 4. Keep provider execution disabled until an unexpired signed compatibility
    entry and the required redacted live evidence exist. A discovered executable
    is not approval to launch it.

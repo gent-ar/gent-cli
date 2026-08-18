@@ -19,9 +19,9 @@ than a second copy of application logic. The implemented vertical slice is:
   `gent conversation list`, `gent conversation status`, `gent conversation timeline`, and Unix-only
   `gent conversation content` reads. `gent conversation activity` is a protocol-only future
   authority reader; observer-mode `gentd` deliberately declines its capability.
-- Explicit `gent deps` plans and consented vendor dependency actions, each fenced by the active
-  host epoch and settled through a durable receipt; interrupted external effects are marked
-  `unprovable` instead of being replayed.
+- Explicit `gent deps` plans and receipt-fenced consent requests. The shipped observer rejects
+  every external install; a future approved host must use signed exact package policy and marks an
+  interrupted effect `unprovable` instead of replaying it.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
   content and provider-native session identifiers.
