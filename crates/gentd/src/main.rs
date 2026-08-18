@@ -4,6 +4,8 @@ mod activity_transport;
 #[cfg(test)]
 mod activity_transport_tests;
 mod agent_chat_api;
+#[cfg(test)]
+mod agent_chat_api_tests;
 #[allow(dead_code)]
 mod agent_chat_controller_transport;
 mod agent_chat_read_transport;

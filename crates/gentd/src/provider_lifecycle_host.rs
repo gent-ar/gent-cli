@@ -10,6 +10,17 @@ use crate::private_lifecycle_loop::{
     PrivateLifecycleScheduleError,
 };
 
+impl<O> crate::agent_chat_api::PromptCommitWake for ProviderLifecycleHost<O>
+where
+    O: PrivateLifecycleOwner,
+{
+    type Error = ProviderLifecycleHostError<O::Error>;
+
+    fn wake_after_prompt_commit(&mut self) -> Result<(), Self::Error> {
+        ProviderLifecycleWakePort::wake_after_prompt_commit(self).map(|_| ())
+    }
+}
+
 /// Result of notifying a private host that at least one prompt is durably committed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ProviderLifecycleWake {

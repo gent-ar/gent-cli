@@ -58,6 +58,17 @@ fn unarmed_host_has_no_owner_call_or_control_route() {
 }
 
 #[test]
+fn chat_commit_port_only_arms_the_private_host() {
+    let owner = Owner::default();
+    let calls = owner.0.clone();
+    let mut host = ProviderLifecycleHost::new(owner);
+
+    crate::agent_chat_api::PromptCommitWake::wake_after_prompt_commit(&mut host).unwrap();
+    assert!(host.is_armed());
+    assert!(calls.borrow().is_empty());
+}
+
+#[test]
 fn committed_prompt_arms_one_bounded_wake_and_coalesces_the_next() {
     let owner = Owner::default();
     let calls = owner.0.clone();

@@ -9,6 +9,26 @@ use gent_runtime::{
 };
 use gent_types::{AgentChatPromptDisposition, HostEpoch};
 
+/// Daemon-composition notification issued only after a prompt transaction commits.
+///
+/// Implementations may arm a bounded private lifecycle owner, but must never start a provider
+/// inline or report a provider-native session to this durable chat adapter.
+pub(crate) trait PromptCommitWake {
+    type Error;
+
+    fn wake_after_prompt_commit(&mut self) -> Result<(), Self::Error>;
+}
+
+struct NoopPromptCommitWake;
+
+impl PromptCommitWake for NoopPromptCommitWake {
+    type Error = std::convert::Infallible;
+
+    fn wake_after_prompt_commit(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
 /// Handles the durable subset available before provider lifecycle composition.
 pub(crate) fn exchange<L>(
     conversations: &AgentChatConversationService<L>,
@@ -21,6 +41,35 @@ where
     L: gent_ports::AgentChatLedger
         + gent_ports::AgentChatPromptLedger
         + gent_ports::AgentChatSelectionLedger,
+{
+    exchange_with_wake(
+        conversations,
+        prompts,
+        switches,
+        host_epoch,
+        frame,
+        &mut NoopPromptCommitWake,
+    )
+}
+
+/// Handles one finite exchange and notifies a private lifecycle owner after prompt durability.
+///
+/// This is intentionally a composition seam rather than a transport capability. A wake failure
+/// reports that the saved prompt needs a receipt-safe retry; it never rolls back or fabricates a
+/// provider result.
+pub(crate) fn exchange_with_wake<L, W>(
+    conversations: &AgentChatConversationService<L>,
+    prompts: &AgentChatPromptService<L>,
+    switches: &AgentChatSelectionSwitchService<L>,
+    host_epoch: HostEpoch,
+    frame: AgentChatIntentFrame,
+    wake: &mut W,
+) -> Result<Vec<AgentChatIntentFrame>, String>
+where
+    L: gent_ports::AgentChatLedger
+        + gent_ports::AgentChatPromptLedger
+        + gent_ports::AgentChatSelectionLedger,
+    W: PromptCommitWake,
 {
     match frame {
         AgentChatIntentFrame::CreateConversation {
@@ -36,11 +85,14 @@ where
         } => prompt(
             prompts,
             host_epoch,
-            request_id,
-            receipt_id,
-            conversation_id,
-            text,
-            AgentChatPromptDisposition::Send,
+            PromptInput {
+                request_id,
+                receipt_id,
+                conversation_id,
+                text,
+                disposition: AgentChatPromptDisposition::Send,
+            },
+            wake,
         ),
         AgentChatIntentFrame::QueuePrompt {
             request_id,
@@ -50,11 +102,14 @@ where
         } => prompt(
             prompts,
             host_epoch,
-            request_id,
-            receipt_id,
-            conversation_id,
-            text,
-            AgentChatPromptDisposition::Queue,
+            PromptInput {
+                request_id,
+                receipt_id,
+                conversation_id,
+                text,
+                disposition: AgentChatPromptDisposition::Queue,
+            },
+            wake,
         ),
         AgentChatIntentFrame::SwitchSelection {
             request_id,
@@ -92,6 +147,14 @@ struct SwitchInput {
     parent_run_id: gent_types::AgentChatRunId,
     selection: gent_types::AgentChatSelection,
     context_policy: gent_types::ContextPolicy,
+}
+
+struct PromptInput {
+    request_id: gent_types::AgentChatRequestId,
+    receipt_id: gent_types::ReceiptId,
+    conversation_id: gent_types::AgentChatConversationId,
+    text: String,
+    disposition: AgentChatPromptDisposition,
 }
 
 fn switch<L>(
@@ -162,34 +225,38 @@ where
     }
 }
 
-fn prompt<L>(
+fn prompt<L, W>(
     service: &AgentChatPromptService<L>,
     host_epoch: HostEpoch,
-    request_id: gent_types::AgentChatRequestId,
-    receipt_id: gent_types::ReceiptId,
-    conversation_id: gent_types::AgentChatConversationId,
-    text: String,
-    disposition: AgentChatPromptDisposition,
+    input: PromptInput,
+    wake: &mut W,
 ) -> Result<Vec<AgentChatIntentFrame>, String>
 where
     L: gent_ports::AgentChatPromptLedger,
+    W: PromptCommitWake,
 {
     match service
         .submit(&AgentChatPromptRequest {
-            request_id: request_id.clone(),
-            receipt_id,
+            request_id: input.request_id.clone(),
+            receipt_id: input.receipt_id,
             host_epoch,
-            conversation_id,
-            disposition,
-            text,
+            conversation_id: input.conversation_id,
+            disposition: input.disposition,
+            text: input.text,
         })
         .map_err(|error| error.to_string())?
     {
-        AgentChatPromptResult::Saved(saved) => Ok(vec![AgentChatIntentFrame::Accepted {
-            request_id,
-            receipt: saved.receipt.clone(),
-            delivery: saved.delivery,
-        }]),
+        AgentChatPromptResult::Saved(saved) => {
+            wake.wake_after_prompt_commit().map_err(|_| {
+                "durable prompt was saved but its lifecycle wake was unavailable; retry the same receipt"
+                    .to_owned()
+            })?;
+            Ok(vec![AgentChatIntentFrame::Accepted {
+                request_id: input.request_id,
+                receipt: saved.receipt.clone(),
+                delivery: saved.delivery,
+            }])
+        }
         AgentChatPromptResult::DeniedObserver => Err("agent-chat authority is disabled".into()),
     }
 }
