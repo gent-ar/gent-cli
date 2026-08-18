@@ -52,6 +52,7 @@ mod goal_transport_tests;
 mod host_lock;
 #[allow(dead_code)]
 mod node_runtime_lock;
+mod orchestration_api;
 mod orchestration_transport;
 #[cfg(test)]
 mod orchestration_transport_tests;
