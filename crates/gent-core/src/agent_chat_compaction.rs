@@ -15,7 +15,11 @@ pub struct AgentChatCompactionState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentChatCompactionEffect {
     None,
-    RecoverFromFrozenLedger { turn_id: String },
+    RecoverFromFrozenLedger {
+        event_id: String,
+        source_cursor: u64,
+        turn_id: String,
+    },
     Rejected(AgentChatCompactionRejection),
 }
 
@@ -23,6 +27,7 @@ pub enum AgentChatCompactionEffect {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AgentChatCompactionRejection {
     EmptyTurnId,
+    InvalidEventId,
     StaleCursor,
     CompactionAlreadyActive,
     NoMatchingCompaction,
@@ -50,24 +55,41 @@ pub fn reduce_agent_chat_compaction(
     }
     state.last_cursor = Some(cursor);
     let turn_id = turn_id(fact);
+    let event_id = event_id(fact);
     if turn_id.trim().is_empty() {
         return (
             state,
             AgentChatCompactionEffect::Rejected(AgentChatCompactionRejection::EmptyTurnId),
         );
     }
+    if event_id.trim().is_empty() || event_id.len() > 256 {
+        return (
+            state,
+            AgentChatCompactionEffect::Rejected(AgentChatCompactionRejection::InvalidEventId),
+        );
+    }
     match fact {
         AgentChatCompactionFact::Started { .. } => start(state, turn_id),
         AgentChatCompactionFact::Completed { .. } => complete(state, turn_id),
-        AgentChatCompactionFact::Failed { failure, .. } => fail(state, turn_id, *failure),
+        AgentChatCompactionFact::Failed { failure, .. } => {
+            fail(state, event_id, cursor, turn_id, *failure)
+        }
     }
 }
 
 fn turn_id(fact: &AgentChatCompactionFact) -> &str {
     match fact {
-        AgentChatCompactionFact::Started { turn_id }
-        | AgentChatCompactionFact::Completed { turn_id }
+        AgentChatCompactionFact::Started { turn_id, .. }
+        | AgentChatCompactionFact::Completed { turn_id, .. }
         | AgentChatCompactionFact::Failed { turn_id, .. } => turn_id,
+    }
+}
+
+fn event_id(fact: &AgentChatCompactionFact) -> &str {
+    match fact {
+        AgentChatCompactionFact::Started { event_id, .. }
+        | AgentChatCompactionFact::Completed { event_id, .. }
+        | AgentChatCompactionFact::Failed { event_id, .. } => event_id,
     }
 }
 
@@ -107,6 +129,8 @@ fn complete(
 
 fn fail(
     mut state: AgentChatCompactionState,
+    event_id: &str,
+    source_cursor: u64,
     turn_id: &str,
     failure: gent_types::AgentChatCompactionFailure,
 ) -> (AgentChatCompactionState, AgentChatCompactionEffect) {
@@ -135,7 +159,9 @@ fn fail(
     (
         state,
         AgentChatCompactionEffect::RecoverFromFrozenLedger {
+            event_id: event_id.into(),
             turn_id: turn_id.into(),
+            source_cursor,
         },
     )
 }

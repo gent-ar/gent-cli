@@ -148,13 +148,47 @@ async fn exchange(
     }
     write_json_frame(&mut stream, &request).await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(frame) = serde_json::from_value(raw.clone()) {
-        return Ok(frame);
-    }
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
+    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
         return Err(message.into());
     }
-    Err("daemon did not return a permission policy frame".into())
+    let response = serde_json::from_value(raw)
+        .map_err(|_| "daemon did not return a permission policy frame")?;
+    valid_reply(&request, &response)
+        .then_some(response)
+        .ok_or_else(|| {
+            "daemon returned a permission policy response with a different request".into()
+        })
+}
+
+fn valid_reply(request: &PermissionPolicyFrame, response: &PermissionPolicyFrame) -> bool {
+    match (request, response) {
+        (
+            PermissionPolicyFrame::Current {
+                request_id,
+                workspace_id,
+            },
+            PermissionPolicyFrame::CurrentPolicy {
+                request_id: reply,
+                policy,
+            },
+        ) => {
+            reply == request_id
+                && policy.as_ref().is_none_or(|policy| {
+                    policy.workspace_id == *workspace_id
+                        && policy.scope == PolicyScope::ProviderPermissions
+                })
+        }
+        (
+            PermissionPolicyFrame::Save {
+                request_id, policy, ..
+            },
+            PermissionPolicyFrame::Saved {
+                request_id: reply,
+                policy: saved,
+            },
+        ) => reply == request_id && saved == policy,
+        _ => false,
+    }
 }
 
 impl From<PermissionModeArgument> for PermissionMode {
@@ -182,49 +216,5 @@ impl From<PermissionCategoryArgument> for PermissionCategory {
 }
 
 #[cfg(test)]
-mod tests {
-    use clap::Parser;
-    use gent_types::PermissionMode;
-
-    use super::{PermissionCommand, PermissionModeArgument};
-    use crate::{Args, CommandLine};
-
-    #[test]
-    fn bypass_is_a_mode_with_a_one_time_configuration_confirmation() {
-        let args =
-            Args::try_parse_from(["gent", "permissions", "set", "--mode", "bypass"]).unwrap();
-        assert!(matches!(
-            args.command,
-            Some(CommandLine::Permissions { .. })
-        ));
-        let args = Args::try_parse_from([
-            "gent",
-            "permissions",
-            "set",
-            "--mode",
-            "bypass",
-            "--consent-bypass",
-        ])
-        .unwrap();
-        assert!(matches!(
-            args.command,
-            Some(CommandLine::Permissions { .. })
-        ));
-    }
-
-    #[test]
-    fn autonomous_is_a_durable_permission_command_not_a_chat_mode_alias() {
-        let args =
-            Args::try_parse_from(["gent", "permissions", "set", "--mode", "autonomous"]).unwrap();
-        assert!(matches!(
-            args.command,
-            Some(CommandLine::Permissions {
-                action: PermissionCommand::Set(_)
-            })
-        ));
-        assert_eq!(
-            PermissionMode::from(PermissionModeArgument::Autonomous),
-            PermissionMode::Autonomous
-        );
-    }
-}
+#[path = "permissions_cli_tests.rs"]
+mod tests;

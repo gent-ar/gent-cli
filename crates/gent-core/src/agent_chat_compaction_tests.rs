@@ -7,6 +7,7 @@ use super::{
 
 fn started() -> AgentChatCompactionFact {
     AgentChatCompactionFact::Started {
+        event_id: "event-1".into(),
         turn_id: "turn-1".into(),
     }
 }
@@ -17,6 +18,7 @@ fn too_few_groups_recovers_from_frozen_ledger_once() {
         reduce_agent_chat_compaction(AgentChatCompactionState::default(), 1, &started());
     assert_eq!(effect, AgentChatCompactionEffect::None);
     let failed = AgentChatCompactionFact::Failed {
+        event_id: "event-2".into(),
         turn_id: "turn-1".into(),
         failure: AgentChatCompactionFailure::TooFewGroups,
     };
@@ -24,6 +26,8 @@ fn too_few_groups_recovers_from_frozen_ledger_once() {
     assert_eq!(
         effect,
         AgentChatCompactionEffect::RecoverFromFrozenLedger {
+            event_id: "event-2".into(),
+            source_cursor: 2,
             turn_id: "turn-1".into()
         }
     );
@@ -43,6 +47,7 @@ fn unrelated_provider_failure_never_creates_a_recovery_child() {
         state,
         2,
         &AgentChatCompactionFact::Failed {
+            event_id: "event-2".into(),
             turn_id: "turn-1".into(),
             failure: AgentChatCompactionFailure::ProviderFailed,
         },
@@ -57,6 +62,7 @@ fn unrelated_provider_failure_never_creates_a_recovery_child() {
         state,
         3,
         &AgentChatCompactionFact::Started {
+            event_id: "event-3".into(),
             turn_id: "turn-2".into(),
         },
     );
@@ -65,6 +71,7 @@ fn unrelated_provider_failure_never_creates_a_recovery_child() {
         state,
         4,
         &AgentChatCompactionFact::Failed {
+            event_id: "event-4".into(),
             turn_id: "turn-2".into(),
             failure: AgentChatCompactionFailure::TooFewGroups,
         },
@@ -72,6 +79,8 @@ fn unrelated_provider_failure_never_creates_a_recovery_child() {
     assert_eq!(
         recovery,
         AgentChatCompactionEffect::RecoverFromFrozenLedger {
+            event_id: "event-4".into(),
+            source_cursor: 4,
             turn_id: "turn-2".into()
         }
     );
@@ -85,6 +94,7 @@ fn stale_or_wrong_turn_facts_cannot_trigger_a_recovery() {
         state.clone(),
         3,
         &AgentChatCompactionFact::Failed {
+            event_id: "event-3".into(),
             turn_id: "turn-1".into(),
             failure: AgentChatCompactionFailure::TooFewGroups,
         },
@@ -97,6 +107,7 @@ fn stale_or_wrong_turn_facts_cannot_trigger_a_recovery() {
         state,
         4,
         &AgentChatCompactionFact::Failed {
+            event_id: "event-4".into(),
             turn_id: "turn-2".into(),
             failure: AgentChatCompactionFailure::TooFewGroups,
         },
@@ -113,6 +124,7 @@ fn malformed_fact_consumes_its_cursor_without_recovering() {
         AgentChatCompactionState::default(),
         5,
         &AgentChatCompactionFact::Started {
+            event_id: "event-5".into(),
             turn_id: " ".into(),
         },
     );
@@ -128,6 +140,25 @@ fn malformed_fact_consumes_its_cursor_without_recovering() {
 }
 
 #[test]
+fn missing_event_identity_cannot_trigger_a_recovery() {
+    let (state, _) =
+        reduce_agent_chat_compaction(AgentChatCompactionState::default(), 1, &started());
+    let (_, effect) = reduce_agent_chat_compaction(
+        state,
+        2,
+        &AgentChatCompactionFact::Failed {
+            event_id: " ".into(),
+            turn_id: "turn-1".into(),
+            failure: AgentChatCompactionFailure::TooFewGroups,
+        },
+    );
+    assert_eq!(
+        effect,
+        AgentChatCompactionEffect::Rejected(AgentChatCompactionRejection::InvalidEventId)
+    );
+}
+
+#[test]
 fn completion_only_clears_the_matching_active_compaction() {
     let (state, _) =
         reduce_agent_chat_compaction(AgentChatCompactionState::default(), 1, &started());
@@ -135,6 +166,7 @@ fn completion_only_clears_the_matching_active_compaction() {
         state,
         2,
         &AgentChatCompactionFact::Completed {
+            event_id: "event-2".into(),
             turn_id: "turn-1".into(),
         },
     );
@@ -144,6 +176,7 @@ fn completion_only_clears_the_matching_active_compaction() {
         state,
         3,
         &AgentChatCompactionFact::Completed {
+            event_id: "event-3".into(),
             turn_id: "turn-2".into(),
         },
     );
@@ -163,6 +196,7 @@ fn duplicate_start_is_inert_but_another_turn_is_rejected() {
         state,
         3,
         &AgentChatCompactionFact::Started {
+            event_id: "event-3".into(),
             turn_id: "turn-2".into(),
         },
     );
@@ -180,6 +214,7 @@ fn a_later_turn_can_recover_after_the_previous_turn_did() {
         state,
         2,
         &AgentChatCompactionFact::Failed {
+            event_id: "event-2".into(),
             turn_id: "turn-1".into(),
             failure: AgentChatCompactionFailure::TooFewGroups,
         },
@@ -188,6 +223,7 @@ fn a_later_turn_can_recover_after_the_previous_turn_did() {
         state,
         3,
         &AgentChatCompactionFact::Started {
+            event_id: "event-3".into(),
             turn_id: "turn-2".into(),
         },
     );
@@ -195,6 +231,7 @@ fn a_later_turn_can_recover_after_the_previous_turn_did() {
         state,
         4,
         &AgentChatCompactionFact::Failed {
+            event_id: "event-4".into(),
             turn_id: "turn-2".into(),
             failure: AgentChatCompactionFailure::TooFewGroups,
         },
@@ -202,6 +239,8 @@ fn a_later_turn_can_recover_after_the_previous_turn_did() {
     assert_eq!(
         effect,
         AgentChatCompactionEffect::RecoverFromFrozenLedger {
+            event_id: "event-4".into(),
+            source_cursor: 4,
             turn_id: "turn-2".into()
         }
     );

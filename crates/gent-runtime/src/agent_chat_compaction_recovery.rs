@@ -30,6 +30,8 @@ pub enum AgentChatCompactionRecoveryAuthority {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AgentChatCompactionRecoveryRequest {
     pub source_event_id: String,
+    /// Cursor assigned to the normalized failed-compaction fact before recovery is considered.
+    pub source_cursor: u64,
     pub host_epoch: HostEpoch,
     pub conversation_id: AgentChatConversationId,
     pub parent_run_id: AgentChatRunId,
@@ -86,10 +88,15 @@ impl<L: AgentChatSelectionLedger> AgentChatCompactionRecoveryService<L> {
         if self.authority != AgentChatCompactionRecoveryAuthority::Approved {
             return Ok(AgentChatCompactionRecoveryResult::DeniedObserver);
         }
-        let AgentChatCompactionEffect::RecoverFromFrozenLedger { turn_id } = effect else {
+        let AgentChatCompactionEffect::RecoverFromFrozenLedger {
+            event_id,
+            turn_id,
+            source_cursor,
+        } = effect
+        else {
             return Ok(AgentChatCompactionRecoveryResult::Ignored);
         };
-        validate(request, turn_id)?;
+        validate(request, event_id, turn_id, *source_cursor)?;
         let switched = self.switches.switch(&switch_request(request, turn_id))?;
         match switched {
             AgentChatSelectionSwitchResult::Switched(result) => {
@@ -104,14 +111,19 @@ impl<L: AgentChatSelectionLedger> AgentChatCompactionRecoveryService<L> {
 
 fn validate(
     request: &AgentChatCompactionRecoveryRequest,
+    event_id: &str,
     turn_id: &str,
+    source_cursor: u64,
 ) -> Result<(), RuntimeError> {
     if request.source_event_id.trim().is_empty()
         || request.source_event_id.len() > 256
         || turn_id.trim().is_empty()
+        || request.source_cursor == 0
+        || request.source_cursor != source_cursor
+        || request.source_event_id != event_id
     {
         return Err(invariant(
-            "compaction recovery source and turn identities must be bounded and nonempty",
+            "compaction recovery source identity and cursor must match the failed turn",
         ));
     }
     Ok(())
@@ -122,8 +134,12 @@ fn switch_request(
     turn_id: &str,
 ) -> AgentChatSelectionSwitchRequest {
     let seed = format!(
-        "{}\0{}\0{}\0{}",
-        request.conversation_id.0, request.parent_run_id.0, turn_id, request.source_event_id
+        "{}\0{}\0{}\0{}\0{}",
+        request.conversation_id.0,
+        request.parent_run_id.0,
+        turn_id,
+        request.source_cursor,
+        request.source_event_id
     );
     AgentChatSelectionSwitchRequest {
         request_id: AgentChatRequestId(identity("request", &seed)),

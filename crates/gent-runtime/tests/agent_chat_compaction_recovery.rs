@@ -60,6 +60,7 @@ fn recovery_effect() -> AgentChatCompactionEffect {
         AgentChatCompactionState::default(),
         1,
         &AgentChatCompactionFact::Started {
+            event_id: "provider-event-1".into(),
             turn_id: "turn-1".into(),
         },
     );
@@ -67,6 +68,7 @@ fn recovery_effect() -> AgentChatCompactionEffect {
         state,
         2,
         &AgentChatCompactionFact::Failed {
+            event_id: "provider-event-2".into(),
             turn_id: "turn-1".into(),
             failure: AgentChatCompactionFailure::TooFewGroups,
         },
@@ -85,6 +87,7 @@ fn failed_compaction_creates_one_fresh_session_child_with_frozen_history() {
     );
     let request = AgentChatCompactionRecoveryRequest {
         source_event_id: "provider-event-2".into(),
+        source_cursor: 2,
         host_epoch: HostEpoch(1),
         conversation_id: conversation_id.clone(),
         parent_run_id: parent_run_id.clone(),
@@ -127,6 +130,7 @@ fn observer_and_non_recovery_effects_cannot_write() {
     let (conversation_id, parent_run_id) = conversation(ledger.clone());
     let request = AgentChatCompactionRecoveryRequest {
         source_event_id: "provider-event-2".into(),
+        source_cursor: 2,
         host_epoch: HostEpoch(1),
         conversation_id: conversation_id.clone(),
         parent_run_id,
@@ -153,6 +157,33 @@ fn observer_and_non_recovery_effects_cannot_write() {
     assert_eq!(
         ledger
             .list_conversation_runs(&conversation_id.0)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn recovery_refuses_an_uncorrelated_or_stale_source_before_reservation() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let (conversation_id, parent_run_id) = conversation(ledger.clone());
+    let service = AgentChatCompactionRecoveryService::new(
+        ledger.clone(),
+        AgentChatCompactionRecoveryAuthority::Approved,
+    );
+    let durable_conversation_id = conversation_id.clone();
+    let request = AgentChatCompactionRecoveryRequest {
+        source_event_id: "another-event".into(),
+        source_cursor: 2,
+        host_epoch: HostEpoch(1),
+        conversation_id,
+        parent_run_id,
+        selection: selection(),
+    };
+    assert!(service.apply(&request, &recovery_effect()).is_err());
+    assert_eq!(
+        ledger
+            .list_conversation_runs(&durable_conversation_id.0)
             .unwrap()
             .len(),
         1

@@ -28,12 +28,15 @@ pub enum AgentChatCompactionFailure {
 )]
 pub enum AgentChatCompactionFact {
     Started {
+        event_id: String,
         turn_id: String,
     },
     Completed {
+        event_id: String,
         turn_id: String,
     },
     Failed {
+        event_id: String,
         turn_id: String,
         failure: AgentChatCompactionFailure,
     },
@@ -46,16 +49,17 @@ mod tests {
     #[test]
     fn facts_never_accept_raw_provider_detail() {
         let value = serde_json::json!({
-            "type": "failed", "turnId": "turn-1", "failure": "tooFewGroups",
+            "type": "failed", "eventId": "event-2", "turnId": "turn-1", "failure": "tooFewGroups",
             "providerError": "must not cross the contract"
         });
         assert!(serde_json::from_value::<AgentChatCompactionFact>(value).is_err());
         assert_eq!(
             serde_json::from_value::<AgentChatCompactionFact>(serde_json::json!({
-                "type": "failed", "turnId": "turn-1", "failure": "tooFewGroups"
+                "type": "failed", "eventId": "event-2", "turnId": "turn-1", "failure": "tooFewGroups"
             }))
             .unwrap(),
             AgentChatCompactionFact::Failed {
+                event_id: "event-2".into(),
                 turn_id: "turn-1".into(),
                 failure: AgentChatCompactionFailure::TooFewGroups,
             }

@@ -190,6 +190,12 @@ fn input_frame(start: &ClaudeRunStart) -> Result<Vec<u8>, ClaudeRunnerError> {
         None => project_prompt(&start.prompt, start.goal.as_ref(), MAX_CLAUDE_FRAME_BYTES)
             .map_err(|_| ClaudeRunnerError::InvalidPrompt)?,
     };
+    let prompt = if start.fresh_context.is_some() {
+        project_prompt(&prompt, start.goal.as_ref(), MAX_CLAUDE_FRAME_BYTES)
+            .map_err(|_| ClaudeRunnerError::InvalidPrompt)?
+    } else {
+        prompt
+    };
     let mut value = serde_json::json!({
         "type": "user",
         "message": { "role": "user", "content": [{ "type": "text", "text": prompt }] },

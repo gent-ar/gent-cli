@@ -1,4 +1,7 @@
-use gent_types::{AgentChatConversationId, FrozenConversationContext, RunVersionLock};
+use gent_types::{
+    AgentChatConversationId, AgentChatRunId, FrozenConversationContext, GOAL_SCHEMA_VERSION,
+    GoalBinding, GoalProjection, GoalRecord, GoalStatus, RunVersionLock,
+};
 
 use super::{ClaudeRunStart, ClaudeRunnerError, input_frame};
 
@@ -33,6 +36,35 @@ fn cleared_fresh_claude_context_uses_no_native_session_field() {
             .unwrap()
             .contains("prompt")
     );
+}
+
+#[test]
+fn fresh_context_keeps_the_gent_owned_active_goal() {
+    let start = ClaudeRunStart {
+        fresh_context: Some(FrozenConversationContext::cleared(AgentChatConversationId(
+            "conversation".into(),
+        ))),
+        goal: Some(
+            GoalProjection::from_active(&GoalRecord {
+                schema_version: GOAL_SCHEMA_VERSION,
+                binding: GoalBinding {
+                    goal_id: "goal".into(),
+                    conversation_id: AgentChatConversationId("conversation".into()),
+                    run_id: AgentChatRunId("run".into()),
+                },
+                revision: 1,
+                status: GoalStatus::Active,
+                summary: "finish the task".into(),
+            })
+            .unwrap(),
+        ),
+        ..start()
+    };
+    let value: serde_json::Value = serde_json::from_slice(&input_frame(&start).unwrap()).unwrap();
+    let text = value["message"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("\"goalId\":\"goal\""));
+    assert!(text.ends_with("User prompt:\nprompt"));
+    assert!(value.get("session_id").is_none());
 }
 
 fn start() -> ClaudeRunStart {
