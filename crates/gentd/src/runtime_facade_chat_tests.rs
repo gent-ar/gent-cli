@@ -3,7 +3,7 @@
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame,
-    ORCHESTRATION_CAPABILITY,
+    ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
 };
 use gent_runtime::catalog::{
     declared_capabilities_with_agent_chat, validate_observed_capabilities,
@@ -34,6 +34,7 @@ fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
             .contains(&AGENT_CHAT_TRANSCRIPT_CAPABILITY.into())
     );
     assert!(capabilities.0.contains(&ORCHESTRATION_CAPABILITY.into()));
+    assert!(capabilities.0.contains(&REVIEWED_PLAN_CAPABILITY.into()));
     let runtime = build_runtime(
         directory.path(),
         &capabilities,

@@ -5,7 +5,8 @@ use gent_protocol::{
     AGENT_CHAT_TRANSCRIPT_CAPABILITY, ATTACHMENTS_CAPABILITY, AgentChatIntentFrame,
     AttachmentFrame, CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, EventStreamFrame, GOAL_CAPABILITY,
-    ORCHESTRATION_CAPABILITY, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
+    ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY, WireFrame, negotiate, read_frame,
+    read_json_frame, write_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
 use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
@@ -58,6 +59,7 @@ pub(crate) fn observed_capabilities(
             .0
             .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
         capabilities.0.push(GOAL_CAPABILITY.to_owned());
+        capabilities.0.push(REVIEWED_PLAN_CAPABILITY.to_owned());
         capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
     }
     if runtime_update_check_enabled {

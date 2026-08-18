@@ -4,6 +4,7 @@ use gent_protocol::{
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
     DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
     DependencyPlan, DependencyPlanRequest, GoalFrame, OrchestrationFrame, PermissionPolicyFrame,
+    ReviewedPlanFrame,
 };
 use gent_types::{
     Command, ConversationContentCursor, ConversationContentPage, ConversationStatus,
@@ -119,6 +120,10 @@ impl api::RuntimeApi for RuntimeFacade {
 
     fn orchestration(&self, frame: OrchestrationFrame) -> Result<OrchestrationFrame, String> {
         crate::orchestration_api::exchange(&self.orchestration, frame)
+    }
+
+    fn reviewed_plan(&self, frame: ReviewedPlanFrame) -> Result<ReviewedPlanFrame, String> {
+        crate::reviewed_plan_api::exchange(&self.reviewed_plans, frame)
     }
 
     fn doctor(&self) -> DoctorReport {
