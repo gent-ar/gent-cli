@@ -29,10 +29,19 @@ pub struct CodexPromptStart {
 }
 
 /// Bridges durable run reservation to the bounded Codex app-server runner.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CodexPromptRunner<L, P> {
     runner: Arc<Mutex<CodexAppServerRunner<L, P>>>,
     pending: Arc<Mutex<BTreeMap<String, CodexPromptStart>>>,
+}
+
+impl<L, P> Clone for CodexPromptRunner<L, P> {
+    fn clone(&self) -> Self {
+        Self {
+            runner: Arc::clone(&self.runner),
+            pending: Arc::clone(&self.pending),
+        }
+    }
 }
 
 impl<L, P> CodexPromptRunner<L, P>
