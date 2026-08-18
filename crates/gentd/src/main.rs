@@ -43,7 +43,7 @@ mod event_stream;
 mod git_status_runtime;
 mod host_lock;
 #[allow(dead_code)]
-mod node_runtime;
+mod node_runtime_lock;
 mod permission_policy_api;
 mod permission_policy_transport;
 mod permission_workspace;

@@ -14,6 +14,7 @@ pub mod launch_spec;
 pub mod lock;
 pub mod message_encoding;
 pub mod ndjson;
+pub mod node_runtime_lock;
 pub mod normalize;
 pub mod output_pump;
 pub mod process;
