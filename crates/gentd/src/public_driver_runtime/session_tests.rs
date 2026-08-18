@@ -3,7 +3,7 @@ use gent_types::{
     HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase,
 };
 
-use super::{NormalizedSessionFact, activity, output, terminal, validate};
+use super::{NormalizedSessionFact, activity, batch, output, terminal, validate};
 
 fn input(fact: PublicWireFact) -> NormalizedSessionFact {
     NormalizedSessionFact {
@@ -42,6 +42,25 @@ fn terminal_lifecycle_produces_terminal_activity_and_never_settles_implicitly() 
         Some(gent_types::ConversationActivityFact::Terminal { scope, phase: TurnPhase::Ready })
             if scope.cursor == 0 && scope.host_epoch == HostEpoch(7)
     ));
+}
+
+#[test]
+fn daemon_constructs_an_atomic_batch_without_native_provider_fields() {
+    let input = input(PublicWireFact::Event(NormalizedProviderEvent::Output {
+        text: "normalized".into(),
+        is_partial: true,
+    }));
+    let batch = batch("daemon-1", &input).unwrap();
+    assert_eq!(batch.coordinator_id, "daemon-1");
+    assert_eq!(
+        batch.transcript.as_ref().map(|item| item.text.as_str()),
+        Some("normalized")
+    );
+    assert!(batch.activity.is_none());
+    assert_eq!(
+        serde_json::to_value(batch).unwrap()["lifecycle"]["type"],
+        "event"
+    );
 }
 
 #[test]

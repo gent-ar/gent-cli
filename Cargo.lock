@@ -606,6 +606,7 @@ dependencies = [
 name = "gent-store"
 version = "0.1.14"
 dependencies = [
+ "gent-core",
  "gent-ports",
  "gent-types",
  "rusqlite",

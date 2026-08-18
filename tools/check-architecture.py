@@ -13,7 +13,7 @@ ALLOWED = {
     "gent-core": {"gent-types", "gent-ports"},
     "gent-protocol": {"gent-types"},
     "gent-adapters": {"gent-types", "gent-ports"},
-    "gent-store": {"gent-types", "gent-ports"},
+    "gent-store": {"gent-types", "gent-ports", "gent-core"},
     "gent-drivers": {"gent-types", "gent-ports"},
     "gent-git": {"gent-types", "gent-ports"},
     "gent-mcp": {"gent-types", "gent-ports"},

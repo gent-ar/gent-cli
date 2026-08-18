@@ -7,8 +7,8 @@
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
-    ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
-    TranscriptLedger,
+    ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PublicProviderResolver,
+    RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 
@@ -74,6 +74,7 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
+        + NormalizedSessionBatchLedger
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader

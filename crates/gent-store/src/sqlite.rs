@@ -34,6 +34,10 @@ mod goal_ledger_tests;
 mod leases;
 mod mcp_connector_ledger;
 mod mcp_connectors;
+mod normalized_session_ledger;
+#[cfg(test)]
+mod normalized_session_ledger_tests;
+mod normalized_session_projection;
 mod orchestration_ledger;
 mod policies;
 mod policy_ledger;

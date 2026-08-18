@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
-    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    PublicProviderRunError, RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
+    NormalizedSessionBatchLedger, PublicProviderResolver, PublicProviderRunError,
+    RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
 use gent_types::{AgentChatPromptSaved, HostEpoch};
@@ -58,6 +59,7 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
+        + NormalizedSessionBatchLedger
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader

@@ -6,8 +6,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::private_session_atomic_port::{PrivateSessionAtomicBatch, PrivateSessionAtomicPort};
 use gent_runtime::ProviderLifecycleEffect;
-use gent_types::HostEpoch;
 
 const MAX_PENDING: usize = 16;
 const MAX_RETAINED_DELTAS: usize = 32;
@@ -20,43 +20,13 @@ pub(crate) struct PrivateSessionIngress {
 }
 
 impl PrivateSessionIngress {
-    fn source_id(&self) -> &str {
+    pub(crate) fn source_id(&self) -> &str {
         &self.source_id
     }
 
-    const fn is_terminal(&self) -> bool {
+    pub(crate) const fn is_terminal(&self) -> bool {
         matches!(self.effect, ProviderLifecycleEffect::Terminal { .. })
     }
-}
-
-/// A durable projection supplied only after an ingress fact has been committed.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PrivateSessionPersisted<D> {
-    pub(crate) cursor: u64,
-    pub(crate) delta: D,
-    pub(crate) terminal: bool,
-}
-
-/// An authoritative reconnect projection supplied by a daemon-owned durable port.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PrivateSessionSnapshot<S> {
-    pub(crate) host_epoch: HostEpoch,
-    pub(crate) cursor: u64,
-    pub(crate) terminal: bool,
-    pub(crate) value: S,
-}
-
-/// Durable port for one scoped session. `persist` must settle a terminal input atomically.
-pub(crate) trait PrivateSessionPort {
-    type Delta: Clone + Eq;
-    type Snapshot: Clone + Eq;
-    type Error;
-
-    fn persist(
-        &mut self,
-        ingress: &PrivateSessionIngress,
-    ) -> Result<PrivateSessionPersisted<Self::Delta>, Self::Error>;
-    fn snapshot(&self) -> Result<PrivateSessionSnapshot<Self::Snapshot>, Self::Error>;
 }
 
 /// A delta emitted only after the durable port has accepted its corresponding normalized fact.
@@ -66,21 +36,25 @@ pub(crate) struct PrivateSessionDelta<D> {
     pub(crate) value: D,
 }
 
-/// Result of a reconnect request. A client replaces local state on [`Self::Resync`].
+/// Result of a reconnect request. Durable replay is requested when the local buffer is insufficient.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum PrivateSessionResume<S, D> {
+pub(crate) enum PrivateSessionResume<D> {
     Delta {
         deltas: Vec<PrivateSessionDelta<D>>,
         terminal: bool,
     },
-    Resync(PrivateSessionSnapshot<S>),
+    ReplayRequired {
+        after_cursor: u64,
+        through_cursor: u64,
+        terminal: bool,
+    },
 }
 
 /// A single bounded session-driver tick.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateSessionDrive {
     Idle,
-    Persisted { cursor: u64, terminal: bool },
+    Persisted { cursors: Vec<u64>, terminal: bool },
 }
 
 /// Successful enqueue outcome; a duplicate is never persisted or rebroadcast.
@@ -105,24 +79,19 @@ pub(crate) enum PrivateSessionEnqueueError {
 #[derive(Debug)]
 pub(crate) enum PrivateSessionError<E> {
     Port(E),
-    HostEpochChanged,
     CursorDidNotAdvance,
+    BatchShape,
+    SourceIdMismatch,
     TerminalMismatch,
 }
 
-type PrivateSessionResumeResult<P> = Result<
-    PrivateSessionResume<<P as PrivateSessionPort>::Snapshot, <P as PrivateSessionPort>::Delta>,
-    PrivateSessionError<<P as PrivateSessionPort>::Error>,
->;
-
-/// Bounded, private session supervisor with a durable snapshot/resume fence.
+/// Bounded, private session supervisor with cursor-only durable replay fencing.
 #[derive(Debug)]
 pub(crate) struct PrivateSessionDriver<P>
 where
-    P: PrivateSessionPort,
+    P: PrivateSessionAtomicPort,
 {
     port: P,
-    host_epoch: HostEpoch,
     cursor: u64,
     resume_floor: u64,
     terminal: bool,
@@ -133,27 +102,19 @@ where
 
 impl<P> PrivateSessionDriver<P>
 where
-    P: PrivateSessionPort,
+    P: PrivateSessionAtomicPort,
 {
-    /// Opens exactly one session against a snapshot from its expected daemon host epoch.
-    pub(crate) fn open(
-        port: P,
-        host_epoch: HostEpoch,
-    ) -> Result<Self, PrivateSessionError<P::Error>> {
-        let snapshot = port.snapshot().map_err(PrivateSessionError::Port)?;
-        if snapshot.host_epoch != host_epoch {
-            return Err(PrivateSessionError::HostEpochChanged);
-        }
-        Ok(Self {
+    /// Opens exactly one empty in-memory replay window. Earlier deltas remain in the ledger.
+    pub(crate) fn open(port: P) -> Self {
+        Self {
             port,
-            host_epoch,
-            cursor: snapshot.cursor,
-            resume_floor: snapshot.cursor,
-            terminal: snapshot.terminal,
+            cursor: 0,
+            resume_floor: 0,
+            terminal: false,
             pending: VecDeque::new(),
             persisted: BTreeMap::new(),
             deltas: VecDeque::new(),
-        })
+        }
     }
 
     /// Queues one normalized fact without performing persistence or publication.
@@ -192,49 +153,39 @@ where
         Ok(PrivateSessionEnqueue::Queued)
     }
 
-    /// Persists and exposes at most one queued normalized fact on the caller's tick.
+    /// Persists and exposes one bounded all-or-nothing normalized batch on the caller's tick.
     pub(crate) fn drive(&mut self) -> Result<PrivateSessionDrive, PrivateSessionError<P::Error>> {
-        let Some(ingress) = self.pending.front().cloned() else {
+        if self.pending.is_empty() {
             return Ok(PrivateSessionDrive::Idle);
-        };
+        }
+        let ingress = self.pending.iter().cloned().collect::<Vec<_>>();
         let persisted = self
             .port
-            .persist(&ingress)
+            .persist_atomic_batch(&ingress)
             .map_err(PrivateSessionError::Port)?;
-        if persisted.cursor <= self.cursor {
-            return Err(PrivateSessionError::CursorDidNotAdvance);
-        }
-        if persisted.terminal != ingress.is_terminal() {
-            return Err(PrivateSessionError::TerminalMismatch);
-        }
-        self.pending.pop_front();
-        self.cursor = persisted.cursor;
-        self.terminal = persisted.terminal;
-        self.persisted
-            .insert(ingress.source_id().into(), (ingress, persisted.cursor));
-        self.deltas.push_back(PrivateSessionDelta {
-            cursor: persisted.cursor,
-            value: persisted.delta,
-        });
-        if self.deltas.len() > MAX_RETAINED_DELTAS {
-            self.resume_floor = self
-                .deltas
-                .pop_front()
-                .expect("retained delta exists")
-                .cursor;
-        }
+        validate_batch(&ingress, &persisted, self.cursor)?;
+        let cursors = persisted
+            .records
+            .iter()
+            .map(|record| record.cursor)
+            .collect();
+        self.apply_batch(ingress, persisted);
         Ok(PrivateSessionDrive::Persisted {
-            cursor: persisted.cursor,
+            cursors,
             terminal: self.terminal,
         })
     }
 
-    /// Returns retained ordered deltas or forces the caller to replace local state from snapshot.
-    pub(crate) fn resume(&self, after_cursor: u64) -> PrivateSessionResumeResult<P> {
+    /// Returns retained ordered deltas or requests a durable cursor replay.
+    pub(crate) fn resume(&self, after_cursor: u64) -> PrivateSessionResume<P::Delta> {
         if after_cursor < self.resume_floor || after_cursor > self.cursor {
-            return self.snapshot().map(PrivateSessionResume::Resync);
+            return PrivateSessionResume::ReplayRequired {
+                after_cursor,
+                through_cursor: self.cursor,
+                terminal: self.terminal,
+            };
         }
-        Ok(PrivateSessionResume::Delta {
+        PrivateSessionResume::Delta {
             deltas: self
                 .deltas
                 .iter()
@@ -242,21 +193,59 @@ where
                 .cloned()
                 .collect(),
             terminal: self.terminal,
-        })
+        }
     }
 
-    fn snapshot(
-        &self,
-    ) -> Result<PrivateSessionSnapshot<P::Snapshot>, PrivateSessionError<P::Error>> {
-        let snapshot = self.port.snapshot().map_err(PrivateSessionError::Port)?;
-        if snapshot.host_epoch != self.host_epoch {
-            return Err(PrivateSessionError::HostEpochChanged);
+    fn apply_batch(
+        &mut self,
+        ingress: Vec<PrivateSessionIngress>,
+        persisted: PrivateSessionAtomicBatch<P::Delta>,
+    ) {
+        for (ingress, record) in ingress.into_iter().zip(persisted.records) {
+            self.pending.pop_front();
+            self.cursor = record.cursor;
+            self.terminal = record.terminal;
+            self.persisted
+                .insert(ingress.source_id().into(), (ingress, record.cursor));
+            self.deltas.push_back(PrivateSessionDelta {
+                cursor: record.cursor,
+                value: record.delta,
+            });
         }
-        if snapshot.cursor < self.cursor || (self.terminal && !snapshot.terminal) {
+        while self.deltas.len() > MAX_RETAINED_DELTAS {
+            self.resume_floor = self
+                .deltas
+                .pop_front()
+                .expect("retained delta exists")
+                .cursor;
+        }
+    }
+}
+
+fn validate_batch<D, E>(
+    ingress: &[PrivateSessionIngress],
+    persisted: &PrivateSessionAtomicBatch<D>,
+    previous_cursor: u64,
+) -> Result<(), PrivateSessionError<E>> {
+    if persisted.records.len() != ingress.len() || persisted.records.is_empty() {
+        return Err(PrivateSessionError::BatchShape);
+    }
+    let mut cursor = previous_cursor;
+    for (index, (ingress, record)) in ingress.iter().zip(&persisted.records).enumerate() {
+        if record.source_id != ingress.source_id() {
+            return Err(PrivateSessionError::SourceIdMismatch);
+        }
+        if record.cursor <= cursor {
             return Err(PrivateSessionError::CursorDidNotAdvance);
         }
-        Ok(snapshot)
+        if record.terminal != ingress.is_terminal()
+            || (record.terminal && index + 1 != persisted.records.len())
+        {
+            return Err(PrivateSessionError::TerminalMismatch);
+        }
+        cursor = record.cursor;
     }
+    Ok(())
 }
 
 fn validate(ingress: &PrivateSessionIngress) -> Result<(), PrivateSessionEnqueueError> {

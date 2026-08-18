@@ -30,6 +30,7 @@ mod goal;
 mod lifecycle_signal;
 mod lifecycle_state;
 mod mcp_connectors;
+mod normalized_session;
 mod observer_tap;
 mod onboarding;
 mod orchestration;
@@ -108,6 +109,9 @@ pub use goal::{
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
 pub use mcp_connectors::{McpConnectorPhase, McpConnectorRecord};
+pub use normalized_session::{
+    NormalizedSessionBatch, NormalizedSessionBatchResult, NormalizedSessionLifecycle,
+};
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
 pub use orchestration::*;

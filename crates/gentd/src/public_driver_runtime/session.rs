@@ -1,23 +1,19 @@
 //! Common durable recording of one already-normalized Claude or Codex wire fact.
 //!
-//! The current ledger exposes independent lifecycle, transcript, and activity ingresses. This
-//! adapter preserves their durable order and returns every allocated cursor before a future
-//! session supervisor may publish a delta. Stable IDs make an interrupted batch recoverable; a
-//! true all-or-nothing cross-projection transaction remains a separate ledger-port requirement.
+//! This adapter creates one daemon-owned atomic ledger batch before a future session supervisor
+//! may publish a delta. It accepts no raw provider output or provider-native session identity.
 
 use gent_drivers::public_protocol::PublicWireFact;
-use gent_ports::Ledger;
-use gent_runtime::{
-    AgentChatTranscriptAppendRequest, AgentChatTranscriptAppendResult, ProviderActivityFact,
-    RuntimeError,
-};
+use gent_ports::{Ledger, NormalizedSessionBatchLedger};
+use gent_runtime::RuntimeError;
 use gent_types::{
-    ActivityWorkKind, AgentChatConversationId, AgentChatRunId, ConversationActivityFact,
-    ConversationActivityScope, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent,
-    NormalizedTranscriptKind, ToolPhase, TurnPhase, WorkPhase,
+    ActivityWorkKind, ConversationActivityFact, ConversationActivityScope, HostEpoch,
+    NormalizedLifecycleSignal, NormalizedProviderEvent, NormalizedSessionBatch,
+    NormalizedSessionLifecycle, NormalizedTranscriptAppend, NormalizedTranscriptKind, ToolPhase,
+    TurnPhase, WorkPhase,
 };
 
-use super::{PublicDriverFact, PublicDriverFactResult, PublicDriversRuntime};
+use super::PublicDriversRuntime;
 
 /// Daemon-owned identities and a provider-normalized fact for one durable recording batch.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,11 +44,12 @@ where
         + gent_ports::RunProjectionLedger
         + gent_ports::ConversationActivityLedger
         + gent_ports::TranscriptLedger
-        + gent_ports::AgentChatPromptDispatchLedger,
+        + gent_ports::AgentChatPromptDispatchLedger
+        + NormalizedSessionBatchLedger,
     D: gent_ports::PublicProviderRunner + Clone,
     R: gent_ports::PublicProviderResolver,
 {
-    /// Persists lifecycle, transcript, then activity records for a normalized provider fact.
+    /// Atomically persists lifecycle, transcript, and activity records for a normalized provider fact.
     ///
     /// It intentionally does not settle a prompt: the lifecycle owner must observe a terminal
     /// signal and prove its process/session is drained before calling the existing settlement API.
@@ -62,77 +59,61 @@ where
         input: &NormalizedSessionFact,
     ) -> Result<NormalizedSessionRecord, RuntimeError> {
         validate(input)?;
-        let lifecycle = self.record(
-            input.run_id.clone(),
-            coordinator_id,
-            input.host_epoch,
-            PublicDriverFact::PublicWire {
-                event_id: input.lifecycle_event_id.clone(),
-                fact: input.fact.clone(),
-            },
-        )?;
-        let lifecycle_cursor = self.cursor(&input.lifecycle_event_id)?;
-        let transcript_cursor = output(&input.fact)
-            .map(|(text, is_partial)| {
-                let record = self.record(
-                    input.run_id.clone(),
-                    coordinator_id,
-                    input.host_epoch,
-                    PublicDriverFact::Transcript(AgentChatTranscriptAppendRequest {
-                        conversation_id: AgentChatConversationId(input.conversation_id.clone()),
-                        run_id: AgentChatRunId(input.run_id.clone()),
-                        turn_id: input.turn_id.clone(),
-                        event_id: input.transcript_event_id.clone(),
-                        kind: NormalizedTranscriptKind::AssistantMessage,
-                        text,
-                        is_partial,
-                    }),
-                )?;
-                match record {
-                    PublicDriverFactResult::Transcript(
-                        AgentChatTranscriptAppendResult::Persisted(event),
-                    ) => Ok(event.cursor),
-                    PublicDriverFactResult::Transcript(
-                        AgentChatTranscriptAppendResult::DeniedObserver,
-                    ) => Err(invariant(
-                        "approved transcript ingress denied normalized session",
-                    )),
-                    _ => unreachable!("transcript facts use transcript ingress"),
-                }
-            })
-            .transpose()?;
-        let activity_cursor = activity(input)
-            .map(|activity| {
-                self.record(
-                    input.run_id.clone(),
-                    coordinator_id,
-                    input.host_epoch,
-                    PublicDriverFact::Activity(ProviderActivityFact {
-                        event_id: input.activity_event_id.clone(),
-                        activity,
-                    }),
-                )?;
-                self.cursor(&input.activity_event_id)
-            })
-            .transpose()?;
-        let PublicDriverFactResult::Lifecycle(_) = lifecycle else {
-            unreachable!("public wire facts always use lifecycle ingress");
-        };
+        let record = self
+            .ledger
+            .append_normalized_session_batch(&batch(coordinator_id, input)?)?;
         Ok(NormalizedSessionRecord {
-            lifecycle_cursor,
-            transcript_cursor,
-            activity_cursor,
+            lifecycle_cursor: record.lifecycle_cursor,
+            transcript_cursor: record.transcript_cursor,
+            activity_cursor: record.activity_cursor,
             terminal_signal: terminal(&input.fact),
         })
     }
+}
 
-    fn cursor(&self, event_id: &str) -> Result<u64, RuntimeError> {
-        self.ledger
-            .find_event(event_id)?
-            .map(|event| event.cursor)
-            .filter(|cursor| *cursor > 0)
-            .ok_or_else(|| invariant("normalized session source was not persisted"))
-    }
+fn batch(
+    coordinator_id: &str,
+    input: &NormalizedSessionFact,
+) -> Result<NormalizedSessionBatch, RuntimeError> {
+    let lifecycle = match &input.fact {
+        PublicWireFact::Event(event) => NormalizedSessionLifecycle::Event {
+            event: event.clone(),
+        },
+        PublicWireFact::Lifecycle(signal) => NormalizedSessionLifecycle::Signal {
+            signal: signal.clone(),
+        },
+        PublicWireFact::SessionStarted { .. } => {
+            return Err(invariant(
+                "provider session binding must precede normalized session recording",
+            ));
+        }
+        PublicWireFact::Compaction(_) => {
+            return Err(invariant(
+                "compaction requires its dedicated private ingress",
+            ));
+        }
+    };
+    let transcript = output(&input.fact).map(|(text, is_partial)| NormalizedTranscriptAppend {
+        event_id: input.transcript_event_id.clone(),
+        run_id: input.run_id.clone(),
+        turn_id: input.turn_id.clone(),
+        kind: NormalizedTranscriptKind::AssistantMessage,
+        text,
+        is_partial,
+    });
+    let activity = activity(input);
+    Ok(NormalizedSessionBatch {
+        coordinator_id: coordinator_id.into(),
+        conversation_id: input.conversation_id.clone(),
+        run_id: input.run_id.clone(),
+        turn_id: input.turn_id.clone(),
+        host_epoch: input.host_epoch,
+        lifecycle_event_id: input.lifecycle_event_id.clone(),
+        lifecycle,
+        transcript,
+        activity_event_id: activity.as_ref().map(|_| input.activity_event_id.clone()),
+        activity,
+    })
 }
 
 fn validate(input: &NormalizedSessionFact) -> Result<(), RuntimeError> {

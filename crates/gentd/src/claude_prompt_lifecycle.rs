@@ -5,8 +5,8 @@ use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
-    ConversationContentReader, Ledger, PublicProviderResolver, PublicProviderRunError,
-    RunProjectionLedger, TranscriptLedger,
+    ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PublicProviderResolver,
+    PublicProviderRunError, RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
 use gent_types::{AgentChatPromptSaved, HostEpoch};
@@ -62,6 +62,7 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
+        + NormalizedSessionBatchLedger
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader

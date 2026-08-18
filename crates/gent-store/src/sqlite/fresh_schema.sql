@@ -292,10 +292,8 @@ CREATE TABLE agent_chat_transcript_events (
     is_partial INTEGER NOT NULL CHECK (is_partial IN (0, 1)),
     PRIMARY KEY (conversation_id, cursor)
 );
-CREATE TABLE agent_chat_prompt_dispatches (
-    message_id TEXT PRIMARY KEY NOT NULL REFERENCES conversation_messages(message_id), state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'launching', 'started', 'settled', 'unprovable')),
-    coordinator_id TEXT,
-    host_epoch INTEGER,
-    created_rowid INTEGER NOT NULL
-);
+CREATE TABLE agent_chat_prompt_dispatches (message_id TEXT PRIMARY KEY NOT NULL REFERENCES conversation_messages(message_id), state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'launching', 'started', 'settled', 'unprovable')),
+    coordinator_id TEXT, host_epoch INTEGER, created_rowid INTEGER NOT NULL);
 CREATE INDEX agent_chat_prompt_dispatches_pending ON agent_chat_prompt_dispatches(state, created_rowid);
+CREATE TABLE normalized_session_batches (lifecycle_event_id TEXT PRIMARY KEY NOT NULL REFERENCES events(event_id), payload TEXT NOT NULL, lifecycle_cursor INTEGER NOT NULL CHECK (lifecycle_cursor > 0), transcript_event_id TEXT UNIQUE, transcript_cursor INTEGER CHECK (transcript_cursor > 0), activity_event_id TEXT UNIQUE, activity_cursor INTEGER CHECK (activity_cursor > 0),
+    CHECK ((transcript_event_id IS NULL) = (transcript_cursor IS NULL)), CHECK ((activity_event_id IS NULL) = (activity_cursor IS NULL)));

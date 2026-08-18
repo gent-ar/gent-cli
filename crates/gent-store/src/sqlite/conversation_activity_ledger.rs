@@ -19,23 +19,7 @@ impl ConversationActivityLedger for SqliteLedger {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
-        validate(&transaction, record)?;
-        if let Some(existing) = find_at_cursor(&transaction, record)? {
-            if existing == *record {
-                return Ok(());
-            }
-            return Err(LedgerError::Invariant(
-                "activity cursor conflicts with existing state".into(),
-            ));
-        }
-        match find(
-            &transaction,
-            &record.activity.conversation_id,
-            &record.activity.run_id,
-        )? {
-            Some(current) => save_after_current(&transaction, &current, record)?,
-            None => insert(&transaction, record)?,
-        }
+        save(&transaction, record)?;
         transaction.commit().map_err(storage_error)
     }
 
@@ -56,6 +40,30 @@ impl ConversationActivityLedger for SqliteLedger {
     ) -> Result<Vec<ConversationActivityRecord>, LedgerError> {
         let connection = self.lock()?;
         resume(&connection, conversation_id, run_id, after_cursor)
+    }
+}
+
+pub(super) fn save(
+    connection: &Connection,
+    record: &ConversationActivityRecord,
+) -> Result<(), LedgerError> {
+    validate(connection, record)?;
+    if let Some(existing) = find_at_cursor(connection, record)? {
+        return if existing == *record {
+            Ok(())
+        } else {
+            Err(LedgerError::Invariant(
+                "activity cursor conflicts with existing state".into(),
+            ))
+        };
+    }
+    match find(
+        connection,
+        &record.activity.conversation_id,
+        &record.activity.run_id,
+    )? {
+        Some(current) => save_after_current(connection, &current, record),
+        None => insert(connection, record),
     }
 }
 
@@ -113,7 +121,7 @@ fn insert(connection: &Connection, record: &ConversationActivityRecord) -> Resul
     Ok(())
 }
 
-fn find(
+pub(super) fn find(
     connection: &Connection,
     conversation_id: &str,
     run_id: &str,

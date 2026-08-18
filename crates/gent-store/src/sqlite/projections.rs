@@ -22,7 +22,10 @@ impl RunProjectionLedger for SqliteLedger {
     }
 }
 
-fn save(connection: &Connection, record: &RunProjectionRecord) -> Result<(), LedgerError> {
+pub(super) fn save(
+    connection: &Connection,
+    record: &RunProjectionRecord,
+) -> Result<(), LedgerError> {
     if find_run(connection, &record.run_id)?.is_none() {
         return Err(LedgerError::Invariant(
             "projection run does not exist".into(),
@@ -60,7 +63,10 @@ fn save(connection: &Connection, record: &RunProjectionRecord) -> Result<(), Led
     }
 }
 
-fn find(connection: &Connection, run_id: &str) -> Result<Option<RunProjectionRecord>, LedgerError> {
+pub(super) fn find(
+    connection: &Connection,
+    run_id: &str,
+) -> Result<Option<RunProjectionRecord>, LedgerError> {
     connection
         .query_row(
             "SELECT host_epoch, payload FROM run_projections WHERE run_id = ?1",

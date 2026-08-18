@@ -23,6 +23,7 @@ mod ingress;
 mod legacy_event_tap;
 mod mcp_connector_executor;
 mod mcp_connector_ledger;
+mod normalized_session_ledger;
 mod orchestration_ledger;
 mod package_install;
 mod policy_ledger;
@@ -69,13 +70,12 @@ pub use legacy_event_tap::LegacyEventTap;
 pub use mcp_connector_executor::{
     McpConnectOperation, McpConnectionSummary, McpConnectorError, McpConnectorExecutor,
 };
-pub use mcp_connector_ledger::{
-    McpConnectorLease, McpConnectorLeaseClaim, McpConnectorLedger, McpConnectorUpdate,
-};
+#[rustfmt::skip]
+pub use mcp_connector_ledger::{McpConnectorLease, McpConnectorLeaseClaim, McpConnectorLedger, McpConnectorUpdate};
+pub use normalized_session_ledger::NormalizedSessionBatchLedger;
 pub use orchestration_ledger::{OrchestrationLedger, OrchestrationWrite};
-pub use package_install::{
-    ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError,
-};
+#[rustfmt::skip]
+pub use package_install::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
 pub use policy_ledger::PolicyLedger;
 pub use private_claurst_bridge::{
     ClaurstCheckpoint, ClaurstDrainBatch, ClaurstDrainRequest, ClaurstFactValue,
@@ -277,8 +277,6 @@ pub trait Ledger: Send + Sync {
         let _ = run_id;
         Ok(None)
     }
-    /// Atomically obtains a coordinator lease for one durable run.
-    ///
     /// # Errors
     /// Returns an error when the requesting epoch or run is invalid, or persistence fails.
     fn claim_run_lease(&self, requested: &RunLease) -> Result<RunLeaseClaim, LedgerError>;
