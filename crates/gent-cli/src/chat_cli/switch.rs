@@ -1,5 +1,7 @@
 //! Typed client-side construction and validation for a durable selection switch.
 
+use std::path::PathBuf;
+
 use clap::{Args, ValueEnum};
 use gent_protocol::AgentChatIntentFrame;
 use gent_types::{AgentChatConversationId, AgentChatRunId, AgentChatSelection, ContextPolicy};
@@ -36,21 +38,63 @@ pub(crate) enum Context {
 }
 
 pub(crate) fn frame(args: SwitchArgs) -> AgentChatIntentFrame {
-    AgentChatIntentFrame::SwitchSelection {
-        request_id: super::request_id(args.request_id),
-        receipt_id: super::receipt_id(args.receipt_id),
-        conversation_id: AgentChatConversationId(args.conversation_id),
-        parent_run_id: AgentChatRunId(args.parent_run_id),
-        selection: AgentChatSelection {
+    selection_frame(
+        args.conversation_id,
+        args.parent_run_id,
+        AgentChatSelection {
             provider: super::provider(args.provider),
             model: args.model,
             effort: super::effort(args.effort),
             mode: super::mode(args.mode),
         },
-        context_policy: match args.context {
+        match args.context {
             Context::Preserve => ContextPolicy::Preserve,
             Context::Clear => ContextPolicy::Clear,
         },
+        args.request_id,
+        args.receipt_id,
+    )
+}
+
+/// Switches one known terminal parent through the same checked IPC path as `gent chat switch`.
+pub(crate) async fn request(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    conversation_id: String,
+    parent_run_id: String,
+    selection: AgentChatSelection,
+    context_policy: ContextPolicy,
+) -> Result<AgentChatRunId, Box<dyn std::error::Error>> {
+    let request = selection_frame(
+        conversation_id,
+        parent_run_id,
+        selection,
+        context_policy,
+        None,
+        None,
+    );
+    let response = super::exchange(data_dir, no_autostart, request.clone()).await?;
+    let AgentChatIntentFrame::Switched { run_id, .. } = response else {
+        return Err("daemon did not return a switched selection".into());
+    };
+    Ok(run_id)
+}
+
+fn selection_frame(
+    conversation_id: String,
+    parent_run_id: String,
+    selection: AgentChatSelection,
+    context_policy: ContextPolicy,
+    request_id: Option<String>,
+    receipt_id: Option<String>,
+) -> AgentChatIntentFrame {
+    AgentChatIntentFrame::SwitchSelection {
+        request_id: super::request_id(request_id),
+        receipt_id: super::receipt_id(receipt_id),
+        conversation_id: AgentChatConversationId(conversation_id),
+        parent_run_id: AgentChatRunId(parent_run_id),
+        selection,
+        context_policy,
     }
 }
 

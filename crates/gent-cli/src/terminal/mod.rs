@@ -6,7 +6,9 @@ mod chat_projection;
 mod controller_stream;
 mod input;
 mod render;
+mod selection;
 mod state;
+mod state_switch;
 mod terminal_loop;
 
 pub(crate) use state::{UiRequest, UiRequestResult, UiState};

@@ -14,7 +14,7 @@ pub(crate) fn render(frame: &mut Frame, state: &UiState) {
     let [header, body, composer] = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(8),
-        Constraint::Length(5),
+        Constraint::Length(6),
     ])
     .areas(frame.area());
     frame.render_widget(header_widget(), header);
@@ -129,11 +129,13 @@ fn activity_text(status: &ConversationLiveStatus) -> String {
 fn composer_widget(state: &UiState) -> Paragraph<'static> {
     let body = if state.chat_enabled() {
         format!(
-            "{}\nProvider: {:?} (Tab)  Effort: {:?} (Ctrl+E)  Mode: {:?} (Ctrl+M)\nCtrl+N create  •  Enter persist prompt  •  {}",
+            "{}\nProvider: {:?} (Tab)  Model: {} (Ctrl+L)  Effort: {:?} (Ctrl+E)\nMode: {:?} (Ctrl+M)  Context: {:?} (Ctrl+X)\nCtrl+N create  •  Ctrl+S switch selection  •  Enter persist prompt  •  {}",
             state.input(),
             state.selection().provider,
+            state.selection().model,
             state.selection().effort,
             state.selection().mode,
+            state.context_policy(),
             state
                 .notice()
                 .unwrap_or("No provider lifecycle is connected."),
@@ -186,6 +188,25 @@ mod tests {
         assert!(output.contains("Input (disabled)"));
         assert!(output.contains("Chat execution is unavailable"));
         assert!(!output.contains("private prompt"));
+    }
+
+    #[test]
+    fn enabled_render_exposes_typed_selection_controls() {
+        let backend = TestBackend::new(110, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render(frame, &UiState::new(Vec::new()).with_chat_input(true)))
+            .unwrap();
+        let output = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<String>();
+        assert!(output.contains("Model: haiku (Ctrl+L)"));
+        assert!(output.contains("Context: Preserve (Ctrl+X)"));
+        assert!(output.contains("Ctrl+S switch selection"));
     }
 
     #[test]

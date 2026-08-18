@@ -1,0 +1,16 @@
+{
+  "format": "gent-driver-transcript-v1",
+  "provider": "codex",
+  "scenario": "plan-goal-context-switch",
+  "source": "synthetic",
+  "recordedAt": "2026-08-18T00:00:00Z",
+  "reviewedAt": "2026-08-18T00:00:00Z",
+  "notes": "Offline regression record for a Gent-owned goal, reviewed plan, context switch, and terminal result.",
+  "attachments": [
+    {
+      "contentDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mediaType": "image/png",
+      "byteLength": 512
+    }
+  ]
+}

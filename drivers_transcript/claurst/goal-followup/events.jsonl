@@ -1,0 +1,6 @@
+{"sequence":1,"type":"conversation","data":{"conversationId":"conversation-claurst-1","provider":"claurst","model":"claurst-main","effort":"low","mode":"agent"}}
+{"sequence":2,"type":"run","data":{"runId":"run-claurst-1","contextPolicy":"preserve","historyOrdinal":5}}
+{"sequence":3,"type":"activity","data":{"kind":"goal","goalId":"goal-claurst-1","status":"active","revision":2,"summary":"Complete the current task without losing context."}}
+{"sequence":4,"type":"turn","data":{"turnId":"turn-claurst-1","ordinal":6}}
+{"sequence":5,"type":"activity","data":{"kind":"tool","status":"completed"}}
+{"sequence":6,"type":"terminal","data":{"outcome":"follow-up-completed","cursor":6}}

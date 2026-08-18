@@ -1,0 +1,6 @@
+{"sequence":1,"type":"conversation","data":{"conversationId":"conversation-claude-1","provider":"claude","model":"sonnet","effort":"medium","mode":"plan"}}
+{"sequence":2,"type":"run","data":{"runId":"run-claude-1","contextPolicy":"preserve","historyOrdinal":21}}
+{"sequence":3,"type":"plan","data":{"planId":"plan-claude-1","revision":4,"digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","status":"approved"}}
+{"sequence":4,"type":"run","data":{"runId":"run-claude-clear","parentRunId":"run-claude-1","contextPolicy":"clear","historyOrdinal":0,"provider":"claude","mode":"agent"}}
+{"sequence":5,"type":"turn","data":{"turnId":"turn-claude-clear-1","ordinal":1}}
+{"sequence":6,"type":"terminal","data":{"outcome":"fresh-context-completed","cursor":6}}

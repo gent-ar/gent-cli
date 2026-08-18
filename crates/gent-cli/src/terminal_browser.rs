@@ -59,11 +59,13 @@ fn submit(
         runtime.block_on(async move {
             match request {
                 terminal::UiRequest::Create { selection } => {
-                    let (conversation_id, _) = chat_cli::create(data_dir, no_autostart, selection)
-                        .await
-                        .map_err(|error| error.to_string())?;
+                    let (conversation_id, run_id) =
+                        chat_cli::create(data_dir, no_autostart, selection)
+                            .await
+                            .map_err(|error| error.to_string())?;
                     Ok(result(
                         conversation_id.0,
+                        Some(run_id.0),
                         "Conversation created; choose a prompt to persist.",
                     ))
                 }
@@ -75,19 +77,46 @@ fn submit(
                         chat_cli::send(data_dir, no_autostart, conversation_id.clone(), text)
                             .await
                             .map_err(|error| error.to_string())?;
-                    Ok(result(conversation_id, delivery_notice(delivery)))
+                    Ok(result(conversation_id, None, delivery_notice(delivery)))
+                }
+                terminal::UiRequest::Switch {
+                    conversation_id,
+                    parent_run_id,
+                    selection,
+                    context_policy,
+                } => {
+                    let run_id = chat_cli::switch::request(
+                        data_dir,
+                        no_autostart,
+                        conversation_id.clone(),
+                        parent_run_id,
+                        selection,
+                        context_policy,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                    Ok(result(
+                        conversation_id,
+                        Some(run_id.0),
+                        "Selection switched; prompts now target the new durable run.",
+                    ))
                 }
             }
         })
     })
 }
 
-fn result(conversation_id: String, notice: impl Into<String>) -> terminal::UiRequestResult {
+fn result(
+    conversation_id: String,
+    parent_run_id: Option<String>,
+    notice: impl Into<String>,
+) -> terminal::UiRequestResult {
     terminal::UiRequestResult {
         conversation: ConversationListItem {
             conversation_id,
             run_count: 1,
         },
+        parent_run_id,
         notice: notice.into(),
     }
 }

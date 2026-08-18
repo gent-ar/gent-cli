@@ -1,0 +1,9 @@
+{
+  "format": "gent-driver-transcript-v1",
+  "provider": "claude",
+  "scenario": "clear-context-plan",
+  "source": "synthetic",
+  "recordedAt": "2026-08-18T00:00:00Z",
+  "reviewedAt": "2026-08-18T00:00:00Z",
+  "notes": "Offline regression record proving a clear-context child has ordinal zero and no inherited provider state."
+}

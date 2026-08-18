@@ -1,0 +1,10 @@
+{"sequence":1,"type":"conversation","data":{"conversationId":"conversation-codex-1","provider":"codex","model":"gpt-5.6","effort":"high","mode":"plan"}}
+{"sequence":2,"type":"run","data":{"runId":"run-codex-1","contextPolicy":"preserve","historyOrdinal":12}}
+{"sequence":3,"type":"turn","data":{"turnId":"turn-codex-1","ordinal":13}}
+{"sequence":4,"type":"message","data":{"role":"user","text":"Prepare a bounded implementation plan."}}
+{"sequence":5,"type":"activity","data":{"kind":"goal","goalId":"goal-1","status":"active","revision":1,"summary":"Finish the bounded task."}}
+{"sequence":6,"type":"plan","data":{"planId":"plan-1","revision":1,"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","status":"reviewed"}}
+{"sequence":7,"type":"attachment","data":{"contentDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mediaType":"image/png","byteLength":512,"turnId":"turn-codex-1"}}
+{"sequence":8,"type":"terminal","data":{"outcome":"completed","cursor":8}}
+{"sequence":9,"type":"run","data":{"runId":"run-claude-child","parentRunId":"run-codex-1","provider":"claude","mode":"agent","contextPolicy":"preserve","historyOrdinal":13}}
+{"sequence":10,"type":"terminal","data":{"outcome":"switched-with-preserved-gent-history","cursor":10}}

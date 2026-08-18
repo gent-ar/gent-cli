@@ -1,8 +1,13 @@
 //! Pure terminal state for conversation selection and authority-gated prompt entry.
 
 use gent_types::{
-    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, ConversationListItem,
-    ConversationStatus,
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, ContextPolicy,
+    ConversationListItem, ConversationStatus,
+};
+
+use super::{
+    selection::{default_model, next_model},
+    state_switch::request,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -15,8 +20,11 @@ pub(crate) enum UiCommand {
     SubmitPrompt,
     CreateConversation,
     CycleProvider,
+    CycleModel,
     CycleEffort,
     CycleMode,
+    CycleContext,
+    SwitchSelection,
 }
 
 /// One protocol-neutral action emitted by the pure terminal reducer.
@@ -29,12 +37,19 @@ pub(crate) enum UiRequest {
         conversation_id: String,
         text: String,
     },
+    Switch {
+        conversation_id: String,
+        parent_run_id: String,
+        selection: AgentChatSelection,
+        context_policy: ContextPolicy,
+    },
 }
 
 /// Result returned by the terminal composition edge after one durable request.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct UiRequestResult {
     pub(crate) conversation: ConversationListItem,
+    pub(crate) parent_run_id: Option<String>,
     pub(crate) notice: String,
 }
 
@@ -53,6 +68,8 @@ pub(crate) struct UiState {
     chat_enabled: bool,
     input: String,
     selection: AgentChatSelection,
+    context_policy: ContextPolicy,
+    parent_run_id: Option<String>,
     status: Option<ConversationStatus>,
     notice: Option<String>,
 }
@@ -72,6 +89,8 @@ impl UiState {
                 effort: AgentChatEffort::Medium,
                 mode: AgentChatMode::Ask,
             },
+            context_policy: ContextPolicy::Preserve,
+            parent_run_id: None,
             status: None,
             notice: None,
         }
@@ -90,6 +109,13 @@ impl UiState {
             self.selected()
                 .is_some_and(|item| item.conversation_id == status.conversation_id)
         });
+        self.parent_run_id = self
+            .status
+            .as_ref()
+            .and_then(|status| match status.runs.as_slice() {
+                [run] if !run.run_id.is_empty() => Some(run.run_id.clone()),
+                _ => None,
+            });
         self
     }
 
@@ -129,12 +155,20 @@ impl UiState {
     }
 
     #[must_use]
+    pub(crate) const fn context_policy(&self) -> ContextPolicy {
+        self.context_policy
+    }
+
+    #[must_use]
     pub(crate) fn notice(&self) -> Option<&str> {
         self.notice.as_deref()
     }
 
     pub(crate) fn apply_request(&mut self, result: UiRequestResult) {
         let item = result.conversation;
+        let was_selected = self
+            .selected()
+            .is_some_and(|current| current.conversation_id == item.conversation_id);
         let index = self
             .conversations
             .iter()
@@ -145,6 +179,9 @@ impl UiState {
             });
         self.selected = Some(index);
         self.status = None;
+        if result.parent_run_id.is_some() || !was_selected {
+            self.parent_run_id = result.parent_run_id;
+        }
         self.notice = Some(result.notice);
     }
 
@@ -184,6 +221,11 @@ impl UiState {
                     AgentChatProvider::Codex => AgentChatProvider::Claurst,
                     AgentChatProvider::Claurst => AgentChatProvider::Claude,
                 };
+                self.selection.model = default_model(self.selection.provider).into();
+                UiEffect::Continue
+            }
+            UiCommand::CycleModel if self.chat_enabled => {
+                self.selection.model = next_model(&self.selection).into();
                 UiEffect::Continue
             }
             UiCommand::CycleEffort if self.chat_enabled => {
@@ -202,6 +244,23 @@ impl UiState {
                 };
                 UiEffect::Continue
             }
+            UiCommand::CycleContext if self.chat_enabled => {
+                self.context_policy = match self.context_policy {
+                    ContextPolicy::Preserve => ContextPolicy::Clear,
+                    ContextPolicy::Clear => ContextPolicy::Preserve,
+                };
+                UiEffect::Continue
+            }
+            UiCommand::SwitchSelection if self.chat_enabled => request(
+                self.selected().map(|value| value.conversation_id.clone()),
+                self.parent_run_id.clone(),
+                self.selection.clone(),
+                self.context_policy,
+            )
+            .unwrap_or_else(|notice| {
+                self.notice = Some(notice.into());
+                UiEffect::Continue
+            }),
             _ => UiEffect::Continue,
         }
     }
@@ -229,6 +288,7 @@ impl UiState {
             if selected != current {
                 self.selected = Some(selected);
                 self.status = None;
+                self.parent_run_id = None;
             }
         }
     }

@@ -22,8 +22,17 @@ pub(crate) fn command(event: KeyEvent) -> Option<UiCommand> {
         KeyCode::Char('e') if event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(UiCommand::CycleEffort)
         }
+        KeyCode::Char('l') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::CycleModel)
+        }
         KeyCode::Char('m') if event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(UiCommand::CycleMode)
+        }
+        KeyCode::Char('x') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::CycleContext)
+        }
+        KeyCode::Char('s') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::SwitchSelection)
         }
         KeyCode::Char(value) if event.modifiers.is_empty() => Some(UiCommand::Insert(value)),
         _ => None,
@@ -42,6 +51,10 @@ mod tests {
         assert_eq!(
             command(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)),
             Some(UiCommand::SelectNext)
+        );
+        assert_eq!(
+            command(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)),
+            Some(UiCommand::SwitchSelection)
         );
         assert_eq!(
             command(KeyEvent {

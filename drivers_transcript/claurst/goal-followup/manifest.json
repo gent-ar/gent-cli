@@ -1,0 +1,9 @@
+{
+  "format": "gent-driver-transcript-v1",
+  "provider": "claurst",
+  "scenario": "goal-followup",
+  "source": "synthetic",
+  "recordedAt": "2026-08-18T00:00:00Z",
+  "reviewedAt": "2026-08-18T00:00:00Z",
+  "notes": "Offline regression record for a private-bridge-neutral goal projection and follow-up settlement."
+}

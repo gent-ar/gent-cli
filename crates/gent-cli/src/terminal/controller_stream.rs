@@ -36,6 +36,28 @@ pub(crate) enum ControllerStreamEvent {
     ConversationUnavailable,
 }
 
+/// The exact durable boundary to use when attaching a replacement socket.
+///
+/// This contains only daemon-owned conversation identity and an acknowledged-or-applied
+/// transcript cursor. It never retains provider-native session state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ControllerStreamResume {
+    conversation_id: String,
+    after_cursor: u64,
+}
+
+impl ControllerStreamResume {
+    #[must_use]
+    pub(crate) fn conversation_id(&self) -> &str {
+        &self.conversation_id
+    }
+
+    #[must_use]
+    pub(crate) fn after_cursor(&self) -> u64 {
+        self.after_cursor
+    }
+}
+
 /// A protocol or projection failure which must never be recovered from provider output.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ControllerStreamError {
@@ -43,8 +65,10 @@ pub(crate) enum ControllerStreamError {
     UnsupportedCapability,
     #[error("daemon sent a controller frame which is invalid in this direction")]
     UnexpectedFrame,
-    #[error("daemon sent a transcript delta before a controller snapshot")]
+    #[error("daemon sent a controller update before its initial snapshot")]
     MissingSnapshot,
+    #[error("daemon sent an initial snapshot after controller state was installed")]
+    DuplicateSnapshot,
     #[error("daemon sent a controller snapshot for another conversation or cursor")]
     InvalidSnapshot,
     #[error(transparent)]
@@ -58,6 +82,7 @@ pub(crate) enum ControllerStreamError {
 pub(crate) struct ControllerStream<S> {
     socket: S,
     conversation_id: String,
+    attached_after_cursor: u64,
     projection: Option<ControllerProjection>,
 }
 
@@ -86,6 +111,7 @@ where
         Ok(Self {
             socket,
             conversation_id,
+            attached_after_cursor: after_cursor,
             projection: None,
         })
     }
@@ -93,9 +119,22 @@ where
     /// Reads exactly one frame, replacing or strictly advancing local state before acknowledgement.
     pub(crate) async fn receive(&mut self) -> Result<ControllerStreamEvent, ControllerStreamError> {
         match read_json_frame::<_, AgentChatControllerStreamFrame>(&mut self.socket).await? {
-            AgentChatControllerStreamFrame::Snapshot(snapshot)
-            | AgentChatControllerStreamFrame::Resync(snapshot) => {
-                self.projection = Some(projection(&self.conversation_id, snapshot)?);
+            AgentChatControllerStreamFrame::Snapshot(snapshot) => {
+                if self.projection.is_some() {
+                    return Err(ControllerStreamError::DuplicateSnapshot);
+                }
+                self.install_projection(snapshot, self.attached_after_cursor)?;
+                self.ack().await?;
+                Ok(ControllerStreamEvent::ProjectionReplaced)
+            }
+            AgentChatControllerStreamFrame::Resync(snapshot) => {
+                let current_cursor = self
+                    .projection
+                    .as_ref()
+                    .ok_or(ControllerStreamError::MissingSnapshot)?
+                    .transcript
+                    .cursor();
+                self.install_projection(snapshot, current_cursor)?;
                 self.ack().await?;
                 Ok(ControllerStreamEvent::ProjectionReplaced)
             }
@@ -130,6 +169,35 @@ where
     #[must_use]
     pub(crate) fn projection(&self) -> Option<&ControllerProjection> {
         self.projection.as_ref()
+    }
+
+    /// Returns the cursor boundary for a fresh socket after a close or resync request.
+    ///
+    /// The cursor advances before an acknowledgement is written: a reconnect must not
+    /// duplicate an event already applied to the terminal, even if that write failed.
+    #[must_use]
+    pub(crate) fn resume(&self) -> ControllerStreamResume {
+        ControllerStreamResume {
+            conversation_id: self.conversation_id.clone(),
+            after_cursor: self
+                .projection
+                .as_ref()
+                .map_or(self.attached_after_cursor, |projection| {
+                    projection.transcript.cursor()
+                }),
+        }
+    }
+
+    fn install_projection(
+        &mut self,
+        snapshot: AgentChatControllerSnapshot,
+        minimum_cursor: u64,
+    ) -> Result<(), ControllerStreamError> {
+        if snapshot.cursor < minimum_cursor {
+            return Err(ControllerStreamError::InvalidSnapshot);
+        }
+        self.projection = Some(projection(&self.conversation_id, snapshot)?);
+        Ok(())
     }
 
     async fn ack(&mut self) -> Result<(), ControllerStreamError> {
@@ -190,3 +258,7 @@ fn projection(
 #[cfg(test)]
 #[path = "controller_stream_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "controller_stream_resume_tests.rs"]
+mod resume_tests;

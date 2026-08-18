@@ -69,7 +69,7 @@ struct Args {
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let _authority_profile = crate::authority_profile::shipped_observer_profile();
+    enforce_hard_observer(&crate::authority_profile::shipped_observer_profile())?;
     if verify_staged_material(&args)? {
         return Ok(());
     }
@@ -102,6 +102,19 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         update_checks,
     )?;
     serve_local(runtime, &args, &data_dir, recovery.as_ref()).await
+}
+
+/// Refuses startup if a future bootstrap edit attempts to select a non-observer authority profile.
+///
+/// The shipped argument surface only produces `Observer`; lifecycle authority must instead be
+/// added through a separately reviewed composition and capability milestone.
+fn enforce_hard_observer(
+    profile: &crate::authority_profile::ValidatedAuthorityProfile,
+) -> Result<(), String> {
+    profile
+        .is_hard_observer()
+        .then_some(())
+        .ok_or_else(|| "gentd bootstrap only supports the hard observer profile".into())
 }
 
 fn verify_staged_material(args: &Args) -> Result<bool, String> {
@@ -251,3 +264,7 @@ fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
             (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
         })
 }
+
+#[cfg(test)]
+#[path = "daemon_bootstrap_tests.rs"]
+mod tests;

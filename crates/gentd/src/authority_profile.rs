@@ -106,6 +106,17 @@ pub(crate) enum ValidatedAuthorityProfile {
     },
 }
 
+impl ValidatedAuthorityProfile {
+    /// Returns whether this profile has no authority beyond the shipped observer surface.
+    ///
+    /// Bootstrap uses this as a fail-closed regression fence: adding a future profile source must
+    /// not accidentally make provider, MCP, Git, or automation authority reachable.
+    #[must_use]
+    pub(crate) const fn is_hard_observer(&self) -> bool {
+        matches!(self, Self::Observer)
+    }
+}
+
 impl AuthorityProfileConfig {
     /// Validates requested scope without resolving executables or creating external effects.
     ///
