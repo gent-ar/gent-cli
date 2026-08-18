@@ -97,7 +97,7 @@ fn host(epoch: HostEpoch) -> HostStatus {
         host_epoch: epoch,
         protocol_min: 1,
         protocol_max: 1,
-        capabilities: Default::default(),
+        capabilities: gent_types::CapabilitySet::default(),
     }
 }
 fn status() -> ConversationStatus {

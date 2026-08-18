@@ -35,13 +35,22 @@ pub struct AgentChatControllerSnapshot {
 /// sessions, credentials, raw provider payloads, or transport frames.
 pub trait AgentChatControllerSnapshotSource {
     /// Reads the current host status and fence epoch.
+    ///
+    /// # Errors
+    /// Returns a source read error.
     fn host_status(&self) -> Result<HostStatus, RuntimeError>;
     /// Reads one normalized conversation and its visible run hierarchy.
+    ///
+    /// # Errors
+    /// Returns a source read error.
     fn conversation_detail(
         &self,
         conversation_id: &str,
     ) -> Result<AgentChatConversationDetail, RuntimeError>;
     /// Reads one ascending normalized transcript page.
+    ///
+    /// # Errors
+    /// Returns a source read error.
     fn transcript(
         &self,
         conversation_id: &str,
@@ -49,6 +58,9 @@ pub trait AgentChatControllerSnapshotSource {
         limit: u16,
     ) -> Result<NormalizedTranscriptPage, RuntimeError>;
     /// Reads an optional non-content lifecycle projection for the selected conversation.
+    ///
+    /// # Errors
+    /// Returns a source read error.
     fn conversation_status(
         &self,
         conversation_id: &str,
@@ -82,7 +94,7 @@ impl AgentChatControllerSnapshotBuilder {
             .then(|| source.conversation_status(&request.conversation_id))
             .transpose()?;
         let after = source.host_status()?;
-        Self::build(request, before, detail, transcript, status, after)
+        Self::build(request, &before, detail, transcript, status, &after)
     }
 
     /// Validates values already read through a source port without performing I/O.
@@ -91,11 +103,11 @@ impl AgentChatControllerSnapshotBuilder {
     /// Returns an error when selection, transcript cursor, conversation, or epoch invariants fail.
     pub fn build(
         request: &AgentChatControllerSnapshotRequest,
-        before: HostStatus,
+        before: &HostStatus,
         detail: AgentChatConversationDetail,
         transcript: NormalizedTranscriptPage,
         status: Option<ConversationStatus>,
-        after: HostStatus,
+        after: &HostStatus,
     ) -> Result<AgentChatControllerSnapshot, RuntimeError> {
         validate_request(request)?;
         if before.host_epoch != after.host_epoch {

@@ -1,11 +1,11 @@
 //! Daemon-facing runtime port. Transport adapters depend only on this boundary.
 
 use gent_protocol::{
-    AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
-    DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
-    DependencyPlan, DependencyPlanRequest, PermissionPolicyFrame, ProviderAuthFrame,
-    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
-    ReviewedPlanFrame,
+    AgentChatControllerSnapshot, AgentChatConversationFrame, AgentChatIntentFrame,
+    AgentChatTranscriptFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
+    DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
+    PermissionPolicyFrame, ProviderAuthFrame, PublicRunInterruptRequest, PublicRunResponse,
+    PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
 };
 use gent_runtime::ConversationActivityRead;
 use gent_types::{
@@ -91,6 +91,18 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         _: AgentChatTranscriptFrame,
     ) -> Result<AgentChatTranscriptFrame, String> {
         Err("agent-chat transcript reads are unavailable while gentd is observer-disabled".into())
+    }
+    /// Reads one replacement projection for a future negotiated controller stream.
+    ///
+    /// The hard observer deliberately keeps this unavailable. The controller transport is not
+    /// composed into the shipped IPC listener, and this method must only return normalized,
+    /// provider-neutral data when a future authority explicitly overrides it.
+    fn agent_chat_controller_snapshot(
+        &self,
+        _: &str,
+        _: u64,
+    ) -> Result<AgentChatControllerSnapshot, String> {
+        Err("agent-chat controller stream is unavailable while gentd is observer-disabled".into())
     }
     /// Reads or appends one local, provider-neutral permission-policy revision.
     fn permission_policy(&self, _: PermissionPolicyFrame) -> Result<PermissionPolicyFrame, String> {

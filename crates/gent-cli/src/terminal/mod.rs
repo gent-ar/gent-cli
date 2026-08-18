@@ -2,6 +2,8 @@
 
 #[allow(dead_code)] // Stream capability is not advertised by the observer daemon yet.
 mod chat_projection;
+#[allow(dead_code)] // The observer daemon deliberately does not compose this stream yet.
+mod controller_stream;
 mod input;
 mod render;
 mod state;

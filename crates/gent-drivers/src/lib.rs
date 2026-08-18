@@ -16,6 +16,7 @@ pub mod message_encoding;
 pub mod ndjson;
 pub mod node_runtime_lock;
 pub mod normalize;
+pub mod npm_pack_install;
 pub mod output_pump;
 pub mod process;
 mod process_streams;

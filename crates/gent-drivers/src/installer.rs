@@ -1,6 +1,6 @@
 //! Explicit vendor-installer execution with fixed argument vectors and no shell.
 
-use std::{path::PathBuf, process::Command};
+use std::path::{Path, PathBuf};
 
 use gent_ports::ApprovedPackageInstall;
 
@@ -24,9 +24,25 @@ impl NpmGlobalPrefix {
         Self { npm, prefix }
     }
 
-    /// Builds a fixed global package installation without a shell or ambient `PATH` lookup.
+    /// Builds a fixed package fetch into an already-created private staging directory.
     #[must_use]
-    pub fn install(&self, package: &ApprovedPackageInstall) -> InstallerInvocation {
+    pub fn pack(&self, package: &ApprovedPackageInstall, staging: &Path) -> InstallerInvocation {
+        InstallerInvocation {
+            executable: self.npm.to_string_lossy().into_owned(),
+            arguments: vec![
+                "pack".into(),
+                "--ignore-scripts".into(),
+                "--json".into(),
+                "--pack-destination".into(),
+                staging.to_string_lossy().into_owned(),
+                package.selector(),
+            ],
+        }
+    }
+
+    /// Builds an installation from an already-verified tarball only.
+    #[must_use]
+    pub fn install_archive(&self, archive: &Path) -> InstallerInvocation {
         InstallerInvocation {
             executable: self.npm.to_string_lossy().into_owned(),
             arguments: vec![
@@ -34,19 +50,29 @@ impl NpmGlobalPrefix {
                 "--global".into(),
                 "--prefix".into(),
                 self.prefix.to_string_lossy().into_owned(),
-                package.selector(),
+                archive.to_string_lossy().into_owned(),
             ],
         }
     }
+
+    /// Returns the daemon-owned package prefix, used to make private staging directories.
+    #[must_use]
+    pub fn prefix(&self) -> &Path {
+        &self.prefix
+    }
 }
 
-/// Runs an already-approved provider installer to completion.
+/// Runs a signed, exact provider install to completion.
 pub trait DependencyInstaller: Clone + Send + Sync {
-    /// Executes one explicit installer request and waits for its terminal exit.
+    /// Packs, verifies, and installs one policy-approved package.
     ///
     /// # Errors
     /// Returns an error when the installer cannot start or exits unsuccessfully.
-    fn execute(&self, invocation: &InstallerInvocation) -> Result<(), InstallerError>;
+    fn install(
+        &self,
+        npm: &NpmGlobalPrefix,
+        package: &ApprovedPackageInstall,
+    ) -> Result<(), InstallerError>;
 }
 
 /// The operating-system implementation used only after explicit client consent.
@@ -54,16 +80,12 @@ pub trait DependencyInstaller: Clone + Send + Sync {
 pub struct SystemDependencyInstaller;
 
 impl DependencyInstaller for SystemDependencyInstaller {
-    fn execute(&self, invocation: &InstallerInvocation) -> Result<(), InstallerError> {
-        let status = Command::new(&invocation.executable)
-            .args(&invocation.arguments)
-            .status()
-            .map_err(|error| InstallerError::Launch(error.to_string()))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(InstallerError::Failed(status.to_string()))
-        }
+    fn install(
+        &self,
+        npm: &NpmGlobalPrefix,
+        package: &ApprovedPackageInstall,
+    ) -> Result<(), InstallerError> {
+        crate::npm_pack_install::VerifiedNpmInstaller.install(npm, package)
     }
 }
 
@@ -74,6 +96,16 @@ pub enum InstallerError {
     Launch(String),
     #[error("installer exited unsuccessfully: {0}")]
     Failed(String),
+    #[error("installer filesystem operation failed: {0}")]
+    Io(String),
+    #[error("npm pack did not return one valid JSON artifact")]
+    PackOutput,
+    #[error("npm pack returned an unsafe artifact path")]
+    InvalidArtifact,
+    #[error("signed package integrity is not a SHA-512 SRI digest")]
+    InvalidIntegrity,
+    #[error("packed tarball does not match signed package integrity")]
+    IntegrityMismatch,
 }
 
 #[cfg(test)]
@@ -82,79 +114,36 @@ mod tests {
 
     use gent_ports::ApprovedPackageInstall;
 
-    use super::{
-        DependencyInstaller, InstallerError, InstallerInvocation, SystemDependencyInstaller,
-    };
-
     #[test]
-    fn system_installer_waits_for_a_successful_command() {
-        let invocation = success_command();
-        assert!(SystemDependencyInstaller.execute(&invocation).is_ok());
-    }
-
-    #[test]
-    fn system_installer_reports_nonzero_exit_status() {
-        let invocation = failure_command();
-        assert!(matches!(
-            SystemDependencyInstaller.execute(&invocation),
-            Err(InstallerError::Failed(_))
-        ));
-    }
-
-    #[test]
-    fn npm_install_uses_only_the_private_prefix_and_fixed_arguments() {
-        let invocation = super::NpmGlobalPrefix::new(
+    fn npm_commands_use_only_the_private_prefix_and_fixed_arguments() {
+        let npm = super::NpmGlobalPrefix::new(
             PathBuf::from("/app/node/bin/npm"),
             PathBuf::from("/private/gentd/providers/npm-global"),
-        )
-        .install(&ApprovedPackageInstall {
+        );
+        let package = ApprovedPackageInstall {
             provider: "codex".into(),
             package_name: "@openai/codex".into(),
             version: "0.147.0".into(),
             integrity: "sha512-test".into(),
-        });
-        assert_eq!(invocation.executable, "/app/node/bin/npm");
+        };
+        let packed = npm.pack(&package, std::path::Path::new("/private/staging"));
+        assert_eq!(packed.executable, "/app/node/bin/npm");
         assert_eq!(
-            invocation.arguments,
+            packed.arguments,
             [
-                "install",
-                "--global",
-                "--prefix",
-                "/private/gentd/providers/npm-global",
+                "pack",
+                "--ignore-scripts",
+                "--json",
+                "--pack-destination",
+                "/private/staging",
                 "@openai/codex@0.147.0"
             ]
         );
-    }
-
-    #[cfg(unix)]
-    fn success_command() -> InstallerInvocation {
-        InstallerInvocation {
-            executable: "/usr/bin/true".into(),
-            arguments: vec![],
-        }
-    }
-
-    #[cfg(unix)]
-    fn failure_command() -> InstallerInvocation {
-        InstallerInvocation {
-            executable: "/usr/bin/false".into(),
-            arguments: vec![],
-        }
-    }
-
-    #[cfg(windows)]
-    fn success_command() -> InstallerInvocation {
-        InstallerInvocation {
-            executable: "cmd".into(),
-            arguments: vec!["/C".into(), "exit 0".into()],
-        }
-    }
-
-    #[cfg(windows)]
-    fn failure_command() -> InstallerInvocation {
-        InstallerInvocation {
-            executable: "cmd".into(),
-            arguments: vec!["/C".into(), "exit 1".into()],
-        }
+        let installed = npm.install_archive(std::path::Path::new("/private/staging/codex.tgz"));
+        assert_eq!(
+            installed.arguments[3],
+            "/private/gentd/providers/npm-global"
+        );
+        assert_eq!(installed.arguments[4], "/private/staging/codex.tgz");
     }
 }

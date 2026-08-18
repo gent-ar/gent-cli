@@ -2,21 +2,11 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gent_drivers::installer::{DependencyInstaller, InstallerInvocation, NpmGlobalPrefix};
+use gent_drivers::installer::{DependencyInstaller, NpmGlobalPrefix};
 use gent_ports::{
-    ApprovedPackageInstall, DependencyActionExecutor, DependencyActionExecutorError,
-    DependencyActionOperation, PackageInstallPolicy,
+    DependencyActionExecutor, DependencyActionExecutorError, DependencyActionOperation,
+    PackageInstallPolicy,
 };
-
-/// Returns the exact policy-selected command with no package tag or version range.
-#[allow(dead_code)]
-#[must_use]
-pub(crate) fn invocation(
-    npm: &NpmGlobalPrefix,
-    package: &ApprovedPackageInstall,
-) -> InstallerInvocation {
-    npm.install(package)
-}
 
 /// Shell-free daemon adapter from a signed package policy to the public installer driver.
 #[derive(Clone, Debug)]
@@ -72,7 +62,7 @@ impl<I: DependencyInstaller, P: PackageInstallPolicy> DependencyActionExecutor
                 message: "bundled Node runtime is unavailable; set GENT_NODE_BINARY".into(),
             })?;
         self.installer
-            .execute(&invocation(npm, &package))
+            .install(npm, &package)
             .map_err(|error| DependencyActionExecutorError {
                 message: error.to_string(),
             })
@@ -105,7 +95,7 @@ mod tests {
     use gent_drivers::installer::NpmGlobalPrefix;
     use gent_ports::{ApprovedPackageInstall, DependencyActionExecutor};
 
-    use super::{ObserverDependencyExecutor, invocation};
+    use super::ObserverDependencyExecutor;
 
     #[test]
     fn public_provider_commands_are_fixed_and_shell_free() {
@@ -120,18 +110,17 @@ mod tests {
             PathBuf::from("/private/gentd/providers/npm-global"),
         );
         for (provider, package) in cases {
-            let command = invocation(
-                &npm,
+            let command = npm.pack(
                 &ApprovedPackageInstall {
                     provider: provider.into(),
                     package_name: package.into(),
                     version: "1.2.3".into(),
                     integrity: "sha512-test".into(),
                 },
+                std::path::Path::new("/private/staging"),
             );
             assert_eq!(command.executable, "/app/node/npm");
-            assert_eq!(command.arguments[3], "/private/gentd/providers/npm-global");
-            assert_eq!(command.arguments[4], format!("{package}@1.2.3"));
+            assert_eq!(command.arguments[5], format!("{package}@1.2.3"));
         }
     }
 

@@ -529,6 +529,7 @@ dependencies = [
 name = "gent-drivers"
 version = "0.1.14"
 dependencies = [
+ "base64",
  "gent-ports",
  "gent-testkit",
  "gent-types",

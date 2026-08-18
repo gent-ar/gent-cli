@@ -90,7 +90,7 @@ mod tests {
             runtime
                 .rechecked_npm_prefix()
                 .unwrap()
-                .install(&package())
+                .install_archive(std::path::Path::new("/private/verified.tgz"))
                 .arguments[3]
                 .ends_with("gentd/providers/npm-global")
         );
