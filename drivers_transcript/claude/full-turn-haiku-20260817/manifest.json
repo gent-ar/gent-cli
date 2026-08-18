@@ -1,0 +1,9 @@
+{
+  "format": "gent-driver-transcript-v1",
+  "provider": "claude",
+  "scenario": "full-turn-haiku-20260817",
+  "source": "redacted-live-public-driver-fixture",
+  "recordedAt": "2026-08-18T02:43:46Z",
+  "reviewedAt": "2026-08-18T03:00:00Z",
+  "notes": "One bounded real Haiku full-turn probe. Raw provider output, native session state, executable path, and prompt text are excluded."
+}
