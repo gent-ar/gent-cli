@@ -113,6 +113,21 @@ session state, lifecycle reducers, direct login flows, and provider-specific
 tests that they supported. The app must show Gent-unavailable/reconnect state
 when its host is unavailable; it must never retain a fallback direct driver.
 
+This is a clean removal, not a data migration, compatibility layer, dual-run,
+or legacy bridge. The zero-user cutover has no deployed data to preserve:
+Gent's `.gentd` state is the sole durable source of truth and the app retains
+only its client view. A later Gent CLI/daemon release remains independently
+updateable through the installed pair's signed updater; the app must not need a
+provider-driver release merely because Claude Code, Codex, or Gent changes.
+
+The app bundle may supply Node, but never Claude Code or Codex. On a first
+consented prompt for a missing supported provider, a future approved Gent
+authority owns the private, receipt-backed `npm --global install` into its
+`.gentd/providers/npm-global` prefix, then verifies and locks the executable.
+The app neither invokes nor updates that dependency, and it keeps no fallback
+provider executable. Claurst has no public provisioning path: credentials,
+endpoints, and routing remain private bridge/CI material.
+
 The retained app code is limited to presentation plus app-specific transport,
 IDE, system UI, voice, pairing, relay, and automation behavior. It sends typed
 choices to Gent and renders normalized durable state. CI must assert that the

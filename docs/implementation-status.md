@@ -264,9 +264,10 @@ For the current working-tree context and continuation order, read [the handoff](
    is available until that changes.
 4. [ ] The authenticated Claurst bridge and its CI evidence belong only in app-owned private
    code. Public Gent must never contain Claurst credentials, endpoints, or routing implementation.
-5. [ ] No data upgrade path or deployed fence-aware legacy release is required: this is a
-   zero-user, single-developer cutover. A future Flutter launch must nevertheless enforce protocol
-   compatibility and exactly one active writer/host epoch.
+5. [ ] No data upgrade path, dual-run, compatibility layer, or deployed fence-aware legacy
+   release is required: this is a zero-user, single-developer clean cutover. A future Flutter
+   launch must remove app-resident provider drivers and enforce protocol compatibility and exactly
+   one active writer/host epoch; Gent pair/provider fixes remain independently updateable.
 6. [x] Production release automation has its dedicated GitHub Actions signing secret and matching
    public key/id configuration (`runtime-2026-08`). `v0.1.14` is published with all 46 assets,
    Sigstore sidecars (including the versioned runtime-release index), and successful hosted plus
