@@ -51,6 +51,54 @@ pub struct GoalRecord {
     pub summary: String,
 }
 
+/// A validated active goal copied from the ledger into a provider adapter input.
+///
+/// This is deliberately not a client command or provider result. Only Gent may derive it from a
+/// durable active [`GoalRecord`], and adapters may only use it as bounded context for a prompt.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalProjection {
+    binding: GoalBinding,
+    revision: u64,
+    summary: String,
+}
+
+impl GoalProjection {
+    /// Copies one active, validated ledger goal into a provider-neutral adapter input.
+    ///
+    /// # Errors
+    /// Returns an error if the record is invalid or no longer active.
+    pub fn from_active(goal: &GoalRecord) -> Result<Self, GoalContractError> {
+        goal.validate()?;
+        if goal.status != GoalStatus::Active {
+            return Err(GoalContractError::InactiveGoal);
+        }
+        Ok(Self {
+            binding: goal.binding.clone(),
+            revision: goal.revision,
+            summary: goal.summary.clone(),
+        })
+    }
+
+    /// Returns the immutable goal ownership binding.
+    #[must_use]
+    pub const fn binding(&self) -> &GoalBinding {
+        &self.binding
+    }
+
+    /// Returns the exact durable revision selected by Gent.
+    #[must_use]
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Returns the bounded user-authored goal summary.
+    #[must_use]
+    pub fn summary(&self) -> &str {
+        &self.summary
+    }
+}
+
 impl GoalRecord {
     /// Validates bounded user-owned goal metadata before durable use.
     ///
@@ -103,6 +151,8 @@ impl GoalTransition {
 pub enum GoalContractError {
     #[error("goal metadata is invalid or exceeds its bound")]
     InvalidMetadata,
+    #[error("only an active goal may be projected to a provider adapter")]
+    InactiveGoal,
 }
 
 fn valid_id(value: &str) -> bool {
@@ -117,7 +167,10 @@ fn valid_summary(value: &str) -> bool {
 mod tests {
     use serde_json::json;
 
-    use super::{GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord, GoalStatus, GoalTransition};
+    use super::{
+        GOAL_SCHEMA_VERSION, GoalBinding, GoalContractError, GoalProjection, GoalRecord,
+        GoalStatus, GoalTransition,
+    };
     use crate::{AgentChatConversationId, AgentChatRunId};
 
     fn binding() -> GoalBinding {
@@ -160,5 +213,29 @@ mod tests {
         });
         assert!(serde_json::from_value::<GoalTransition>(value).is_err());
         assert!(GoalStatus::Completed.is_terminal());
+    }
+
+    #[test]
+    fn only_a_valid_active_ledger_goal_can_be_projected_to_an_adapter() {
+        let active = GoalRecord {
+            schema_version: GOAL_SCHEMA_VERSION,
+            binding: binding(),
+            revision: 4,
+            status: GoalStatus::Active,
+            summary: "Complete the safe task".into(),
+        };
+        let projection = GoalProjection::from_active(&active).unwrap();
+        assert_eq!(projection.binding(), &active.binding);
+        assert_eq!(projection.revision(), 4);
+        assert_eq!(projection.summary(), "Complete the safe task");
+
+        let terminal = GoalRecord {
+            status: GoalStatus::Completed,
+            ..active
+        };
+        assert_eq!(
+            GoalProjection::from_active(&terminal),
+            Err(GoalContractError::InactiveGoal)
+        );
     }
 }

@@ -49,6 +49,7 @@ where
         CodexPromptStart {
             working_directory: working_directory.map(str::to_owned),
             prompt: prompt.message.text.clone(),
+            goal: None,
             turn_options,
         },
     ) {
@@ -122,7 +123,7 @@ where
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
     runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch)?;
-    if let Err(error) = runner.submit_codex_prompt(&run_id, &prompt.message.text) {
+    if let Err(error) = runner.submit_codex_prompt(&run_id, &prompt.message.text, None) {
         runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
         return Err(error.into());
     }

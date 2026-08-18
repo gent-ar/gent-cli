@@ -1,4 +1,3 @@
-//! Ports implemented by infrastructure or private integrations.
 use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
@@ -71,8 +70,9 @@ pub use package_install::{
 pub use policy_ledger::PolicyLedger;
 pub use private_claurst_bridge::{
     ClaurstCheckpoint, ClaurstDrainBatch, ClaurstDrainRequest, ClaurstFactValue,
-    ClaurstFailureClassification, ClaurstNormalizedFact, ClaurstSessionBinding, ClaurstSourceId,
-    ClaurstTerminal, MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge,
+    ClaurstFailureClassification, ClaurstGoalProjection, ClaurstNormalizedFact,
+    ClaurstSessionBinding, ClaurstSourceId, ClaurstTerminal, MAX_PRIVATE_CLAURST_DRAIN_FACTS,
+    PrivateClaurstBridge,
 };
 pub use provider_auth_discovery::{
     ProviderAuthAuthentication, ProviderAuthDiscovery, ProviderAuthDiscoveryError,

@@ -8,6 +8,7 @@ pub mod codex_runner;
 pub mod codex_session;
 pub mod codex_turn;
 pub mod discovery;
+pub mod goal_projection;
 pub mod installer;
 pub mod interrupt;
 pub mod launch_spec;

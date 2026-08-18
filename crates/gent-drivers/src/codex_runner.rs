@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use gent_types::RunVersionLock;
+use gent_types::{GoalProjection, RunVersionLock};
 
 use crate::buffering::BufferPolicy;
 use crate::codex_session::CodexSessionConfig;
@@ -25,6 +25,8 @@ pub struct CodexRunStart {
     pub lock: RunVersionLock,
     pub session: CodexSessionConfig,
     pub prompt: String,
+    /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
+    pub goal: Option<GoalProjection>,
 }
 
 /// One provider-neutral fact or final process settlement from a Codex process.
@@ -96,7 +98,8 @@ where
         if start.lock.provider != "codex" {
             return Err(CodexRunnerError::UnsupportedProvider);
         }
-        let (turn, initial) = CodexTurnDriver::start(start.session, start.prompt)?;
+        let (turn, initial) =
+            CodexTurnDriver::start(start.session, &start.prompt, start.goal.as_ref())?;
         let output =
             ProviderOutputPump::new(MAX_OUTPUT_CHUNK_BYTES, MAX_CODEX_FRAME_BYTES, self.policy)?;
         recheck(&start.lock)?;
@@ -151,17 +154,22 @@ where
         Ok(Some(vec![CodexRunnerEffect::Exited { code }]))
     }
 
-    /// Writes one later prompt only after the owned native session reports its prior turn ended.
+    /// Writes one later prompt and its freshly ledger-resolved active goal after the prior turn.
     ///
     /// # Errors
     /// Returns a controlled error if the run is absent, its prior turn is still active, or the
     /// owned process rejects the bounded next-turn frame.
-    pub fn submit_turn(&mut self, run_id: &str, prompt: &str) -> Result<(), CodexRunnerError> {
+    pub fn submit_turn(
+        &mut self,
+        run_id: &str,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
+    ) -> Result<(), CodexRunnerError> {
         let run = self
             .runs
             .get_mut(run_id)
             .ok_or(CodexRunnerError::NotActive)?;
-        for effect in run.turn.submit(prompt)? {
+        for effect in run.turn.submit(prompt, goal)? {
             write(&run.process, effect)?;
         }
         Ok(())

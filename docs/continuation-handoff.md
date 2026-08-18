@@ -8,8 +8,8 @@ does not claim observer-mode `gentd` has live provider authority.
 
 - Repository: `/Users/ivanmatiasfort/Clouseau/gent-cli`, branch `main`, remote
   `git@github.com:gent-ar/gent-cli.git`.
-- There are 54 intentionally staged, uncommitted changes in this batch. Preserve
-  them; never reset, checkout, commit, or push until explicitly authorized.
+- Inspect the Gent worktree before editing. Preserve any staged user work; do
+  not reset or checkout. Commits and pushes require the user's explicit approval.
 - Do not modify `/Users/ivanmatiasfort/Clouseau/clouseau-app` during standalone
   Gent work. Its unrelated dirty files include Mermaid assets, Mux provider,
   agent-chat widgets/tests, and Excalidraw Mermaid.
@@ -56,6 +56,13 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   reservation. Approval rechecks exact plan/digest, parent, epoch, policy,
   receipt/idempotency; clear context records ordinal zero and no native session.
   Observer `gentd` still does not advertise or compose this authority.
+- Durable, provider-neutral conversation goals: a fresh-schema `GoalLedger`,
+  pure revision/epoch reducer, capability-gated IPC, and `gent goal
+  create|read|list|transition`. Positional `/goal <summary>` requires an exact
+  existing conversation/run binding and cannot reach a provider in observer mode.
+- Committed, redacted development driver corpus plus public normalized live
+  full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
+  opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.
 - Clear context creates a child boundary with history ordinal zero; it does not
   delete history or reuse a provider session. Provider switches create child runs.
 - Public driver/process/backpressure/binary-lock/session-normalization seams are
@@ -78,25 +85,28 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Add reviewed-plan evidence/authority composition only after the lifecycle and
+1. Project Gent-owned, revision-fenced active goals into the Claude, Codex, and
+   credential-free private Claurst adapter inputs. Goals are not provider output
+   and Autonomous permission policy does not bypass their authority fences.
+2. Add reviewed-plan evidence/authority composition only after the lifecycle and
    evidence gates; clients never inject provider plans and observer remains absent.
-2. Daemon-owned public Claude/Codex realtime authority: bounded session/process
+3. Daemon-owned public Claude/Codex realtime authority: bounded session/process
    runner, binary recheck before spawn/resume, normalized lifecycle ingress,
    persist-before-broadcast, backpressure, process-tree drain, terminal settle,
    snapshot/delta/reconnect coverage. Keep it unadvertised until proven.
-3. Compose terminal browser parity over the same frames; terminal UI has no
+4. Compose terminal browser parity over the same frames; terminal UI has no
    independent plan, permission, or lifecycle logic.
-4. Provider-auth authority: typed `askTool`, locks, sandboxed edge, live proof.
+5. Provider-auth authority: typed `askTool`, locks, sandboxed edge, live proof.
    Login route selection is public; credential values never cross public IPC.
-5. Private app-owned Claurst bridge plus private CI evidence; then live MCP/Git
+6. Private app-owned Claurst bridge plus private CI evidence; then live MCP/Git
    behind ports and receipts. Gent-canvas/forge are later; pairing/app
    automations stay app-only.
-6. Capture strict real evidence, then seek explicit release authorization and
+7. Capture strict real evidence, then seek explicit release authorization and
    only later begin separately authorized Flutter wiring.
 
 ## Evidence status
 
-- Two Codex cells are recorded. Four strict cells are missing: Claude persistent
+- Two strict Codex cells are recorded. Four strict cells are missing: Claude persistent
   permission, compaction, malformed tolerance, and Codex malformed tolerance.
   Claurst needs private bridge/CI evidence. Never fabricate recordings.
 - Live Claude capture was safely blocked before invocation: Claude Code `2.1.233`
@@ -104,6 +114,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   provider-output fault control was found for malformed-output scenarios.
 - Use `python3 tools/update-public-driver-transcripts.py`; keep captures redacted
   and admitted only through the transcript manifest.
+- The `drivers_transcript/` corpus is a committed, sanitized development asset.
+  Normal Gent sessions never write it; validate it with
+  `python3 tools/validate-driver-transcript-corpus.py`.
 - Do not claim a release for this uncommitted batch. Windows scheduled-task
   execution needs Windows CI and was not run locally on macOS.
 

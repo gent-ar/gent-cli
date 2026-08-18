@@ -190,7 +190,7 @@ For the current working-tree context and continuation order, read [the handoff](
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
-- [x] Enforced 90% workspace line-coverage gate.
+- [ ] CI requires 90% workspace line coverage, but the measured baseline is 89.60%; it is not green and does not establish terminal/app parity.
 - [x] Deterministic release packaging, checksum/manifest verification, portable Ed25519
       runtime-metadata signing, and tag-only GitHub OIDC keyless-signing workflow for `gent` and
       `gentd` artifacts.

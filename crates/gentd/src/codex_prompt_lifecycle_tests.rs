@@ -1,6 +1,8 @@
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-
+use crate::approved_codex_host::ApprovedCodexHost;
+use crate::authority_profile::{AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest};
+use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptExecution};
+use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::public_driver_runtime::PublicDriversRuntime;
 use ed25519_dalek::{Signer, SigningKey};
 use gent_adapters::compatibility::{
     CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest, TrustedKeySet,
@@ -22,18 +24,12 @@ use gent_types::{
     AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, NormalizedLifecycleSignal,
     NormalizedProviderEvent, ReceiptId, RunVersionLock, TurnPhase,
 };
-
-use crate::approved_codex_host::ApprovedCodexHost;
-use crate::authority_profile::{AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest};
-use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptExecution};
-use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::public_driver_runtime::PublicDriversRuntime;
-
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Runner {
     pub(crate) state: Arc<Mutex<State>>,
 }
-
 #[derive(Default, Debug)]
 pub(crate) struct State {
     pending: Option<(String, CodexPromptStart)>,
@@ -44,7 +40,6 @@ pub(crate) struct State {
     submitted: Vec<String>,
     pub(crate) resumes: usize,
 }
-
 impl PublicProviderRunner for Runner {
     fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
@@ -112,7 +107,12 @@ impl CodexPromptExecution for Runner {
         self.state.lock().unwrap().session_active
     }
 
-    fn submit_codex_prompt(&self, _: &str, prompt: &str) -> Result<(), PublicProviderRunError> {
+    fn submit_codex_prompt(
+        &self,
+        _: &str,
+        prompt: &str,
+        _: Option<&gent_types::GoalProjection>,
+    ) -> Result<(), PublicProviderRunError> {
         self.state.lock().unwrap().submitted.push(prompt.into());
         Ok(())
     }

@@ -79,6 +79,7 @@ where
                 run_id: run_id.into(),
                 lock: lock_value.clone(),
                 prompt: prompt.prompt,
+                goal: None,
                 resume_session_id,
             })
             .map_err(map_error)

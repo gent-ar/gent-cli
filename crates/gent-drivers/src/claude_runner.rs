@@ -3,10 +3,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use gent_types::{NormalizedProviderEvent, RunVersionLock};
+use gent_types::{GoalProjection, NormalizedProviderEvent, RunVersionLock};
 
 use crate::PublicProvider;
 use crate::buffering::BufferPolicy;
+use crate::goal_projection::project_prompt;
 use crate::interrupt::ProcessTreeSignal;
 use crate::launch_spec::{LaunchIntent, arguments};
 use crate::lock::{LockError, recheck};
@@ -23,6 +24,8 @@ pub struct ClaudeRunStart {
     pub run_id: String,
     pub lock: RunVersionLock,
     pub prompt: String,
+    /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
+    pub goal: Option<GoalProjection>,
     pub resume_session_id: Option<String>,
 }
 
@@ -168,9 +171,11 @@ fn input_frame(start: &ClaudeRunStart) -> Result<Vec<u8>, ClaudeRunnerError> {
     {
         return Err(ClaudeRunnerError::InvalidPrompt);
     }
+    let prompt = project_prompt(&start.prompt, start.goal.as_ref(), MAX_CLAUDE_FRAME_BYTES)
+        .map_err(|_| ClaudeRunnerError::InvalidPrompt)?;
     let mut value = serde_json::json!({
         "type": "user",
-        "message": { "role": "user", "content": [{ "type": "text", "text": start.prompt }] },
+        "message": { "role": "user", "content": [{ "type": "text", "text": prompt }] },
         "parent_tool_use_id": null,
     });
     if let Some(session_id) = &start.resume_session_id {

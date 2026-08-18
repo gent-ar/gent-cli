@@ -9,6 +9,9 @@ pub(crate) struct DirectPromptArgs {
     pub(crate) prompt: Option<String>,
     #[arg(long, requires = "prompt")]
     pub(crate) conversation_id: Option<String>,
+    /// Required with `--conversation-id` for the positional `/goal <summary>` shorthand.
+    #[arg(long, requires = "prompt")]
+    pub(crate) run_id: Option<String>,
     #[arg(long, value_enum, default_value_t = Provider::Codex, requires = "prompt")]
     pub(crate) provider: Provider,
     #[arg(long, default_value = "default", requires = "prompt")]

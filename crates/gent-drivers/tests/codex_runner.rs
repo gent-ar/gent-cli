@@ -87,6 +87,7 @@ fn start(run_id: &str, root: &Path) -> CodexRunStart {
             turn_options: options(),
         },
         prompt: "hello".into(),
+        goal: None,
     }
 }
 
@@ -197,6 +198,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
             CodexPromptStart {
                 working_directory: Some("/work".into()),
                 prompt: "first".into(),
+                goal: None,
                 turn_options: options(),
             },
         )
@@ -208,6 +210,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                 CodexPromptStart {
                     working_directory: Some("/other".into()),
                     prompt: "must-not-replace".into(),
+                    goal: None,
                     turn_options: options(),
                 },
             )
@@ -244,7 +247,7 @@ fn owned_process_reuses_ready_thread_for_later_prompt() {
         state.output.lock().unwrap().push_back(frame.into());
         runner.poll("run-1").unwrap();
     }
-    runner.submit_turn("run-1", "follow-up").unwrap();
+    runner.submit_turn("run-1", "follow-up", None).unwrap();
     let frame = state.writes.lock().unwrap().last().unwrap().clone();
     let value: serde_json::Value = serde_json::from_slice(&frame[..frame.len() - 1]).unwrap();
     assert_eq!(value["method"], "turn/start");

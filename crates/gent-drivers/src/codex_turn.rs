@@ -3,13 +3,14 @@
 //! The daemon-owned process edge writes only the returned frames and persists only the returned
 //! facts. It never receives raw provider fields, native identities, or unbounded output here.
 
-use gent_types::NormalizedProviderEvent;
+use gent_types::{GoalProjection, NormalizedProviderEvent};
 use serde_json::Value;
 
 use crate::PublicProvider;
 use crate::codex_session::{
     CodexAppServerSession, CodexSessionConfig, CodexSessionError, CodexSessionIngress,
 };
+use crate::goal_projection::project_prompt;
 use crate::public_protocol::{PublicWireFact, normalize_public_frame};
 
 /// Maximum retained Codex app-server line accepted by this driver boundary.
@@ -47,8 +48,11 @@ impl CodexTurnDriver {
     /// Rejects invalid native configuration or an invalid prompt before a process may be started.
     pub fn start(
         config: CodexSessionConfig,
-        prompt: String,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
     ) -> Result<(Self, Vec<CodexTurnEffect>), CodexTurnError> {
+        let prompt =
+            project_prompt(prompt, goal, 65_536).map_err(|_| CodexSessionError::InvalidPrompt)?;
         CodexAppServerSession::validate_prompt(&prompt)?;
         let (session, initialize) = CodexAppServerSession::start(config)?;
         Ok((
@@ -100,13 +104,19 @@ impl CodexTurnDriver {
         Ok(effects)
     }
 
-    /// Encodes one later user turn on the same ready native thread.
+    /// Encodes one later user turn with a freshly ledger-resolved active goal on the ready thread.
     ///
     /// # Errors
     /// Returns an error until the previous turn is terminal or when the prompt is invalid.
-    pub fn submit(&mut self, prompt: &str) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
+    pub fn submit(
+        &mut self,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
+    ) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
+        let prompt =
+            project_prompt(prompt, goal, 65_536).map_err(|_| CodexSessionError::InvalidPrompt)?;
         Ok(vec![CodexTurnEffect::Write(
-            self.session.start_turn(prompt)?,
+            self.session.start_turn(&prompt)?,
         )])
     }
 }

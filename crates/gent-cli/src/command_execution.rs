@@ -68,6 +68,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Plan { action } => {
             print(reviewed_plan_cli::execute(data_dir, no_autostart, action).await?)?;
         }
+        CommandLine::Goal { action } => {
+            print(crate::goal_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
         CommandLine::Permissions { action } => {
             print(permissions_cli::execute(data_dir, no_autostart, action).await?)?;
         }

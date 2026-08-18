@@ -82,6 +82,15 @@ and mode. Gent durably creates the conversation/root run and returns a receipt.
 Sending a prompt submits a receipt/idempotency-bound command to that run. The
 daemon persists the accepted intent before it can launch any provider work.
 
+`/goal <summary>` is a separate, typed Gent command bound to an existing
+conversation/run. Gent validates and durably revisions the active goal, then
+projects that exact revision into each provider adapter as controlled context.
+Claude, Codex, and the credential-free private Claurst bridge may consume that
+projection, but cannot create, rewrite, settle, or retain it as provider state.
+Autonomous is a permission policy, not a goal or authority bypass: it remains
+subject to the same epoch, sandbox, binary-lock, decision, and terminal-settle
+requirements.
+
 The daemon then validates authority, current epoch, permission policy,
 compatibility, sandbox, and locked binary identity. Only after those gates pass
 does it start or reuse its provider session. Every normalized provider fact is
@@ -140,6 +149,9 @@ Before this contract is advertised, implement and prove all of the following:
 - Durable reviewed-plan storage and approval reservation, including policy/epoch
   fences, idempotency, parent/run lineage, clear-context ordinal zero, and
   terminal settlement.
+- Goal-ledger lookup at every provider turn, with only the currently active
+  revision projected into Claude, Codex, or the private Claurst bridge. A goal
+  transition cannot be silently reused as stale provider context.
 - A capability catalog that advertises each live feature only when its concrete
   handler, authority profile, binary lock, sandbox, fixtures, and evidence are
   present. Observer mode must hard-disable every live provider path.

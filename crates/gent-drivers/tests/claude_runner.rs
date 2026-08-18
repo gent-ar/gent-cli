@@ -8,7 +8,10 @@ use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeS
 use gent_drivers::lock::capture;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
-use gent_types::NormalizedProviderEvent;
+use gent_types::{
+    AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalProjection,
+    GoalRecord, GoalStatus, NormalizedProviderEvent,
+};
 
 #[derive(Default)]
 struct State {
@@ -67,8 +70,44 @@ fn start(run_id: &str, root: &Path, session: Option<&str>) -> ClaudeRunStart {
         run_id: run_id.into(),
         lock: capture("claude", &executable, "2.1.0", "entry").unwrap(),
         prompt: "hello".into(),
+        goal: None,
         resume_session_id: session.map(Into::into),
     }
+}
+
+fn goal() -> GoalProjection {
+    GoalProjection::from_active(&GoalRecord {
+        schema_version: GOAL_SCHEMA_VERSION,
+        binding: GoalBinding {
+            goal_id: "goal-1".into(),
+            conversation_id: AgentChatConversationId("conversation-1".into()),
+            run_id: AgentChatRunId("run-1".into()),
+        },
+        revision: 3,
+        status: GoalStatus::Active,
+        summary: "Finish the durable task".into(),
+    })
+    .unwrap()
+}
+
+#[test]
+fn claude_receives_only_the_gent_owned_active_goal_projection() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = ClaudeStreamRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+    );
+    let mut request = start("run-1", directory.path(), None);
+    request.goal = Some(goal());
+    runner.start(request).unwrap();
+
+    let frame: serde_json::Value =
+        serde_json::from_slice(&state.writes.lock().unwrap()[0]).unwrap();
+    let text = frame["message"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("\"goalId\":\"goal-1\""));
+    assert!(text.contains("\"revision\":3"));
+    assert!(text.contains("Obey Gent permissions"));
 }
 
 #[test]

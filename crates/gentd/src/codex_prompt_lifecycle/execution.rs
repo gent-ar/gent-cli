@@ -4,6 +4,7 @@ use gent_drivers::codex_prompt_runner::{CodexPromptRunner, CodexPromptStart};
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
+use gent_types::GoalProjection;
 
 pub(crate) trait CodexPromptExecution: PublicProviderRunner {
     fn prepare_codex_prompt(
@@ -17,8 +18,12 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError>;
     fn has_codex_session(&self, run_id: &str) -> bool;
-    fn submit_codex_prompt(&self, run_id: &str, prompt: &str)
-    -> Result<(), PublicProviderRunError>;
+    fn submit_codex_prompt(
+        &self,
+        run_id: &str,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
+    ) -> Result<(), PublicProviderRunError>;
 }
 
 impl<L, P> CodexPromptExecution for CodexPromptRunner<L, P>
@@ -53,7 +58,8 @@ where
         &self,
         run_id: &str,
         prompt: &str,
+        goal: Option<&GoalProjection>,
     ) -> Result<(), PublicProviderRunError> {
-        self.submit(run_id, prompt)
+        self.submit(run_id, prompt, goal)
     }
 }

@@ -8,9 +8,9 @@ use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
     CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
     CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    Hello, PERMISSION_POLICY_CAPABILITY, PROVIDER_AUTH_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
-    RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY, WireFrame, read_frame,
-    write_frame,
+    GOAL_CAPABILITY, Hello, PERMISSION_POLICY_CAPABILITY, PROVIDER_AUTH_CAPABILITY,
+    REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
+    WireFrame, read_frame, write_frame,
 };
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
 
@@ -78,6 +78,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         "decisions".into(),
         "event-resync".into(),
         EVENT_STREAM_CAPABILITY.into(),
+        GOAL_CAPABILITY.into(),
         "events".into(),
         "host-epoch".into(),
         "receipts".into(),
@@ -100,6 +101,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         "decisions".into(),
         "event-resync".into(),
         EVENT_STREAM_CAPABILITY.into(),
+        GOAL_CAPABILITY.into(),
         "events".into(),
         "host-epoch".into(),
         "receipts".into(),

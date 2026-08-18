@@ -4,7 +4,10 @@
 //! connection configuration, credentials, provider requests, or raw provider payloads.
 
 use async_trait::async_trait;
-use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent};
+use gent_types::{
+    GoalContractError, GoalProjection, GoalRecord, NormalizedLifecycleSignal,
+    NormalizedProviderEvent,
+};
 
 use crate::PortError;
 
@@ -23,6 +26,39 @@ pub struct ClaurstSessionBinding {
     pub run_id: String,
     pub source_id: ClaurstSourceId,
     pub opaque_session_id: String,
+}
+
+/// Secret-free active-goal context for a private Claurst bridge.
+///
+/// It intentionally carries no endpoint, credential, routing, provider-native session, plan, or
+/// provider result. A future daemon composition may deliver this DTO only after the goal ledger
+/// has validated the active record and reserved the run named here.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaurstGoalProjection {
+    pub run_id: String,
+    pub source_id: ClaurstSourceId,
+    pub goal: GoalProjection,
+}
+
+impl ClaurstGoalProjection {
+    /// Maps exactly one durable active goal to its daemon-owned private source.
+    ///
+    /// # Errors
+    /// Returns an error if the record is not an active valid goal or the source is empty.
+    pub fn from_active_goal(
+        source_id: ClaurstSourceId,
+        goal: &GoalRecord,
+    ) -> Result<Self, GoalContractError> {
+        if source_id.0.is_empty() {
+            return Err(GoalContractError::InvalidMetadata);
+        }
+        let goal = GoalProjection::from_active(goal)?;
+        Ok(Self {
+            run_id: goal.binding().run_id.0.clone(),
+            source_id,
+            goal,
+        })
+    }
 }
 
 /// Immutable recovery position, without exposing the private checkpoint material itself.

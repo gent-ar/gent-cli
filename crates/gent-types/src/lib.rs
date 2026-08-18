@@ -84,7 +84,8 @@ pub use event_resume::{EventResume, EventSnapshot};
 pub use external_provider_bridge::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord};
 pub use goal::{
-    GOAL_SCHEMA_VERSION, GoalBinding, GoalContractError, GoalRecord, GoalStatus, GoalTransition,
+    GOAL_SCHEMA_VERSION, GoalBinding, GoalContractError, GoalProjection, GoalRecord, GoalStatus,
+    GoalTransition,
 };
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
@@ -129,7 +130,6 @@ pub struct HostEpoch(pub u64);
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct ReceiptId(pub String);
-
 impl ReceiptId {
     #[must_use]
     pub fn new() -> Self {

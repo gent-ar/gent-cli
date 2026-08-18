@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
-use gent_types::RunVersionLock;
+use gent_types::{GoalProjection, RunVersionLock};
 
 use crate::buffering::BufferPolicy;
 use crate::codex_runner::{
@@ -18,6 +18,8 @@ use crate::supervisor::{ProcessLauncher, ProviderProcess};
 pub struct CodexPromptStart {
     pub working_directory: Option<String>,
     pub prompt: String,
+    /// Optional active goal copied from the Gent ledger before durable run dispatch.
+    pub goal: Option<GoalProjection>,
     pub turn_options: CodexTurnOptions,
 }
 
@@ -82,16 +84,21 @@ where
         lock(&self.runner).poll(run_id).map_err(map_error)
     }
 
-    /// Submits a later prompt on the already-owned, ready Codex native session.
+    /// Submits a later prompt with a freshly ledger-resolved goal on the ready Codex session.
     ///
     /// The daemon must durably mark its dispatch boundary before calling this method. It cannot
     /// launch, select a session, or replace the process.
     ///
     /// # Errors
     /// Returns a controlled failure when no ready owned session can accept the prompt.
-    pub fn submit(&self, run_id: &str, prompt: &str) -> Result<(), PublicProviderRunError> {
+    pub fn submit(
+        &self,
+        run_id: &str,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
+    ) -> Result<(), PublicProviderRunError> {
         lock(&self.runner)
-            .submit_turn(run_id, prompt)
+            .submit_turn(run_id, prompt, goal)
             .map_err(map_error)
     }
 
@@ -120,6 +127,7 @@ where
                     turn_options: prompt.turn_options,
                 },
                 prompt: prompt.prompt,
+                goal: prompt.goal,
             })
             .map_err(map_error)
     }
