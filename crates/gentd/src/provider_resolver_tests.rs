@@ -11,7 +11,7 @@ use gent_ports::{PublicProviderResolver, PublicProviderRunError};
 
 use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::provider_resolver::{
-    DaemonProviderResolver, PrivatePrefixDiscovery, PrivatePrefixFirstDiscovery,
+    CodexOnlyResolver, DaemonProviderResolver, PrivatePrefixDiscovery, PrivatePrefixFirstDiscovery,
 };
 
 #[derive(Clone, Debug)]
@@ -33,15 +33,15 @@ impl VersionProbe for Version {
     }
 }
 
-fn assessment(path: &Path, version: &str) -> CompatibilityAssessment {
-    let observed = capture("claude", path, version, "unbound").unwrap();
+fn assessment(provider: &str, path: &Path, version: &str) -> CompatibilityAssessment {
+    let observed = capture(provider, path, version, "unbound").unwrap();
     let key = SigningKey::from_bytes(&[8; 32]);
     let payload = CompatibilityManifest {
         manifest_version: 1,
         expires_at_unix_seconds: 20,
         entries: vec![CompatibilityEntry {
-            id: "claude-test".into(),
-            provider: "claude".into(),
+            id: format!("{provider}-test"),
+            provider: provider.into(),
             version: version.into(),
             digest_sha256: observed.digest_sha256,
             revoked: false,
@@ -64,7 +64,7 @@ fn resolver_captures_and_binds_only_daemon_observed_identity() {
     let executable = directory.path().join("claude");
     std::fs::write(&executable, "public provider binary").unwrap();
     let resolver = DaemonProviderResolver::new(
-        assessment(&executable, "1.0"),
+        assessment("claude", &executable, "1.0"),
         Found(executable.clone()),
         Version("1.0"),
     );
@@ -86,7 +86,7 @@ fn resolver_rejects_private_or_changed_provider_identity() {
     let executable = directory.path().join("claude");
     std::fs::write(&executable, "before").unwrap();
     let resolver = DaemonProviderResolver::new(
-        assessment(&executable, "1.0"),
+        assessment("claude", &executable, "1.0"),
         Found(executable.clone()),
         Version("1.0"),
     );
@@ -99,6 +99,54 @@ fn resolver_rejects_private_or_changed_provider_identity() {
         resolver.resolve("claude"),
         Err(PublicProviderRunError::CompatibilityDenied)
     );
+}
+
+#[derive(Debug)]
+struct NeverDiscovery;
+
+impl ExecutableDiscovery for NeverDiscovery {
+    fn find(&self, _: &str) -> Result<Option<PathBuf>, DiscoveryError> {
+        panic!("a non-Codex resolver request must not discover an executable")
+    }
+}
+
+#[derive(Debug)]
+struct NeverProbe;
+
+impl VersionProbe for NeverProbe {
+    fn probe(&self, _: &Path, _: &str) -> Result<String, ProbeError> {
+        panic!("a non-Codex resolver request must not probe an executable")
+    }
+}
+
+#[test]
+fn codex_only_resolver_denies_other_providers_before_discovery_or_probe() {
+    let resolver = CodexOnlyResolver::new(DaemonProviderResolver::new(
+        CompatibilityAssessment::default(),
+        NeverDiscovery,
+        NeverProbe,
+    ));
+    for provider in ["claude", "claurst", "gent", ""] {
+        assert_eq!(
+            resolver.resolve(provider),
+            Err(PublicProviderRunError::CompatibilityDenied)
+        );
+    }
+}
+
+#[test]
+fn codex_only_resolver_delegates_a_locked_codex_lookup() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("codex");
+    std::fs::write(&executable, "private Codex binary").unwrap();
+    let resolver = CodexOnlyResolver::new(DaemonProviderResolver::new(
+        assessment("codex", &executable, "0.147.0"),
+        Found(executable),
+        Version("0.147.0"),
+    ));
+    let lock = resolver.resolve("codex").unwrap();
+    assert_eq!(lock.provider, "codex");
+    assert_eq!(lock.compatibility_entry, "codex-test");
 }
 
 #[test]

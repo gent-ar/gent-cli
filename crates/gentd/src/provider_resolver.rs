@@ -57,6 +57,32 @@ impl<D: ExecutableDiscovery, P: VersionProbe> PublicProviderResolver
     }
 }
 
+/// Provider-scoped resolver for a future approved Codex composition.
+///
+/// The wrapper rejects every other public or private provider before delegation, so an approved
+/// Codex record cannot cause Claude discovery or probing.
+#[derive(Debug)]
+pub(crate) struct CodexOnlyResolver<D, P> {
+    inner: DaemonProviderResolver<D, P>,
+}
+
+impl<D, P> CodexOnlyResolver<D, P> {
+    /// Binds an already configured daemon resolver without performing discovery or probing.
+    #[must_use]
+    pub(crate) const fn new(inner: DaemonProviderResolver<D, P>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<D: ExecutableDiscovery, P: VersionProbe> PublicProviderResolver for CodexOnlyResolver<D, P> {
+    fn resolve(&self, provider: &str) -> Result<RunVersionLock, PublicProviderRunError> {
+        if provider != "codex" {
+            return Err(PublicProviderRunError::CompatibilityDenied);
+        }
+        self.inner.resolve(provider)
+    }
+}
+
 fn public_provider(provider: &str) -> Result<PublicProvider, PublicProviderRunError> {
     match provider {
         "claude" => Ok(PublicProvider::Claude),
