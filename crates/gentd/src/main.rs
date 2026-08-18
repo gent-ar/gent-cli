@@ -30,6 +30,8 @@ mod claude_prompt_lifecycle_tests;
 mod codex_authority_composition;
 #[allow(dead_code)]
 mod codex_authority_preflight;
+#[allow(dead_code)]
+mod codex_authority_supervisor;
 #[cfg(test)]
 mod codex_goal_projection_tests;
 #[allow(dead_code)]

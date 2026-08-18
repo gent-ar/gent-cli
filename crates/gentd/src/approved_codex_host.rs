@@ -61,6 +61,12 @@ where
         self.lifecycle.recover(self.host_epoch)
     }
 
+    /// Returns the number of owned processes that would require an explicit drain on shutdown.
+    #[must_use]
+    pub(crate) fn active_len(&self) -> usize {
+        self.lifecycle.active_len()
+    }
+
     /// Polls a bounded active snapshot before claiming at most one additional prompt.
     pub(crate) fn tick(&mut self) -> Result<ApprovedCodexTick, RuntimeError> {
         let batch = self.lifecycle.poll_active(self.host_epoch, self.max_active);
