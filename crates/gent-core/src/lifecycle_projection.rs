@@ -275,4 +275,26 @@ mod tests {
         let lifecycle = reduce_lifecycle(lifecycle, LifecycleEvent::RootPhase(TurnPhase::Ready));
         assert!(crate::live_status(&lifecycle, 2).is_waiting_for_subagents);
     }
+
+    #[test]
+    fn root_activity_and_child_completion_project_without_an_error() {
+        let state = project_normalized_event(
+            LifecycleProjection::default(),
+            1,
+            &NormalizedProviderEvent::RootActivity {
+                activity: gent_types::RootActivity::Waiting,
+            },
+        )
+        .state;
+        let state = project_normalized_event(
+            state,
+            2,
+            &NormalizedProviderEvent::ChildTerminal {
+                child_id: "child".into(),
+                phase: WorkPhase::Done,
+            },
+        )
+        .state;
+        assert!(!projected_live_status(&state).has_error);
+    }
 }

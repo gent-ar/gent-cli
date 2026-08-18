@@ -20,6 +20,9 @@ use crate::authority_profile::{
     ValidatedAuthorityProfile,
 };
 use crate::claude_authority_preflight::{self, ClaudeAuthorityPreflightError};
+use crate::claude_authority_supervisor::{
+    PrivateClaudeEscalation, PrivateClaudeShutdown, PrivateClaudeSupervisor, PrivateClaudeWake,
+};
 use crate::claude_private_resolver::ClaudeOnlyResolver;
 use crate::claude_prompt_lifecycle::{ClaudePromptRunner, SandboxedClaudePromptExecution};
 use crate::provider_resolver::{
@@ -50,15 +53,16 @@ pub(crate) struct PrivateClaudeAuthorityConfig<S> {
     pub(crate) sandbox_preflight: S,
 }
 
-type PrivateClaudeHostInner<S> = ApprovedClaudeHost<
-    SqliteLedger,
-    SandboxedClaudePromptExecution<ClaudePromptRunner<SystemLauncher, SystemProcess>, S>,
-    ClaudeOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
->;
+type SandboxedClaudeRunner<S> =
+    SandboxedClaudePromptExecution<ClaudePromptRunner<SystemLauncher, SystemProcess>, S>;
 
 /// Private authority host whose lifecycle is inseparable from its sandbox attestation.
 pub(crate) struct PrivateClaudeAuthorityHost<S> {
-    host: PrivateClaudeHostInner<S>,
+    supervisor: PrivateClaudeSupervisor<
+        SqliteLedger,
+        SandboxedClaudeRunner<S>,
+        ClaudeOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
+    >,
     attestation: SandboxLaunchAttestation,
 }
 
@@ -72,24 +76,23 @@ where
         &self.attestation
     }
 
-    /// Reconciles durable pre-launch claims while retaining the required sandbox gate.
-    pub(crate) fn recover(&self) -> Result<(), gent_runtime::RuntimeError> {
-        self.host.recover()
+    /// Drives one recovery/tick/drain pass through the only private lifecycle owner.
+    pub(crate) fn wake(&mut self) -> Result<PrivateClaudeWake, gent_runtime::RuntimeError> {
+        self.supervisor.wake()
     }
 
-    /// Runs one bounded lifecycle pass while retaining the required sandbox gate.
-    pub(crate) fn tick(
+    /// Starts a durable process-tree drain without accepting another provider prompt.
+    pub(crate) fn request_shutdown(
         &mut self,
-    ) -> Result<crate::claude_prompt_lifecycle::ClaudeLifecycleTick, gent_runtime::RuntimeError>
-    {
-        self.host.tick()
+    ) -> Result<PrivateClaudeShutdown, gent_runtime::RuntimeError> {
+        self.supervisor.request_shutdown()
     }
 
-    /// Drains owned provider processes without accepting another prompt.
-    pub(crate) fn drain(
+    /// Advances a caller-timed process-tree escalation ladder.
+    pub(crate) fn escalate_shutdown(
         &mut self,
-    ) -> Result<crate::approved_claude_host::ApprovedClaudeDrain, gent_runtime::RuntimeError> {
-        self.host.drain()
+    ) -> Result<PrivateClaudeEscalation, gent_runtime::RuntimeError> {
+        self.supervisor.escalate_shutdown()
     }
 }
 
@@ -170,12 +173,12 @@ where
     )?
     .with_active_goal_resolver(goals);
     Ok(PrivateClaudeAuthorityHost {
-        host: ApprovedClaudeHost::new(
+        supervisor: PrivateClaudeSupervisor::new(ApprovedClaudeHost::new(
             runtime,
             config.coordinator_id,
             config.host_epoch,
             MAX_ACTIVE_CLAUDE_RUNS,
-        ),
+        )),
         attestation,
     })
 }

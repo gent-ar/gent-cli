@@ -167,6 +167,54 @@ fn invalid_inputs_and_failed_responses_are_bounded_and_secret_free() {
 }
 
 #[test]
+fn malformed_or_out_of_order_frames_leave_the_handshake_bounded() {
+    let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
+    assert_eq!(
+        session.start_turn("too early"),
+        Err(CodexSessionError::ThreadNotReady)
+    );
+    assert_eq!(
+        session.receive(&json!({})),
+        Err(CodexSessionError::MalformedResponse)
+    );
+    assert_eq!(
+        session.receive(&json!({"id": 1})),
+        Err(CodexSessionError::MalformedResponse)
+    );
+    assert_eq!(
+        session.receive(&json!({"method": "turn/started"})).unwrap(),
+        CodexSessionIngress::Ignored
+    );
+    let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
+    assert_eq!(
+        session.receive(&json!({"id": 2, "result": {"thread": {"id": ""}}})),
+        Err(CodexSessionError::MalformedResponse)
+    );
+}
+
+#[test]
+fn native_connection_fields_reject_empty_and_unbounded_values() {
+    for resume_thread_id in [Some(String::new()), Some("x".repeat(513))] {
+        assert_eq!(
+            CodexAppServerSession::start(CodexSessionConfig {
+                working_directory: None,
+                resume_thread_id,
+                turn_options: options(AgentChatMode::Ask),
+            }),
+            Err(CodexSessionError::InvalidThreadId)
+        );
+    }
+    assert_eq!(
+        CodexAppServerSession::start(CodexSessionConfig {
+            working_directory: Some("x".repeat(4_097)),
+            resume_thread_id: None,
+            turn_options: options(AgentChatMode::Ask),
+        }),
+        Err(CodexSessionError::InvalidWorkingDirectory)
+    );
+}
+
+#[test]
 fn selection_options_reject_other_providers_and_preserve_safe_sandbox_modes() {
     assert_eq!(
         CodexTurnOptions::from_selection(

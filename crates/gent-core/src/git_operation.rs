@@ -48,5 +48,9 @@ mod tests {
             GitOperationPhase::Interrupted,
             GitOperationPhase::Interrupted
         ));
+        assert!(!permits_git_operation_transition(
+            GitOperationPhase::Requested,
+            GitOperationPhase::Succeeded
+        ));
     }
 }
