@@ -32,8 +32,9 @@ pub use decision_settlement::{
 };
 pub use git_operation::permits_git_operation_transition;
 pub use goal::{
-    GoalControlContext, GoalControlEffect, GoalControlEvent, GoalControlRejection,
-    GoalControlState, reduce_goal_control,
+    ActiveGoalRejection, ActiveGoalSelection, GoalControlContext, GoalControlEffect,
+    GoalControlEvent, GoalControlRejection, GoalControlState, reduce_goal_control,
+    select_active_goal,
 };
 pub use lifecycle_projection::{
     LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,

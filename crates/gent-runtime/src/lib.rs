@@ -20,6 +20,8 @@ mod events;
 mod git_operations;
 mod git_status;
 mod git_status_events;
+#[cfg(test)]
+mod goal_projection_tests;
 mod goals;
 mod legacy_observer;
 mod mcp_connectors;

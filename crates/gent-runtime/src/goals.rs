@@ -1,11 +1,11 @@
 //! Observer-gated coordination of durable, provider-neutral user goals.
 
 use gent_core::{
-    GoalControlContext, GoalControlEffect, GoalControlEvent, GoalControlRejection,
-    GoalControlState, reduce_goal_control,
+    ActiveGoalSelection, GoalControlContext, GoalControlEffect, GoalControlEvent,
+    GoalControlRejection, GoalControlState, reduce_goal_control, select_active_goal,
 };
-use gent_ports::{GoalLedger, GoalWrite};
-use gent_types::{GoalBinding, GoalRecord, GoalTransition};
+use gent_ports::{ActiveGoalResolver, GoalLedger, GoalWrite, LedgerError};
+use gent_types::{GoalBinding, GoalProjection, GoalRecord, GoalTransition};
 
 use crate::RuntimeError;
 
@@ -132,10 +132,33 @@ impl<L: GoalLedger> GoalService<L> {
     }
 }
 
+impl<L: GoalLedger + std::fmt::Debug> ActiveGoalResolver for GoalService<L> {
+    fn resolve_active_goal(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<Option<GoalProjection>, LedgerError> {
+        if self.authority != GoalAuthority::Approved {
+            return Ok(None);
+        }
+        match select_active_goal(
+            &self.ledger.conversation_goals(conversation_id)?,
+            conversation_id,
+            run_id,
+        ) {
+            ActiveGoalSelection::None => Ok(None),
+            ActiveGoalSelection::Goal(goal) => Ok(Some(goal)),
+            ActiveGoalSelection::Rejected(_) => Err(LedgerError::Invariant(
+                "active goal state is unsafe to project".into(),
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gent_core::GoalControlContext;
-    use gent_ports::{GoalLedger, GoalWrite, LedgerError};
+    use gent_ports::{ActiveGoalResolver, GoalLedger, GoalWrite, LedgerError};
     use gent_types::{
         AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord,
         GoalStatus, GoalTransition, HostEpoch,
@@ -143,6 +166,7 @@ mod tests {
 
     use super::{GoalAuthority, GoalResult, GoalService};
 
+    #[derive(Debug)]
     struct PanicLedger;
 
     impl GoalLedger for PanicLedger {
@@ -214,6 +238,12 @@ mod tests {
         assert_eq!(
             service.list("conversation-1").unwrap(),
             GoalResult::DeniedObserver
+        );
+        assert_eq!(
+            service
+                .resolve_active_goal("conversation-1", "run-1")
+                .unwrap(),
+            None
         );
     }
 }

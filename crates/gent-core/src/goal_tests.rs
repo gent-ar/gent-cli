@@ -4,8 +4,9 @@ use gent_types::{
 };
 
 use super::{
-    GoalControlContext, GoalControlEffect, GoalControlEvent, GoalControlRejection,
-    GoalControlState, reduce_goal_control,
+    ActiveGoalRejection, ActiveGoalSelection, GoalControlContext, GoalControlEffect,
+    GoalControlEvent, GoalControlRejection, GoalControlState, reduce_goal_control,
+    select_active_goal,
 };
 
 fn context() -> GoalControlContext {
@@ -92,5 +93,58 @@ fn rejects_stale_and_terminal_goal_changes() {
     assert_eq!(
         effect,
         GoalControlEffect::Rejected(GoalControlRejection::TerminalGoal)
+    );
+}
+
+#[test]
+fn selection_omits_terminal_and_stale_goals_but_uses_the_current_exact_revision() {
+    let current = GoalRecord {
+        revision: 4,
+        ..record()
+    };
+    let terminal = GoalRecord {
+        revision: 2,
+        status: GoalStatus::Completed,
+        ..record()
+    };
+    let stale = GoalRecord {
+        binding: GoalBinding {
+            run_id: AgentChatRunId("old-run".into()),
+            ..binding()
+        },
+        ..record()
+    };
+    assert_eq!(
+        select_active_goal(&[terminal, stale, current], "conversation-1", "run-1"),
+        ActiveGoalSelection::Goal(
+            gent_types::GoalProjection::from_active(&GoalRecord {
+                revision: 4,
+                ..record()
+            })
+            .unwrap()
+        )
+    );
+}
+
+#[test]
+fn selection_rejects_ambiguous_or_malformed_matching_active_goals() {
+    let other = GoalRecord {
+        binding: GoalBinding {
+            goal_id: "goal-2".into(),
+            ..binding()
+        },
+        ..record()
+    };
+    assert_eq!(
+        select_active_goal(&[record(), other], "conversation-1", "run-1"),
+        ActiveGoalSelection::Rejected(ActiveGoalRejection::AmbiguousActiveGoals)
+    );
+    let malformed = GoalRecord {
+        summary: String::new(),
+        ..record()
+    };
+    assert_eq!(
+        select_active_goal(&[malformed], "conversation-1", "run-1"),
+        ActiveGoalSelection::Rejected(ActiveGoalRejection::InvalidActiveGoal)
     );
 }

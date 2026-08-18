@@ -34,10 +34,12 @@ pub(crate) struct Runner {
 pub(crate) struct State {
     pending: Option<(String, CodexPromptStart)>,
     pub(crate) starts: usize,
-    effects: VecDeque<Vec<CodexRunnerEffect>>,
+    pub(crate) effects: VecDeque<Vec<CodexRunnerEffect>>,
     pub(crate) poll_failure: bool,
     session_active: bool,
-    submitted: Vec<String>,
+    pub(crate) submitted: Vec<String>,
+    pub(crate) prepared_goals: Vec<Option<gent_types::GoalProjection>>,
+    pub(crate) submitted_goals: Vec<Option<gent_types::GoalProjection>>,
     pub(crate) resumes: usize,
 }
 impl PublicProviderRunner for Runner {
@@ -84,6 +86,7 @@ impl CodexPromptExecution for Runner {
         if state.pending.is_some() {
             return Err(PublicProviderRunError::Failed("duplicate prompt".into()));
         }
+        state.prepared_goals.push(prompt.goal.clone());
         state.pending = Some((run_id, prompt));
         Ok(())
     }
@@ -102,7 +105,6 @@ impl CodexPromptExecution for Runner {
         }
         Ok(state.effects.pop_front())
     }
-
     fn has_codex_session(&self, _: &str) -> bool {
         self.state.lock().unwrap().session_active
     }
@@ -111,13 +113,14 @@ impl CodexPromptExecution for Runner {
         &self,
         _: &str,
         prompt: &str,
-        _: Option<&gent_types::GoalProjection>,
+        goal: Option<&gent_types::GoalProjection>,
     ) -> Result<(), PublicProviderRunError> {
-        self.state.lock().unwrap().submitted.push(prompt.into());
+        let mut state = self.state.lock().unwrap();
+        state.submitted.push(prompt.into());
+        state.submitted_goals.push(goal.cloned());
         Ok(())
     }
 }
-
 #[derive(Debug)]
 pub(crate) struct Resolver;
 
@@ -128,7 +131,6 @@ impl PublicProviderResolver for Resolver {
             .ok_or(PublicProviderRunError::CompatibilityDenied)
     }
 }
-
 pub(crate) fn lock() -> RunVersionLock {
     RunVersionLock {
         provider: "codex".into(),
@@ -139,7 +141,6 @@ pub(crate) fn lock() -> RunVersionLock {
         compatibility_entry: "codex-0.144.1".into(),
     }
 }
-
 pub(crate) fn compatibility() -> CompatibilityAssessment {
     let key = SigningKey::from_bytes(&[7; 32]);
     let payload = CompatibilityManifest {
@@ -181,7 +182,7 @@ pub(crate) fn profile(
     .unwrap()
 }
 
-fn selection() -> AgentChatSelection {
+pub(crate) fn selection() -> AgentChatSelection {
     AgentChatSelection {
         provider: AgentChatProvider::Codex,
         model: "gpt-5.6".into(),
@@ -289,7 +290,6 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let state = runner.state.lock().unwrap();
     assert_eq!(state.starts, 1);
     assert_eq!(state.submitted, ["follow up"]);
-    drop(state);
     assert!(
         ledger
             .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)

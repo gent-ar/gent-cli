@@ -60,6 +60,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   pure revision/epoch reducer, capability-gated IPC, and `gent goal
   create|read|list|transition`. Positional `/goal <summary>` requires an exact
   existing conversation/run binding and cannot reach a provider in observer mode.
+- The dormant approved public-driver seam can inject a fresh active-goal resolver
+  per Claude/Codex turn; terminal, stale, malformed, ambiguous, or mismatched
+  goals are omitted/rejected before a runner. Bootstrap still injects no resolver.
 - Committed, redacted development driver corpus plus public normalized live
   full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
   opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.

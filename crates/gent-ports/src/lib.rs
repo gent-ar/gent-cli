@@ -2,6 +2,7 @@ use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
+mod active_goal_resolver;
 mod agent_chat_ledger;
 mod attachment_blobs;
 mod attachment_ledger;
@@ -36,6 +37,7 @@ pub mod runtime_update;
 mod tool_source_ledger;
 mod transcript_ledger;
 mod workspace_ledger;
+pub use active_goal_resolver::ActiveGoalResolver;
 pub use agent_chat_ledger::{
     AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatReadLedger,
     AgentChatSelectionLedger,
@@ -245,15 +247,11 @@ pub trait Ledger: Send + Sync {
     /// Returns an error when the run cannot be read.
     fn find_run(&self, run_id: &str) -> Result<Option<RunRecord>, LedgerError>;
     /// Persists the immutable executable identity attributed to a run.
-    ///
-    /// # Errors
-    /// Returns an error if the run does not exist, already has a lock, or persistence fails.
+    /// # Errors: Returns an error if the run does not exist, already has a lock, or persistence fails.
     fn save_run_version_lock(&self, run_id: &str, lock: &RunVersionLock)
     -> Result<(), LedgerError>;
     /// Reads the immutable executable identity attributed to a run.
-    ///
-    /// # Errors
-    /// Returns an error when the lock cannot be read.
+    /// # Errors: Returns an error when the lock cannot be read.
     fn find_run_version_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, LedgerError>;
     /// Persists a provider-native session reported by the daemon for a durable run.
     /// It is idempotent only when identical; a conflicting binding is rejected.

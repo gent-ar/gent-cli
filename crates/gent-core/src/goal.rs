@@ -1,6 +1,6 @@
 //! Pure state reduction for one durable, provider-neutral user goal.
 
-use gent_types::{GoalBinding, GoalRecord, GoalStatus, GoalTransition};
+use gent_types::{GoalBinding, GoalProjection, GoalRecord, GoalStatus, GoalTransition};
 
 /// Trusted active scope supplied by a future daemon composition root.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,6 +59,50 @@ pub enum GoalControlRejection {
     RevisionMismatch,
     TerminalGoal,
     ActiveStatusRequired,
+}
+
+/// Closed result of selecting the one active goal that can reach an adapter turn.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActiveGoalSelection {
+    None,
+    Goal(GoalProjection),
+    Rejected(ActiveGoalRejection),
+}
+
+/// Fail-closed reasons for an unsafe active-goal candidate set.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActiveGoalRejection {
+    InvalidActiveGoal,
+    AmbiguousActiveGoals,
+}
+
+/// Selects one valid active goal for the exact durable conversation and run.
+///
+/// Terminal, stale-run, and other-conversation records are intentionally omitted. Multiple active
+/// records or a malformed matching active record fail closed rather than selecting arbitrarily.
+#[must_use]
+pub fn select_active_goal(
+    records: &[GoalRecord],
+    conversation_id: &str,
+    run_id: &str,
+) -> ActiveGoalSelection {
+    let mut selected = None;
+    for record in records {
+        if record.binding.conversation_id.0 != conversation_id || record.binding.run_id.0 != run_id
+        {
+            continue;
+        }
+        if record.status.is_terminal() {
+            continue;
+        }
+        let Ok(projection) = GoalProjection::from_active(record) else {
+            return ActiveGoalSelection::Rejected(ActiveGoalRejection::InvalidActiveGoal);
+        };
+        if selected.replace(projection).is_some() {
+            return ActiveGoalSelection::Rejected(ActiveGoalRejection::AmbiguousActiveGoals);
+        }
+    }
+    selected.map_or(ActiveGoalSelection::None, ActiveGoalSelection::Goal)
 }
 
 /// Reduces one user-owned goal command without I/O, clocks, or provider access.

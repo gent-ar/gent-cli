@@ -36,6 +36,7 @@ where
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
     let turn_options = gent_drivers::codex_session::CodexTurnOptions::from_selection(
         &runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?,
         working_directory,
@@ -49,7 +50,7 @@ where
         CodexPromptStart {
             working_directory: working_directory.map(str::to_owned),
             prompt: prompt.message.text.clone(),
-            goal: None,
+            goal,
             turn_options,
         },
     ) {
@@ -122,8 +123,9 @@ where
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
     runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch)?;
-    if let Err(error) = runner.submit_codex_prompt(&run_id, &prompt.message.text, None) {
+    if let Err(error) = runner.submit_codex_prompt(&run_id, &prompt.message.text, goal.as_ref()) {
         runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
         return Err(error.into());
     }

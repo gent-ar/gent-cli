@@ -1,15 +1,12 @@
-//! Dormant composition edge for a separately approved public-driver host.
-//!
-//! `main` never constructs this type. It exists so the future authority handoff has one typed
-//! place to bind an approved profile, a signed compatibility envelope, process ports, lifecycle
-//! facts, and activity facts without adding an alternate startup switch to the observer daemon.
-
-use std::sync::Arc;
-
+//! Dormant, separately approved public-driver composition edge; `main` never constructs it.
+use crate::authority_profile::ValidatedAuthorityProfile;
+use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::provider_effects::ProviderEffectDispatcher;
 use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
 use gent_ports::{
-    AgentChatPromptDispatchLedger, AgentChatReadLedger, ConversationActivityLedger, Ledger,
-    PublicProviderResolver, PublicProviderRunner, RunProjectionLedger, TranscriptLedger,
+    ActiveGoalResolver, AgentChatPromptDispatchLedger, AgentChatReadLedger,
+    ConversationActivityLedger, Ledger, PublicProviderResolver, PublicProviderRunner,
+    RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{
     AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult,
@@ -19,16 +16,10 @@ use gent_runtime::{
     Coordinator, ProviderActivityFact, ProviderActivityIngress, ProviderRunAuthority,
     PublicRunService, RuntimeError,
 };
-use gent_types::{AgentChatProvider, AgentChatSelection, HostEpoch, RunLiveStatus};
+use gent_types::{AgentChatProvider, AgentChatSelection, GoalProjection, HostEpoch, RunLiveStatus};
+use std::sync::Arc;
 
-use crate::authority_profile::ValidatedAuthorityProfile;
-use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::provider_effects::ProviderEffectDispatcher;
-
-/// A fact emitted at the public-driver process boundary.
-///
-/// Each variant keeps its own durable source identity. Activity facts cannot share an event ID
-/// with lifecycle facts because they have distinct source schemas and idempotency contracts.
+/// A fact emitted at the public-driver process boundary with its own durable source identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PublicDriverFact {
     SessionEffect {
@@ -43,8 +34,6 @@ pub(crate) enum PublicDriverFact {
     /// A daemon-mapped transcript fact. The daemon, not the driver, supplies durable IDs.
     Transcript(AgentChatTranscriptAppendRequest),
 }
-
-/// Result of persisting a public-driver fact through its typed ingress.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PublicDriverFactResult {
     Lifecycle(Option<RunLiveStatus>),
@@ -52,7 +41,6 @@ pub(crate) enum PublicDriverFactResult {
     Transcript(AgentChatTranscriptAppendResult),
 }
 
-/// Refuses authority composition before profile and compatibility bindings agree.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub(crate) enum PublicDriversRuntimeError {
     #[error("the observer profile cannot construct public-driver authority")]
@@ -63,10 +51,7 @@ pub(crate) enum PublicDriversRuntimeError {
     CompatibilityManifestMismatch,
 }
 
-/// A fully injected, authority-gated public-driver runtime.
-///
-/// It is deliberately not a `RuntimeFacade`: the shipped facade uses the hard observer service.
-/// A reviewed future composition must explicitly select this value after all evidence gates pass.
+/// A fully injected, authority-gated runtime deliberately absent from `RuntimeFacade`.
 #[derive(Debug)]
 pub(crate) struct PublicDriversRuntime<L, D, R> {
     runs: Arc<PublicRunService<L, D, CompatibilityAssessment, R>>,
@@ -76,6 +61,7 @@ pub(crate) struct PublicDriversRuntime<L, D, R> {
     transcripts: AgentChatTranscriptIngress<L>,
     dispatches: AgentChatPromptDispatchService<L>,
     reads: AgentChatReadService<L>,
+    goal_resolver: Option<Arc<dyn ActiveGoalResolver>>,
 }
 
 impl<L, D, R> PublicDriversRuntime<L, D, R>
@@ -89,11 +75,7 @@ where
     D: PublicProviderRunner + Clone,
     R: PublicProviderResolver,
 {
-    /// Binds only a validated approved profile to one verified compatibility envelope and ports.
-    ///
-    /// # Errors
-    /// Returns an error before resolver or runner construction becomes reachable when the profile
-    /// is observer-only or its immutable approved digest differs from verified local material.
+    /// Binds a validated approved profile to one verified compatibility envelope and ports.
     pub(crate) fn new(
         profile: ValidatedAuthorityProfile,
         coordinator: Coordinator<L>,
@@ -150,6 +132,29 @@ where
                 AgentChatPromptDispatchAuthority::Approved,
             ),
             reads: AgentChatReadService::new(ledger),
+            goal_resolver: None,
+        })
+    }
+
+    #[must_use]
+    pub(crate) fn with_active_goal_resolver(
+        mut self,
+        resolver: Arc<dyn ActiveGoalResolver>,
+    ) -> Self {
+        self.goal_resolver = Some(resolver);
+        self
+    }
+
+    /// Resolves fresh goal context immediately before a daemon-owned provider turn.
+    pub(crate) fn active_goal_for(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<Option<GoalProjection>, RuntimeError> {
+        self.goal_resolver.as_ref().map_or(Ok(None), |resolver| {
+            resolver
+                .resolve_active_goal(conversation_id, run_id)
+                .map_err(RuntimeError::from)
         })
     }
 
@@ -166,10 +171,6 @@ where
     }
 
     /// Persists one runner-owned source fact through its matching durable ingress.
-    ///
-    /// # Errors
-    /// Returns an error when the run lease, epoch fence, session ordering, or activity projection
-    /// rejects the owned fact.
     pub(crate) fn record(
         &self,
         run_id: String,

@@ -33,10 +33,12 @@ where
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
     if let Err(error) = runner.prepare_claude_prompt(
         run_id.clone(),
         ClaudePromptStart {
             prompt: prompt.message.text.clone(),
+            goal,
         },
     ) {
         runtime.release_prompt_claim(&message_id, coordinator_id, host_epoch)?;
