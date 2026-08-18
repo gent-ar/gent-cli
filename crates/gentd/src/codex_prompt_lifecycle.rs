@@ -20,9 +20,11 @@ use crate::public_driver_runtime::{PublicDriverFact, PublicDriversRuntime};
 
 mod activity;
 mod execution;
+mod sandboxed_execution;
 mod scheduler;
 mod start;
 pub(crate) use execution::CodexPromptExecution;
+pub(crate) use sandboxed_execution::SandboxedCodexPromptExecution;
 
 /// Outcome of claiming and attempting one durable Codex prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]

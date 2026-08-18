@@ -79,8 +79,8 @@ pub use policy_ledger::PolicyLedger;
 pub use private_claurst_bridge::{
     ClaurstCheckpoint, ClaurstDrainBatch, ClaurstDrainRequest, ClaurstFactValue,
     ClaurstFailureClassification, ClaurstGoalProjection, ClaurstNormalizedFact,
-    ClaurstSessionBinding, ClaurstSourceId, ClaurstTerminal, MAX_PRIVATE_CLAURST_DRAIN_FACTS,
-    PrivateClaurstBridge,
+    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstTerminal,
+    MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge,
 };
 pub use provider_auth_discovery::{
     ProviderAuthAuthentication, ProviderAuthDiscovery, ProviderAuthDiscoveryError,
@@ -94,6 +94,8 @@ pub use run_checkpoint_ledger::RunCheckpointLedger;
 pub use run_projections::RunProjectionLedger;
 pub use run_sessions::RunSessionBinding;
 pub use run_version_authorizer::RunVersionAuthorizer;
+#[rustfmt::skip]
+pub use sandboxed_provider_preflight::{SandboxedProviderPreflight, SandboxedProviderPreflightError};
 pub use tool_source_ledger::ToolSourceLedger;
 pub use transcript_ledger::TranscriptLedger;
 pub use turn_follow::{TurnFollowPage, TurnFollowReader};
@@ -257,7 +259,6 @@ pub trait Ledger: Send + Sync {
     fn find_run_version_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, LedgerError>;
     /// Persists a provider-native session reported by the daemon for a durable run.
     /// It is idempotent only when identical; a conflicting binding is rejected.
-    ///
     /// # Errors
     /// Returns an error when binding persistence is unsupported or fails.
     fn save_run_session_binding(&self, binding: &RunSessionBinding) -> Result<(), LedgerError> {
@@ -267,7 +268,6 @@ pub trait Ledger: Send + Sync {
         ))
     }
     /// Reads the daemon-owned provider session identity to use for resume.
-    ///
     /// # Errors
     /// Returns an error when the binding cannot be read.
     fn find_run_session_binding(

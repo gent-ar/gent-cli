@@ -5,8 +5,8 @@
 
 use async_trait::async_trait;
 use gent_types::{
-    GoalContractError, GoalProjection, GoalRecord, NormalizedLifecycleSignal,
-    NormalizedProviderEvent,
+    FrozenConversationContext, GoalContractError, GoalProjection, GoalRecord,
+    NormalizedLifecycleSignal, NormalizedProviderEvent,
 };
 
 use crate::PortError;
@@ -26,6 +26,47 @@ pub struct ClaurstSessionBinding {
     pub run_id: String,
     pub source_id: ClaurstSourceId,
     pub opaque_session_id: String,
+}
+
+/// Daemon-owned initial input for one private Claurst session.
+///
+/// This is deliberately an in-process private-port value, not a public IPC frame. It contains
+/// only Gent-owned normalized prompt/context/goal inputs; endpoint, credentials, routing, raw
+/// provider plans, and native options remain outside the public repository contract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaurstStartRequest {
+    pub run_id: String,
+    pub source_id: ClaurstSourceId,
+    pub turn_id: String,
+    pub prompt: String,
+    pub context: FrozenConversationContext,
+    pub goal: Option<ClaurstGoalProjection>,
+}
+
+impl ClaurstStartRequest {
+    /// Validates that one fresh private session stays bound to its durable Gent identities.
+    ///
+    /// # Errors
+    /// Returns an error before a bridge receives malformed identities, a cross-run context, or a
+    /// mismatched active goal. This does not validate provider-native configuration.
+    pub fn validate(&self) -> Result<(), GoalContractError> {
+        if self.run_id.trim().is_empty()
+            || self.source_id.0.trim().is_empty()
+            || self.turn_id.trim().is_empty()
+            || self.prompt.trim().is_empty()
+            || self.context.conversation_id.0.trim().is_empty()
+        {
+            return Err(GoalContractError::InvalidMetadata);
+        }
+        if let Some(goal) = &self.goal
+            && (goal.run_id != self.run_id
+                || goal.source_id != self.source_id
+                || goal.goal.binding().conversation_id != self.context.conversation_id)
+        {
+            return Err(GoalContractError::InvalidMetadata);
+        }
+        Ok(())
+    }
 }
 
 /// Secret-free active-goal context for a private Claurst bridge.
@@ -139,9 +180,26 @@ pub struct ClaurstDrainBatch {
 /// request limit, return facts at or before `after_cursor`, or emit facts after settlement.
 #[async_trait]
 pub trait PrivateClaurstBridge: Send + Sync {
+    /// Starts one fresh private session from daemon-owned normalized input.
+    ///
+    /// A private sidecar implementation may use its own private configuration, but it must
+    /// return only an opaque session binding for the requested run/source. The default keeps the
+    /// bridge unavailable until a separately reviewed private implementation is composed.
+    async fn start(
+        &self,
+        request: ClaurstStartRequest,
+    ) -> Result<ClaurstSessionBinding, PortError> {
+        let _ = request;
+        Err(PortError::Unavailable("private Claurst start".into()))
+    }
+
     /// Associates an opaque private session with an already-reserved daemon run.
     async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError>;
 
     /// Drains one bounded ordered batch from one daemon-owned private source.
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError>;
 }
+
+#[cfg(test)]
+#[path = "private_claurst_bridge_tests.rs"]
+mod tests;

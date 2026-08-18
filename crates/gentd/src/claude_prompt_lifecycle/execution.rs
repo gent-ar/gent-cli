@@ -18,10 +18,19 @@ pub(crate) struct ClaudePromptStart {
 }
 
 /// Binds each public-run reservation to one bounded Claude stream process.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct ClaudePromptRunner<L, P> {
     runner: Arc<Mutex<ClaudeStreamRunner<L, P>>>,
     pending: Arc<Mutex<BTreeMap<String, ClaudePromptStart>>>,
+}
+
+impl<L, P> Clone for ClaudePromptRunner<L, P> {
+    fn clone(&self) -> Self {
+        Self {
+            runner: Arc::clone(&self.runner),
+            pending: Arc::clone(&self.pending),
+        }
+    }
 }
 
 impl<L, P> ClaudePromptRunner<L, P>

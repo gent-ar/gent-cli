@@ -20,10 +20,12 @@ use crate::public_driver_runtime::{PublicDriverFact, PublicDriversRuntime};
 
 mod activity;
 mod execution;
+mod sandboxed_execution;
 mod scheduler;
 mod start;
 #[allow(unused_imports)]
 pub(crate) use execution::{ClaudePromptExecution, ClaudePromptRunner, ClaudePromptStart};
+pub(crate) use sandboxed_execution::SandboxedClaudePromptExecution;
 pub(crate) use scheduler::ClaudeLifecycleTick;
 
 /// Outcome of claiming and attempting one durable Claude prompt.

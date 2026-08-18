@@ -25,9 +25,13 @@ mod attachment_transport;
 mod authority_evidence_input;
 mod authority_profile;
 #[allow(dead_code)]
+mod claude_authority_composition;
+#[allow(dead_code)]
 mod claude_authority_preflight;
 #[allow(dead_code)]
 mod claude_authority_supervisor;
+#[allow(dead_code)]
+mod claude_private_resolver;
 #[allow(dead_code)]
 mod claude_prompt_lifecycle;
 #[cfg(test)]
