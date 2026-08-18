@@ -75,12 +75,22 @@ fn list_response_is_bounded_to_its_conversation() {
     };
     assert_eq!(mismatch.validate(), Err(GoalFrameError::BindingMismatch));
 
-    let oversized = GoalFrame::Created {
+    let too_many = GoalFrame::Goals {
         request_id: "request-1".into(),
-        goal: GoalRecord {
-            summary: "x".repeat(MAX_GOAL_FRAME_BYTES),
-            ..goal()
-        },
+        conversation_id: AgentChatConversationId("conversation-1".into()),
+        goals: vec![goal(); 129],
     };
-    assert_eq!(oversized.validate(), Err(GoalFrameError::InvalidValue));
+    assert_eq!(too_many.validate(), Err(GoalFrameError::TooManyGoals));
+
+    let large_goal = GoalRecord {
+        summary: "x".repeat(1_024),
+        ..goal()
+    };
+    let oversized = GoalFrame::Goals {
+        request_id: "request-1".into(),
+        conversation_id: AgentChatConversationId("conversation-1".into()),
+        goals: vec![large_goal; 64],
+    };
+    assert!(serde_json::to_vec(&oversized).unwrap().len() > MAX_GOAL_FRAME_BYTES);
+    assert_eq!(oversized.validate(), Err(GoalFrameError::TooLarge));
 }
