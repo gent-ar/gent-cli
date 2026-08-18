@@ -1,13 +1,29 @@
 use gent_drivers::codex_session::{
     CodexAppServerSession, CodexSessionConfig, CodexSessionError, CodexSessionIngress,
+    CodexTurnOptions,
 };
+use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection};
 use serde_json::{Value, json};
 
 fn config(resume_thread_id: Option<&str>) -> CodexSessionConfig {
     CodexSessionConfig {
         working_directory: Some("/work".into()),
         resume_thread_id: resume_thread_id.map(str::to_owned),
+        turn_options: options(AgentChatMode::Agent),
     }
+}
+
+fn options(mode: AgentChatMode) -> CodexTurnOptions {
+    CodexTurnOptions::from_selection(
+        &AgentChatSelection {
+            provider: AgentChatProvider::Codex,
+            model: "gpt-5.6".into(),
+            effort: AgentChatEffort::Medium,
+            mode,
+        },
+        Some("/work"),
+    )
+    .unwrap()
 }
 
 fn decode(frame: &[u8]) -> Value {
@@ -47,7 +63,7 @@ fn initialize_then_start_then_turn_uses_only_correlated_responses() {
     let turn = session.start_turn("hello").unwrap();
     assert_eq!(
         decode(&turn),
-        json!({"id":3,"method":"turn/start","params":{"threadId":"thread-1","input":[{"type":"text","text":"hello"}]}})
+        json!({"id":3,"method":"turn/start","params":{"threadId":"thread-1","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
     );
 }
 
@@ -121,7 +137,8 @@ fn invalid_inputs_and_failed_responses_are_bounded_and_secret_free() {
     assert_eq!(
         CodexAppServerSession::start(CodexSessionConfig {
             working_directory: Some(String::new()),
-            resume_thread_id: None
+            resume_thread_id: None,
+            turn_options: options(AgentChatMode::Ask),
         }),
         Err(CodexSessionError::InvalidWorkingDirectory)
     );
@@ -147,4 +164,46 @@ fn invalid_inputs_and_failed_responses_are_bounded_and_secret_free() {
         fresh.receive(&json!({"id": 1, "result": {}})).unwrap(),
         CodexSessionIngress::Send(_)
     ));
+}
+
+#[test]
+fn selection_options_reject_other_providers_and_preserve_safe_sandbox_modes() {
+    assert_eq!(
+        CodexTurnOptions::from_selection(
+            &AgentChatSelection {
+                provider: AgentChatProvider::Claude,
+                model: "claude".into(),
+                effort: AgentChatEffort::Low,
+                mode: AgentChatMode::Ask,
+            },
+            None,
+        ),
+        Err(CodexSessionError::UnsupportedSelection)
+    );
+    assert_eq!(
+        CodexTurnOptions::from_selection(
+            &AgentChatSelection {
+                provider: AgentChatProvider::Codex,
+                model: " \t".into(),
+                effort: AgentChatEffort::Low,
+                mode: AgentChatMode::Ask,
+            },
+            None,
+        ),
+        Err(CodexSessionError::InvalidModel)
+    );
+    let (mut session, _) = CodexAppServerSession::start(CodexSessionConfig {
+        working_directory: None,
+        resume_thread_id: None,
+        turn_options: options(AgentChatMode::Plan),
+    })
+    .unwrap();
+    let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
+    let _ = session
+        .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
+        .unwrap();
+    assert_eq!(
+        decode(&session.start_turn("hello").unwrap())["params"]["sandboxPolicy"],
+        json!({"type":"readOnly","networkAccess":false})
+    );
 }

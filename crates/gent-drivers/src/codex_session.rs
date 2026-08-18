@@ -1,30 +1,28 @@
 //! Bounded state and encoding for one Codex app-server connection.
 //!
-//! This module follows Codex 0.144.1's `initialize -> thread/start|resume -> turn/start`
-//! sequence. Provider-native identifiers stay private to this driver; its caller receives only
+//! Provider-native identifiers stay private to this driver; its caller receives only
 //! encoded frames and lifecycle facts. Process ownership, persistence, and provider launch live
 //! outside this module.
-
 use serde_json::{Value, json};
 
 mod phase;
 mod types;
-
-pub use types::{CodexSessionConfig, CodexSessionError, CodexSessionIngress};
+pub use types::{
+    CodexSandboxPolicy, CodexSessionConfig, CodexSessionError, CodexSessionIngress,
+    CodexTurnEffort, CodexTurnOptions,
+};
 
 use phase::{CodexSessionPhase, matches_response};
-
+use types::turn_parameters;
 const MAX_NATIVE_ID_BYTES: usize = 512;
 const MAX_WORKING_DIRECTORY_BYTES: usize = 4_096;
 const MAX_PROMPT_BYTES: usize = 65_536;
-
 /// Pure single-threaded Codex app-server connection state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexAppServerSession {
     phase: CodexSessionPhase,
     next_request_id: u64,
 }
-
 impl CodexAppServerSession {
     /// Creates the state and its first required `initialize` request.
     ///
@@ -48,18 +46,18 @@ impl CodexAppServerSession {
             }))?,
         ))
     }
-
     /// Encodes a user turn only after an exact thread response established the native thread.
     ///
     /// # Errors
     /// Rejects an out-of-order turn, a concurrent turn, an empty prompt, or request-ID exhaustion.
     pub fn start_turn(&mut self, prompt: &str) -> Result<Vec<u8>, CodexSessionError> {
         Self::validate_prompt(prompt)?;
-        let thread_id = match &self.phase {
+        let (thread_id, turn_options) = match &self.phase {
             CodexSessionPhase::Ready {
                 thread_id,
                 turn_id: None,
-            } => thread_id.clone(),
+                turn_options,
+            } => (thread_id.clone(), turn_options.clone()),
             CodexSessionPhase::Ready { .. } | CodexSessionPhase::AwaitTurn { .. } => {
                 return Err(CodexSessionError::TurnAlreadyActive);
             }
@@ -71,14 +69,14 @@ impl CodexAppServerSession {
             request_id,
             thread_id: thread_id.clone(),
             announced_turn_id: None,
+            turn_options: turn_options.clone(),
         };
         encode(&json!({
             "id": request_id,
             "method": "turn/start",
-            "params": {"threadId": thread_id, "input": [{"type": "text", "text": prompt}]}
+            "params": turn_parameters(&turn_options, &thread_id, prompt)
         }))
     }
-
     /// Reduces one parsed app-server frame, accepting responses only for the outstanding request.
     ///
     /// # Errors
@@ -130,10 +128,11 @@ impl CodexAppServerSession {
                     return Err(CodexSessionError::MalformedResponse);
                 }
                 let thread_request_id = self.take_request_id()?;
-                let (method, params, resumed_thread_id) = thread_request(config);
+                let (method, params, resumed_thread_id, turn_options) = thread_request(config);
                 self.phase = CodexSessionPhase::AwaitThread {
                     request_id: thread_request_id,
                     resumed_thread_id,
+                    turn_options,
                 };
                 Ok(CodexSessionIngress::Send(vec![
                     encode(&json!({"method": "initialized", "params": {}}))?,
@@ -141,7 +140,9 @@ impl CodexAppServerSession {
                 ]))
             }
             CodexSessionPhase::AwaitThread {
-                resumed_thread_id, ..
+                resumed_thread_id,
+                turn_options,
+                ..
             } => {
                 let thread_id = response_id_at(frame, "thread")?;
                 if resumed_thread_id
@@ -154,12 +155,14 @@ impl CodexAppServerSession {
                 self.phase = CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: None,
+                    turn_options,
                 };
                 Ok(CodexSessionIngress::Ready)
             }
             CodexSessionPhase::AwaitTurn {
                 thread_id,
                 announced_turn_id,
+                turn_options,
                 ..
             } => {
                 let turn_id = response_id_at(frame, "turn")?;
@@ -173,6 +176,7 @@ impl CodexAppServerSession {
                 self.phase = CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: Some(turn_id),
+                    turn_options,
                 };
                 Ok(CodexSessionIngress::TurnStarted)
             }
@@ -195,6 +199,7 @@ impl CodexAppServerSession {
                 CodexSessionPhase::AwaitTurn {
                     request_id,
                     thread_id,
+                    turn_options,
                     ..
                 },
             ) if params.get("threadId").and_then(Value::as_str) == Some(thread_id.as_str()) => {
@@ -203,6 +208,7 @@ impl CodexAppServerSession {
                     request_id,
                     thread_id,
                     announced_turn_id: Some(turn_id),
+                    turn_options,
                 };
                 Ok(CodexSessionIngress::Ignored)
             }
@@ -211,6 +217,7 @@ impl CodexAppServerSession {
                 CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: Some(turn_id),
+                    turn_options,
                 },
             ) if params.get("threadId").and_then(Value::as_str) == Some(thread_id.as_str())
                 && nested_id(params, "turn")? == turn_id =>
@@ -218,6 +225,7 @@ impl CodexAppServerSession {
                 self.phase = CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: None,
+                    turn_options,
                 };
                 Ok(CodexSessionIngress::TurnEnded)
             }
@@ -251,16 +259,19 @@ fn optional_bounded(value: Option<&str>, maximum: usize) -> bool {
     value.is_none_or(|value| !value.is_empty() && value.len() <= maximum)
 }
 
-fn thread_request(config: CodexSessionConfig) -> (&'static str, Value, Option<String>) {
+fn thread_request(
+    config: CodexSessionConfig,
+) -> (&'static str, Value, Option<String>, CodexTurnOptions) {
     let mut params = config
         .working_directory
         .map_or_else(|| json!({}), |cwd| json!({"cwd": cwd}));
+    let turn_options = config.turn_options;
     match config.resume_thread_id {
         Some(thread_id) => {
             params["threadId"] = Value::String(thread_id.clone());
-            ("thread/resume", params, Some(thread_id))
+            ("thread/resume", params, Some(thread_id), turn_options)
         }
-        None => ("thread/start", params, None),
+        None => ("thread/start", params, None, turn_options),
     }
 }
 

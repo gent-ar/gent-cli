@@ -1,13 +1,25 @@
-use gent_drivers::codex_session::CodexSessionConfig;
+use gent_drivers::codex_session::{CodexSessionConfig, CodexTurnOptions};
 use gent_drivers::codex_turn::{CodexTurnDriver, CodexTurnEffect};
 use gent_drivers::public_protocol::PublicWireFact;
-use gent_types::NormalizedProviderEvent;
+use gent_types::{
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, NormalizedProviderEvent,
+};
 use serde_json::{Value, json};
 
 fn config() -> CodexSessionConfig {
     CodexSessionConfig {
         working_directory: Some("/work".into()),
         resume_thread_id: None,
+        turn_options: CodexTurnOptions::from_selection(
+            &AgentChatSelection {
+                provider: AgentChatProvider::Codex,
+                model: "gpt-5.6".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Agent,
+            },
+            Some("/work"),
+        )
+        .unwrap(),
     }
 }
 
@@ -39,7 +51,7 @@ fn handshakes_then_starts_the_exact_one_prompt_without_exporting_native_ids() {
     assert_eq!(
         frames(&next),
         vec![
-            json!({"id":3,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"hello"}]}})
+            json!({"id":3,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
         ]
     );
 }
@@ -92,7 +104,7 @@ fn reuses_the_ready_native_thread_for_a_later_prompt() {
     assert_eq!(
         frames(&driver.submit("follow-up").unwrap()),
         vec![
-            json!({"id":4,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"follow-up"}]}})
+            json!({"id":4,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"follow-up"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
         ]
     );
 }

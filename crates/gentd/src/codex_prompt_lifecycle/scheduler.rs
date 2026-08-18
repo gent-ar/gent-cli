@@ -35,7 +35,8 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger,
     D: super::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {

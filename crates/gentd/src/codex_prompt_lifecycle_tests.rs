@@ -8,6 +8,7 @@ use gent_adapters::compatibility::{
 use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_drivers::codex_prompt_runner::CodexPromptStart;
 use gent_drivers::codex_runner::CodexRunnerEffect;
+use gent_drivers::codex_session::CodexTurnOptions;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, PublicProviderResolver,
@@ -180,6 +181,24 @@ pub(crate) fn profile(
     .unwrap()
 }
 
+fn selection() -> AgentChatSelection {
+    AgentChatSelection {
+        provider: AgentChatProvider::Codex,
+        model: "gpt-5.6".into(),
+        effort: AgentChatEffort::Medium,
+        mode: AgentChatMode::Agent,
+    }
+}
+
+fn assert_prepared_options(runner: &Runner) {
+    let expected = CodexTurnOptions::from_selection(&selection(), Some("/work")).unwrap();
+    let state = runner.state.lock().unwrap();
+    assert_eq!(
+        state.pending.as_ref().map(|entry| &entry.1.turn_options),
+        Some(&expected)
+    );
+}
+
 #[test]
 fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let ledger = SqliteLedger::in_memory().unwrap();
@@ -191,12 +210,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             host_epoch: HostEpoch(1),
             conversation_id: conversation_id.clone(),
             run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt-5.6".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
-            },
+            selection: selection(),
         })
         .unwrap();
     let prompt = ledger
@@ -248,6 +262,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         })
     );
     assert_eq!(runner.state.lock().unwrap().starts, 1);
+    assert_prepared_options(&runner);
     assert_eq!(tick.polled_runs, 0);
     let tick = host.tick().unwrap();
     assert_eq!(tick.polled_runs, 1);

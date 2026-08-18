@@ -10,7 +10,7 @@ use crate::buffering::BufferPolicy;
 use crate::codex_runner::{
     CodexAppServerRunner, CodexRunStart, CodexRunnerEffect, CodexRunnerError,
 };
-use crate::codex_session::CodexSessionConfig;
+use crate::codex_session::{CodexSessionConfig, CodexTurnOptions};
 use crate::supervisor::{ProcessLauncher, ProviderProcess};
 
 /// Prompt fields held only between daemon dispatch claim and locked process launch.
@@ -18,6 +18,7 @@ use crate::supervisor::{ProcessLauncher, ProviderProcess};
 pub struct CodexPromptStart {
     pub working_directory: Option<String>,
     pub prompt: String,
+    pub turn_options: CodexTurnOptions,
 }
 
 /// Bridges durable run reservation to the bounded Codex app-server runner.
@@ -116,6 +117,7 @@ where
                 session: CodexSessionConfig {
                     working_directory: prompt.working_directory,
                     resume_thread_id,
+                    turn_options: prompt.turn_options,
                 },
                 prompt: prompt.prompt,
             })

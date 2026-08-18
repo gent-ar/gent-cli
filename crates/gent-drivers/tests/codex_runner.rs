@@ -5,12 +5,26 @@ use std::sync::{Arc, Mutex};
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::codex_prompt_runner::{CodexPromptRunner, CodexPromptStart};
 use gent_drivers::codex_runner::{CodexAppServerRunner, CodexRunStart, CodexRunnerEffect};
-use gent_drivers::codex_session::CodexSessionConfig;
+use gent_drivers::codex_session::{CodexSessionConfig, CodexTurnOptions};
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
 use gent_drivers::lock::capture;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use gent_ports::PublicProviderRunner;
+use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection};
+
+fn options() -> CodexTurnOptions {
+    CodexTurnOptions::from_selection(
+        &AgentChatSelection {
+            provider: AgentChatProvider::Codex,
+            model: "gpt-5.6".into(),
+            effort: AgentChatEffort::Medium,
+            mode: AgentChatMode::Agent,
+        },
+        Some("/work"),
+    )
+    .unwrap()
+}
 
 #[derive(Default)]
 struct State {
@@ -70,6 +84,7 @@ fn start(run_id: &str, root: &Path) -> CodexRunStart {
         session: CodexSessionConfig {
             working_directory: Some("/work".into()),
             resume_thread_id: None,
+            turn_options: options(),
         },
         prompt: "hello".into(),
     }
@@ -182,6 +197,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
             CodexPromptStart {
                 working_directory: Some("/work".into()),
                 prompt: "first".into(),
+                turn_options: options(),
             },
         )
         .unwrap();
@@ -192,6 +208,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                 CodexPromptStart {
                     working_directory: Some("/other".into()),
                     prompt: "must-not-replace".into(),
+                    turn_options: options(),
                 },
             )
             .is_err()

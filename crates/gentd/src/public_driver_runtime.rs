@@ -8,18 +8,18 @@ use std::sync::Arc;
 
 use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
 use gent_ports::{
-    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    PublicProviderRunner, RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, AgentChatReadLedger, ConversationActivityLedger, Ledger,
+    PublicProviderResolver, PublicProviderRunner, RunProjectionLedger, TranscriptLedger,
 };
 use gent_runtime::{
     AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult,
-    AgentChatPromptDispatchService, AgentChatTranscriptAppendRequest,
+    AgentChatPromptDispatchService, AgentChatReadService, AgentChatTranscriptAppendRequest,
     AgentChatTranscriptAppendResult, AgentChatTranscriptAuthority, AgentChatTranscriptIngress,
     ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
     Coordinator, ProviderActivityFact, ProviderActivityIngress, ProviderRunAuthority,
     PublicRunService, RuntimeError,
 };
-use gent_types::{AgentChatProvider, HostEpoch, RunLiveStatus};
+use gent_types::{AgentChatProvider, AgentChatSelection, HostEpoch, RunLiveStatus};
 
 use crate::authority_profile::ValidatedAuthorityProfile;
 use crate::compatibility_assessment::CompatibilityAssessment;
@@ -75,6 +75,7 @@ pub(crate) struct PublicDriversRuntime<L, D, R> {
     activity: ProviderActivityIngress<L>,
     transcripts: AgentChatTranscriptIngress<L>,
     dispatches: AgentChatPromptDispatchService<L>,
+    reads: AgentChatReadService<L>,
 }
 
 impl<L, D, R> PublicDriversRuntime<L, D, R>
@@ -145,9 +146,10 @@ where
                 AgentChatTranscriptAuthority::Approved,
             ),
             dispatches: AgentChatPromptDispatchService::new(
-                ledger,
+                ledger.clone(),
                 AgentChatPromptDispatchAuthority::Approved,
             ),
+            reads: AgentChatReadService::new(ledger),
         })
     }
 
@@ -283,5 +285,15 @@ where
     /// Recovers only pre-launch work after a successor daemon has fenced the previous epoch.
     pub(crate) fn recover_prompts(&self, host_epoch: HostEpoch) -> Result<(), RuntimeError> {
         self.dispatches.recover(host_epoch)
+    }
+}
+
+impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {
+    pub(crate) fn selection_for_run(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<AgentChatSelection, RuntimeError> {
+        self.reads.run_selection(conversation_id, run_id)
     }
 }

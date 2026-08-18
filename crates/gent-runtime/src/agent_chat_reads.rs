@@ -2,7 +2,8 @@
 
 use gent_ports::AgentChatReadLedger;
 use gent_types::{
-    AgentChatConversationDetail, AgentChatConversationSummary, NormalizedTranscriptPage,
+    AgentChatConversationDetail, AgentChatConversationSummary, AgentChatSelection,
+    NormalizedTranscriptPage,
 };
 
 use crate::RuntimeError;
@@ -47,6 +48,23 @@ impl<L: AgentChatReadLedger> AgentChatReadService<L> {
             ));
         }
         Ok(detail)
+    }
+
+    /// Resolves the immutable selection fixed on one exact durable run.
+    ///
+    /// # Errors
+    /// Returns an error when the run is absent from the selected conversation.
+    pub fn run_selection(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<AgentChatSelection, RuntimeError> {
+        self.detail(conversation_id)?
+            .runs
+            .into_iter()
+            .find(|run| run.run_id == run_id)
+            .map(|run| run.selection)
+            .ok_or_else(|| invariant("agent-chat run is absent from its conversation"))
     }
 
     /// Reads a bounded ascending transcript page and verifies its cursor invariants.
@@ -114,7 +132,10 @@ mod tests {
     };
 
     #[derive(Clone)]
-    struct Ledger(NormalizedTranscriptPage);
+    struct Ledger {
+        page: NormalizedTranscriptPage,
+        runs: Vec<gent_types::AgentChatRun>,
+    }
 
     impl AgentChatReadLedger for Ledger {
         fn read_agent_chat_summary(
@@ -129,7 +150,7 @@ mod tests {
         ) -> Result<AgentChatConversationDetail, LedgerError> {
             Ok(AgentChatConversationDetail {
                 summary: summary(),
-                runs: vec![],
+                runs: self.runs.clone(),
             })
         }
         fn read_agent_chat_transcript(
@@ -138,7 +159,7 @@ mod tests {
             _: Option<u64>,
             _: u16,
         ) -> Result<NormalizedTranscriptPage, LedgerError> {
-            Ok(self.0.clone())
+            Ok(self.page.clone())
         }
     }
 
@@ -146,7 +167,7 @@ mod tests {
     fn transcript_rejects_a_non_advancing_cursor() {
         let page = page(vec![event(2), event(2)], None);
         assert!(
-            AgentChatReadService::new(Ledger(page))
+            AgentChatReadService::new(Ledger { page, runs: vec![] })
                 .transcript("conversation", Some(1), 20)
                 .is_err()
         );
@@ -156,12 +177,25 @@ mod tests {
     fn transcript_clamps_limit_and_accepts_an_ascending_page() {
         let page = page(vec![event(2), event(3)], Some(4));
         assert_eq!(
-            AgentChatReadService::new(Ledger(page))
+            AgentChatReadService::new(Ledger { page, runs: vec![] })
                 .transcript("conversation", Some(1), 500)
                 .unwrap()
                 .events
                 .len(),
             2
+        );
+    }
+
+    #[test]
+    fn run_selection_refuses_a_run_from_another_conversation() {
+        let ledger = Ledger {
+            page: page(vec![], None),
+            runs: vec![],
+        };
+        assert!(
+            AgentChatReadService::new(ledger)
+                .run_selection("conversation", "other-run")
+                .is_err()
         );
     }
 

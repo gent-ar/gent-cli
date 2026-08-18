@@ -29,12 +29,18 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let turn_options = gent_drivers::codex_session::CodexTurnOptions::from_selection(
+        &runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?,
+        working_directory,
+    )
+    .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?;
     if runner.has_codex_session(&run_id) {
         return submit(runtime, runner, coordinator_id, active, prompt, host_epoch);
     }
@@ -43,6 +49,7 @@ where
         CodexPromptStart {
             working_directory: working_directory.map(str::to_owned),
             prompt: prompt.message.text.clone(),
+            turn_options,
         },
     ) {
         runtime.release_prompt_claim(&message_id, coordinator_id, host_epoch)?;
@@ -107,7 +114,8 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {

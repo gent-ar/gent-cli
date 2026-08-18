@@ -47,7 +47,6 @@ pub(super) struct Binding {
     sequence: u64,
 }
 
-/// A dormant host that cannot be built from the shipped observer runtime.
 #[derive(Debug)]
 pub(crate) struct CodexPromptLifecycle<L, D, R> {
     runtime: PublicDriversRuntime<L, D, R>,
@@ -64,7 +63,8 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {

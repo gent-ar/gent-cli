@@ -34,7 +34,8 @@ where
         + RunProjectionLedger
         + ConversationActivityLedger
         + TranscriptLedger
-        + AgentChatPromptDispatchLedger,
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger,
     D: crate::codex_prompt_lifecycle::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
