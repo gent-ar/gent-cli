@@ -192,8 +192,7 @@ CREATE TABLE conversation_message_ordinals (
     ordinal INTEGER NOT NULL CHECK (ordinal > 0),
     UNIQUE (conversation_id, ordinal)
 );
-CREATE INDEX conversation_message_ordinals_by_conversation_ordinal
-    ON conversation_message_ordinals (conversation_id, ordinal DESC);
+CREATE INDEX conversation_message_ordinals_by_conversation_ordinal ON conversation_message_ordinals (conversation_id, ordinal DESC);
 CREATE TABLE conversation_activity_projection_journal (
     conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
     run_id TEXT NOT NULL REFERENCES runs(run_id),
@@ -258,14 +257,10 @@ CREATE TABLE reviewed_plan_artifacts (
     status TEXT NOT NULL,
     PRIMARY KEY (plan_id, revision)
 );
-CREATE TABLE reviewed_plan_current (
-    plan_id TEXT PRIMARY KEY NOT NULL,
-    revision INTEGER NOT NULL,
-    FOREIGN KEY (plan_id, revision) REFERENCES reviewed_plan_artifacts(plan_id, revision)
-);
+CREATE TABLE reviewed_plan_current (plan_id TEXT PRIMARY KEY NOT NULL, revision INTEGER NOT NULL,
+    FOREIGN KEY (plan_id, revision) REFERENCES reviewed_plan_artifacts(plan_id, revision));
 CREATE TABLE reviewed_plan_approval_receipts (
-    idempotency_key TEXT PRIMARY KEY NOT NULL REFERENCES receipts(idempotency_key),
-    plan_id TEXT NOT NULL,
+    idempotency_key TEXT PRIMARY KEY NOT NULL REFERENCES receipts(idempotency_key), plan_id TEXT NOT NULL,
     plan_revision INTEGER NOT NULL,
     parent_run_id TEXT NOT NULL REFERENCES runs(run_id),
     implementation_run_id TEXT NOT NULL UNIQUE REFERENCES runs(run_id),
@@ -275,9 +270,19 @@ CREATE TABLE reviewed_plan_approval_receipts (
     policy_revision INTEGER NOT NULL,
     FOREIGN KEY (plan_id, plan_revision) REFERENCES reviewed_plan_artifacts(plan_id, revision)
 );
+CREATE TABLE conversation_goals (
+    creation_order INTEGER PRIMARY KEY AUTOINCREMENT,
+    goal_id TEXT NOT NULL UNIQUE,
+    conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
+    schema_version INTEGER NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'abandoned', 'failed')),
+    summary TEXT NOT NULL
+);
+CREATE INDEX conversation_goals_by_conversation ON conversation_goals (conversation_id, creation_order);
 CREATE TABLE agent_chat_transcript_events (
-    conversation_id TEXT NOT NULL REFERENCES agent_chat_conversations(conversation_id),
-    cursor INTEGER NOT NULL CHECK (cursor > 0),
+    conversation_id TEXT NOT NULL REFERENCES agent_chat_conversations(conversation_id), cursor INTEGER NOT NULL CHECK (cursor > 0),
     event_id TEXT NOT NULL UNIQUE,
     turn_id TEXT NOT NULL REFERENCES turns(turn_id),
     run_id TEXT NOT NULL REFERENCES runs(run_id),
@@ -287,11 +292,9 @@ CREATE TABLE agent_chat_transcript_events (
     PRIMARY KEY (conversation_id, cursor)
 );
 CREATE TABLE agent_chat_prompt_dispatches (
-    message_id TEXT PRIMARY KEY NOT NULL REFERENCES conversation_messages(message_id),
-    state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'launching', 'started', 'settled', 'unprovable')),
+    message_id TEXT PRIMARY KEY NOT NULL REFERENCES conversation_messages(message_id), state TEXT NOT NULL CHECK (state IN ('pending', 'claimed', 'launching', 'started', 'settled', 'unprovable')),
     coordinator_id TEXT,
     host_epoch INTEGER,
     created_rowid INTEGER NOT NULL
 );
-CREATE INDEX agent_chat_prompt_dispatches_pending
-    ON agent_chat_prompt_dispatches (state, created_rowid);
+CREATE INDEX agent_chat_prompt_dispatches_pending ON agent_chat_prompt_dispatches (state, created_rowid);

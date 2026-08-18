@@ -24,6 +24,9 @@ mod epoch;
 mod fresh_schema;
 mod git_operation_ledger;
 mod git_operations;
+mod goal_ledger;
+#[cfg(test)]
+mod goal_ledger_tests;
 mod leases;
 mod mcp_connector_ledger;
 mod mcp_connectors;
