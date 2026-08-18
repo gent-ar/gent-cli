@@ -279,8 +279,8 @@ CREATE TABLE conversation_goals (
     revision INTEGER NOT NULL CHECK (revision > 0),
     status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'abandoned', 'failed')),
     summary TEXT NOT NULL
-);
-CREATE INDEX conversation_goals_by_conversation ON conversation_goals (conversation_id, creation_order);
+); CREATE INDEX conversation_goals_by_conversation ON conversation_goals (conversation_id, creation_order);
+CREATE TABLE orchestration_graphs (graph_id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id), root_run_id TEXT NOT NULL REFERENCES runs(run_id), revision INTEGER NOT NULL CHECK (revision > 0), host_epoch INTEGER NOT NULL, graph_json TEXT NOT NULL); CREATE TABLE orchestration_idempotency (idempotency_key TEXT PRIMARY KEY NOT NULL, graph_id TEXT NOT NULL REFERENCES orchestration_graphs(graph_id), command_json TEXT NOT NULL);
 CREATE TABLE agent_chat_transcript_events (
     conversation_id TEXT NOT NULL REFERENCES agent_chat_conversations(conversation_id), cursor INTEGER NOT NULL CHECK (cursor > 0),
     event_id TEXT NOT NULL UNIQUE,
@@ -297,4 +297,4 @@ CREATE TABLE agent_chat_prompt_dispatches (
     host_epoch INTEGER,
     created_rowid INTEGER NOT NULL
 );
-CREATE INDEX agent_chat_prompt_dispatches_pending ON agent_chat_prompt_dispatches (state, created_rowid);
+CREATE INDEX agent_chat_prompt_dispatches_pending ON agent_chat_prompt_dispatches(state, created_rowid);

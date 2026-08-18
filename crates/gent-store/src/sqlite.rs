@@ -30,6 +30,7 @@ mod goal_ledger_tests;
 mod leases;
 mod mcp_connector_ledger;
 mod mcp_connectors;
+mod orchestration_ledger;
 mod policies;
 mod policy_ledger;
 mod projections;

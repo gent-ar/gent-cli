@@ -21,6 +21,7 @@ mod ingress;
 mod legacy_event_tap;
 mod mcp_connector_executor;
 mod mcp_connector_ledger;
+mod orchestration_ledger;
 mod package_install;
 mod policy_ledger;
 mod private_claurst_bridge;
@@ -66,6 +67,7 @@ pub use mcp_connector_executor::{
 pub use mcp_connector_ledger::{
     McpConnectorLease, McpConnectorLeaseClaim, McpConnectorLedger, McpConnectorUpdate,
 };
+pub use orchestration_ledger::{OrchestrationLedger, OrchestrationWrite};
 pub use package_install::{
     ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError,
 };

@@ -11,6 +11,8 @@ use crate::{
 };
 
 fn graph() -> TaskGraph {
+    let mut candidate = spec("candidate", TaskRole::Implementer, AgentChatProvider::Codex);
+    candidate.input_artifact_digests = vec!["b".repeat(64)];
     TaskGraph {
         binding: TaskGraphBinding {
             graph_id: "graph-1".into(),
@@ -28,7 +30,7 @@ fn graph() -> TaskGraph {
         host_epoch: HostEpoch(1),
         idempotency_key: "fanout-1".into(),
         nodes: vec![TaskNode {
-            spec: spec("candidate", TaskRole::Implementer, AgentChatProvider::Codex),
+            spec: candidate,
             revision: 2,
             status: TaskNodeStatus::Completed,
             result_artifact_digest: Some("a".repeat(64)),
