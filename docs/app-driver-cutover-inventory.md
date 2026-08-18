@@ -10,6 +10,9 @@ Claurst is intentionally represented only by the generic lifecycle contract.
 This document contains no Claurst endpoint, credential, binary location,
 installation, routing, or private-bridge details.
 
+The cutover checklist and remaining evidence gate are maintained in
+[native-app cutover readiness](native-app-cutover-readiness.md).
+
 ## Cutover invariant
 
 The app becomes presentation plus typed Gent IPC. It must not launch a

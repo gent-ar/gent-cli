@@ -56,6 +56,61 @@ fn enabled_input_emits_a_typed_request_without_doing_io() {
 }
 
 #[test]
+fn slash_goal_is_bound_to_the_selected_conversation_and_exact_current_run() {
+    let status = ConversationStatus {
+        conversation_id: "one".into(),
+        runs: vec![ConversationRunStatus {
+            run_id: "run-one".into(),
+            parent_run_id: None,
+            provider: "codex".into(),
+            active_turn_id: None,
+            live_status: None,
+        }],
+    };
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_status(Some(status));
+    for character in "/goal finish switching safely".chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    assert_eq!(
+        state.apply(UiCommand::SubmitPrompt),
+        UiEffect::Request(UiRequest::Goal {
+            conversation_id: "one".into(),
+            run_id: "run-one".into(),
+            summary: "finish switching safely".into(),
+        })
+    );
+}
+
+#[test]
+fn slash_goal_never_guesses_a_run_binding() {
+    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    for character in "/goal keep going".chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
+    assert_eq!(
+        state.notice(),
+        Some("Run status is unavailable; refusing to guess a /goal binding.")
+    );
+    assert_eq!(state.input(), "/goal keep going");
+}
+
+#[test]
+fn empty_slash_goal_is_not_sent_as_a_provider_prompt() {
+    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    for character in "/goal ".chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
+    assert_eq!(
+        state.notice(),
+        Some("`/goal` requires a concise summary; no provider work was started")
+    );
+}
+
+#[test]
 fn selection_switch_is_parent_bound_and_carries_each_control() {
     let status = ConversationStatus {
         conversation_id: "one".into(),

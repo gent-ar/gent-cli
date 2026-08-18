@@ -129,7 +129,7 @@ fn activity_text(status: &ConversationLiveStatus) -> String {
 fn composer_widget(state: &UiState) -> Paragraph<'static> {
     let body = if state.chat_enabled() {
         format!(
-            "{}\nProvider: {:?} (Tab)  Model: {} (Ctrl+L)  Effort: {:?} (Ctrl+E)\nMode: {:?} (Ctrl+M)  Context: {:?} (Ctrl+X)\nCtrl+N create  •  Ctrl+S switch selection  •  Enter persist prompt  •  {}",
+            "{}\nProvider: {:?} (Tab)  Model: {} (Ctrl+L)  Effort: {:?} (Ctrl+E)\nMode: {:?} (Ctrl+M)  Context: {:?} (Ctrl+X)\nCtrl+N create  •  Ctrl+S switch selection  •  Enter persist prompt or /goal  •  {}",
             state.input(),
             state.selection().provider,
             state.selection().model,

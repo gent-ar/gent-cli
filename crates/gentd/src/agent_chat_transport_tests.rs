@@ -46,7 +46,10 @@ impl IntentPort for FakePort {
                 parent_run_id,
                 run_id: gent_types::AgentChatRunId("run-2".into()),
                 context_policy,
-                context_through_ordinal: 3,
+                context_through_ordinal: match context_policy {
+                    gent_types::ContextPolicy::Clear => 0,
+                    gent_types::ContextPolicy::Preserve => 3,
+                },
             }]),
             AgentChatIntentFrame::Subscribe { request_id, .. } => Ok(vec![
                 AgentChatIntentFrame::SubscriptionEvent {
@@ -159,7 +162,54 @@ async fn switch_reply_binds_the_expected_parent_and_new_child_run() {
     assert!(matches!(
         read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(),
         AgentChatIntentFrame::Switched { parent_run_id, run_id, context_policy: gent_types::ContextPolicy::Clear, context_through_ordinal, .. }
-            if parent_run_id.0 == "run-1" && run_id.0 == "run-2" && context_through_ordinal == 3
+            if parent_run_id.0 == "run-1" && run_id.0 == "run-2" && context_through_ordinal == 0
+    ));
+}
+
+#[tokio::test]
+async fn clear_switch_with_inherited_history_is_rejected() {
+    #[derive(Clone)]
+    struct BadClearPort;
+    impl IntentPort for BadClearPort {
+        fn exchange(
+            &self,
+            request: AgentChatIntentFrame,
+        ) -> Result<Vec<AgentChatIntentFrame>, String> {
+            let AgentChatIntentFrame::SwitchSelection {
+                request_id,
+                receipt_id,
+                conversation_id,
+                parent_run_id,
+                context_policy,
+                ..
+            } = request
+            else {
+                return Err("unexpected request".into());
+            };
+            Ok(vec![AgentChatIntentFrame::Switched {
+                request_id,
+                receipt: receipt(receipt_id),
+                conversation_id,
+                parent_run_id,
+                run_id: gent_types::AgentChatRunId("run-2".into()),
+                context_policy,
+                context_through_ordinal: 1,
+            }])
+        }
+    }
+    let (mut reader, mut writer) = duplex(4096);
+    let request = json!({ "type": "switchSelection", "body": {
+        "requestId": "switch-1", "receiptId": "receipt-1", "conversationId": "conversation-1",
+        "parentRunId": "run-1", "selection": { "provider": "codex", "model": "gpt-5.6", "effort": "high", "mode": "agent" }, "contextPolicy": "clear"
+    } });
+    assert!(
+        dispatch_port(&mut writer, &BadClearPort, &capabilities(), &request)
+            .await
+            .unwrap()
+    );
+    assert!(matches!(
+        read_frame(&mut reader).await.unwrap(),
+        WireFrame::Error { code, .. } if code == "invalidAgentChatResponse"
     ));
 }
 

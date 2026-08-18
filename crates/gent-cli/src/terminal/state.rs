@@ -37,6 +37,11 @@ pub(crate) enum UiRequest {
         conversation_id: String,
         text: String,
     },
+    Goal {
+        conversation_id: String,
+        run_id: String,
+        summary: String,
+    },
     Switch {
         conversation_id: String,
         parent_run_id: String,
@@ -209,7 +214,7 @@ impl UiState {
                 self.input.pop();
                 UiEffect::Continue
             }
-            UiCommand::SubmitPrompt if self.chat_enabled => self.submit(),
+            UiCommand::SubmitPrompt if self.chat_enabled => state_submit::submit(self),
             UiCommand::CreateConversation if self.chat_enabled => {
                 UiEffect::Request(UiRequest::Create {
                     selection: self.selection.clone(),
@@ -265,23 +270,6 @@ impl UiState {
         }
     }
 
-    fn submit(&mut self) -> UiEffect {
-        let Some(conversation_id) = self.selected().map(|value| value.conversation_id.clone())
-        else {
-            self.notice = Some("Create a conversation first with Ctrl+N.".into());
-            return UiEffect::Continue;
-        };
-        let text = self.input.trim().to_owned();
-        if text.is_empty() {
-            return UiEffect::Continue;
-        }
-        self.input.clear();
-        UiEffect::Request(UiRequest::Send {
-            conversation_id,
-            text,
-        })
-    }
-
     fn select(&mut self, next: impl FnOnce(usize, usize) -> usize) {
         if let Some(current) = self.selected {
             let selected = next(current, self.conversations.len());
@@ -297,3 +285,6 @@ impl UiState {
 #[cfg(test)]
 #[path = "state_tests.rs"]
 mod tests;
+
+#[path = "state_submit.rs"]
+mod state_submit;

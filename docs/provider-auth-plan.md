@@ -68,8 +68,11 @@ outside the app's private runtime location, and owns every subsequent process.
 
 On the first prompt selecting a missing public provider, an approved Gent
 authority may perform exactly one receipt-backed provisioning transaction using
-fixed `npm --global install` arguments. The install target is a private Gent
-provider prefix, never the app bundle, system-global prefix, workspace, or
+fixed `npm --global install` arguments. Immediately before that effect, Gent
+re-reads the exact durable accepted receipt, idempotency key, and host epoch;
+a changed or unavailable receipt fails without running `npm`. The install
+target is a private Gent provider prefix, never the app bundle, system-global
+prefix, workspace, or
 `PATH`; the resulting executable is rediscovered, version-probed, digest-locked,
 and checked against a signed package/version/integrity compatibility policy
 before it can authenticate or run. A successful provider update follows the
@@ -81,6 +84,10 @@ must surface terms/consent required by the selected vendor/package policy and
 record the decision durably. Observer mode, missing evidence, an unsigned
 package policy, changed Node runtime, or a lock mismatch fail before `npm`
 starts. Claurst is excluded: its private bridge never uses public `npm` policy.
+
+The app-driver removal and terminal/native parity gate is
+[native-app cutover readiness](native-app-cutover-readiness.md). Provisioning
+alone never authorizes a provider launch or changes observer-mode capabilities.
 
 ## Authority and evidence gate
 

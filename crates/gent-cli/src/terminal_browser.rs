@@ -79,6 +79,26 @@ fn submit(
                             .map_err(|error| error.to_string())?;
                     Ok(result(conversation_id, None, delivery_notice(delivery)))
                 }
+                terminal::UiRequest::Goal {
+                    conversation_id,
+                    run_id,
+                    summary,
+                } => {
+                    crate::goal_cli::create_shorthand(
+                        data_dir,
+                        no_autostart,
+                        conversation_id.clone(),
+                        run_id,
+                        summary,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                    Ok(result(
+                        conversation_id,
+                        None,
+                        "Goal saved; it will be projected only by an authorized provider turn.",
+                    ))
+                }
                 terminal::UiRequest::Switch {
                     conversation_id,
                     parent_run_id,

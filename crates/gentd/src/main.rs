@@ -96,6 +96,8 @@ mod private_lifecycle_loop;
 mod private_paths;
 #[allow(dead_code)]
 mod private_provider_provisioning;
+#[allow(dead_code)]
+mod private_session_driver;
 mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;

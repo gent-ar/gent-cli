@@ -127,10 +127,12 @@ fn validate_replies(
             ..
         } => matches!(
             replies,
-            [AgentChatIntentFrame::Switched { request_id: reply_id, receipt, conversation_id: reply_conversation, parent_run_id: reply_parent, run_id, context_policy: reply_policy, .. }]
+            [AgentChatIntentFrame::Switched { request_id: reply_id, receipt, conversation_id: reply_conversation, parent_run_id: reply_parent, run_id, context_policy: reply_policy, context_through_ordinal, .. }]
                 if reply_id == request_id && receipt.receipt_id == *receipt_id
                     && reply_conversation == conversation_id && reply_parent == parent_run_id
                     && reply_policy == context_policy && !run_id.0.is_empty()
+                    && (*context_policy != gent_types::ContextPolicy::Clear
+                        || *context_through_ordinal == 0)
         )
         .then_some(())
         .ok_or("selection switching requires one matching durable child run"),

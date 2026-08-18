@@ -4,6 +4,9 @@ This is the missing end-to-end delivery contract for making Gent the realtime
 agent-chat backend of both the `gent` terminal UI and the Gent native app. It
 does not authorize live providers in the current observer daemon.
 
+The app-driver retirement criteria and explicit remaining authority/evidence
+gates are collected in [native-app cutover readiness](native-app-cutover-readiness.md).
+
 ## Ownership
 
 Providers are the source of raw external facts. `gentd` is the sole source of

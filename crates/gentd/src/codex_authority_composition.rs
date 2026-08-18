@@ -5,11 +5,13 @@
 //! runner. The ordinary `--agent-chat-authority` profile remains durable-chat-only.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::codex_prompt_runner::CodexPromptRunner;
 use gent_drivers::{SystemLauncher, SystemProcess};
 use gent_ports::{SandboxedProviderPreflight, SandboxedProviderPreflightError};
+use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
 use gent_types::{HostEpoch, SandboxLaunchAttestation, SandboxedLaunchRequest};
 
@@ -184,6 +186,10 @@ where
         PrivatePrefixDiscovery::new(prefix),
         SystemVersionProbe,
     ));
+    let goals = Arc::new(GoalService::new(
+        state.ledger().clone(),
+        GoalAuthority::Approved,
+    ));
     let runtime = PublicDriversRuntime::new(
         profile,
         state.coordinator().clone(),
@@ -191,7 +197,8 @@ where
         state.compatibility().clone(),
         runner,
         resolver,
-    )?;
+    )?
+    .with_active_goal_resolver(goals);
     Ok(PrivateCodexAuthorityHost {
         supervisor: PrivateCodexSupervisor::new(ApprovedCodexHost::new(
             runtime,
