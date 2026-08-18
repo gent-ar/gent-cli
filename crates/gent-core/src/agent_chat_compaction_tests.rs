@@ -40,6 +40,29 @@ fn too_few_groups_recovers_from_frozen_ledger_once() {
 }
 
 #[test]
+fn terminal_too_few_groups_without_a_start_recovers_once() {
+    let failure = AgentChatCompactionFact::Failed {
+        event_id: "event-2".into(),
+        turn_id: "turn-1".into(),
+        failure: AgentChatCompactionFailure::TooFewGroups,
+    };
+    let (state, effect) =
+        reduce_agent_chat_compaction(AgentChatCompactionState::default(), 2, &failure);
+    assert!(matches!(
+        effect,
+        AgentChatCompactionEffect::RecoverFromFrozenLedger {
+            source_cursor: 2,
+            ..
+        }
+    ));
+    let (_, duplicate) = reduce_agent_chat_compaction(state, 3, &failure);
+    assert_eq!(
+        duplicate,
+        AgentChatCompactionEffect::Rejected(AgentChatCompactionRejection::AlreadyRecovered)
+    );
+}
+
+#[test]
 fn unrelated_provider_failure_never_creates_a_recovery_child() {
     let (state, _) =
         reduce_agent_chat_compaction(AgentChatCompactionState::default(), 1, &started());

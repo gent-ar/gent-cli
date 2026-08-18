@@ -4,6 +4,7 @@ use gent_runtime::{
     AgentChatPromptResult, AgentChatPromptService, AgentChatRunContextService,
     AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchRequest,
     AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
+    ConversationContextArtifactService, ConversationContextRequest,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -49,7 +50,7 @@ fn codex_claude_claurst_codex_preserves_frozen_neutral_history() {
         "gpt-5.6",
         AgentChatMode::Ask,
     );
-    let context = AgentChatRunContextService::new(ledger)
+    let context = AgentChatRunContextService::new(ledger.clone())
         .resolve(&conversation, &codex)
         .unwrap();
     assert_eq!(
@@ -57,6 +58,27 @@ fn codex_claude_claurst_codex_preserves_frozen_neutral_history() {
         (ContextPolicy::Preserve, 3)
     );
     assert!(context.requires_fresh_provider_session());
+    let artifact = ConversationContextArtifactService::new(ledger)
+        .project(&ConversationContextRequest {
+            conversation_id: conversation,
+            context_policy: context.context_policy,
+            context_through_ordinal: context.context_through_ordinal,
+        })
+        .unwrap();
+    assert_eq!(
+        artifact
+            .entries
+            .iter()
+            .map(|entry| entry.text.as_str())
+            .collect::<Vec<_>>(),
+        ["codex-message", "claude-message", "claurst-message"]
+    );
+    assert!(
+        !serde_json::to_string(&artifact)
+            .unwrap()
+            .contains("provider_session"),
+        "provider-neutral context must never carry a native session"
+    );
 }
 
 fn create(ledger: SqliteLedger) -> (gent_types::AgentChatConversationId, AgentChatRunId) {

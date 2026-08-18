@@ -76,6 +76,19 @@ fn recovery_effect() -> AgentChatCompactionEffect {
     effect
 }
 
+fn terminal_failure_effect() -> AgentChatCompactionEffect {
+    let (_, effect) = reduce_agent_chat_compaction(
+        AgentChatCompactionState::default(),
+        2,
+        &AgentChatCompactionFact::Failed {
+            event_id: "provider-event-2".into(),
+            turn_id: "turn-1".into(),
+            failure: AgentChatCompactionFailure::TooFewGroups,
+        },
+    );
+    effect
+}
+
 #[test]
 fn failed_compaction_creates_one_fresh_session_child_with_frozen_history() {
     let ledger = SqliteLedger::in_memory().unwrap();
@@ -121,6 +134,40 @@ fn failed_compaction_creates_one_fresh_session_child_with_frozen_history() {
             .entries
             .len(),
         1
+    );
+}
+
+#[test]
+fn terminal_compaction_failure_recovers_when_the_provider_omits_started() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let (conversation_id, parent_run_id) = conversation(ledger.clone());
+    save(ledger.clone(), conversation_id.clone());
+    let service = AgentChatCompactionRecoveryService::new(
+        ledger.clone(),
+        AgentChatCompactionRecoveryAuthority::Approved,
+    );
+    let recovered = service
+        .apply(
+            &AgentChatCompactionRecoveryRequest {
+                source_event_id: "provider-event-2".into(),
+                source_cursor: 2,
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation_id.clone(),
+                parent_run_id,
+                selection: selection(),
+            },
+            &terminal_failure_effect(),
+        )
+        .unwrap();
+    let AgentChatCompactionRecoveryResult::Recovered(child) = recovered else {
+        panic!("terminal failure must create a recovery child")
+    };
+    assert_eq!(child.context_through_ordinal, 1);
+    assert!(
+        ledger
+            .find_run_session_binding(&child.run_id.0)
+            .unwrap()
+            .is_none()
     );
 }
 

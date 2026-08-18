@@ -140,7 +140,14 @@ fn fail(
             AgentChatCompactionEffect::Rejected(AgentChatCompactionRejection::AlreadyRecovered),
         );
     }
-    if state.active_turn_id.as_deref() != Some(turn_id) {
+    // Some provider versions only expose the terminal `tooFewGroups` diagnostic, not a
+    // preceding compaction-started frame. Treat that normalized, cursor-fenced fact as enough
+    // to recover, but never let it displace a compaction already active for another turn.
+    if state
+        .active_turn_id
+        .as_deref()
+        .is_some_and(|active| active != turn_id)
+    {
         return (
             state,
             AgentChatCompactionEffect::Rejected(AgentChatCompactionRejection::NoMatchingCompaction),
