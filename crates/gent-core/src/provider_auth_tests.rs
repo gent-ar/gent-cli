@@ -149,3 +149,100 @@ fn invalid_selection_never_starts_login() {
         ProviderAuthEffect::Rejected(ProviderAuthRejection::ChallengeMismatch)
     );
 }
+
+#[test]
+fn malformed_challenges_and_unoffered_methods_are_rejected() {
+    let mut malformed = challenge();
+    malformed.binary_lock.digest_sha256 = "bad".into();
+    assert_eq!(
+        reduce_provider_auth(
+            ProviderAuthState::default(),
+            ProviderAuthEvent::ObservedUnauthenticated {
+                challenge: malformed
+            },
+        )
+        .1,
+        ProviderAuthEffect::Rejected(ProviderAuthRejection::InvalidChallenge)
+    );
+    let (_, effect) = reduce_provider_auth(
+        unauthenticated_state(),
+        ProviderAuthEvent::SelectMethod {
+            selection: ProviderAuthMethodSelection {
+                challenge_id: "challenge-1".into(),
+                method: ProviderAuthMethod::ApiKey,
+            },
+            now: 1,
+        },
+    );
+    assert_eq!(
+        effect,
+        ProviderAuthEffect::Rejected(ProviderAuthRejection::MethodNotOffered)
+    );
+}
+
+#[test]
+fn a_matching_binary_retains_the_original_challenge_and_empty_state_is_safe() {
+    let state = unauthenticated_state();
+    let mut replacement = challenge();
+    replacement.challenge_id = "replacement".into();
+    let (state, effect) = reduce_provider_auth(
+        state,
+        ProviderAuthEvent::ObservedUnauthenticated {
+            challenge: replacement,
+        },
+    );
+    assert!(
+        matches!(effect, ProviderAuthEffect::AskTool(value) if value.challenge_id == "challenge-1")
+    );
+    assert_eq!(
+        reduce_provider_auth(state, ProviderAuthEvent::Timeout { now: 1 }).1,
+        ProviderAuthEffect::None
+    );
+    assert_eq!(
+        reduce_provider_auth(
+            ProviderAuthState::default(),
+            ProviderAuthEvent::Cancel {
+                challenge_id: "x".into()
+            }
+        )
+        .1,
+        ProviderAuthEffect::Rejected(ProviderAuthRejection::NoActiveChallenge)
+    );
+}
+
+#[test]
+fn authentication_settlement_and_expired_or_wrong_cancellation_are_closed() {
+    let (_, effect) = reduce_provider_auth(
+        unauthenticated_state(),
+        ProviderAuthEvent::ObservedAuthenticated {
+            provider: ProviderAuthProvider::Codex,
+            binary_lock: challenge().binary_lock,
+        },
+    );
+    assert!(
+        matches!(effect, ProviderAuthEffect::Status(value) if value.lifecycle == ProviderAuthLifecycle::Authenticated)
+    );
+    let (_, expired) = reduce_provider_auth(
+        unauthenticated_state(),
+        ProviderAuthEvent::SelectMethod {
+            selection: ProviderAuthMethodSelection {
+                challenge_id: "challenge-1".into(),
+                method: ProviderAuthMethod::DeviceCode,
+            },
+            now: 20,
+        },
+    );
+    assert!(
+        matches!(expired, ProviderAuthEffect::Status(value) if value.lifecycle == ProviderAuthLifecycle::Expired)
+    );
+    assert_eq!(
+        reduce_provider_auth(
+            unauthenticated_state(),
+            ProviderAuthEvent::Cancel {
+                challenge_id: "other".into()
+            }
+        )
+        .1,
+        ProviderAuthEffect::Rejected(ProviderAuthRejection::ChallengeMismatch)
+    );
+}

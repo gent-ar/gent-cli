@@ -252,3 +252,46 @@ fn staging_failure_does_not_close_an_unchanged_running_host() {
     );
     assert_eq!(failed.ingress, RuntimeUpdateIngress::Unchanged);
 }
+
+#[test]
+fn missing_release_and_failed_or_regular_rollbacks_preserve_safe_state() {
+    let none = reduce_runtime_update(
+        RuntimeUpdateStatus::default(),
+        RuntimeUpdateEvent::Discovered(RuntimeUpdateEligibility::Eligible),
+        None,
+    );
+    assert!(!none.changed);
+    let health_failure = reduce_runtime_update(
+        RuntimeUpdateStatus::default(),
+        RuntimeUpdateEvent::HealthCheckFailed,
+        None,
+    );
+    assert_eq!(health_failure.ingress, RuntimeUpdateIngress::KeepClosed);
+    let rollback = reduce_runtime_update(
+        RuntimeUpdateStatus::default(),
+        RuntimeUpdateEvent::RollbackRequested,
+        None,
+    );
+    assert_eq!(rollback.status.stage, RuntimeUpdateStage::RolledBack);
+}
+
+#[test]
+fn discovery_rejections_close_only_for_read_only_recovery() {
+    let readonly = reduce_runtime_update(
+        RuntimeUpdateStatus::default(),
+        RuntimeUpdateEvent::Discovered(RuntimeUpdateEligibility::ReadOnlyUpdateRequired(
+            RuntimeUpdateFailure::IncompatibleSchema,
+        )),
+        None,
+    );
+    assert_eq!(readonly.ingress, RuntimeUpdateIngress::Close);
+    let rejected = reduce_runtime_update(
+        RuntimeUpdateStatus::default(),
+        RuntimeUpdateEvent::Discovered(RuntimeUpdateEligibility::Rejected(
+            RuntimeUpdateFailure::Revoked,
+        )),
+        None,
+    );
+    assert_eq!(rejected.ingress, RuntimeUpdateIngress::Unchanged);
+    assert_eq!(rejected.status.failure, Some(RuntimeUpdateFailure::Revoked));
+}

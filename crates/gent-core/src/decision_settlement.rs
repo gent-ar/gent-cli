@@ -254,4 +254,46 @@ mod tests {
             DecisionSettlementPhase::RecoveryRequired
         );
     }
+
+    #[test]
+    fn identifier_conflicts_and_unknown_or_repeated_evidence_do_not_mutate_state() {
+        let accepted = submit_decision(DecisionSettlementState::default(), command());
+        let state = DecisionSettlementState::from_decision(
+            accepted.state.decision("decision-1").unwrap().clone(),
+        );
+        let conflict = submit_decision(
+            state,
+            DecisionCommand {
+                decision_id: "other".into(),
+                idempotency_key: "key-1".into(),
+            },
+        );
+        assert!(matches!(
+            conflict.outcome,
+            DecisionCommandOutcome::IdempotencyConflict { .. }
+        ));
+        let unknown =
+            apply_decision_evidence(conflict.state, "missing", DecisionEvidence::ProviderSettled);
+        assert!(!unknown.changed);
+        let settled = apply_decision_evidence(
+            unknown.state,
+            "decision-1",
+            DecisionEvidence::ProviderSettled,
+        );
+        assert!(settled.changed);
+        let acknowledged = apply_decision_evidence(
+            settled.state.clone(),
+            "decision-1",
+            DecisionEvidence::ProviderAcknowledged,
+        );
+        assert!(!acknowledged.changed);
+        assert!(
+            !apply_decision_evidence(
+                acknowledged.state,
+                "decision-1",
+                DecisionEvidence::RecoveryRequired,
+            )
+            .changed
+        );
+    }
 }

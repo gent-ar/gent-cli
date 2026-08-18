@@ -176,5 +176,10 @@ mod tests {
         let mut buffer = FrameBuffer::new(policy());
         assert_eq!(buffer.offer(vec![0; 9]), OfferResult::RejectedOversize);
         assert_eq!(buffer.queued_frames(), 0);
+        assert_eq!(
+            buffer.offer(vec![1]),
+            OfferResult::Queued(ReadDirective::Continue)
+        );
+        assert_eq!(buffer.queued_frames(), 1);
     }
 }

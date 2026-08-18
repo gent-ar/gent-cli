@@ -144,7 +144,10 @@ mod tests {
         AttachmentMetadata, AttachmentState, AttachmentTransfer, HostEpoch, ReceiptId,
     };
 
-    use super::{AttachmentError, accept_chunk, commit, validate_attachment, validate_staging_key};
+    use super::{
+        AttachmentError, MAX_ATTACHMENT_BYTES, accept_chunk, commit, validate_attachment,
+        validate_staging_key,
+    };
 
     fn transfer() -> AttachmentTransfer {
         AttachmentTransfer {
@@ -186,6 +189,70 @@ mod tests {
         assert_eq!(
             accept_chunk(&committed, 4, 1),
             Err(AttachmentError::NotUploading)
+        );
+    }
+
+    #[test]
+    fn transfer_rejects_invalid_metadata_and_chunk_bounds() {
+        let cases = [
+            ("", "attachment id"),
+            ("a/b", "display name"),
+            ("notes.txt", "media type"),
+        ];
+        for (display_name, expected) in cases {
+            let mut metadata = transfer().metadata;
+            if expected == "attachment id" {
+                metadata.attachment_id.clear();
+            } else if expected == "display name" {
+                metadata.display_name = display_name.into();
+            } else {
+                metadata.media_type = "text".into();
+            }
+            assert_eq!(
+                validate_attachment(&metadata),
+                Err(AttachmentError::Metadata(expected))
+            );
+        }
+        assert_eq!(
+            accept_chunk(&transfer(), 0, 0),
+            Err(AttachmentError::Bounds)
+        );
+        assert_eq!(
+            accept_chunk(&transfer(), 0, 5),
+            Err(AttachmentError::Bounds)
+        );
+    }
+
+    #[test]
+    fn commit_requires_every_byte_and_the_exact_digest() {
+        assert_eq!(
+            commit(&transfer(), &"a".repeat(64)),
+            Err(AttachmentError::NotUploading)
+        );
+        let complete = accept_chunk(&transfer(), 0, 4).unwrap();
+        assert_eq!(commit(&complete, "b"), Err(AttachmentError::Digest));
+        assert!(validate_staging_key("staging/contains_underscore").is_err());
+    }
+
+    #[test]
+    fn metadata_limits_digest_and_content_key_are_fenced() {
+        let mut metadata = transfer().metadata;
+        metadata.byte_len = MAX_ATTACHMENT_BYTES + 1;
+        assert_eq!(
+            validate_attachment(&metadata),
+            Err(AttachmentError::Metadata("byte length"))
+        );
+        metadata.byte_len = 4;
+        metadata.digest_sha256 = "A".repeat(64);
+        assert_eq!(
+            validate_attachment(&metadata),
+            Err(AttachmentError::Metadata("sha256 digest"))
+        );
+        metadata.digest_sha256 = "a".repeat(64);
+        metadata.storage_key = "sha256/other".into();
+        assert_eq!(
+            validate_attachment(&metadata),
+            Err(AttachmentError::Metadata("storage key"))
         );
     }
 }

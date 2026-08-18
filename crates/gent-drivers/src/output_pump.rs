@@ -228,4 +228,20 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn complete_frames_before_a_malformed_line_remain_available() {
+        let mut pump = pump(2);
+        let malformed = vec![b'x'; 65];
+        let mut chunk = b"first\n".to_vec();
+        chunk.extend(malformed);
+        assert!(matches!(
+            pump.accept_chunk(&chunk),
+            Err(OutputPumpError::Ndjson(_))
+        ));
+        assert_eq!(pump.queued_frames(), 1);
+        assert_eq!(pump.take_frame().0.unwrap(), b"first");
+        assert_eq!(pump.accept_chunk(b"next\n"), Ok(ReadDirective::Continue));
+        assert_eq!(pump.take_frame().0.unwrap(), b"next");
+    }
 }

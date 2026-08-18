@@ -11,6 +11,8 @@ mod agent_chat_run_context;
 mod agent_chat_switch;
 mod attachments;
 mod capability_catalog;
+#[cfg(test)]
+mod contract_edge_tests;
 mod conversation_activity;
 mod conversation_activity_record;
 mod conversation_artifact;

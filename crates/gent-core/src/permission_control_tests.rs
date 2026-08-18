@@ -158,3 +158,122 @@ fn malformed_digest_is_rejected_before_a_pending_decision_is_created() {
     );
     assert!(result.0.pending().is_none());
 }
+
+#[test]
+fn pending_requests_are_idempotent_and_responses_cannot_target_another_decision() {
+    let context = context(PermissionMode::Default);
+    let pending = reduce_permission_control(
+        PermissionControlState::default(),
+        &context,
+        PermissionControlEvent::Request(request()),
+    );
+    let duplicate = reduce_permission_control(
+        pending.0,
+        &context,
+        PermissionControlEvent::Request(request()),
+    );
+    assert!(matches!(duplicate.1, PermissionControlEffect::AskUser(_)));
+    let mut response = PermissionDecisionResponse {
+        binding: request().binding,
+        response: PermissionDecisionResponseKind::Deny,
+    };
+    response.binding.decision_id = AgentChatDecisionId("decision-2".into());
+    let rejected = reduce_permission_control(
+        duplicate.0,
+        &context,
+        PermissionControlEvent::Respond(response),
+    );
+    assert_eq!(
+        rejected.1,
+        PermissionControlEffect::Rejected(PermissionControlRejection::PendingDecisionMismatch)
+    );
+}
+
+#[test]
+fn one_pending_request_blocks_competitors_and_response_types_are_closed() {
+    let context = context(PermissionMode::Default);
+    let pending = reduce_permission_control(
+        PermissionControlState::default(),
+        &context,
+        PermissionControlEvent::Request(request()),
+    );
+    let mut another = request();
+    another.binding.request_idempotency_key = "request-2".into();
+    assert_eq!(
+        reduce_permission_control(
+            pending.0.clone(),
+            &context,
+            PermissionControlEvent::Request(another)
+        )
+        .1,
+        PermissionControlEffect::Rejected(PermissionControlRejection::AnotherDecisionPending)
+    );
+    let response = PermissionDecisionResponse {
+        binding: request().binding,
+        response: PermissionDecisionResponseKind::ApproveExactTool,
+    };
+    assert_eq!(
+        reduce_permission_control(
+            pending.0,
+            &context,
+            PermissionControlEvent::Respond(response)
+        )
+        .1,
+        PermissionControlEffect::Resolved(PermissionControlResolution::ApproveExactTool {
+            tool_name: "workspace:edit".into(),
+        })
+    );
+}
+
+#[test]
+fn policy_allowance_and_missing_sandbox_skip_the_pending_state() {
+    let mut allowed = context(PermissionMode::Default);
+    allowed.policy.allowed_tools.push("workspace:edit".into());
+    assert!(matches!(
+        reduce_permission_control(
+            PermissionControlState::default(),
+            &allowed,
+            PermissionControlEvent::Request(request())
+        )
+        .1,
+        PermissionControlEffect::Resolved(PermissionControlResolution::AllowedByPolicy(_))
+    ));
+    assert_eq!(
+        reduce_permission_control(
+            PermissionControlState::default(),
+            &context(PermissionMode::Autonomous),
+            PermissionControlEvent::Request(request())
+        )
+        .1,
+        PermissionControlEffect::Rejected(PermissionControlRejection::SandboxRequired)
+    );
+}
+
+#[test]
+fn a_response_without_a_request_and_stale_bindings_fail_closed() {
+    let context = context(PermissionMode::Default);
+    let response = PermissionDecisionResponse {
+        binding: request().binding,
+        response: PermissionDecisionResponseKind::Deny,
+    };
+    assert_eq!(
+        reduce_permission_control(
+            PermissionControlState::default(),
+            &context,
+            PermissionControlEvent::Respond(response)
+        )
+        .1,
+        PermissionControlEffect::Rejected(PermissionControlRejection::NoPendingDecision)
+    );
+    let mut stale = request();
+    stale.binding.host_epoch = HostEpoch(3);
+    assert_eq!(
+        reduce_permission_control(
+            PermissionControlState::default(),
+            &context,
+            PermissionControlEvent::Request(stale)
+        )
+        .1,
+        PermissionControlEffect::Rejected(PermissionControlRejection::StaleHostEpoch)
+    );
+}
