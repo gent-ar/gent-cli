@@ -23,6 +23,7 @@ mod decision;
 mod dependencies;
 mod event_stream;
 mod external_provider_bridge;
+mod goal;
 mod permission_policy;
 mod provider_auth;
 mod reviewed_plan;
@@ -62,6 +63,7 @@ pub use external_provider_bridge::{
     EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame, ExternalProviderBridgeHello,
     ExternalProviderBridgeNegotiated,
 };
+pub use goal::{GOAL_CAPABILITY, GoalFrame, GoalFrameError, MAX_GOAL_FRAME_BYTES};
 pub use permission_policy::{PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame};
 pub use provider_auth::{
     MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame,
