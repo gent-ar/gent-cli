@@ -94,6 +94,7 @@ async fn switch_negotiates_a_parent_bound_child_run() {
             receipt_id,
             conversation_id,
             parent_run_id,
+            context_policy,
             ..
         } = read_json_frame(&mut stream).await.unwrap()
         else {
@@ -112,6 +113,7 @@ async fn switch_negotiates_a_parent_bound_child_run() {
                 conversation_id,
                 parent_run_id,
                 run_id: gent_types::AgentChatRunId("run-2".into()),
+                context_policy,
                 context_through_ordinal: 1,
             },
         )
@@ -128,6 +130,7 @@ async fn switch_negotiates_a_parent_bound_child_run() {
             model: "gpt-5.6".into(),
             effort: Effort::High,
             mode: Mode::Agent,
+            context: super::switch::Context::Preserve,
             request_id: Some("switch-1".into()),
             receipt_id: Some("receipt-1".into()),
         }),

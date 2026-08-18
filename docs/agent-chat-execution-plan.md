@@ -71,9 +71,24 @@ the clear-context path.
 - Plan mode stays Plan after any permission approval. Selection approval does
   not escalate permissions, and Autonomous/Bypass still need enforced sandbox
   containment for provider execution.
+- `AgentChatMode` is deliberately separate from the durable permission policy:
+  Plan is a read-only Codex projection today, while Autonomous remains an
+  explicit Gent permission mode. Claude and Claurst receive no inferred native
+  mode/model/effort flags until their adapter evidence authorizes an exact mapping.
+- The explicit terminal spelling is `gent permissions set --mode autonomous`.
+  It records policy only; it does not change `gent --mode agent`, launch a
+  provider, or claim that any provider has accepted an autonomous posture.
 - If the selected provider changes, the implementation run is a child with the
   same immutable rules. Context preservation is provider-neutral normalized
   history; a provider-native resume token is never copied across providers.
+- A generic selection switch has an explicit Preserve/Clear policy. Clear
+  atomically records ordinal zero and a fresh child with no session binding;
+  policy-changing retries are rejected. The bounded context projector joins
+  frozen prompt turns with final normalized assistant/tool/notice facts, but
+  it remains uncomposed until a lifecycle authority consumes that artifact.
+- A normalized `tooFewGroups` recovery reducer can reserve one fresh,
+  preserve-context child; its live Codex ingress remains disabled because the
+  recorded fixture has no turn identity or failure discriminator.
 - Every plan approval, clear-context choice, provider change, and launch result
   has a durable receipt and an explicit terminal result even if the provider
   never acknowledges it.

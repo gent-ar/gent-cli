@@ -9,8 +9,8 @@ use gent_runtime::{
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatPromptDisposition,
-    AgentChatProvider, AgentChatRequestId, AgentChatRunId, AgentChatSelection, HostEpoch,
-    ReceiptId,
+    AgentChatProvider, AgentChatRequestId, AgentChatRunId, AgentChatSelection, ContextPolicy,
+    HostEpoch, ReceiptId,
 };
 
 fn selection(provider: AgentChatProvider, model: &str) -> AgentChatSelection {
@@ -69,7 +69,13 @@ fn request(
         host_epoch: HostEpoch(1),
         conversation_id,
         parent_run_id,
-        selection: selection(AgentChatProvider::Codex, "gpt-5.6"),
+        selection: AgentChatSelection {
+            provider: AgentChatProvider::Codex,
+            model: "gpt-5.6".into(),
+            effort: AgentChatEffort::High,
+            mode: AgentChatMode::Plan,
+        },
+        context_policy: ContextPolicy::Preserve,
     }
 }
 
@@ -93,8 +99,11 @@ fn switch_creates_a_retry_stable_child_and_freezes_prior_history() {
         panic!("approved authority must create a selected child run");
     };
     assert_eq!(switched.context_through_ordinal, 1);
+    assert_eq!(switched.context_policy, ContextPolicy::Preserve);
     assert_eq!(switched.parent_run_id, root_run_id);
     assert_eq!(switched.selection.provider, AgentChatProvider::Codex);
+    assert_eq!(switched.selection.mode, AgentChatMode::Plan);
+    assert_eq!(switched.selection.effort, AgentChatEffort::High);
     assert_eq!(
         save(ledger.clone(), conversation_id.clone(), "after"),
         switched.run_id
@@ -111,6 +120,32 @@ fn switch_creates_a_retry_stable_child_and_freezes_prior_history() {
         runs[1].parent_run_id.as_deref(),
         Some(root_run_id.0.as_str())
     );
+}
+
+#[test]
+fn clear_switch_creates_an_empty_context_child() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let (conversation_id, root_run_id) = conversation(ledger.clone());
+    save(ledger.clone(), conversation_id.clone(), "before");
+    let service =
+        AgentChatSelectionSwitchService::new(ledger, AgentChatSelectionSwitchAuthority::Approved);
+    let mut request = request(conversation_id, root_run_id);
+    request.context_policy = ContextPolicy::Clear;
+    request.request_id = AgentChatRequestId("clear".into());
+    request.receipt_id = ReceiptId("clear-receipt".into());
+    let AgentChatSelectionSwitchResult::Switched(switched) = service.switch(&request).unwrap()
+    else {
+        panic!("approved authority must create a selected child run");
+    };
+    assert_eq!(switched.context_policy, ContextPolicy::Clear);
+    assert_eq!(switched.context_through_ordinal, 0);
+    assert_eq!(
+        service.switch(&request).unwrap(),
+        AgentChatSelectionSwitchResult::Switched(switched)
+    );
+    let mut changed_retry = request;
+    changed_retry.context_policy = ContextPolicy::Preserve;
+    assert!(service.switch(&changed_retry).is_err());
 }
 
 #[test]

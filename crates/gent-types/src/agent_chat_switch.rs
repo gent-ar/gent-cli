@@ -1,7 +1,8 @@
 //! Durable provider-selection transitions for a provider-neutral chat conversation.
 
 use crate::{
-    AgentChatConversationId, AgentChatRunId, AgentChatSelection, HostEpoch, Receipt, ReceiptId,
+    AgentChatConversationId, AgentChatRunId, AgentChatSelection, ContextPolicy, HostEpoch, Receipt,
+    ReceiptId,
 };
 
 /// Immutable request to continue a conversation in a new selected child run.
@@ -14,6 +15,7 @@ pub struct AgentChatSelectionSwitch {
     pub parent_run_id: AgentChatRunId,
     pub run_id: AgentChatRunId,
     pub selection: AgentChatSelection,
+    pub context_policy: ContextPolicy,
 }
 
 /// A retry-stable child run and the immutable history boundary it inherited.
@@ -24,5 +26,6 @@ pub struct AgentChatSelectionSwitched {
     pub parent_run_id: AgentChatRunId,
     pub run_id: AgentChatRunId,
     pub selection: AgentChatSelection,
+    pub context_policy: ContextPolicy,
     pub context_through_ordinal: u64,
 }

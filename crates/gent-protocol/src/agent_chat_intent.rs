@@ -5,7 +5,7 @@
 
 use gent_types::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse,
-    AgentChatPromptDelivery, AgentChatRequestId, AgentChatRunId, AgentChatSelection,
+    AgentChatPromptDelivery, AgentChatRequestId, AgentChatRunId, AgentChatSelection, ContextPolicy,
     NormalizedTranscriptEvent, Receipt,
 };
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,7 @@ pub enum AgentChatIntentFrame {
         conversation_id: AgentChatConversationId,
         parent_run_id: AgentChatRunId,
         selection: AgentChatSelection,
+        context_policy: ContextPolicy,
     },
     Interrupt {
         request_id: AgentChatRequestId,
@@ -92,6 +93,7 @@ pub enum AgentChatIntentFrame {
         conversation_id: AgentChatConversationId,
         parent_run_id: AgentChatRunId,
         run_id: AgentChatRunId,
+        context_policy: ContextPolicy,
         context_through_ordinal: u64,
     },
     Accepted {
@@ -114,8 +116,8 @@ pub enum AgentChatSubscriptionEnd {
 mod tests {
     use super::{AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd};
     use gent_types::{
-        AgentChatConversationId, AgentChatRequestId, AgentChatRunId, HostEpoch, Receipt, ReceiptId,
-        ReceiptStatus,
+        AgentChatConversationId, AgentChatRequestId, AgentChatRunId, ContextPolicy, HostEpoch,
+        Receipt, ReceiptId, ReceiptStatus,
     };
     use serde_json::json;
 
@@ -202,6 +204,7 @@ mod tests {
                 effort: gent_types::AgentChatEffort::High,
                 mode: gent_types::AgentChatMode::Agent,
             },
+            context_policy: ContextPolicy::Preserve,
         };
         assert!(
             serde_json::to_value(frame).unwrap()["body"]

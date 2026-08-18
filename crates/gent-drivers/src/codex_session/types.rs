@@ -3,8 +3,6 @@
 use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection};
 use serde_json::{Value, json};
 
-const MAX_MODEL_BYTES: usize = 512;
-
 /// Provider turn fields derived exclusively from a durable Gent run selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexTurnOptions {
@@ -42,7 +40,7 @@ impl CodexTurnOptions {
         if selection.provider != AgentChatProvider::Codex {
             return Err(CodexSessionError::UnsupportedSelection);
         }
-        if selection.model.trim().is_empty() || selection.model.len() > MAX_MODEL_BYTES {
+        if selection.validate().is_err() {
             return Err(CodexSessionError::InvalidModel);
         }
         let effort = match selection.effort {

@@ -24,6 +24,36 @@ pub struct AgentChatSelection {
     pub mode: AgentChatMode,
 }
 
+/// Largest accepted UTF-8 model identifier at the public Gent boundary.
+pub(crate) const MAX_AGENT_CHAT_MODEL_BYTES: usize = 512;
+
+/// A selection field failed the provider-neutral durable contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum AgentChatSelectionError {
+    /// A model identifier cannot be empty, contain a NUL, or exceed the fixed bound.
+    #[error("the agent-chat model identifier is invalid")]
+    InvalidModel,
+}
+
+impl AgentChatSelection {
+    /// Validates only provider-neutral durable selection fields.
+    ///
+    /// Provider-specific model catalogs and native flags stay at their private adapter boundary.
+    ///
+    /// # Errors
+    /// Returns an error for an empty, NUL-containing, or overlong model identifier.
+    pub fn validate(&self) -> Result<(), AgentChatSelectionError> {
+        let model = self.model.trim();
+        if model.is_empty()
+            || self.model.len() > MAX_AGENT_CHAT_MODEL_BYTES
+            || self.model.contains('\0')
+        {
+            return Err(AgentChatSelectionError::InvalidModel);
+        }
+        Ok(())
+    }
+}
+
 /// The bounded effort choices which a compatible agent-chat client may render.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -132,8 +162,8 @@ pub struct NormalizedTranscriptPage {
 mod tests {
     use super::{
         AgentChatConversationSummary, AgentChatEffort, AgentChatMode, AgentChatProvider,
-        AgentChatSelection, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
-        NormalizedTranscriptKind,
+        AgentChatSelection, AgentChatSelectionError, MAX_AGENT_CHAT_MODEL_BYTES,
+        NormalizedTranscriptAppend, NormalizedTranscriptEvent, NormalizedTranscriptKind,
     };
     use serde_json::json;
 
@@ -148,6 +178,33 @@ mod tests {
         assert_eq!(
             serde_json::to_value(selection).unwrap(),
             json!({ "provider": "codex", "model": "gpt-5.6", "effort": "high", "mode": "plan" })
+        );
+    }
+
+    #[test]
+    fn selection_model_is_bounded_without_constraining_provider_catalogs() {
+        let selection = AgentChatSelection {
+            provider: AgentChatProvider::Codex,
+            model: "gpt-5.6".into(),
+            effort: AgentChatEffort::Medium,
+            mode: AgentChatMode::Plan,
+        };
+        assert!(selection.validate().is_ok());
+        assert_eq!(
+            AgentChatSelection {
+                model: " \t".into(),
+                ..selection.clone()
+            }
+            .validate(),
+            Err(AgentChatSelectionError::InvalidModel)
+        );
+        assert_eq!(
+            AgentChatSelection {
+                model: "m".repeat(MAX_AGENT_CHAT_MODEL_BYTES + 1),
+                ..selection
+            }
+            .validate(),
+            Err(AgentChatSelectionError::InvalidModel)
         );
     }
 

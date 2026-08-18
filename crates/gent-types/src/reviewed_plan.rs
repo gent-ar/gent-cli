@@ -157,7 +157,7 @@ impl PlanArtifact {
     }
 }
 
-/// Whether a child implementation run receives prior normalized history.
+/// Whether a child run receives prior provider-neutral history.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ContextPolicy {

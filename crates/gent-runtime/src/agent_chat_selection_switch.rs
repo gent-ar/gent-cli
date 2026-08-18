@@ -3,7 +3,7 @@
 use gent_ports::AgentChatSelectionLedger;
 use gent_types::{
     AgentChatConversationId, AgentChatRequestId, AgentChatRunId, AgentChatSelection,
-    AgentChatSelectionSwitch, AgentChatSelectionSwitched, HostEpoch, ReceiptId,
+    AgentChatSelectionSwitch, AgentChatSelectionSwitched, ContextPolicy, HostEpoch, ReceiptId,
 };
 use sha2::{Digest, Sha256};
 
@@ -28,6 +28,7 @@ pub struct AgentChatSelectionSwitchRequest {
     pub conversation_id: AgentChatConversationId,
     pub parent_run_id: AgentChatRunId,
     pub selection: AgentChatSelection,
+    pub context_policy: ContextPolicy,
 }
 
 /// A denied observer request or one durable selected child run.
@@ -80,6 +81,7 @@ fn ledger_switch(request: &AgentChatSelectionSwitchRequest) -> AgentChatSelectio
         parent_run_id: request.parent_run_id.clone(),
         run_id: AgentChatRunId(identity("run", &request.request_id)),
         selection: request.selection.clone(),
+        context_policy: request.context_policy,
     }
 }
 
@@ -94,7 +96,7 @@ fn identity(kind: &str, request_id: &AgentChatRequestId) -> String {
 
 #[cfg(test)]
 mod tests {
-    use gent_types::{AgentChatRequestId, AgentChatSelection, ReceiptId};
+    use gent_types::{AgentChatRequestId, AgentChatSelection, ContextPolicy, ReceiptId};
 
     use super::{AgentChatSelectionSwitchRequest, identity, ledger_switch};
 
@@ -112,6 +114,7 @@ mod tests {
                 effort: gent_types::AgentChatEffort::Low,
                 mode: gent_types::AgentChatMode::Ask,
             },
+            context_policy: ContextPolicy::Preserve,
         };
         assert_eq!(
             ledger_switch(&request).run_id.0,

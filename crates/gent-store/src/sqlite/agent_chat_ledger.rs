@@ -82,7 +82,6 @@ fn validate(create: &AgentChatConversationCreate) -> Result<(), LedgerError> {
         &create.idempotency_key,
         &create.conversation_id.0,
         &create.run_id.0,
-        &create.selection.model,
     ] {
         if value.trim().is_empty() {
             return Err(LedgerError::Invariant(
@@ -90,6 +89,9 @@ fn validate(create: &AgentChatConversationCreate) -> Result<(), LedgerError> {
             ));
         }
     }
+    create.selection.validate().map_err(|error| {
+        LedgerError::Invariant(format!("agent chat creation selection is invalid: {error}"))
+    })?;
     Ok(())
 }
 

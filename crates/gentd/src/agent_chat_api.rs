@@ -62,14 +62,18 @@ where
             conversation_id,
             parent_run_id,
             selection,
+            context_policy,
         } => switch(
             switches,
             host_epoch,
-            request_id,
-            receipt_id,
-            conversation_id,
-            parent_run_id,
-            selection,
+            SwitchInput {
+                request_id,
+                receipt_id,
+                conversation_id,
+                parent_run_id,
+                selection,
+                context_policy,
+            },
         ),
         AgentChatIntentFrame::Interrupt { .. } | AgentChatIntentFrame::Decision { .. } => {
             Err("agent-chat provider lifecycle is not configured".into())
@@ -81,36 +85,43 @@ where
     }
 }
 
-fn switch<L>(
-    service: &AgentChatSelectionSwitchService<L>,
-    host_epoch: HostEpoch,
+struct SwitchInput {
     request_id: gent_types::AgentChatRequestId,
     receipt_id: gent_types::ReceiptId,
     conversation_id: gent_types::AgentChatConversationId,
     parent_run_id: gent_types::AgentChatRunId,
     selection: gent_types::AgentChatSelection,
+    context_policy: gent_types::ContextPolicy,
+}
+
+fn switch<L>(
+    service: &AgentChatSelectionSwitchService<L>,
+    host_epoch: HostEpoch,
+    input: SwitchInput,
 ) -> Result<Vec<AgentChatIntentFrame>, String>
 where
     L: gent_ports::AgentChatSelectionLedger,
 {
     match service
         .switch(&AgentChatSelectionSwitchRequest {
-            request_id: request_id.clone(),
-            receipt_id,
+            request_id: input.request_id.clone(),
+            receipt_id: input.receipt_id,
             host_epoch,
-            conversation_id,
-            parent_run_id,
-            selection,
+            conversation_id: input.conversation_id,
+            parent_run_id: input.parent_run_id,
+            selection: input.selection,
+            context_policy: input.context_policy,
         })
         .map_err(|error| error.to_string())?
     {
         AgentChatSelectionSwitchResult::Switched(switched) => {
             Ok(vec![AgentChatIntentFrame::Switched {
-                request_id,
+                request_id: input.request_id,
                 receipt: switched.receipt,
                 conversation_id: switched.conversation_id,
                 parent_run_id: switched.parent_run_id,
                 run_id: switched.run_id,
+                context_policy: switched.context_policy,
                 context_through_ordinal: switched.context_through_ordinal,
             }])
         }

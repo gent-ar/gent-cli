@@ -1,5 +1,8 @@
 //! Pure runtime policy and reducer rules. This crate never opens a database or process.
 use gent_types::HostEpoch;
+mod agent_chat_compaction;
+#[cfg(test)]
+mod agent_chat_compaction_tests;
 mod attachment_transfer;
 mod conversation_activity;
 mod decision_settlement;
@@ -27,6 +30,10 @@ mod runtime_update;
 mod runtime_update_schedule;
 mod tool_classification;
 mod turn_lifecycle;
+pub use agent_chat_compaction::{
+    AgentChatCompactionEffect, AgentChatCompactionRejection, AgentChatCompactionState,
+    reduce_agent_chat_compaction,
+};
 pub use attachment_transfer::*;
 pub use conversation_activity::{
     ConversationActivityProjection, ConversationActivityUpdate, project_conversation_activity,

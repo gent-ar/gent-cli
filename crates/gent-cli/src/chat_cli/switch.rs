@@ -1,8 +1,8 @@
 //! Typed client-side construction and validation for a durable selection switch.
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use gent_protocol::AgentChatIntentFrame;
-use gent_types::{AgentChatConversationId, AgentChatRunId, AgentChatSelection};
+use gent_types::{AgentChatConversationId, AgentChatRunId, AgentChatSelection, ContextPolicy};
 
 use super::{Effort, Mode, Provider};
 
@@ -20,10 +20,19 @@ pub(crate) struct SwitchArgs {
     pub(crate) effort: Effort,
     #[arg(long, value_enum, default_value_t = Mode::Ask)]
     pub(crate) mode: Mode,
+    /// Explicitly preserve durable context or begin this child with an empty context.
+    #[arg(long, value_enum, default_value_t = Context::Preserve)]
+    pub(crate) context: Context,
     #[arg(long)]
     pub(crate) request_id: Option<String>,
     #[arg(long)]
     pub(crate) receipt_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(crate) enum Context {
+    Preserve,
+    Clear,
 }
 
 pub(crate) fn frame(args: SwitchArgs) -> AgentChatIntentFrame {
@@ -38,6 +47,10 @@ pub(crate) fn frame(args: SwitchArgs) -> AgentChatIntentFrame {
             effort: super::effort(args.effort),
             mode: super::mode(args.mode),
         },
+        context_policy: match args.context {
+            Context::Preserve => ContextPolicy::Preserve,
+            Context::Clear => ContextPolicy::Clear,
+        },
     }
 }
 
@@ -51,6 +64,7 @@ pub(crate) fn valid_reply(
             receipt_id,
             conversation_id,
             parent_run_id,
+            context_policy,
             ..
         },
         AgentChatIntentFrame::Switched {
@@ -59,6 +73,7 @@ pub(crate) fn valid_reply(
             conversation_id: reply_conversation,
             parent_run_id: reply_parent,
             run_id,
+            context_policy: reply_policy,
             ..
         },
     ) = (request, response)
@@ -70,6 +85,7 @@ pub(crate) fn valid_reply(
             && receipt.receipt_id == *receipt_id
             && reply_conversation == conversation_id
             && reply_parent == parent_run_id
+            && reply_policy == context_policy
             && !run_id.0.is_empty(),
     )
 }

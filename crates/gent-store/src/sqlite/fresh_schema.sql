@@ -244,6 +244,7 @@ CREATE TABLE agent_chat_selection_switch_receipts (
     conversation_id TEXT NOT NULL REFERENCES agent_chat_conversations(conversation_id),
     parent_run_id TEXT NOT NULL REFERENCES agent_chat_run_selections(run_id),
     run_id TEXT NOT NULL UNIQUE REFERENCES agent_chat_run_selections(run_id),
+    context_policy TEXT NOT NULL CHECK (context_policy IN ('preserve', 'clear')),
     context_through_ordinal INTEGER NOT NULL CHECK (context_through_ordinal >= 0)
 );
 CREATE TABLE reviewed_plan_artifacts (

@@ -1,4 +1,5 @@
 //! Coordinator orchestration over pure policy and durable ports.
+mod agent_chat_compaction_recovery;
 mod agent_chat_controller_delta;
 mod agent_chat_controller_snapshot;
 mod agent_chat_conversations;
@@ -12,6 +13,9 @@ mod attachments;
 pub mod catalog;
 mod conversation_activity;
 mod conversation_content;
+mod conversation_context;
+#[cfg(test)]
+mod conversation_context_tests;
 mod conversation_prompts;
 mod conversations;
 mod decisions;
@@ -44,6 +48,10 @@ mod runtime_update_planner;
 mod runtime_update_successor;
 mod tool_sources;
 mod workspaces;
+pub use agent_chat_compaction_recovery::{
+    AgentChatCompactionRecoveryAuthority, AgentChatCompactionRecoveryRequest,
+    AgentChatCompactionRecoveryResult, AgentChatCompactionRecoveryService,
+};
 pub use agent_chat_controller_delta::{
     AgentChatControllerDeltaPage, AgentChatControllerDeltaReader, AgentChatControllerDeltaRequest,
     AgentChatControllerDeltaSource,
@@ -76,6 +84,7 @@ pub use conversation_activity::{
     ConversationActivityAuthority, ConversationActivityRead, ConversationActivityResult,
     ConversationActivityService,
 };
+pub use conversation_context::{ConversationContextArtifactService, ConversationContextRequest};
 pub use conversation_prompts::*;
 pub use dependency_actions::DependencyActionService;
 use gent_core::{Run, switch_provider};

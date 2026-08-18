@@ -184,7 +184,9 @@ impl From<PermissionCategoryArgument> for PermissionCategory {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use gent_types::PermissionMode;
 
+    use super::{PermissionCommand, PermissionModeArgument};
     use crate::{Args, CommandLine};
 
     #[test]
@@ -208,5 +210,21 @@ mod tests {
             args.command,
             Some(CommandLine::Permissions { .. })
         ));
+    }
+
+    #[test]
+    fn autonomous_is_a_durable_permission_command_not_a_chat_mode_alias() {
+        let args =
+            Args::try_parse_from(["gent", "permissions", "set", "--mode", "autonomous"]).unwrap();
+        assert!(matches!(
+            args.command,
+            Some(CommandLine::Permissions {
+                action: PermissionCommand::Set(_)
+            })
+        ));
+        assert_eq!(
+            PermissionMode::from(PermissionModeArgument::Autonomous),
+            PermissionMode::Autonomous
+        );
     }
 }

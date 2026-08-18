@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 mod agent_chat;
+mod agent_chat_compaction;
 mod agent_chat_intent;
 mod agent_chat_ledger;
 mod agent_chat_prompt;
@@ -13,6 +14,7 @@ mod conversation_activity;
 mod conversation_activity_record;
 mod conversation_artifact;
 mod conversation_content;
+mod conversation_context;
 mod conversation_prompts;
 mod conversations;
 mod decision;
@@ -43,9 +45,10 @@ mod workspaces;
 pub use agent_chat::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRun, AgentChatRunState, AgentChatSelection,
-    NormalizedTranscriptAppend, NormalizedTranscriptEvent, NormalizedTranscriptKind,
-    NormalizedTranscriptPage,
+    AgentChatSelectionError, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
+    NormalizedTranscriptKind, NormalizedTranscriptPage,
 };
+pub use agent_chat_compaction::{AgentChatCompactionFact, AgentChatCompactionFailure};
 pub use agent_chat_intent::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse, AgentChatRequestId,
     AgentChatRunId,
@@ -72,6 +75,7 @@ pub use conversation_content::{
     ConversationContentCursor, ConversationContentCursorError, ConversationContentEntry,
     ConversationContentPage,
 };
+pub use conversation_context::FrozenConversationContext;
 pub use conversation_prompts::{ConversationMessage, ConversationPrompt};
 pub use conversations::{
     ConversationArtifactSummary, ConversationListItem, ConversationRecord, ConversationRunStatus,
@@ -140,7 +144,6 @@ impl ReceiptId {
         Self(Uuid::new_v4().to_string())
     }
 }
-
 impl Default for ReceiptId {
     fn default() -> Self {
         Self::new()
@@ -162,7 +165,6 @@ pub struct Receipt {
     pub status: ReceiptStatus,
     pub host_epoch: HostEpoch,
 }
-
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Command {
@@ -184,7 +186,6 @@ pub struct Event {
     pub kind: String,
     pub payload: Value,
 }
-
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CapabilitySet(pub Vec<String>);
 
@@ -202,7 +203,6 @@ impl CapabilitySet {
         Self(shared)
     }
 }
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostStatus {
