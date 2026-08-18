@@ -2,7 +2,6 @@
 use crate::authority_profile::ValidatedAuthorityProfile;
 use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::provider_effects::ProviderEffectDispatcher;
-use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
 use gent_ports::{
     ActiveGoalResolver, AgentChatPromptDispatchLedger, AgentChatReadLedger,
     ConversationActivityLedger, Ledger, PublicProviderResolver, PublicProviderRunner,
@@ -10,48 +9,19 @@ use gent_ports::{
 };
 use gent_runtime::{
     AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult,
-    AgentChatPromptDispatchService, AgentChatReadService, AgentChatTranscriptAppendRequest,
-    AgentChatTranscriptAppendResult, AgentChatTranscriptAuthority, AgentChatTranscriptIngress,
-    ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
-    Coordinator, ProviderActivityFact, ProviderActivityIngress, ProviderRunAuthority,
-    PublicRunService, RuntimeError,
+    AgentChatPromptDispatchService, AgentChatReadService, AgentChatTranscriptAuthority,
+    AgentChatTranscriptIngress, ConversationActivityAuthority, ConversationActivityService,
+    Coordinator, ProviderActivityIngress, ProviderRunAuthority, PublicRunService, RuntimeError,
 };
-use gent_types::{AgentChatProvider, AgentChatSelection, GoalProjection, HostEpoch, RunLiveStatus};
+use gent_types::{AgentChatProvider, AgentChatSelection, GoalProjection, HostEpoch};
 use std::sync::Arc;
 
-/// A fact emitted at the public-driver process boundary with its own durable source identity.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum PublicDriverFact {
-    SessionEffect {
-        event_id: String,
-        effect: SessionEffect,
-    },
-    PublicWire {
-        event_id: String,
-        fact: PublicWireFact,
-    },
-    Activity(ProviderActivityFact),
-    /// A daemon-mapped transcript fact. The daemon, not the driver, supplies durable IDs.
-    Transcript(AgentChatTranscriptAppendRequest),
-}
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum PublicDriverFactResult {
-    Lifecycle(Option<RunLiveStatus>),
-    Activity(ConversationActivityResult),
-    Transcript(AgentChatTranscriptAppendResult),
-}
-#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-pub(crate) enum PublicDriversRuntimeError {
-    #[error("the observer profile cannot construct public-driver authority")]
-    ObserverProfile,
-    #[error("the approved compatibility manifest is unavailable")]
-    CompatibilityManifestUnavailable,
-    #[error("the approved compatibility manifest digest does not match the verified cache")]
-    CompatibilityManifestMismatch,
-}
+pub(crate) use session::NormalizedSessionFact;
+pub(crate) use types::{PublicDriverFact, PublicDriverFactResult, PublicDriversRuntimeError};
 /// A fully injected, authority-gated runtime deliberately absent from `RuntimeFacade`.
 #[derive(Debug)]
 pub(crate) struct PublicDriversRuntime<L, D, R> {
+    ledger: L,
     runs: Arc<PublicRunService<L, D, CompatibilityAssessment, R>>,
     runner: D,
     effects: ProviderEffectDispatcher<L>,
@@ -99,6 +69,7 @@ where
             return Err(PublicDriversRuntimeError::CompatibilityManifestMismatch);
         }
         Ok(Self {
+            ledger: ledger.clone(),
             runs: Arc::new(PublicRunService::new(
                 coordinator.clone(),
                 runner.clone(),
@@ -298,3 +269,5 @@ impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {
 }
 
 mod context;
+mod session;
+mod types;

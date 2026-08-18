@@ -143,7 +143,10 @@ Before this contract is advertised, implement and prove all of the following:
 
 - A daemon-owned public Claude/Codex session runner that retains bounded stdout
   and stderr, normalizes each documented frame, persists it before publication,
-  manages backpressure, and terminates/recovers process trees safely.
+  manages backpressure, and terminates/recovers process trees safely. Its
+  persist transaction includes source identity, cursor, session binding,
+  projection delta, and terminal settlement; restart reads a durable snapshot
+  before it returns deltas. See [the atomic session/restart matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
 - Private app-owned Claurst bridge ingress with the same normalized lifecycle
   contract. Public Gent contains only the bridge port, never endpoints or
   credentials.

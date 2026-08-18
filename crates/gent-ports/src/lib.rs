@@ -5,6 +5,7 @@ use gent_types::{
 mod active_goal_resolver;
 mod agent_chat_ledger;
 mod agent_chat_run_context;
+pub mod agent_chat_terminal_settlement;
 mod attachment_blobs;
 mod attachment_ledger;
 mod capability_catalog;
@@ -189,7 +190,6 @@ pub trait Ledger: Send + Sync {
         status: ReceiptStatus,
         terminal: &Event,
     ) -> Result<Receipt, LedgerError>;
-    /// Atomically creates a pending decision or returns the record owning either identifier.
     fn claim_decision(&self, command: &DecisionCommand) -> Result<DecisionClaim, LedgerError>;
     fn find_decision(&self, decision_id: &str) -> Result<Option<DecisionSettlement>, LedgerError>;
     /// Advances a decision only if its durable phase still equals `expected`.

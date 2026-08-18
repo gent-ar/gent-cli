@@ -9,6 +9,7 @@ mod agent_chat_ledger;
 mod agent_chat_prompt;
 mod agent_chat_run_context;
 mod agent_chat_switch;
+mod agent_chat_terminal_settlement;
 mod attachments;
 mod capability_catalog;
 #[cfg(test)]
@@ -68,6 +69,7 @@ pub use agent_chat_prompt::{
 };
 pub use agent_chat_run_context::{AgentChatRunContext, AgentChatRunContextOrigin};
 pub use agent_chat_switch::{AgentChatSelectionSwitch, AgentChatSelectionSwitched};
+pub use agent_chat_terminal_settlement::AgentChatTerminalSettlement;
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
 };

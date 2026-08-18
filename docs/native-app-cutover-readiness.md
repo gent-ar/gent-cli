@@ -33,6 +33,26 @@ adapters. Autonomous is a Gent permission policy, never a goal or authority
 bypass. Provider plans are normalized by Gent; clients may review/approve a
 plan but can never inject one.
 
+## Atomic session and restart proof
+
+An enabling lifecycle composition must transactionally record each normalized
+provider source ID, ordered cursor, projection delta, scoped session binding,
+and terminal settlement before any client delta is broadcast. An accepted
+duplicate returns its original cursor; a changed reuse of that source ID is
+rejected. A failed transaction emits nothing. Terminal settlement and its
+session transition are one record, so subsequent ingress cannot reopen work.
+
+| Deterministic prerequisite | Required authority test |
+| --- | --- |
+| Persist-before-broadcast | A queued normalized fact has no visible delta until its atomic record commits; replay is idempotent and collisions fail. |
+| Bounded recovery | A retained cursor gets only ordered deltas; stale, future, or expired cursors force a durable snapshot replacement. |
+| Restart correctness | Reopen the same durable store after every nonterminal and terminal fact, then prove snapshot cursor, terminal state, session binding, and next ingress match the record. |
+| Epoch boundary | A changed host epoch rejects old deltas/bindings and forces negotiate → snapshot → resume. |
+| Process settlement | Interrupt, drain, terminate, and kill paths each persist one final terminal record before a reconnect can observe completion. |
+
+These tests are implementation prerequisites, not substitutes for strict live
+provider recordings or a capability advertisement.
+
 ## App update and dependency boundary
 
 The installed Gent pair updates through its signed, independent updater. A

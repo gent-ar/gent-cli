@@ -8,17 +8,11 @@ use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
     PublicProviderRunError, RunProjectionLedger, TranscriptLedger,
 };
-use gent_runtime::{
-    AgentChatPromptDispatchResult, AgentChatTranscriptAppendRequest, ProviderActivityFact,
-    RuntimeError,
-};
-use gent_types::{
-    AgentChatPromptSaved, HostEpoch, NormalizedProviderEvent, NormalizedTranscriptKind,
-};
+use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
+use gent_types::{AgentChatPromptSaved, HostEpoch};
 
-use crate::public_driver_runtime::{PublicDriverFact, PublicDriversRuntime};
+use crate::public_driver_runtime::{NormalizedSessionFact, PublicDriverFact, PublicDriversRuntime};
 
-mod activity;
 mod execution;
 mod sandboxed_execution;
 mod scheduler;
@@ -189,54 +183,23 @@ where
             .get(run_id)
             .cloned()
             .ok_or_else(missing_binding)?;
-        let event_id = self.next_event_id(run_id, "wire")?;
-        self.runtime.record(
-            run_id.into(),
-            &self.coordinator_id,
+        let lifecycle_event_id = self.next_event_id(run_id, "wire")?;
+        let transcript_event_id = self.next_event_id(run_id, "transcript")?;
+        let activity_event_id = self.next_event_id(run_id, "activity")?;
+        let input = NormalizedSessionFact {
+            run_id: run_id.into(),
+            conversation_id: binding.prompt.message.conversation_id,
+            turn_id: binding.prompt.message.turn_id,
             host_epoch,
-            PublicDriverFact::PublicWire {
-                event_id,
-                fact: fact.clone(),
-            },
-        )?;
-        if let PublicWireFact::Event(NormalizedProviderEvent::Output { text, is_partial }) = &fact {
-            let event_id = self.next_event_id(run_id, "transcript")?;
-            self.runtime.record(
-                run_id.into(),
-                &self.coordinator_id,
-                host_epoch,
-                PublicDriverFact::Transcript(AgentChatTranscriptAppendRequest {
-                    conversation_id: gent_types::AgentChatConversationId(
-                        binding.prompt.message.conversation_id.clone(),
-                    ),
-                    run_id: binding.prompt.run_id.clone(),
-                    turn_id: binding.prompt.message.turn_id.clone(),
-                    event_id,
-                    kind: NormalizedTranscriptKind::AssistantMessage,
-                    text: text.clone(),
-                    is_partial: *is_partial,
-                }),
-            )?;
-        }
-        if let Some(activity) = activity::fact(&binding, host_epoch, fact) {
-            let event_id = self.next_event_id(run_id, "activity")?;
-            self.runtime.record(
-                run_id.into(),
-                &self.coordinator_id,
-                host_epoch,
-                PublicDriverFact::Activity(ProviderActivityFact { event_id, activity }),
-            )?;
-        }
-        Ok(matches!(
-            fact,
-            PublicWireFact::Lifecycle(gent_types::NormalizedLifecycleSignal::RootPhase { phase })
-                if matches!(
-                    phase,
-                    gent_types::TurnPhase::Ready
-                        | gent_types::TurnPhase::Interrupted
-                        | gent_types::TurnPhase::Failed
-                )
-        ))
+            lifecycle_event_id,
+            transcript_event_id,
+            activity_event_id,
+            fact: fact.clone(),
+        };
+        let record = self
+            .runtime
+            .record_normalized_session(&self.coordinator_id, &input)?;
+        Ok(record.terminal_signal)
     }
 
     fn record_exit(

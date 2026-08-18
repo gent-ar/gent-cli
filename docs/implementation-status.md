@@ -249,11 +249,12 @@ For the current working-tree context and continuation order, read [the handoff](
 ## Required before Gent is a live app backend
 
 1. [ ] `gentd` remains observer/intent-only: it must not route live Claude, Codex, Claurst,
-   MCP, or Git work until each authority gate is proven. The dormant seams are not a claim of
-   live authority.
+   MCP, or Git work until each authority gate is proven. Dormant seams are not live authority.
 2. [ ] There is no authoritative provider-lifecycle ingress yet. The required realtime
-   browse/create/prompt/follow-up/reconnect path is in [the client contract](realtime-agent-chat-client-plan.md);
-   until approved, Flutter and terminal clients must not treat activity as live truth.
+   browse/create/prompt/follow-up/reconnect path is in [the client contract](realtime-agent-chat-client-plan.md).
+   An enabling composition must atomically record normalized source/session/cursor/delta/terminal
+   state and restart from a durable snapshot; see [the test matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
+   Until approved, Flutter and terminal clients must not treat activity as live truth.
 3. [ ] The strict public evidence program has six Claude/Codex cells. Two Codex cells are
    recorded; four remain: Claude persistent-permission, compaction, malformed-tolerance, and
    Codex malformed-tolerance. Captures must be redacted, scenario-specific, and live. A malformed
@@ -266,9 +267,8 @@ For the current working-tree context and continuation order, read [the handoff](
 4. [ ] The authenticated Claurst bridge and its CI evidence belong only in app-owned private
    code. Public Gent must never contain Claurst credentials, endpoints, or routing implementation.
 5. [ ] No data upgrade path, dual-run, compatibility layer, or deployed fence-aware legacy
-   release is required: this is a zero-user, single-developer clean cutover. A future Flutter
-   launch must remove app-resident provider drivers and enforce protocol compatibility and exactly
-   one active writer/host epoch; Gent pair/provider fixes remain independently updateable.
+   release is required: this is a zero-user, single-developer clean cutover. Flutter must remove
+   app-resident drivers, enforce protocol compatibility/one writer/epoch; Gent stays updateable.
 6. [x] Production release automation has its dedicated GitHub Actions signing secret and matching
    public key/id configuration (`runtime-2026-08`). `v0.1.14` is published with all 46 assets,
    Sigstore sidecars (including the versioned runtime-release index), and successful hosted plus

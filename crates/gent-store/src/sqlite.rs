@@ -11,6 +11,9 @@ use std::sync::{Arc, Mutex};
 mod agent_chat_ledger;
 mod agent_chat_read_ledger;
 mod agent_chat_run_context_ledger;
+mod agent_chat_terminal_settlement;
+#[cfg(test)]
+mod agent_chat_terminal_settlement_tests;
 mod attachment_ledger;
 mod capability_catalog;
 mod connection;
