@@ -25,6 +25,9 @@ mod goal_projection_tests;
 mod goals;
 mod legacy_observer;
 mod mcp_connectors;
+mod orchestration;
+#[cfg(test)]
+mod orchestration_service_tests;
 mod policies;
 mod provider_activity;
 mod provider_lifecycle;
@@ -90,6 +93,7 @@ pub use git_status::{
 pub use goals::{GoalAuthority, GoalResult, GoalService};
 pub use legacy_observer::{LegacyObserver, ObserverPoll};
 pub use mcp_connectors::*;
+pub use orchestration::{OrchestrationAuthority, OrchestrationResult, OrchestrationService};
 pub use provider_activity::{ProviderActivityFact, ProviderActivityIngress};
 pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
