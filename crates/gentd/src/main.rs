@@ -23,6 +23,8 @@ mod attachment_api;
 mod attachment_transport;
 mod authority_profile;
 #[allow(dead_code)]
+mod claude_authority_supervisor;
+#[allow(dead_code)]
 mod claude_prompt_lifecycle;
 #[cfg(test)]
 mod claude_prompt_lifecycle_tests;

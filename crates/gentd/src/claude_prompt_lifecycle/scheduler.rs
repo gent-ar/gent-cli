@@ -1,5 +1,6 @@
 //! Bounded daemon tick and recovery for the approved-only Claude lifecycle.
 
+use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
@@ -52,6 +53,18 @@ where
         }
         batch.polled_runs = u16::try_from(run_ids.len()).expect("bounded poll count fits u16");
         Ok(batch)
+    }
+
+    /// Signals a stable active snapshot without accepting another durable prompt.
+    ///
+    /// # Errors
+    /// Returns an error when an owned process tree rejects the daemon-selected signal.
+    pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
+        let run_ids = self.active.keys().cloned().collect::<Vec<_>>();
+        for run_id in &run_ids {
+            self.runner.signal_claude_process(run_id, signal)?;
+        }
+        Ok(u16::try_from(run_ids.len()).expect("active run count fits u16"))
     }
 
     pub(crate) fn tick(

@@ -1,5 +1,6 @@
 //! Bounded approved-only Claude host composition, absent from daemon bootstrap.
 
+use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, PublicProviderResolver, RunProjectionLedger,
@@ -19,6 +20,14 @@ pub(crate) struct ApprovedClaudeHost<L, D, R> {
     lifecycle: ClaudePromptLifecycle<L, D, R>,
     host_epoch: HostEpoch,
     max_active: usize,
+}
+
+/// Bounded process drain result without a new prompt claim.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ApprovedClaudeDrain {
+    pub polled_runs: u16,
+    pub facts: u16,
+    pub exited_runs: u16,
 }
 
 impl<L, D, R> ApprovedClaudeHost<L, D, R>
@@ -50,6 +59,35 @@ where
 
     pub(crate) fn recover(&self) -> Result<(), RuntimeError> {
         self.lifecycle.recover(self.host_epoch)
+    }
+
+    /// Returns the number of owned processes requiring explicit drain on shutdown.
+    #[must_use]
+    pub(crate) fn active_len(&self) -> usize {
+        self.lifecycle.active_len()
+    }
+
+    /// Signals every currently owned provider process tree without claiming work.
+    ///
+    /// # Errors
+    /// Returns an error when an owned process rejects the daemon-selected signal.
+    pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
+        self.lifecycle.signal_active(signal)
+    }
+
+    /// Drains the current bounded owned-process snapshot without accepting a prompt.
+    ///
+    /// # Errors
+    /// Returns an error only when existing durable lifecycle polling fails.
+    pub(crate) fn drain(&mut self) -> Result<ApprovedClaudeDrain, RuntimeError> {
+        let batch = self
+            .lifecycle
+            .poll_active(self.host_epoch, self.max_active)?;
+        Ok(ApprovedClaudeDrain {
+            polled_runs: batch.polled_runs,
+            facts: batch.facts,
+            exited_runs: batch.exited_runs,
+        })
     }
 
     pub(crate) fn tick(&mut self) -> Result<ClaudeLifecycleTick, RuntimeError> {

@@ -134,6 +134,11 @@ pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
         &self,
         run_id: &str,
     ) -> Result<Option<Vec<ClaudeRunnerEffect>>, PublicProviderRunError>;
+    fn signal_claude_process(
+        &self,
+        run_id: &str,
+        signal: ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError>;
 }
 
 impl<L, P> ClaudePromptExecution for ClaudePromptRunner<L, P>
@@ -158,6 +163,14 @@ where
         run_id: &str,
     ) -> Result<Option<Vec<ClaudeRunnerEffect>>, PublicProviderRunError> {
         self.poll(run_id)
+    }
+
+    fn signal_claude_process(
+        &self,
+        run_id: &str,
+        signal: ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError> {
+        lock(&self.runner).signal(run_id, signal).map_err(map_error)
     }
 }
 

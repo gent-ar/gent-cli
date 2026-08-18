@@ -28,13 +28,14 @@ use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::public_driver_runtime::PublicDriversRuntime;
 
 #[derive(Clone, Default, Debug)]
-struct Runner(Arc<Mutex<State>>);
+pub(crate) struct Runner(pub(crate) Arc<Mutex<State>>);
 #[derive(Default, Debug)]
-struct State {
+pub(crate) struct State {
     pending: Option<String>,
     starts: usize,
     resumes: usize,
-    effects: VecDeque<Vec<ClaudeRunnerEffect>>,
+    pub(crate) effects: VecDeque<Vec<ClaudeRunnerEffect>>,
+    pub(crate) signals: Vec<gent_drivers::interrupt::ProcessTreeSignal>,
 }
 
 impl PublicProviderRunner for Runner {
@@ -76,9 +77,17 @@ impl ClaudePromptExecution for Runner {
     ) -> Result<Option<Vec<ClaudeRunnerEffect>>, PublicProviderRunError> {
         Ok(self.0.lock().unwrap().effects.pop_front())
     }
+    fn signal_claude_process(
+        &self,
+        _: &str,
+        signal: gent_drivers::interrupt::ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError> {
+        self.0.lock().unwrap().signals.push(signal);
+        Ok(())
+    }
 }
 
-struct Resolver;
+pub(crate) struct Resolver;
 impl PublicProviderResolver for Resolver {
     fn resolve(&self, provider: &str) -> Result<RunVersionLock, PublicProviderRunError> {
         (provider == "claude")
@@ -98,7 +107,7 @@ fn lock() -> RunVersionLock {
     }
 }
 
-fn compatibility() -> CompatibilityAssessment {
+pub(crate) fn compatibility() -> CompatibilityAssessment {
     let key = SigningKey::from_bytes(&[8; 32]);
     let payload = CompatibilityManifest {
         manifest_version: 1,
@@ -125,7 +134,7 @@ fn compatibility() -> CompatibilityAssessment {
     )
 }
 
-fn profile(
+pub(crate) fn profile(
     compatibility: &CompatibilityAssessment,
 ) -> crate::authority_profile::ValidatedAuthorityProfile {
     AuthorityProfileConfig {
@@ -139,7 +148,7 @@ fn profile(
     .unwrap()
 }
 
-fn prompt(ledger: &SqliteLedger, conversation_id: &AgentChatConversationId, key: &str) {
+pub(crate) fn prompt(ledger: &SqliteLedger, conversation_id: &AgentChatConversationId, key: &str) {
     ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId(format!("request-{key}")),
