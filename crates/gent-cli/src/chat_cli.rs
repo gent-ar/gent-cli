@@ -17,7 +17,7 @@ use serde_json::Value;
 mod arguments;
 pub(crate) mod follow;
 mod reads;
-mod switch;
+pub(crate) mod switch;
 pub(crate) mod turn_follow;
 
 pub(crate) use arguments::{

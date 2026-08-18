@@ -164,3 +164,7 @@ pub(crate) enum ConversationCommand {
 #[cfg(test)]
 #[path = "command_model_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "command_model_chat_tests.rs"]
+mod chat_tests;

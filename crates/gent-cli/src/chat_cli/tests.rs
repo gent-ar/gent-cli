@@ -7,7 +7,7 @@ use gent_types::{
 };
 use tokio::net::UnixListener;
 
-use super::{ChatCommand, CreateArgs, Effort, Mode, Provider, execute, frame};
+use super::{ChatCommand, CreateArgs, Effort, Mode, Provider, execute, frame, valid_reply};
 
 #[tokio::test]
 async fn create_negotiates_agent_chat_and_requires_a_matching_created_reply() {
@@ -212,4 +212,45 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
         assert_eq!(selection.mode, expected_mode);
         assert_eq!(context_policy, expected_context);
     }
+}
+
+#[test]
+fn clear_context_refuses_a_reply_that_claims_inherited_history() {
+    let request = frame(ChatCommand::Switch(super::switch::SwitchArgs {
+        conversation_id: "conversation-1".into(),
+        parent_run_id: "run-1".into(),
+        provider: Provider::Claude,
+        model: "sonnet".into(),
+        effort: Effort::Medium,
+        mode: Mode::Plan,
+        context: super::switch::Context::Clear,
+        request_id: Some("request-1".into()),
+        receipt_id: Some("receipt-1".into()),
+    }));
+    let AgentChatIntentFrame::SwitchSelection {
+        request_id,
+        receipt_id,
+        conversation_id,
+        parent_run_id,
+        context_policy,
+        ..
+    } = request.clone()
+    else {
+        panic!("expected selection switch");
+    };
+    let reply = AgentChatIntentFrame::Switched {
+        request_id,
+        receipt: Receipt {
+            receipt_id,
+            idempotency_key: "retry-1".into(),
+            status: ReceiptStatus::Settled,
+            host_epoch: HostEpoch(1),
+        },
+        conversation_id,
+        parent_run_id,
+        run_id: gent_types::AgentChatRunId("run-2".into()),
+        context_policy,
+        context_through_ordinal: 1,
+    };
+    assert!(!valid_reply(&request, &reply));
 }

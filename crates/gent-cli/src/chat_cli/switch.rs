@@ -74,6 +74,7 @@ pub(crate) fn valid_reply(
             parent_run_id: reply_parent,
             run_id,
             context_policy: reply_policy,
+            context_through_ordinal,
             ..
         },
     ) = (request, response)
@@ -86,6 +87,7 @@ pub(crate) fn valid_reply(
             && reply_conversation == conversation_id
             && reply_parent == parent_run_id
             && reply_policy == context_policy
-            && !run_id.0.is_empty(),
+            && !run_id.0.is_empty()
+            && (*context_policy != ContextPolicy::Clear || *context_through_ordinal == 0),
     )
 }

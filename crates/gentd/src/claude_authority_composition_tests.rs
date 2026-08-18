@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use gent_ports::{SandboxedProviderPreflight, SandboxedProviderPreflightError};
 use gent_runtime::catalog::declared_capabilities;
 use gent_types::{
-    HostEpoch, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
-    SandboxedLaunchRequest,
+    HostEpoch, RunVersionLock, SandboxBackendId, SandboxEnforcement, SandboxLaunchProfile,
+    SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
 };
 
 use super::{
@@ -14,15 +14,30 @@ use super::{
 use crate::CompatibilityAssessment;
 use crate::runtime_facade::DaemonCompositionState;
 
-#[derive(Debug)]
-struct UnavailableSandbox;
+#[derive(Clone, Copy, Debug)]
+enum SandboxResult {
+    Unavailable,
+    Attested,
+}
 
-impl SandboxedProviderPreflight for UnavailableSandbox {
+#[derive(Debug)]
+struct Sandbox(SandboxResult);
+
+impl SandboxedProviderPreflight for Sandbox {
     fn preflight(
         &self,
-        _: &SandboxedLaunchRequest,
+        request: &SandboxedLaunchRequest,
     ) -> Result<gent_types::SandboxLaunchAttestation, SandboxedProviderPreflightError> {
-        Err(SandboxedProviderPreflightError::Unavailable)
+        match self.0 {
+            SandboxResult::Unavailable => Err(SandboxedProviderPreflightError::Unavailable),
+            SandboxResult::Attested => request
+                .attest_after_lock_recheck(
+                    &request.lock,
+                    SandboxBackendId::new("test-native-sandbox".into()).unwrap(),
+                    SandboxEnforcement::Enforced,
+                )
+                .map_err(|_| SandboxedProviderPreflightError::AttestationRejected),
+        }
     }
 }
 
@@ -43,7 +58,7 @@ fn sandbox_profile() -> SandboxLaunchProfile {
     .unwrap()
 }
 
-fn config() -> PrivateClaudeAuthorityConfig<UnavailableSandbox> {
+fn config() -> PrivateClaudeAuthorityConfig<Sandbox> {
     PrivateClaudeAuthorityConfig {
         evidence_record: PathBuf::from("/does-not-exist/claude-evidence.json"),
         trusted_keys: vec![
@@ -52,8 +67,18 @@ fn config() -> PrivateClaudeAuthorityConfig<UnavailableSandbox> {
         coordinator_id: "private-claude-host".into(),
         host_epoch: HostEpoch(1),
         now_unix_seconds: 1,
-        sandbox_profile: sandbox_profile(),
-        sandbox_preflight: UnavailableSandbox,
+        sandbox_request: SandboxedLaunchRequest {
+            lock: RunVersionLock {
+                provider: "claude".into(),
+                canonical_path: "/private/gent/claude".into(),
+                file_identity: "1:2".into(),
+                digest_sha256: "a".repeat(64),
+                version: "1.0.0".into(),
+                compatibility_entry: "claude-1.0.0".into(),
+            },
+            profile: sandbox_profile(),
+        },
+        sandbox_preflight: Sandbox(SandboxResult::Unavailable),
     }
 }
 
@@ -71,6 +96,12 @@ fn private_claude_config_rejects_blank_or_unbounded_coordinator_before_preflight
         validate(&oversized),
         Err(PrivateClaudeAuthorityError::InvalidCoordinator)
     ));
+    let mut wrong_provider = config();
+    wrong_provider.sandbox_request.lock.provider = "codex".into();
+    assert!(matches!(
+        validate(&wrong_provider),
+        Err(PrivateClaudeAuthorityError::InvalidSandboxRequest)
+    ));
 }
 
 #[test]
@@ -83,7 +114,13 @@ fn missing_private_evidence_fails_before_a_claude_host_or_private_prefix_is_cons
     )
     .unwrap();
     assert!(matches!(
-        compose_private_claude_authority(&state, config()),
+        compose_private_claude_authority(
+            &state,
+            PrivateClaudeAuthorityConfig {
+                sandbox_preflight: Sandbox(SandboxResult::Attested),
+                ..config()
+            },
+        ),
         Err(PrivateClaudeAuthorityError::Preflight(_))
     ));
     assert!(
@@ -93,4 +130,22 @@ fn missing_private_evidence_fails_before_a_claude_host_or_private_prefix_is_cons
             .join("npm-global")
             .exists()
     );
+}
+
+#[test]
+fn unavailable_sandbox_prevents_claude_evidence_loading_or_host_construction() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = DaemonCompositionState::open(
+        directory.path(),
+        &declared_capabilities(),
+        CompatibilityAssessment::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        compose_private_claude_authority(&state, config()),
+        Err(PrivateClaudeAuthorityError::Sandbox(
+            SandboxedProviderPreflightError::Unavailable
+        ))
+    ));
+    assert!(!state.data_dir().join("providers").exists());
 }

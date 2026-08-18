@@ -19,6 +19,9 @@ use crate::authority_profile::{
     ValidatedAuthorityProfile,
 };
 use crate::codex_authority_preflight::{self, CodexAuthorityPreflightError};
+use crate::codex_authority_supervisor::{
+    PrivateCodexEscalation, PrivateCodexShutdown, PrivateCodexSupervisor, PrivateCodexWake,
+};
 use crate::codex_prompt_lifecycle::SandboxedCodexPromptExecution;
 use crate::provider_resolver::{
     CodexOnlyResolver, DaemonProviderResolver, PrivatePrefixDiscovery, SystemVersionProbe,
@@ -34,11 +37,6 @@ const EVIDENCE_REFERENCE: &str = "private-codex-authority-v1";
 
 type SandboxedCodexRunner<S> =
     SandboxedCodexPromptExecution<CodexPromptRunner<SystemLauncher, SystemProcess>, S>;
-type PrivateCodexHostInner<S> = ApprovedCodexHost<
-    SqliteLedger,
-    SandboxedCodexRunner<S>,
-    CodexOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
->;
 
 /// Private supervisor inputs for the one Codex-only process authority profile.
 ///
@@ -61,7 +59,11 @@ pub(crate) struct PrivateCodexAuthorityConfig {
 /// The inner scheduler is deliberately not exposed: all usable lifecycle methods retain the
 /// attestation that was produced before its construction.
 pub(crate) struct PrivateCodexAuthorityHost<S> {
-    host: PrivateCodexHostInner<S>,
+    supervisor: PrivateCodexSupervisor<
+        SqliteLedger,
+        SandboxedCodexRunner<S>,
+        CodexOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
+    >,
     attestation: SandboxLaunchAttestation,
 }
 
@@ -75,23 +77,23 @@ where
         &self.attestation
     }
 
-    /// Reconciles durable pre-launch claims while retaining the required sandbox gate.
-    pub(crate) fn recover(&self) -> Result<(), gent_runtime::RuntimeError> {
-        self.host.recover()
+    /// Drives one recovery/tick/drain pass through the only private lifecycle owner.
+    pub(crate) fn wake(&mut self) -> Result<PrivateCodexWake, gent_runtime::RuntimeError> {
+        self.supervisor.wake()
     }
 
-    /// Runs one bounded lifecycle pass while retaining the required sandbox gate.
-    pub(crate) fn tick(
+    /// Starts a durable process-tree drain without accepting another provider prompt.
+    pub(crate) fn request_shutdown(
         &mut self,
-    ) -> Result<crate::approved_codex_host::ApprovedCodexTick, gent_runtime::RuntimeError> {
-        self.host.tick()
+    ) -> Result<PrivateCodexShutdown, gent_runtime::RuntimeError> {
+        self.supervisor.request_shutdown()
     }
 
-    /// Drains owned provider processes without accepting another prompt.
-    pub(crate) fn drain(
+    /// Advances a caller-timed process-tree escalation ladder.
+    pub(crate) fn escalate_shutdown(
         &mut self,
-    ) -> Result<crate::approved_codex_host::ApprovedCodexDrain, gent_runtime::RuntimeError> {
-        self.host.drain()
+    ) -> Result<PrivateCodexEscalation, gent_runtime::RuntimeError> {
+        self.supervisor.escalate_shutdown()
     }
 }
 
@@ -120,9 +122,8 @@ pub(crate) enum PrivateCodexAuthorityError {
 /// resolver or runner. The supplied sandbox preflight also gates construction, while the retained
 /// execution wrapper repeats preflight against each resolved lock immediately before delegation.
 /// This does not discover, probe, launch, or advertise a provider; the caller must retain the
-/// returned host and schedule its bounded `recover` and `tick` methods. This is not yet a
-/// supervisor: it has no prompt wake source, shutdown request, or timer-driven process-tree
-/// escalation/drain loop, so daemon bootstrap must not compose it.
+/// returned host and schedule its bounded `wake` method. Its lifecycle cannot be driven around
+/// the retained supervisor, but it still has no prompt wake source or daemon bootstrap wiring.
 ///
 /// # Errors
 /// Returns before runner construction if the coordinator or signed evidence/compatibility fence
@@ -169,13 +170,13 @@ where
         resolver,
     )?;
     Ok(PrivateCodexAuthorityHost {
-        host: ApprovedCodexHost::new(
+        supervisor: PrivateCodexSupervisor::new(ApprovedCodexHost::new(
             runtime,
             config.coordinator_id.clone(),
             config.working_directory.clone(),
             config.host_epoch,
             MAX_ACTIVE_CODEX_RUNS,
-        ),
+        )),
         attestation,
     })
 }
