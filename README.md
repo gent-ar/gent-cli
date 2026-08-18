@@ -72,12 +72,11 @@ transcript streaming, MCP, Git, and private-bridge actions.
   compose stable interfaces across boundaries.
 - Public transport for Claude/Codex stays declarative and typed; the isolated ledger profile
   never launches either binary.
-- Claurst support exists in protocol as a private-bridge capability only; no app-level credentials
-  or endpoints are embedded in the public daemon.
-- Device pairing and application-specific UI automations are Flutter-app responsibilities. A later
-  agent-chat `gent-automations` domain is separate, port-bound, and must not subsume either concern.
-- No source file in this milestone should exceed 300 lines. This is enforced by
-  `python tools/check-architecture.py`.
+- Claurst support exists in protocol as a private-bridge capability only; no app-level credentials or endpoints are embedded in the public daemon.
+- Device pairing and application-specific UI automations are Flutter-app responsibilities; a later agent-chat `gent-automations` domain stays separate and port-bound.
+- [`drivers_transcript/`](drivers_transcript/README.md) is a committed, development-only corpus; normal Gent runs never record there.
+  Capture test or real sessions only when a developer explicitly opts in, then sanitize and review them before committing them; corpus records never authorize providers or count as public evidence.
+- No source file in this milestone should exceed 300 lines; `python tools/check-architecture.py` enforces it.
 `fixtures/ipc-contract/manifest.json` is the language-neutral compatibility
 fixture for that local protocol. It records canonical JSON and the exact
 four-byte big-endian length-prefixed wire frames for handshake, errors, event
