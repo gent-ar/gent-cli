@@ -30,6 +30,8 @@ mod claude_authority_composition;
 mod claude_authority_preflight;
 #[allow(dead_code)]
 mod claude_authority_supervisor;
+#[cfg(test)]
+mod claude_goal_projection_tests;
 #[allow(dead_code)]
 mod claude_private_resolver;
 #[allow(dead_code)]
@@ -82,6 +84,8 @@ mod orchestration_transport_tests;
 mod permission_policy_api;
 mod permission_policy_transport;
 mod permission_workspace;
+#[cfg(test)]
+mod private_claurst_goal_tests;
 #[allow(dead_code)]
 mod private_claurst_ingress;
 #[cfg(test)]

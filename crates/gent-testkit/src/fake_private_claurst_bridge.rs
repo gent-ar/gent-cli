@@ -2,7 +2,7 @@
 #![allow(clippy::missing_panics_doc)] // Test fakes fail fast on poisoned state.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use gent_ports::{
@@ -22,9 +22,9 @@ struct BridgeState {
 }
 
 /// Deterministic fake that enforces the private bridge's ordering and secrecy contract.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct FakePrivateClaurstBridge {
-    state: Mutex<BridgeState>,
+    state: Arc<Mutex<BridgeState>>,
 }
 
 impl FakePrivateClaurstBridge {

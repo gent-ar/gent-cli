@@ -4,16 +4,17 @@ use std::collections::BTreeMap;
 
 use gent_ports::{
     ClaurstCheckpoint, ClaurstDrainRequest, ClaurstFactValue, ClaurstNormalizedFact,
-    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, Ledger,
-    MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge, RunCheckpointLedger,
+    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, GoalLedger,
+    Ledger, MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge, RunCheckpointLedger,
     RunProjectionLedger,
 };
 use gent_runtime::{
     Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
     RuntimeError,
 };
-use gent_types::{HostEpoch, RunCheckpointRecord};
+use gent_types::{AgentChatConversationId, HostEpoch, RunCheckpointRecord};
 
+mod goal;
 mod validation;
 use validation::{
     checkpoint_id, event_id, invariant, restored, terminal_name, validate_batch, validate_binding,
@@ -29,6 +30,7 @@ pub(crate) struct PrivateClaurstDrain {
 #[derive(Clone, Debug)]
 struct BoundSource {
     binding: ClaurstSessionBinding,
+    conversation_id: Option<AgentChatConversationId>,
     after_cursor: u64,
     terminal: bool,
 }
@@ -49,7 +51,7 @@ pub(crate) struct PrivateClaurstIngress<L, B> {
 
 impl<L, B> PrivateClaurstIngress<L, B>
 where
-    L: Clone + Ledger + RunCheckpointLedger + RunProjectionLedger,
+    L: Clone + std::fmt::Debug + Ledger + GoalLedger + RunCheckpointLedger + RunProjectionLedger,
     B: PrivateClaurstBridge,
 {
     /// Creates an unadvertised ingress. A separate private composition must explicitly own it.
@@ -79,20 +81,34 @@ where
     /// must exactly match the requested run and source before its lifecycle is recorded.
     pub(crate) async fn start(
         &mut self,
-        request: ClaurstStartRequest,
+        mut request: ClaurstStartRequest,
         host_epoch: HostEpoch,
     ) -> Result<ClaurstSessionBinding, RuntimeError> {
+        if request.goal.is_some() {
+            return Err(invariant("private Claurst goal must be resolved by Gent"));
+        }
         request
             .validate()
             .map_err(|_| invariant("private Claurst start input is invalid"))?;
         if self.sources.contains_key(&request.source_id) {
             return Err(invariant("private Claurst source is already bound"));
         }
+        request.goal = goal::resolve(
+            &self.ledger,
+            &request.context.conversation_id,
+            &request.run_id,
+            &request.source_id,
+        )?;
         let binding = self.bridge.start(request.clone()).await?;
         if binding.run_id != request.run_id || binding.source_id != request.source_id {
             return Err(invariant("private Claurst start returned another source"));
         }
-        self.bind(binding.clone(), host_epoch).await?;
+        self.bind_with_conversation(
+            binding.clone(),
+            host_epoch,
+            Some(request.context.conversation_id),
+        )
+        .await?;
         Ok(binding)
     }
 
@@ -101,6 +117,15 @@ where
         &mut self,
         binding: ClaurstSessionBinding,
         host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        self.bind_with_conversation(binding, host_epoch, None).await
+    }
+
+    async fn bind_with_conversation(
+        &mut self,
+        binding: ClaurstSessionBinding,
+        host_epoch: HostEpoch,
+        conversation_id: Option<AgentChatConversationId>,
     ) -> Result<(), RuntimeError> {
         validate_binding(&binding)?;
         if self.sources.contains_key(&binding.source_id) {
@@ -121,6 +146,7 @@ where
             binding.source_id.clone(),
             BoundSource {
                 binding,
+                conversation_id,
                 after_cursor,
                 terminal,
             },
@@ -129,7 +155,13 @@ where
     }
 
     /// Sends one daemon-owned follow-up only to the exact active private session.
-    pub(crate) async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), RuntimeError> {
+    pub(crate) async fn submit(
+        &self,
+        mut request: ClaurstSubmitRequest,
+    ) -> Result<(), RuntimeError> {
+        if request.goal.is_some() {
+            return Err(invariant("private Claurst goal must be resolved by Gent"));
+        }
         request
             .validate()
             .map_err(|_| invariant("private Claurst follow-up input is invalid"))?;
@@ -141,6 +173,14 @@ where
             return Err(invariant(
                 "private Claurst follow-up session is unavailable",
             ));
+        }
+        if let Some(conversation_id) = state.conversation_id.as_ref() {
+            request.goal = goal::resolve(
+                &self.ledger,
+                conversation_id,
+                &state.binding.run_id,
+                &state.binding.source_id,
+            )?;
         }
         self.bridge.submit(request).await?;
         Ok(())

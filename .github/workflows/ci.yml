@@ -30,10 +30,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup component add llvm-tools-preview
       - run: cargo install cargo-llvm-cov --locked
-      - run: >-
-          cargo llvm-cov --workspace --all-targets --all-features --summary-only
-          --ignore-filename-regex '(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/'
-          --fail-under-lines 90
+      - run: bash tools/run-coverage.sh
+      - run: bash tools/test-run-coverage.sh
   verify:
     name: verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

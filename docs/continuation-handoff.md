@@ -15,6 +15,9 @@ does not claim observer-mode `gentd` has live provider authority.
   agent-chat widgets/tests, and Excalidraw Mermaid.
 - Use `apply_patch` for edits. Every hand-authored source/config/document/script
   is at most 300 lines; run `python3 tools/check-architecture.py`.
+- For the unchanged 90% coverage gate on a space-constrained machine, use the
+  isolated target workflow in [coverage workflow](coverage-workflow.md); never
+  delete normal `target/` artifacts merely to make an instrumented build fit.
 
 ## Non-negotiable architecture
 

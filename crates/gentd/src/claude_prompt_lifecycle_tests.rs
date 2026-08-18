@@ -32,6 +32,7 @@ pub(crate) struct Runner(pub(crate) Arc<Mutex<State>>);
 #[derive(Default, Debug)]
 pub(crate) struct State {
     pending: Option<String>,
+    pub(crate) prepared_goals: Vec<Option<gent_types::GoalProjection>>,
     starts: usize,
     resumes: usize,
     pub(crate) effects: VecDeque<Vec<ClaudeRunnerEffect>>,
@@ -64,9 +65,11 @@ impl ClaudePromptExecution for Runner {
     fn prepare_claude_prompt(
         &self,
         run_id: String,
-        _: ClaudePromptStart,
+        prompt: ClaudePromptStart,
     ) -> Result<(), PublicProviderRunError> {
-        self.0.lock().unwrap().pending = Some(run_id);
+        let mut state = self.0.lock().unwrap();
+        state.pending = Some(run_id);
+        state.prepared_goals.push(prompt.goal);
         Ok(())
     }
     fn cancel_claude_prompt(&self, _: &str) {
