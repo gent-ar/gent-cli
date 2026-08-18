@@ -5,8 +5,8 @@ use gent_protocol::{DependencyAction, DependencyProvider};
 use std::path::PathBuf;
 
 use crate::{
-    chat_cli, decision::DecisionCommandLine, goal_cli, permissions_cli, provider_auth_cli,
-    reviewed_plan_cli, update_check::UpdateCommand,
+    chat_cli, decision::DecisionCommandLine, goal_cli, orchestration_cli, permissions_cli,
+    provider_auth_cli, reviewed_plan_cli, update_check::UpdateCommand,
 };
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
@@ -67,6 +67,11 @@ pub(crate) enum CommandLine {
     Goal {
         #[command(subcommand)]
         action: goal_cli::GoalCommand,
+    },
+    /// Submit or read a capability-gated Gent-owned task graph.
+    Orchestration {
+        #[command(subcommand)]
+        action: orchestration_cli::OrchestrationCommand,
     },
     /// Read or explicitly revise durable local permission preferences.
     Permissions {

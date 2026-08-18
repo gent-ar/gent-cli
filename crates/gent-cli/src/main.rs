@@ -15,6 +15,7 @@ mod direct_prompt;
 mod event_stream;
 mod goal_cli;
 mod local_ipc;
+mod orchestration_cli;
 mod permissions_cli;
 mod provider_auth_cli;
 mod reviewed_plan_cli;
