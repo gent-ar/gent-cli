@@ -1,9 +1,7 @@
 //! Stable value types shared by every public Gent crate.
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
-
 mod agent_chat;
 mod agent_chat_intent;
 mod agent_chat_ledger;
@@ -27,6 +25,7 @@ mod lifecycle_state;
 mod mcp_connectors;
 mod observer_tap;
 mod onboarding;
+mod permission_control;
 mod policies;
 mod provider_auth;
 mod reviewed_plan;
@@ -89,6 +88,7 @@ pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkP
 pub use mcp_connectors::{McpConnectorPhase, McpConnectorRecord};
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
+pub use permission_control::*;
 pub use policies::{
     PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
     SandboxEnforcement,

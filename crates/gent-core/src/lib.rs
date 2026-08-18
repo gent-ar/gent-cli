@@ -8,6 +8,9 @@ mod lifecycle_projection;
 mod lifecycle_signal;
 mod lifecycle_state;
 mod observer_comparison;
+mod permission_control;
+#[cfg(test)]
+mod permission_control_tests;
 mod permission_policy;
 mod projection_snapshot;
 mod provider_auth;
@@ -31,6 +34,11 @@ pub use lifecycle_projection::{
 pub use lifecycle_signal::project_lifecycle_signal;
 pub use lifecycle_state::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
 pub use observer_comparison::{ObserverComparison, ObserverProjection, compare_legacy_tap};
+pub use permission_control::{
+    PermissionControlContext, PermissionControlEffect, PermissionControlEvent,
+    PermissionControlRejection, PermissionControlResolution, PermissionControlState,
+    reduce_permission_control,
+};
 pub use permission_policy::{
     PermissionDecision, evaluate_permission, evaluate_permission_with_sandbox,
 };
