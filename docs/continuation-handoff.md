@@ -103,7 +103,7 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 3. Daemon-owned public Claude/Codex realtime authority: bounded session/process
    runner, binary recheck before spawn/resume, normalized lifecycle ingress,
    persist-before-broadcast, backpressure, process-tree drain, terminal settle,
-   snapshot/delta/reconnect coverage. Keep it unadvertised until proven.
+   cursor-replay/delta/reconnect coverage. Keep it unadvertised until proven.
 4. Compose task-graph scheduling only after public-driver authority: each node
    gets a leased isolated worktree, fresh goal projection, durable settle, and
    an independently locked profile. Claurst stays a private bridge port.

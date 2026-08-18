@@ -145,8 +145,8 @@ Before this contract is advertised, implement and prove all of the following:
   and stderr, normalizes each documented frame, persists it before publication,
   manages backpressure, and terminates/recovers process trees safely. Its
   persist transaction includes source identity, cursor, session binding,
-  projection delta, and terminal settlement; restart reads a durable snapshot
-  before it returns deltas. See [the atomic session/restart matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
+  projection delta, and terminal settlement; restart replays durable cursors
+  before it returns new deltas. See [the atomic session/restart matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
 - Private app-owned Claurst bridge ingress with the same normalized lifecycle
   contract. Public Gent contains only the bridge port, never endpoints or
   credentials.

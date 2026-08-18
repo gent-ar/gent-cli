@@ -45,9 +45,9 @@ session transition are one record, so subsequent ingress cannot reopen work.
 | Deterministic prerequisite | Required authority test |
 | --- | --- |
 | Persist-before-broadcast | A queued normalized fact has no visible delta until its atomic record commits; replay is idempotent and collisions fail. |
-| Bounded recovery | A retained cursor gets only ordered deltas; stale, future, or expired cursors force a durable snapshot replacement. |
-| Restart correctness | Reopen the same durable store after every nonterminal and terminal fact, then prove snapshot cursor, terminal state, session binding, and next ingress match the record. |
-| Epoch boundary | A changed host epoch rejects old deltas/bindings and forces negotiate → snapshot → resume. |
+| Bounded recovery | A retained cursor gets only ordered deltas; stale, future, or expired cursors require durable cursor replay. |
+| Restart correctness | Reopen the same durable store after every nonterminal and terminal fact, then prove replay cursors, terminal state, session binding, and next ingress match the record. |
+| Epoch boundary | A changed host epoch rejects old deltas/bindings and forces negotiate → cursor replay. |
 | Process settlement | Interrupt, drain, terminate, and kill paths each persist one final terminal record before a reconnect can observe completion. |
 
 These tests are implementation prerequisites, not substitutes for strict live

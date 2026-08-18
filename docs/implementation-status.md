@@ -253,7 +253,7 @@ For the current working-tree context and continuation order, read [the handoff](
 2. [ ] There is no authoritative provider-lifecycle ingress yet. The required realtime
    browse/create/prompt/follow-up/reconnect path is in [the client contract](realtime-agent-chat-client-plan.md).
    An enabling composition must atomically record normalized source/session/cursor/delta/terminal
-   state and restart from a durable snapshot; see [the test matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
+   state and replay from durable cursors; see [the test matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
    Until approved, Flutter and terminal clients must not treat activity as live truth.
 3. [ ] The strict public evidence program has six Claude/Codex cells. Two Codex cells are
    recorded; four remain: Claude persistent-permission, compaction, malformed-tolerance, and
