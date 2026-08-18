@@ -122,13 +122,20 @@ fn profile() -> SandboxLaunchProfile {
     .unwrap()
 }
 
+fn request() -> SandboxedLaunchRequest {
+    SandboxedLaunchRequest {
+        lock: lock(),
+        profile: profile(),
+    }
+}
+
 #[test]
 fn unavailable_sandbox_fails_before_the_inner_execution_receives_a_start() {
     let execution = Execution::default();
     let guarded = SandboxedClaudePromptExecution::new(
         execution.clone(),
         Preflight(ResultKind::Unavailable),
-        profile(),
+        request(),
     );
     assert_eq!(
         guarded.start("run-1", &lock()),
@@ -145,7 +152,7 @@ fn mismatched_attestation_fails_before_the_inner_execution_receives_a_resume() {
     let guarded = SandboxedClaudePromptExecution::new(
         execution.clone(),
         Preflight(ResultKind::WrongAttestation),
-        profile(),
+        request(),
     );
     assert_eq!(
         guarded.resume("run-1", &lock(), "session-1"),
@@ -162,9 +169,16 @@ fn exact_attestation_is_required_before_start_or_resume_can_reach_execution() {
     let guarded = SandboxedClaudePromptExecution::new(
         execution.clone(),
         Preflight(ResultKind::Attest),
-        profile(),
+        request(),
     );
     guarded.start("run-1", &lock()).unwrap();
     guarded.resume("run-2", &lock(), "session-1").unwrap();
+    assert_eq!(execution.starts.load(Ordering::SeqCst), 2);
+    let mut changed = lock();
+    changed.digest_sha256 = "b".repeat(64);
+    assert_eq!(
+        guarded.start("run-3", &changed),
+        Err(PublicProviderRunError::ProviderChanged)
+    );
     assert_eq!(execution.starts.load(Ordering::SeqCst), 2);
 }

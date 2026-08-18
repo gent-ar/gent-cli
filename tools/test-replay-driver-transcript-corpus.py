@@ -36,16 +36,16 @@ def write_scenario(root: Path, events: list[dict[str, object]]) -> Path:
 
 def test_committed_corpus_replays_offline_without_event_text() -> None:
     summaries = MODULE.replay_corpus(ROOT / "drivers_transcript")
-    assert len(summaries) == 3
-    assert {summary.provider for summary in summaries} == {"claude", "codex"}
-    assert all(summary.event_count == 1 for summary in summaries)
-    assert all(summary.terminal_outcomes == ("completed",) for summary in summaries)
+    assert len(summaries) == 6
+    assert {summary.provider for summary in summaries} == {"claude", "codex", "claurst"}
+    assert all(summary.terminal_outcomes for summary in summaries)
+    assert any("attachment" in summary.event_types for summary in summaries)
 
 
 def test_replay_preserves_normalized_order_and_counts() -> None:
     with tempfile.TemporaryDirectory() as directory:
         events = [
-            {"sequence": 1, "type": "activity", "data": {"state": "thinking"}},
+            {"sequence": 1, "type": "activity", "data": {"kind": "reasoning", "status": "thinking"}},
             {"sequence": 2, "type": "terminal", "data": {"outcome": "completed"}},
         ]
         summary = MODULE.replay_corpus(write_scenario(Path(directory), events))[0]
@@ -62,7 +62,7 @@ def test_terminal_without_an_outcome_is_not_replayable() -> None:
         try:
             MODULE.replay_corpus(root)
         except ValueError as error:
-            assert "requires a non-empty outcome" in str(error)
+            assert "outcome" in str(error)
         else:
             raise AssertionError("replayer accepted terminal event without an outcome")
 

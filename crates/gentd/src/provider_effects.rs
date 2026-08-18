@@ -69,6 +69,9 @@ where
             },
             PublicWireFact::Event(event) => ProviderLifecycleEffect::Normalized(event.clone()),
             PublicWireFact::Lifecycle(signal) => ProviderLifecycleEffect::Lifecycle(signal.clone()),
+            // A compaction observation is only meaningful with the daemon-owned prompt-turn
+            // binding held by the private compaction ingress. Never turn it into lifecycle data.
+            PublicWireFact::Compaction(_) => return Ok(None),
         };
         self.ingress
             .record(event_id, run_id, coordinator_id, host_epoch, effect)

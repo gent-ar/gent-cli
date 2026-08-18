@@ -153,7 +153,7 @@ where
                 .expect("fixed Codex authority buffer policy is valid"),
         ),
         sandbox,
-        config.sandbox_request.profile.clone(),
+        config.sandbox_request.clone(),
     );
     let prefix = state.data_dir().join("providers").join("npm-global");
     let resolver = CodexOnlyResolver::new(DaemonProviderResolver::new(

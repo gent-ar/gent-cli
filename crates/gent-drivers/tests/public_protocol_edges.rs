@@ -2,7 +2,10 @@ use gent_drivers::{
     PublicProvider,
     public_protocol::{PublicWireFact, normalize_public_frame, replay_public_frames},
 };
-use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, ToolPhase, TurnPhase};
+use gent_types::{
+    AgentChatCompactionFailure, NormalizedLifecycleSignal, NormalizedProviderEvent, ToolPhase,
+    TurnPhase,
+};
 use serde_json::{Value, json};
 
 fn facts(provider: PublicProvider, frame: &Value) -> Vec<PublicWireFact> {
@@ -137,7 +140,6 @@ fn codex_current_item_states_and_plan_compaction_remain_content_safe() {
         json!({"method":"turn/plan/updated","params":{"plan":[{"step":"keep this private","status":"inProgress"}],"threadId":"secret-thread"}}),
         json!({"method":"item/plan/delta","params":{"delta":"secret plan fragment"}}),
         json!({"method":"thread/compacted","params":{"threadId":"secret-thread"}}),
-        json!({"method":"item/completed","params":{"item":{"type":"contextCompaction","secret":"ignored"}}}),
     ] {
         let normalized = facts(PublicProvider::Codex, &frame);
         assert!(matches!(
@@ -148,6 +150,26 @@ fn codex_current_item_states_and_plan_compaction_remain_content_safe() {
         ));
         assert!(!format!("{normalized:?}").contains("secret"));
     }
+    assert_eq!(
+        facts(
+            PublicProvider::Codex,
+            &json!({"method":"item/started","params":{"item":{"type":"contextCompaction","secret":"ignored"}}}),
+        ),
+        vec![PublicWireFact::Compaction(
+            gent_drivers::public_protocol::PublicCompactionObservation::Started
+        )]
+    );
+    assert_eq!(
+        facts(
+            PublicProvider::Codex,
+            &json!({"method":"item/completed","params":{"item":{"type":"contextCompaction","status":"failed","secret":"ignored"}}}),
+        ),
+        vec![PublicWireFact::Compaction(
+            gent_drivers::public_protocol::PublicCompactionObservation::Failed {
+                failure: AgentChatCompactionFailure::ProviderFailed,
+            }
+        )]
+    );
 }
 
 #[test]

@@ -20,6 +20,7 @@ use super::{ClaudePromptExecution, ClaudePromptStart};
 pub(crate) struct SandboxedClaudePromptExecution<D, S> {
     inner: D,
     preflight: Arc<S>,
+    expected_lock: RunVersionLock,
     profile: SandboxLaunchProfile,
 }
 
@@ -28,19 +29,21 @@ impl<D: Clone, S> Clone for SandboxedClaudePromptExecution<D, S> {
         Self {
             inner: self.inner.clone(),
             preflight: Arc::clone(&self.preflight),
+            expected_lock: self.expected_lock.clone(),
             profile: self.profile.clone(),
         }
     }
 }
 
 impl<D, S> SandboxedClaudePromptExecution<D, S> {
-    /// Binds an execution edge to the daemon-owned sandbox preflight abstraction.
+    /// Binds an execution edge to one daemon-locked executable and sandbox profile.
     #[must_use]
-    pub(crate) fn new(inner: D, preflight: S, profile: SandboxLaunchProfile) -> Self {
+    pub(crate) fn new(inner: D, preflight: S, request: SandboxedLaunchRequest) -> Self {
         Self {
             inner,
             preflight: Arc::new(preflight),
-            profile,
+            expected_lock: request.lock,
+            profile: request.profile,
         }
     }
 }
@@ -108,6 +111,9 @@ where
     S: SandboxedProviderPreflight,
 {
     fn attest(&self, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
+        if lock != &self.expected_lock {
+            return Err(PublicProviderRunError::ProviderChanged);
+        }
         let request = SandboxedLaunchRequest {
             lock: lock.clone(),
             profile: self.profile.clone(),

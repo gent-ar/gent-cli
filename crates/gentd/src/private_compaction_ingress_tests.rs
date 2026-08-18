@@ -1,3 +1,7 @@
+use gent_drivers::{
+    PublicProvider,
+    public_protocol::{PublicCompactionObservation, PublicWireFact, normalize_public_frame},
+};
 use gent_ports::{AgentChatLedger, ConversationLedger, Ledger, RunLease, RunSessionBinding};
 use gent_runtime::AgentChatCompactionRecoveryAuthority;
 use gent_store::SqliteLedger;
@@ -8,7 +12,8 @@ use gent_types::{
 };
 
 use crate::private_compaction_ingress::{
-    PrivateCompactionIngress, PrivateCompactionRequest, PrivateCompactionResult,
+    PrivateCompactionIngress, PrivateCompactionObservationRequest, PrivateCompactionRequest,
+    PrivateCompactionResult,
 };
 
 fn selection() -> AgentChatSelection {
@@ -60,6 +65,19 @@ fn failed() -> PrivateCompactionRequest {
             turn_id: "turn-a".into(),
             failure: AgentChatCompactionFailure::TooFewGroups,
         },
+    }
+}
+
+fn observed(fact: PublicCompactionObservation) -> PrivateCompactionObservationRequest {
+    PrivateCompactionObservationRequest {
+        run_id: AgentChatRunId("run-a".into()),
+        conversation_id: AgentChatConversationId("conversation-a".into()),
+        coordinator_id: "daemon-a".into(),
+        host_epoch: HostEpoch(1),
+        selection: selection(),
+        event_id: "compaction-observed-1".into(),
+        turn_id: "turn-a".into(),
+        observation: fact,
     }
 }
 
@@ -140,4 +158,76 @@ fn a_selection_not_owned_by_the_durable_run_never_reaches_the_ledger() {
     request.selection.model = "claude-sonnet".into();
     assert!(ingress.record(request).is_err());
     assert!(ledger.find_event("compaction-failed-1").unwrap().is_none());
+}
+
+#[test]
+fn codex_normalized_observation_reaches_the_private_ingress_with_daemon_ids() {
+    let ledger = prepared_ledger();
+    let mut ingress = PrivateCompactionIngress::new(
+        ledger.clone(),
+        AgentChatCompactionRecoveryAuthority::Approved,
+    );
+    let facts = normalize_public_frame(
+        PublicProvider::Codex,
+        &serde_json::json!({
+            "method": "item/started",
+            "params": { "item": { "type": "contextCompaction", "secret": "ignored" } }
+        }),
+    );
+    let [PublicWireFact::Compaction(observation)] = facts.as_slice() else {
+        panic!("documented Codex compaction must normalize without raw detail");
+    };
+    assert_eq!(
+        ingress.record_observation(observed(*observation)).unwrap(),
+        PrivateCompactionResult::Recorded(gent_core::AgentChatCompactionEffect::None)
+    );
+    let source = ledger.find_event("compaction-observed-1").unwrap().unwrap();
+    assert!(!source.payload.to_string().contains("secret"));
+}
+
+#[test]
+fn a_typed_too_few_groups_observation_recovers_only_through_the_private_ingress() {
+    let ledger = prepared_ledger();
+    let mut ingress = PrivateCompactionIngress::new(
+        ledger.clone(),
+        AgentChatCompactionRecoveryAuthority::Approved,
+    );
+    let mut started = observed(PublicCompactionObservation::Started);
+    started.event_id = "compaction-observed-started".into();
+    assert_eq!(
+        ingress.record_observation(started).unwrap(),
+        PrivateCompactionResult::Recorded(gent_core::AgentChatCompactionEffect::None)
+    );
+    let mut failed = observed(PublicCompactionObservation::Failed {
+        failure: AgentChatCompactionFailure::TooFewGroups,
+    });
+    failed.event_id = "compaction-observed-failed".into();
+    let PrivateCompactionResult::Recovered(child) = ingress.record_observation(failed).unwrap()
+    else {
+        panic!("only the private ingress may reserve the recovery child");
+    };
+    assert_eq!(child.context_through_ordinal, 0);
+    assert!(
+        ledger
+            .find_run_session_binding(&child.run_id.0)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn claude_result_text_never_fabricates_a_compaction_observation() {
+    let facts = normalize_public_frame(
+        PublicProvider::Claude,
+        &serde_json::json!({
+            "type": "result",
+            "is_error": true,
+            "result": "Couldn't compact: too_few_groups"
+        }),
+    );
+    assert!(
+        !facts
+            .iter()
+            .any(|fact| matches!(fact, PublicWireFact::Compaction(_)))
+    );
 }

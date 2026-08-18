@@ -1,8 +1,8 @@
 //! Pure, documented Claude stream-JSON and Codex app-server frame normalization.
 
 use gent_types::{
-    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, ToolActivity, ToolPhase,
-    TurnPhase,
+    AgentChatCompactionFailure, NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity,
+    ToolActivity, ToolPhase, TurnPhase,
 };
 use serde_json::Value;
 
@@ -13,9 +13,27 @@ mod codex_protocol;
 /// A provider-neutral fact extracted without process, ledger, or UI access.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PublicWireFact {
-    SessionStarted { provider_session_id: String },
+    SessionStarted {
+        provider_session_id: String,
+    },
     Event(NormalizedProviderEvent),
     Lifecycle(NormalizedLifecycleSignal),
+    /// A provider-neutral compaction transition with no provider-native identifiers.
+    ///
+    /// The daemon must bind this to its owned prompt turn and create its own durable event ID
+    /// before it may reach the private compaction ingress.
+    Compaction(PublicCompactionObservation),
+}
+
+/// A normalized provider compaction transition with all provider-native detail discarded.
+///
+/// This deliberately has no session, thread, item, or provider event identity. Those values
+/// never leave the runner; the daemon assigns a durable source identity after ownership checks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PublicCompactionObservation {
+    Started,
+    Completed,
+    Failed { failure: AgentChatCompactionFailure },
 }
 
 /// Normalizes one documented public-provider frame. Unknown fields never enter the result.

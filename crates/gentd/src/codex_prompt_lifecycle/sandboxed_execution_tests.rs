@@ -98,12 +98,19 @@ fn lock() -> RunVersionLock {
     }
 }
 
+fn request() -> SandboxedLaunchRequest {
+    SandboxedLaunchRequest {
+        lock: lock(),
+        profile: profile(),
+    }
+}
+
 #[test]
 fn unavailable_or_changed_preflight_never_delegates_to_the_process_runner() {
     for preflight in [ResultKind::Unavailable, ResultKind::ChangedLock] {
         let inner = Inner::default();
         let execution =
-            SandboxedCodexPromptExecution::new(inner.clone(), Preflight(preflight), profile());
+            SandboxedCodexPromptExecution::new(inner.clone(), Preflight(preflight), request());
         let error = execution.start("run-a", &lock()).unwrap_err();
         match preflight {
             ResultKind::Unavailable => assert!(matches!(
@@ -123,7 +130,7 @@ fn mismatched_attestation_never_delegates_to_the_process_runner() {
     let execution = SandboxedCodexPromptExecution::new(
         inner.clone(),
         Preflight(ResultKind::WrongAttestation),
-        profile(),
+        request(),
     );
     assert!(matches!(
         execution.start("run-a", &lock()),
@@ -138,10 +145,20 @@ fn attested_preflight_is_rechecked_before_every_start_and_resume() {
     let execution = SandboxedCodexPromptExecution::new(
         inner.clone(),
         Preflight(ResultKind::Attested),
-        profile(),
+        request(),
     );
     execution.start("run-a", &lock()).unwrap();
     execution.resume("run-b", &lock(), "thread-a").unwrap();
+    assert_eq!(
+        inner.0.lock().unwrap().as_slice(),
+        ["start:run-a", "resume:run-b"]
+    );
+    let mut changed = lock();
+    changed.digest_sha256 = "b".repeat(64);
+    assert_eq!(
+        execution.start("run-c", &changed),
+        Err(PublicProviderRunError::ProviderChanged)
+    );
     assert_eq!(
         inner.0.lock().unwrap().as_slice(),
         ["start:run-a", "resume:run-b"]

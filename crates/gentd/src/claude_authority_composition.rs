@@ -151,7 +151,7 @@ where
                 .expect("fixed Claude authority buffer policy is valid"),
         ),
         config.sandbox_preflight,
-        config.sandbox_request.profile,
+        config.sandbox_request,
     );
     let prefix = state.data_dir().join("providers").join("npm-global");
     let resolver = ClaudeOnlyResolver::new(DaemonProviderResolver::new(

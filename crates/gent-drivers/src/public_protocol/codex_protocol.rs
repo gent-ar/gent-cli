@@ -6,7 +6,7 @@ use gent_types::{
 };
 use serde_json::Value;
 
-use super::PublicWireFact;
+use super::{PublicCompactionObservation, PublicWireFact};
 
 /// Reduces one current Codex app-server frame without retaining its raw payload.
 pub(super) fn normalize(frame: &Value) -> Vec<PublicWireFact> {
@@ -116,14 +116,29 @@ fn item(frame: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
         return diagnostic("malformedCodexItem");
     };
     match string(item, "type") {
-        Some("contextCompaction") if phase == ToolPhase::Completed => {
-            diagnostic("codexContextCompacted")
-        }
+        Some("contextCompaction") => compaction(item, &phase),
         Some(kind) if tool_kind(kind) => tool_activity(item, phase),
         Some(kind) if inert_item(kind) => Vec::new(),
         Some(_) => diagnostic("unsupportedCodexItem"),
         None => diagnostic("malformedCodexItem"),
     }
+}
+
+fn compaction(item: &Value, phase: &ToolPhase) -> Vec<PublicWireFact> {
+    let observation = match phase {
+        ToolPhase::Started => PublicCompactionObservation::Started,
+        ToolPhase::WaitingPermission => return diagnostic("unsupportedCodexCompactionPhase"),
+        ToolPhase::Completed => PublicCompactionObservation::Completed,
+        ToolPhase::Failed => PublicCompactionObservation::Failed {
+            // The documented item status has no structured reason field. Do not infer
+            // `tooFewGroups` from text until a recorded provider contract proves one.
+            failure: gent_types::AgentChatCompactionFailure::ProviderFailed,
+        },
+    };
+    if *phase == ToolPhase::Failed && string(item, "status") != Some("failed") {
+        return diagnostic("malformedCodexCompaction");
+    }
+    vec![PublicWireFact::Compaction(observation)]
 }
 
 fn completed_item(frame: &Value) -> Vec<PublicWireFact> {

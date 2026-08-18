@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use gent_core::{
     AgentChatCompactionEffect, AgentChatCompactionState, reduce_agent_chat_compaction,
 };
+use gent_drivers::public_protocol::PublicCompactionObservation;
 use gent_ports::{AgentChatReadLedger, IngressMode, Ledger};
 use gent_runtime::{
     AgentChatCompactionRecoveryAuthority, AgentChatCompactionRecoveryRequest,
@@ -25,6 +26,22 @@ pub(crate) struct PrivateCompactionRequest {
     pub(crate) host_epoch: HostEpoch,
     pub(crate) selection: AgentChatSelection,
     pub(crate) fact: AgentChatCompactionFact,
+}
+
+/// Daemon-owned binding of an ID-free normalized compaction observation.
+///
+/// The runner never supplies the durable source ID or the Gent prompt turn. Both values come
+/// from the active daemon binding immediately before the observation reaches this private edge.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PrivateCompactionObservationRequest {
+    pub(crate) run_id: AgentChatRunId,
+    pub(crate) conversation_id: AgentChatConversationId,
+    pub(crate) coordinator_id: String,
+    pub(crate) host_epoch: HostEpoch,
+    pub(crate) selection: AgentChatSelection,
+    pub(crate) event_id: String,
+    pub(crate) turn_id: String,
+    pub(crate) observation: PublicCompactionObservation,
 }
 
 /// A durably retained fact, rejected reducer fact, or immutable recovery child.
@@ -62,6 +79,40 @@ impl<L: Clone> PrivateCompactionIngress<L> {
 impl<L: Clone + Ledger + gent_ports::AgentChatSelectionLedger + AgentChatReadLedger>
     PrivateCompactionIngress<L>
 {
+    /// Converts an already-normalized provider observation using only daemon-owned correlation.
+    ///
+    /// This remains private and is absent from observer bootstrap and transport. It rejects no
+    /// facts itself; all identity, ownership, selection, receipt, and recovery checks remain in
+    /// [`Self::record`].
+    pub(crate) fn record_observation(
+        &mut self,
+        request: PrivateCompactionObservationRequest,
+    ) -> Result<PrivateCompactionResult, RuntimeError> {
+        let fact = match request.observation {
+            PublicCompactionObservation::Started => AgentChatCompactionFact::Started {
+                event_id: request.event_id,
+                turn_id: request.turn_id,
+            },
+            PublicCompactionObservation::Completed => AgentChatCompactionFact::Completed {
+                event_id: request.event_id,
+                turn_id: request.turn_id,
+            },
+            PublicCompactionObservation::Failed { failure } => AgentChatCompactionFact::Failed {
+                event_id: request.event_id,
+                turn_id: request.turn_id,
+                failure,
+            },
+        };
+        self.record(PrivateCompactionRequest {
+            run_id: request.run_id,
+            conversation_id: request.conversation_id,
+            coordinator_id: request.coordinator_id,
+            host_epoch: request.host_epoch,
+            selection: request.selection,
+            fact,
+        })
+    }
+
     /// Persists the typed source fact before reducing or reserving any recovery child.
     pub(crate) fn record(
         &mut self,

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import re
 import sys
@@ -13,6 +14,12 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SEMANTICS_PATH = ROOT / "tools/driver-transcript-semantics.py"
+SEMANTICS_SPEC = importlib.util.spec_from_file_location("driver_transcript_semantics", SEMANTICS_PATH)
+assert SEMANTICS_SPEC is not None and SEMANTICS_SPEC.loader is not None
+SEMANTICS = importlib.util.module_from_spec(SEMANTICS_SPEC)
+sys.modules[SEMANTICS_SPEC.name] = SEMANTICS
+SEMANTICS_SPEC.loader.exec_module(SEMANTICS)
 DEFAULT_ROOT = ROOT / "drivers_transcript"
 PROVIDERS = {"claude", "codex", "claurst"}
 REQUIRED_MANIFEST = {
@@ -111,6 +118,7 @@ def validate_scenario(root: Path, provider: str, scenario: Path) -> None:
     lines = files["events.jsonl"].read_text(encoding="utf-8").splitlines()
     if not lines:
         raise ValueError(f"{relative(root, files['events.jsonl'])} must not be empty")
+    events = []
     for sequence, line in enumerate(lines, start=1):
         if len(line.encode("utf-8")) > MAX_EVENT_LINE_BYTES:
             raise ValueError(f"{relative(root, files['events.jsonl'])}:{sequence} exceeds the event size limit")
@@ -123,6 +131,10 @@ def validate_scenario(root: Path, provider: str, scenario: Path) -> None:
         if event.get("sequence") != sequence or event.get("type") not in EVENT_TYPES or not isinstance(event.get("data"), dict):
             raise ValueError(f"{relative(root, files['events.jsonl'])}:{sequence} has invalid event metadata")
         validate_value(event, f"{relative(root, files['events.jsonl'])}:{sequence}")
+        events.append(event)
+    SEMANTICS.validate_semantics(
+        provider, events, manifest.get("attachments"), relative(root, files["events.jsonl"])
+    )
 
 
 def load_json(path: Path) -> Any:
