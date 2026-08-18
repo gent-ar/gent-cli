@@ -67,22 +67,56 @@ pub(crate) async fn execute(
     exchange(data_dir, no_autostart, frame(command)?).await
 }
 
+/// Forwards one exact shorthand fanout file without introducing prompt semantics.
+pub(crate) async fn fanout_file(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    path: PathBuf,
+) -> Result<OrchestrationFrame, Box<dyn std::error::Error>> {
+    exchange(data_dir, no_autostart, fanout_frame(&path, None)?).await
+}
+
+/// Forwards one exact shorthand cross-review file without introducing prompt semantics.
+pub(crate) async fn cross_review_file(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    path: PathBuf,
+) -> Result<OrchestrationFrame, Box<dyn std::error::Error>> {
+    exchange(data_dir, no_autostart, cross_review_frame(&path, None)?).await
+}
+
 fn frame(command: OrchestrationCommand) -> Result<OrchestrationFrame, Box<dyn std::error::Error>> {
     match command {
-        OrchestrationCommand::Fanout(args) => Ok(OrchestrationFrame::Fanout {
-            request_id: request_id(args.request_id),
-            request: read_request(&args.graph_json, "graph", "FanoutRequest")?,
-        }),
-        OrchestrationCommand::CrossReview(args) => Ok(OrchestrationFrame::CrossReview {
-            request_id: request_id(args.request_id),
-            request: read_request(&args.request_json, "cross-review", "CrossReviewRequest")?,
-        }),
+        OrchestrationCommand::Fanout(args) => fanout_frame(&args.graph_json, args.request_id),
+        OrchestrationCommand::CrossReview(args) => {
+            cross_review_frame(&args.request_json, args.request_id)
+        }
         OrchestrationCommand::Read(args) => Ok(OrchestrationFrame::GraphRead {
             request_id: request_id(args.request_id),
             conversation_id: AgentChatConversationId(args.conversation_id),
             graph_id: args.graph_id,
         }),
     }
+}
+
+fn fanout_frame(
+    path: &Path,
+    request_id_value: Option<String>,
+) -> Result<OrchestrationFrame, Box<dyn std::error::Error>> {
+    Ok(OrchestrationFrame::Fanout {
+        request_id: request_id(request_id_value),
+        request: read_request(path, "graph", "FanoutRequest")?,
+    })
+}
+
+fn cross_review_frame(
+    path: &Path,
+    request_id_value: Option<String>,
+) -> Result<OrchestrationFrame, Box<dyn std::error::Error>> {
+    Ok(OrchestrationFrame::CrossReview {
+        request_id: request_id(request_id_value),
+        request: read_request(path, "cross-review", "CrossReviewRequest")?,
+    })
 }
 
 fn read_request<T>(

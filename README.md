@@ -180,7 +180,7 @@ provider/model/effort/mode controls, `Ctrl+N` creation, and `Enter` prompt
 persistence. `gent chat create`, `send`, and `queue` remain available for scripts;
 start that isolated profile with `GENT_AGENT_CHAT_AUTHORITY=1 gentd`; none starts a provider lifecycle.
 
-`gent orchestration fanout --graph-json FILE` and `cross-review --request-json FILE` accept exact JSON `FanoutRequest`/`CrossReviewRequest` values; `read --conversation-id ID --graph-id ID` reads their graph.
+`gent orchestration fanout --graph-json FILE` and `cross-review --request-json FILE` accept exact JSON `FanoutRequest`/`CrossReviewRequest` values; exact positional `/fanout FILE` and `/cross-review FILE` use the same strict inputs; `read --conversation-id ID --graph-id ID` reads their graph.
 They require the explicit persistence profile's `orchestration-v1` capability, make/read only daemon-owned graph records, and never schedule or start a provider worker.
 
 ## Development
