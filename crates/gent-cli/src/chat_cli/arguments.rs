@@ -12,13 +12,38 @@ pub(crate) struct DirectPromptArgs {
     /// Required with `--conversation-id` for the positional `/goal <summary>` shorthand.
     #[arg(long, requires = "prompt")]
     pub(crate) run_id: Option<String>,
-    #[arg(long, value_enum, default_value_t = Provider::Codex, requires = "prompt")]
+    /// Choose a provider only when creating a new conversation. Use `gent chat switch` to
+    /// change the selected provider, model, effort, or mode of an existing conversation.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Provider::Codex,
+        requires = "prompt",
+        conflicts_with = "conversation_id"
+    )]
     pub(crate) provider: Provider,
-    #[arg(long, default_value = "default", requires = "prompt")]
+    #[arg(
+        long,
+        default_value = "default",
+        requires = "prompt",
+        conflicts_with = "conversation_id"
+    )]
     pub(crate) model: String,
-    #[arg(long, value_enum, default_value_t = Effort::Medium, requires = "prompt")]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Effort::Medium,
+        requires = "prompt",
+        conflicts_with = "conversation_id"
+    )]
     pub(crate) effort: Effort,
-    #[arg(long, value_enum, default_value_t = Mode::Agent, requires = "prompt")]
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Mode::Agent,
+        requires = "prompt",
+        conflicts_with = "conversation_id"
+    )]
     pub(crate) mode: Mode,
 }
 

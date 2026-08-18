@@ -7,7 +7,7 @@ use gent_types::{
 };
 use tokio::net::UnixListener;
 
-use super::{ChatCommand, CreateArgs, Effort, Mode, Provider, execute};
+use super::{ChatCommand, CreateArgs, Effort, Mode, Provider, execute, frame};
 
 #[tokio::test]
 async fn create_negotiates_agent_chat_and_requires_a_matching_created_reply() {
@@ -140,4 +140,76 @@ async fn switch_negotiates_a_parent_bound_child_run() {
     assert!(
         matches!(reply, AgentChatIntentFrame::Switched { run_id, context_through_ordinal, .. } if run_id.0 == "run-2" && context_through_ordinal == 1)
     );
+}
+
+#[test]
+fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy() {
+    let cases = [
+        (
+            Provider::Codex,
+            Effort::Low,
+            Mode::Ask,
+            super::switch::Context::Preserve,
+            gent_types::AgentChatProvider::Codex,
+            gent_types::AgentChatEffort::Low,
+            gent_types::AgentChatMode::Ask,
+            gent_types::ContextPolicy::Preserve,
+        ),
+        (
+            Provider::Claude,
+            Effort::Medium,
+            Mode::Plan,
+            super::switch::Context::Clear,
+            gent_types::AgentChatProvider::Claude,
+            gent_types::AgentChatEffort::Medium,
+            gent_types::AgentChatMode::Plan,
+            gent_types::ContextPolicy::Clear,
+        ),
+        (
+            Provider::Claurst,
+            Effort::High,
+            Mode::Agent,
+            super::switch::Context::Preserve,
+            gent_types::AgentChatProvider::Claurst,
+            gent_types::AgentChatEffort::High,
+            gent_types::AgentChatMode::Agent,
+            gent_types::ContextPolicy::Preserve,
+        ),
+    ];
+    for (
+        provider,
+        effort,
+        mode,
+        context,
+        expected_provider,
+        expected_effort,
+        expected_mode,
+        expected_context,
+    ) in cases
+    {
+        let request = frame(ChatCommand::Switch(super::switch::SwitchArgs {
+            conversation_id: "conversation-1".into(),
+            parent_run_id: "run-1".into(),
+            provider,
+            model: "exact-model".into(),
+            effort,
+            mode,
+            context,
+            request_id: Some("request-1".into()),
+            receipt_id: Some("receipt-1".into()),
+        }));
+        let AgentChatIntentFrame::SwitchSelection {
+            selection,
+            context_policy,
+            ..
+        } = request
+        else {
+            panic!("expected selection switch");
+        };
+        assert_eq!(selection.provider, expected_provider);
+        assert_eq!(selection.model, "exact-model");
+        assert_eq!(selection.effort, expected_effort);
+        assert_eq!(selection.mode, expected_mode);
+        assert_eq!(context_policy, expected_context);
+    }
 }

@@ -94,6 +94,66 @@ fn positional_prompt_selects_the_typed_prompt_first_flow() {
 }
 
 #[test]
+fn an_existing_conversation_rejects_ignored_selection_flags() {
+    let args = Args::try_parse_from([
+        "gent",
+        "continue this",
+        "--conversation-id",
+        "conversation-1",
+    ])
+    .unwrap();
+    assert_eq!(
+        args.direct_prompt.conversation_id.as_deref(),
+        Some("conversation-1")
+    );
+    for selection_flag in [
+        ["--provider", "claude"].as_slice(),
+        ["--model", "sonnet"].as_slice(),
+        ["--effort", "high"].as_slice(),
+        ["--mode", "plan"].as_slice(),
+    ] {
+        let mut command = vec![
+            "gent",
+            "continue this",
+            "--conversation-id",
+            "conversation-1",
+        ];
+        command.extend_from_slice(selection_flag);
+        assert!(Args::try_parse_from(command).is_err());
+    }
+}
+
+#[test]
+fn selection_switch_parses_a_context_preserving_claude_plan() {
+    let args = Args::try_parse_from([
+        "gent",
+        "chat",
+        "switch",
+        "--conversation-id",
+        "conversation-1",
+        "--parent-run-id",
+        "run-1",
+        "--provider",
+        "claude",
+        "--model",
+        "sonnet",
+        "--effort",
+        "high",
+        "--mode",
+        "plan",
+        "--context",
+        "preserve",
+    ])
+    .unwrap();
+    assert!(matches!(
+        args.command,
+        Some(CommandLine::Chat {
+            action: ChatCommand::Switch(_)
+        })
+    ));
+}
+
+#[test]
 fn chat_subcommands_remain_distinct_from_a_positional_prompt() {
     let args = Args::try_parse_from([
         "gent",

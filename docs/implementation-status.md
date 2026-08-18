@@ -190,7 +190,8 @@ For the current working-tree context and continuation order, read [the handoff](
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
-- [ ] CI requires 90% workspace line coverage, but the measured baseline is 89.60%; it is not green and does not establish terminal/app parity.
+- [x] The enforced workspace coverage scope is 90%; the latest local measurement is 90.69%.
+      This does not meet the requested 100% coverage or establish terminal/app parity.
 - [x] Deterministic release packaging, checksum/manifest verification, portable Ed25519
       runtime-metadata signing, and tag-only GitHub OIDC keyless-signing workflow for `gent` and
       `gentd` artifacts.
@@ -274,7 +275,10 @@ For the current working-tree context and continuation order, read [the handoff](
    independent clean-install, terminal-IPC, automatic-update-status, and supervisor-rejection checks.
 7. [ ] Reviewed-plan storage, exact approval/rejection, and receipt-backed context-boundary child reservations exist but remain unadvertised until lifecycle/evidence authority is approved; see [reviewed-plan execution](agent-chat-execution-plan.md). `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching are also follow-on work.
 8. [ ] Provider-auth discovery and consented Claude/Codex login require the typed `askTool` contract, sandboxed authority, locked binaries, and redacted live evidence; see [provider-auth-plan.md](provider-auth-plan.md).
-9. [ ] Prompt-triggered Claude/Codex provisioning needs the app-supplied Node runtime, a private Gent prefix, signed package/version/integrity policy, exact `npm` receipts, post-install locks, and ambiguous-effect refusal. The app never bundles or falls back to a direct provider CLI; see [provider-auth-plan.md](provider-auth-plan.md).
+9. [ ] Prompt-triggered Claude/Codex provisioning has a private preflight seam that rechecks
+   the app-supplied Node runtime and verifies the executable, but still needs signed policy,
+   receipt-bound authority composition, sandbox proof, and evidence. The app never bundles or
+   falls back to a direct provider CLI; see [provider-auth-plan.md](provider-auth-plan.md).
 10. [ ] Gent-native multi-agent orchestration is planned, not implemented: typed
     task graphs, `/fanout`, `/cross-review`, isolated worktree leases, custom
     harness profiles, cross-vendor findings, and cursor-resumable recovery must

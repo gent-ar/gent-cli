@@ -74,7 +74,7 @@ testing, start `gentd --agent-chat-authority`: it advertises
 - Device pairing and application-specific UI automations are Flutter-app responsibilities; a later agent-chat `gent-automations` domain stays separate and port-bound.
 - [`drivers_transcript/`](drivers_transcript/README.md) is a committed, development-only corpus; normal Gent runs never record there.
   Capture test or real sessions only when a developer explicitly opts in, then sanitize and review them before committing them; corpus records never authorize providers or count as public evidence.
-  Validate the reviewed corpus with `python3 tools/validate-driver-transcript-corpus.py` before commit.
+  Before commit, validate and offline-replay the reviewed corpus with `python3 tools/validate-driver-transcript-corpus.py` and `python3 tools/replay-driver-transcript-corpus.py`; neither command contacts a provider or enables capture.
 - No source file in this milestone should exceed 300 lines; `python tools/check-architecture.py` enforces it.
 `fixtures/ipc-contract/manifest.json` is the language-neutral compatibility
 fixture for that local protocol. It records canonical JSON and the exact

@@ -191,3 +191,7 @@ fn valid_lock(lock: &ProvisionedProviderLock, provider: DependencyProvider, pref
 #[cfg(test)]
 #[path = "private_provider_provisioning_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "private_provider_provisioning_error_tests.rs"]
+mod error_tests;

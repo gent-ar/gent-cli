@@ -30,6 +30,14 @@ it rejects raw-session fields, known credential markers, source paths, unsafe
 files, and malformed scenario records. This automated screen supplements,
 rather than replaces, human review of real conversation text.
 
+Replay reviewed records offline with
+`python3 tools/replay-driver-transcript-corpus.py`. It validates first and
+emits only ordered scenario summaries, so it cannot call a provider, reveal
+captured event data, grant authority, or turn recording on for normal sessions.
+The manifest timestamps must be RFC3339, review cannot predate recording, and
+an optional attachment list may contain only content digest, media type, and
+byte length—never attachment bytes or paths.
+
 Never commit credentials, API keys, tokens, cookies, account details, private
 endpoints or routing, provider-native session/resume IDs, raw process frames,
 environment variables, hidden reasoning, unrestricted tool output, source

@@ -115,6 +115,48 @@ fn a_drain_stops_only_after_the_existing_lifecycle_settles_an_exit() {
     assert!(ledger.find_event("codex:run-a:exit:1").unwrap().is_some());
 }
 
+#[test]
+fn repeated_shutdown_request_does_not_repeat_the_initial_process_signal() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation_id = conversation(&ledger);
+    save(&ledger, conversation_id, "prompt-1", "first");
+    let runner = Runner::default();
+    let mut supervisor = PrivateCodexSupervisor::new(host(&ledger, runner.clone()));
+    let _ = supervisor.wake().unwrap();
+    let first = supervisor.request_shutdown().unwrap();
+    assert_eq!(supervisor.request_shutdown().unwrap(), first);
+    assert_eq!(
+        runner.state.lock().unwrap().signals,
+        vec![ProcessTreeSignal::Interrupt]
+    );
+}
+
+#[test]
+fn an_unsettled_drain_polls_without_accepting_new_work_or_escalating_by_itself() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation_id = conversation(&ledger);
+    save(&ledger, conversation_id, "prompt-1", "first");
+    let runner = Runner::default();
+    let mut supervisor = PrivateCodexSupervisor::new(host(&ledger, runner));
+    let _ = supervisor.wake().unwrap();
+    supervisor.request_shutdown().unwrap();
+    assert!(matches!(
+        supervisor.wake().unwrap(),
+        PrivateCodexWake::Drain(drain) if drain.polled_runs == 1 && drain.exited_runs == 0
+    ));
+    assert_eq!(
+        supervisor.state(),
+        PrivateCodexSupervisorState::ShutdownDraining {
+            active_runs: 1,
+            last_signal: ProcessTreeSignal::Interrupt,
+        }
+    );
+    assert!(matches!(
+        supervisor.escalate_shutdown().unwrap(),
+        PrivateCodexEscalation::SignalSent(ProcessTreeSignal::Terminate)
+    ));
+}
+
 fn host(
     ledger: &SqliteLedger,
     runner: Runner,

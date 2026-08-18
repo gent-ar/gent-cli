@@ -60,6 +60,39 @@ def test_event_order_and_unapproved_files_are_rejected() -> None:
         assert_invalid(root, "must contain only")
 
 
+def test_provenance_attachment_and_raw_output_guards_are_enforced() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = write_scenario(Path(directory))
+        manifest = root / "codex" / "final-answer" / "manifest.json"
+        value = json.loads(manifest.read_text(encoding="utf-8"))
+        value["source"] = "unknown-capture-route"
+        manifest.write_text(json.dumps(value), encoding="utf-8")
+        assert_invalid(root, "unsupported source")
+    with tempfile.TemporaryDirectory() as directory:
+        root = write_scenario(Path(directory))
+        manifest = root / "codex" / "final-answer" / "manifest.json"
+        value = json.loads(manifest.read_text(encoding="utf-8"))
+        value["reviewedAt"] = "2026-08-16"
+        manifest.write_text(json.dumps(value), encoding="utf-8")
+        assert_invalid(root, "timestamp must be RFC3339")
+    with tempfile.TemporaryDirectory() as directory:
+        root = write_scenario(Path(directory), {
+            "sequence": 1, "type": "activity", "data": {"rawOutput": "not allowed"},
+        })
+        assert_invalid(root, "forbidden field")
+    with tempfile.TemporaryDirectory() as directory:
+        root = write_scenario(Path(directory))
+        manifest = root / "codex" / "final-answer" / "manifest.json"
+        value = json.loads(manifest.read_text(encoding="utf-8"))
+        value["attachments"] = [{"contentDigest": "sha256:" + "a" * 64,
+                                 "mediaType": "image/png", "byteLength": 7}]
+        manifest.write_text(json.dumps(value), encoding="utf-8")
+        MODULE.validate_corpus(root)
+        value["attachments"][0]["sourcePath"] = "forbidden"
+        manifest.write_text(json.dumps(value), encoding="utf-8")
+        assert_invalid(root, "attachment metadata is invalid")
+
+
 def assert_invalid(root: Path, needle: str) -> None:
     try:
         MODULE.validate_corpus(root)
@@ -73,6 +106,7 @@ def main() -> None:
     test_valid_record_and_empty_committed_root()
     test_secret_and_provider_session_are_rejected()
     test_event_order_and_unapproved_files_are_rejected()
+    test_provenance_attachment_and_raw_output_guards_are_enforced()
     print("driver transcript corpus validator checks passed")
 
 
