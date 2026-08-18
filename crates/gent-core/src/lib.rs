@@ -4,6 +4,9 @@ mod attachment_transfer;
 mod conversation_activity;
 mod decision_settlement;
 mod git_operation;
+mod goal;
+#[cfg(test)]
+mod goal_tests;
 mod lifecycle_projection;
 mod lifecycle_signal;
 mod lifecycle_state;
@@ -28,6 +31,10 @@ pub use decision_settlement::{
     DecisionSettlementState, apply_decision_evidence, submit_decision,
 };
 pub use git_operation::permits_git_operation_transition;
+pub use goal::{
+    GoalControlContext, GoalControlEffect, GoalControlEvent, GoalControlRejection,
+    GoalControlState, reduce_goal_control,
+};
 pub use lifecycle_projection::{
     LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,
 };

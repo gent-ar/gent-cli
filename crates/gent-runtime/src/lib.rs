@@ -20,6 +20,7 @@ mod events;
 mod git_operations;
 mod git_status;
 mod git_status_events;
+mod goals;
 mod legacy_observer;
 mod mcp_connectors;
 mod policies;
@@ -84,6 +85,7 @@ use gent_types::{
 pub use git_status::{
     GitStatusAuthority, GitStatusRequest, GitStatusResult, GitStatusService, GitStatusState,
 };
+pub use goals::{GoalAuthority, GoalResult, GoalService};
 pub use legacy_observer::{LegacyObserver, ObserverPoll};
 pub use mcp_connectors::*;
 pub use provider_activity::{ProviderActivityFact, ProviderActivityIngress};

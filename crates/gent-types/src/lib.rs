@@ -20,6 +20,7 @@ mod doctor;
 mod event_resume;
 mod external_provider_bridge;
 mod git_operations;
+mod goal;
 mod lifecycle_signal;
 mod lifecycle_state;
 mod mcp_connectors;
@@ -36,7 +37,6 @@ mod runtime_update;
 mod tool_activity;
 mod tool_sources;
 mod workspaces;
-
 pub use agent_chat::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRun, AgentChatRunState, AgentChatSelection,
@@ -83,6 +83,9 @@ pub use doctor::{
 pub use event_resume::{EventResume, EventSnapshot};
 pub use external_provider_bridge::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord};
+pub use goal::{
+    GOAL_SCHEMA_VERSION, GoalBinding, GoalContractError, GoalRecord, GoalStatus, GoalTransition,
+};
 pub use lifecycle_signal::NormalizedLifecycleSignal;
 pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
 pub use mcp_connectors::{McpConnectorPhase, McpConnectorRecord};
@@ -118,14 +121,11 @@ pub use runtime_update::{
 pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
-
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct HostEpoch(pub u64);
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct ReceiptId(pub String);

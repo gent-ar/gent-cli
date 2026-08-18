@@ -16,6 +16,7 @@ mod dependency_action_executor;
 mod external_provider_bridge;
 mod git_executor;
 mod git_operation_ledger;
+mod goal_ledger;
 mod ingress;
 mod legacy_event_tap;
 mod mcp_connector_executor;
@@ -55,6 +56,7 @@ pub use external_provider_bridge::ExternalProviderBridge;
 pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_executor::{GitExecutor, GitExecutorError, GitStatusOperation, GitStatusSummary};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
+pub use goal_ledger::*;
 pub use ingress::{HostIngress, IngressMode};
 pub use legacy_event_tap::LegacyEventTap;
 pub use mcp_connector_executor::{
@@ -122,7 +124,6 @@ pub struct WorktreeLease {
     pub lease_token: String,
     pub host_epoch: HostEpoch,
 }
-/// Durable ownership claim preventing two coordinators from driving one run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunLease {
     pub run_id: String,
