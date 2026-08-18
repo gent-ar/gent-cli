@@ -33,6 +33,9 @@ pub(super) fn claim_run(
             insert_run_lease(&transaction, requested)?;
             RunLeaseClaim::Acquired(requested.clone())
         }
+        // An unchanged coordinator may resume a one-shot provider session. Epoch validation
+        // above still fences a stale daemon before this idempotent claim is accepted.
+        Some(existing) if existing == *requested => RunLeaseClaim::Acquired(existing),
         Some(existing) if existing.host_epoch == active => RunLeaseClaim::Contended(existing),
         Some(previous) => {
             replace_run_lease(&transaction, requested)?;

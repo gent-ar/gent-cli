@@ -1,5 +1,4 @@
 //! Ports implemented by infrastructure or private integrations.
-use async_trait::async_trait;
 use gent_types::{
     Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
     EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
@@ -23,7 +22,9 @@ mod mcp_connector_executor;
 mod mcp_connector_ledger;
 mod package_install;
 mod policy_ledger;
+mod private_claurst_bridge;
 mod provider_auth_discovery;
+mod provider_driver;
 mod public_provider_resolver;
 mod public_provider_runner;
 mod reviewed_plan_ledger;
@@ -66,10 +67,16 @@ pub use package_install::{
     ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError,
 };
 pub use policy_ledger::PolicyLedger;
+pub use private_claurst_bridge::{
+    ClaurstCheckpoint, ClaurstDrainBatch, ClaurstDrainRequest, ClaurstFactValue,
+    ClaurstFailureClassification, ClaurstNormalizedFact, ClaurstSessionBinding, ClaurstSourceId,
+    ClaurstTerminal, MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge,
+};
 pub use provider_auth_discovery::{
     ProviderAuthAuthentication, ProviderAuthDiscovery, ProviderAuthDiscoveryError,
     ProviderAuthDiscoveryPort,
 };
+pub use provider_driver::ProviderDriver;
 pub use public_provider_resolver::PublicProviderResolver;
 pub use public_provider_runner::{PublicProviderRunError, PublicProviderRunner};
 pub use reviewed_plan_ledger::ReviewedPlanLedger;
@@ -86,10 +93,6 @@ pub enum PortError {
     Provider(String),
     #[error("provider bridge operation is unavailable: {0}")]
     Unavailable(String),
-}
-#[async_trait]
-pub trait ProviderDriver: Send + Sync {
-    async fn submit(&self, command: Command) -> Result<(), PortError>;
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReceiptClaim {

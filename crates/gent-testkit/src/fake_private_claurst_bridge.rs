@@ -1,0 +1,189 @@
+//! Scriptable fake for the private Claurst normalized-fact boundary.
+#![allow(clippy::missing_panics_doc)] // Test fakes fail fast on poisoned state.
+
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Mutex;
+
+use async_trait::async_trait;
+use gent_ports::{
+    ClaurstDrainBatch, ClaurstDrainRequest, ClaurstNormalizedFact, ClaurstSessionBinding,
+    ClaurstSourceId, PortError, PrivateClaurstBridge,
+};
+
+#[derive(Debug, Default)]
+struct BridgeState {
+    bindings: BTreeMap<ClaurstSourceId, ClaurstSessionBinding>,
+    requests: Vec<ClaurstDrainRequest>,
+    batches: VecDeque<Result<ClaurstDrainBatch, String>>,
+    settled: BTreeSet<ClaurstSourceId>,
+}
+
+/// Deterministic fake that enforces the private bridge's ordering and secrecy contract.
+#[derive(Debug, Default)]
+pub struct FakePrivateClaurstBridge {
+    state: Mutex<BridgeState>,
+}
+
+impl FakePrivateClaurstBridge {
+    /// Queues one result for the next valid drain request.
+    pub fn push_batch(&self, batch: ClaurstDrainBatch) {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .batches
+            .push_back(Ok(batch));
+    }
+
+    /// Queues one controlled bridge failure for the next valid drain request.
+    pub fn fail_next_drain(&self, message: impl Into<String>) {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .batches
+            .push_back(Err(message.into()));
+    }
+
+    /// Returns every daemon-owned session binding the fake observed.
+    #[must_use]
+    pub fn bindings(&self) -> Vec<ClaurstSessionBinding> {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .bindings
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    /// Returns drain requests in the order a daemon would have issued them.
+    #[must_use]
+    pub fn requests(&self) -> Vec<ClaurstDrainRequest> {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .requests
+            .clone()
+    }
+}
+
+#[async_trait]
+impl PrivateClaurstBridge for FakePrivateClaurstBridge {
+    async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
+        if binding.run_id.is_empty()
+            || binding.source_id.0.is_empty()
+            || binding.opaque_session_id.is_empty()
+        {
+            return Err(contract_error("session binding is incomplete"));
+        }
+        let mut state = self
+            .state
+            .lock()
+            .expect("private bridge fake mutex poisoned");
+        match state.bindings.get(&binding.source_id) {
+            Some(existing) if existing != &binding => {
+                Err(contract_error("source is already bound to another session"))
+            }
+            _ => {
+                state.bindings.insert(binding.source_id.clone(), binding);
+                Ok(())
+            }
+        }
+    }
+
+    async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
+        if !request.is_bounded() {
+            return Err(contract_error("drain exceeds bounded contract"));
+        }
+        let mut state = self
+            .state
+            .lock()
+            .expect("private bridge fake mutex poisoned");
+        let binding = state
+            .bindings
+            .get(&request.source_id)
+            .cloned()
+            .ok_or_else(|| contract_error("source has no daemon session binding"))?;
+        if binding.run_id != request.run_id || state.settled.contains(&request.source_id) {
+            return Err(contract_error("source cannot be drained for this run"));
+        }
+        state.requests.push(request.clone());
+        let batch = state
+            .batches
+            .pop_front()
+            .transpose()
+            .map_err(PortError::Provider)?;
+        let Some(batch) = batch else {
+            return Ok(ClaurstDrainBatch {
+                facts: Vec::new(),
+                checkpoint: None,
+                session_binding: None,
+                terminal: None,
+            });
+        };
+        validate_batch(&request, &binding, &batch)?;
+        if batch.terminal.is_some() {
+            state.settled.insert(request.source_id);
+        }
+        Ok(batch)
+    }
+}
+
+fn validate_batch(
+    request: &ClaurstDrainRequest,
+    binding: &ClaurstSessionBinding,
+    batch: &ClaurstDrainBatch,
+) -> Result<(), PortError> {
+    if batch.facts.len() > usize::from(request.limit)
+        || batch
+            .facts
+            .iter()
+            .any(|fact| invalid_fact(request, binding, fact))
+    {
+        return Err(contract_error(
+            "batch violates ordered bounded fact contract",
+        ));
+    }
+    if let Some(checkpoint) = &batch.checkpoint {
+        if checkpoint.run_id != request.run_id
+            || checkpoint.source_id != request.source_id
+            || checkpoint.cursor < request.after_cursor
+            || checkpoint.state_digest_sha256.is_empty()
+        {
+            return Err(contract_error("checkpoint does not bind this drain"));
+        }
+    }
+    if let Some(session) = &batch.session_binding {
+        if session.run_id != request.run_id
+            || session.source_id != request.source_id
+            || session.opaque_session_id.is_empty()
+            || facts_echo_session(&batch.facts, &session.opaque_session_id)
+        {
+            return Err(contract_error("batch would echo an opaque session"));
+        }
+    }
+    if facts_echo_session(&batch.facts, &binding.opaque_session_id) {
+        return Err(contract_error("batch would echo an opaque session"));
+    }
+    Ok(())
+}
+
+fn invalid_fact(
+    request: &ClaurstDrainRequest,
+    binding: &ClaurstSessionBinding,
+    fact: &ClaurstNormalizedFact,
+) -> bool {
+    fact.source_id != request.source_id
+        || fact.cursor <= request.after_cursor
+        || fact.cursor == 0
+        || facts_echo_session(std::slice::from_ref(fact), &binding.opaque_session_id)
+}
+
+fn facts_echo_session(facts: &[ClaurstNormalizedFact], opaque_session: &str) -> bool {
+    facts
+        .iter()
+        .any(|fact| format!("{:?}", fact.value).contains(opaque_session))
+}
+
+fn contract_error(message: &str) -> PortError {
+    PortError::Provider(format!("private Claurst bridge contract: {message}"))
+}

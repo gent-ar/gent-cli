@@ -8,8 +8,8 @@ use std::{
 
 use clap::Args;
 use gent_protocol::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd, WireFrame,
-    read_json_frame, write_json_frame,
+    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY, AgentChatIntentFrame,
+    AgentChatSubscriptionEnd, WireFrame, read_json_frame, write_json_frame,
 };
 use gent_types::{AgentChatConversationId, AgentChatRequestId, NormalizedTranscriptEvent};
 use serde_json::Value;
@@ -79,12 +79,8 @@ async fn subscribe_once(
     cursor: &mut u64,
 ) -> Result<SubscriptionEnd, Box<dyn std::error::Error>> {
     let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
-    if !capabilities
-        .0
-        .iter()
-        .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY)
-    {
-        return Err("daemon does not support agent chat; upgrade gentd".into());
+    if !supports_subscription(&capabilities.0) {
+        return Err("daemon does not support normalized chat subscriptions; upgrade gentd".into());
     }
     let request_id = AgentChatRequestId(uuid::Uuid::new_v4().to_string());
     write_json_frame(
@@ -124,6 +120,15 @@ async fn subscribe_once(
     }
 }
 
+fn supports_subscription(capabilities: &[String]) -> bool {
+    [
+        AGENT_CHAT_INTENTS_CAPABILITY,
+        AGENT_CHAT_TRANSCRIPT_CAPABILITY,
+    ]
+    .into_iter()
+    .all(|required| capabilities.iter().any(|capability| capability == required))
+}
+
 fn decode(raw: Value) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
     if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
         return Err(message.into());
@@ -160,7 +165,24 @@ fn print_event(event: &NormalizedTranscriptEvent) -> io::Result<()> {
 mod tests {
     use gent_types::{NormalizedTranscriptEvent, NormalizedTranscriptKind};
 
-    use super::{AgentChatRequestId, FollowArgs, MAX_RECONNECTS, accept_event};
+    use super::{
+        AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY, AgentChatRequestId,
+        FollowArgs, MAX_RECONNECTS, accept_event, supports_subscription,
+    };
+
+    #[test]
+    fn subscriptions_require_both_intent_and_normalized_transcript_capabilities() {
+        assert!(!supports_subscription(&[
+            AGENT_CHAT_INTENTS_CAPABILITY.into()
+        ]));
+        assert!(!supports_subscription(&[
+            AGENT_CHAT_TRANSCRIPT_CAPABILITY.into()
+        ]));
+        assert!(supports_subscription(&[
+            AGENT_CHAT_INTENTS_CAPABILITY.into(),
+            AGENT_CHAT_TRANSCRIPT_CAPABILITY.into(),
+        ]));
+    }
 
     fn event(cursor: u64) -> NormalizedTranscriptEvent {
         NormalizedTranscriptEvent {

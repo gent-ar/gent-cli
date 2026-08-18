@@ -11,10 +11,16 @@ mod agent_chat_transport;
 mod agent_chat_transport_tests;
 mod api;
 #[allow(dead_code)]
+mod approved_claude_host;
+#[allow(dead_code)]
 mod approved_codex_host;
 mod attachment_api;
 mod attachment_transport;
 mod authority_profile;
+#[allow(dead_code)]
+mod claude_prompt_lifecycle;
+#[cfg(test)]
+mod claude_prompt_lifecycle_tests;
 #[allow(dead_code)]
 mod codex_prompt_lifecycle;
 #[cfg(test)]
