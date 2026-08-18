@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::time::{Duration, Instant};
+
 use ed25519_dalek::{Signer, SigningKey};
 use gent_adapters::compatibility::{
     CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest, TrustedKeySet,
@@ -12,6 +15,7 @@ use gent_ports::{PublicProviderResolver, PublicProviderRunError};
 use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::provider_resolver::{
     CodexOnlyResolver, DaemonProviderResolver, PrivatePrefixDiscovery, PrivatePrefixFirstDiscovery,
+    SystemVersionProbe, probe_with_timeout,
 };
 
 #[derive(Clone, Debug)]
@@ -179,6 +183,53 @@ fn private_prefix_authority_discovery_never_uses_path_fallback() {
     let installed = bin.join(binary_name());
     std::fs::write(&installed, "private provider binary").unwrap();
     assert_eq!(discovery.find("codex").unwrap(), Some(installed));
+}
+
+#[cfg(unix)]
+#[test]
+fn system_version_probe_runs_only_the_fixed_public_version_argument() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = unix_script(directory.path(), "version", "printf '1.2.3\n'");
+    assert_eq!(
+        SystemVersionProbe.probe(&executable, "--version").unwrap(),
+        "1.2.3"
+    );
+    assert!(SystemVersionProbe.probe(&executable, "--help").is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn version_probe_times_out_without_waiting_for_a_stuck_binary() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = unix_script(directory.path(), "stuck", "while :; do :; done");
+    let started = Instant::now();
+    let error =
+        probe_with_timeout(&executable, "--version", Duration::from_millis(40)).unwrap_err();
+    assert!(error.to_string().contains("timed out"));
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[cfg(unix)]
+#[test]
+fn version_probe_rejects_output_larger_than_the_bounded_capture() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = "v".repeat(1025);
+    let executable = unix_script(
+        directory.path(),
+        "large-output",
+        &format!("printf '{output}\n'"),
+    );
+    assert!(SystemVersionProbe.probe(&executable, "--version").is_err());
+}
+
+#[cfg(unix)]
+fn unix_script(directory: &Path, name: &str, body: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let executable = directory.join(name);
+    std::fs::write(&executable, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+    executable
 }
 
 #[cfg(windows)]

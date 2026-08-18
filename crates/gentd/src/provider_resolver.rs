@@ -6,8 +6,11 @@
 //! make a provider version probe reachable before the evidence gate allows authority transfer.
 
 use std::env;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use gent_drivers::discovery::{
     DiscoveryError, ExecutableDiscovery, ProbeError, PublicProvider, VersionProbe, inspect,
@@ -176,19 +179,119 @@ pub struct SystemVersionProbe;
 
 impl VersionProbe for SystemVersionProbe {
     fn probe(&self, executable: &Path, argument: &str) -> Result<String, ProbeError> {
-        let output = Command::new(executable)
-            .arg(argument)
-            .output()
-            .map_err(|error| ProbeError::Failed(error.to_string()))?;
-        if !output.status.success() {
-            return Err(ProbeError::Failed(format!("exit status {}", output.status)));
-        }
-        let version = String::from_utf8(output.stdout)
-            .map_err(|_| ProbeError::Failed("version output is not UTF-8".into()))?;
-        let version = version.trim();
-        if version.is_empty() || version.len() > 1024 {
-            return Err(ProbeError::Failed("version output is invalid".into()));
-        }
-        Ok(version.into())
+        probe_with_timeout(executable, argument, Duration::from_secs(5))
     }
+}
+
+const MAX_VERSION_BYTES: usize = 1024;
+const DRAIN_BUFFER_BYTES: usize = 4096;
+
+pub(crate) fn probe_with_timeout(
+    executable: &Path,
+    argument: &str,
+    timeout: Duration,
+) -> Result<String, ProbeError> {
+    if argument != "--version" {
+        return Err(ProbeError::Failed(
+            "version probe argument is invalid".into(),
+        ));
+    }
+    let mut child = Command::new(executable)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| ProbeError::Failed("version probe could not start".into()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| ProbeError::Failed("version probe stdout is unavailable".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| ProbeError::Failed("version probe stderr is unavailable".into()))?;
+    let output = bounded_reader(stdout, MAX_VERSION_BYTES + 1);
+    discard_reader(stderr);
+    let deadline = Instant::now() + timeout;
+    let status = wait_for_exit(&mut child, deadline)?;
+    if !status.success() {
+        return Err(ProbeError::Failed(
+            "version probe exited unsuccessfully".into(),
+        ));
+    }
+    let version = wait_for_output(&output, deadline)?;
+    let version = String::from_utf8(version)
+        .map_err(|_| ProbeError::Failed("version output is not UTF-8".into()))?;
+    let version = version.trim();
+    if version.is_empty() || version.len() > MAX_VERSION_BYTES {
+        return Err(ProbeError::Failed("version output is invalid".into()));
+    }
+    Ok(version.into())
+}
+
+fn bounded_reader<R: Read + Send + 'static>(
+    reader: R,
+    maximum: usize,
+) -> mpsc::Receiver<io::Result<Vec<u8>>> {
+    let (sender, receiver) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let _ = sender.send(drain_bounded(reader, maximum));
+    });
+    receiver
+}
+
+fn discard_reader<R: Read + Send + 'static>(reader: R) {
+    std::thread::spawn(move || {
+        let _ = drain_bounded(reader, 0);
+    });
+}
+
+fn drain_bounded<R: Read>(mut reader: R, maximum: usize) -> io::Result<Vec<u8>> {
+    let mut kept = Vec::with_capacity(maximum);
+    let mut buffer = [0; DRAIN_BUFFER_BYTES];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            return Ok(kept);
+        }
+        let remaining = maximum.saturating_sub(kept.len());
+        kept.extend_from_slice(&buffer[..read.min(remaining)]);
+    }
+}
+
+fn wait_for_exit(
+    child: &mut Child,
+    deadline: Instant,
+) -> Result<std::process::ExitStatus, ProbeError> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(_) => {
+                return Err(ProbeError::Failed(
+                    "version probe could not be polled".into(),
+                ));
+            }
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ProbeError::Failed("version probe timed out".into()));
+        };
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+}
+
+fn wait_for_output(
+    output: &mpsc::Receiver<io::Result<Vec<u8>>>,
+    deadline: Instant,
+) -> Result<Vec<u8>, ProbeError> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or_else(|| ProbeError::Failed("version probe timed out".into()))?;
+    output
+        .recv_timeout(remaining)
+        .map_err(|_| ProbeError::Failed("version probe output did not close".into()))?
+        .map_err(|_| ProbeError::Failed("version probe output could not be read".into()))
 }
