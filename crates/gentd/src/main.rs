@@ -16,6 +16,8 @@ mod api;
 mod approved_claude_host;
 #[allow(dead_code)]
 mod approved_codex_host;
+#[cfg(test)]
+mod approved_codex_host_bounds_tests;
 mod attachment_api;
 mod attachment_transport;
 mod authority_profile;
@@ -108,6 +110,10 @@ pub(crate) use compatibility_assessment::CompatibilityAssessment;
 #[cfg(test)]
 pub(crate) use runtime_facade::build_runtime;
 pub(crate) use runtime_facade::{RuntimeFacade, build_runtime_with_update_checks};
+
+#[cfg(test)]
+#[path = "runtime_facade_state_tests.rs"]
+mod runtime_facade_state_tests;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

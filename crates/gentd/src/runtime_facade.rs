@@ -1,5 +1,7 @@
 //! Daemon composition of observer and explicitly approved durable-chat services.
 
+use std::path::{Path, PathBuf};
+
 use gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY;
 use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{
@@ -37,6 +39,67 @@ pub(crate) struct RuntimeFacade {
     runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
 }
 
+/// The one already-open durable state shared by future daemon compositions.
+///
+/// Opening this state performs the current local-storage and capability-catalog preparation only.
+/// It does not discover or launch a provider, and does not select any authority profile.
+#[derive(Debug)]
+pub(crate) struct DaemonCompositionState {
+    data_dir: PathBuf,
+    ledger: SqliteLedger,
+    coordinator: Coordinator<SqliteLedger>,
+    compatibility: CompatibilityAssessment,
+}
+
+#[allow(dead_code)] // Future approved composition reads these state components before facade build.
+impl DaemonCompositionState {
+    /// Opens the single Gent ledger and coordinator after rejecting capability drift.
+    ///
+    /// # Errors
+    /// Returns an error when observed capabilities drift or the local durable state cannot open.
+    pub(crate) fn open(
+        data_dir: &Path,
+        observed_capabilities: &CapabilitySet,
+        compatibility: CompatibilityAssessment,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let capabilities = validate_observed_capabilities(observed_capabilities)?;
+        let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
+        crate::permission_workspace::ensure(&ledger, data_dir)?;
+        let coordinator = Coordinator::new(ledger.clone(), capabilities);
+        coordinator.persist_capability_catalog()?;
+        Ok(Self {
+            data_dir: data_dir.into(),
+            ledger,
+            coordinator,
+            compatibility,
+        })
+    }
+
+    /// Returns the original immutable daemon data directory.
+    #[must_use]
+    pub(crate) fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
+    /// Returns the already-open Gent-owned ledger; no other component opens a replacement ledger.
+    #[must_use]
+    pub(crate) fn ledger(&self) -> &SqliteLedger {
+        &self.ledger
+    }
+
+    /// Returns the coordinator bound to this state and its persisted capability catalog.
+    #[must_use]
+    pub(crate) fn coordinator(&self) -> &Coordinator<SqliteLedger> {
+        &self.coordinator
+    }
+
+    /// Returns the compatibility assessment injected by the daemon composition root.
+    #[must_use]
+    pub(crate) fn compatibility(&self) -> &CompatibilityAssessment {
+        &self.compatibility
+    }
+}
+
 /// Builds the current observer-only daemon composition.
 ///
 /// # Errors
@@ -60,60 +123,76 @@ pub(crate) fn build_runtime_with_update_checks(
     compatibility: CompatibilityAssessment,
     runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
 ) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
-    let capabilities = validate_observed_capabilities(observed_capabilities)?;
-    let agent_chat_enabled = capabilities
-        .0
-        .iter()
-        .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY);
-    let maintenance_enabled = capabilities
-        .0
-        .iter()
-        .any(|capability| capability == gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY);
-    let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
-    crate::permission_workspace::ensure(&ledger, data_dir)?;
-    let attachments = AttachmentService::new(
-        ledger.clone(),
-        FileAttachmentBlobs::open(data_dir.join("attachments"))?,
-    );
-    let coordinator = Coordinator::new(ledger.clone(), capabilities);
-    coordinator.persist_capability_catalog()?;
-    Ok(RuntimeFacade {
-        agent_chat_conversations: AgentChatConversationService::new(
-            ledger.clone(),
-            chat_authority(agent_chat_enabled),
-        ),
-        agent_chat_prompts: AgentChatPromptService::new(
-            ledger.clone(),
-            prompt_authority(agent_chat_enabled),
-        ),
-        agent_chat_switches: AgentChatSelectionSwitchService::new(
-            ledger.clone(),
-            switch_authority(agent_chat_enabled),
-        ),
-        agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
-        goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),
-        reviewed_plans: ReviewedPlanService::new(
-            ledger.clone(),
-            reviewed_plan_authority(agent_chat_enabled),
-        ),
-        orchestration: OrchestrationService::new(
-            ledger.clone(),
-            orchestration_authority(agent_chat_enabled),
-        ),
-        runtime_maintenance: RuntimeMaintenanceService::new(
-            ledger.clone(),
-            maintenance_authority(maintenance_enabled),
-        ),
-        public_runs: observer_service(coordinator.clone(), compatibility.clone()),
-        runtime_update_checks,
-        attachments,
-        coordinator,
-        dependencies: DependencyCatalog::with_private_prefix(
+    let state = DaemonCompositionState::open(data_dir, observed_capabilities, compatibility)?;
+    RuntimeFacade::from_state(state, runtime_update_checks)
+}
+
+impl RuntimeFacade {
+    /// Builds the current facade from one already-open daemon composition state.
+    ///
+    /// # Errors
+    /// Returns an error when the durable attachment store cannot open.
+    pub(crate) fn from_state(
+        state: DaemonCompositionState,
+        runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let DaemonCompositionState {
+            data_dir,
+            ledger,
+            coordinator,
             compatibility,
-            data_dir.join("providers").join("npm-global"),
-        ),
-        dependency_actions: DependencyActionService::new(ledger, ObserverDependencyExecutor),
-    })
+        } = state;
+        let capabilities = coordinator.status()?.capabilities;
+        let agent_chat_enabled = capabilities
+            .0
+            .iter()
+            .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY);
+        let maintenance_enabled = capabilities
+            .0
+            .iter()
+            .any(|capability| capability == gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY);
+        let attachments = AttachmentService::new(
+            ledger.clone(),
+            FileAttachmentBlobs::open(data_dir.join("attachments"))?,
+        );
+        Ok(Self {
+            agent_chat_conversations: AgentChatConversationService::new(
+                ledger.clone(),
+                chat_authority(agent_chat_enabled),
+            ),
+            agent_chat_prompts: AgentChatPromptService::new(
+                ledger.clone(),
+                prompt_authority(agent_chat_enabled),
+            ),
+            agent_chat_switches: AgentChatSelectionSwitchService::new(
+                ledger.clone(),
+                switch_authority(agent_chat_enabled),
+            ),
+            agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
+            goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),
+            reviewed_plans: ReviewedPlanService::new(
+                ledger.clone(),
+                reviewed_plan_authority(agent_chat_enabled),
+            ),
+            orchestration: OrchestrationService::new(
+                ledger.clone(),
+                orchestration_authority(agent_chat_enabled),
+            ),
+            runtime_maintenance: RuntimeMaintenanceService::new(
+                ledger.clone(),
+                maintenance_authority(maintenance_enabled),
+            ),
+            public_runs: observer_service(coordinator.clone(), compatibility.clone()),
+            runtime_update_checks,
+            attachments,
+            coordinator,
+            dependencies: DependencyCatalog::with_private_prefix(
+                compatibility,
+                data_dir.join("providers").join("npm-global"),
+            ),
+            dependency_actions: DependencyActionService::new(ledger, ObserverDependencyExecutor),
+        })
+    }
 }
 
 fn chat_authority(enabled: bool) -> AgentChatConversationAuthority {
