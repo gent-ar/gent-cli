@@ -3,8 +3,11 @@
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame,
+    ORCHESTRATION_CAPABILITY,
 };
-use gent_runtime::catalog::declared_capabilities_with_agent_chat;
+use gent_runtime::catalog::{
+    declared_capabilities_with_agent_chat, validate_observed_capabilities,
+};
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
     ReceiptId,
@@ -15,7 +18,11 @@ use crate::{CompatibilityAssessment, api::RuntimeApi, build_runtime};
 #[test]
 fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
     let directory = tempfile::tempdir().unwrap();
-    let capabilities = declared_capabilities_with_agent_chat(true);
+    let capabilities = crate::transport::observed_capabilities(true, false, false);
+    assert_eq!(
+        validate_observed_capabilities(&capabilities).unwrap(),
+        declared_capabilities_with_agent_chat(true)
+    );
     assert!(
         capabilities
             .0
@@ -26,6 +33,7 @@ fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
             .0
             .contains(&AGENT_CHAT_TRANSCRIPT_CAPABILITY.into())
     );
+    assert!(capabilities.0.contains(&ORCHESTRATION_CAPABILITY.into()));
     let runtime = build_runtime(
         directory.path(),
         &capabilities,
