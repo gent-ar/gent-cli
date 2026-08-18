@@ -72,6 +72,10 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   implemented but dormant. They are not live daemon authority.
 - Reviewed-plan, Flutter handoff, realtime client lifecycle, and terminal/native
   parity documents are added and linked from implementation status.
+- A Gent-native multi-agent orchestration contract is planned: typed task graphs,
+  isolated worktree leases, `/fanout`, `/cross-review`, cross-vendor findings,
+  cursor-resumable state, and custom harness profiles. It is not composed or
+  advertised; see `docs/multi-agent-orchestration-plan.md`.
 
 ## Required realtime experience
 
@@ -88,23 +92,26 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Project Gent-owned, revision-fenced active goals into the Claude, Codex, and
-   credential-free private Claurst adapter inputs. Goals are not provider output
-   and Autonomous permission policy does not bypass their authority fences.
+1. Add the pure, durable multi-agent graph/profile/review foundations for typed
+   `/fanout` and `/cross-review`, then strict IPC and observer-absence tests.
+   They are daemon-owned orchestration commands, never provider prompt macros.
 2. Add reviewed-plan evidence/authority composition only after the lifecycle and
    evidence gates; clients never inject provider plans and observer remains absent.
 3. Daemon-owned public Claude/Codex realtime authority: bounded session/process
    runner, binary recheck before spawn/resume, normalized lifecycle ingress,
    persist-before-broadcast, backpressure, process-tree drain, terminal settle,
    snapshot/delta/reconnect coverage. Keep it unadvertised until proven.
-4. Compose terminal browser parity over the same frames; terminal UI has no
+4. Compose task-graph scheduling only after public-driver authority: each node
+   gets a leased isolated worktree, fresh goal projection, durable settle, and
+   an independently locked profile. Claurst stays a private bridge port.
+5. Compose terminal browser parity over the same frames; terminal UI has no
    independent plan, permission, or lifecycle logic.
-5. Provider-auth authority: typed `askTool`, locks, sandboxed edge, live proof.
+6. Provider-auth authority: typed `askTool`, locks, sandboxed edge, live proof.
    Login route selection is public; credential values never cross public IPC.
-6. Private app-owned Claurst bridge plus private CI evidence; then live MCP/Git
+7. Private app-owned Claurst bridge plus private CI evidence; then live MCP/Git
    behind ports and receipts. Gent-canvas/forge are later; pairing/app
    automations stay app-only.
-7. Capture strict real evidence, then seek explicit release authorization and
+8. Capture strict real evidence, then seek explicit release authorization and
    only later begin separately authorized Flutter wiring.
 
 ## Evidence status
@@ -148,6 +155,8 @@ the daemon facade observer test. Re-run all of it after nontrivial changes.
 - `docs/agent-chat-execution-plan.md`: review/start/clear-context contract.
 - `docs/provider-auth-plan.md`: login contract and authority gate.
 - `docs/architecture.md`: crate dependency/composition law.
+- `docs/multi-agent-orchestration-plan.md`: planned daemon-owned fanout and
+  cross-vendor review contract.
 
 Before major scope decisions, read the original app planning source only:
 `/Users/ivanmatiasfort/Clouseau/clouseau-app/GENT-CLI/README.md`, then

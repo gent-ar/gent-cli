@@ -274,6 +274,11 @@ For the current working-tree context and continuation order, read [the handoff](
 7. [ ] Reviewed-plan storage, exact approval/rejection, and receipt-backed context-boundary child reservations exist but remain unadvertised until lifecycle/evidence authority is approved; see [reviewed-plan execution](agent-chat-execution-plan.md). `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching are also follow-on work.
 8. [ ] Provider-auth discovery and consented Claude/Codex login require the typed `askTool` contract, sandboxed authority, locked binaries, and redacted live evidence; see [provider-auth-plan.md](provider-auth-plan.md).
 9. [ ] Prompt-triggered Claude/Codex provisioning needs the app-supplied Node runtime, a private Gent prefix, signed package/version/integrity policy, exact `npm` receipts, post-install locks, and ambiguous-effect refusal. The app never bundles or falls back to a direct provider CLI; see [provider-auth-plan.md](provider-auth-plan.md).
+10. [ ] Gent-native multi-agent orchestration is planned, not implemented: typed
+    task graphs, `/fanout`, `/cross-review`, isolated worktree leases, custom
+    harness profiles, cross-vendor findings, and cursor-resumable recovery must
+    pass graph/review, policy/goal/epoch, lifecycle, and evidence gates before
+    any capability is advertised; see [the orchestration plan](multi-agent-orchestration-plan.md).
 
 Also required: a separately authorized Flutter integration must use the negotiated, long-lived
 `gentd` connection for agent-chat work and must not launch provider binaries directly. Pairing and
@@ -282,19 +287,9 @@ application-specific UI automations stay Flutter-owned. The client boundary is
 
 ## Recorded follow-on scope
 
-The next product-scope request is recorded here, not implied by the current
-observer milestone. After the evidence and authority gates above, Gent will add
-native `gent-canvas`, `gent-forge`, and `gent-automations` domains. They will be
-separate modules with typed ports and reducers, and `gentd` will be their only
-composition root. Device pairing and the Flutter application's non-agent UI
-automation remain app-owned.
-
-Provider selection must remain a durable child-run transition. Switching among
-Claude, Codex, or the private Claurst bridge must preserve the provider-neutral
-conversation history and lineage without rewriting an existing run or exposing
-Claurst credentials. The later native domains and this continuity contract require
-their own protocol, persistence, receipts, observer-disablement, and live-evidence
-work before they are advertised.
-
-The coverage manifest blocks authority transfer while real evidence is absent;
-recorded provider evidence is external, never a placeholder. A future app launch enforces one-writer/host-epoch.
+After the authority/evidence gates, `gent-canvas`, `gent-forge`, and
+`gent-automations` remain separate typed Gent domains; pairing and non-agent UI
+automation stay app-owned. Provider selection and multi-agent node dispatch
+must create immutable child runs, preserve provider-neutral lineage, and never
+expose Claurst secrets. The coverage manifest blocks authority transfer while
+real evidence is absent; a future app launch still enforces one writer/epoch.

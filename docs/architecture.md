@@ -53,6 +53,21 @@ The current daemon hard-disables public provider lifecycle work in observer
 mode. Existing legacy-tap utilities are compatibility experiments, not an
 authority-transfer claim.
 
+## Planned multi-agent orchestration boundary
+
+The future multi-agent domain is a Gent-owned typed task graph, not client-side
+prompt macros or a second agent framework. Its profile catalog, graph/review
+reducers, graph/worktree/runner ports, SQLite ledger, IPC, and scheduling
+composition follow the same `gent-types` → `gent-ports`/`gent-core` →
+`gent-runtime` → `gentd` direction. `/fanout` and `/cross-review` are bounded,
+receipt- and cursor-fenced protocol commands. They create isolated, leased
+worktree attempts and immutable cross-vendor findings only after their separate
+authority gates; no client launches a worker or chooses a provider command.
+Goals and policy revisions are rechecked for every node dispatch, and
+Autonomous does not bypass those checks. The complete planned contract is in
+`docs/multi-agent-orchestration-plan.md`; the observer daemon advertises none
+of it.
+
 ## Future lifecycle and runtime-update boundary
 
 When authority is separately approved, `gentd` will be the sole writer of a

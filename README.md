@@ -269,7 +269,7 @@ python3 tools/capture-codex-app-server-transcript.py plan_mode \
   --output fixtures/public-driver-transcripts/codex-plan-mode.jsonl --dry-run
 ```
 
-The repository’s architectural rules are in [docs/architecture.md](docs/architecture.md).
+The repository’s architectural rules and planned `/fanout`/`/cross-review` domain are in [docs/architecture.md](docs/architecture.md) and [the orchestration plan](docs/multi-agent-orchestration-plan.md).
 The Flutter app is not a dependency of this workspace. Setup is in
 [docs/onboarding.md](docs/onboarding.md), [docs/releases.md](docs/releases.md), and the
 [Flutter consumer handoff](docs/flutter-handoff-v1.md).
