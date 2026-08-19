@@ -91,17 +91,18 @@ pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
         binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<(), LedgerError>;
 
-    /// Terminally rejects one current held prompt confirmation without reserving its effect.
+    /// Atomically records a pre-effect rejection for one current held prompt confirmation.
     ///
-    /// A consent refusal or stale review receives an idempotent receipt while leaving the held
-    /// prompt in `awaiting_readiness`, so a fresh explicit confirmation may be attempted later.
+    /// A consent refusal or stale review writes only a terminal `Rejected` receipt and its exact
+    /// terminal event. It never creates an intermediate `Accepted` receipt, so a crash cannot
+    /// make a no-effect refusal look like an ambiguous external effect. The held prompt stays in
+    /// `awaiting_readiness`, allowing a fresh explicit confirmation with a new receipt.
     ///
     /// # Errors
-    /// Returns when the exact command, receipt, current prompt binding, or terminal event differs.
-    fn settle_rejected_provider_prompt_provision(
+    /// Returns when the exact command, current prompt binding, or terminal event differs.
+    fn reject_verified_provider_prompt_provision(
         &self,
         command: &Command,
-        receipt: &Receipt,
         terminal: &Event,
         binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError>;

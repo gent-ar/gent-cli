@@ -53,32 +53,29 @@ pub(super) fn validate_unprovable(
     .ok_or_else(|| LedgerError::Invariant("invalid prompt provision failure settlement".into()))
 }
 
-pub(super) fn validate_rejected(
+pub(super) fn validate_rejection_admission(
     command: &Command,
-    receipt: &Receipt,
     terminal: &Event,
     binding: &ProviderPromptProvisionCommandBinding,
 ) -> Result<(), LedgerError> {
     checked(command, binding)?;
-    (command_matches_rejection_receipt(command, receipt)
-        && rejection_matches(receipt, binding, terminal))
+    (terminal.receipt_id == command.receipt_id
+        && terminal.host_epoch == command.host_epoch
+        && terminal.payload == command.payload
+        && rejection_matches(binding, terminal))
     .then_some(())
     .ok_or_else(|| LedgerError::Invariant("invalid prompt provision rejection settlement".into()))
 }
 
-fn rejection_matches(
-    receipt: &Receipt,
-    binding: &ProviderPromptProvisionCommandBinding,
-    terminal: &Event,
-) -> bool {
-    (match terminal.kind.as_str() {
+fn rejection_matches(binding: &ProviderPromptProvisionCommandBinding, terminal: &Event) -> bool {
+    match terminal.kind.as_str() {
         "privatePromptProvisionConsentRequired" => !binding.prompt.consent_granted,
         "privatePromptProvisionPlanMismatch" => {
             binding.prompt.consent_granted
                 && binding.prompt.reviewed_plan_digest != binding.expected_reviewed_plan_digest
         }
         _ => false,
-    }) && terminal_matches(receipt, terminal, &terminal.kind)
+    }
 }
 
 pub(super) fn prompt_message(
@@ -117,14 +114,6 @@ fn checked(
 
 fn command_matches_receipt(command: &Command, receipt: &Receipt) -> bool {
     command_receipt_identity(command, receipt) && receipt.status == ReceiptStatus::Accepted
-}
-
-fn command_matches_rejection_receipt(command: &Command, receipt: &Receipt) -> bool {
-    command_receipt_identity(command, receipt)
-        && matches!(
-            receipt.status,
-            ReceiptStatus::Accepted | ReceiptStatus::Rejected
-        )
 }
 
 fn command_receipt_identity(command: &Command, receipt: &Receipt) -> bool {

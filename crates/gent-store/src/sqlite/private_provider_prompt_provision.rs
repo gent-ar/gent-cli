@@ -12,17 +12,19 @@ use super::{
     epoch::require_epoch,
     provisioned_provider_locks::{existing_settlement, save_installation},
     queries::{
-        append_event, encode_status, find_event, find_receipt, host_ingress, insert_receipt,
+        append_event, encode_status, find_receipt, host_ingress, insert_receipt,
         receipt_matches_command, storage_error,
     },
 };
 
+#[path = "private_provider_prompt_provision_rejection.rs"]
+mod rejection;
 #[path = "private_provider_prompt_provision_unprovable.rs"]
 mod unprovable;
 #[path = "private_provider_prompt_provision_validation.rs"]
 mod validation;
 
-use validation::{prompt_message, validate, validate_admission, validate_rejected};
+use validation::{prompt_message, validate, validate_admission};
 
 impl PrivateProviderPromptProvisionLedger for SqliteLedger {
     fn claim_and_reserve_verified_provider_prompt_provision(
@@ -174,59 +176,13 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
         unprovable::settle(self, command, receipt, terminal, binding)
     }
 
-    fn settle_rejected_provider_prompt_provision(
+    fn reject_verified_provider_prompt_provision(
         &self,
         command: &Command,
-        receipt: &Receipt,
         terminal: &Event,
         binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError> {
-        validate_rejected(command, receipt, terminal, binding)?;
-        let mut connection = self.lock()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
-        let durable = find_receipt(&transaction, &receipt.idempotency_key)?
-            .ok_or_else(|| LedgerError::Invariant("prompt provision receipt is missing".into()))?;
-        if durable.receipt_id != receipt.receipt_id
-            || durable.idempotency_key != receipt.idempotency_key
-            || durable.host_epoch != receipt.host_epoch
-            || !receipt_matches_command(&transaction, command)?
-        {
-            return Err(LedgerError::Invariant(
-                "prompt provision receipt no longer matches its command".into(),
-            ));
-        }
-        if durable.status != ReceiptStatus::Accepted {
-            let exact_terminal =
-                find_event(&transaction, &terminal.event_id)?.is_some_and(|event| {
-                    event.receipt_id == terminal.receipt_id
-                        && event.host_epoch == terminal.host_epoch
-                        && event.kind == terminal.kind
-                        && event.payload == terminal.payload
-                });
-            return (durable.status == ReceiptStatus::Rejected && exact_terminal)
-                .then_some(durable)
-                .ok_or_else(|| LedgerError::Invariant("prompt provision already settled".into()));
-        }
-        // Rejection is intentionally pre-effect, but it still belongs only to the current exact
-        // held prompt. This fences stale confirmations without changing its retryable dispatch.
-        prompt_message(&transaction, binding, "awaiting_readiness")?;
-        transaction
-            .execute(
-                "UPDATE receipts SET status = ?1 WHERE idempotency_key = ?2",
-                params![
-                    encode_status(&ReceiptStatus::Rejected),
-                    receipt.idempotency_key
-                ],
-            )
-            .map_err(storage_error)?;
-        append_event(&transaction, terminal)?;
-        transaction.commit().map_err(storage_error)?;
-        Ok(Receipt {
-            status: ReceiptStatus::Rejected,
-            ..durable
-        })
+        rejection::settle(self, command, terminal, binding)
     }
 }
 

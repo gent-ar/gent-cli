@@ -185,15 +185,10 @@ where
             PromptProviderProvisionState::PlanMismatch => "privatePromptProvisionPlanMismatch",
             _ => return Err("invalid prompt provision rejection state".into()),
         };
-        let accepted = event(command, "accepted", "privatePromptProvisionAccepted");
-        let receipt = match self.ledger.claim_command(command, &accepted) {
-            Ok(ReceiptClaim::Accepted(receipt) | ReceiptClaim::Existing(receipt)) => receipt,
-            Err(error) => return Err(error.to_string()),
-        };
         let terminal = event(command, "rejected", kind);
         let receipt = self
             .ledger
-            .settle_rejected_provider_prompt_provision(command, &receipt, &terminal, binding)
+            .reject_verified_provider_prompt_provision(command, &terminal, binding)
             .map_err(|error| error.to_string())?;
         Ok(result(receipt, binding, state))
     }

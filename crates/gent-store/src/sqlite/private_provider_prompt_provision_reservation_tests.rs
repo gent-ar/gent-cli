@@ -1,3 +1,4 @@
+use super::{SqliteLedger, tests};
 use gent_ports::{Ledger, PrivateProviderPromptProvisionLedger, ReceiptClaim};
 use gent_types::{
     AgentChatConversationId, Command, Event, HostEpoch, ProviderPromptProvisionBinding,
@@ -5,8 +6,6 @@ use gent_types::{
     ReceiptStatus,
 };
 use serde_json::json;
-
-use super::tests;
 
 #[test]
 fn atomic_claim_always_enters_provisioning_before_returning_accepted() {
@@ -37,25 +36,82 @@ fn rejected_consent_leaves_the_held_prompt_retryable() {
     let (ledger, saved) = tests::seeded();
     let binding = binding(&saved, false, "a");
     let command = command(&binding, "refusal");
-    let receipt = match ledger.claim_command(&command, &accepted(&command)).unwrap() {
-        ReceiptClaim::Accepted(receipt) => receipt,
-        ReceiptClaim::Existing(_) => panic!("fixture receipt must be new"),
-    };
     let terminal = Event {
         cursor: 0,
         event_id: "refusal:consent".into(),
-        receipt_id: receipt.receipt_id.clone(),
-        host_epoch: receipt.host_epoch,
+        receipt_id: command.receipt_id.clone(),
+        host_epoch: command.host_epoch,
         kind: "privatePromptProvisionConsentRequired".into(),
-        payload: json!({}),
+        payload: command.payload.clone(),
     };
     assert_eq!(
         ledger
-            .settle_rejected_provider_prompt_provision(&command, &receipt, &terminal, &binding)
+            .reject_verified_provider_prompt_provision(&command, &terminal, &binding)
             .unwrap()
             .status,
         ReceiptStatus::Rejected
     );
+    assert_eq!(
+        ledger
+            .reject_verified_provider_prompt_provision(&command, &terminal, &binding)
+            .unwrap()
+            .status,
+        ReceiptStatus::Rejected
+    );
+    assert_eq!(accepted_event_count(&ledger, &command.idempotency_key), 0);
+    assert_eq!(
+        tests::dispatch_state(&ledger, &saved.message.message_id),
+        "awaiting_readiness"
+    );
+}
+
+#[test]
+fn a_fresh_rejection_reopens_the_unchanged_held_prompt() {
+    let (ledger, saved) = tests::seeded();
+    let binding = binding(&saved, false, "a");
+    for suffix in ["first", "second"] {
+        let command = command(&binding, suffix);
+        let terminal = Event {
+            cursor: 0,
+            event_id: format!("{suffix}:rejected"),
+            receipt_id: command.receipt_id.clone(),
+            host_epoch: command.host_epoch,
+            kind: "privatePromptProvisionConsentRequired".into(),
+            payload: command.payload.clone(),
+        };
+        assert_eq!(
+            ledger
+                .reject_verified_provider_prompt_provision(&command, &terminal, &binding)
+                .unwrap()
+                .status,
+            ReceiptStatus::Rejected
+        );
+    }
+    assert_eq!(
+        tests::dispatch_state(&ledger, &saved.message.message_id),
+        "awaiting_readiness"
+    );
+}
+
+#[test]
+fn rejection_event_conflict_rolls_back_the_terminal_receipt() {
+    let (ledger, saved) = tests::seeded();
+    let binding = binding(&saved, false, "a");
+    let command = command(&binding, "conflict");
+    let terminal = Event {
+        cursor: 0,
+        event_id: existing_event_id(&ledger),
+        receipt_id: command.receipt_id.clone(),
+        host_epoch: command.host_epoch,
+        kind: "privatePromptProvisionConsentRequired".into(),
+        payload: command.payload.clone(),
+    };
+    assert!(
+        ledger
+            .reject_verified_provider_prompt_provision(&command, &terminal, &binding)
+            .is_err()
+    );
+    assert_eq!(receipt_count(&ledger, &command.idempotency_key), 0);
     assert_eq!(
         tests::dispatch_state(&ledger, &saved.message.message_id),
         "awaiting_readiness"
@@ -67,21 +123,17 @@ fn stale_review_digest_is_rejected_without_reserving_the_prompt() {
     let (ledger, saved) = tests::seeded();
     let binding = binding(&saved, true, "b");
     let command = command(&binding, "stale-review");
-    let receipt = match ledger.claim_command(&command, &accepted(&command)).unwrap() {
-        ReceiptClaim::Accepted(receipt) => receipt,
-        ReceiptClaim::Existing(_) => panic!("fixture receipt must be new"),
-    };
     let terminal = Event {
         cursor: 0,
         event_id: "stale-review:rejected".into(),
-        receipt_id: receipt.receipt_id.clone(),
-        host_epoch: receipt.host_epoch,
+        receipt_id: command.receipt_id.clone(),
+        host_epoch: command.host_epoch,
         kind: "privatePromptProvisionPlanMismatch".into(),
-        payload: json!({}),
+        payload: command.payload.clone(),
     };
     assert_eq!(
         ledger
-            .settle_rejected_provider_prompt_provision(&command, &receipt, &terminal, &binding)
+            .reject_verified_provider_prompt_provision(&command, &terminal, &binding)
             .unwrap()
             .status,
         ReceiptStatus::Rejected
@@ -137,4 +189,53 @@ fn accepted(command: &Command) -> Event {
         kind: "privatePromptProvisionAccepted".into(),
         payload: command.payload.clone(),
     }
+}
+
+fn accepted_event_count(ledger: &SqliteLedger, key: &str) -> usize {
+    ledger
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE kind = 'privatePromptProvisionAccepted' AND receipt_id = (SELECT receipt_id FROM receipts WHERE idempotency_key = ?1)",
+            [key],
+            |row| row.get::<_, usize>(0),
+        )
+        .unwrap()
+}
+
+fn existing_event_id(ledger: &SqliteLedger) -> String {
+    let command = Command {
+        receipt_id: ReceiptId("conflict-receipt".into()),
+        idempotency_key: "conflict-key".into(),
+        host_epoch: HostEpoch(1),
+        kind: "test".into(),
+        payload: json!({}),
+    };
+    let event_id = "prompt-provision-event-conflict".to_owned();
+    ledger
+        .claim_command(
+            &command,
+            &Event {
+                cursor: 0,
+                event_id: event_id.clone(),
+                receipt_id: command.receipt_id.clone(),
+                host_epoch: command.host_epoch,
+                kind: "testAccepted".into(),
+                payload: command.payload.clone(),
+            },
+        )
+        .unwrap();
+    event_id
+}
+
+fn receipt_count(ledger: &SqliteLedger, key: &str) -> usize {
+    ledger
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM receipts WHERE idempotency_key = ?1",
+            [key],
+            |row| row.get::<_, usize>(0),
+        )
+        .unwrap()
 }
