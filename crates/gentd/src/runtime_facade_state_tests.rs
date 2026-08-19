@@ -88,6 +88,24 @@ fn future_turn_follow_authority_is_explicit_and_keeps_observer_unavailable() {
     assert!(observer.agent_chat_turn_follow(request()).is_err());
 }
 
+#[test]
+fn prompt_provision_profile_cannot_advertise_without_its_private_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ProviderReadiness,
+        RuntimeCapabilityFeature::PromptProviderProvision,
+    ]);
+    assert!(
+        crate::build_runtime(
+            directory.path(),
+            &profile,
+            CompatibilityAssessment::default(),
+        )
+        .is_err()
+    );
+}
+
 fn create() -> AgentChatConversationCreate {
     AgentChatConversationCreate {
         receipt_id: ReceiptId("receipt".into()),

@@ -6,8 +6,10 @@ use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, Command, ContextPolicy, Event, HostEpoch,
-    ProviderInstallProvenance, ProviderPromptProvisionBinding, ProvisionedProviderInstallation,
-    ProvisionedProviderLock, Receipt, ReceiptId, ReceiptStatus, RunVersionLock, WorkspaceRecord,
+    ProviderInstallProvenance, ProviderPromptProvisionBinding,
+    ProviderPromptProvisionCommandBinding, ProviderPromptProvisionPackageBinding,
+    ProvisionedProviderInstallation, ProvisionedProviderLock, Receipt, ReceiptId, ReceiptStatus,
+    RunVersionLock, WorkspaceRecord,
 };
 use serde_json::json;
 
@@ -77,7 +79,7 @@ fn event_conflict_rolls_back_lock_receipt_and_prompt_release() {
 fn stale_or_mismatched_prompt_binding_cannot_release_a_prompt() {
     let (ledger, saved) = seeded();
     let (mut binding, command, receipt) = provision(&ledger, &saved);
-    binding.run_id = AgentChatRunId("another-run".into());
+    binding.prompt.run_id = AgentChatRunId("another-run".into());
     assert!(
         ledger
             .settle_verified_provider_prompt_provision(
@@ -130,7 +132,7 @@ fn provision_admission_blocks_a_selection_switch_until_its_terminal_settlement()
     );
 }
 
-fn seeded() -> (SqliteLedger, gent_types::AgentChatPromptSaved) {
+pub(super) fn seeded() -> (SqliteLedger, gent_types::AgentChatPromptSaved) {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation = AgentChatConversationCreate {
         receipt_id: ReceiptId("conversation-receipt".into()),
@@ -167,18 +169,27 @@ fn seeded() -> (SqliteLedger, gent_types::AgentChatPromptSaved) {
     (ledger, saved)
 }
 
-fn provision(
+pub(super) fn provision(
     ledger: &SqliteLedger,
     saved: &gent_types::AgentChatPromptSaved,
-) -> (ProviderPromptProvisionBinding, Command, Receipt) {
-    let binding = ProviderPromptProvisionBinding {
-        prompt_receipt_id: saved.receipt.receipt_id.clone(),
-        conversation_id: AgentChatConversationId(saved.message.conversation_id.clone()),
-        run_id: saved.run_id.clone(),
-        provider: "codex".into(),
-        action: "install".into(),
-        consent_granted: true,
-        reviewed_plan_digest: "a".repeat(64),
+) -> (ProviderPromptProvisionCommandBinding, Command, Receipt) {
+    let binding = ProviderPromptProvisionCommandBinding {
+        prompt: ProviderPromptProvisionBinding {
+            prompt_receipt_id: saved.receipt.receipt_id.clone(),
+            conversation_id: AgentChatConversationId(saved.message.conversation_id.clone()),
+            run_id: saved.run_id.clone(),
+            provider: "codex".into(),
+            action: "install".into(),
+            consent_granted: true,
+            reviewed_plan_digest: "a".repeat(64),
+        },
+        package: ProviderPromptProvisionPackageBinding {
+            provider: "codex".into(),
+            package_name: "@openai/codex".into(),
+            version: "1.0.0".into(),
+            integrity: "sha512-test".into(),
+            package_policy_digest_sha256: "b".repeat(64),
+        },
     };
     let command = Command {
         receipt_id: ReceiptId("provision-receipt".into()),
@@ -212,7 +223,7 @@ fn provision(
 
 fn settle(
     ledger: &SqliteLedger,
-    binding: &ProviderPromptProvisionBinding,
+    binding: &ProviderPromptProvisionCommandBinding,
     command: &Command,
     receipt: &Receipt,
 ) -> Result<Receipt, gent_ports::LedgerError> {
@@ -225,7 +236,7 @@ fn settle(
     )
 }
 
-fn terminal(receipt: &Receipt) -> Event {
+pub(super) fn terminal(receipt: &Receipt) -> Event {
     Event {
         cursor: 0,
         event_id: "provision-installed".into(),
@@ -236,7 +247,7 @@ fn terminal(receipt: &Receipt) -> Event {
     }
 }
 
-fn installation() -> ProvisionedProviderInstallation {
+pub(super) fn installation() -> ProvisionedProviderInstallation {
     ProvisionedProviderInstallation {
         lock: ProvisionedProviderLock {
             run_lock: RunVersionLock {
@@ -258,7 +269,7 @@ fn installation() -> ProvisionedProviderInstallation {
     }
 }
 
-fn dispatch_state(ledger: &SqliteLedger, message_id: &str) -> String {
+pub(super) fn dispatch_state(ledger: &SqliteLedger, message_id: &str) -> String {
     ledger
         .lock()
         .unwrap()
@@ -270,7 +281,7 @@ fn dispatch_state(ledger: &SqliteLedger, message_id: &str) -> String {
         .unwrap()
 }
 
-fn receipt_status(ledger: &SqliteLedger, key: &str) -> String {
+pub(super) fn receipt_status(ledger: &SqliteLedger, key: &str) -> String {
     ledger
         .lock()
         .unwrap()

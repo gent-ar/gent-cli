@@ -12,7 +12,7 @@ use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvide
 pub(crate) use gent_types::ProvisionedProviderLock;
 #[cfg(test)]
 use gent_types::ReceiptStatus;
-use gent_types::{ProvisionedProviderInstallation, Receipt};
+use gent_types::{ProviderPromptProvisionCommandBinding, ProvisionedProviderInstallation, Receipt};
 
 use crate::{
     node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError},
@@ -53,6 +53,10 @@ pub(crate) enum PrivateProvisionError {
     ReceiptUnavailable(String),
     #[error("durable provisioning receipt no longer matches the accepted request")]
     ReceiptMismatch,
+    #[error("prompt provision command does not match its daemon-derived binding")]
+    PromptBindingMismatch,
+    #[error("signed package policy changed after the reviewed prompt binding")]
+    PromptPackageMismatch,
     #[error(transparent)]
     Runtime(#[from] AppNodeRuntimeLockError),
     #[error("signed package policy failed: {0}")]
@@ -217,6 +221,20 @@ impl<
         command: &gent_types::Command,
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
         effect::provision(self, request, command)
+    }
+
+    /// Runs a prompt-scoped installation only when its complete private command binding matches.
+    ///
+    /// # Errors
+    /// Returns before an effect if the binding, durable command, or freshly selected package
+    /// differs from the exact daemon-derived review.
+    pub(crate) fn provision_prompt_with_command(
+        &self,
+        request: &PrivateProvisionRequest,
+        command: &gent_types::Command,
+        binding: &ProviderPromptProvisionCommandBinding,
+    ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
+        effect::provision_prompt(self, request, command, binding)
     }
 }
 

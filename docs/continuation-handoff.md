@@ -117,10 +117,12 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   daemon-issued review digest; provider/action/package/path/plan/policy are absent. A new
   SQLite port first changes that exact `awaiting_readiness` send to `provisioning`, which blocks
   a competing selection switch, then atomically persists a verified public-provider lock,
-  terminal provision receipt, and its release. Ambiguous/recovered effects settle that exact
-  reservation `unprovable` without release or replay. It validates consent, epoch, fingerprint,
-  current selected run, provider, and immutable lock; failures roll back. The capability is not
-  in bootstrap, `RuntimeFacade`, or any transport.
+  terminal provision receipt, and its release. Its private command additionally binds the
+  daemon-selected package name/version/integrity/policy digest; Gent rechecks all coordinates
+  immediately before npm and requires the persisted installation provenance to match. Ambiguous/
+  recovered effects settle that exact reservation `unprovable` without release or replay. It
+  validates consent, epoch, fingerprint, current selected run, provider, and immutable lock;
+  failures roll back. The capability is not in bootstrap, `RuntimeFacade`, or any transport.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
   same selected-run ordering as prompt ownership. Clients must carry that
   identity into future readiness and prompt-fence requests rather than infer it.
@@ -179,8 +181,8 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Bind prompt-provider provisioning to a daemon-built command, catalog recheck, and pre-effect
-   held-prompt verification; then compose it only after strict evidence and sandbox proof.
+1. Add terminal consent/plan-mismatch settlement and the private prompt-provision authority over
+   the now package-bound command, then compose it only after strict evidence and sandbox proof.
    Default observer and broad modes stay absent.
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor

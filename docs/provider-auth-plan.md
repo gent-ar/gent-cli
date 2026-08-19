@@ -70,9 +70,10 @@ subsequent process.
 On the first prompt selecting a missing public provider, an approved Gent
 authority may perform exactly one receipt-backed provisioning transaction using
 fixed `npm --global install` arguments. Immediately before that effect, Gent
-re-reads the complete durable dependency-action command: receipt, idempotency
-key, epoch, provider, action, consent, and reviewed-plan digest. A changed or
-unavailable command fails without running `npm`. The install
+re-reads the complete durable prompt-provision command: receipt, idempotency
+key, epoch, provider, action, consent, reviewed-plan digest, and the
+daemon-selected package name/version/integrity/policy digest. A changed or
+unavailable command or package policy fails without running `npm`. The install
 target is a private Gent provider prefix, never the app bundle, system-global
 prefix, workspace, or
 `PATH`; the resulting executable is rediscovered, version-probed, digest-locked,
@@ -82,8 +83,9 @@ same transaction and creates a new immutable run lock. An interrupted or
 ambiguous `npm` process is `unprovable`, not retried automatically.
 
 The verified signed package policy, not the prompt or a caller argument,
-produces the policy digest recorded with the accepted receipt, Node digest,
-exact package coordinates, and verified executable lock. The lock must be
+produces the private command's exact package coordinates and policy digest.
+Gent compares that immutable binding again immediately before npm, then records
+the Node digest and verified executable lock. The lock must be
 persisted and terminally settled as one Gent-owned transaction before ordinary
 provider resolution may use it.
 

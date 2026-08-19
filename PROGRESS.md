@@ -137,12 +137,14 @@ lifecycle state are prohibited.
   advertise it, and it has no composed provision-confirmation action.
 - The unadvertised prompt-provider-provision-v1 contract accepts only receipt, held-prompt,
   conversation/run, consent, epoch, and the daemon review digest. It cannot carry provider,
-  package, executable, policy, or plan fields. Its SQLite settlement writes the verified lock,
-  terminal provision receipt, and release of that exact held send prompt in one immediate
-  transaction; a separate immediate admission changes only that exact dispatch to
-  `provisioning`, blocking a competing selection switch until terminal settlement. Ambiguous or
-  recovered effects now become durable `unprovable` without releasing or replaying that prompt.
-  The corresponding capability has no transport or bootstrap composition yet.
+  package, executable, policy, or plan fields. Gent's private command fingerprint additionally
+  binds the daemon-selected package coordinates and policy digest; it rechecks that exact signed
+  selection immediately before npm, and SQLite requires matching installed provenance. Its
+  settlement writes the verified lock, terminal provision receipt, and release of that exact held
+  send prompt in one immediate transaction; a separate immediate admission changes only that
+  exact dispatch to `provisioning`, blocking a competing selection switch until terminal
+  settlement. Ambiguous or recovered effects become durable `unprovable` without releasing or
+  replaying that prompt. The corresponding capability has no transport or bootstrap composition.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.
@@ -175,9 +177,9 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Complete the prompt-scoped provisioning authority: derive the reviewed plan from the current
-   run, reserve/re-read its daemon-built command immediately before npm, then compose its
-   capability only after strict provider evidence and sandbox proof.
+1. Complete the prompt-scoped provisioning authority: durably settle consent/plan refusal, derive
+   the reviewed package command from the current run, and compose its capability only after
+   strict provider evidence and sandbox proof.
 2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
    process-tree drain, terminal settlement, and reconnect by durable cursors.
 3. Add the private Claurst bridge under the identical public fact contract and

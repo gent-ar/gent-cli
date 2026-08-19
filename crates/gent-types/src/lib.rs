@@ -127,7 +127,10 @@ pub use provider_lifecycle_values::{
     NormalizedProviderEvent, ProviderEvent, ProviderInstallProvenance,
     ProvisionedProviderInstallation, ProvisionedProviderLock, RunVersionLock,
 };
-pub use provider_prompt_provision::ProviderPromptProvisionBinding;
+pub use provider_prompt_provision::{
+    ProviderPromptProvisionBinding, ProviderPromptProvisionCommandBinding,
+    ProviderPromptProvisionPackageBinding,
+};
 pub use reviewed_plan::{
     ContextPolicy, PlanAction, PlanActionKind, PlanArtifact, PlanDiff, PlanDiffKind,
     PlanPermissionPreview, PlanRevision, PlanRisk, PlanRiskKind, PlanRiskSeverity, PlanStatus,

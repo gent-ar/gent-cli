@@ -86,6 +86,12 @@ impl RuntimeFacade {
             capability_profile,
             compatibility,
         } = state;
+        if capability_profile.prompt_provider_provision_enabled() {
+            return Err(
+                "prompt provider provision requires an explicit private authority composition"
+                    .into(),
+            );
+        }
         let agent_chat_enabled = capability_profile.agent_chat_enabled();
         let reviewed_plan_enabled = capability_profile.reviewed_plans_enabled();
         let provider_readiness_enabled = capability_profile.provider_readiness_enabled();

@@ -2,8 +2,10 @@
 
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
+use gent_protocol::DependencyAction;
 use gent_types::{
-    Command, ProviderInstallProvenance, ProvisionedProviderInstallation, ReceiptStatus,
+    Command, ProviderInstallProvenance, ProviderPromptProvisionCommandBinding,
+    ProvisionedProviderInstallation, ReceiptStatus,
 };
 
 use super::{
@@ -28,6 +30,38 @@ where
     R: ProvisionReceiptReader,
     B: ProvisionedProviderCompatibility,
 {
+    provision_inner(provisioner, request, command, None)
+}
+
+pub(super) fn provision_prompt<I, P, V, R, B>(
+    provisioner: &PrivateProviderProvisioner<I, P, V, R, B>,
+    request: &PrivateProvisionRequest,
+    command: &Command,
+    binding: &ProviderPromptProvisionCommandBinding,
+) -> Result<PrivateProvisionResult, PrivateProvisionError>
+where
+    I: DependencyInstaller,
+    P: PackageInstallPolicy,
+    V: ProvisionedProviderVerifier,
+    R: ProvisionReceiptReader,
+    B: ProvisionedProviderCompatibility,
+{
+    provision_inner(provisioner, request, command, Some(binding))
+}
+
+fn provision_inner<I, P, V, R, B>(
+    provisioner: &PrivateProviderProvisioner<I, P, V, R, B>,
+    request: &PrivateProvisionRequest,
+    command: &Command,
+    binding: Option<&ProviderPromptProvisionCommandBinding>,
+) -> Result<PrivateProvisionResult, PrivateProvisionError>
+where
+    I: DependencyInstaller,
+    P: PackageInstallPolicy,
+    V: ProvisionedProviderVerifier,
+    R: ProvisionReceiptReader,
+    B: ProvisionedProviderCompatibility,
+{
     if request.receipt.status != ReceiptStatus::Accepted {
         return Err(PrivateProvisionError::ReceiptNotAccepted);
     }
@@ -40,10 +74,21 @@ where
     if !same_receipt {
         return Err(PrivateProvisionError::ReceiptMismatch);
     }
+    if let Some(binding) = binding {
+        prompt_binding_matches(command, request, binding)?;
+    }
     let verifier = provisioner
         .verifier
         .as_ref()
         .ok_or(PrivateProvisionError::VerificationUnavailable)?;
+    let npm = provisioner.runtime.rechecked_npm_prefix()?;
+    let durable = provisioner
+        .receipts
+        .accepted_receipt(command)
+        .map_err(PrivateProvisionError::ReceiptUnavailable)?;
+    if durable != request.receipt || durable.status != ReceiptStatus::Accepted {
+        return Err(PrivateProvisionError::ReceiptMismatch);
+    }
     let package = provisioner
         .policy
         .approved_package(request.provider.as_str(), request.now_unix_seconds)
@@ -54,13 +99,16 @@ where
     if !valid_digest(&package.package_policy_digest_sha256) {
         return Err(PrivateProvisionError::PolicyIdentity);
     }
-    let npm = provisioner.runtime.rechecked_npm_prefix()?;
-    let durable = provisioner
-        .receipts
-        .accepted_receipt(command)
-        .map_err(PrivateProvisionError::ReceiptUnavailable)?;
-    if durable != request.receipt || durable.status != ReceiptStatus::Accepted {
-        return Err(PrivateProvisionError::ReceiptMismatch);
+    if let Some(binding) = binding {
+        let expected = &binding.package;
+        if package.provider != expected.provider
+            || package.package_name != expected.package_name
+            || package.version != expected.version
+            || package.integrity != expected.integrity
+            || package.package_policy_digest_sha256 != expected.package_policy_digest_sha256
+        {
+            return Err(PrivateProvisionError::PromptPackageMismatch);
+        }
     }
     provisioner
         .installer
@@ -95,4 +143,26 @@ where
         ))),
         Err(_) => Ok(PrivateProvisionResult::Ambiguous),
     }
+}
+
+fn prompt_binding_matches(
+    command: &Command,
+    request: &PrivateProvisionRequest,
+    binding: &ProviderPromptProvisionCommandBinding,
+) -> Result<(), PrivateProvisionError> {
+    let payload =
+        serde_json::to_value(binding).map_err(|_| PrivateProvisionError::PromptBindingMismatch)?;
+    (binding.is_valid()
+        && command.kind == "providerPromptProvision"
+        && command.payload == payload
+        && binding.prompt.provider == request.provider.as_str()
+        && binding.prompt.action
+            == match request.action {
+                DependencyAction::Install => "install",
+                DependencyAction::Update => "update",
+            }
+        && binding.prompt.consent_granted == request.consent_granted
+        && binding.prompt.reviewed_plan_digest == request.reviewed_plan_digest)
+        .then_some(())
+        .ok_or(PrivateProvisionError::PromptBindingMismatch)
 }

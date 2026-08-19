@@ -2,8 +2,8 @@
 
 use gent_ports::{IngressMode, LedgerError, PrivateProviderPromptProvisionLedger};
 use gent_types::{
-    Command, Event, ProviderPromptProvisionBinding, ProvisionedProviderInstallation, Receipt,
-    ReceiptStatus,
+    Command, Event, ProviderPromptProvisionCommandBinding, ProvisionedProviderInstallation,
+    Receipt, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
@@ -21,7 +21,7 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
     fn reserve_verified_provider_prompt_provision(
         &self,
         command: &Command,
-        binding: &ProviderPromptProvisionBinding,
+        binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<(), LedgerError> {
         reserve(self, command, binding)
     }
@@ -32,7 +32,7 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
         receipt: &Receipt,
         installation: &ProvisionedProviderInstallation,
         terminal: &Event,
-        binding: &ProviderPromptProvisionBinding,
+        binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError> {
         validate(command, receipt, installation, terminal, binding)?;
         let mut connection = self.lock()?;
@@ -100,7 +100,7 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
         command: &Command,
         receipt: &Receipt,
         terminal: &Event,
-        binding: &ProviderPromptProvisionBinding,
+        binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError> {
         validate_unprovable(command, receipt, terminal, binding)?;
         let mut connection = self.lock()?;
@@ -158,11 +158,11 @@ fn validate(
     receipt: &Receipt,
     installation: &ProvisionedProviderInstallation,
     terminal: &Event,
-    binding: &ProviderPromptProvisionBinding,
+    binding: &ProviderPromptProvisionCommandBinding,
 ) -> Result<(), LedgerError> {
     let payload = serde_json::to_value(binding).map_err(storage_error)?;
     (binding.is_valid()
-        && binding.consent_granted
+        && binding.prompt.consent_granted
         && command.kind == "providerPromptProvision"
         && command.payload == payload
         && command.receipt_id == receipt.receipt_id
@@ -172,7 +172,12 @@ fn validate(
         && terminal.receipt_id == receipt.receipt_id
         && terminal.host_epoch == receipt.host_epoch
         && terminal.kind == "privatePromptProvisionInstalled"
-        && installation.lock.run_lock.provider == binding.provider)
+        && installation.lock.run_lock.provider == binding.prompt.provider
+        && installation.provenance.package_name == binding.package.package_name
+        && installation.provenance.package_version == binding.package.version
+        && installation.provenance.package_integrity == binding.package.integrity
+        && installation.provenance.package_policy_digest_sha256
+            == binding.package.package_policy_digest_sha256)
         .then_some(())
         .ok_or_else(|| LedgerError::Invariant("invalid prompt provision settlement".into()))
 }
@@ -180,7 +185,7 @@ fn validate(
 fn reserve(
     ledger: &SqliteLedger,
     command: &Command,
-    binding: &ProviderPromptProvisionBinding,
+    binding: &ProviderPromptProvisionCommandBinding,
 ) -> Result<(), LedgerError> {
     validate_admission(command, binding)?;
     let mut connection = ledger.lock()?;
@@ -219,11 +224,11 @@ fn reserve(
 
 fn validate_admission(
     command: &Command,
-    binding: &ProviderPromptProvisionBinding,
+    binding: &ProviderPromptProvisionCommandBinding,
 ) -> Result<(), LedgerError> {
     let payload = serde_json::to_value(binding).map_err(storage_error)?;
     (binding.is_valid()
-        && binding.consent_granted
+        && binding.prompt.consent_granted
         && command.kind == "providerPromptProvision"
         && command.payload == payload
         && !command.receipt_id.0.trim().is_empty()
@@ -236,7 +241,7 @@ fn validate_unprovable(
     command: &Command,
     receipt: &Receipt,
     terminal: &Event,
-    binding: &ProviderPromptProvisionBinding,
+    binding: &ProviderPromptProvisionCommandBinding,
 ) -> Result<(), LedgerError> {
     validate_admission(command, binding)?;
     (command.receipt_id == receipt.receipt_id
@@ -252,17 +257,17 @@ fn validate_unprovable(
 
 fn prompt_message(
     transaction: &rusqlite::Transaction<'_>,
-    binding: &ProviderPromptProvisionBinding,
+    binding: &ProviderPromptProvisionCommandBinding,
     state: &str,
 ) -> Result<String, LedgerError> {
     let message_id = transaction
         .query_row(
             "SELECT p.message_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition = 'send' AND selected.provider = ?4 AND d.state = ?5 AND p.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections current_selected ON current_selected.run_id = current.run_id WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
             params![
-                binding.prompt_receipt_id.0,
-                binding.conversation_id.0,
-                binding.run_id.0,
-                binding.provider,
+                binding.prompt.prompt_receipt_id.0,
+                binding.prompt.conversation_id.0,
+                binding.prompt.run_id.0,
+                binding.prompt.provider,
                 state,
             ],
             |row| row.get(0),
@@ -279,6 +284,9 @@ fn prompt_message(
 #[cfg(test)]
 #[path = "private_provider_prompt_provision_failure_tests.rs"]
 mod failure_tests;
+#[cfg(test)]
+#[path = "private_provider_prompt_provision_package_tests.rs"]
+mod package_tests;
 #[cfg(test)]
 #[path = "private_provider_prompt_provision_tests.rs"]
 mod tests;

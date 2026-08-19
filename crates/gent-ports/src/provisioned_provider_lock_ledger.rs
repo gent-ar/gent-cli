@@ -1,8 +1,8 @@
 //! Durable provenance for Gent-owned public-provider installation locks.
 
 use gent_types::{
-    Command, Event, ProviderPromptProvisionBinding, ProvisionedProviderInstallation, Receipt,
-    ReceiptStatus,
+    Command, Event, ProviderPromptProvisionCommandBinding, ProvisionedProviderInstallation,
+    Receipt, ReceiptStatus,
 };
 
 use crate::LedgerError;
@@ -74,7 +74,7 @@ pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
     fn reserve_verified_provider_prompt_provision(
         &self,
         command: &Command,
-        binding: &ProviderPromptProvisionBinding,
+        binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<(), LedgerError>;
 
     /// Terminally marks one reserved prompt provision unprovable without releasing its prompt.
@@ -89,7 +89,7 @@ pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
         command: &Command,
         receipt: &Receipt,
         terminal: &Event,
-        binding: &ProviderPromptProvisionBinding,
+        binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError>;
 
     /// Writes the lock, receipt/event, and one reserved-prompt release in the same transaction.
@@ -103,6 +103,6 @@ pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
         receipt: &Receipt,
         installation: &ProvisionedProviderInstallation,
         terminal: &Event,
-        binding: &ProviderPromptProvisionBinding,
+        binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError>;
 }

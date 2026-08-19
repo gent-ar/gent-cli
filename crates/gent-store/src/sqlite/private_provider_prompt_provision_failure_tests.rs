@@ -6,6 +6,7 @@ use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, Command, Event, HostEpoch, ProviderPromptProvisionBinding,
+    ProviderPromptProvisionCommandBinding, ProviderPromptProvisionPackageBinding, Receipt,
     ReceiptId, ReceiptStatus, WorkspaceRecord,
 };
 use serde_json::json;
@@ -14,6 +15,39 @@ use super::SqliteLedger;
 
 #[test]
 fn unprovable_settlement_terminally_fences_the_exact_reserved_prompt() {
+    let (ledger, message_id, command, receipt, binding) = reserved_prompt();
+    let terminal = Event {
+        cursor: 0,
+        event_id: "unprovable".into(),
+        receipt_id: receipt.receipt_id.clone(),
+        host_epoch: receipt.host_epoch,
+        kind: "privatePromptProvisionUnprovable".into(),
+        payload: json!({}),
+    };
+    assert_eq!(
+        ledger
+            .settle_unprovable_provider_prompt_provision(&command, &receipt, &terminal, &binding)
+            .unwrap()
+            .status,
+        ReceiptStatus::Unprovable
+    );
+    assert_eq!(dispatch_state(&ledger, &message_id), "unprovable");
+    assert_eq!(
+        ledger
+            .settle_unprovable_provider_prompt_provision(&command, &receipt, &terminal, &binding)
+            .unwrap()
+            .status,
+        ReceiptStatus::Unprovable
+    );
+}
+
+fn reserved_prompt() -> (
+    SqliteLedger,
+    String,
+    Command,
+    Receipt,
+    ProviderPromptProvisionCommandBinding,
+) {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation = AgentChatConversationId("conversation".into());
     ledger
@@ -47,14 +81,23 @@ fn unprovable_settlement_terminally_fences_the_exact_reserved_prompt() {
             text: "continue".into(),
         })
         .unwrap();
-    let binding = ProviderPromptProvisionBinding {
-        prompt_receipt_id: prompt.receipt.receipt_id.clone(),
-        conversation_id: conversation,
-        run_id: prompt.run_id.clone(),
-        provider: "codex".into(),
-        action: "install".into(),
-        consent_granted: true,
-        reviewed_plan_digest: "a".repeat(64),
+    let binding = ProviderPromptProvisionCommandBinding {
+        prompt: ProviderPromptProvisionBinding {
+            prompt_receipt_id: prompt.receipt.receipt_id.clone(),
+            conversation_id: conversation,
+            run_id: prompt.run_id.clone(),
+            provider: "codex".into(),
+            action: "install".into(),
+            consent_granted: true,
+            reviewed_plan_digest: "a".repeat(64),
+        },
+        package: ProviderPromptProvisionPackageBinding {
+            provider: "codex".into(),
+            package_name: "@openai/codex".into(),
+            version: "1.0.0".into(),
+            integrity: "sha512-test".into(),
+            package_policy_digest_sha256: "b".repeat(64),
+        },
     };
     let command = Command {
         receipt_id: ReceiptId("provision-receipt".into()),
@@ -83,32 +126,7 @@ fn unprovable_settlement_terminally_fences_the_exact_reserved_prompt() {
     ledger
         .reserve_verified_provider_prompt_provision(&command, &binding)
         .unwrap();
-    let terminal = Event {
-        cursor: 0,
-        event_id: "unprovable".into(),
-        receipt_id: receipt.receipt_id.clone(),
-        host_epoch: receipt.host_epoch,
-        kind: "privatePromptProvisionUnprovable".into(),
-        payload: json!({}),
-    };
-    assert_eq!(
-        ledger
-            .settle_unprovable_provider_prompt_provision(&command, &receipt, &terminal, &binding)
-            .unwrap()
-            .status,
-        ReceiptStatus::Unprovable
-    );
-    assert_eq!(
-        dispatch_state(&ledger, &prompt.message.message_id),
-        "unprovable"
-    );
-    assert_eq!(
-        ledger
-            .settle_unprovable_provider_prompt_provision(&command, &receipt, &terminal, &binding)
-            .unwrap()
-            .status,
-        ReceiptStatus::Unprovable
-    );
+    (ledger, prompt.message.message_id, command, receipt, binding)
 }
 
 fn dispatch_state(ledger: &SqliteLedger, message_id: &str) -> String {
