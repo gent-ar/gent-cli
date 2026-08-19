@@ -46,6 +46,10 @@ lifecycle state are prohibited.
   from the durable run selection and arms only that bounded host. It retains no
   durable state and is injected only by a dormant ordinary-authority facade
   constructor, never by default observer composition.
+- Bounded provider hosts now disarm once recovery, active-turn polling, and
+  shutdown draining are complete. A later committed prompt re-arms only its
+  selected host, preventing an idle settled session from creating a permanent
+  polling cadence.
 - That sealed ordinary composition preflights both private evidence records
   before host construction, permits only an exact nonempty Claude/Codex Ask or
   Plan allowlist, and rejects every other selection before a ledger write.

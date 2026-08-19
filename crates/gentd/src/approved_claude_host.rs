@@ -70,6 +70,12 @@ where
         self.lifecycle.active_len()
     }
 
+    /// Returns whether an owned Claude turn needs another bounded polling pass.
+    #[must_use]
+    pub(crate) fn needs_drive(&self) -> bool {
+        self.lifecycle.needs_poll()
+    }
+
     /// Signals every currently owned provider process tree without claiming work.
     ///
     /// # Errors

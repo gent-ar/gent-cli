@@ -36,6 +36,12 @@ where
         self.active.len()
     }
 
+    /// Returns whether any owned run still needs stdout/exit polling.
+    #[must_use]
+    pub(crate) fn needs_poll(&self) -> bool {
+        self.active.values().any(|binding| !binding.settled)
+    }
+
     pub(crate) fn poll_active(
         &mut self,
         host_epoch: HostEpoch,

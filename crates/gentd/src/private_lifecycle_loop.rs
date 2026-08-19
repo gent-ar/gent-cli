@@ -50,6 +50,13 @@ pub(crate) trait PrivateLifecycleOwner {
     fn wake(&mut self) -> Result<Self::Wake, Self::Error>;
     fn request_shutdown(&mut self) -> Result<Self::Shutdown, Self::Error>;
     fn escalate_shutdown(&mut self) -> Result<Self::Escalation, Self::Error>;
+
+    /// Returns whether this owner has active work that requires another bounded drive.
+    ///
+    /// A false value does not discard durable prompts: the next committed prompt re-arms the
+    /// host through its post-commit wake port. This keeps the daemon demand-driven rather than
+    /// polling a settled provider session forever.
+    fn needs_drive(&self) -> bool;
 }
 
 type PrivateLifecycleTickResult<O> = Result<
@@ -89,6 +96,12 @@ where
     #[must_use]
     pub(crate) const fn phase(&self) -> PrivateLifecyclePhase {
         self.phase
+    }
+
+    /// Returns whether the retained owner has active work requiring another drive.
+    #[must_use]
+    pub(crate) fn owner_needs_drive(&self) -> bool {
+        self.owner.needs_drive()
     }
 
     /// Queues one caller-selected operation without executing it.

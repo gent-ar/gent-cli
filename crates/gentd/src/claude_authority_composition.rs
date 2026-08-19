@@ -105,6 +105,10 @@ where
     fn escalate_shutdown(&mut self) -> Result<Self::Escalation, Self::Error> {
         self.supervisor.escalate_shutdown()
     }
+
+    fn needs_drive(&self) -> bool {
+        self.supervisor.needs_drive()
+    }
 }
 
 /// Failure before a private Claude authority host becomes reachable.

@@ -160,6 +160,10 @@ impl PrivateLifecycleOwner for Owner {
     fn escalate_shutdown(&mut self) -> Result<Self::Escalation, Self::Error> {
         Ok(())
     }
+
+    fn needs_drive(&self) -> bool {
+        false
+    }
 }
 
 fn router(

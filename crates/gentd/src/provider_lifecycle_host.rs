@@ -51,7 +51,8 @@ pub(crate) type ProviderLifecycleHostOutcome<O> = PrivateLifecycleOutcome<
 /// Calling this port does not launch a provider. It arms one pre-approved owner so a later
 /// bounded [`ProviderLifecycleHost::drive`] can recover or poll it. Repeated committed prompts
 /// are coalesced while a wake is already queued, preserving backpressure without dropping the
-/// durable work that prompted the notification.
+/// durable work that prompted the notification. The owner declares whether it needs another
+/// drive, so settled sessions do not cause blind background polling.
 pub(crate) trait ProviderLifecycleWakePort {
     type Error;
 
@@ -102,9 +103,12 @@ where
             Ok(()) | Err(PrivateLifecycleScheduleError::Backpressured { .. }) => {}
             Err(error) => return Err(ProviderLifecycleHostError::Schedule(error)),
         }
-        self.lifecycle
+        let outcome = self
+            .lifecycle
             .tick()
-            .map_err(ProviderLifecycleHostError::Owner)
+            .map_err(ProviderLifecycleHostError::Owner)?;
+        self.armed = self.lifecycle.owner_needs_drive();
+        Ok(outcome)
     }
 
     /// Queues one process-tree drain request after the host has been armed.

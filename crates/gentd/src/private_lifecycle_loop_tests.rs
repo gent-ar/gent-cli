@@ -47,6 +47,10 @@ impl PrivateLifecycleOwner for FakeOwner {
         self.calls.borrow_mut().push(Call::Escalate);
         Ok(3)
     }
+
+    fn needs_drive(&self) -> bool {
+        false
+    }
 }
 
 #[test]

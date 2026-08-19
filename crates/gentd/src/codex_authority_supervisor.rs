@@ -96,6 +96,16 @@ where
         self.state
     }
 
+    /// Returns whether recovery, active turn polling, or shutdown draining needs another wake.
+    #[must_use]
+    pub(crate) fn needs_drive(&self) -> bool {
+        matches!(
+            self.state,
+            PrivateCodexSupervisorState::AwaitingRecovery
+                | PrivateCodexSupervisorState::ShutdownDraining { .. }
+        ) || (self.state == PrivateCodexSupervisorState::Running && self.host.needs_drive())
+    }
+
     /// Recovers once, then executes one bounded host tick for each private wake.
     ///
     /// # Errors

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use super::{
@@ -18,7 +18,10 @@ enum Call {
 }
 
 #[derive(Clone, Default)]
-struct Owner(Rc<RefCell<Vec<Call>>>);
+struct Owner {
+    calls: Rc<RefCell<Vec<Call>>>,
+    needs_drive: Rc<Cell<bool>>,
+}
 
 impl PrivateLifecycleOwner for Owner {
     type Wake = u8;
@@ -27,25 +30,29 @@ impl PrivateLifecycleOwner for Owner {
     type Error = ();
 
     fn wake(&mut self) -> Result<Self::Wake, Self::Error> {
-        self.0.borrow_mut().push(Call::Wake);
+        self.calls.borrow_mut().push(Call::Wake);
         Ok(1)
     }
 
     fn request_shutdown(&mut self) -> Result<Self::Shutdown, Self::Error> {
-        self.0.borrow_mut().push(Call::Shutdown);
+        self.calls.borrow_mut().push(Call::Shutdown);
         Ok(2)
     }
 
     fn escalate_shutdown(&mut self) -> Result<Self::Escalation, Self::Error> {
-        self.0.borrow_mut().push(Call::Escalate);
+        self.calls.borrow_mut().push(Call::Escalate);
         Ok(3)
+    }
+
+    fn needs_drive(&self) -> bool {
+        self.needs_drive.get()
     }
 }
 
 #[test]
 fn unarmed_host_has_no_owner_call_or_control_route() {
     let owner = Owner::default();
-    let calls = owner.0.clone();
+    let calls = owner.calls.clone();
     let mut host = ProviderLifecycleHost::new(owner);
 
     assert!(!host.is_armed());
@@ -60,7 +67,7 @@ fn unarmed_host_has_no_owner_call_or_control_route() {
 #[test]
 fn chat_commit_port_only_arms_the_private_host() {
     let owner = Owner::default();
-    let calls = owner.0.clone();
+    let calls = owner.calls.clone();
     let mut host = ProviderLifecycleHost::new(owner);
 
     host.wake_after_prompt_commit().unwrap();
@@ -71,7 +78,8 @@ fn chat_commit_port_only_arms_the_private_host() {
 #[test]
 fn committed_prompt_arms_one_bounded_wake_and_coalesces_the_next() {
     let owner = Owner::default();
-    let calls = owner.0.clone();
+    owner.needs_drive.set(true);
+    let calls = owner.calls.clone();
     let mut host = ProviderLifecycleHost::new(owner);
 
     assert_eq!(
@@ -97,7 +105,9 @@ fn committed_prompt_arms_one_bounded_wake_and_coalesces_the_next() {
 
 #[test]
 fn pending_wake_backpressures_shutdown_until_one_drive_completes() {
-    let mut host = ProviderLifecycleHost::new(Owner::default());
+    let owner = Owner::default();
+    owner.needs_drive.set(true);
+    let mut host = ProviderLifecycleHost::new(owner);
     host.wake_after_prompt_commit().unwrap();
 
     assert_eq!(
@@ -115,7 +125,8 @@ fn pending_wake_backpressures_shutdown_until_one_drive_completes() {
 #[test]
 fn drain_wake_is_required_before_an_escalation() {
     let owner = Owner::default();
-    let calls = owner.0.clone();
+    owner.needs_drive.set(true);
+    let calls = owner.calls.clone();
     let mut host = ProviderLifecycleHost::new(owner);
     host.wake_after_prompt_commit().unwrap();
     host.drive().unwrap();
@@ -143,4 +154,21 @@ fn drain_wake_is_required_before_an_escalation() {
         &*calls.borrow(),
         &[Call::Wake, Call::Shutdown, Call::Wake, Call::Escalate]
     );
+}
+
+#[test]
+fn settled_owner_disarms_after_its_bounded_wake() {
+    let owner = Owner::default();
+    let calls = owner.calls.clone();
+    let mut host = ProviderLifecycleHost::new(owner);
+
+    host.wake_after_prompt_commit().unwrap();
+    assert!(host.is_armed());
+    assert_eq!(
+        host.drive().unwrap(),
+        Some(PrivateLifecycleOutcome::Wake(1))
+    );
+    assert!(!host.is_armed());
+    assert_eq!(host.drive().unwrap(), None);
+    assert_eq!(&*calls.borrow(), &[Call::Wake]);
 }
