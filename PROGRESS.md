@@ -61,6 +61,8 @@ lifecycle state are prohibited.
   `PrivateClaurstBridge` is the only private bridge contract.
 - Opt-in, redacted development transcript corpus and validation tooling; it is
   not a runtime recorder, lifecycle authority, or substitute for live evidence.
+- Once a private provider prefix is composed, dependency discovery resolves
+  only its locked `bin` entries and never falls back to a host `PATH` CLI.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised

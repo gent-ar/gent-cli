@@ -95,3 +95,19 @@ fn doctor_prefers_the_private_gent_provider_prefix() {
             .any(|provider| provider.provider == "claude" && provider.executable.is_some())
     );
 }
+
+#[test]
+fn private_gent_provider_prefix_never_falls_back_to_a_host_cli() {
+    let root = tempfile::tempdir().unwrap();
+    let report = DependencyCatalog::with_private_prefix(
+        crate::CompatibilityAssessment::default(),
+        root.path().join("npm-global"),
+    )
+    .doctor();
+    assert!(
+        report
+            .public_providers
+            .iter()
+            .all(|provider| provider.executable.is_none())
+    );
+}

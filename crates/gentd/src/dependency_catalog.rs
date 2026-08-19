@@ -144,11 +144,9 @@ fn provider_details(provider: DependencyProvider) -> (&'static str, &'static str
 }
 
 fn find_executable(name: &str, provider_prefix: Option<&Path>) -> Option<PathBuf> {
-    if let Some(candidate) =
-        provider_prefix.map(|prefix| prefix.join("bin").join(provider_name(name)))
-        && candidate.is_file()
-    {
-        return Some(candidate);
+    if let Some(prefix) = provider_prefix {
+        let candidate = prefix.join("bin").join(provider_name(name));
+        return candidate.is_file().then_some(candidate);
     }
     let paths = env::var_os("PATH")?;
     env::split_paths(&paths)

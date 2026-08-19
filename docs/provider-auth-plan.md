@@ -63,8 +63,9 @@ state: `openingBrowser`, `awaitingDeviceApproval`, `verifying`, `authenticated`,
 The native app distributes a supported Node runtime with its installed Gent
 pair, but it never distributes a Claude Code or Codex executable. It passes the
 bundled executable through `GENT_NODE_BINARY` at host bootstrap. Gent
-canonicalizes and identity-locks the Node and `npm` paths, rejects a descriptor
-outside the app's private runtime location, and owns every subsequent process.
+canonicalizes and identity-locks the explicit Node and sibling `npm` paths. It
+does not discover a bundle path or infer an app runtime root, and owns every
+subsequent process.
 
 On the first prompt selecting a missing public provider, an approved Gent
 authority may perform exactly one receipt-backed provisioning transaction using
