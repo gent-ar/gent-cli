@@ -4,10 +4,7 @@
 //! dependency plan, performs the one private npm effect, and settles the provider lock in the
 //! same Gent ledger transaction as the terminal receipt.
 
-use std::{
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::{Arc, Mutex};
 
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::{Ledger, PackageInstallPolicy, ProvisionedProviderLockLedger};
@@ -18,6 +15,7 @@ use gent_protocol::{
 use gent_runtime::{DependencyActionReceiptClaim, DependencyActionReceiptReservation};
 
 use crate::{
+    authority_clock::AuthorityClock,
     dependency_catalog::DependencyCatalog,
     private_provider_provisioning::{
         PrivateProviderProvisioner, PrivateProvisionRequest, PrivateProvisionResult,
@@ -28,24 +26,6 @@ use crate::{
         PrivateProvisionSettlementState,
     },
 };
-
-/// Daemon time source, kept out of the client-provided dependency action request.
-pub(crate) trait ProvisioningClock: Clone + Send + Sync {
-    /// Returns the time used to evaluate an expiring signed package policy.
-    fn now_unix_seconds(&self) -> u64;
-}
-
-/// Wall-clock implementation for an approved private composition.
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct SystemProvisioningClock;
-
-impl ProvisioningClock for SystemProvisioningClock {
-    fn now_unix_seconds(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_secs())
-    }
-}
 
 /// Private provider-provisioning effect owner. Client input contains no package or executable.
 #[derive(Clone, Debug)]
@@ -98,7 +78,7 @@ where
     V: ProvisionedProviderVerifier,
     R: ProvisionReceiptReader,
     B: crate::private_provider_compatibility::ProvisionedProviderCompatibility,
-    C: ProvisioningClock,
+    C: AuthorityClock,
 {
     /// Reserves, verifies, installs, locks, and terminally settles one daemon-issued plan.
     ///

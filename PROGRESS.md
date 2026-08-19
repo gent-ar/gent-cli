@@ -110,6 +110,11 @@ lifecycle state are prohibited.
   provider/version/digest at operation time before settlement; expiry or a
   mismatch becomes unprovable with no durable runnable lock. This remains
   private composition, not an observer capability or bootstrap path.
+- Dormant Claude and Codex composition now reauthorizes each durable executable
+  lock against the current signed compatibility window immediately before every
+  provider effect, including a resumed session. An expired or revoked lock is
+  refused before the runner is invoked; this current-time check is absent from
+  observer composition and does not add a snapshot or cache.
 - A sealed all-or-nothing ordinary-authority input parser rejects partial
   evidence/compatibility settings and durable-chat-profile conflicts without
   I/O. It accepts no coordinator or epoch and is not yet a daemon argument or

@@ -91,6 +91,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   time, binds only its exact provider/version/digest entry, and otherwise makes
   the effect unprovable with no runnable lock. This avoids treating daemon-start
   time or a caller-supplied compatibility label as authority.
+- The dormant Claude/Codex composition uses a fresh daemon clock to
+  reauthorize a durable lock immediately before each provider effect, including
+  session resume. It refuses a now-expired or revoked entry before launch and
+  remains absent from observer composition; no snapshot or second state store
+  is introduced.
 - An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
   evidence/compatibility inputs and conflicts with durable chat-only authority without
   I/O; it deliberately receives neither user-supplied coordinator nor epoch.

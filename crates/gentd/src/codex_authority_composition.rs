@@ -164,7 +164,7 @@ where
         state.ledger().clone(),
         GoalAuthority::Approved,
     ));
-    let runtime = PublicDriversRuntime::new(
+    let runtime = PublicDriversRuntime::new_with_current_compatibility(
         profile,
         state.coordinator().clone(),
         state.ledger().clone(),

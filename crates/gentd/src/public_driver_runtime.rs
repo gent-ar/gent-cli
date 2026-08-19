@@ -1,6 +1,4 @@
 //! Dormant, separately approved public-driver composition edge; `main` never constructs it.
-use crate::authority_profile::ValidatedAuthorityProfile;
-use crate::compatibility_assessment::CompatibilityAssessment;
 use crate::provider_effects::ProviderEffectDispatcher;
 use gent_ports::{
     ActiveGoalResolver, AgentChatPromptDispatchLedger, AgentChatReadLedger,
@@ -8,21 +6,21 @@ use gent_ports::{
     TranscriptLedger,
 };
 use gent_runtime::{
-    AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult,
-    AgentChatPromptDispatchService, AgentChatReadService, AgentChatTranscriptAuthority,
-    AgentChatTranscriptIngress, ConversationActivityAuthority, ConversationActivityService,
-    Coordinator, ProviderActivityIngress, ProviderRunAuthority, PublicRunService, RuntimeError,
+    AgentChatPromptDispatchResult, AgentChatPromptDispatchService, AgentChatReadService,
+    AgentChatTranscriptIngress, ProviderActivityIngress, PublicRunService, RuntimeError,
 };
 use gent_types::{AgentChatProvider, AgentChatSelection, GoalProjection, HostEpoch};
 use std::sync::Arc;
 
+pub(crate) use composition::DriverCompatibilityAuthorizer;
 pub(crate) use session::NormalizedSessionFact;
 pub(crate) use types::{PublicDriverFact, PublicDriverFactResult, PublicDriversRuntimeError};
+
 /// A fully injected, authority-gated runtime deliberately absent from `RuntimeFacade`.
 #[derive(Debug)]
 pub(crate) struct PublicDriversRuntime<L, D, R> {
     ledger: L,
-    runs: Arc<PublicRunService<L, D, CompatibilityAssessment, R>>,
+    runs: Arc<PublicRunService<L, D, DriverCompatibilityAuthorizer, R>>,
     runner: D,
     effects: ProviderEffectDispatcher<L>,
     activity: ProviderActivityIngress<L>,
@@ -43,69 +41,6 @@ where
     D: PublicProviderRunner + Clone,
     R: PublicProviderResolver,
 {
-    /// Binds a validated approved profile to one verified compatibility envelope and ports.
-    pub(crate) fn new(
-        profile: ValidatedAuthorityProfile,
-        coordinator: Coordinator<L>,
-        ledger: L,
-        compatibility: CompatibilityAssessment,
-        runner: D,
-        resolver: R,
-    ) -> Result<Self, PublicDriversRuntimeError> {
-        let approval = match profile {
-            ValidatedAuthorityProfile::PreparedPublicDrivers(approval)
-            | ValidatedAuthorityProfile::PreparedPublicDriversAndMcp {
-                public_drivers: approval,
-                ..
-            } => approval,
-            ValidatedAuthorityProfile::Observer | ValidatedAuthorityProfile::PreparedMcp(_) => {
-                return Err(PublicDriversRuntimeError::ObserverProfile);
-            }
-        };
-        let Some(actual_digest) = compatibility.manifest_sha256() else {
-            return Err(PublicDriversRuntimeError::CompatibilityManifestUnavailable);
-        };
-        if actual_digest != approval.compatibility_manifest_sha256 {
-            return Err(PublicDriversRuntimeError::CompatibilityManifestMismatch);
-        }
-        Ok(Self {
-            ledger: ledger.clone(),
-            runs: Arc::new(PublicRunService::new(
-                coordinator.clone(),
-                runner.clone(),
-                compatibility,
-                resolver,
-                ProviderRunAuthority::PublicDrivers,
-            )),
-            runner,
-            effects: ProviderEffectDispatcher::new(
-                coordinator.clone(),
-                ProviderRunAuthority::PublicDrivers,
-            ),
-            activity: ProviderActivityIngress::new(
-                coordinator,
-                ConversationActivityService::new(
-                    ledger.clone(),
-                    ConversationActivityAuthority::Approved,
-                ),
-                ProviderRunAuthority::PublicDrivers,
-            ),
-            // This composition is unreachable from the observer daemon. A runner must map each
-            // provider fact to the durable prompt turn before it may call this ingress.
-            transcripts: AgentChatTranscriptIngress::new(
-                ledger.clone(),
-                AgentChatTranscriptAuthority::Approved,
-            ),
-            dispatches: AgentChatPromptDispatchService::new(
-                ledger.clone(),
-                AgentChatPromptDispatchAuthority::Approved,
-            ),
-            reads: AgentChatReadService::new(ledger.clone()),
-            contexts: context::RunContextProjection::new(ledger),
-            goal_resolver: None,
-        })
-    }
-
     #[must_use]
     pub(crate) fn with_active_goal_resolver(
         mut self,
@@ -130,7 +65,7 @@ where
 
     /// Returns the only process lifecycle service constructed by this authority profile.
     #[must_use]
-    pub(crate) fn runs(&self) -> &Arc<PublicRunService<L, D, CompatibilityAssessment, R>> {
+    pub(crate) fn runs(&self) -> &Arc<PublicRunService<L, D, DriverCompatibilityAuthorizer, R>> {
         &self.runs
     }
 
@@ -284,6 +219,8 @@ impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {
     }
 }
 
+#[path = "public_driver_runtime_composition.rs"]
+mod composition;
 mod context;
 mod session;
 mod types;

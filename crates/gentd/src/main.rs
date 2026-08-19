@@ -22,6 +22,8 @@ mod approved_codex_host_bounds_tests;
 mod attachment_api;
 mod attachment_transport;
 #[allow(dead_code)]
+mod authority_clock;
+#[allow(dead_code)]
 mod authority_evidence_input;
 mod authority_profile;
 #[allow(dead_code)]
@@ -69,6 +71,8 @@ mod dependency_catalog;
 #[cfg(test)]
 mod dependency_catalog_tests;
 mod event_stream;
+#[allow(dead_code)]
+mod fresh_compatibility_authorizer;
 mod git_status_runtime;
 mod goal_api;
 mod goal_transport;

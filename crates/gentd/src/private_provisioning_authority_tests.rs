@@ -19,7 +19,8 @@ use gent_protocol::{
 use gent_store::SqliteLedger;
 use gent_types::{HostEpoch, ReceiptId};
 
-use super::{PrivateProvisioningAuthority, ProvisioningClock};
+use super::PrivateProvisioningAuthority;
+use crate::authority_clock::AuthorityClock;
 use crate::{
     compatibility_assessment::CompatibilityAssessment,
     dependency_catalog::DependencyCatalog,
@@ -99,7 +100,7 @@ impl ProvisionedProviderVerifier for Verifier {
 #[derive(Clone, Copy)]
 struct Clock;
 
-impl ProvisioningClock for Clock {
+impl AuthorityClock for Clock {
     fn now_unix_seconds(&self) -> u64 {
         1
     }

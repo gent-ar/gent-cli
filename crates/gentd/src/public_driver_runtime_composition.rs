@@ -1,0 +1,146 @@
+use super::{PublicDriversRuntime, PublicDriversRuntimeError};
+use crate::{
+    authority_clock::SystemAuthorityClock, authority_profile::ValidatedAuthorityProfile,
+    compatibility_assessment::CompatibilityAssessment,
+    fresh_compatibility_authorizer::FreshCompatibilityAuthorizer,
+    provider_effects::ProviderEffectDispatcher,
+};
+use gent_ports::{
+    AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
+    PublicProviderRunner, RunVersionAuthorizer, TranscriptLedger,
+};
+use gent_runtime::{
+    AgentChatPromptDispatchAuthority, AgentChatPromptDispatchService, AgentChatReadService,
+    AgentChatTranscriptAuthority, AgentChatTranscriptIngress, ConversationActivityAuthority,
+    ConversationActivityService, Coordinator, ProviderActivityIngress, ProviderRunAuthority,
+    PublicRunService,
+};
+use std::sync::Arc;
+#[derive(Clone, Debug)]
+pub(crate) enum DriverCompatibilityAuthorizer {
+    Bootstrap(CompatibilityAssessment),
+    Fresh(FreshCompatibilityAuthorizer<SystemAuthorityClock>),
+}
+impl RunVersionAuthorizer for DriverCompatibilityAuthorizer {
+    fn authorize(
+        &self,
+        lock: &gent_types::RunVersionLock,
+    ) -> Result<(), gent_ports::PublicProviderRunError> {
+        match self {
+            Self::Bootstrap(a) => a.authorize(lock),
+            Self::Fresh(a) => a.authorize(lock),
+        }
+    }
+}
+impl<L, D, R> PublicDriversRuntime<L, D, R>
+where
+    L: Clone
+        + Ledger
+        + gent_ports::RunLifecycleFactLedger
+        + ConversationActivityLedger
+        + TranscriptLedger
+        + AgentChatPromptDispatchLedger,
+    D: PublicProviderRunner + Clone,
+    R: PublicProviderResolver,
+{
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn new(
+        profile: ValidatedAuthorityProfile,
+        coordinator: Coordinator<L>,
+        ledger: L,
+        compatibility: CompatibilityAssessment,
+        runner: D,
+        resolver: R,
+    ) -> Result<Self, PublicDriversRuntimeError> {
+        let authorizer = DriverCompatibilityAuthorizer::Bootstrap(compatibility.clone());
+        Self::build(
+            profile,
+            coordinator,
+            ledger,
+            &compatibility,
+            authorizer,
+            runner,
+            resolver,
+        )
+    }
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn new_with_current_compatibility(
+        profile: ValidatedAuthorityProfile,
+        coordinator: Coordinator<L>,
+        ledger: L,
+        compatibility: CompatibilityAssessment,
+        runner: D,
+        resolver: R,
+    ) -> Result<Self, PublicDriversRuntimeError> {
+        Self::build(
+            profile,
+            coordinator,
+            ledger,
+            &compatibility,
+            DriverCompatibilityAuthorizer::Fresh(FreshCompatibilityAuthorizer::new(
+                compatibility.clone(),
+                SystemAuthorityClock,
+            )),
+            runner,
+            resolver,
+        )
+    }
+    fn build(
+        profile: ValidatedAuthorityProfile,
+        coordinator: Coordinator<L>,
+        ledger: L,
+        compatibility: &CompatibilityAssessment,
+        authorizer: DriverCompatibilityAuthorizer,
+        runner: D,
+        resolver: R,
+    ) -> Result<Self, PublicDriversRuntimeError> {
+        let (ValidatedAuthorityProfile::PreparedPublicDrivers(approval)
+        | ValidatedAuthorityProfile::PreparedPublicDriversAndMcp {
+            public_drivers: approval,
+            ..
+        }) = profile
+        else {
+            return Err(PublicDriversRuntimeError::ObserverProfile);
+        };
+        let Some(actual_digest) = compatibility.manifest_sha256() else {
+            return Err(PublicDriversRuntimeError::CompatibilityManifestUnavailable);
+        };
+        if actual_digest != approval.compatibility_manifest_sha256 {
+            return Err(PublicDriversRuntimeError::CompatibilityManifestMismatch);
+        }
+        Ok(Self {
+            ledger: ledger.clone(),
+            runs: Arc::new(PublicRunService::new(
+                coordinator.clone(),
+                runner.clone(),
+                authorizer,
+                resolver,
+                ProviderRunAuthority::PublicDrivers,
+            )),
+            runner,
+            effects: ProviderEffectDispatcher::new(
+                coordinator.clone(),
+                ProviderRunAuthority::PublicDrivers,
+            ),
+            activity: ProviderActivityIngress::new(
+                coordinator,
+                ConversationActivityService::new(
+                    ledger.clone(),
+                    ConversationActivityAuthority::Approved,
+                ),
+                ProviderRunAuthority::PublicDrivers,
+            ),
+            transcripts: AgentChatTranscriptIngress::new(
+                ledger.clone(),
+                AgentChatTranscriptAuthority::Approved,
+            ),
+            dispatches: AgentChatPromptDispatchService::new(
+                ledger.clone(),
+                AgentChatPromptDispatchAuthority::Approved,
+            ),
+            reads: AgentChatReadService::new(ledger.clone()),
+            contexts: super::context::RunContextProjection::new(ledger),
+            goal_resolver: None,
+        })
+    }
+}
