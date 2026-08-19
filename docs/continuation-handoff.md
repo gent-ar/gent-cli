@@ -80,6 +80,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   package-policy/Node/receipt provenance with its terminal receipt. Ambiguous effects
   become unprovable; the dormant Claude/Codex resolvers read and recheck this lock
   directly, with no prefix or `PATH` discovery.
+- An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
+  evidence/compatibility inputs and conflicts with durable chat-only authority without
+  I/O; it deliberately receives neither user-supplied coordinator nor epoch.
 - Committed, redacted development driver corpus plus public normalized live
   full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
   opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.
@@ -121,9 +124,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Bind the sealed Ask/Plan Claude/Codex composition and its demand-driven cadence to
-   explicit bootstrap only after strict provider evidence. Default observer and broad
-   modes stay absent.
+1. Add graceful authority shutdown/admission control, then bind the sealed Ask/Plan
+   Claude/Codex composition and its cadence to explicit bootstrap after strict evidence.
+   Default observer and broad modes stay absent.
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor
    reread/reconnect, provider/context switch, and exact `/goal` projection.

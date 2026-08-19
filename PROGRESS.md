@@ -89,6 +89,10 @@ lifecycle state are prohibited.
   terminally settles the receipt; ambiguous npm effects become `Unprovable` and
   cannot replay. Claude/Codex dormant resolution reads only that lock and
   rechecks its exact identity—there is no prefix or `PATH` rediscovery.
+- A sealed all-or-nothing ordinary-authority input parser rejects partial
+  evidence/compatibility settings and durable-chat-profile conflicts without
+  I/O. It accepts no coordinator or epoch and is not yet a daemon argument or
+  transport entry point.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised
@@ -114,9 +118,9 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Bind the sealed ordinary Ask/Plan Claude/Codex composition and its existing
-   demand-driven cadence to an explicit daemon authority only after strict
-   provider evidence, lock-backed provisioning, and graceful drain/shutdown.
+1. Add graceful authority shutdown/admission control, then bind the sealed
+   Ask/Plan Claude/Codex composition and its existing cadence to an explicit
+   daemon authority only after strict provider evidence and lock-backed provisioning.
 2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
    process-tree drain, terminal settlement, and reconnect by durable cursors.
 3. Add the private Claurst bridge under the identical public fact contract and
