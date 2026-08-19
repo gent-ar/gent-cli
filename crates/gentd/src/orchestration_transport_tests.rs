@@ -1,7 +1,7 @@
 //! Observer-safety tests for the reserved task-graph orchestration transport.
 
 use gent_protocol::{ORCHESTRATION_CAPABILITY, OrchestrationFrame};
-use gent_runtime::catalog::{declared_capabilities, declared_capabilities_with_agent_chat};
+use gent_runtime::catalog::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
 use gent_types::AgentChatConversationId;
 
 use crate::{CompatibilityAssessment, api::RuntimeApi, build_runtime};
@@ -11,7 +11,7 @@ fn observer_neither_advertises_nor_accepts_orchestration_authority() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -41,7 +41,7 @@ fn approved_chat_persistence_profile_advertises_and_reads_orchestration_graphs()
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities_with_agent_chat(true),
+        &RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]),
         CompatibilityAssessment::default(),
     )
     .unwrap();

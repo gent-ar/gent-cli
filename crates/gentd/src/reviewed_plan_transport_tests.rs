@@ -1,7 +1,7 @@
 //! Observer-safety tests for the reserved reviewed-plan transport.
 
 use gent_protocol::{REVIEWED_PLAN_CAPABILITY, ReviewedPlanFrame};
-use gent_runtime::catalog::{declared_capabilities, declared_capabilities_with_agent_chat};
+use gent_runtime::catalog::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
 use gent_types::{AgentChatConversationId, ReviewedPlanId};
 
 use crate::{CompatibilityAssessment, api::RuntimeApi, build_runtime};
@@ -11,7 +11,7 @@ fn observer_neither_advertises_nor_accepts_reviewed_plan_authority() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -41,7 +41,7 @@ fn chat_persistence_profile_keeps_reviewed_plans_unadvertised_until_lifecycle_au
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities_with_agent_chat(true),
+        &RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]),
         CompatibilityAssessment::default(),
     )
     .unwrap();

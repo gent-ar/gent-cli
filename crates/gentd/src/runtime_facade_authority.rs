@@ -22,10 +22,12 @@ impl RuntimeFacade {
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        if !state.capability_profile().turn_follow_enabled() {
+            return Err("turn-follow authority requires its typed capability profile".into());
+        }
         Self::from_state_inner(
             state,
             runtime_update_checks,
-            true,
             None,
             Arc::new(gent_runtime::AllowAnyAgentChatSelection),
         )
@@ -44,10 +46,14 @@ impl RuntimeFacade {
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
         authority: &OrdinaryAuthorityRuntime,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        if !state.capability_profile().turn_follow_enabled() {
+            return Err(
+                "ordinary authority requires its typed turn-follow capability profile".into(),
+            );
+        }
         Self::from_state_inner(
             state,
             runtime_update_checks,
-            true,
             Some(authority.router()),
             Arc::new(ExactAgentChatSelectionAllowlist::new(
                 authority.selections().iter().cloned(),

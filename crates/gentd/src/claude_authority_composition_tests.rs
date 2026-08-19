@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
 use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
 use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
-use gent_runtime::catalog::declared_capabilities;
+use gent_runtime::catalog::RuntimeCapabilityProfile;
 use gent_types::{
     HostEpoch, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits,
     SandboxedLaunchRequest,
@@ -89,7 +89,7 @@ fn missing_private_evidence_fails_before_a_claude_host_or_private_prefix_is_cons
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();

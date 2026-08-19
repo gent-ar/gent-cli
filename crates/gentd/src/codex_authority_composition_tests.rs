@@ -14,7 +14,7 @@ use super::{
 };
 use crate::CompatibilityAssessment;
 use crate::runtime_facade::DaemonCompositionState;
-use gent_runtime::catalog::declared_capabilities;
+use gent_runtime::catalog::RuntimeCapabilityProfile;
 
 fn config() -> PrivateCodexAuthorityConfig {
     PrivateCodexAuthorityConfig {
@@ -88,7 +88,7 @@ fn missing_private_evidence_fails_before_a_codex_host_is_constructed() {
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();

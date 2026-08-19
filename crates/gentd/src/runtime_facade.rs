@@ -1,10 +1,11 @@
 //! Daemon composition of observer and explicitly approved durable-chat services.
 
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use gent_protocol::{AGENT_CHAT_INTENTS_CAPABILITY, REVIEWED_PLAN_CAPABILITY};
-use gent_runtime::catalog::validate_observed_capabilities;
+use crate::dependency_actions::ObserverDependencyExecutor;
+use crate::dependency_catalog::DependencyCatalog;
+use crate::public_runs::{DaemonPublicRuns, observer_service};
+use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 use gent_runtime::{
     AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
     AgentChatPromptService, AgentChatReadService, AgentChatSelectionGate,
@@ -16,16 +17,16 @@ use gent_runtime::{
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
 use gent_types::CapabilitySet;
 
-use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::dependency_actions::ObserverDependencyExecutor;
-use crate::dependency_catalog::DependencyCatalog;
-use crate::public_runs::{DaemonPublicRuns, observer_service};
-use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
-
 type RuntimeSelectionGate = Arc<dyn AgentChatSelectionGate>;
 
 #[path = "runtime_facade_authority.rs"]
 mod authority;
+#[path = "runtime_facade_composition.rs"]
+mod composition;
+
+#[cfg(test)]
+pub(crate) use composition::build_runtime;
+pub(crate) use composition::{DaemonCompositionState, build_runtime_with_update_checks};
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeFacade {
@@ -49,93 +50,6 @@ pub(crate) struct RuntimeFacade {
     runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
 }
 
-/// The one already-open durable state shared by future daemon compositions.
-///
-/// Opening this state prepares only current local storage and live capability validation.
-/// It does not discover or launch a provider, and does not select any authority profile.
-#[derive(Debug)]
-pub(crate) struct DaemonCompositionState {
-    data_dir: PathBuf,
-    ledger: SqliteLedger,
-    coordinator: Coordinator<SqliteLedger>,
-    compatibility: CompatibilityAssessment,
-}
-
-#[allow(dead_code)] // Future approved composition reads these state components before facade build.
-impl DaemonCompositionState {
-    /// Opens the single Gent ledger and coordinator after rejecting capability drift.
-    ///
-    /// # Errors
-    /// Returns an error when observed capabilities drift or the local durable state cannot open.
-    pub(crate) fn open(
-        data_dir: &Path,
-        observed_capabilities: &CapabilitySet,
-        compatibility: CompatibilityAssessment,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let capabilities = validate_observed_capabilities(observed_capabilities)?;
-        let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
-        crate::permission_workspace::ensure(&ledger, data_dir)?;
-        let coordinator = Coordinator::new(ledger.clone(), capabilities);
-        Ok(Self {
-            data_dir: data_dir.into(),
-            ledger,
-            coordinator,
-            compatibility,
-        })
-    }
-
-    /// Returns the original immutable daemon data directory.
-    #[must_use]
-    pub(crate) fn data_dir(&self) -> &Path {
-        &self.data_dir
-    }
-
-    /// Returns the already-open Gent-owned ledger; no other component opens a replacement ledger.
-    #[must_use]
-    pub(crate) fn ledger(&self) -> &SqliteLedger {
-        &self.ledger
-    }
-
-    /// Returns the coordinator bound to this state and its live capability declaration.
-    #[must_use]
-    pub(crate) fn coordinator(&self) -> &Coordinator<SqliteLedger> {
-        &self.coordinator
-    }
-
-    /// Returns the compatibility assessment injected by the daemon composition root.
-    #[must_use]
-    pub(crate) fn compatibility(&self) -> &CompatibilityAssessment {
-        &self.compatibility
-    }
-}
-
-/// Builds the current observer-only daemon composition.
-///
-/// # Errors
-/// Returns an error when capabilities drift or required local storage cannot open.
-#[cfg(test)]
-pub(crate) fn build_runtime(
-    data_dir: &std::path::Path,
-    observed_capabilities: &CapabilitySet,
-    compatibility: CompatibilityAssessment,
-) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
-    build_runtime_with_update_checks(data_dir, observed_capabilities, compatibility, None)
-}
-
-/// Builds the daemon with explicitly configured read-only update checks and durable-chat reads.
-///
-/// # Errors
-/// Returns an error when capabilities drift or required local storage cannot open.
-pub(crate) fn build_runtime_with_update_checks(
-    data_dir: &std::path::Path,
-    observed_capabilities: &CapabilitySet,
-    compatibility: CompatibilityAssessment,
-    runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-) -> Result<RuntimeFacade, Box<dyn std::error::Error>> {
-    let state = DaemonCompositionState::open(data_dir, observed_capabilities, compatibility)?;
-    RuntimeFacade::from_state(state, runtime_update_checks)
-}
-
 impl RuntimeFacade {
     /// Builds the current facade from one already-open daemon composition state.
     ///
@@ -148,7 +62,6 @@ impl RuntimeFacade {
         Self::from_state_inner(
             state,
             runtime_update_checks,
-            false,
             None,
             Arc::new(AllowAnyAgentChatSelection),
         )
@@ -157,7 +70,6 @@ impl RuntimeFacade {
     fn from_state_inner(
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-        turn_follow_enabled: bool,
         ordinary_prompt_wake: Option<
             Arc<
                 Mutex<
@@ -171,26 +83,19 @@ impl RuntimeFacade {
             data_dir,
             ledger,
             coordinator,
+            capability_profile,
             compatibility,
         } = state;
-        let capabilities = coordinator.status()?.capabilities;
-        let agent_chat_enabled = capabilities
-            .0
-            .iter()
-            .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY);
-        let reviewed_plan_enabled = capabilities
-            .0
-            .iter()
-            .any(|capability| capability == REVIEWED_PLAN_CAPABILITY);
-        let maintenance_enabled = capabilities
-            .0
-            .iter()
-            .any(|capability| capability == gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY);
+        let agent_chat_enabled = capability_profile.agent_chat_enabled();
+        let reviewed_plan_enabled = capability_profile.reviewed_plans_enabled();
+        let maintenance_enabled = capability_profile.runtime_maintenance_enabled();
         let attachments = AttachmentService::new(
             ledger.clone(),
             FileAttachmentBlobs::open(data_dir.join("attachments"))?,
         );
-        let turn_follow_source = turn_follow_enabled.then(|| ledger.clone());
+        let turn_follow_source = capability_profile
+            .turn_follow_enabled()
+            .then(|| ledger.clone());
         Ok(Self {
             agent_chat_conversations: AgentChatConversationService::with_selection_gate(
                 ledger.clone(),

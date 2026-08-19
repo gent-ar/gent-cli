@@ -7,6 +7,7 @@ use crate::{
     RuntimeFacade, build_runtime_with_update_checks, host_lock, runtime_update_authority,
     runtime_update_bootstrap, runtime_update_config, runtime_update_recovery, startup, transport,
 };
+use gent_runtime::catalog::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
 use {clap::Parser, std::path::PathBuf};
 
 #[derive(Debug, Parser)]
@@ -83,12 +84,20 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
     let update_checks = configure_update_checks(&args)?;
-    let observed_capabilities = transport::observed_capabilities(
-        args.agent_chat_authority,
-        update_checks.is_some(),
-        args.runtime_update_plan_authority || args.runtime_update_recover_authority,
-        false,
+    let capability_profile = RuntimeCapabilityProfile::new(
+        [
+            args.agent_chat_authority
+                .then_some(RuntimeCapabilityFeature::AgentChat),
+            update_checks
+                .is_some()
+                .then_some(RuntimeCapabilityFeature::RuntimeUpdateCheck),
+            (args.runtime_update_plan_authority || args.runtime_update_recover_authority)
+                .then_some(RuntimeCapabilityFeature::RuntimeMaintenance),
+        ]
+        .into_iter()
+        .flatten(),
     );
+    let observed_capabilities = transport::observed_capabilities(&capability_profile);
     let recovery = run_update_authorities(&args, &data_dir, &observed_capabilities)?;
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
@@ -97,7 +106,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     let runtime = build_runtime_with_update_checks(
         &data_dir,
-        &observed_capabilities,
+        &capability_profile,
         compatibility,
         update_checks,
     )?;

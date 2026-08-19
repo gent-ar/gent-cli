@@ -2,7 +2,9 @@ use gent_protocol::{
     AgentChatTurnFollowEnd, AgentChatTurnFollowFrame, WireFrame, read_frame, read_json_frame,
     write_json_frame,
 };
-use gent_runtime::catalog::validate_observed_capabilities;
+use gent_runtime::catalog::{
+    RuntimeCapabilityFeature, RuntimeCapabilityProfile, validate_observed_capabilities,
+};
 use gent_runtime::{TurnFollowRead, TurnFollowRequest};
 use gent_types::{
     AgentChatConversationId, AgentChatRequestId, AgentChatRunId, DurableTurnPhase, HostEpoch,
@@ -15,8 +17,10 @@ use super::{TurnFollowPort, send, serve};
 #[test]
 fn observer_and_persistence_only_catalogs_do_not_advertise_turn_follow() {
     for capabilities in [
-        crate::transport::observed_capabilities(false, false, false, false),
-        crate::transport::observed_capabilities(true, false, false, false),
+        crate::transport::observed_capabilities(&RuntimeCapabilityProfile::default()),
+        crate::transport::observed_capabilities(&RuntimeCapabilityProfile::new([
+            RuntimeCapabilityFeature::AgentChat,
+        ])),
     ] {
         assert!(
             !capabilities
@@ -29,7 +33,10 @@ fn observer_and_persistence_only_catalogs_do_not_advertise_turn_follow() {
 
 #[test]
 fn authority_catalog_advertises_turn_follow_only_with_agent_chat() {
-    let capabilities = crate::transport::observed_capabilities(true, false, false, true);
+    let capabilities = crate::transport::observed_capabilities(&RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::TurnFollow,
+    ]));
 
     assert!(
         capabilities

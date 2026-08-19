@@ -6,7 +6,8 @@ use gent_protocol::{
     ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
 };
 use gent_runtime::catalog::{
-    declared_capabilities_with_agent_chat, validate_observed_capabilities,
+    RuntimeCapabilityFeature, RuntimeCapabilityProfile, declared_capabilities_with_profiles,
+    validate_observed_capabilities,
 };
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
@@ -18,10 +19,11 @@ use crate::{CompatibilityAssessment, api::RuntimeApi, build_runtime};
 #[test]
 fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
     let directory = tempfile::tempdir().unwrap();
-    let capabilities = crate::transport::observed_capabilities(true, false, false, false);
+    let profile = RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]);
+    let capabilities = crate::transport::observed_capabilities(&profile);
     assert_eq!(
         validate_observed_capabilities(&capabilities).unwrap(),
-        declared_capabilities_with_agent_chat(true)
+        declared_capabilities_with_profiles(&profile)
     );
     assert!(
         capabilities
@@ -37,7 +39,7 @@ fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
     assert!(!capabilities.0.contains(&REVIEWED_PLAN_CAPABILITY.into()));
     let runtime = build_runtime(
         directory.path(),
-        &capabilities,
+        &profile,
         CompatibilityAssessment::default(),
     )
     .unwrap();

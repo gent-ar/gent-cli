@@ -4,7 +4,7 @@ use gent_protocol::{
     PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame, WireFrame, read_frame, write_frame,
     write_json_frame,
 };
-use gent_runtime::catalog::declared_capabilities;
+use gent_runtime::catalog::RuntimeCapabilityProfile;
 use gent_types::ProviderAuthProvider;
 use tokio::io::duplex;
 
@@ -21,7 +21,7 @@ fn observer_neither_advertises_nor_starts_provider_authentication() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();

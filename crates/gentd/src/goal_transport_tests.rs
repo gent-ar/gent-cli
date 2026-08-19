@@ -1,7 +1,7 @@
 //! Observer and approved-profile coverage for the durable `/goal` endpoint.
 
 use gent_protocol::{GOAL_CAPABILITY, GoalFrame};
-use gent_runtime::catalog::{declared_capabilities, declared_capabilities_with_agent_chat};
+use gent_runtime::catalog::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
     GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord, GoalStatus, ReceiptId,
@@ -14,7 +14,7 @@ fn observer_neither_advertises_nor_accepts_goals() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -37,7 +37,7 @@ fn approved_chat_profile_persists_and_reads_a_goal_through_the_facade() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities_with_agent_chat(true),
+        &RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -61,7 +61,7 @@ async fn approved_chat_profile_dispatches_a_goal_over_the_typed_transport() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities_with_agent_chat(true),
+        &RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]),
         CompatibilityAssessment::default(),
     )
     .unwrap();

@@ -5,7 +5,7 @@ use gent_protocol::{
     PublicRunResumeRequest, PublicRunStartRequest,
 };
 use gent_runtime::catalog::{
-    CatalogError, declared_capabilities, declared_capabilities_with_agent_chat,
+    RuntimeCapabilityFeature, RuntimeCapabilityProfile, declared_capabilities_with_profiles,
 };
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
@@ -22,40 +22,27 @@ fn runtime() -> (tempfile::TempDir, RuntimeFacade) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities(),
+        &observer_profile(),
         super::CompatibilityAssessment::default(),
     )
     .unwrap();
     (directory, runtime)
 }
-#[test]
-fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
-    let directory = tempfile::tempdir().unwrap();
-    let mut observed = declared_capabilities();
-    observed.0.push("future-handler".into());
-    let error = build_runtime(
-        directory.path(),
-        &observed,
-        super::CompatibilityAssessment::default(),
-    )
-    .unwrap_err();
 
-    assert_eq!(
-        error.downcast_ref::<CatalogError>(),
-        Some(&CatalogError::UndeclaredObserved("future-handler".into()))
-    );
-    assert!(!directory.path().join("gent.db").exists());
+fn observer_profile() -> RuntimeCapabilityProfile {
+    RuntimeCapabilityProfile::default()
+}
+
+fn observer_capabilities() -> CapabilitySet {
+    declared_capabilities_with_profiles(&observer_profile())
 }
 #[test]
 fn facade_exposes_only_durable_or_read_only_observer_operations() {
     let (_directory, runtime) = runtime();
-    assert_eq!(runtime.capabilities().unwrap(), declared_capabilities());
+    assert_eq!(runtime.capabilities().unwrap(), observer_capabilities());
     let status = runtime.status().unwrap();
     assert_eq!(status.host_epoch, HostEpoch(1));
-    assert_eq!(
-        status.capabilities,
-        CapabilitySet(declared_capabilities().0)
-    );
+    assert_eq!(status.capabilities, observer_capabilities());
 
     let receipt = runtime
         .submit(Command {
@@ -200,7 +187,7 @@ fn approved_agent_chat_profile_persists_create_and_prompt_without_a_provider() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
-        &declared_capabilities_with_agent_chat(true),
+        &RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]),
         super::CompatibilityAssessment::default(),
     )
     .unwrap();

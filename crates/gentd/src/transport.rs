@@ -1,19 +1,14 @@
 //! Local IPC adapter. It only knows the `RuntimeApi` port, never persistence or providers.
 
 use gent_protocol::{
-    AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
-    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
-    AgentChatIntentFrame, AgentChatTurnFollowFrame, AttachmentFrame, CONVERSATION_INDEX_CAPABILITY,
-    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    EventStreamFrame, GOAL_CAPABILITY, ORCHESTRATION_CAPABILITY, WireFrame, negotiate, read_frame,
-    read_json_frame, write_frame,
+    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
+    AgentChatIntentFrame, AgentChatTurnFollowFrame, AttachmentFrame, EVENT_STREAM_CAPABILITY,
+    EventStreamFrame, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
 };
-use gent_runtime::catalog::{RuntimeCapability, capability_set};
+use gent_runtime::catalog::{RuntimeCapabilityProfile, declared_capabilities_with_profiles};
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde_json::Value;
 
-#[cfg(unix)]
-use gent_protocol::CONVERSATION_CONTENT_CAPABILITY;
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -22,66 +17,10 @@ use crate::api::RuntimeApi;
 
 include!("transport_commands.rs");
 
-/// Reports the capabilities backed by concrete post-handshake handlers in this adapter.
+/// Reports the capabilities backed by one explicitly composed runtime profile.
 #[must_use]
-#[allow(clippy::fn_params_excessive_bools)] // Independent authority profiles remain explicit.
-pub(crate) fn observed_capabilities(
-    agent_chat_enabled: bool,
-    runtime_update_check_enabled: bool,
-    runtime_maintenance_enabled: bool,
-    turn_follow_enabled: bool,
-) -> CapabilitySet {
-    let mut capabilities = capability_set([
-        RuntimeCapability::Attachments,
-        RuntimeCapability::Decisions,
-        RuntimeCapability::EventStream,
-        RuntimeCapability::Events,
-        RuntimeCapability::HostEpoch,
-        RuntimeCapability::PermissionPolicies,
-        RuntimeCapability::Receipts,
-    ]);
-    capabilities
-        .0
-        .push(CONVERSATION_STATUS_CAPABILITY.to_owned());
-    capabilities
-        .0
-        .push(CONVERSATION_INDEX_CAPABILITY.to_owned());
-    capabilities
-        .0
-        .push(CONVERSATION_TIMELINE_CAPABILITY.to_owned());
-    if agent_chat_enabled {
-        capabilities
-            .0
-            .push(gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY.to_owned());
-        capabilities
-            .0
-            .push(AGENT_CHAT_CONVERSATIONS_CAPABILITY.to_owned());
-        capabilities
-            .0
-            .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
-        capabilities.0.push(GOAL_CAPABILITY.to_owned());
-        capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
-        if turn_follow_enabled {
-            capabilities
-                .0
-                .push(AGENT_CHAT_TURN_FOLLOW_CAPABILITY.to_owned());
-        }
-    }
-    if runtime_update_check_enabled {
-        capabilities
-            .0
-            .push(gent_protocol::RUNTIME_UPDATE_CHECK_CAPABILITY.to_owned());
-    }
-    if runtime_maintenance_enabled {
-        capabilities
-            .0
-            .push(gent_protocol::RUNTIME_MAINTENANCE_CAPABILITY.to_owned());
-    }
-    #[cfg(unix)]
-    capabilities
-        .0
-        .push(CONVERSATION_CONTENT_CAPABILITY.to_owned());
-    capabilities
+pub(crate) fn observed_capabilities(profile: &RuntimeCapabilityProfile) -> CapabilitySet {
+    declared_capabilities_with_profiles(profile)
 }
 
 #[cfg(unix)]

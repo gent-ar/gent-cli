@@ -49,8 +49,10 @@ lifecycle state are prohibited.
 - That sealed ordinary composition preflights both private evidence records
   before host construction, permits only an exact nonempty Claude/Codex Ask or
   Plan allowlist, and rejects every other selection before a ledger write.
-- Capability reconciliation now admits turn following only when an agent-chat
-  authority explicitly observes it; observer and persistence-only profiles stay absent.
+- One typed runtime capability profile now drives daemon service composition and
+  wire advertisement. Turn following and reviewed plans require their explicit
+  profile features (and agent chat); observer and persistence-only profiles
+  stay absent without reverse-inferring authority from wire strings.
 - Pure Claude/Codex normalizers, locked-process/session runner seams, bounded
   output/backpressure/drain primitives, and private Claurst bridge port types.
 - Codex app-server handshake, thread, and turn frames now always include the

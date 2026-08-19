@@ -7,7 +7,7 @@ use gent_protocol::{
     PublicRunResumeRequest, PublicRunStartRequest, RUNTIME_UPDATE_CHECK_CAPABILITY, WireFrame,
     read_frame, read_json_frame, write_frame, write_json_frame,
 };
-use gent_runtime::ConversationActivityRead;
+use gent_runtime::{ConversationActivityRead, catalog::RuntimeCapabilityProfile};
 use gent_types::{
     CapabilitySet, Command, ConversationActivityFact, ConversationActivityPage,
     ConversationActivityScope, ConversationStatus, ConversationTimeline, DecisionCommand,
@@ -145,7 +145,7 @@ impl RuntimeApi for ActivityRuntime {
 
 #[test]
 fn observer_capabilities_do_not_advertise_authority_or_update_work() {
-    let capabilities = observed_capabilities(false, false, false, false);
+    let capabilities = observed_capabilities(&RuntimeCapabilityProfile::default());
     assert!(
         !capabilities
             .0

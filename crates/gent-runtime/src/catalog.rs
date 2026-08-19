@@ -5,7 +5,8 @@ use gent_protocol::{
     AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
     CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, GOAL_CAPABILITY,
-    ORCHESTRATION_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
+    ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY,
+    RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
 use gent_types::CapabilitySet;
 
@@ -55,6 +56,7 @@ const DECLARED: [RuntimeCapability; 7] = [
 pub enum RuntimeCapabilityFeature {
     AgentChat,
     TurnFollow,
+    ReviewedPlans,
     RuntimeUpdateCheck,
     RuntimeMaintenance,
 }
@@ -80,6 +82,36 @@ impl RuntimeCapabilityProfile {
 
     fn has(&self, feature: RuntimeCapabilityFeature) -> bool {
         self.features.contains(&feature)
+    }
+
+    /// Whether durable agent-chat handlers are composed.
+    #[must_use]
+    pub fn agent_chat_enabled(&self) -> bool {
+        self.has(RuntimeCapabilityFeature::AgentChat)
+    }
+
+    /// Whether durable turn following is composed with durable agent-chat handlers.
+    #[must_use]
+    pub fn turn_follow_enabled(&self) -> bool {
+        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::TurnFollow)
+    }
+
+    /// Whether a trusted daemon-owned reviewed-plan lifecycle is composed.
+    #[must_use]
+    pub fn reviewed_plans_enabled(&self) -> bool {
+        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ReviewedPlans)
+    }
+
+    /// Whether a verified update-check handler is composed.
+    #[must_use]
+    pub fn runtime_update_check_enabled(&self) -> bool {
+        self.has(RuntimeCapabilityFeature::RuntimeUpdateCheck)
+    }
+
+    /// Whether runtime-maintenance handlers are composed.
+    #[must_use]
+    pub fn runtime_maintenance_enabled(&self) -> bool {
+        self.has(RuntimeCapabilityFeature::RuntimeMaintenance)
     }
 }
 
@@ -128,7 +160,7 @@ pub fn declared_capabilities_with_agent_chat(agent_chat_enabled: bool) -> Capabi
 #[must_use]
 pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -> CapabilitySet {
     let mut capabilities = capability_set(DECLARED);
-    if profile.has(RuntimeCapabilityFeature::AgentChat) {
+    if profile.agent_chat_enabled() {
         capabilities
             .0
             .push(RuntimeCapability::AgentChatIntents.wire_name().into());
@@ -140,18 +172,21 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
             .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
         capabilities.0.push(GOAL_CAPABILITY.to_owned());
         capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
-        if profile.has(RuntimeCapabilityFeature::TurnFollow) {
+        if profile.turn_follow_enabled() {
             capabilities
                 .0
                 .push(AGENT_CHAT_TURN_FOLLOW_CAPABILITY.to_owned());
         }
     }
-    if profile.has(RuntimeCapabilityFeature::RuntimeUpdateCheck) {
+    if profile.reviewed_plans_enabled() {
+        capabilities.0.push(REVIEWED_PLAN_CAPABILITY.to_owned());
+    }
+    if profile.runtime_update_check_enabled() {
         capabilities
             .0
             .push(RUNTIME_UPDATE_CHECK_CAPABILITY.to_owned());
     }
-    if profile.has(RuntimeCapabilityFeature::RuntimeMaintenance) {
+    if profile.runtime_maintenance_enabled() {
         capabilities
             .0
             .push(RUNTIME_MAINTENANCE_CAPABILITY.to_owned());
@@ -194,6 +229,7 @@ pub fn validate_observed_capabilities(
         [
             AGENT_CHAT_INTENTS_CAPABILITY,
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
+            REVIEWED_PLAN_CAPABILITY,
             RUNTIME_UPDATE_CHECK_CAPABILITY,
             RUNTIME_MAINTENANCE_CAPABILITY,
         ]
@@ -216,6 +252,7 @@ fn feature_from_observed(
         .then(|| match capability {
             AGENT_CHAT_INTENTS_CAPABILITY => RuntimeCapabilityFeature::AgentChat,
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY => RuntimeCapabilityFeature::TurnFollow,
+            REVIEWED_PLAN_CAPABILITY => RuntimeCapabilityFeature::ReviewedPlans,
             RUNTIME_UPDATE_CHECK_CAPABILITY => RuntimeCapabilityFeature::RuntimeUpdateCheck,
             RUNTIME_MAINTENANCE_CAPABILITY => RuntimeCapabilityFeature::RuntimeMaintenance,
             _ => unreachable!("only known capability names are passed"),
@@ -223,34 +260,5 @@ fn feature_from_observed(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{CatalogError, declared_capabilities, reconcile, validate_observed_capabilities};
-    use gent_types::CapabilitySet;
-
-    #[test]
-    fn declared_capability_drift_fails_the_build_gate() {
-        assert_eq!(
-            reconcile(
-                &CapabilitySet(vec!["events".into()]),
-                &CapabilitySet::default()
-            ),
-            Err(CatalogError::DeclaredButUnavailable("events".into()))
-        );
-    }
-
-    #[test]
-    fn exact_catalog_is_accepted() {
-        let catalog = CapabilitySet(vec!["events".into(), "receipts".into()]);
-        assert!(reconcile(&catalog, &catalog).is_ok());
-    }
-
-    #[test]
-    fn typed_observations_cannot_add_an_undeclared_wire_capability() {
-        let mut observed = declared_capabilities();
-        observed.0.push("future-capability".into());
-        assert_eq!(
-            validate_observed_capabilities(&observed),
-            Err(CatalogError::UndeclaredObserved("future-capability".into()))
-        );
-    }
-}
+#[path = "catalog_tests.rs"]
+mod tests;

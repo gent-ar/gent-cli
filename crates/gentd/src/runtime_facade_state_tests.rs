@@ -1,6 +1,8 @@
 use gent_ports::{AgentChatLedger, ConversationLedger};
 use gent_runtime::TurnFollowRequest;
-use gent_runtime::catalog::declared_capabilities;
+use gent_runtime::catalog::{
+    RuntimeCapabilityFeature, RuntimeCapabilityProfile, declared_capabilities_with_profiles,
+};
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRunId, AgentChatSelection, DurableTurnPhase, HostEpoch, ReceiptId,
@@ -16,10 +18,11 @@ use crate::{
 #[test]
 fn preopened_composition_state_builds_the_identical_observer_facade() {
     let directory = tempfile::tempdir().unwrap();
-    let capabilities = declared_capabilities();
+    let profile = RuntimeCapabilityProfile::default();
+    let capabilities = declared_capabilities_with_profiles(&profile);
     let state = DaemonCompositionState::open(
         directory.path(),
-        &capabilities,
+        &profile,
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -41,10 +44,13 @@ fn preopened_composition_state_builds_the_identical_observer_facade() {
 #[test]
 fn future_turn_follow_authority_is_explicit_and_keeps_observer_unavailable() {
     let directory = tempfile::tempdir().unwrap();
-    let capabilities = declared_capabilities();
+    let profile = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::TurnFollow,
+    ]);
     let state = DaemonCompositionState::open(
         directory.path(),
-        &capabilities,
+        &profile,
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -63,7 +69,7 @@ fn future_turn_follow_authority_is_explicit_and_keeps_observer_unavailable() {
     let read = runtime.agent_chat_turn_follow(request()).unwrap();
     assert!(read.terminal.is_some());
     assert!(
-        !runtime
+        runtime
             .capabilities()
             .unwrap()
             .0
@@ -75,7 +81,7 @@ fn future_turn_follow_authority_is_explicit_and_keeps_observer_unavailable() {
     std::fs::create_dir(&observer_directory).unwrap();
     let observer = crate::build_runtime(
         &observer_directory,
-        &capabilities,
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();

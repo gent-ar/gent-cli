@@ -6,6 +6,7 @@ use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
     CONVERSATION_ACTIVITY_CAPABILITY, PROVIDER_AUTH_CAPABILITY,
 };
+use gent_runtime::catalog::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
 
 fn approval() -> PublicDriverApproval {
     PublicDriverApproval {
@@ -23,8 +24,10 @@ fn default_profile_is_observer_and_all_deferred_surfaces_are_disabled() {
 
 #[test]
 fn observer_and_durable_chat_profiles_hide_every_dormant_provider_lifecycle_surface() {
-    let observer = crate::transport::observed_capabilities(false, false, false, false);
-    let durable_chat = crate::transport::observed_capabilities(true, false, false, false);
+    let observer = crate::transport::observed_capabilities(&RuntimeCapabilityProfile::default());
+    let durable_chat = crate::transport::observed_capabilities(&RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+    ]));
     assert!(crate::authority_profile::shipped_observer_profile().is_hard_observer());
 
     for capabilities in [&observer, &durable_chat] {

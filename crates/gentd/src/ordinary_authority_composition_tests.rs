@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
 use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
 use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
-use gent_runtime::catalog::declared_capabilities;
+use gent_runtime::catalog::RuntimeCapabilityProfile;
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, HostEpoch,
     SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
@@ -95,7 +95,7 @@ fn a_failed_first_preflight_constructs_no_private_provider_prefix() {
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -118,7 +118,7 @@ fn mismatched_owners_fail_before_reading_evidence_or_constructing_a_prefix() {
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -137,7 +137,7 @@ fn mismatched_epochs_fail_before_reading_evidence_or_constructing_a_prefix() {
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -156,7 +156,7 @@ fn invalid_selection_sets_fail_before_reading_evidence_or_constructing_a_prefix(
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();
@@ -188,7 +188,7 @@ fn agent_mode_fails_before_reading_evidence_or_constructing_a_prefix() {
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
-        &declared_capabilities(),
+        &RuntimeCapabilityProfile::default(),
         CompatibilityAssessment::default(),
     )
     .unwrap();

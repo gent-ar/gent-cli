@@ -119,6 +119,7 @@ mod tests {
         AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
         AgentChatConversationFrame, AgentChatTranscriptFrame, WireFrame, read_frame,
     };
+    use gent_runtime::catalog::RuntimeCapabilityProfile;
     use gent_types::{CapabilitySet, DoctorReport, EventPage, HostStatus, Receipt};
     use serde_json::json;
     use tokio::io::duplex;
@@ -200,7 +201,7 @@ mod tests {
 
     #[tokio::test]
     async fn observer_does_not_advertise_or_dispatch_agent_chat_reads() {
-        let advertised = observed_capabilities(false, false, false, false);
+        let advertised = observed_capabilities(&RuntimeCapabilityProfile::default());
         assert!(
             !advertised
                 .0
