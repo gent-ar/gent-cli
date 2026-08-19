@@ -160,6 +160,14 @@ lifecycle state are prohibited.
   run that module through the exact locked Node binary and recheck the full
   Node/npm/CLI chain before each npm effect, never resolving host Node through
   `PATH`. This remains dormant in observer mode.
+- The dormant ordinary Claude/Codex Ask/Plan composition now creates only a
+  lock-rechecked app-Node launcher, so npm-installed shims cannot select an
+  ambient Node runtime. Agent, Autonomous, and Bypass remain unavailable.
+- One bounded, strict signed ordinary-authority release artifact now embeds its
+  selected public providers, compatibility envelope, evidence, package policy,
+  and delegated verification keys. It validates every inner signature and binds
+  package policy to the locked Node before returning material; no bootstrap
+  reads it yet and no independent authority paths are accepted by its format.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised
