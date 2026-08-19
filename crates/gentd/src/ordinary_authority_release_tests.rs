@@ -27,7 +27,10 @@ fn one_signed_release_binds_its_nested_authority_to_the_locked_node() {
     let verified =
         SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10)
             .unwrap();
-    assert_eq!(verified.providers(), &[VerifiedProviderAuthority::Codex]);
+    assert!(matches!(
+        verified.providers(),
+        [VerifiedProviderAuthority::Codex(_)]
+    ));
     assert_eq!(
         verified.compatibility().manifest_sha256(),
         Some(digest(&release.payload.compatibility))

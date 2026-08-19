@@ -80,7 +80,17 @@ pub(crate) fn load(
 ) -> Result<CodexAuthorityPreflight, CodexAuthorityPreflightError> {
     let record: SignedCodexAuthorityEvidence = authority_evidence_input::read_record(record_path)?;
     let keys = authority_evidence_input::parse_keys(key_specs)?;
-    let evidence = record.verify(&keys, now_unix_seconds)?;
+    verify(&record, &keys, compatibility, now_unix_seconds)
+}
+
+/// Verifies an already-memory-resident Codex record from the one signed authority artifact.
+pub(crate) fn verify(
+    record: &SignedCodexAuthorityEvidence,
+    keys: &gent_adapters::compatibility::TrustedKeySet,
+    compatibility: &CompatibilityAssessment,
+    now_unix_seconds: u64,
+) -> Result<CodexAuthorityPreflight, CodexAuthorityPreflightError> {
+    let evidence = record.verify(keys, now_unix_seconds)?;
     let manifest = compatibility
         .manifest_sha256()
         .ok_or(CodexAuthorityPreflightError::CompatibilityUnavailable)?;

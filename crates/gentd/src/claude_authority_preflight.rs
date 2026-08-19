@@ -83,7 +83,17 @@ pub(crate) fn load(
 ) -> Result<ClaudeAuthorityPreflight, ClaudeAuthorityPreflightError> {
     let record: SignedClaudeAuthorityEvidence = authority_evidence_input::read_record(record_path)?;
     let keys = authority_evidence_input::parse_keys(key_specs)?;
-    let evidence = record.verify(&keys, now_unix_seconds)?;
+    verify(&record, &keys, compatibility, now_unix_seconds)
+}
+
+/// Verifies an already-memory-resident Claude record from the one signed authority artifact.
+pub(crate) fn verify(
+    record: &SignedClaudeAuthorityEvidence,
+    keys: &gent_adapters::compatibility::TrustedKeySet,
+    compatibility: &CompatibilityAssessment,
+    now_unix_seconds: u64,
+) -> Result<ClaudeAuthorityPreflight, ClaudeAuthorityPreflightError> {
+    let evidence = record.verify(keys, now_unix_seconds)?;
     let manifest = compatibility
         .manifest_sha256()
         .ok_or(ClaudeAuthorityPreflightError::CompatibilityUnavailable)?;

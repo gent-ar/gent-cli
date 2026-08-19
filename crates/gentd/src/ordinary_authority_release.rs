@@ -1,5 +1,7 @@
 //! Bounded signed source for uncomposed ordinary provider authority.
 use crate::{
+    claude_authority_preflight::ClaudeAuthorityPreflight,
+    codex_authority_preflight::CodexAuthorityPreflight,
     compatibility_assessment::CompatibilityAssessment, node_runtime_lock::AppNodeRuntimeLock,
 };
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -64,10 +66,10 @@ pub(crate) struct VerifiedOrdinaryAuthorityRelease {
     package_policy: VerifiedPackagePolicy,
     providers: Vec<VerifiedProviderAuthority>,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum VerifiedProviderAuthority {
-    Claude,
-    Codex,
+    Claude(ClaudeAuthorityPreflight),
+    Codex(CodexAuthorityPreflight),
 }
 impl VerifiedOrdinaryAuthorityRelease {
     #[must_use]
@@ -166,37 +168,35 @@ impl SignedOrdinaryAuthorityRelease {
             .package_policy
             .verify(&keys(&self.payload.package_policy_keys)?, now, node_digest)
             .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
-        let digest = compatibility
-            .manifest_sha256()
-            .ok_or(OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
         let mut providers = Vec::new();
         for provider in self.payload.providers {
             let verified = match provider {
                 ProviderAuthorityRelease::Claude {
                     evidence,
                     evidence_keys,
-                } => {
-                    let evidence = evidence
-                        .verify(&keys(&evidence_keys)?, now)
-                        .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
-                    (evidence.compatibility_manifest_sha256() == digest)
-                        .then_some(VerifiedProviderAuthority::Claude)
-                }
+                } => crate::claude_authority_preflight::verify(
+                    &evidence,
+                    &keys(&evidence_keys)?,
+                    &compatibility,
+                    now,
+                )
+                .map(VerifiedProviderAuthority::Claude)
+                .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority),
                 ProviderAuthorityRelease::Codex {
                     evidence,
                     evidence_keys,
-                } => {
-                    let evidence = evidence
-                        .verify(&keys(&evidence_keys)?, now)
-                        .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
-                    (evidence.compatibility_manifest_sha256() == digest)
-                        .then_some(VerifiedProviderAuthority::Codex)
-                }
-            }
-            .ok_or(OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
+                } => crate::codex_authority_preflight::verify(
+                    &evidence,
+                    &keys(&evidence_keys)?,
+                    &compatibility,
+                    now,
+                )
+                .map(VerifiedProviderAuthority::Codex)
+                .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority),
+            }?;
             let name = match verified {
-                VerifiedProviderAuthority::Claude => "claude",
-                VerifiedProviderAuthority::Codex => "codex",
+                VerifiedProviderAuthority::Claude(_) => "claude",
+                VerifiedProviderAuthority::Codex(_) => "codex",
             };
             policy
                 .approved_package(name, now)
