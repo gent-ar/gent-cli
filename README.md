@@ -21,9 +21,8 @@ than a second copy of application logic. The implemented vertical slice is:
   authority reader; observer-mode `gentd` deliberately declines its capability.
 - Explicit `gent deps` plans and receipt-fenced consent requests. The shipped observer rejects
   every external install; an approved host uses app-supplied Node but privately `npm -g` installs
-  signed exact packages under `.gentd`. It executes npm's locked CLI module through that exact
-  Node binary—never a system Node discovered from `PATH`—and marks an interrupted effect
-  `unprovable` rather than replaying it.
+  signed exact packages under `.gentd`, invoking npm's locked CLI through that exact Node—not
+  a system Node from `PATH`—and marks an interrupted effect `unprovable` rather than replaying it.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
   content and provider-native session identifiers.
@@ -284,7 +283,6 @@ or infrastructure detail; the architecture check rejects direct product-domain
 imports outside `gentd`. Pure transitions are testable without I/O; adapters own
 edge I/O. Every hand-authored source, test, script, and CI workflow is at most
 300 lines; generated lockfiles and evidence fixtures are excluded.
-
 ## Security boundary
 
 `gentd` never receives Claurst credentials or endpoints: its bridge is
