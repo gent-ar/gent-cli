@@ -175,6 +175,18 @@ where
         Ok(())
     }
 
+    /// Requests cooperative interruption of the live turn before process-tree escalation.
+    ///
+    /// # Errors
+    /// Returns a controlled error if the owned session has no live Codex turn.
+    pub fn interrupt_turn(&mut self, run_id: &str) -> Result<(), CodexRunnerError> {
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(CodexRunnerError::NotActive)?;
+        write(&run.process, run.turn.interrupt()?)
+    }
+
     /// Reports whether this process owner still owns the named native session.
     #[must_use]
     pub fn owns(&self, run_id: &str) -> bool {

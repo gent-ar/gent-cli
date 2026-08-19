@@ -4,8 +4,7 @@ use super::{
 };
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
-    CONVERSATION_ACTIVITY_CAPABILITY, EXTERNAL_PROVIDER_BRIDGE_CAPABILITY,
-    PROVIDER_AUTH_CAPABILITY,
+    CONVERSATION_ACTIVITY_CAPABILITY, PROVIDER_AUTH_CAPABILITY,
 };
 
 fn approval() -> PublicDriverApproval {
@@ -32,7 +31,6 @@ fn observer_and_durable_chat_profiles_hide_every_dormant_provider_lifecycle_surf
         for capability in [
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
             CONVERSATION_ACTIVITY_CAPABILITY,
-            EXTERNAL_PROVIDER_BRIDGE_CAPABILITY,
             PROVIDER_AUTH_CAPABILITY,
         ] {
             assert!(

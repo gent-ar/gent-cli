@@ -5,8 +5,10 @@
 //! outside this module.
 use serde_json::{Value, json};
 
+mod interrupt;
 mod phase;
 mod types;
+mod wire;
 pub use types::{
     CodexSandboxPolicy, CodexSessionConfig, CodexSessionError, CodexSessionIngress,
     CodexTurnEffort, CodexTurnOptions,
@@ -14,6 +16,7 @@ pub use types::{
 
 use phase::{CodexSessionPhase, matches_response};
 use types::turn_parameters;
+use wire::{encode, nested_id, response_id_at, thread_request, validate_config};
 const MAX_NATIVE_ID_BYTES: usize = 512;
 const MAX_WORKING_DIRECTORY_BYTES: usize = 4_096;
 const MAX_PROMPT_BYTES: usize = 65_536;
@@ -56,6 +59,7 @@ impl CodexAppServerSession {
             CodexSessionPhase::Ready {
                 thread_id,
                 turn_id: None,
+                interrupt_request_id: None,
                 turn_options,
             } => (thread_id.clone(), turn_options.clone()),
             CodexSessionPhase::Ready { .. } | CodexSessionPhase::AwaitTurn { .. } => {
@@ -92,13 +96,18 @@ impl CodexAppServerSession {
             .ok_or(CodexSessionError::MalformedResponse)?;
         self.response(response_id, frame)
     }
-
     /// Whether an exact thread response has made the connection available for a user turn.
     #[must_use]
     pub fn is_ready(&self) -> bool {
-        matches!(self.phase, CodexSessionPhase::Ready { turn_id: None, .. })
+        matches!(
+            self.phase,
+            CodexSessionPhase::Ready {
+                turn_id: None,
+                interrupt_request_id: None,
+                ..
+            }
+        )
     }
-
     /// Validates a prompt before a daemon-owned process is launched.
     ///
     /// # Errors
@@ -107,6 +116,14 @@ impl CodexAppServerSession {
         (!prompt.is_empty() && prompt.len() <= MAX_PROMPT_BYTES)
             .then_some(())
             .ok_or(CodexSessionError::InvalidPrompt)
+    }
+
+    /// Requests documented cooperative interruption for exactly the live native turn.
+    ///
+    /// # Errors
+    /// Rejects interruption before a turn is live or while an earlier request is unsettled.
+    pub fn interrupt(&mut self) -> Result<Vec<u8>, CodexSessionError> {
+        interrupt::request(&mut self.phase, &mut self.next_request_id)
     }
 
     fn response(
@@ -155,6 +172,7 @@ impl CodexAppServerSession {
                 self.phase = CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: None,
+                    interrupt_request_id: None,
                     turn_options,
                 };
                 Ok(CodexSessionIngress::Ready)
@@ -176,9 +194,24 @@ impl CodexAppServerSession {
                 self.phase = CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: Some(turn_id),
+                    interrupt_request_id: None,
                     turn_options,
                 };
                 Ok(CodexSessionIngress::TurnStarted)
+            }
+            CodexSessionPhase::Ready {
+                thread_id,
+                turn_id,
+                interrupt_request_id: Some(_),
+                turn_options,
+            } => {
+                self.phase = CodexSessionPhase::Ready {
+                    thread_id,
+                    turn_id,
+                    interrupt_request_id: None,
+                    turn_options,
+                };
+                Ok(CodexSessionIngress::Ignored)
             }
             _ => Err(CodexSessionError::UncorrelatedResponse),
         }
@@ -217,6 +250,7 @@ impl CodexAppServerSession {
                 CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: Some(turn_id),
+                    interrupt_request_id,
                     turn_options,
                 },
             ) if params.get("threadId").and_then(Value::as_str) == Some(thread_id.as_str())
@@ -225,6 +259,7 @@ impl CodexAppServerSession {
                 self.phase = CodexSessionPhase::Ready {
                     thread_id,
                     turn_id: None,
+                    interrupt_request_id,
                     turn_options,
                 };
                 Ok(CodexSessionIngress::TurnEnded)
@@ -241,60 +276,4 @@ impl CodexAppServerSession {
             .ok_or(CodexSessionError::RequestIdExhausted)?;
         Ok(request_id)
     }
-}
-
-fn validate_config(config: &CodexSessionConfig) -> Result<(), CodexSessionError> {
-    optional_bounded(
-        config.working_directory.as_deref(),
-        MAX_WORKING_DIRECTORY_BYTES,
-    )
-    .then_some(())
-    .ok_or(CodexSessionError::InvalidWorkingDirectory)?;
-    optional_bounded(config.resume_thread_id.as_deref(), MAX_NATIVE_ID_BYTES)
-        .then_some(())
-        .ok_or(CodexSessionError::InvalidThreadId)
-}
-
-fn optional_bounded(value: Option<&str>, maximum: usize) -> bool {
-    value.is_none_or(|value| !value.is_empty() && value.len() <= maximum)
-}
-
-fn thread_request(
-    config: CodexSessionConfig,
-) -> (&'static str, Value, Option<String>, CodexTurnOptions) {
-    let mut params = config
-        .working_directory
-        .map_or_else(|| json!({}), |cwd| json!({"cwd": cwd}));
-    let turn_options = config.turn_options;
-    match config.resume_thread_id {
-        Some(thread_id) => {
-            params["threadId"] = Value::String(thread_id.clone());
-            ("thread/resume", params, Some(thread_id), turn_options)
-        }
-        None => ("thread/start", params, None, turn_options),
-    }
-}
-
-fn response_id_at(frame: &Value, key: &str) -> Result<String, CodexSessionError> {
-    frame
-        .get("result")
-        .and_then(|result| nested_id(result, key).ok())
-        .ok_or(CodexSessionError::MalformedResponse)
-}
-
-fn nested_id(value: &Value, key: &str) -> Result<String, CodexSessionError> {
-    let id = value
-        .get(key)
-        .and_then(Value::as_object)
-        .and_then(|value| value.get("id"))
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty() && id.len() <= MAX_NATIVE_ID_BYTES)
-        .ok_or(CodexSessionError::MalformedResponse)?;
-    Ok(id.to_owned())
-}
-
-fn encode(frame: &Value) -> Result<Vec<u8>, CodexSessionError> {
-    let mut encoded = serde_json::to_vec(frame).map_err(|_| CodexSessionError::Serialization)?;
-    encoded.push(b'\n');
-    Ok(encoded)
 }

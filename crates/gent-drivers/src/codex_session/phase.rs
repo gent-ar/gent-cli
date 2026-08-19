@@ -16,6 +16,7 @@ pub(super) enum CodexSessionPhase {
     Ready {
         thread_id: String,
         turn_id: Option<String>,
+        interrupt_request_id: Option<u64>,
         turn_options: CodexTurnOptions,
     },
     AwaitTurn {
@@ -32,6 +33,10 @@ pub(super) fn matches_response(phase: &CodexSessionPhase, response_id: u64) -> b
         CodexSessionPhase::AwaitInitialize { request_id, .. }
         | CodexSessionPhase::AwaitThread { request_id, .. }
         | CodexSessionPhase::AwaitTurn { request_id, .. } => *request_id == response_id,
-        CodexSessionPhase::Ready { .. } | CodexSessionPhase::Failed => false,
+        CodexSessionPhase::Ready {
+            interrupt_request_id,
+            ..
+        } => interrupt_request_id == &Some(response_id),
+        CodexSessionPhase::Failed => false,
     }
 }

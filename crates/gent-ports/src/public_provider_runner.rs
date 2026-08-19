@@ -16,8 +16,8 @@ pub enum PublicProviderRunError {
 
 /// Daemon-owned public provider lifecycle boundary.
 ///
-/// Implementations receive only Claude or Codex locks. Private bridges are represented separately
-/// by `ExternalProviderBridge` and cannot enter this lifecycle.
+/// Implementations receive only Claude or Codex locks. Private bridges stay on their dedicated,
+/// daemon-only ingress and cannot enter this lifecycle.
 pub trait PublicProviderRunner: Send + Sync {
     /// Starts a new process only after the caller has durably reserved its run.
     ///

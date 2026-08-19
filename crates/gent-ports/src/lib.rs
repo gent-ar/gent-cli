@@ -15,7 +15,6 @@ mod conversation_content;
 mod conversation_ledger;
 mod conversation_prompt_ledger;
 mod dependency_action_executor;
-mod external_provider_bridge;
 mod git_executor;
 mod git_operation_ledger;
 mod goal_ledger;
@@ -60,8 +59,6 @@ pub use conversation_prompt_ledger::{ConversationPromptLedger, ConversationPromp
 pub use dependency_action_executor::{
     DependencyActionExecutor, DependencyActionExecutorError, DependencyActionOperation,
 };
-pub use external_provider_bridge::ExternalProviderBridge;
-pub use gent_types::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_executor::{GitExecutor, GitExecutorError, GitStatusOperation, GitStatusSummary};
 pub use git_operation_ledger::{GitOperationLedger, GitOperationUpdate};
 pub use goal_ledger::*;

@@ -28,7 +28,10 @@ fn options(mode: AgentChatMode) -> CodexTurnOptions {
 
 fn decode(frame: &[u8]) -> Value {
     assert_eq!(frame.last(), Some(&b'\n'));
-    serde_json::from_slice(&frame[..frame.len() - 1]).unwrap()
+    let mut decoded: Value = serde_json::from_slice(&frame[..frame.len() - 1]).unwrap();
+    assert_eq!(decoded["jsonrpc"], json!("2.0"));
+    decoded.as_object_mut().unwrap().remove("jsonrpc");
+    decoded
 }
 
 #[test]
@@ -130,6 +133,36 @@ fn only_the_matching_terminal_notification_releases_the_next_turn() {
         decode(&session.start_turn("again").unwrap())["id"],
         json!(4)
     );
+}
+
+#[test]
+fn live_turn_interrupt_uses_json_rpc_without_destroying_the_session() {
+    let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
+    let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
+    let _ = session
+        .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
+        .unwrap();
+    let _ = session.start_turn("hello").unwrap();
+    let _ = session
+        .receive(&json!({"id": 3, "result": {"turn": {"id": "turn-1"}}}))
+        .unwrap();
+    assert_eq!(
+        decode(&session.interrupt().unwrap()),
+        json!({"id":4,"method":"turn/interrupt","params":{"threadId":"thread-1","turnId":"turn-1"}})
+    );
+    assert_eq!(
+        session.interrupt(),
+        Err(CodexSessionError::InterruptAlreadyRequested)
+    );
+    assert_eq!(
+        session.receive(&json!({"id": 4, "result": {}})).unwrap(),
+        CodexSessionIngress::Ignored
+    );
+    assert_eq!(
+        session.receive(&json!({"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}})).unwrap(),
+        CodexSessionIngress::TurnEnded
+    );
+    assert!(session.is_ready());
 }
 
 #[test]

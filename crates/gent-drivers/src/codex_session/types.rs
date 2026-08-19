@@ -138,6 +138,10 @@ pub enum CodexSessionError {
     ThreadNotReady,
     #[error("the Codex app-server already has a live or pending user turn")]
     TurnAlreadyActive,
+    #[error("the Codex app-server has no live turn to interrupt")]
+    TurnNotActive,
+    #[error("the Codex app-server already has a pending interrupt request")]
+    InterruptAlreadyRequested,
     #[error("the Codex app-server session previously failed")]
     SessionFailed,
     #[error("the Codex app-server request identifier space is exhausted")]

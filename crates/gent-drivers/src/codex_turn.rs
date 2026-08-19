@@ -119,6 +119,14 @@ impl CodexTurnDriver {
             self.session.start_turn(&prompt)?,
         )])
     }
+
+    /// Requests a documented Codex turn interruption without destroying the owned session.
+    ///
+    /// # Errors
+    /// Rejects the request unless the exact turn is live.
+    pub fn interrupt(&mut self) -> Result<CodexTurnEffect, CodexTurnError> {
+        Ok(CodexTurnEffect::Write(self.session.interrupt()?))
+    }
 }
 
 fn writes(effects: &mut Vec<CodexTurnEffect>, frames: Vec<Vec<u8>>) {

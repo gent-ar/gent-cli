@@ -48,6 +48,7 @@ pub fn encode_codex_thread_request(
         }
     };
     encode_frame(&json!({
+        "jsonrpc": "2.0",
         "id": request_id,
         "method": method,
         "params": params,
@@ -104,7 +105,7 @@ mod tests {
                 )
                 .unwrap(),
             ),
-            json!({"id":2,"method":"thread/start","params":{"cwd":"/work"}})
+            json!({"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"cwd":"/work"}})
         );
     }
 
@@ -121,7 +122,7 @@ mod tests {
                 )
                 .unwrap(),
             ),
-            json!({"id":3,"method":"thread/resume","params":{"threadId":"thread-1"}})
+            json!({"jsonrpc":"2.0","id":3,"method":"thread/resume","params":{"threadId":"thread-1"}})
         );
     }
 

@@ -41,6 +41,10 @@ lifecycle state are prohibited.
   constructor, never by default observer composition.
 - Pure Claude/Codex normalizers, locked-process/session runner seams, bounded
   output/backpressure/drain primitives, and private Claurst bridge port types.
+- Codex app-server handshake, thread, and turn frames now always include the
+  required JSON-RPC 2.0 marker, and its session supports documented cooperative
+  interruption. The unused generic external-bridge protocol was removed;
+  `PrivateClaurstBridge` is the only private bridge contract.
 - Opt-in, redacted development transcript corpus and validation tooling; it is
   not a runtime recorder, lifecycle authority, or substitute for live evidence.
 - No public Claurst credential, endpoint, or routing implementation exists.
@@ -55,6 +59,10 @@ lifecycle state are prohibited.
 - Four strict public evidence cells remain: Claude persistent permission,
   Claude compaction, Claude malformed tolerance, and Codex malformed tolerance.
   No recording may be fabricated.
+- A bounded live Codex 0.144.1 plan-mode probe was captured on 2026-08-19 and
+  recorded as a reviewed development transcript. It is intentionally not
+  admitted as authority evidence or used to replace the manifest's established
+  compatibility record.
 - Autonomous/Bypass, live login, provisioning, reviewed-plan execution,
   multi-agent dispatch, and native-app driver removal remain authority/evidence
   gated. Their contracts do not authorize hidden fallback launchers.

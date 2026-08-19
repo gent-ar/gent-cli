@@ -29,7 +29,12 @@ fn frames(effects: &[CodexTurnEffect]) -> Vec<Value> {
     effects
         .iter()
         .filter_map(|effect| match effect {
-            CodexTurnEffect::Write(frame) => serde_json::from_slice(&frame[..frame.len() - 1]).ok(),
+            CodexTurnEffect::Write(frame) => {
+                let mut frame: Value = serde_json::from_slice(&frame[..frame.len() - 1]).ok()?;
+                assert_eq!(frame["jsonrpc"], json!("2.0"));
+                frame.as_object_mut()?.remove("jsonrpc");
+                Some(frame)
+            }
             CodexTurnEffect::Fact(_) => None,
         })
         .collect()

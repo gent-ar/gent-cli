@@ -1,8 +1,7 @@
 use gent_protocol::{
     CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY, ConversationIndexFrame,
     ConversationStatusFrame, DependencyAction, DependencyPlan, DependencyPlanRequest,
-    DependencyProvider, EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame,
-    ExternalProviderBridgeHello, Hello, MAX_FRAME_BYTES, PublicRunOutcome, PublicRunResponse,
+    DependencyProvider, Hello, MAX_FRAME_BYTES, PublicRunOutcome, PublicRunResponse,
     RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame, WireFrame, negotiate, read_frame,
     read_json_frame, write_frame, write_json_frame,
 };
@@ -93,25 +92,6 @@ async fn conversation_index_is_an_explicit_content_free_extension() {
         frame
     );
     assert_eq!(CONVERSATION_INDEX_CAPABILITY, "conversation-index-v1");
-}
-
-#[tokio::test]
-async fn private_bridge_frames_share_bounded_framing_without_public_wire_variants() {
-    let (mut writer, mut reader) = duplex(1024);
-    let frame = ExternalProviderBridgeFrame::Hello(ExternalProviderBridgeHello {
-        protocol_min: 1,
-        protocol_max: 1,
-        capabilities: CapabilitySet(vec![EXTERNAL_PROVIDER_BRIDGE_CAPABILITY.into()]),
-    });
-
-    write_json_frame(&mut writer, &frame).await.unwrap();
-    assert_eq!(
-        read_json_frame::<_, ExternalProviderBridgeFrame>(&mut reader)
-            .await
-            .unwrap(),
-        frame
-    );
-    assert!(!serde_json::to_string(&frame).unwrap().contains("claurst"));
 }
 
 #[test]

@@ -21,7 +21,6 @@ mod conversation_timeline;
 mod decision;
 mod dependencies;
 mod event_stream;
-mod external_provider_bridge;
 mod goal;
 mod orchestration;
 mod permission_policy;
@@ -56,10 +55,6 @@ pub use dependencies::{
     DependencyPlan, DependencyPlanRequest, DependencyProvider, dependency_plan_digest,
 };
 pub use event_stream::{EVENT_STREAM_CAPABILITY, EventStreamFrame};
-pub use external_provider_bridge::{
-    EXTERNAL_PROVIDER_BRIDGE_CAPABILITY, ExternalProviderBridgeFrame, ExternalProviderBridgeHello,
-    ExternalProviderBridgeNegotiated,
-};
 pub use goal::{GOAL_CAPABILITY, GoalFrame, GoalFrameError, MAX_GOAL_FRAME_BYTES};
 pub use orchestration::{
     MAX_ORCHESTRATION_FRAME_BYTES, ORCHESTRATION_CAPABILITY, OrchestrationFrame,

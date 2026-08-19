@@ -1,0 +1,9 @@
+{
+  "format": "gent-driver-transcript-v1",
+  "provider": "codex",
+  "scenario": "live-app-server-plan-mode-20260819",
+  "source": "redacted-live-public-driver-fixture",
+  "recordedAt": "2026-08-19T04:36:05Z",
+  "reviewedAt": "2026-08-19T04:36:05Z",
+  "notes": "One bounded real Codex app-server plan-mode probe. Raw provider output, native state, executable location, and prompt text are excluded."
+}

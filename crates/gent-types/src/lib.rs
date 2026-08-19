@@ -22,7 +22,6 @@ mod conversations;
 mod decision;
 mod doctor;
 mod event_page;
-mod external_provider_bridge;
 mod git_operations;
 mod goal;
 mod lifecycle_signal;
@@ -97,7 +96,6 @@ pub use doctor::{
     PrivateBridgeAvailability, PublicProviderStatus,
 };
 pub use event_page::EventPage;
-pub use external_provider_bridge::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord};
 pub use goal::{
     GOAL_SCHEMA_VERSION, GoalBinding, GoalContractError, GoalProjection, GoalRecord, GoalStatus,

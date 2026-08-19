@@ -5,7 +5,6 @@
 //! transcript can become test evidence.
 
 mod evidence_manifest;
-mod fake_bridge;
 mod fake_legacy_event_tap;
 mod fake_private_claurst_bridge;
 mod fake_process;
@@ -17,7 +16,6 @@ mod transcript_manifest;
 mod transcript_provenance;
 
 pub use evidence_manifest::validate_evidence_manifest;
-pub use fake_bridge::{BridgeSubmission, FakeExternalProviderBridge};
 pub use fake_legacy_event_tap::FakeLegacyEventTap;
 pub use fake_private_claurst_bridge::FakePrivateClaurstBridge;
 pub use fake_process::{FakeProcess, FakeProcessSignal};
