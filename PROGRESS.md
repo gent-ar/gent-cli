@@ -50,10 +50,11 @@ lifecycle state are prohibited.
   shutdown draining are complete. A later committed prompt re-arms only its
   selected host, preventing an idle settled session from creating a permanent
   polling cadence.
-- That sealed ordinary composition preflights both private evidence records
-  before host construction. Its pure gate accepts any valid model/effort for
-  Claude/Codex Ask or Plan, while rejecting every other provider or mode before
-  a ledger write; executable compatibility remains the lock-checked launch gate.
+- That sealed ordinary composition preflights each selected provider's private
+  evidence before host construction. Codex may be selected without unavailable
+  Claude evidence; multiple selected hosts still require one coordinator/epoch.
+  Its pure gate accepts valid Claude/Codex Ask or Plan selections, while
+  executable compatibility remains the lock-checked launch gate.
 - Its one daemon-owned, notification-driven cadence is paired with the
   post-commit prompt wake. It replays durable recovery work at composition
   startup and polls only while a bounded host reports active work; it retains no
@@ -146,10 +147,10 @@ lifecycle state are prohibited.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.
-- A sealed all-or-nothing ordinary-authority input parser rejects partial
-  evidence/compatibility settings and durable-chat-profile conflicts without
-  I/O. It accepts no coordinator or epoch and is not yet a daemon argument or
-  transport entry point.
+- A sealed ordinary-authority input parser accepts one or more independently
+  complete Claude/Codex evidence records, rejects partial settings and
+  durable-chat-profile conflicts without I/O, and accepts no coordinator or
+  epoch. It is not yet a daemon argument or transport entry point.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised

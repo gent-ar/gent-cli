@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use super::{OrdinaryAuthorityBootstrapError, OrdinaryAuthorityBootstrapInput, parse};
+use super::{
+    OrdinaryAuthorityBootstrapError, OrdinaryAuthorityBootstrapInput,
+    OrdinaryProviderBootstrapConfig, parse,
+};
 
 const KEY: &str = "review:key";
 
@@ -48,29 +51,45 @@ fn authority_rejects_the_chat_only_profile_before_examining_evidence() {
 }
 
 #[test]
-fn authority_requires_both_provider_evidence_records_and_key_sets() {
+fn authority_requires_one_complete_selected_provider() {
     let mut input = OrdinaryAuthorityBootstrapInput {
         enabled: true,
         ..OrdinaryAuthorityBootstrapInput::default()
     };
     assert_eq!(
         parse(input.clone()),
-        Err(OrdinaryAuthorityBootstrapError::MissingCodexEvidence)
+        Err(OrdinaryAuthorityBootstrapError::MissingProvider)
     );
     input.codex_evidence_record = Some(PathBuf::from("/unread/codex.json"));
     assert_eq!(
         parse(input.clone()),
         Err(OrdinaryAuthorityBootstrapError::MissingCodexKeys)
     );
+    input.codex_evidence_record = None;
     input.codex_trusted_keys.push(KEY.into());
     assert_eq!(
-        parse(input.clone()),
-        Err(OrdinaryAuthorityBootstrapError::MissingClaudeEvidence)
-    );
-    input.claude_evidence_record = Some(PathBuf::from("/unread/claude.json"));
-    assert_eq!(
         parse(input),
-        Err(OrdinaryAuthorityBootstrapError::MissingClaudeKeys)
+        Err(OrdinaryAuthorityBootstrapError::MissingCodexEvidence)
+    );
+}
+
+#[test]
+fn one_provider_keeps_an_unavailable_other_provider_out_of_preflight() {
+    let mut input = OrdinaryAuthorityBootstrapInput {
+        enabled: true,
+        ..OrdinaryAuthorityBootstrapInput::default()
+    };
+    input.codex_evidence_record = Some(PathBuf::from("/unread/codex.json"));
+    input.codex_trusted_keys.push(KEY.into());
+    input.compatibility_cache = Some(PathBuf::from("/unread/compatibility.json"));
+    input.compatibility_keys.push(KEY.into());
+    let config = parse(input).unwrap().unwrap();
+    assert_eq!(
+        config.providers,
+        vec![OrdinaryProviderBootstrapConfig::Codex {
+            evidence_record: PathBuf::from("/unread/codex.json"),
+            trusted_keys: vec![KEY.into()],
+        }]
     );
 }
 
@@ -93,19 +112,22 @@ fn authority_requires_complete_signed_compatibility_inputs() {
 #[test]
 fn complete_authority_input_preserves_only_later_preflight_material() {
     let config = parse(complete_input()).unwrap().unwrap();
-    assert_eq!(
-        config.codex_evidence_record,
-        PathBuf::from("/unread/codex-evidence.json")
-    );
-    assert_eq!(
-        config.claude_evidence_record,
-        PathBuf::from("/unread/claude-evidence.json")
-    );
+    assert_eq!(config.providers.len(), 2);
     assert_eq!(
         config.compatibility_cache,
         PathBuf::from("/unread/compatibility.json")
     );
-    assert_eq!(config.codex_trusted_keys, vec![KEY]);
-    assert_eq!(config.claude_trusted_keys, vec![KEY]);
+    assert!(matches!(
+        &config.providers[0],
+        OrdinaryProviderBootstrapConfig::Codex { evidence_record, trusted_keys }
+            if evidence_record == &PathBuf::from("/unread/codex-evidence.json")
+                && trusted_keys == &vec![KEY]
+    ));
+    assert!(matches!(
+        &config.providers[1],
+        OrdinaryProviderBootstrapConfig::Claude { evidence_record, trusted_keys }
+            if evidence_record == &PathBuf::from("/unread/claude-evidence.json")
+                && trusted_keys == &vec![KEY]
+    ));
     assert_eq!(config.compatibility_keys, vec![KEY]);
 }
