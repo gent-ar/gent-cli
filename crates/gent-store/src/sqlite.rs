@@ -44,6 +44,7 @@ mod orchestration_facts;
 mod orchestration_ledger;
 mod policies;
 mod policy_ledger;
+mod private_provider_prompt_provision;
 mod provision_receipts;
 mod provisioned_provider_locks;
 mod queries;

@@ -59,7 +59,7 @@ fn saves_message_turn_receipt_and_ordinal_in_one_durable_result() {
 
     assert_eq!(saved.receipt.status, ReceiptStatus::Settled);
     assert_eq!(saved.run_id.0, "run-1");
-    assert_eq!(saved.delivery, AgentChatPromptDelivery::AwaitingProvider);
+    assert_eq!(saved.delivery, AgentChatPromptDelivery::AwaitingReadiness);
     assert_eq!(saved.message.sequence, 1);
     assert_eq!(saved.message.text, "hello");
     assert_eq!(

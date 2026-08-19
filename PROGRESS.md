@@ -134,7 +134,13 @@ lifecycle state are prohibited.
   Its explicit profile derives Ready, a daemon-generated install review, or a
   safe unavailable reason from durable Gent facts; clients cannot inject a
   provider, executable, lock, or plan. Observer and chat-only profiles do not
-  advertise it, and it still has no provision-confirmation action.
+  advertise it, and it has no composed provision-confirmation action.
+- The unadvertised prompt-provider-provision-v1 contract accepts only receipt, held-prompt,
+  conversation/run, consent, epoch, and the daemon review digest. It cannot carry provider,
+  package, executable, policy, or plan fields. Its SQLite settlement writes the verified lock,
+  terminal provision receipt, and release of that exact held send prompt in one immediate
+  transaction; any late failure rolls all three back. The corresponding capability has no
+  transport or bootstrap composition yet.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.
@@ -167,9 +173,9 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Bind the sealed Ask/Plan Claude/Codex composition and the separate private
-   provisioning/readiness review to explicit daemon authority only after strict
-   provider evidence; integrate transient admission/shutdown with listener lifecycle.
+1. Complete the prompt-scoped provisioning authority: derive the reviewed plan from the current
+   run, reserve/re-read its daemon-built command immediately before npm, then compose its
+   capability only after strict provider evidence and sandbox proof.
 2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
    process-tree drain, terminal settlement, and reconnect by durable cursors.
 3. Add the private Claurst bridge under the identical public fact contract and

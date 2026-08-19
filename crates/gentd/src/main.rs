@@ -150,6 +150,8 @@ mod public_driver_runtime;
 #[cfg(test)]
 mod public_driver_runtime_tests;
 mod public_runs;
+#[cfg(test)]
+mod readiness_test_support;
 mod reviewed_plan_api;
 mod reviewed_plan_transport;
 #[cfg(test)]

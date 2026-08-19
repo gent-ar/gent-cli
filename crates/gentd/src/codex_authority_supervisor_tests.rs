@@ -198,7 +198,7 @@ fn conversation(ledger: &SqliteLedger) -> AgentChatConversationId {
 }
 
 fn save(ledger: &SqliteLedger, conversation_id: AgentChatConversationId, id: &str, text: &str) {
-    ledger
+    let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId(id.into()),
             receipt_id: ReceiptId(format!("{id}-receipt")),
@@ -208,4 +208,5 @@ fn save(ledger: &SqliteLedger, conversation_id: AgentChatConversationId, id: &st
             text: text.into(),
         })
         .unwrap();
+    crate::readiness_test_support::release(ledger, &saved);
 }

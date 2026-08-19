@@ -231,7 +231,7 @@ fn create_conversation(ledger: &SqliteLedger) {
 }
 
 fn save_prompt(ledger: &SqliteLedger) -> gent_types::AgentChatPromptSaved {
-    ledger
+    let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("prompt-1".into()),
             receipt_id: ReceiptId("receipt-prompt".into()),
@@ -240,7 +240,9 @@ fn save_prompt(ledger: &SqliteLedger) -> gent_types::AgentChatPromptSaved {
             disposition: AgentChatPromptDisposition::Send,
             text: "hello".into(),
         })
-        .unwrap()
+        .unwrap();
+    crate::readiness_test_support::release(ledger, &saved);
+    saved
 }
 
 fn assert_transcript(

@@ -3,7 +3,8 @@ use super::{
     declared_capabilities_with_profiles, reconcile, validate_observed_capabilities,
 };
 use gent_protocol::{
-    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, PROMPT_PROVIDER_PROVISION_CAPABILITY,
+    PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
 };
 use gent_types::CapabilitySet;
 
@@ -73,5 +74,28 @@ fn provider_readiness_requires_its_typed_chat_profile_feature() {
         declared_capabilities_with_profiles(&enabled)
             .0
             .contains(&PROVIDER_READINESS_CAPABILITY.into())
+    );
+}
+
+#[test]
+fn prompt_provision_requires_explicit_readiness_and_its_own_profile_feature() {
+    let absent = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ProviderReadiness,
+    ]);
+    assert!(
+        !declared_capabilities_with_profiles(&absent)
+            .0
+            .contains(&PROMPT_PROVIDER_PROVISION_CAPABILITY.into())
+    );
+    let enabled = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ProviderReadiness,
+        RuntimeCapabilityFeature::PromptProviderProvision,
+    ]);
+    assert!(
+        declared_capabilities_with_profiles(&enabled)
+            .0
+            .contains(&PROMPT_PROVIDER_PROVISION_CAPABILITY.into())
     );
 }

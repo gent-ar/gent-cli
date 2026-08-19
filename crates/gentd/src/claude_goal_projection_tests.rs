@@ -59,7 +59,7 @@ fn claude_prepares_the_exact_gent_resolved_revisioned_goal() {
             },
         )
         .unwrap();
-    ledger
+    let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("prompt-1".into()),
             receipt_id: ReceiptId("prompt-receipt".into()),
@@ -69,6 +69,7 @@ fn claude_prepares_the_exact_gent_resolved_revisioned_goal() {
             text: "continue".into(),
         })
         .unwrap();
+    crate::readiness_test_support::release(&ledger, &saved);
     let goal = projection();
     let runner = Runner::default();
     let compatibility = compatibility();

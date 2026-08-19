@@ -36,6 +36,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             text: "hello".into(),
         })
         .unwrap();
+    crate::readiness_test_support::release(&ledger, &prompt);
     let runner = Runner::default();
     runner.state.lock().unwrap().effects.push_back(vec![
         CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
@@ -80,7 +81,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         .unwrap();
     assert_eq!(transcript.events.len(), 1);
     assert_eq!(transcript.events[0].text, "hello back");
-    ledger
+    let follow_up = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("prompt-b".into()),
             receipt_id: ReceiptId("prompt-receipt-b".into()),
@@ -90,6 +91,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             text: "follow up".into(),
         })
         .unwrap();
+    crate::readiness_test_support::release(&ledger, &follow_up);
     assert!(matches!(
         host.tick().unwrap().dispatch,
         Some(CodexPromptDispatchOutcome::Started { .. })

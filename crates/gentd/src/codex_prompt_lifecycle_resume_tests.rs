@@ -56,7 +56,7 @@ fn next_prompt_resumes_the_daemon_owned_codex_session_after_process_loss() {
         .unwrap();
     ledger.close_ingress(HostEpoch(1)).unwrap();
     ledger.fence_and_open(HostEpoch(1)).unwrap();
-    ledger
+    let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("prompt-a".into()),
             receipt_id: ReceiptId("prompt-receipt".into()),
@@ -66,6 +66,7 @@ fn next_prompt_resumes_the_daemon_owned_codex_session_after_process_loss() {
             text: "resume me".into(),
         })
         .unwrap();
+    crate::readiness_test_support::release(&ledger, &saved);
     let runner = Runner::default();
     let compatibility = compatibility();
     let runtime = PublicDriversRuntime::new(

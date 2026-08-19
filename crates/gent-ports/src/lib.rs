@@ -87,7 +87,8 @@ pub use provider_auth_discovery::{
 };
 pub use provider_driver::ProviderDriver;
 pub use provisioned_provider_lock_ledger::{
-    ProvisionedProviderLockLedger, ProvisionedProviderLockReader,
+    PrivateProviderPromptProvisionLedger, ProvisionedProviderLockLedger,
+    ProvisionedProviderLockReader,
 };
 pub use public_provider_resolver::PublicProviderResolver;
 pub use public_provider_runner::{PublicProviderRunError, PublicProviderRunner};

@@ -159,7 +159,7 @@ pub(crate) fn profile(
 }
 
 pub(crate) fn prompt(ledger: &SqliteLedger, conversation_id: &AgentChatConversationId, key: &str) {
-    ledger
+    let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId(format!("request-{key}")),
             receipt_id: ReceiptId(format!("receipt-{key}")),
@@ -169,6 +169,7 @@ pub(crate) fn prompt(ledger: &SqliteLedger, conversation_id: &AgentChatConversat
             text: format!("message-{key}"),
         })
         .unwrap();
+    crate::readiness_test_support::release(ledger, &saved);
 }
 
 #[test]

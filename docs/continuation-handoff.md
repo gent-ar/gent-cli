@@ -112,6 +112,13 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   read surface in an explicit profile only. It produces daemon-derived
   Ready/Review/Unavailable replies and preserves observer and chat-only
   capability absence. It does not yet authorize provisioning or a provider launch.
+- prompt-provider-provision-v1 has a strict, uncomposed confirmation DTO. A client may echo
+  only its provision receipt, exact held prompt/conversation/run, consent, epoch, and the
+  daemon-issued review digest; provider/action/package/path/plan/policy are absent. A new
+  SQLite port atomically persists a verified public-provider lock, terminal provision receipt,
+  and release of that exact `awaiting_readiness` send prompt. It validates consent, epoch,
+  fingerprint, current selected run, provider, and immutable lock; failures roll back. The
+  capability is not in bootstrap, `RuntimeFacade`, or any transport.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
   same selected-run ordering as prompt ownership. Clients must carry that
   identity into future readiness and prompt-fence requests rather than infer it.
@@ -170,8 +177,8 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Add graceful authority shutdown/admission control, then bind the sealed Ask/Plan
-   Claude/Codex composition and its cadence to explicit bootstrap after strict evidence.
+1. Bind prompt-provider provisioning to a daemon-built command, catalog recheck, and pre-effect
+   held-prompt verification; then compose it only after strict evidence and sandbox proof.
    Default observer and broad modes stay absent.
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor

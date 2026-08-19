@@ -49,7 +49,7 @@ fn projection(revision: u64) -> GoalProjection {
 }
 
 fn save(ledger: &SqliteLedger, request: &str, text: &str) {
-    ledger
+    let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId(request.into()),
             receipt_id: ReceiptId(format!("receipt-{request}")),
@@ -59,6 +59,7 @@ fn save(ledger: &SqliteLedger, request: &str, text: &str) {
             text: text.into(),
         })
         .unwrap();
+    crate::readiness_test_support::release(ledger, &saved);
 }
 
 #[test]

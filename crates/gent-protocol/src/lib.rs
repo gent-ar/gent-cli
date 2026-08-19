@@ -24,6 +24,7 @@ mod event_stream;
 mod goal;
 mod orchestration;
 mod permission_policy;
+mod prompt_provider_provision;
 mod provider_auth;
 mod provider_readiness;
 mod reviewed_plan;
@@ -62,6 +63,10 @@ pub use orchestration::{
     OrchestrationFrameError,
 };
 pub use permission_policy::{PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame};
+pub use prompt_provider_provision::{
+    PROMPT_PROVIDER_PROVISION_CAPABILITY, PromptProviderProvisionFrame,
+    PromptProviderProvisionState,
+};
 pub use provider_auth::{
     MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame,
     ProviderAuthFrameError, read_provider_auth_frame, write_provider_auth_frame,

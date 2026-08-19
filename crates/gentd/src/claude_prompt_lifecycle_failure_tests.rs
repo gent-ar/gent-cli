@@ -36,7 +36,7 @@ fn claude_poll_failure_retains_ownership_without_fabricating_terminal_settlement
             },
         )
         .unwrap();
-    ledger
+    let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("prompt-a".into()),
             receipt_id: ReceiptId("prompt-receipt".into()),
@@ -46,6 +46,7 @@ fn claude_poll_failure_retains_ownership_without_fabricating_terminal_settlement
             text: "hello".into(),
         })
         .unwrap();
+    crate::readiness_test_support::release(&ledger, &saved);
     let runner = Runner::default();
     let compatibility = compatibility();
     let runtime = PublicDriversRuntime::new(

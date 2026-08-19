@@ -1,6 +1,9 @@
 //! Durable provenance for Gent-owned public-provider installation locks.
 
-use gent_types::{Event, ProvisionedProviderInstallation, Receipt, ReceiptStatus};
+use gent_types::{
+    Command, Event, ProviderPromptProvisionBinding, ProvisionedProviderInstallation, Receipt,
+    ReceiptStatus,
+};
 
 use crate::LedgerError;
 
@@ -52,4 +55,24 @@ impl<T: ProvisionedProviderLockLedger + ?Sized> ProvisionedProviderLockReader fo
     ) -> Result<Option<ProvisionedProviderInstallation>, LedgerError> {
         ProvisionedProviderLockLedger::find_provisioned_provider_installation(self, provider)
     }
+}
+
+/// Atomically settles one verified prompt-scoped provision and releases that exact held prompt.
+///
+/// This is distinct from generic dependency actions: its immutable command fingerprint binds the
+/// prompt receipt, conversation, current run, provider, action, consent, and reviewed digest.
+pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
+    /// Writes the lock, receipt/event, and one held-prompt release in the same transaction.
+    ///
+    /// # Errors
+    /// Returns when any prompt/run/provider/receipt/command fence differs, leaving every fact
+    /// unmodified.
+    fn settle_verified_provider_prompt_provision(
+        &self,
+        command: &Command,
+        receipt: &Receipt,
+        installation: &ProvisionedProviderInstallation,
+        terminal: &Event,
+        binding: &ProviderPromptProvisionBinding,
+    ) -> Result<Receipt, LedgerError>;
 }

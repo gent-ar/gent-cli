@@ -281,8 +281,7 @@ For the current working-tree context and continuation order, read [the handoff](
    independent clean-install, terminal-IPC, automatic-update-status, and supervisor-rejection checks.
 7. [ ] Reviewed-plan storage, exact approval/rejection, and receipt-backed context-boundary child reservations exist but remain unadvertised until lifecycle/evidence authority is approved; see [reviewed-plan execution](agent-chat-execution-plan.md). `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching are also follow-on work.
 8. [ ] Provider-auth discovery and consented Claude/Codex login require the typed `askTool` contract, sandboxed authority, locked binaries, and redacted live evidence; see [provider-auth-plan.md](provider-auth-plan.md).
-9. [ ] Prompt-triggered Claude/Codex provisioning rechecks the app-supplied Node runtime and
-   verifies the executable, but still needs authority composition, sandbox proof, and evidence.
+9. [ ] Prompt-triggered Claude/Codex provisioning rechecks the app-supplied Node runtime and verifies the executable. Its unadvertised confirmation contract and atomic lock/receipt/prompt release storage exist, but it still needs daemon-built command/catalog authority composition, sandbox proof, and evidence.
 10. [ ] Gent-native multi-agent orchestration is planned, not implemented: typed
     task graphs, `/fanout`, `/cross-review`, isolated worktree leases, custom
     harness profiles, cross-vendor findings, and cursor-resumable recovery must

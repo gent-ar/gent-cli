@@ -11,6 +11,7 @@ mod agent_chat_transcripts;
 mod attachment_receipts;
 mod attachments;
 pub mod catalog;
+mod command_receipts;
 mod conversation_activity;
 mod conversation_content;
 mod conversation_context;
@@ -81,6 +82,7 @@ pub use agent_chat_transcripts::{
     AgentChatTranscriptAuthority, AgentChatTranscriptIngress,
 };
 pub use attachments::AttachmentService;
+pub use command_receipts::{CommandReceiptClaim, CommandReceiptReservation};
 pub use conversation_activity::{
     ConversationActivityAuthority, ConversationActivityRead, ConversationActivityResult,
     ConversationActivityService,

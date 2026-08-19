@@ -81,7 +81,7 @@ fn require_terminal(
         .ok_or_else(|| LedgerError::Invariant("invalid provisioning settlement".into()))
 }
 
-fn existing_settlement(
+pub(super) fn existing_settlement(
     connection: &rusqlite::Connection,
     receipt: &Receipt,
     installation: Option<&ProvisionedProviderInstallation>,
@@ -101,7 +101,7 @@ fn existing_settlement(
     }
 }
 
-fn save_installation(
+pub(super) fn save_installation(
     connection: &rusqlite::Connection,
     receipt: &Receipt,
     installation: &ProvisionedProviderInstallation,
