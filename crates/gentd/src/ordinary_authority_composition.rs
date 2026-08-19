@@ -143,14 +143,14 @@ pub(crate) fn compose_ordinary_authority(
     for provider in config.providers {
         match provider {
             OrdinaryProviderAuthorityConfig::Codex(config) => {
-                let host = compose_private_codex_authority(state, &config, launcher)?;
+                let host = compose_private_codex_authority(state, &config, launcher.clone())?;
                 hosts.push(Box::new(OrdinaryProviderHost::new(
                     AgentChatProvider::Codex,
                     ProviderLifecycleHost::new(host),
                 )));
             }
             OrdinaryProviderAuthorityConfig::Claude(config) => {
-                let host = compose_private_claude_authority(state, config, launcher)?;
+                let host = compose_private_claude_authority(state, config, launcher.clone())?;
                 hosts.push(Box::new(OrdinaryProviderHost::new(
                     AgentChatProvider::Claude,
                     ProviderLifecycleHost::new(host),

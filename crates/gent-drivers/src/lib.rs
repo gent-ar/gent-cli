@@ -39,7 +39,7 @@ pub use macos_provider_helper::{
 };
 pub use output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 pub use process::{CapturedStream, ProcessOutput, SystemLauncher, SystemProcess};
-pub use read_only_host_launch::ReadOnlyHostLauncher;
+pub use read_only_host_launch::{NodeReadOnlyHostLauncher, ReadOnlyHostLauncher};
 pub use run_runner::DriverRunRunner;
 pub use sandboxed_launch::{
     SandboxedLauncher, SandboxedProviderLaunch, SandboxedProviderLaunchError,

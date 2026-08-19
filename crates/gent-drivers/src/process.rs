@@ -4,6 +4,7 @@
 //! the reader edge so an uncooperative provider cannot grow driver memory without limit.
 
 use std::collections::VecDeque;
+use std::env;
 use std::io::{Read, Result as IoResult, Write};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -17,15 +18,28 @@ pub use crate::process_streams::{CapturedStream, ProcessOutput};
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 
 /// A synchronous launcher for public executables with a fixed per-stream output limit.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SystemLauncher {
     output_limit: usize,
+    preferred_node_bin: Option<std::path::PathBuf>,
 }
 
 impl SystemLauncher {
     #[must_use]
     pub const fn new(output_limit: usize) -> Self {
-        Self { output_limit }
+        Self {
+            output_limit,
+            preferred_node_bin: None,
+        }
+    }
+
+    /// Puts a caller-locked Node directory first for npm-installed provider shims.
+    #[must_use]
+    pub fn with_preferred_node(output_limit: usize, node_bin: std::path::PathBuf) -> Self {
+        Self {
+            output_limit,
+            preferred_node_bin: Some(node_bin),
+        }
     }
 }
 
@@ -47,6 +61,9 @@ impl ProcessLauncher for SystemLauncher {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(node_bin) = &self.preferred_node_bin {
+            configure_locked_node_environment(&mut command, node_bin)?;
+        }
         if let Some(workspace_root) = &launch.workspace_root {
             command.current_dir(workspace_root);
         }
@@ -74,6 +91,24 @@ impl ProcessLauncher for SystemLauncher {
             self.output_limit,
         ))
     }
+}
+
+fn configure_locked_node_environment(
+    command: &mut Command,
+    node_bin: &std::path::Path,
+) -> Result<(), SupervisorError> {
+    let inherited = env::var_os("PATH").unwrap_or_default();
+    let path = env::join_paths(
+        std::iter::once(node_bin.to_path_buf()).chain(env::split_paths(&inherited)),
+    )
+    .map_err(|_| SupervisorError::Launch("locked Node path cannot form PATH".into()))?;
+    command
+        .env("PATH", path)
+        .env_remove("NODE_OPTIONS")
+        .env_remove("NODE_PATH")
+        .env_remove("npm_config_prefix")
+        .env_remove("NPM_CONFIG_PREFIX");
+    Ok(())
 }
 
 /// A provider-owned process group with bounded asynchronous pipe readers.
