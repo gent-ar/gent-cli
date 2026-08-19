@@ -105,7 +105,13 @@ fn unavailable_durable_receipt_refuses_before_npm_effect() {
 fn provisioner(
     installer: Installer,
     receipts: ReceiptReader,
-) -> PrivateProviderProvisioner<Installer, Policy, Verifier, ReceiptReader> {
+) -> PrivateProviderProvisioner<
+    Installer,
+    Policy,
+    Verifier,
+    ReceiptReader,
+    crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
+> {
     PrivateProviderProvisioner::new(runtime(), installer, Policy, Some(Verifier), receipts)
 }
 

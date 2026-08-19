@@ -9,6 +9,8 @@ use gent_ports::{PublicProviderRunError, RunVersionAuthorizer};
 use gent_types::{CompatibilityTrust, ExecutableIdentity, RunVersionLock};
 use sha2::{Digest, Sha256};
 
+use crate::private_provider_compatibility::ProvisionedProviderCompatibility;
+
 /// A verified cache and trusted key set injected by the daemon composition root.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CompatibilityAssessment {
@@ -127,14 +129,29 @@ impl CompatibilityAssessment {
     /// Returns a controlled denial when no current digest-bound entry authorizes the lock.
     pub fn bind_observed_lock(
         &self,
+        lock: RunVersionLock,
+    ) -> Result<RunVersionLock, PublicProviderRunError> {
+        self.bind_observed_lock_at(lock, self.now)
+    }
+
+    /// Binds an observed lock against the signed manifest at the supplied authority time.
+    ///
+    /// Long-lived authorities call this at their effect boundary rather than reusing bootstrap
+    /// time, so expiry and signer revocation cannot remain trusted after a daemon stays alive.
+    ///
+    /// # Errors
+    /// Returns a controlled denial when no current digest-bound entry authorizes the lock.
+    pub(crate) fn bind_observed_lock_at(
+        &self,
         mut lock: RunVersionLock,
+        now_unix_seconds: u64,
     ) -> Result<RunVersionLock, PublicProviderRunError> {
         let cached = self
             .cached
             .as_ref()
             .ok_or(PublicProviderRunError::CompatibilityDenied)?;
         cached
-            .revalidate(&self.keys, self.now)
+            .revalidate(&self.keys, now_unix_seconds)
             .map_err(|_| PublicProviderRunError::CompatibilityDenied)?;
         let entry = cached
             .manifest
@@ -149,21 +166,49 @@ impl CompatibilityAssessment {
             })
             .ok_or(PublicProviderRunError::CompatibilityDenied)?;
         lock.compatibility_entry = entry.id.clone();
-        self.authorize(&lock)?;
+        self.authorize_at(&lock, now_unix_seconds)?;
         Ok(lock)
     }
-}
 
-impl RunVersionAuthorizer for CompatibilityAssessment {
-    fn authorize(&self, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
+    /// Reauthorizes one exact lock at the supplied authority time.
+    ///
+    /// # Errors
+    /// Returns a controlled denial for expired, revoked, or mismatched compatibility evidence.
+    pub(crate) fn authorize_at(
+        &self,
+        lock: &RunVersionLock,
+        now_unix_seconds: u64,
+    ) -> Result<(), PublicProviderRunError> {
         let cached = self
             .cached
             .as_ref()
             .ok_or(PublicProviderRunError::CompatibilityDenied)?;
         cached
-            .revalidate(&self.keys, self.now)
-            .and_then(|()| self.keys.verify_lock(&cached.manifest, lock, self.now))
+            .revalidate(&self.keys, now_unix_seconds)
+            .and_then(|()| {
+                self.keys
+                    .verify_lock(&cached.manifest, lock, now_unix_seconds)
+            })
             .map_err(|_| PublicProviderRunError::CompatibilityDenied)
+    }
+}
+
+impl RunVersionAuthorizer for CompatibilityAssessment {
+    fn authorize(&self, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
+        self.authorize_at(lock, self.now)
+    }
+}
+
+impl ProvisionedProviderCompatibility for CompatibilityAssessment {
+    fn bind(
+        &self,
+        observed: RunVersionLock,
+        now_unix_seconds: u64,
+    ) -> Result<RunVersionLock, String> {
+        self.bind_observed_lock_at(observed, now_unix_seconds)
+            .map_err(|_| {
+                "provider executable is not authorized by current compatibility evidence".into()
+            })
     }
 }
 
@@ -190,87 +235,5 @@ fn add_key(keys: &mut TrustedKeySet, spec: &str) -> Result<(), ()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use ed25519_dalek::{Signer, SigningKey};
-    use gent_adapters::compatibility::{
-        CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest,
-    };
-    use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
-    use gent_types::{CompatibilityTrust, ExecutableIdentity};
-
-    use super::{CompatibilityAssessment, TrustedKeySet};
-
-    fn assessment(expires_at: u64, revoked: bool) -> CompatibilityAssessment {
-        let key = SigningKey::from_bytes(&[3; 32]);
-        let payload = CompatibilityManifest {
-            manifest_version: 1,
-            expires_at_unix_seconds: expires_at,
-            entries: vec![CompatibilityEntry {
-                id: "claude-1".into(),
-                provider: "claude".into(),
-                version: "1.0".into(),
-                digest_sha256: "digest".into(),
-                revoked,
-            }],
-        };
-        let manifest = SignedCompatibilityManifest {
-            key_id: "test".into(),
-            signature_hex: hex::encode(key.sign(&serde_json::to_vec(&payload).unwrap()).to_bytes()),
-            payload,
-        };
-        let mut keys = TrustedKeySet::default();
-        keys.trust("test", key.verifying_key());
-        let cached = CachedCompatibilityManifest::verify(manifest, &keys, 1).unwrap();
-        CompatibilityAssessment::configured(keys, cached, 10)
-    }
-
-    fn identity(version: Option<&str>) -> ExecutableIdentity {
-        ExecutableIdentity {
-            canonical_path: "/public/claude".into(),
-            file_identity: "1:2".into(),
-            digest_sha256: "digest".into(),
-            version: version.map(str::to_owned),
-        }
-    }
-
-    #[test]
-    fn verifies_only_an_active_matching_signed_entry() {
-        assert_eq!(
-            assessment(20, false).assess("claude", &identity(Some("1.0"))),
-            CompatibilityTrust::Verified
-        );
-        assert_eq!(
-            assessment(20, false).assess("claude", &identity(Some("2.0"))),
-            CompatibilityTrust::Untrusted
-        );
-        assert_eq!(
-            assessment(20, true).assess("claude", &identity(Some("1.0"))),
-            CompatibilityTrust::Untrusted
-        );
-        assert_eq!(
-            assessment(9, false).assess("claude", &identity(Some("1.0"))),
-            CompatibilityTrust::Untrusted
-        );
-    }
-
-    #[test]
-    fn missing_configuration_or_version_is_not_verified() {
-        assert_eq!(
-            CompatibilityAssessment::default().assess("claude", &identity(Some("1.0"))),
-            CompatibilityTrust::NotConfigured
-        );
-        assert_eq!(
-            assessment(20, false).assess("claude", &identity(None)),
-            CompatibilityTrust::Untrusted
-        );
-    }
-
-    #[test]
-    fn malformed_or_incomplete_source_is_configured_but_untrusted() {
-        assert_eq!(
-            CompatibilityAssessment::load(None, &["bad-key".into()], 10)
-                .assess("claude", &identity(Some("1.0"))),
-            CompatibilityTrust::Untrusted
-        );
-    }
-}
+#[path = "compatibility_assessment_tests.rs"]
+mod tests;

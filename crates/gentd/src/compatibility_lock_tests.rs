@@ -71,3 +71,17 @@ fn observed_locks_bind_only_to_the_matching_signed_entry() {
             .is_err()
     );
 }
+
+#[test]
+fn explicit_authority_time_refuses_a_lock_after_manifest_expiry() {
+    let bound = assessment()
+        .bind_observed_lock_at(lock("unbound", "digest"), 20)
+        .unwrap();
+
+    assert!(assessment().authorize_at(&bound, 21).is_err());
+    assert!(
+        assessment()
+            .bind_observed_lock_at(lock("unbound", "digest"), 21)
+            .is_err()
+    );
+}

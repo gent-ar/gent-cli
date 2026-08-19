@@ -86,6 +86,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   verified lock on success, and turns any recovered accepted receipt into
   unprovable without replay. Observer bootstrap and capabilities still construct
   neither this authority nor its installer.
+- Post-install provider locks begin explicitly unbound. A narrow compatibility
+  port revalidates the signed manifest at the provisioning operation's current
+  time, binds only its exact provider/version/digest entry, and otherwise makes
+  the effect unprovable with no runnable lock. This avoids treating daemon-start
+  time or a caller-supplied compatibility label as authority.
 - An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
   evidence/compatibility inputs and conflicts with durable chat-only authority without
   I/O; it deliberately receives neither user-supplied coordinator nor epoch.

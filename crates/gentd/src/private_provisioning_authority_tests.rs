@@ -36,6 +36,7 @@ type Authority = PrivateProvisioningAuthority<
     Policy,
     Verifier,
     TestAcceptedReceiptReader,
+    crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
     Clock,
 >;
 

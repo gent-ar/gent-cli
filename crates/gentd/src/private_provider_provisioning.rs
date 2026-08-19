@@ -14,7 +14,11 @@ use gent_types::{
     ProviderInstallProvenance, ProvisionedProviderInstallation, Receipt, ReceiptStatus,
 };
 
-use crate::node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError};
+use crate::{
+    node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError},
+    private_provider_compatibility::ProvisionedProviderCompatibility,
+    private_provider_lock_validation::{valid_digest, valid_lock},
+};
 
 /// Receipt-bound, consented prompt trigger without any prompt text or provider executable path.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -89,22 +93,24 @@ pub(crate) trait ProvisionReceiptReader: Clone + Send + Sync {
 
 /// Private composition edge for an app-supplied Node runtime, policy, and fixed npm installer.
 #[derive(Clone, Debug)]
-pub(crate) struct PrivateProviderProvisioner<I, P, V, R> {
+pub(crate) struct PrivateProviderProvisioner<I, P, V, R, B> {
     runtime: AppNodeRuntimeLock,
     installer: I,
     policy: P,
     verifier: Option<V>,
     receipts: R,
+    compatibility: B,
 }
 
-impl<I, P, V, R> PrivateProviderProvisioner<I, P, V, R> {
+impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
     #[must_use]
-    pub(crate) fn new(
+    pub(crate) fn with_compatibility(
         runtime: AppNodeRuntimeLock,
         installer: I,
         policy: P,
         verifier: Option<V>,
         receipts: R,
+        compatibility: B,
     ) -> Self {
         Self {
             runtime,
@@ -112,7 +118,36 @@ impl<I, P, V, R> PrivateProviderProvisioner<I, P, V, R> {
             policy,
             verifier,
             receipts,
+            compatibility,
         }
+    }
+}
+
+#[cfg(test)]
+impl<I, P, V, R>
+    PrivateProviderProvisioner<
+        I,
+        P,
+        V,
+        R,
+        crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
+    >
+{
+    pub(crate) fn new(
+        runtime: AppNodeRuntimeLock,
+        installer: I,
+        policy: P,
+        verifier: Option<V>,
+        receipts: R,
+    ) -> Self {
+        Self::with_compatibility(
+            runtime,
+            installer,
+            policy,
+            verifier,
+            receipts,
+            crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
+        )
     }
 }
 
@@ -121,7 +156,8 @@ impl<
     P: PackageInstallPolicy,
     V: ProvisionedProviderVerifier,
     R: ProvisionReceiptReader,
-> PrivateProviderProvisioner<I, P, V, R>
+    B: ProvisionedProviderCompatibility,
+> PrivateProviderProvisioner<I, P, V, R, B>
 {
     /// Captures the app runtime without enabling installation or registering a public handler.
     ///
@@ -133,13 +169,15 @@ impl<
         policy: P,
         verifier: Option<V>,
         receipts: R,
+        compatibility: B,
     ) -> Result<Self, PrivateProvisionError> {
-        Ok(Self::new(
+        Ok(Self::with_compatibility(
             AppNodeRuntimeLock::from_environment(data_dir)?,
             installer,
             policy,
             verifier,
             receipts,
+            compatibility,
         ))
     }
 
@@ -201,10 +239,20 @@ impl<
         if self.runtime.recheck().is_err() {
             return Ok(PrivateProvisionResult::Ambiguous);
         }
-        match verifier.lock(request.provider, npm.prefix()) {
-            Ok(lock) if valid_lock(&lock, request.provider, npm.prefix()) => Ok(
-                PrivateProvisionResult::Installed(Box::new(ProvisionedProviderInstallation {
-                    lock,
+        match verifier
+            .lock(request.provider, npm.prefix())
+            .and_then(|lock| {
+                valid_lock(&lock, request.provider, npm.prefix())
+                    .then_some(lock)
+                    .ok_or_else(|| "private provider executable is invalid".into())
+            })
+            .and_then(|lock| {
+                self.compatibility
+                    .bind(lock.run_lock, request.now_unix_seconds)
+            }) {
+            Ok(run_lock) => Ok(PrivateProvisionResult::Installed(Box::new(
+                ProvisionedProviderInstallation {
+                    lock: ProvisionedProviderLock { run_lock },
                     provenance: ProviderInstallProvenance {
                         package_name: package.package_name,
                         package_version: package.version,
@@ -212,44 +260,11 @@ impl<
                         package_policy_digest_sha256: package.package_policy_digest_sha256,
                         node_runtime_digest_sha256: self.runtime.node_digest_sha256().into(),
                     },
-                })),
-            ),
-            Ok(_) | Err(_) => Ok(PrivateProvisionResult::Ambiguous),
+                },
+            ))),
+            Err(_) => Ok(PrivateProvisionResult::Ambiguous),
         }
     }
-}
-
-fn valid_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-}
-
-fn valid_lock(lock: &ProvisionedProviderLock, provider: DependencyProvider, prefix: &Path) -> bool {
-    let Ok(executable) = Path::new(&lock.run_lock.canonical_path).canonicalize() else {
-        return false;
-    };
-    let Ok(prefix) = prefix.canonicalize() else {
-        return false;
-    };
-    lock.run_lock.provider == provider.as_str()
-        && executable.starts_with(prefix)
-        && executable.is_file()
-        && executable.display().to_string() == lock.run_lock.canonical_path
-        && valid_version(&lock.run_lock.version)
-        && lock.run_lock.digest_sha256.len() == 64
-        && lock.run_lock.digest_sha256.bytes().all(|byte| {
-            byte.is_ascii_digit() || (byte.is_ascii_lowercase() && byte.is_ascii_hexdigit())
-        })
-        && gent_drivers::lock::recheck(&lock.run_lock).is_ok()
-}
-
-fn valid_version(version: &str) -> bool {
-    !version.is_empty()
-        && version.len() <= 512
-        && version.trim() == version
-        && !version.contains('\0')
 }
 
 #[cfg(test)]
@@ -279,3 +294,7 @@ mod error_tests;
 #[cfg(test)]
 #[path = "private_provider_provisioning_receipt_tests.rs"]
 mod receipt_tests;
+
+#[cfg(test)]
+#[path = "private_provider_provisioning_compatibility_tests.rs"]
+mod compatibility_tests;

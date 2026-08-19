@@ -49,10 +49,10 @@ impl ProvisioningClock for SystemProvisioningClock {
 
 /// Private provider-provisioning effect owner. Client input contains no package or executable.
 #[derive(Clone, Debug)]
-pub(crate) struct PrivateProvisioningAuthority<L, I, P, V, R, C> {
+pub(crate) struct PrivateProvisioningAuthority<L, I, P, V, R, B, C> {
     plans: DependencyCatalog,
     receipts: DependencyActionReceiptReservation<L>,
-    provisioner: PrivateProviderProvisioner<I, P, V, R>,
+    provisioner: PrivateProviderProvisioner<I, P, V, R, B>,
     settlement: PrivateProvisionSettlementCoordinator<L>,
     clock: C,
     serial: Arc<Mutex<()>>,
@@ -67,13 +67,13 @@ pub(crate) enum PrivateProvisioningAuthorityError {
     Settlement(#[from] PrivateProvisionSettlementError),
 }
 
-impl<L, I, P, V, R, C> PrivateProvisioningAuthority<L, I, P, V, R, C> {
+impl<L, I, P, V, R, B, C> PrivateProvisioningAuthority<L, I, P, V, R, B, C> {
     /// Binds all effect authority inputs without registering a public handler.
     #[must_use]
     pub(crate) fn new(
         ledger: L,
         plans: DependencyCatalog,
-        provisioner: PrivateProviderProvisioner<I, P, V, R>,
+        provisioner: PrivateProviderProvisioner<I, P, V, R, B>,
         clock: C,
     ) -> Self
     where
@@ -90,13 +90,14 @@ impl<L, I, P, V, R, C> PrivateProvisioningAuthority<L, I, P, V, R, C> {
     }
 }
 
-impl<L, I, P, V, R, C> PrivateProvisioningAuthority<L, I, P, V, R, C>
+impl<L, I, P, V, R, B, C> PrivateProvisioningAuthority<L, I, P, V, R, B, C>
 where
     L: Ledger + ProvisionedProviderLockLedger,
     I: DependencyInstaller,
     P: PackageInstallPolicy,
     V: ProvisionedProviderVerifier,
     R: ProvisionReceiptReader,
+    B: crate::private_provider_compatibility::ProvisionedProviderCompatibility,
     C: ProvisioningClock,
 {
     /// Reserves, verifies, installs, locks, and terminally settles one daemon-issued plan.

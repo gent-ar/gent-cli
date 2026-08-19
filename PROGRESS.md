@@ -105,6 +105,11 @@ lifecycle state are prohibited.
   a daemon-issued plan, verifies/install-locks through the private Node prefix,
   and atomically settles that exact receipt; denied consent and plan mismatch
   start no npm, and a recovered accepted receipt becomes unprovable.
+- Private provider verification now emits an explicitly unbound observed lock.
+  A typed signed-compatibility binder must revalidate and bind its exact
+  provider/version/digest at operation time before settlement; expiry or a
+  mismatch becomes unprovable with no durable runnable lock. This remains
+  private composition, not an observer capability or bootstrap path.
 - A sealed all-or-nothing ordinary-authority input parser rejects partial
   evidence/compatibility settings and durable-chat-profile conflicts without
   I/O. It accepts no coordinator or epoch and is not yet a daemon argument or

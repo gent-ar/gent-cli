@@ -23,25 +23,21 @@ const VERSION_ARGUMENT: &str = "--version";
 #[derive(Clone, Debug)]
 pub(crate) struct PrivatePrefixProvisionedProviderVerifier<P = SystemVersionProbe> {
     probe: P,
-    compatibility_entry: String,
 }
 
 impl PrivatePrefixProvisionedProviderVerifier<SystemVersionProbe> {
     /// Creates the production verifier with the daemon's fixed, bounded version probe.
     #[must_use]
-    pub(crate) fn system(compatibility_entry: impl Into<String>) -> Self {
-        Self::new(SystemVersionProbe, compatibility_entry)
+    pub(crate) fn system() -> Self {
+        Self::new(SystemVersionProbe)
     }
 }
 
 impl<P> PrivatePrefixProvisionedProviderVerifier<P> {
-    /// Binds a version-probe port and a nonempty provenance label without discovering a binary.
+    /// Binds a version-probe port without discovering a binary.
     #[must_use]
-    pub(crate) fn new(probe: P, compatibility_entry: impl Into<String>) -> Self {
-        Self {
-            probe,
-            compatibility_entry: compatibility_entry.into(),
-        }
+    pub(crate) fn new(probe: P) -> Self {
+        Self { probe }
     }
 }
 
@@ -56,25 +52,15 @@ where
     ) -> Result<ProvisionedProviderLock, String> {
         let prefix = canonical_prefix(prefix)?;
         let executable = private_executable(provider, &prefix)?;
-        let before = capture(
-            provider.as_str(),
-            &executable,
-            "unprobed",
-            &self.compatibility_entry,
-        )
-        .map_err(|_| "private provider executable cannot be identity-locked".to_owned())?;
+        let before = capture(provider.as_str(), &executable, "unprobed", "unbound")
+            .map_err(|_| "private provider executable cannot be identity-locked".to_owned())?;
         let version = self
             .probe
             .probe(&executable, VERSION_ARGUMENT)
             .map_err(probe_error)?;
         valid_version(&version)?;
-        let run_lock = capture(
-            provider.as_str(),
-            &executable,
-            &version,
-            &self.compatibility_entry,
-        )
-        .map_err(|_| "private provider executable cannot be identity-locked".to_owned())?;
+        let run_lock = capture(provider.as_str(), &executable, &version, "unbound")
+            .map_err(|_| "private provider executable cannot be identity-locked".to_owned())?;
         (before.canonical_path == run_lock.canonical_path
             && before.file_identity == run_lock.file_identity
             && before.digest_sha256 == run_lock.digest_sha256)
@@ -163,6 +149,7 @@ mod tests {
             .unwrap();
         assert_eq!(lock.run_lock.provider, "codex");
         assert_eq!(lock.run_lock.version, "1.2.3");
+        assert_eq!(lock.run_lock.compatibility_entry, "unbound");
         assert_eq!(lock.run_lock.digest_sha256.len(), 64);
         assert!(
             lock.run_lock
@@ -227,25 +214,19 @@ mod tests {
     fn verifier(
         version: Result<String, &'static str>,
     ) -> PrivatePrefixProvisionedProviderVerifier<Probe> {
-        PrivatePrefixProvisionedProviderVerifier::new(
-            Probe {
-                version,
-                replace_binary: false,
-            },
-            "provisioned",
-        )
+        PrivatePrefixProvisionedProviderVerifier::new(Probe {
+            version,
+            replace_binary: false,
+        })
     }
 
     fn verifier_with_mutation(
         version: Result<String, &'static str>,
     ) -> PrivatePrefixProvisionedProviderVerifier<Probe> {
-        PrivatePrefixProvisionedProviderVerifier::new(
-            Probe {
-                version,
-                replace_binary: true,
-            },
-            "provisioned",
-        )
+        PrivatePrefixProvisionedProviderVerifier::new(Probe {
+            version,
+            replace_binary: true,
+        })
     }
 
     fn prefix(root: &Path) -> std::path::PathBuf {

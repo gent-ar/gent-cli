@@ -111,6 +111,10 @@ mod private_lifecycle_loop;
 #[cfg(unix)]
 mod private_paths;
 #[allow(dead_code)]
+mod private_provider_compatibility;
+#[allow(dead_code)]
+mod private_provider_lock_validation;
+#[allow(dead_code)]
 mod private_provider_provisioning;
 #[allow(dead_code)]
 mod private_provider_provisioning_sqlite;

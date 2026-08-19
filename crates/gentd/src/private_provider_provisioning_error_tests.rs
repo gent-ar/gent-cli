@@ -178,7 +178,11 @@ fn lock_validation_rejects_escape_empty_version_and_noncanonical_digest() {
     let lock = ProvisionedProviderLock {
         run_lock: capture("codex", &executable, "1.0.0", "test").unwrap(),
     };
-    assert!(super::valid_lock(&lock, DependencyProvider::Codex, &prefix));
+    assert!(crate::private_provider_lock_validation::valid_lock(
+        &lock,
+        DependencyProvider::Codex,
+        &prefix
+    ));
     for replacement in [
         ProvisionedProviderLock {
             run_lock: RunVersionLock {
@@ -199,7 +203,7 @@ fn lock_validation_rejects_escape_empty_version_and_noncanonical_digest() {
             },
         },
     ] {
-        assert!(!super::valid_lock(
+        assert!(!crate::private_provider_lock_validation::valid_lock(
             &replacement,
             DependencyProvider::Codex,
             &prefix
