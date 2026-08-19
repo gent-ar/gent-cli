@@ -20,6 +20,7 @@ pub(crate) struct PrivateProvisionSettlement {
 pub(crate) enum PrivateProvisionSettlementState {
     Installed,
     ConsentRequired,
+    Rejected,
     Unprovable,
 }
 
@@ -64,6 +65,11 @@ impl<L: ProvisionedProviderLockLedger> PrivateProvisionSettlementCoordinator<L> 
                 ReceiptStatus::Rejected,
                 None,
             ),
+            PrivateProvisionResult::Rejected => (
+                PrivateProvisionSettlementState::Rejected,
+                ReceiptStatus::Rejected,
+                None,
+            ),
             PrivateProvisionResult::Ambiguous => (
                 PrivateProvisionSettlementState::Unprovable,
                 ReceiptStatus::Unprovable,
@@ -94,7 +100,8 @@ fn terminal_event(receipt: &Receipt, state: PrivateProvisionSettlementState) -> 
 const fn receipt_status(state: PrivateProvisionSettlementState) -> ReceiptStatus {
     match state {
         PrivateProvisionSettlementState::Installed => ReceiptStatus::Settled,
-        PrivateProvisionSettlementState::ConsentRequired => ReceiptStatus::Rejected,
+        PrivateProvisionSettlementState::ConsentRequired
+        | PrivateProvisionSettlementState::Rejected => ReceiptStatus::Rejected,
         PrivateProvisionSettlementState::Unprovable => ReceiptStatus::Unprovable,
     }
 }
@@ -103,6 +110,7 @@ const fn terminal_kind(state: PrivateProvisionSettlementState) -> &'static str {
     match state {
         PrivateProvisionSettlementState::Installed => "privateProvisionInstalled",
         PrivateProvisionSettlementState::ConsentRequired => "privateProvisionConsentRequired",
+        PrivateProvisionSettlementState::Rejected => "privateProvisionRejected",
         PrivateProvisionSettlementState::Unprovable => "privateProvisionUnprovable",
     }
 }

@@ -21,6 +21,7 @@ mod conversation_context_tests;
 mod conversation_prompts;
 mod conversations;
 mod decisions;
+mod dependency_action_receipts;
 mod dependency_actions;
 mod events;
 mod git_operations;
@@ -86,6 +87,9 @@ pub use conversation_activity::{
 };
 pub use conversation_context::{ConversationContextArtifactService, ConversationContextRequest};
 pub use conversation_prompts::*;
+pub use dependency_action_receipts::{
+    DependencyActionReceiptClaim, DependencyActionReceiptReservation,
+};
 pub use dependency_actions::{DependencyActionService, dependency_action_command};
 use gent_core::{Run, switch_provider};
 use gent_ports::{

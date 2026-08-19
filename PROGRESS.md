@@ -100,6 +100,11 @@ lifecycle state are prohibited.
   terminally settles the receipt; ambiguous npm effects become `Unprovable` and
   cannot replay. Claude/Codex dormant resolution reads only that lock and
   rechecks its exact identity—there is no prefix or `PATH` rediscovery.
+- Shared receipt reservation now makes the restart rule reusable without sharing
+  settlement authority. The dormant private provisioning authority alone claims
+  a daemon-issued plan, verifies/install-locks through the private Node prefix,
+  and atomically settles that exact receipt; denied consent and plan mismatch
+  start no npm, and a recovered accepted receipt becomes unprovable.
 - A sealed all-or-nothing ordinary-authority input parser rejects partial
   evidence/compatibility settings and durable-chat-profile conflicts without
   I/O. It accepts no coordinator or epoch and is not yet a daemon argument or
@@ -129,9 +134,9 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Bind the sealed Ask/Plan Claude/Codex composition to an explicit daemon
-   authority only after strict provider evidence and lock-backed provisioning;
-   integrate its transient admission/shutdown control with listener lifecycle.
+1. Bind the sealed Ask/Plan Claude/Codex composition and the separate private
+   provisioning/readiness review to explicit daemon authority only after strict
+   provider evidence; integrate transient admission/shutdown with listener lifecycle.
 2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
    process-tree drain, terminal settlement, and reconnect by durable cursors.
 3. Add the private Claurst bridge under the identical public fact contract and

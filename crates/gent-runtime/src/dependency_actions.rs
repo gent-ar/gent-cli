@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use gent_ports::{DependencyActionExecutor, DependencyActionOperation, Ledger, ReceiptClaim};
+use gent_ports::{DependencyActionExecutor, DependencyActionOperation, Ledger};
 use gent_protocol::{
     DependencyActionRequest, DependencyActionResult, DependencyActionState, DependencyPlan,
     dependency_plan_digest,
@@ -10,11 +10,14 @@ use gent_protocol::{
 use gent_types::{Command, Event, Receipt, ReceiptStatus};
 
 use crate::RuntimeError;
+use crate::dependency_action_receipts::{
+    DependencyActionReceiptClaim, DependencyActionReceiptReservation,
+};
 
 /// Serializes external dependency effects while durable receipts make retries safe across restarts.
 #[derive(Clone, Debug)]
 pub struct DependencyActionService<L, E> {
-    ledger: L,
+    receipts: DependencyActionReceiptReservation<L>,
     executor: E,
     serial: Arc<Mutex<()>>,
 }
@@ -24,7 +27,7 @@ impl<L, E> DependencyActionService<L, E> {
     #[must_use]
     pub fn new(ledger: L, executor: E) -> Self {
         Self {
-            ledger,
+            receipts: DependencyActionReceiptReservation::new(ledger),
             executor,
             serial: Arc::new(Mutex::new(())),
         }
@@ -48,19 +51,18 @@ impl<L: Ledger, E: DependencyActionExecutor> DependencyActionService<L, E> {
             .serial
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let command = dependency_action_command(request);
-        let accepted = accepted_event(&command);
-        match self.ledger.claim_command(&command, &accepted)? {
-            ReceiptClaim::Accepted(receipt) => self.execute_claimed(request, plan, &receipt),
-            ReceiptClaim::Existing(receipt) if receipt.status == ReceiptStatus::Accepted => self
-                .settle(
-                    plan,
-                    &receipt,
-                    ReceiptStatus::Unprovable,
-                    DependencyActionState::Unprovable,
-                    None,
-                ),
-            ReceiptClaim::Existing(receipt) => Ok(DependencyActionResult {
+        match self.receipts.reserve(request)? {
+            DependencyActionReceiptClaim::Claimed(receipt) => {
+                self.execute_claimed(request, plan, &receipt)
+            }
+            DependencyActionReceiptClaim::AcceptedRecovery(receipt) => self.settle(
+                plan,
+                &receipt,
+                ReceiptStatus::Unprovable,
+                DependencyActionState::Unprovable,
+                None,
+            ),
+            DependencyActionReceiptClaim::Terminal(receipt) => Ok(DependencyActionResult {
                 plan: plan.clone(),
                 state: existing_state(&receipt),
                 receipt,
@@ -132,7 +134,7 @@ impl<L: Ledger, E: DependencyActionExecutor> DependencyActionService<L, E> {
             payload: serde_json::json!({ "status": status }),
         };
         let receipt = self
-            .ledger
+            .receipts
             .settle_receipt(&receipt.idempotency_key, status, &terminal)?;
         Ok(DependencyActionResult {
             plan: plan.clone(),
@@ -157,17 +159,6 @@ pub fn dependency_action_command(request: &DependencyActionRequest) -> Command {
             "provider": request.provider.as_str(),
             "reviewedPlanDigest": request.reviewed_plan_digest,
         }),
-    }
-}
-
-fn accepted_event(command: &Command) -> Event {
-    Event {
-        cursor: 0,
-        event_id: format!("{}:dependency-accepted", command.receipt_id.0),
-        receipt_id: command.receipt_id.clone(),
-        host_epoch: command.host_epoch,
-        kind: "dependencyActionAccepted".into(),
-        payload: command.payload.clone(),
     }
 }
 

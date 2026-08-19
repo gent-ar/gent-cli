@@ -80,6 +80,12 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   package-policy/Node/receipt provenance with its terminal receipt. Ambiguous effects
   become unprovable; the dormant Claude/Codex resolvers read and recheck this lock
   directly, with no prefix or `PATH` discovery.
+- Dependency receipt reservation is now an effect-free shared runtime rule. The
+  private provisioning authority is its separate terminal owner: it accepts only
+  a daemon-issued plan, settles denial/mismatch without npm, atomically writes a
+  verified lock on success, and turns any recovered accepted receipt into
+  unprovable without replay. Observer bootstrap and capabilities still construct
+  neither this authority nor its installer.
 - An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
   evidence/compatibility inputs and conflicts with durable chat-only authority without
   I/O; it deliberately receives neither user-supplied coordinator nor epoch.

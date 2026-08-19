@@ -119,6 +119,8 @@ mod private_provider_verifier;
 #[allow(dead_code)]
 mod private_provision_settlement;
 #[allow(dead_code)]
+mod private_provisioning_authority;
+#[allow(dead_code)]
 mod private_session_atomic_port;
 #[allow(dead_code)]
 mod private_session_driver;

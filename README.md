@@ -20,8 +20,8 @@ than a second copy of application logic. The implemented vertical slice is:
   `gent conversation content` reads. `gent conversation activity` is a protocol-only future
   authority reader; observer-mode `gentd` deliberately declines its capability.
 - Explicit `gent deps` plans and receipt-fenced consent requests. The shipped observer rejects
-  every external install; a future approved host must use signed exact package policy and marks an
-  interrupted effect `unprovable` instead of replaying it.
+  every external install; an approved host uses app-supplied Node but privately `npm -g` installs
+  signed exact packages under `.gentd`, and marks an interrupted effect `unprovable` rather than replaying it.
 - Durable conversation → run → turn identity and restart-safe provider-switch lineage, exposed
   only through the capability-gated read protocol in `gentd`; timeline reads exclude all message
   content and provider-native session identifiers.

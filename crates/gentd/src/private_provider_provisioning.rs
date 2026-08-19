@@ -31,6 +31,8 @@ pub(crate) struct PrivateProvisionRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateProvisionResult {
     ConsentRequired,
+    /// A pre-effect authority check rejected the request; no provider operation was run.
+    Rejected,
     Installed(Box<ProvisionedProviderInstallation>),
     /// The external effect may have happened, but runtime identity changed before verification.
     /// The future receipt owner must settle this as `Unprovable`, never retry automatically.
