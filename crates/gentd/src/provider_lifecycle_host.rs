@@ -35,6 +35,8 @@ pub(crate) enum ProviderLifecycleWake {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ProviderLifecycleHostError<E> {
     Inactive,
+    RecoveryRequired,
+    ShutdownNotRequested,
     Schedule(PrivateLifecycleScheduleError),
     Owner(E),
 }
@@ -68,6 +70,7 @@ pub(crate) trait ProviderLifecycleWakePort {
 pub(crate) struct ProviderLifecycleHost<O> {
     lifecycle: PrivateLifecycleLoop<O>,
     armed: bool,
+    shutdown_requested: bool,
 }
 
 impl<O> ProviderLifecycleHost<O>
@@ -80,6 +83,7 @@ where
         Self {
             lifecycle: PrivateLifecycleLoop::new(owner),
             armed: false,
+            shutdown_requested: false,
         }
     }
 
@@ -87,6 +91,16 @@ where
     #[must_use]
     pub(crate) const fn is_armed(&self) -> bool {
         self.armed
+    }
+
+    /// Returns whether a requested shutdown has fully drained the owned process tree.
+    ///
+    /// An untouched host is deliberately not considered stopped: a caller must first prove
+    /// recovery before it can request shutdown. This preserves the distinction between an owner
+    /// that never inspected durable work and one that finished an explicit drain.
+    #[must_use]
+    pub(crate) const fn shutdown_complete(&self) -> bool {
+        self.shutdown_requested && !self.armed
     }
 
     /// Arms the owner for its one durable startup recovery pass.
@@ -123,11 +137,45 @@ where
 
     /// Queues one process-tree drain request after the host has been armed.
     pub(crate) fn request_shutdown(&mut self) -> Result<(), ProviderLifecycleHostError<O::Error>> {
-        self.schedule(PrivateLifecycleCommand::RequestShutdown)
+        self.schedule(PrivateLifecycleCommand::RequestShutdown)?;
+        self.shutdown_requested = true;
+        Ok(())
+    }
+
+    /// Starts process-tree shutdown only after recovery has completed at least one wake.
+    ///
+    /// A recovered idle owner has no pending work and is normally unarmed. This method arms it
+    /// only to carry the shutdown command; it never manufactures a wake, because such a wake
+    /// could be mistaken for a durable prompt. A fresh owner remains in `AwaitingWake` and is
+    /// rejected instead of being implicitly recovered or shut down.
+    pub(crate) fn begin_shutdown_after_recovery(
+        &mut self,
+    ) -> Result<(), ProviderLifecycleHostError<O::Error>> {
+        if matches!(
+            self.lifecycle.phase(),
+            crate::private_lifecycle_loop::PrivateLifecyclePhase::AwaitingWake
+        ) {
+            return Err(ProviderLifecycleHostError::RecoveryRequired);
+        }
+        if self.shutdown_requested {
+            return Ok(());
+        }
+
+        let was_armed = self.armed;
+        self.armed = true;
+        if let Err(error) = self.schedule(PrivateLifecycleCommand::RequestShutdown) {
+            self.armed = was_armed;
+            return Err(error);
+        }
+        self.shutdown_requested = true;
+        Ok(())
     }
 
     /// Queues the next explicit shutdown escalation after an intervening drain wake.
     pub(crate) fn escalate_shutdown(&mut self) -> Result<(), ProviderLifecycleHostError<O::Error>> {
+        if !self.shutdown_requested {
+            return Err(ProviderLifecycleHostError::ShutdownNotRequested);
+        }
         self.schedule(PrivateLifecycleCommand::EscalateShutdown)
     }
 

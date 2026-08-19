@@ -58,6 +58,11 @@ lifecycle state are prohibited.
   post-commit prompt wake. It replays durable recovery work at composition
   startup and polls only while a bounded host reports active work; it retains no
   snapshot, cache, or mirrored lifecycle state and is still not bootstrapped.
+- Private ordinary hosts reject shutdown before recovery, while recovered idle
+  hosts queue only their drain command—never a synthetic prompt wake. The
+  router aggregates shutdown/escalation/completion without creating a provider
+  fact. Separate transient IPC cancellation stops accepts and gracefully closes
+  negotiated connections without a task abort or ledger side effect.
 - Its dormant Ask/Plan path now uses the bounded, lock-rechecked direct-host
   launcher restricted to read-only workspace access. This does not relax the
   separate enforced-sandbox requirement for Agent, Autonomous, or Bypass work.
@@ -118,9 +123,9 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Add graceful authority shutdown/admission control, then bind the sealed
-   Ask/Plan Claude/Codex composition and its existing cadence to an explicit
-   daemon authority only after strict provider evidence and lock-backed provisioning.
+1. Add the remaining admission latch and cancellation-aware ordinary cadence,
+   then bind the sealed Ask/Plan Claude/Codex composition to an explicit daemon
+   authority only after strict provider evidence and lock-backed provisioning.
 2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
    process-tree drain, terminal settlement, and reconnect by durable cursors.
 3. Add the private Claurst bridge under the identical public fact contract and

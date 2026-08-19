@@ -93,14 +93,12 @@ mod tests {
             AppNodeRuntimeLock::capture(Some(node.into_os_string()), &root.path().join("gentd"))
                 .unwrap();
         assert_eq!(runtime.node_digest_sha256().len(), 64);
-        assert!(
-            runtime
-                .rechecked_npm_prefix()
-                .unwrap()
-                .install_archive(std::path::Path::new("/private/verified.tgz"))
-                .arguments[3]
-                .ends_with("gentd/providers/npm-global")
-        );
+        let install = runtime
+            .rechecked_npm_prefix()
+            .unwrap()
+            .install_archive(std::path::Path::new("/private/verified.tgz"));
+        assert_eq!(install.arguments[3], "--prefix");
+        assert!(install.arguments[4].ends_with("gentd/providers/npm-global"));
         runtime.recheck().unwrap();
     }
 

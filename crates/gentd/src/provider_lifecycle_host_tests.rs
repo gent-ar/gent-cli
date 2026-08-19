@@ -65,6 +65,53 @@ fn unarmed_host_has_no_owner_call_or_control_route() {
 }
 
 #[test]
+fn shutdown_requires_recovery_without_manufacturing_a_wake() {
+    let owner = Owner::default();
+    let calls = owner.calls.clone();
+    let mut host = ProviderLifecycleHost::new(owner);
+
+    assert_eq!(
+        host.begin_shutdown_after_recovery(),
+        Err(ProviderLifecycleHostError::RecoveryRequired)
+    );
+    assert!(!host.is_armed());
+    assert!(!host.shutdown_complete());
+    assert!(calls.borrow().is_empty());
+}
+
+#[test]
+fn recovered_idle_shutdown_arms_only_the_shutdown_command() {
+    let owner = Owner::default();
+    let calls = owner.calls.clone();
+    let mut host = ProviderLifecycleHost::new(owner);
+
+    host.arm_authority_recovery().unwrap();
+    host.drive().unwrap();
+    assert!(!host.is_armed());
+    assert_eq!(&*calls.borrow(), &[Call::Wake]);
+
+    host.begin_shutdown_after_recovery().unwrap();
+    assert!(host.is_armed());
+    assert_eq!(&*calls.borrow(), &[Call::Wake]);
+    assert_eq!(
+        host.drive().unwrap(),
+        Some(PrivateLifecycleOutcome::Shutdown(2))
+    );
+    assert_eq!(&*calls.borrow(), &[Call::Wake, Call::Shutdown]);
+    assert!(host.shutdown_complete());
+}
+
+#[test]
+fn escalation_requires_a_shutdown_request() {
+    let mut host = ProviderLifecycleHost::new(Owner::default());
+
+    assert_eq!(
+        host.escalate_shutdown(),
+        Err(ProviderLifecycleHostError::ShutdownNotRequested)
+    );
+}
+
+#[test]
 fn chat_commit_port_only_arms_the_private_host() {
     let owner = Owner::default();
     let calls = owner.calls.clone();

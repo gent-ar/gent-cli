@@ -18,6 +18,15 @@ pub(crate) trait OrdinaryLifecycleHost: Send {
     fn wake(&mut self) -> Result<(), ()>;
     fn drive(&mut self) -> Result<(), ()>;
     fn needs_drive(&self) -> bool;
+    fn begin_shutdown_after_recovery(&mut self) -> Result<(), ()> {
+        Err(())
+    }
+    fn escalate_shutdown(&mut self) -> Result<(), ()> {
+        Err(())
+    }
+    fn shutdown_complete(&self) -> bool {
+        false
+    }
 }
 
 /// Names one bounded provider owner for the ordinary daemon composition.
@@ -65,6 +74,18 @@ where
 
     fn needs_drive(&self) -> bool {
         self.host.is_armed()
+    }
+
+    fn begin_shutdown_after_recovery(&mut self) -> Result<(), ()> {
+        self.host.begin_shutdown_after_recovery().map_err(|_| ())
+    }
+
+    fn escalate_shutdown(&mut self) -> Result<(), ()> {
+        self.host.escalate_shutdown().map_err(|_| ())
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        self.host.shutdown_complete()
     }
 }
 
@@ -132,6 +153,38 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
         }
         Ok(())
     }
+
+    /// Queues graceful process-tree shutdown after every host has completed recovery.
+    ///
+    /// Hosts reject a fresh `AwaitingWake` state rather than fabricating a wake. The caller must
+    /// keep driving the router until [`Self::shutdown_complete`] is true.
+    pub(crate) fn begin_shutdown_after_recovery(
+        &mut self,
+    ) -> Result<(), OrdinaryLifecycleRouterError> {
+        for host in &mut self.hosts {
+            host.begin_shutdown_after_recovery()
+                .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
+        }
+        Ok(())
+    }
+
+    /// Queues one explicit shutdown escalation for every still-draining host.
+    pub(crate) fn escalate_shutdown(&mut self) -> Result<(), OrdinaryLifecycleRouterError> {
+        for host in &mut self.hosts {
+            if host.shutdown_complete() {
+                continue;
+            }
+            host.escalate_shutdown()
+                .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
+        }
+        Ok(())
+    }
+
+    /// Reports that every recovered host has drained after an explicit shutdown request.
+    #[must_use]
+    pub(crate) fn shutdown_complete(&self) -> bool {
+        self.hosts.iter().all(|host| host.shutdown_complete())
+    }
 }
 
 impl<L: AgentChatReadLedger> PromptCommitWake for OrdinaryPublicLifecycleRouter<L> {
@@ -151,3 +204,7 @@ impl<L: AgentChatReadLedger> PromptCommitWake for OrdinaryPublicLifecycleRouter<
             .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(provider))
     }
 }
+
+#[cfg(test)]
+#[path = "ordinary_lifecycle_shutdown_tests.rs"]
+mod ordinary_lifecycle_shutdown_tests;

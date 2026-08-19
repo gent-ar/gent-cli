@@ -39,6 +39,26 @@ pub async fn serve<R: RuntimeApi>(
     }
 }
 
+/// Serves one connection until it completes or the daemon closes local IPC admissions.
+///
+/// The cancellation branch drops the in-flight protocol future, which also closes its stream.
+/// It deliberately does not create a receipt or settle provider work: transport has no durable
+/// authority and only stops accepting/serving client IPC.
+pub(crate) async fn serve_connection_until<S, R>(
+    stream: S,
+    runtime: R,
+    shutdown: crate::transport_shutdown::TransportShutdown,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    R: RuntimeApi,
+{
+    tokio::select! {
+        result = serve_connection(stream, runtime) => result,
+        () = shutdown.cancelled() => Ok(()),
+    }
+}
+
 pub(crate) async fn serve_connection<S, R>(
     mut stream: S,
     runtime: R,

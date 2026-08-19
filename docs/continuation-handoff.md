@@ -83,6 +83,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
   evidence/compatibility inputs and conflicts with durable chat-only authority without
   I/O; it deliberately receives neither user-supplied coordinator nor epoch.
+- Private ordinary lifecycle hosts reject shutdown before recovery and let
+  recovered idle hosts drain without manufacturing a prompt wake. The router
+  aggregates explicit shutdown/escalation/completion; Unix IPC has a transient,
+  cancellation-aware listener/connection drain seam with no task abort or
+  durable lifecycle side effect. Neither is composed by the observer daemon.
 - Committed, redacted development driver corpus plus public normalized live
   full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
   opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.

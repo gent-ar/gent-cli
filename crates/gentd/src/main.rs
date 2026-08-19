@@ -149,6 +149,10 @@ mod startup;
 mod transport;
 #[cfg(test)]
 mod transport_decision_tests;
+#[allow(dead_code)]
+mod transport_shutdown;
+#[cfg(all(test, unix))]
+mod transport_shutdown_tests;
 #[cfg(test)]
 mod transport_stream_tests;
 #[cfg(test)]
