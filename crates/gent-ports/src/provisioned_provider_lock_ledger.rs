@@ -77,6 +77,21 @@ pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
         binding: &ProviderPromptProvisionBinding,
     ) -> Result<(), LedgerError>;
 
+    /// Terminally marks one reserved prompt provision unprovable without releasing its prompt.
+    ///
+    /// This is used after an accepted receipt is recovered or an external effect becomes
+    /// ambiguous. It prevents a replay while preserving the prompt as a durable failure.
+    ///
+    /// # Errors
+    /// Returns when the receipt, command, terminal event, or reserved prompt binding differs.
+    fn settle_unprovable_provider_prompt_provision(
+        &self,
+        command: &Command,
+        receipt: &Receipt,
+        terminal: &Event,
+        binding: &ProviderPromptProvisionBinding,
+    ) -> Result<Receipt, LedgerError>;
+
     /// Writes the lock, receipt/event, and one reserved-prompt release in the same transaction.
     ///
     /// # Errors

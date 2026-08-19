@@ -140,8 +140,9 @@ lifecycle state are prohibited.
   package, executable, policy, or plan fields. Its SQLite settlement writes the verified lock,
   terminal provision receipt, and release of that exact held send prompt in one immediate
   transaction; a separate immediate admission changes only that exact dispatch to
-  `provisioning`, blocking a competing selection switch until terminal settlement. The
-  corresponding capability has no transport or bootstrap composition yet.
+  `provisioning`, blocking a competing selection switch until terminal settlement. Ambiguous or
+  recovered effects now become durable `unprovable` without releasing or replaying that prompt.
+  The corresponding capability has no transport or bootstrap composition yet.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.
