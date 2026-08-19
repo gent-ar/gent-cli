@@ -9,9 +9,12 @@ target_dir="$workspace/isolated-target"
 output=$(GENT_COVERAGE_TARGET_DIR="$target_dir" GENT_COVERAGE_MIN_FREE_MB=0 \
   bash "$ROOT/tools/run-coverage.sh" --print-command)
 [[ -d "$target_dir" ]]
-[[ "$output" == *"--target-dir $target_dir"* ]]
+[[ "$output" == *"--output-path $target_dir/coverage-summary.json"* ]]
 [[ "$output" == *"--fail-under-lines 90"* ]]
+[[ "$output" == *"--json"* ]]
+[[ "$output" == *"--summary-only"* ]]
 [[ "$output" == *"--workspace"* ]]
+[[ "$output" != *"--target-dir"* ]]
 [[ "$output" != *"$ROOT/target"* ]]
 
 if GENT_COVERAGE_TARGET_DIR="$target_dir" GENT_COVERAGE_MIN_FREE_MB=999999999 \

@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup component add llvm-tools-preview
-      - run: cargo install cargo-llvm-cov --locked
+      - run: cargo install cargo-llvm-cov --version 0.6.21 --locked
       - run: bash tools/run-coverage.sh
       - run: bash tools/test-run-coverage.sh
   verify:

@@ -192,8 +192,8 @@ For the current working-tree context and continuation order, read [the handoff](
 - [x] Fail-closed evidence-record validation, including expired temporary-exception rejection.
 - [x] macOS/Linux/Windows CI matrix for supported local-host transport targets.
 - [x] Pinned public-library API compatibility gate against the `main` baseline.
-- [x] The enforced workspace coverage scope is 90%; the latest local measurement is 90.69%.
-      This does not meet the requested 100% coverage or establish terminal/app parity.
+- [x] The reproducible workspace coverage gate is 90%; its pinned report command and isolated
+      target behavior are verified; a canonical full measurement and missing-line tests remain required for the requested 100% target and do not establish terminal/app parity.
 - [x] Deterministic release packaging, checksum/manifest verification, portable Ed25519
       runtime-metadata signing, and tag-only GitHub OIDC keyless-signing workflow for `gent` and
       `gentd` artifacts.

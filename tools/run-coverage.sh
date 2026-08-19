@@ -6,6 +6,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 IGNORE='(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/'
 minimum_mb=${GENT_COVERAGE_MIN_FREE_MB:-4096}
 target_dir=${GENT_COVERAGE_TARGET_DIR:-}
+report_path=${GENT_COVERAGE_REPORT_PATH:-}
 temporary_target=0
 print_only=0
 keep_target=0
@@ -15,8 +16,9 @@ usage() {
 Usage: tools/run-coverage.sh [--keep-target] [--print-command]
 
 Runs the unchanged 90% production-library line-coverage gate with cargo-llvm-cov.
-Set GENT_COVERAGE_TARGET_DIR to a directory on a volume with enough space. Without
-it, the script creates and removes a temporary target directory below
+Set GENT_COVERAGE_TARGET_DIR to a directory on a volume with enough space. Set
+GENT_COVERAGE_REPORT_PATH to retain the JSON summary outside the target directory. Without
+GENT_COVERAGE_TARGET_DIR, the script creates and removes a temporary target directory below
 GENT_COVERAGE_TMPDIR, TMPDIR, or /tmp. It never uses or removes the repository's
 normal target directory. GENT_COVERAGE_MIN_FREE_MB defaults to 4096.
 EOF
@@ -48,6 +50,10 @@ else
   mkdir -p -- "$target_dir"
 fi
 
+if [[ -z "$report_path" ]]; then
+  report_path="$target_dir/coverage-summary.json"
+fi
+
 available_kb=$(df -Pk "$target_dir" | awk 'NR == 2 { print $4 }')
 required_kb=$((minimum_mb * 1024))
 if [[ ! "$available_kb" =~ ^[0-9]+$ ]] || ((available_kb < required_kb)); then
@@ -57,8 +63,8 @@ if [[ ! "$available_kb" =~ ^[0-9]+$ ]] || ((available_kb < required_kb)); then
 fi
 
 command=(
-  cargo llvm-cov --target-dir "$target_dir" --workspace --all-targets --all-features
-  --summary-only --ignore-filename-regex "$IGNORE" --fail-under-lines 90
+  cargo llvm-cov --workspace --all-targets --all-features --json --summary-only
+  --output-path "$report_path" --ignore-filename-regex "$IGNORE" --fail-under-lines 90
 )
 if ((print_only)); then
   printf '%q ' "${command[@]}"
@@ -68,3 +74,13 @@ fi
 
 cd "$ROOT"
 CARGO_TARGET_DIR="$target_dir" "${command[@]}"
+python3 - "$report_path" <<'PY'
+import json
+import sys
+
+report = json.load(open(sys.argv[1], encoding="utf-8"))
+lines = report["data"][0]["totals"]["lines"]
+print("production library line coverage: {:.2f}% ({}/{})".format(
+    lines["percent"], lines["covered"], lines["count"]
+))
+PY

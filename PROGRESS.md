@@ -68,8 +68,9 @@ lifecycle state are prohibited.
 - Autonomous/Bypass, live login, provisioning, reviewed-plan execution,
   multi-agent dispatch, and native-app driver removal remain authority/evidence
   gated. Their contracts do not authorize hidden fallback launchers.
-- The enforced workspace coverage threshold is 90%; the recorded local result
-  is 90.69%, below the requested 100% coverage target.
+- The repaired coverage gate remains 90% while focused missing-line tests are
+  added; a canonical full-workspace measurement is still required before any
+  claim toward the requested 100% target.
 
 ## Current implementation path
 

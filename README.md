@@ -189,7 +189,7 @@ They require the explicit persistence profile's `orchestration-v1` capability, m
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo llvm-cov --workspace --all-targets --all-features --summary-only \
+cargo llvm-cov --workspace --all-targets --all-features --json --summary-only --output-path /tmp/gent-coverage-summary.json \
   --ignore-filename-regex '(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/' \
   --fail-under-lines 90
 bash tools/smoke-local-ipc.sh
