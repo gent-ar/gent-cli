@@ -96,6 +96,10 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   session resume. It refuses a now-expired or revoked entry before launch and
   remains absent from observer composition; no snapshot or second state store
   is introduced.
+- A distinct, read-only private readiness decision checks only durable
+  Claude/Codex locks. Missing or changed locks produce a Gent-generated install
+  review; unreadable provenance fails closed, and Claurst never enters this npm
+  path. It has no IPC frame, bootstrap composition, prompt hook, or installer.
 - An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
   evidence/compatibility inputs and conflicts with durable chat-only authority without
   I/O; it deliberately receives neither user-supplied coordinator nor epoch.

@@ -115,6 +115,11 @@ lifecycle state are prohibited.
   provider effect, including a resumed session. An expired or revoked lock is
   refused before the runner is invoked; this current-time check is absent from
   observer composition and does not add a snapshot or cache.
+- A separate private readiness service now checks only durable Claude/Codex
+  locks and their current filesystem identity. It returns a daemon-generated
+  install review for missing or changed locks, fails closed when provenance is
+  unreadable, and never touches Node, npm, a prompt, or Claurst. It remains
+  uncomposed until the reviewed-consent and selection gates are proven.
 - A sealed all-or-nothing ordinary-authority input parser rejects partial
   evidence/compatibility settings and durable-chat-profile conflicts without
   I/O. It accepts no coordinator or epoch and is not yet a daemon argument or
