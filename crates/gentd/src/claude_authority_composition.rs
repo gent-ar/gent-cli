@@ -4,7 +4,6 @@
 //! private owner must provide signed Claude evidence and a durable locked installation before it
 //! can construct a Claude scheduler host.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
@@ -18,7 +17,7 @@ use crate::authority_profile::{
     AuthorityProfileConfig, AuthorityProfileError, PublicDriverApproval, PublicDriverRequest,
     ValidatedAuthorityProfile,
 };
-use crate::claude_authority_preflight::{self, ClaudeAuthorityPreflightError};
+use crate::claude_authority_preflight::ClaudeAuthorityPreflight;
 use crate::claude_authority_supervisor::{
     PrivateClaudeEscalation, PrivateClaudeShutdown, PrivateClaudeSupervisor, PrivateClaudeWake,
 };
@@ -41,11 +40,8 @@ const EVIDENCE_REFERENCE: &str = "private-claude-authority-v1";
 /// launcher is selected only by Gent daemon composition.
 #[derive(Debug)]
 pub(crate) struct PrivateClaudeAuthorityConfig {
-    pub(crate) evidence_record: PathBuf,
-    pub(crate) trusted_keys: Vec<String>,
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
-    pub(crate) now_unix_seconds: u64,
 }
 
 type PrivateClaudeRunner<L> = ClaudePromptRunner<L, <L as ProcessLauncher>::Process>;
@@ -119,17 +115,15 @@ pub(crate) enum PrivateClaudeAuthorityError {
     #[error("private Claude coordinator identity must be bounded and nonempty")]
     InvalidCoordinator,
     #[error(transparent)]
-    Preflight(#[from] ClaudeAuthorityPreflightError),
-    #[error(transparent)]
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
 }
 
-/// Composes a mode-gated Claude lifecycle after loading fresh signed evidence.
+/// Composes a mode-gated Claude lifecycle from a release-verified evidence grant.
 ///
-/// Evidence and the exact compatibility envelope are revalidated before this function creates a
-/// ledger-backed resolver or a process runner. The caller selects the mode-compatible launcher.
+/// The authority-release reader verifies evidence and its exact compatibility envelope before it
+/// supplies this opaque grant. The caller selects the mode-compatible launcher.
 /// It does not discover, probe, launch, or advertise Claude. A caller must retain the returned
 /// host and schedule its bounded recovery and ticks;
 /// daemon bootstrap must not compose it until every authority/evidence gate is proven.
@@ -139,19 +133,14 @@ pub(crate) enum PrivateClaudeAuthorityError {
 /// fails, and otherwise returns only an authority-composition failure.
 pub(crate) fn compose_private_claude_authority<L>(
     state: &DaemonCompositionState,
-    config: PrivateClaudeAuthorityConfig,
+    config: &PrivateClaudeAuthorityConfig,
+    preflight: &ClaudeAuthorityPreflight,
     launcher: L,
 ) -> Result<PrivateClaudeAuthorityHost<L>, PrivateClaudeAuthorityError>
 where
     L: ProcessLauncher + 'static,
 {
-    validate(&config)?;
-    let preflight = claude_authority_preflight::load(
-        &config.evidence_record,
-        &config.trusted_keys,
-        state.compatibility(),
-        config.now_unix_seconds,
-    )?;
+    validate(config)?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = ClaudePromptRunner::new(
         launcher,
@@ -175,7 +164,7 @@ where
     Ok(PrivateClaudeAuthorityHost {
         supervisor: PrivateClaudeSupervisor::new(ApprovedClaudeHost::new(
             runtime,
-            config.coordinator_id,
+            config.coordinator_id.clone(),
             config.host_epoch,
             MAX_ACTIVE_CLAUDE_RUNS,
         )),

@@ -87,8 +87,6 @@ mod orchestration_transport;
 #[cfg(test)]
 mod orchestration_transport_tests;
 #[allow(dead_code)]
-mod ordinary_authority_bootstrap;
-#[allow(dead_code)]
 mod ordinary_authority_composition;
 #[allow(dead_code)]
 mod ordinary_authority_release;

@@ -70,11 +70,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   and turn identities. `gent <prompt>` defaults its new selection to Ask and
   returns those identities without guessing a later lifecycle or keeping a
   terminal-owned correlation map.
-- A sealed dormant ordinary authority preflights Claude and Codex evidence before
-  host construction. Its pure gate admits valid model/effort selections for only
-  Claude/Codex Ask or Plan, while the lock-checked launch path remains the
-  executable compatibility authority. Its shared lifecycle router resolves durable
-  provider selection and arms only the matching bounded host; a paired Notify cadence
+- A sealed dormant ordinary authority accepts Claude/Codex grants only from one
+  signed release artifact after nested evidence and compatibility verification.
+  It derives its owner/epoch from active daemon state and accepts only Claude/Codex
+  Ask or Plan selections. Its shared lifecycle router resolves durable provider
+  selection and arms only the matching bounded host; a paired Notify cadence
   replays ledger recovery then polls only active work. Bootstrap constructs neither.
 - A private provision settlement transaction records only a verified install and its
   package-policy/Node/receipt provenance with its terminal receipt. Ambiguous effects
@@ -132,9 +132,10 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
   same selected-run ordering as prompt ownership. Clients must carry that
   identity into future readiness and prompt-fence requests rather than infer it.
-- An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
-  evidence/compatibility inputs and conflicts with durable chat-only authority without
-  I/O; it deliberately receives neither user-supplied coordinator nor epoch.
+- The obsolete ordinary-authority path/key bootstrap parser was removed. A future
+  explicit authority bootstrap must verify one signed release artifact against the
+  locked Node runtime and compose only its in-memory grants; it accepts no client
+  evidence, provider keys, coordinator, or epoch.
 - Private ordinary lifecycle hosts reject shutdown before recovery and let
   recovered idle hosts drain without manufacturing a prompt wake. The router
   aggregates explicit shutdown/escalation/completion; Unix IPC has a transient,

@@ -169,6 +169,7 @@ impl SignedOrdinaryAuthorityRelease {
             .verify(&keys(&self.payload.package_policy_keys)?, now, node_digest)
             .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
         let mut providers = Vec::new();
+        let mut provider_names = BTreeSet::new();
         for provider in self.payload.providers {
             let verified = match provider {
                 ProviderAuthorityRelease::Claude {
@@ -201,7 +202,7 @@ impl SignedOrdinaryAuthorityRelease {
             policy
                 .approved_package(name, now)
                 .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
-            if providers.contains(&verified) {
+            if !provider_names.insert(name) {
                 return Err(OrdinaryAuthorityReleaseError::EmbeddedAuthority);
             }
             providers.push(verified);

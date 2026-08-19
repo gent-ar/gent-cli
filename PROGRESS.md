@@ -50,11 +50,11 @@ lifecycle state are prohibited.
   shutdown draining are complete. A later committed prompt re-arms only its
   selected host, preventing an idle settled session from creating a permanent
   polling cadence.
-- That sealed ordinary composition preflights each selected provider's private
-  evidence before host construction. Codex may be selected without unavailable
-  Claude evidence; multiple selected hosts still require one coordinator/epoch.
-  Its pure gate accepts valid Claude/Codex Ask or Plan selections, while
-  executable compatibility remains the lock-checked launch gate.
+- That sealed ordinary composition accepts provider grants only from one signed
+  authority release after its nested evidence and compatibility checks complete.
+  It derives its owner and epoch from active daemon state, accepts no evidence
+  path/key or client-selected owner, and can compose Codex without unavailable
+  Claude evidence. Its pure gate admits only Claude/Codex Ask or Plan selections.
 - Its one daemon-owned, notification-driven cadence is paired with the
   post-commit prompt wake. It replays durable recovery work at composition
   startup and polls only while a bounded host reports active work; it retains no
@@ -147,10 +147,10 @@ lifecycle state are prohibited.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.
-- A sealed ordinary-authority input parser accepts one or more independently
-  complete Claude/Codex evidence records, rejects partial settings and
-  durable-chat-profile conflicts without I/O, and accepts no coordinator or
-  epoch. It is not yet a daemon argument or transport entry point.
+- The obsolete path/key ordinary-authority input parser was removed rather than
+  retained as a second source of truth. A future explicit bootstrap must load
+  the one signed authority release against the locked Node runtime and reuse
+  only its verified grants; it is not yet a daemon argument or transport entry.
 - A bounded, read-only signed package-policy release artifact admits only the
   official Claude/Codex package identities, exact semantic versions, canonical
   SHA-512 tarball integrity, expiry/revocation, and the current locked Node
@@ -168,8 +168,9 @@ lifecycle state are prohibited.
   and delegated verification keys. It validates every inner signature and binds
   package policy to the locked Node before returning material; no bootstrap
   reads it yet and no independent authority paths are accepted by its format.
-  It uses the existing protected runtime-update Ed25519 release root, not a new
-  signing setup; runtime metadata and provider authority remain distinct data.
+  It rejects duplicate provider grants, and uses the existing protected runtime-
+  update Ed25519 release root, not a new signing setup; runtime metadata and
+  provider authority remain distinct data.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised

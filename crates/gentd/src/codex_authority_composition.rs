@@ -4,7 +4,6 @@
 //! it a signed evidence record and compatibility envelope before it can construct a process
 //! runner. The ordinary `--agent-chat-authority` profile remains durable-chat-only.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
@@ -19,7 +18,7 @@ use crate::authority_profile::{
     AuthorityProfileConfig, AuthorityProfileError, PublicDriverApproval, PublicDriverRequest,
     ValidatedAuthorityProfile,
 };
-use crate::codex_authority_preflight::{self, CodexAuthorityPreflightError};
+use crate::codex_authority_preflight::CodexAuthorityPreflight;
 use crate::codex_authority_supervisor::{
     PrivateCodexEscalation, PrivateCodexShutdown, PrivateCodexSupervisor, PrivateCodexWake,
 };
@@ -43,11 +42,8 @@ type PrivateCodexRunner<L> = CodexPromptRunner<L, <L as ProcessLauncher>::Proces
 /// from the daemon's durable provisioned-installation ledger, never `PATH` or an app provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PrivateCodexAuthorityConfig {
-    pub(crate) evidence_record: PathBuf,
-    pub(crate) trusted_keys: Vec<String>,
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
-    pub(crate) now_unix_seconds: u64,
 }
 
 /// Private authority host whose launcher is selected only by daemon composition.
@@ -119,17 +115,15 @@ pub(crate) enum PrivateCodexAuthorityError {
     #[error("private Codex coordinator identity must be bounded and nonempty")]
     InvalidCoordinator,
     #[error(transparent)]
-    Preflight(#[from] CodexAuthorityPreflightError),
-    #[error(transparent)]
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
 }
 
-/// Composes a Codex-only lifecycle after loading fresh signed evidence.
+/// Composes a Codex-only lifecycle from a release-verified evidence grant.
 ///
-/// Evidence and the exact compatibility envelope are revalidated before this function creates a
-/// resolver or runner. The sealed ordinary composition supplies its read-only launcher; any
+/// The authority-release reader verifies evidence and its exact compatibility envelope before it
+/// supplies this opaque grant. The sealed ordinary composition supplies its read-only launcher; any
 /// future broad composition must supply an independently enforced containment launcher.
 /// This does not discover, probe, launch, or advertise a provider; the caller must retain the
 /// returned host and schedule its bounded `wake` method. Its lifecycle cannot be driven around
@@ -141,18 +135,13 @@ pub(crate) enum PrivateCodexAuthorityError {
 pub(crate) fn compose_private_codex_authority<L>(
     state: &DaemonCompositionState,
     config: &PrivateCodexAuthorityConfig,
+    preflight: &CodexAuthorityPreflight,
     launcher: L,
 ) -> Result<PrivateCodexAuthorityHost<L>, PrivateCodexAuthorityError>
 where
     L: ProcessLauncher + 'static,
 {
     validate(config)?;
-    let preflight = codex_authority_preflight::load(
-        &config.evidence_record,
-        &config.trusted_keys,
-        state.compatibility(),
-        config.now_unix_seconds,
-    )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = CodexPromptRunner::new(
         launcher,
