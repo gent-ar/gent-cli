@@ -120,34 +120,29 @@ lifecycle state are prohibited.
   install review for missing or changed locks, fails closed when provenance is
   unreadable, and never touches Node, npm, a prompt, or Claurst. It remains
   uncomposed until the reviewed-consent and selection gates are proven.
-- Provider-ready prompt admission now has an atomic exact-run fence: a private
-  caller can require the reviewed run to still be current in the same SQLite
-  transaction that writes the prompt. A changed selection writes nothing.
-  Every new `SendPrompt` is instead held durably as `awaiting_readiness`; only
-  an internal, epoch- and current-run-fenced release can make it claimable.
-  This is a fresh-schema revision, not a migration or recovery snapshot.
-- Accepted send receipts now report `awaitingReadiness`, rather than implying a
-  provider outbox entry. The generic chat path does not wake a lifecycle for
-  that state; only a future private readiness authority can release the held
-  prompt and then issue its lifecycle wake.
-- provider-readiness-v1 now carries only an exact conversation/run assessment.
-  Its explicit profile derives Ready, a daemon-generated install review, or a
-  safe unavailable reason from durable Gent facts; clients cannot inject a
-  provider, executable, lock, or plan. Observer and chat-only profiles do not
-  advertise it, and it has no composed provision-confirmation action.
-- The unadvertised prompt-provider-provision-v1 contract accepts only receipt, held-prompt,
-  conversation/run, consent, epoch, and the daemon review digest. It cannot carry provider,
-  package, executable, policy, or plan fields. Gent's private command fingerprint additionally
-  binds the daemon-selected package coordinates and policy digest; it rechecks that exact signed
-  selection immediately before npm, and SQLite requires matching installed provenance. Its
-  settlement writes the verified lock, terminal provision receipt, and release of that exact held
-  send prompt in one immediate transaction. The accepted receipt and `awaiting_readiness` to
-  `provisioning` admission are likewise one immediate transaction, so recovery can never guess
-  whether npm started. Declined consent and stale review digests settle a rejected receipt without
-  changing the held dispatch; a later fresh confirmation remains possible. Ambiguous or recovered
-  effects become durable `unprovable` without release or replay. A daemon-only boundary and
-  strict IPC transport now exist behind an explicit injected private-authority constructor; the
-  shipped bootstrap remains observer-only and cannot advertise the capability.
+- Every `SendPrompt` is held durably as `awaiting_readiness`. A daemon-only
+  ready fact binds its prompt receipt, conversation, current run, provider, and
+  epoch; one immediate SQLite transaction stores that fact, settles its exact
+  idempotency receipt, and releases only that held prompt. A changed selection,
+  event collision, stale epoch, missing lock, or unreadable provenance exposes
+  no work. This is fresh-schema storage, not a migration or recovery snapshot.
+- An explicit post-commit readiness-admission seam checks the durable locked
+  Claude/Codex executable, releases only after the preceding transaction, then
+  notifies a downstream lifecycle. It launches nothing inline; missing or
+  invalid installations remain held. Generic and observer chat persistence do
+  not opt into this wake path.
+- `provider-readiness-v2` carries only exact conversation/run identity and
+  returns Ready, a daemon-generated install review, or a safe unavailable
+  reason. The terminal now has capability-gated `gent provider readiness` and
+  `gent provider provision` commands. It can only correlate a held prompt,
+  consent, and the daemon-issued digest; it never sends a provider, package,
+  command, executable, policy, or plan. Provision retries deterministically
+  reuse their receipt for the same idempotency key. Observer remains absent.
+- The unadvertised prompt-provider-provision-v1 command fingerprint binds the
+  daemon-selected package coordinates and policy digest, rechecks the exact
+  signed selection before npm, and atomically settles verified provenance plus
+  its prompt release. Consent refusal, digest mismatch, and proven pre-effect
+  failure keep the prompt held; ambiguity is durable `unprovable` with no replay.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.
