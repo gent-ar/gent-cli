@@ -81,11 +81,10 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   become unprovable; the dormant Claude/Codex resolvers read and recheck this lock
   directly, with no prefix or `PATH` discovery.
 - Dependency receipt reservation is now an effect-free shared runtime rule. The
-  private provisioning authority is its separate terminal owner: it accepts only
-  a daemon-issued plan, settles denial/mismatch without npm, atomically writes a
-  verified lock on success, and turns any recovered accepted receipt into
-  unprovable without replay. Observer bootstrap and capabilities still construct
-  neither this authority nor its installer.
+  obsolete generic provisioning owner was removed; only the prompt-scoped path
+  may later settle denial/mismatch without npm, atomically write a verified lock,
+  and turn any recovered accepted receipt unprovable without replay. Observer
+  bootstrap and capabilities still construct neither an installer nor authority.
 - Post-install provider locks begin explicitly unbound. A narrow compatibility
   port revalidates the signed manifest at the provisioning operation's current
   time, binds only its exact provider/version/digest entry, and otherwise makes

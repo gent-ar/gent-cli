@@ -102,10 +102,10 @@ lifecycle state are prohibited.
   cannot replay. Claude/Codex dormant resolution reads only that lock and
   rechecks its exact identity—there is no prefix or `PATH` rediscovery.
 - Shared receipt reservation now makes the restart rule reusable without sharing
-  settlement authority. The dormant private provisioning authority alone claims
-  a daemon-issued plan, verifies/install-locks through the private Node prefix,
-  and atomically settles that exact receipt; denied consent and plan mismatch
-  start no npm, and a recovered accepted receipt becomes unprovable.
+  settlement authority. The obsolete generic provisioning owner was removed;
+  only the prompt-scoped path may later verify/install-lock through the private
+  Node prefix and atomically settle its exact receipt. Denied consent and plan
+  mismatch start no npm, and a recovered accepted receipt becomes unprovable.
 - Private provider verification now emits an explicitly unbound observed lock.
   A typed signed-compatibility binder must revalidate and bind its exact
   provider/version/digest at operation time before settlement; expiry or a
