@@ -5,8 +5,8 @@ use gent_protocol::{
     AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
     CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, GOAL_CAPABILITY,
-    ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY,
-    RUNTIME_UPDATE_CHECK_CAPABILITY,
+    ORCHESTRATION_CAPABILITY, PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
+    RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
 use gent_types::CapabilitySet;
 
@@ -57,6 +57,7 @@ pub enum RuntimeCapabilityFeature {
     AgentChat,
     TurnFollow,
     ReviewedPlans,
+    ProviderReadiness,
     RuntimeUpdateCheck,
     RuntimeMaintenance,
 }
@@ -100,6 +101,12 @@ impl RuntimeCapabilityProfile {
     #[must_use]
     pub fn reviewed_plans_enabled(&self) -> bool {
         self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ReviewedPlans)
+    }
+
+    /// Whether exact-run provider readiness handlers are composed.
+    #[must_use]
+    pub fn provider_readiness_enabled(&self) -> bool {
+        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ProviderReadiness)
     }
 
     /// Whether a verified update-check handler is composed.
@@ -181,6 +188,11 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
     if profile.reviewed_plans_enabled() {
         capabilities.0.push(REVIEWED_PLAN_CAPABILITY.to_owned());
     }
+    if profile.provider_readiness_enabled() {
+        capabilities
+            .0
+            .push(PROVIDER_READINESS_CAPABILITY.to_owned());
+    }
     if profile.runtime_update_check_enabled() {
         capabilities
             .0
@@ -230,6 +242,7 @@ pub fn validate_observed_capabilities(
             AGENT_CHAT_INTENTS_CAPABILITY,
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
             REVIEWED_PLAN_CAPABILITY,
+            PROVIDER_READINESS_CAPABILITY,
             RUNTIME_UPDATE_CHECK_CAPABILITY,
             RUNTIME_MAINTENANCE_CAPABILITY,
         ]
@@ -253,6 +266,7 @@ fn feature_from_observed(
             AGENT_CHAT_INTENTS_CAPABILITY => RuntimeCapabilityFeature::AgentChat,
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY => RuntimeCapabilityFeature::TurnFollow,
             REVIEWED_PLAN_CAPABILITY => RuntimeCapabilityFeature::ReviewedPlans,
+            PROVIDER_READINESS_CAPABILITY => RuntimeCapabilityFeature::ProviderReadiness,
             RUNTIME_UPDATE_CHECK_CAPABILITY => RuntimeCapabilityFeature::RuntimeUpdateCheck,
             RUNTIME_MAINTENANCE_CAPABILITY => RuntimeCapabilityFeature::RuntimeMaintenance,
             _ => unreachable!("only known capability names are passed"),

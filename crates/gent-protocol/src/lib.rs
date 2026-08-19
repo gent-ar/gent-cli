@@ -25,6 +25,7 @@ mod goal;
 mod orchestration;
 mod permission_policy;
 mod provider_auth;
+mod provider_readiness;
 mod reviewed_plan;
 mod runs;
 mod runtime_maintenance;
@@ -64,6 +65,10 @@ pub use permission_policy::{PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame}
 pub use provider_auth::{
     MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame,
     ProviderAuthFrameError, read_provider_auth_frame, write_provider_auth_frame,
+};
+pub use provider_readiness::{
+    PROVIDER_READINESS_CAPABILITY, ProviderReadinessFrame, ProviderReadinessReviewState,
+    ProviderReadinessUnavailable,
 };
 pub use reviewed_plan::{REVIEWED_PLAN_CAPABILITY, ReviewedPlanFrame, ReviewedPlanFrameError};
 pub use runs::{

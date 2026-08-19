@@ -180,6 +180,9 @@ where
     if crate::agent_chat_read_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::provider_readiness_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if crate::agent_chat_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }

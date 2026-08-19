@@ -4,7 +4,7 @@ use gent_protocol::{
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
     DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
     DependencyPlan, DependencyPlanRequest, GoalFrame, OrchestrationFrame, PermissionPolicyFrame,
-    ReviewedPlanFrame,
+    ProviderReadinessFrame, ReviewedPlanFrame,
 };
 use gent_types::{
     Command, ConversationContentCursor, ConversationContentPage, ConversationStatus,
@@ -76,46 +76,24 @@ impl api::RuntimeApi for RuntimeFacade {
         &self,
         frame: AgentChatConversationFrame,
     ) -> Result<AgentChatConversationFrame, String> {
-        let reads = self
-            .agent_chat_reads
-            .as_ref()
-            .ok_or_else(|| "agent-chat conversation reads are observer-disabled".to_owned())?;
-        match frame {
-            AgentChatConversationFrame::SummaryRequest { conversation_id } => reads
-                .summary(&conversation_id)
-                .map(AgentChatConversationFrame::Summary)
-                .map_err(|error| error.to_string()),
-            AgentChatConversationFrame::DetailRequest { conversation_id } => reads
-                .detail(&conversation_id)
-                .map(AgentChatConversationFrame::Detail)
-                .map_err(|error| error.to_string()),
-            AgentChatConversationFrame::Summary(_) | AgentChatConversationFrame::Detail(_) => {
-                Err("agent-chat conversation response frames are server-only".into())
-            }
-        }
+        chat_reads::conversation(self, frame)
     }
 
     fn agent_chat_transcript(
         &self,
         frame: AgentChatTranscriptFrame,
     ) -> Result<AgentChatTranscriptFrame, String> {
-        let reads = self
-            .agent_chat_reads
+        chat_reads::transcript(self, frame)
+    }
+
+    fn provider_readiness(
+        &self,
+        frame: ProviderReadinessFrame,
+    ) -> Result<ProviderReadinessFrame, String> {
+        self.provider_readiness
             .as_ref()
-            .ok_or_else(|| "agent-chat transcript reads are observer-disabled".to_owned())?;
-        match frame {
-            AgentChatTranscriptFrame::PageRequest {
-                conversation_id,
-                after_cursor,
-                limit,
-            } => reads
-                .transcript(&conversation_id, after_cursor, limit)
-                .map(AgentChatTranscriptFrame::Page)
-                .map_err(|error| error.to_string()),
-            AgentChatTranscriptFrame::Page(_) => {
-                Err("agent-chat transcript response frames are server-only".into())
-            }
-        }
+            .ok_or_else(|| "provider readiness is observer-disabled".to_owned())?
+            .assess(frame)
     }
 
     fn agent_chat_turn_follow(

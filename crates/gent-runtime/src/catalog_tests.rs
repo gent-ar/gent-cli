@@ -2,7 +2,9 @@ use super::{
     CatalogError, RuntimeCapabilityFeature, RuntimeCapabilityProfile, declared_capabilities,
     declared_capabilities_with_profiles, reconcile, validate_observed_capabilities,
 };
-use gent_protocol::{AGENT_CHAT_TURN_FOLLOW_CAPABILITY, REVIEWED_PLAN_CAPABILITY};
+use gent_protocol::{
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
+};
 use gent_types::CapabilitySet;
 
 #[test]
@@ -52,5 +54,24 @@ fn reviewed_plans_are_advertised_only_by_their_typed_profile_feature() {
         declared_capabilities_with_profiles(&profile)
             .0
             .contains(&REVIEWED_PLAN_CAPABILITY.into())
+    );
+}
+
+#[test]
+fn provider_readiness_requires_its_typed_chat_profile_feature() {
+    let absent = RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]);
+    assert!(
+        !declared_capabilities_with_profiles(&absent)
+            .0
+            .contains(&PROVIDER_READINESS_CAPABILITY.into())
+    );
+    let enabled = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ProviderReadiness,
+    ]);
+    assert!(
+        declared_capabilities_with_profiles(&enabled)
+            .0
+            .contains(&PROVIDER_READINESS_CAPABILITY.into())
     );
 }

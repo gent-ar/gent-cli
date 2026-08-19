@@ -130,6 +130,11 @@ lifecycle state are prohibited.
   provider outbox entry. The generic chat path does not wake a lifecycle for
   that state; only a future private readiness authority can release the held
   prompt and then issue its lifecycle wake.
+- provider-readiness-v1 now carries only an exact conversation/run assessment.
+  Its explicit profile derives Ready, a daemon-generated install review, or a
+  safe unavailable reason from durable Gent facts; clients cannot inject a
+  provider, executable, lock, or plan. Observer and chat-only profiles do not
+  advertise it, and it still has no provision-confirmation action.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.

@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use crate::dependency_actions::ObserverDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
+use crate::private_provider_readiness::PrivateProviderReadinessService;
+use crate::provider_readiness_boundary::ProviderReadinessBoundary;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 use gent_runtime::{
@@ -21,6 +23,8 @@ type RuntimeSelectionGate = Arc<dyn AgentChatSelectionGate>;
 
 #[path = "runtime_facade_authority.rs"]
 mod authority;
+#[path = "runtime_facade_chat_reads.rs"]
+mod chat_reads;
 #[path = "runtime_facade_composition.rs"]
 mod composition;
 
@@ -34,6 +38,7 @@ pub(crate) struct RuntimeFacade {
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger, RuntimeSelectionGate>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
+    provider_readiness: Option<ProviderReadinessBoundary<SqliteLedger>>,
     turn_follow_source: Option<SqliteLedger>,
     ordinary_prompt_ingress:
         Option<crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>>,
@@ -83,6 +88,7 @@ impl RuntimeFacade {
         } = state;
         let agent_chat_enabled = capability_profile.agent_chat_enabled();
         let reviewed_plan_enabled = capability_profile.reviewed_plans_enabled();
+        let provider_readiness_enabled = capability_profile.provider_readiness_enabled();
         let maintenance_enabled = capability_profile.runtime_maintenance_enabled();
         let attachments = AttachmentService::new(
             ledger.clone(),
@@ -91,6 +97,16 @@ impl RuntimeFacade {
         let turn_follow_source = capability_profile
             .turn_follow_enabled()
             .then(|| ledger.clone());
+        let dependencies = DependencyCatalog::with_private_prefix(
+            compatibility.clone(),
+            data_dir.join("providers").join("npm-global"),
+        );
+        let provider_readiness = provider_readiness_enabled.then(|| {
+            ProviderReadinessBoundary::new(
+                AgentChatReadService::new(ledger.clone()),
+                PrivateProviderReadinessService::new(dependencies.clone(), ledger.clone()),
+            )
+        });
         Ok(Self {
             agent_chat_conversations: AgentChatConversationService::with_selection_gate(
                 ledger.clone(),
@@ -107,6 +123,7 @@ impl RuntimeFacade {
                 selection_gate,
             ),
             agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
+            provider_readiness,
             turn_follow_source,
             ordinary_prompt_ingress,
             goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),
@@ -126,10 +143,7 @@ impl RuntimeFacade {
             runtime_update_checks,
             attachments,
             coordinator,
-            dependencies: DependencyCatalog::with_private_prefix(
-                compatibility,
-                data_dir.join("providers").join("npm-global"),
-            ),
+            dependencies,
             dependency_actions: DependencyActionService::new(ledger, ObserverDependencyExecutor),
         })
     }

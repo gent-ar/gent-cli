@@ -108,6 +108,10 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - The client-visible delivery value is `awaitingReadiness`. Generic chat
   persistence does not wake an ordinary lifecycle for a held prompt; the future
   readiness authority must release the exact durable prompt before it wakes it.
+- provider-readiness-v1 is now a separately negotiated, exact conversation/run
+  read surface in an explicit profile only. It produces daemon-derived
+  Ready/Review/Unavailable replies and preserves observer and chat-only
+  capability absence. It does not yet authorize provisioning or a provider launch.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
   same selected-run ordering as prompt ownership. Clients must carry that
   identity into future readiness and prompt-fence requests rather than infer it.
