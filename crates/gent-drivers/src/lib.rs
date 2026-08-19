@@ -25,6 +25,7 @@ pub mod output_pump;
 pub mod process;
 mod process_streams;
 pub mod public_protocol;
+pub mod read_only_host_launch;
 pub mod run_runner;
 pub mod sandboxed_launch;
 pub mod session;
@@ -38,6 +39,7 @@ pub use macos_provider_helper::{
 };
 pub use output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 pub use process::{CapturedStream, ProcessOutput, SystemLauncher, SystemProcess};
+pub use read_only_host_launch::ReadOnlyHostLauncher;
 pub use run_runner::DriverRunRunner;
 pub use sandboxed_launch::{
     SandboxedLauncher, SandboxedProviderLaunch, SandboxedProviderLaunchError,
