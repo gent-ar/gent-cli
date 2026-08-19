@@ -50,8 +50,9 @@ For the current working-tree context and continuation order, read [the handoff](
       acknowledgement-gated backpressure, and `gent events --follow` over the existing IPC.
       The daemon polls its durable ledger at a bounded interval; it does not yet claim a producer
       notification path or automatic client reconnect.
-- [x] Credential-free private external-provider bridge DTOs and dedicated handshake/lifecycle
-      wire frames; no private bridge endpoint or implementation is composed by `gentd`.
+- [x] One credential-free, daemon-only `PrivateClaurstBridge` port transports only bounded
+      normalized facts and opaque session bindings; no public bridge wire contract, endpoint, or
+      implementation is composed by `gentd`.
 - [x] End-to-end local-IPC smoke tests for Unix sockets and Windows named pipes,
       including daemon, client, receipt, decision, and event ordering.
 - [x] Phase-0 coverage-manifest structural validator and CI checks.
@@ -295,6 +296,5 @@ application-specific UI automations stay Flutter-owned. The client boundary is
 After the authority/evidence gates, `gent-canvas`, `gent-forge`, and
 `gent-automations` remain separate typed Gent domains; pairing and non-agent UI
 automation stay app-owned. Provider selection and multi-agent node dispatch
-must create immutable child runs, preserve provider-neutral lineage, and never
-expose Claurst secrets. The coverage manifest blocks authority transfer while
-real evidence is absent; a future app launch still enforces one writer/epoch.
+must create immutable child runs, preserve provider-neutral lineage, and never expose Claurst
+secrets; the coverage manifest blocks authority transfer while real evidence is absent, and a future app launch still enforces one writer/epoch.
