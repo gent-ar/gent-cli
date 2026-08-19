@@ -10,6 +10,7 @@ use std::{
 };
 
 use gent_drivers::{
+    NodeReadOnlyHostLauncher,
     installer::NpmGlobalPrefix,
     node_runtime_lock::{NodeRuntimeLock, NodeRuntimeLockError},
 };
@@ -77,6 +78,21 @@ impl AppNodeRuntimeLock {
             self.private_prefix.clone(),
         ))
     }
+
+    /// Rechecks and binds the app Node runtime to one bounded Ask/Plan launcher.
+    ///
+    /// # Errors
+    /// Returns instead of constructing a launcher when the app-supplied runtime changed.
+    pub(crate) fn rechecked_read_only_launcher(
+        &self,
+        output_limit: usize,
+    ) -> Result<NodeReadOnlyHostLauncher, AppNodeRuntimeLockError> {
+        self.recheck()?;
+        Ok(NodeReadOnlyHostLauncher::new(
+            self.lock.clone(),
+            output_limit,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +129,19 @@ mod tests {
         fs::write(node, "replacement").unwrap();
         assert!(matches!(
             runtime.rechecked_npm_prefix(),
+            Err(AppNodeRuntimeLockError::Runtime(_))
+        ));
+    }
+
+    #[test]
+    fn changed_app_runtime_cannot_create_a_read_only_provider_launcher() {
+        let root = tempfile::tempdir().unwrap();
+        let node = write_pair(root.path());
+        let runtime =
+            AppNodeRuntimeLock::capture(Some(node.clone().into_os_string()), root.path()).unwrap();
+        fs::write(node, "replacement").unwrap();
+        assert!(matches!(
+            runtime.rechecked_read_only_launcher(1024),
             Err(AppNodeRuntimeLockError::Runtime(_))
         ));
     }

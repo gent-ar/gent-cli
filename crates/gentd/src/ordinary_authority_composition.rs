@@ -7,7 +7,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use gent_drivers::ReadOnlyHostLauncher;
 use gent_runtime::AgentChatReadService;
 use gent_store::SqliteLedger;
 use gent_types::AgentChatProvider;
@@ -20,6 +19,7 @@ use crate::codex_authority_composition::{
     PrivateCodexAuthorityConfig, PrivateCodexAuthorityError, compose_private_codex_authority,
 };
 use crate::codex_authority_preflight::{self, CodexAuthorityPreflightError};
+use crate::node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError};
 use crate::ordinary_lifecycle_cadence::{
     OrdinaryLifecycleCadence, OrdinaryPromptIngress, pair as cadence_pair,
 };
@@ -73,6 +73,8 @@ pub(crate) enum OrdinaryAuthorityError {
     Claude(#[from] PrivateClaudeAuthorityError),
     #[error("ordinary lifecycle router is unavailable")]
     RouterUnavailable,
+    #[error(transparent)]
+    AppNodeRuntime(#[from] AppNodeRuntimeLockError),
 }
 
 /// Caller-timed bounded cadence for one shared ordinary-provider router.
@@ -135,10 +137,11 @@ impl OrdinaryAuthorityRuntime {
 pub(crate) fn compose_ordinary_authority(
     state: &DaemonCompositionState,
     config: OrdinaryAuthorityConfig,
+    app_node: &AppNodeRuntimeLock,
 ) -> Result<OrdinaryAuthorityRuntime, OrdinaryAuthorityError> {
     validate_shared_owner(&config)?;
     preflight_all(state, &config)?;
-    let launcher = ReadOnlyHostLauncher::new(STREAM_CAPTURE_BYTES);
+    let launcher = app_node.rechecked_read_only_launcher(STREAM_CAPTURE_BYTES)?;
     let mut hosts: Vec<Box<dyn OrdinaryLifecycleHost>> = Vec::new();
     for provider in config.providers {
         match provider {
