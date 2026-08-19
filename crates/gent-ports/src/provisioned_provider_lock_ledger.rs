@@ -62,7 +62,22 @@ impl<T: ProvisionedProviderLockLedger + ?Sized> ProvisionedProviderLockReader fo
 /// This is distinct from generic dependency actions: its immutable command fingerprint binds the
 /// prompt receipt, conversation, current run, provider, action, consent, and reviewed digest.
 pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
-    /// Writes the lock, receipt/event, and one held-prompt release in the same transaction.
+    /// Reserves one exact held prompt before its daemon-owned private npm effect.
+    ///
+    /// This persistent admission fences the current selected run and changes only the bound
+    /// dispatch from `awaiting_readiness` to `provisioning`. A selection switch cannot overtake
+    /// the external effect after this returns successfully.
+    ///
+    /// # Errors
+    /// Returns when the exact accepted command, epoch, prompt receipt, provider selection, or
+    /// held dispatch differs, leaving the dispatch unchanged.
+    fn reserve_verified_provider_prompt_provision(
+        &self,
+        command: &Command,
+        binding: &ProviderPromptProvisionBinding,
+    ) -> Result<(), LedgerError>;
+
+    /// Writes the lock, receipt/event, and one reserved-prompt release in the same transaction.
     ///
     /// # Errors
     /// Returns when any prompt/run/provider/receipt/command fence differs, leaving every fact

@@ -139,8 +139,9 @@ lifecycle state are prohibited.
   conversation/run, consent, epoch, and the daemon review digest. It cannot carry provider,
   package, executable, policy, or plan fields. Its SQLite settlement writes the verified lock,
   terminal provision receipt, and release of that exact held send prompt in one immediate
-  transaction; any late failure rolls all three back. The corresponding capability has no
-  transport or bootstrap composition yet.
+  transaction; a separate immediate admission changes only that exact dispatch to
+  `provisioning`, blocking a competing selection switch until terminal settlement. The
+  corresponding capability has no transport or bootstrap composition yet.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.

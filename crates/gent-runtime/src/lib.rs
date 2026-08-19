@@ -37,6 +37,7 @@ mod orchestration;
 #[cfg(test)]
 mod orchestration_service_tests;
 mod policies;
+mod prompt_provider_provision_command;
 mod provider_activity;
 mod provider_lifecycle;
 mod provider_mode_selection_gate;
@@ -109,6 +110,7 @@ pub use goals::{GoalAuthority, GoalResult, GoalService};
 pub use legacy_observer::{LegacyObserver, ObserverPoll};
 pub use mcp_connectors::*;
 pub use orchestration::{OrchestrationAuthority, OrchestrationResult, OrchestrationService};
+pub use prompt_provider_provision_command::prompt_provider_provision_command;
 pub use provider_activity::{ProviderActivityFact, ProviderActivityIngress};
 pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use provider_mode_selection_gate::ProviderModeSelectionGate;

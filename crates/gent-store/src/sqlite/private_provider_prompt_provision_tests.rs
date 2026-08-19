@@ -1,13 +1,13 @@
 use gent_ports::{
-    AgentChatPromptLedger, AgentChatWorkspaceLedger, Ledger, PrivateProviderPromptProvisionLedger,
-    ProvisionedProviderLockLedger, ReceiptClaim,
+    AgentChatPromptLedger, AgentChatSelectionLedger, AgentChatWorkspaceLedger, Ledger,
+    PrivateProviderPromptProvisionLedger, ProvisionedProviderLockLedger, ReceiptClaim,
 };
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, Command, Event, HostEpoch, ProviderInstallProvenance,
-    ProviderPromptProvisionBinding, ProvisionedProviderInstallation, ProvisionedProviderLock,
-    Receipt, ReceiptId, ReceiptStatus, RunVersionLock, WorkspaceRecord,
+    AgentChatRunId, AgentChatSelection, Command, ContextPolicy, Event, HostEpoch,
+    ProviderInstallProvenance, ProviderPromptProvisionBinding, ProvisionedProviderInstallation,
+    ProvisionedProviderLock, Receipt, ReceiptId, ReceiptStatus, RunVersionLock, WorkspaceRecord,
 };
 use serde_json::json;
 
@@ -17,6 +17,10 @@ use super::SqliteLedger;
 fn verified_install_and_exact_prompt_release_commit_together() {
     let (ledger, saved) = seeded();
     let (binding, command, receipt) = provision(&ledger, &saved);
+    assert_eq!(
+        dispatch_state(&ledger, &saved.message.message_id),
+        "provisioning"
+    );
     settle(&ledger, &binding, &command, &receipt).unwrap();
     assert_eq!(
         dispatch_state(&ledger, &saved.message.message_id),
@@ -55,7 +59,7 @@ fn event_conflict_rolls_back_lock_receipt_and_prompt_release() {
     );
     assert_eq!(
         dispatch_state(&ledger, &saved.message.message_id),
-        "awaiting_readiness"
+        "provisioning"
     );
     assert!(
         ledger
@@ -87,13 +91,42 @@ fn stale_or_mismatched_prompt_binding_cannot_release_a_prompt() {
     );
     assert_eq!(
         dispatch_state(&ledger, &saved.message.message_id),
-        "awaiting_readiness"
+        "provisioning"
     );
     assert!(
         ledger
             .find_provisioned_provider_installation("codex")
             .unwrap()
             .is_none()
+    );
+}
+
+#[test]
+fn provision_admission_blocks_a_selection_switch_until_its_terminal_settlement() {
+    let (ledger, saved) = seeded();
+    let (_binding, _command, _receipt) = provision(&ledger, &saved);
+    assert!(
+        ledger
+            .switch_agent_chat_selection(&gent_types::AgentChatSelectionSwitch {
+                receipt_id: ReceiptId("switch-receipt".into()),
+                idempotency_key: "switch-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation".into()),
+                parent_run_id: saved.run_id.clone(),
+                run_id: AgentChatRunId("next-run".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "sonnet".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Plan,
+                },
+                context_policy: ContextPolicy::Preserve,
+            })
+            .is_err()
+    );
+    assert_eq!(
+        dispatch_state(&ledger, &saved.message.message_id),
+        "provisioning"
     );
 }
 
@@ -171,6 +204,9 @@ fn provision(
         ReceiptClaim::Accepted(receipt) => receipt,
         ReceiptClaim::Existing(_) => panic!("new provision command must be accepted"),
     };
+    ledger
+        .reserve_verified_provider_prompt_provision(&command, &binding)
+        .unwrap();
     (binding, command, receipt)
 }
 

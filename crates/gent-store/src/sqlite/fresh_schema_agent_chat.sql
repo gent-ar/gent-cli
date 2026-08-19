@@ -76,7 +76,7 @@ CREATE TABLE agent_chat_transcript_events (
 );
 CREATE TABLE agent_chat_prompt_dispatches (
     message_id TEXT PRIMARY KEY NOT NULL REFERENCES conversation_messages(message_id),
-    state TEXT NOT NULL CHECK (state IN ('awaiting_readiness', 'pending', 'claimed', 'launching', 'started', 'settled', 'unprovable')),
+    state TEXT NOT NULL CHECK (state IN ('awaiting_readiness', 'provisioning', 'pending', 'claimed', 'launching', 'started', 'settled', 'unprovable')),
     coordinator_id TEXT, host_epoch INTEGER, created_rowid INTEGER NOT NULL
 );
 CREATE INDEX agent_chat_prompt_dispatches_pending ON agent_chat_prompt_dispatches(state, created_rowid);

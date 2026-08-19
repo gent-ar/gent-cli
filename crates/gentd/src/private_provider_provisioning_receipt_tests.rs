@@ -6,7 +6,8 @@ use std::{
 use gent_drivers::installer::{DependencyInstaller, InstallerError, NpmGlobalPrefix};
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
 use gent_protocol::{DependencyAction, DependencyProvider};
-use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
+use gent_types::{Command, HostEpoch, Receipt, ReceiptId, ReceiptStatus};
+use serde_json::json;
 
 use super::{
     PrivateProviderProvisioner, PrivateProvisionError, PrivateProvisionRequest,
@@ -64,6 +65,7 @@ impl ProvisionedProviderVerifier for Verifier {
 enum ReceiptReader {
     Different,
     Unavailable,
+    RecordingUnavailable(Arc<Mutex<Option<Command>>>),
 }
 
 impl ProvisionReceiptReader for ReceiptReader {
@@ -76,6 +78,10 @@ impl ProvisionReceiptReader for ReceiptReader {
                 host_epoch: HostEpoch(command.host_epoch.0 + 1),
             }),
             Self::Unavailable => Err("receipt ledger unavailable".into()),
+            Self::RecordingUnavailable(seen) => {
+                *seen.lock().unwrap() = Some(command.clone());
+                Err("receipt ledger unavailable".into())
+            }
         }
     }
 }
@@ -99,6 +105,29 @@ fn unavailable_durable_receipt_refuses_before_npm_effect() {
         provisioner.provision(&request()),
         Err(PrivateProvisionError::ReceiptUnavailable(_))
     ));
+    assert_eq!(*installer.0.lock().unwrap(), 0);
+}
+
+#[test]
+fn scoped_command_is_reread_without_reconstructing_a_dependency_action() {
+    let installer = Installer::default();
+    let command = Command {
+        receipt_id: ReceiptId("receipt".into()),
+        idempotency_key: "key".into(),
+        host_epoch: HostEpoch(4),
+        kind: "providerPromptProvision".into(),
+        payload: json!({ "promptReceiptId": "prompt", "provider": "codex" }),
+    };
+    let seen = Arc::new(Mutex::new(None));
+    let provisioner = provisioner(
+        installer.clone(),
+        ReceiptReader::RecordingUnavailable(Arc::clone(&seen)),
+    );
+    assert!(matches!(
+        provisioner.provision_with_command(&request(), &command),
+        Err(PrivateProvisionError::ReceiptUnavailable(_))
+    ));
+    assert_eq!(*seen.lock().unwrap(), Some(command));
     assert_eq!(*installer.0.lock().unwrap(), 0);
 }
 

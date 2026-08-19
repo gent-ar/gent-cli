@@ -10,15 +10,16 @@ use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
 pub(crate) use gent_types::ProvisionedProviderLock;
-use gent_types::{
-    ProviderInstallProvenance, ProvisionedProviderInstallation, Receipt, ReceiptStatus,
-};
+#[cfg(test)]
+use gent_types::ReceiptStatus;
+use gent_types::{ProvisionedProviderInstallation, Receipt};
 
 use crate::{
     node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError},
     private_provider_compatibility::ProvisionedProviderCompatibility,
-    private_provider_lock_validation::{valid_digest, valid_lock},
 };
+
+mod effect;
 
 /// Receipt-bound, consented prompt trigger without any prompt text or provider executable path.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -194,12 +195,6 @@ impl<
         &self,
         request: &PrivateProvisionRequest,
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
-        if request.receipt.status != ReceiptStatus::Accepted {
-            return Err(PrivateProvisionError::ReceiptNotAccepted);
-        }
-        if !request.consent_granted {
-            return Ok(PrivateProvisionResult::ConsentRequired);
-        }
         let command = gent_runtime::dependency_action_command(&DependencyActionRequest {
             receipt_id: request.receipt.receipt_id.clone(),
             idempotency_key: request.receipt.idempotency_key.clone(),
@@ -209,61 +204,19 @@ impl<
             consent_granted: request.consent_granted,
             reviewed_plan_digest: request.reviewed_plan_digest.clone(),
         });
-        let durable_receipt = self
-            .receipts
-            .accepted_receipt(&command)
-            .map_err(PrivateProvisionError::ReceiptUnavailable)?;
-        if durable_receipt != request.receipt || durable_receipt.status != ReceiptStatus::Accepted {
-            return Err(PrivateProvisionError::ReceiptMismatch);
-        }
-        let verifier = self
-            .verifier
-            .as_ref()
-            .ok_or(PrivateProvisionError::VerificationUnavailable)?;
-        let package = self
-            .policy
-            .approved_package(request.provider.as_str(), request.now_unix_seconds)
-            .map_err(|error| PrivateProvisionError::Policy(error.to_string()))?;
-        if package.provider != request.provider.as_str() {
-            return Err(PrivateProvisionError::ProviderMismatch);
-        }
-        if !valid_digest(&package.package_policy_digest_sha256) {
-            return Err(PrivateProvisionError::PolicyIdentity);
-        }
-        // Keep the runtime fence adjacent to the only external effect. Policy selection is
-        // pure/read-only, so it must not create a gap after this recheck.
-        let npm = self.runtime.rechecked_npm_prefix()?;
-        self.installer
-            .install(&npm, &package)
-            .map_err(|error| PrivateProvisionError::Installer(error.to_string()))?;
-        if self.runtime.recheck().is_err() {
-            return Ok(PrivateProvisionResult::Ambiguous);
-        }
-        match verifier
-            .lock(request.provider, npm.prefix())
-            .and_then(|lock| {
-                valid_lock(&lock, request.provider, npm.prefix())
-                    .then_some(lock)
-                    .ok_or_else(|| "private provider executable is invalid".into())
-            })
-            .and_then(|lock| {
-                self.compatibility
-                    .bind(lock.run_lock, request.now_unix_seconds)
-            }) {
-            Ok(run_lock) => Ok(PrivateProvisionResult::Installed(Box::new(
-                ProvisionedProviderInstallation {
-                    lock: ProvisionedProviderLock { run_lock },
-                    provenance: ProviderInstallProvenance {
-                        package_name: package.package_name,
-                        package_version: package.version,
-                        package_integrity: package.integrity,
-                        package_policy_digest_sha256: package.package_policy_digest_sha256,
-                        node_runtime_digest_sha256: self.runtime.node_digest_sha256().into(),
-                    },
-                },
-            ))),
-            Err(_) => Ok(PrivateProvisionResult::Ambiguous),
-        }
+        self.provision_with_command(request, &command)
+    }
+
+    /// Runs an installation only after re-reading this exact daemon-built command.
+    ///
+    /// # Errors
+    /// Returns before an effect when the receipt or command identity is no longer durable.
+    pub(crate) fn provision_with_command(
+        &self,
+        request: &PrivateProvisionRequest,
+        command: &gent_types::Command,
+    ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
+        effect::provision(self, request, command)
     }
 }
 

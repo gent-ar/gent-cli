@@ -115,10 +115,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - prompt-provider-provision-v1 has a strict, uncomposed confirmation DTO. A client may echo
   only its provision receipt, exact held prompt/conversation/run, consent, epoch, and the
   daemon-issued review digest; provider/action/package/path/plan/policy are absent. A new
-  SQLite port atomically persists a verified public-provider lock, terminal provision receipt,
-  and release of that exact `awaiting_readiness` send prompt. It validates consent, epoch,
-  fingerprint, current selected run, provider, and immutable lock; failures roll back. The
-  capability is not in bootstrap, `RuntimeFacade`, or any transport.
+  SQLite port first changes that exact `awaiting_readiness` send to `provisioning`, which blocks
+  a competing selection switch, then atomically persists a verified public-provider lock,
+  terminal provision receipt, and its release. It validates consent, epoch, fingerprint, current
+  selected run, provider, and immutable lock; failures roll back. The capability is not in
+  bootstrap, `RuntimeFacade`, or any transport.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
   same selected-run ordering as prompt ownership. Clients must carry that
   identity into future readiness and prompt-fence requests rather than infer it.
