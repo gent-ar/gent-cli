@@ -33,7 +33,7 @@ pub(super) fn receipt_matches_command(
         }))
 }
 
-fn command_fingerprint(command: &Command) -> Result<String, LedgerError> {
+pub(super) fn command_fingerprint(command: &Command) -> Result<String, LedgerError> {
     use sha2::{Digest, Sha256};
 
     let payload = serde_json::to_vec(&command.payload).map_err(storage_error)?;

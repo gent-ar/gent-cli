@@ -85,7 +85,7 @@ pub use conversation_activity::{
 };
 pub use conversation_context::{ConversationContextArtifactService, ConversationContextRequest};
 pub use conversation_prompts::*;
-pub use dependency_actions::DependencyActionService;
+pub use dependency_actions::{DependencyActionService, dependency_action_command};
 use gent_core::{Run, switch_provider};
 use gent_ports::{
     HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,

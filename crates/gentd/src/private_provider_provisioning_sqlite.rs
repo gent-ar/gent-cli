@@ -1,10 +1,10 @@
 //! `SQLite` receipt adapter for the dormant Gent-only provisioning seam.
 //!
 //! Bootstrap never constructs this adapter. It carries no policy, installer, or provider runner;
-//! it merely re-reads an exact receipt binding immediately before a future approved effect.
+//! it merely re-reads one complete command binding before a future approved effect.
 
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
+use gent_types::{Command, Receipt, ReceiptStatus};
 
 use crate::private_provider_provisioning::ProvisionReceiptReader;
 
@@ -23,15 +23,10 @@ impl SqliteProvisionReceiptReader {
 }
 
 impl ProvisionReceiptReader for SqliteProvisionReceiptReader {
-    fn accepted_receipt(
-        &self,
-        receipt_id: &ReceiptId,
-        idempotency_key: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Receipt, String> {
+    fn accepted_receipt(&self, command: &Command) -> Result<Receipt, String> {
         let receipt = self
             .ledger
-            .find_receipt_binding(receipt_id, idempotency_key, host_epoch)
+            .find_command_receipt_binding(command)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "provisioning receipt binding is missing".to_owned())?;
         (receipt.status == ReceiptStatus::Accepted)
@@ -43,6 +38,7 @@ impl ProvisionReceiptReader for SqliteProvisionReceiptReader {
 #[cfg(test)]
 mod tests {
     use gent_ports::{Ledger, ReceiptClaim};
+    use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
     use gent_store::SqliteLedger;
     use gent_types::{Command, Event, HostEpoch, ReceiptId, ReceiptStatus};
     use serde_json::json;
@@ -53,21 +49,21 @@ mod tests {
     fn exact_accepted_receipt_is_read_from_gent_sqlite() {
         let ledger = SqliteLedger::in_memory().unwrap();
         let receipt_id = ReceiptId("receipt-1".into());
-        let accepted = accepted(&ledger, receipt_id.clone(), "install-1", HostEpoch(1));
+        let (command, accepted) = accepted(&ledger, receipt_id, "install-1", HostEpoch(1));
         let reader = SqliteProvisionReceiptReader::new(ledger);
-        assert_eq!(
-            reader
-                .accepted_receipt(&receipt_id, "install-1", HostEpoch(1))
-                .unwrap(),
-            accepted
-        );
+        assert_eq!(reader.accepted_receipt(&command).unwrap(), accepted);
+        let mismatched = gent_runtime::dependency_action_command(&DependencyActionRequest {
+            provider: DependencyProvider::Claude,
+            ..request_from(&command)
+        });
+        assert!(reader.accepted_receipt(&mismatched).is_err());
     }
 
     #[test]
     fn mismatched_or_terminal_receipts_are_refused() {
         let ledger = SqliteLedger::in_memory().unwrap();
         let receipt_id = ReceiptId("receipt-1".into());
-        accepted(&ledger, receipt_id.clone(), "install-1", HostEpoch(1));
+        let (command, _) = accepted(&ledger, receipt_id.clone(), "install-1", HostEpoch(1));
         ledger
             .settle_receipt(
                 "install-1",
@@ -83,14 +79,13 @@ mod tests {
             )
             .unwrap();
         let reader = SqliteProvisionReceiptReader::new(ledger);
+        assert!(reader.accepted_receipt(&command).is_err());
         assert!(
             reader
-                .accepted_receipt(&receipt_id, "install-1", HostEpoch(1))
-                .is_err()
-        );
-        assert!(
-            reader
-                .accepted_receipt(&receipt_id, "other", HostEpoch(1))
+                .accepted_receipt(&Command {
+                    idempotency_key: "other".into(),
+                    ..command
+                })
                 .is_err()
         );
     }
@@ -100,16 +95,19 @@ mod tests {
         receipt_id: ReceiptId,
         idempotency_key: &str,
         host_epoch: HostEpoch,
-    ) -> gent_types::Receipt {
+    ) -> (Command, gent_types::Receipt) {
+        let command = gent_runtime::dependency_action_command(&DependencyActionRequest {
+            receipt_id: receipt_id.clone(),
+            idempotency_key: idempotency_key.into(),
+            host_epoch,
+            provider: DependencyProvider::Codex,
+            action: DependencyAction::Install,
+            consent_granted: true,
+            reviewed_plan_digest: "digest".into(),
+        });
         match ledger
             .claim_command(
-                &Command {
-                    receipt_id: receipt_id.clone(),
-                    idempotency_key: idempotency_key.into(),
-                    host_epoch,
-                    kind: "provision".into(),
-                    payload: json!({}),
-                },
+                &command,
                 &Event {
                     cursor: 0,
                     event_id: format!("accepted-{idempotency_key}"),
@@ -121,8 +119,20 @@ mod tests {
             )
             .unwrap()
         {
-            ReceiptClaim::Accepted(receipt) => receipt,
+            ReceiptClaim::Accepted(receipt) => (command, receipt),
             ReceiptClaim::Existing(_) => panic!("new test receipt must be accepted"),
+        }
+    }
+
+    fn request_from(command: &Command) -> DependencyActionRequest {
+        DependencyActionRequest {
+            receipt_id: command.receipt_id.clone(),
+            idempotency_key: command.idempotency_key.clone(),
+            host_epoch: command.host_epoch,
+            provider: DependencyProvider::Codex,
+            action: DependencyAction::Install,
+            consent_granted: true,
+            reviewed_plan_digest: "digest".into(),
         }
     }
 }

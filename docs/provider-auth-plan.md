@@ -70,8 +70,9 @@ subsequent process.
 On the first prompt selecting a missing public provider, an approved Gent
 authority may perform exactly one receipt-backed provisioning transaction using
 fixed `npm --global install` arguments. Immediately before that effect, Gent
-re-reads the exact durable accepted receipt, idempotency key, and host epoch;
-a changed or unavailable receipt fails without running `npm`. The install
+re-reads the complete durable dependency-action command: receipt, idempotency
+key, epoch, provider, action, consent, and reviewed-plan digest. A changed or
+unavailable command fails without running `npm`. The install
 target is a private Gent provider prefix, never the app bundle, system-global
 prefix, workspace, or
 `PATH`; the resulting executable is rediscovered, version-probed, digest-locked,

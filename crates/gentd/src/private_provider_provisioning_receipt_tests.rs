@@ -5,7 +5,7 @@ use std::{
 
 use gent_drivers::installer::{DependencyInstaller, InstallerError, NpmGlobalPrefix};
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
-use gent_protocol::DependencyProvider;
+use gent_protocol::{DependencyAction, DependencyProvider};
 use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
 
 use super::{
@@ -66,18 +66,13 @@ enum ReceiptReader {
 }
 
 impl ProvisionReceiptReader for ReceiptReader {
-    fn accepted_receipt(
-        &self,
-        receipt_id: &ReceiptId,
-        idempotency_key: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Receipt, String> {
+    fn accepted_receipt(&self, command: &gent_types::Command) -> Result<Receipt, String> {
         match self {
             Self::Different => Ok(Receipt {
-                receipt_id: receipt_id.clone(),
-                idempotency_key: idempotency_key.into(),
+                receipt_id: command.receipt_id.clone(),
+                idempotency_key: command.idempotency_key.clone(),
                 status: ReceiptStatus::Accepted,
-                host_epoch: HostEpoch(host_epoch.0 + 1),
+                host_epoch: HostEpoch(command.host_epoch.0 + 1),
             }),
             Self::Unavailable => Err("receipt ledger unavailable".into()),
         }
@@ -122,6 +117,8 @@ fn request() -> PrivateProvisionRequest {
             host_epoch: HostEpoch(4),
         },
         provider: DependencyProvider::Codex,
+        action: DependencyAction::Install,
+        reviewed_plan_digest: "reviewed-plan-digest".into(),
         consent_granted: true,
         now_unix_seconds: 1,
     }

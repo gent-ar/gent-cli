@@ -183,6 +183,8 @@ fn request() -> PrivateProvisionRequest {
             host_epoch: HostEpoch(1),
         },
         provider: DependencyProvider::Codex,
+        action: gent_protocol::DependencyAction::Install,
+        reviewed_plan_digest: "reviewed-plan-digest".into(),
         consent_granted: true,
         now_unix_seconds: 1,
     }

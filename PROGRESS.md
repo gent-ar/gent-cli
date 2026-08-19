@@ -63,6 +63,9 @@ lifecycle state are prohibited.
   not a runtime recorder, lifecycle authority, or substitute for live evidence.
 - Once a private provider prefix is composed, dependency discovery resolves
   only its locked `bin` entries and never falls back to a host `PATH` CLI.
+- The dormant private provisioner now rechecks the complete canonical
+  dependency-action command before npm: receipt/idempotency/epoch plus provider,
+  action, consent, and reviewed-plan digest.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised

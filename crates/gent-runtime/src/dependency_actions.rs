@@ -48,7 +48,7 @@ impl<L: Ledger, E: DependencyActionExecutor> DependencyActionService<L, E> {
             .serial
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let command = command_for(request);
+        let command = dependency_action_command(request);
         let accepted = accepted_event(&command);
         match self.ledger.claim_command(&command, &accepted)? {
             ReceiptClaim::Accepted(receipt) => self.execute_claimed(request, plan, &receipt),
@@ -143,7 +143,9 @@ impl<L: Ledger, E: DependencyActionExecutor> DependencyActionService<L, E> {
     }
 }
 
-fn command_for(request: &DependencyActionRequest) -> Command {
+/// Returns the one durable command identity for a reviewed dependency action.
+#[must_use]
+pub fn dependency_action_command(request: &DependencyActionRequest) -> Command {
     Command {
         receipt_id: request.receipt_id.clone(),
         idempotency_key: request.idempotency_key.clone(),

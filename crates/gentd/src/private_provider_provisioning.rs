@@ -8,8 +8,8 @@ use std::path::Path;
 
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
-use gent_protocol::DependencyProvider;
-use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus, RunVersionLock};
+use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
+use gent_types::{Receipt, ReceiptStatus, RunVersionLock};
 
 use crate::node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError};
 
@@ -18,6 +18,8 @@ use crate::node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError};
 pub(crate) struct PrivateProvisionRequest {
     pub(crate) receipt: Receipt,
     pub(crate) provider: DependencyProvider,
+    pub(crate) action: DependencyAction,
+    pub(crate) reviewed_plan_digest: String,
     pub(crate) consent_granted: bool,
     pub(crate) now_unix_seconds: u64,
 }
@@ -76,18 +78,13 @@ pub(crate) trait ProvisionedProviderVerifier: Clone + Send + Sync {
     ) -> Result<ProvisionedProviderLock, String>;
 }
 
-/// Re-reads the one durable accepted receipt allowed to cause an npm effect.
+/// Re-reads the one durable accepted dependency-action command allowed to cause an npm effect.
 ///
 /// This port keeps receipt ownership in the future ledger composition.  A caller-provided
-/// `Receipt` is only a claim: it must exactly match the current durable record before npm starts.
+/// The receipt is only a claim: the complete command must match current durable state before npm.
 pub(crate) trait ProvisionReceiptReader: Clone + Send + Sync {
-    /// Returns the current receipt for this exact receipt/idempotency/epoch binding.
-    fn accepted_receipt(
-        &self,
-        receipt_id: &ReceiptId,
-        idempotency_key: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Receipt, String>;
+    /// Returns the current accepted receipt for this complete dependency-action command.
+    fn accepted_receipt(&self, command: &gent_types::Command) -> Result<Receipt, String>;
 }
 
 /// Private composition edge for an app-supplied Node runtime, policy, and fixed npm installer.
@@ -165,13 +162,18 @@ impl<
         if !request.consent_granted {
             return Ok(PrivateProvisionResult::ConsentRequired);
         }
+        let command = gent_runtime::dependency_action_command(&DependencyActionRequest {
+            receipt_id: request.receipt.receipt_id.clone(),
+            idempotency_key: request.receipt.idempotency_key.clone(),
+            host_epoch: request.receipt.host_epoch,
+            provider: request.provider,
+            action: request.action,
+            consent_granted: request.consent_granted,
+            reviewed_plan_digest: request.reviewed_plan_digest.clone(),
+        });
         let durable_receipt = self
             .receipts
-            .accepted_receipt(
-                &request.receipt.receipt_id,
-                &request.receipt.idempotency_key,
-                request.receipt.host_epoch,
-            )
+            .accepted_receipt(&command)
             .map_err(PrivateProvisionError::ReceiptUnavailable)?;
         if durable_receipt != request.receipt || durable_receipt.status != ReceiptStatus::Accepted {
             return Err(PrivateProvisionError::ReceiptMismatch);
@@ -237,17 +239,12 @@ pub(crate) struct TestAcceptedReceiptReader;
 
 #[cfg(test)]
 impl ProvisionReceiptReader for TestAcceptedReceiptReader {
-    fn accepted_receipt(
-        &self,
-        receipt_id: &ReceiptId,
-        idempotency_key: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Receipt, String> {
+    fn accepted_receipt(&self, command: &gent_types::Command) -> Result<Receipt, String> {
         Ok(Receipt {
-            receipt_id: receipt_id.clone(),
-            idempotency_key: idempotency_key.into(),
+            receipt_id: command.receipt_id.clone(),
+            idempotency_key: command.idempotency_key.clone(),
             status: ReceiptStatus::Accepted,
-            host_epoch,
+            host_epoch: command.host_epoch,
         })
     }
 }
