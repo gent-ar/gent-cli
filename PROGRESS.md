@@ -160,6 +160,11 @@ lifecycle state are prohibited.
   run that module through the exact locked Node binary and recheck the full
   Node/npm/CLI chain before each npm effect, never resolving host Node through
   `PATH`. This remains dormant in observer mode.
+- The locked Node child environment now replaces inherited `PATH` with the
+  locked Node directory plus required system interpreters and removes inherited
+  Node/npm configuration. It is shared by npm pack/install, ordinary shims, and
+  the fixed provider `--version` verifier, which now runs through the same
+  lock-rechecked bounded launcher rather than an ambient executable invocation.
 - The dormant ordinary Claude/Codex Ask/Plan composition now creates only a
   lock-rechecked app-Node launcher, so npm-installed shims cannot select an
   ambient Node runtime. Agent, Autonomous, and Bypass remain unavailable.

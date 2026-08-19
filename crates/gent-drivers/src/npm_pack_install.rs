@@ -58,8 +58,10 @@ fn pack(
     npm.recheck()
         .map_err(|error| InstallerError::Runtime(error.to_string()))?;
     let invocation = npm.pack(package, staging);
-    let output = Command::new(&invocation.executable)
-        .args(&invocation.arguments)
+    let mut command = Command::new(&invocation.executable);
+    command.args(&invocation.arguments);
+    npm.configure_command(&mut command)?;
+    let output = command
         .output()
         .map_err(|error| InstallerError::Launch(error.to_string()))?;
     if !output.status.success() {
@@ -143,8 +145,10 @@ fn verify_integrity(archive: &Path, sri: &str) -> Result<(), InstallerError> {
 fn run(npm: &NpmGlobalPrefix, invocation: &InstallerInvocation) -> Result<(), InstallerError> {
     npm.recheck()
         .map_err(|error| InstallerError::Runtime(error.to_string()))?;
-    let status = Command::new(&invocation.executable)
-        .args(&invocation.arguments)
+    let mut command = Command::new(&invocation.executable);
+    command.args(&invocation.arguments);
+    npm.configure_command(&mut command)?;
+    let status = command
         .status()
         .map_err(|error| InstallerError::Launch(error.to_string()))?;
     if status.success() {

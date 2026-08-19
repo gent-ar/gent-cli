@@ -1,6 +1,9 @@
 //! Explicit vendor-installer execution with fixed argument vectors and no shell.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use gent_ports::ApprovedPackageInstall;
 
@@ -73,6 +76,29 @@ impl NpmGlobalPrefix {
     pub fn recheck(&self) -> Result<(), NodeRuntimeLockError> {
         self.runtime.recheck()
     }
+
+    /// Applies the locked runtime and private npm configuration to one fixed npm command.
+    ///
+    /// # Errors
+    /// Returns when the captured Node binary cannot supply a safe command environment.
+    pub fn configure_command(&self, command: &mut Command) -> Result<(), InstallerError> {
+        let node_bin =
+            self.runtime.node_path().parent().ok_or_else(|| {
+                InstallerError::Runtime("locked Node has no bin directory".into())
+            })?;
+        crate::process::configure_locked_node_environment(command, node_bin)
+            .map_err(|error| InstallerError::Launch(error.to_string()))?;
+        let cache = self.prefix.join(".npm-cache");
+        let config = self.prefix.join(".npmrc");
+        command
+            .env("npm_config_prefix", &self.prefix)
+            .env("NPM_CONFIG_PREFIX", &self.prefix)
+            .env("npm_config_cache", cache)
+            .env("NPM_CONFIG_CACHE", self.prefix.join(".npm-cache"))
+            .env("npm_config_userconfig", config)
+            .env("NPM_CONFIG_USERCONFIG", self.prefix.join(".npmrc"));
+        Ok(())
+    }
 }
 
 /// Runs a signed, exact provider install to completion.
@@ -128,6 +154,7 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        process::Command,
     };
 
     use gent_ports::ApprovedPackageInstall;
@@ -162,6 +189,53 @@ mod tests {
         );
         assert_eq!(installed.arguments[6], "/private/staging/codex.tgz");
         assert_eq!(installed.arguments[2], "--ignore-scripts");
+    }
+
+    #[test]
+    fn private_npm_command_clears_host_node_and_npm_controls() {
+        let root = tempfile::tempdir().unwrap();
+        let prefix = root.path().join("private-prefix");
+        let npm = super::NpmGlobalPrefix::new(runtime(root.path()), prefix.clone());
+        let mut command = Command::new("ignored");
+        for name in ["NODE_OPTIONS", "NODE_PATH", "NPM_CONFIG_REGISTRY"] {
+            command.env(name, "host-value");
+        }
+        npm.configure_command(&mut command).unwrap();
+        let values = command
+            .get_envs()
+            .map(|(name, value)| (name.to_string_lossy().into_owned(), value.is_some()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(values.get("NODE_OPTIONS"), Some(&false));
+        assert_eq!(values.get("NODE_PATH"), Some(&false));
+        assert_eq!(values.get("NPM_CONFIG_REGISTRY"), Some(&false));
+        assert_eq!(
+            values.get("npm_config_prefix"),
+            Some(&true),
+            "npm receives only the private prefix"
+        );
+        assert_eq!(values.get("npm_config_userconfig"), Some(&true));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_npm_path_contains_only_locked_node_and_system_interpreters() {
+        let root = tempfile::tempdir().unwrap();
+        let npm = super::NpmGlobalPrefix::new(runtime(root.path()), root.path().join("prefix"));
+        let mut command = Command::new("ignored");
+        npm.configure_command(&mut command).unwrap();
+        let path = command
+            .get_envs()
+            .find_map(|(name, value)| (name == "PATH").then_some(value))
+            .flatten()
+            .unwrap();
+        assert_eq!(
+            std::env::split_paths(path).collect::<Vec<_>>(),
+            vec![
+                root.path().join("bin").canonicalize().unwrap(),
+                "/usr/bin".into(),
+                "/bin".into()
+            ]
+        );
     }
 
     fn runtime(root: &Path) -> crate::node_runtime_lock::NodeRuntimeLock {

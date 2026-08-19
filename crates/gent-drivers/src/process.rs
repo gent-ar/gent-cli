@@ -4,7 +4,6 @@
 //! the reader edge so an uncooperative provider cannot grow driver memory without limit.
 
 use std::collections::VecDeque;
-use std::env;
 use std::io::{Read, Result as IoResult, Write};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -93,22 +92,47 @@ impl ProcessLauncher for SystemLauncher {
     }
 }
 
-fn configure_locked_node_environment(
+/// Restricts a child to the locked Node runtime and removes inherited npm controls.
+///
+/// This is shared by ordinary provider shims and the private npm installer. It deliberately does
+/// not inherit `PATH`: an npm shim using `env node` can resolve only the locked runtime.
+///
+/// # Errors
+/// Returns when a safe child `PATH` cannot be constructed.
+pub fn configure_locked_node_environment(
     command: &mut Command,
     node_bin: &std::path::Path,
 ) -> Result<(), SupervisorError> {
-    let inherited = env::var_os("PATH").unwrap_or_default();
-    let path = env::join_paths(
-        std::iter::once(node_bin.to_path_buf()).chain(env::split_paths(&inherited)),
-    )
-    .map_err(|_| SupervisorError::Launch("locked Node path cannot form PATH".into()))?;
-    command
-        .env("PATH", path)
-        .env_remove("NODE_OPTIONS")
-        .env_remove("NODE_PATH")
-        .env_remove("npm_config_prefix")
-        .env_remove("NPM_CONFIG_PREFIX");
+    let path = locked_node_path(node_bin)?;
+    command.env("PATH", path);
+    for variable in [
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "npm_config_prefix",
+        "NPM_CONFIG_PREFIX",
+        "npm_config_userconfig",
+        "NPM_CONFIG_USERCONFIG",
+        "npm_config_globalconfig",
+        "NPM_CONFIG_GLOBALCONFIG",
+        "npm_config_registry",
+        "NPM_CONFIG_REGISTRY",
+        "npm_config_proxy",
+        "NPM_CONFIG_PROXY",
+        "npm_config_https_proxy",
+        "NPM_CONFIG_HTTPS_PROXY",
+    ] {
+        command.env_remove(variable);
+    }
     Ok(())
+}
+
+fn locked_node_path(node_bin: &std::path::Path) -> Result<std::ffi::OsString, SupervisorError> {
+    #[cfg(unix)]
+    let paths = [node_bin.to_path_buf(), "/usr/bin".into(), "/bin".into()];
+    #[cfg(windows)]
+    let paths = [node_bin.to_path_buf()];
+    std::env::join_paths(paths)
+        .map_err(|_| SupervisorError::Launch("locked Node path cannot form PATH".into()))
 }
 
 /// A provider-owned process group with bounded asynchronous pipe readers.

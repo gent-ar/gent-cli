@@ -5,31 +5,29 @@
 
 use std::path::{Path, PathBuf};
 
-use gent_drivers::{
-    discovery::{ProbeError, VersionProbe},
-    lock::capture,
-};
+use gent_drivers::{lock::capture, node_runtime_lock::NodeRuntimeLock};
 use gent_protocol::DependencyProvider;
 use gent_types::ProvisionedProviderLock;
 
-use crate::{
-    private_provider_provisioning::ProvisionedProviderVerifier,
-    provider_resolver::SystemVersionProbe,
-};
+use crate::private_provider_provisioning::ProvisionedProviderVerifier;
+
+#[path = "private_provider_verifier_probe.rs"]
+mod probe;
+use probe::{LockedNodeVersionProbe, PrivateVersionProbe};
 
 const VERSION_ARGUMENT: &str = "--version";
 
 /// Verifies only the canonical `bin/claude` or `bin/codex` executable below one Gent prefix.
 #[derive(Clone, Debug)]
-pub(crate) struct PrivatePrefixProvisionedProviderVerifier<P = SystemVersionProbe> {
+pub(crate) struct PrivatePrefixProvisionedProviderVerifier<P = LockedNodeVersionProbe> {
     probe: P,
 }
 
-impl PrivatePrefixProvisionedProviderVerifier<SystemVersionProbe> {
-    /// Creates the production verifier with the daemon's fixed, bounded version probe.
+impl PrivatePrefixProvisionedProviderVerifier<LockedNodeVersionProbe> {
+    /// Creates the production verifier through the exact app Node runtime.
     #[must_use]
-    pub(crate) fn system() -> Self {
-        Self::new(SystemVersionProbe)
+    pub(crate) fn system(runtime: NodeRuntimeLock) -> Self {
+        Self::new(LockedNodeVersionProbe::new(runtime))
     }
 }
 
@@ -43,7 +41,7 @@ impl<P> PrivatePrefixProvisionedProviderVerifier<P> {
 
 impl<P> ProvisionedProviderVerifier for PrivatePrefixProvisionedProviderVerifier<P>
 where
-    P: Clone + Send + Sync + VersionProbe,
+    P: PrivateVersionProbe,
 {
     fn lock(
         &self,
@@ -56,7 +54,7 @@ where
             .map_err(|_| "private provider executable cannot be identity-locked".to_owned())?;
         let version = self
             .probe
-            .probe(&executable, VERSION_ARGUMENT)
+            .probe(provider, &before, &executable, VERSION_ARGUMENT)
             .map_err(probe_error)?;
         valid_version(&version)?;
         let run_lock = capture(provider.as_str(), &executable, &version, "unbound")
@@ -108,7 +106,7 @@ fn valid_version(version: &str) -> Result<(), String> {
     .ok_or_else(|| "private provider version output is invalid".to_owned())
 }
 
-fn probe_error(_: ProbeError) -> String {
+fn probe_error(_: String) -> String {
     "private provider version probe failed".into()
 }
 
@@ -116,10 +114,13 @@ fn probe_error(_: ProbeError) -> String {
 mod tests {
     use std::{fs, path::Path};
 
-    use gent_drivers::discovery::{ProbeError, VersionProbe};
     use gent_protocol::DependencyProvider;
+    use gent_types::RunVersionLock;
 
-    use super::{PrivatePrefixProvisionedProviderVerifier, ProvisionedProviderVerifier};
+    use super::{
+        PrivatePrefixProvisionedProviderVerifier, ProvisionedProviderVerifier,
+        probe::PrivateVersionProbe,
+    };
 
     #[derive(Clone)]
     struct Probe {
@@ -127,16 +128,20 @@ mod tests {
         replace_binary: bool,
     }
 
-    impl VersionProbe for Probe {
-        fn probe(&self, executable: &Path, argument: &str) -> Result<String, ProbeError> {
+    impl PrivateVersionProbe for Probe {
+        fn probe(
+            &self,
+            _: DependencyProvider,
+            _: &RunVersionLock,
+            executable: &Path,
+            argument: &str,
+        ) -> Result<String, String> {
             assert_eq!(argument, "--version");
             assert!(executable.ends_with("codex"));
             if self.replace_binary {
                 fs::write(executable, "changed provider").unwrap();
             }
-            self.version
-                .clone()
-                .map_err(|error| ProbeError::Failed(error.into()))
+            self.version.clone().map_err(Into::into)
         }
     }
 
@@ -208,6 +213,43 @@ mod tests {
             verifier_with_mutation(Ok("1.2.3".into()))
                 .lock(DependencyProvider::Codex, &prefix(root.path()))
                 .is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn production_probe_resolves_a_provider_shim_through_only_locked_node() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let runtime_root = root.path().join("node");
+        let bin = runtime_root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let node = bin.join("node");
+        fs::write(&node, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::write(bin.join("npm"), "#!/bin/sh\nexit 0\n").unwrap();
+        for path in [&node, &bin.join("npm")] {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let npm_cli = runtime_root.join("lib/node_modules/npm/bin");
+        fs::create_dir_all(&npm_cli).unwrap();
+        fs::write(npm_cli.join("npm-cli.js"), "npm cli").unwrap();
+        let prefix = root.path().join("npm-global");
+        fs::create_dir_all(prefix.join("bin")).unwrap();
+        let provider = prefix.join("bin/codex");
+        fs::write(&provider, "#!/bin/sh\ncommand -v node\n").unwrap();
+        fs::set_permissions(&provider, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let verifier = PrivatePrefixProvisionedProviderVerifier::system(
+            gent_drivers::node_runtime_lock::NodeRuntimeLock::capture(&node).unwrap(),
+        );
+        assert_eq!(
+            verifier
+                .lock(DependencyProvider::Codex, &prefix)
+                .unwrap()
+                .run_lock
+                .version,
+            node.canonicalize().unwrap().display().to_string()
         );
     }
 
