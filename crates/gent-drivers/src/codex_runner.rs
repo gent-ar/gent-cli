@@ -104,6 +104,7 @@ where
             ProviderOutputPump::new(MAX_OUTPUT_CHUNK_BYTES, MAX_CODEX_FRAME_BYTES, self.policy)?;
         recheck(&start.lock)?;
         let launch = ProviderLaunch {
+            lock: start.lock.clone(),
             provider: "codex".into(),
             executable: PathBuf::from(&start.lock.canonical_path),
             arguments: vec!["app-server".into()],

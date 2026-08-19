@@ -118,6 +118,7 @@ where
             .map_err(|error| SupervisorError::Launch(error.to_string()))?;
         start.turn_options.append_arguments(&mut arguments);
         let launch = ProviderLaunch {
+            lock: start.lock.clone(),
             provider: "claude".into(),
             executable: PathBuf::from(&start.lock.canonical_path),
             arguments,

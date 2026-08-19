@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 #[cfg(unix)]
 use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeSignal};
 use gent_drivers::{
@@ -10,9 +8,13 @@ use gent_drivers::{
 use gent_drivers::ProviderProcess;
 
 fn shell_launch(script: &str) -> ProviderLaunch {
+    let lock =
+        gent_drivers::lock::capture("claude", std::path::Path::new("/bin/sh"), "test", "test")
+            .unwrap();
     ProviderLaunch {
+        executable: lock.canonical_path.clone().into(),
+        lock,
         provider: "claude".into(),
-        executable: PathBuf::from("/bin/sh"),
         arguments: vec!["-c".into(), script.into()],
         intent: LaunchIntent::Start,
     }
@@ -55,6 +57,16 @@ fn public_launcher_refuses_private_provider_names() {
     assert!(matches!(
         SystemLauncher::new(1).launch(&launch),
         Err(SupervisorError::UnsupportedProvider(provider)) if provider == "claurst"
+    ));
+}
+
+#[test]
+fn system_launcher_rechecks_the_exact_launch_lock() {
+    let mut launch = shell_launch("exit 0");
+    launch.lock.digest_sha256 = "0".repeat(64);
+    assert!(matches!(
+        SystemLauncher::new(1).launch(&launch),
+        Err(SupervisorError::Lock(_))
     ));
 }
 

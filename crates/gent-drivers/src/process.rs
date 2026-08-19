@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
+use crate::lock::recheck;
 use crate::process_streams::ProcessStreams;
 pub use crate::process_streams::{CapturedStream, ProcessOutput};
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
@@ -33,6 +34,13 @@ impl ProcessLauncher for SystemLauncher {
 
     fn launch(&self, launch: &ProviderLaunch) -> Result<SystemProcess, SupervisorError> {
         validate_public_provider(&launch.provider)?;
+        recheck(&launch.lock)?;
+        (launch.executable.to_string_lossy() == launch.lock.canonical_path
+            && launch.provider == launch.lock.provider)
+            .then_some(())
+            .ok_or(SupervisorError::Lock(
+                crate::lock::LockError::ProviderChanged,
+            ))?;
         let mut command = Command::new(&launch.executable);
         command
             .args(&launch.arguments)

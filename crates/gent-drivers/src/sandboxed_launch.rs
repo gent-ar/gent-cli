@@ -77,7 +77,8 @@ where
 
     fn launch(&self, launch: &ProviderLaunch) -> Result<Self::Process, SupervisorError> {
         let expected = &self.request.lock;
-        (launch.provider == expected.provider
+        (launch.lock == *expected
+            && launch.provider == expected.provider
             && launch.executable.to_string_lossy() == expected.canonical_path)
             .then_some(())
             .ok_or(SupervisorError::Lock(LockError::ProviderChanged))?;
@@ -167,6 +168,7 @@ mod tests {
 
     fn launch(provider: &str, executable: &str) -> ProviderLaunch {
         ProviderLaunch {
+            lock: request().lock,
             provider: provider.into(),
             executable: executable.into(),
             arguments: vec![],
@@ -191,6 +193,19 @@ mod tests {
         let launcher = SandboxedLauncher::new(request(), port);
         assert!(matches!(
             launcher.launch(&launch("claude", "/private/claude")),
+            Err(SupervisorError::Lock(LockError::ProviderChanged))
+        ));
+        assert!(launcher.inner.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn mismatched_lock_never_reaches_the_atomic_port() {
+        let port = LaunchPort::default();
+        let launcher = SandboxedLauncher::new(request(), port);
+        let mut altered = launch("codex", "/private/codex");
+        altered.lock.digest_sha256 = "b".repeat(64);
+        assert!(matches!(
+            launcher.launch(&altered),
             Err(SupervisorError::Lock(LockError::ProviderChanged))
         ));
         assert!(launcher.inner.0.lock().unwrap().is_empty());

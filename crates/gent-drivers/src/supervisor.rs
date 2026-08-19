@@ -13,15 +13,15 @@ use crate::interrupt::{
     InterruptEvent, InterruptPolicy, InterruptState, ProcessTreeControl, ProcessTreeError,
     transition,
 };
+pub use crate::launch_spec::LaunchIntent;
 use crate::lock::{LockError, recheck};
 use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 use crate::session::{DriverSession, OutputLimits, SessionEffect, SessionInput};
 
-pub use crate::launch_spec::LaunchIntent;
-
 /// An immutable, public executable launch request passed to infrastructure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderLaunch {
+    pub lock: RunVersionLock,
     pub provider: String,
     pub executable: PathBuf,
     pub arguments: Vec<String>,
@@ -284,6 +284,7 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
             ));
         }
         Ok(ProviderLaunch {
+            lock: self.lock.clone(),
             provider: self.lock.provider.clone(),
             executable: PathBuf::from(&self.lock.canonical_path),
             arguments,
