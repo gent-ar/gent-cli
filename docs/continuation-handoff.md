@@ -187,14 +187,17 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. **Done, uncommitted (2026-08-19):** bind the signed release's artifact digest through
+1. **Done (`83d3495`):** bind the signed release's artifact digest through
    `ProviderPromptProvisionCommandBinding`/`ProviderInstallProvenance`, add a receipt fingerprint,
    and re-verify the same signed release immediately before npm. See "Latest continuation state"
-   above for the exact files. Default observer and broad modes remain absent throughout
-   (`daemon_bootstrap.rs` has a zero-line diff).
-2. Prove that profile with normalized persist-before-broadcast facts, bounded
-   backpressure/process-tree drain, terminal settlement, turn follow, cursor
-   reread/reconnect, provider/context switch, and exact `/goal` projection.
+   below for the exact files. `daemon_bootstrap.rs` has a zero-line diff throughout.
+2. **Done, uncommitted (2026-08-19):** prove that profile end-to-end — persist-before-broadcast,
+   cursor reread/reconnect, exact-retry idempotency, and terminal settlement (consent refusal,
+   unprovable) — via `crates/gentd/src/prompt_provider_provision_profile_tests.rs`, a real
+   `RuntimeFacade` driven over the real wire codec. See "Latest continuation state" below.
+   Backpressure/process-tree drain, turn follow, provider/context switch, and `/goal` projection
+   belong to the Claude/Codex session-runner authority (item 4), not this npm-install profile —
+   deferred there, not skipped.
 3. Add reviewed-plan authority composition only after the lifecycle and evidence
    gates; clients never inject provider plans and observer remains absent.
 4. Compose task-graph scheduling only after public-driver authority: each node
@@ -260,81 +263,38 @@ Before major scope decisions, read the original app planning source only:
 
 ## Latest continuation state (2026-08-19, revised)
 
-- `main` is still at `29d1984`; this batch is **uncommitted** in the working
-  tree (commits/pushes require the user's explicit approval per turn, not
-  granted yet this session). `clouseau-app` was not touched.
-- This batch closed item 1 of "Next implementation order" below: the signed
-  ordinary-authority release's artifact digest is now bound through the
-  prompt-provider-provision chain and re-verified immediately before npm.
-  Concretely:
-  - `Command::receipt_fingerprint_sha256()` (new, `crates/gent-types/src/command_fingerprint.rs`)
-    is a deterministic SHA-256 over `receipt_id + idempotency_key + host_epoch + kind + payload`.
-  - `ProviderPromptProvisionCommandBinding` gained `release_artifact_digest_sha256`;
-    `ProviderInstallProvenance` gained `release_artifact_digest_sha256` and
-    `receipt_fingerprint_sha256`. Schema bumped to `gent-fresh-schema-v10`
-    (`provisioned_provider_locks` gained the two matching columns) — this
-    workspace has no incremental migrations pre-release, so a fresh-schema
-    bump was correct, not a versioned migration.
-  - `crates/gent-store/src/sqlite/private_provider_prompt_provision_validation.rs::validate()`
-    now cross-checks both new fields against the durable command/binding at
-    settlement, independent of whatever the effect already checked.
-  - `PrivateProviderProvisioner` gained an `Option<ReleaseAuthorityConfig>`
-    (mirrors the existing `verifier: Option<V>` precedent). When a prompt
-    binding is present, `private_provider_provisioning/effect.rs` re-runs
-    `SignedOrdinaryAuthorityRelease::load_bound` immediately before the npm
-    effect and compares its digest against the one bound at admission.
-    Mismatch or reauthorization failure maps to `PrivateProvisionError::
-    ReleaseDigestMismatch` / `ReleaseReauthorizationFailed`, both classified
-    **not** pre-effect — they settle through the existing `Unprovable` path,
-    never silently retried, matching the codebase's established ambiguity
-    handling (npm installer failures use the same non-retry discipline).
-  - `daemon_bootstrap.rs` has a **zero-line diff** — this entire seam remains
-    exactly as uncomposed/unreachable as before; observer default behavior is
-    unchanged (spot-checked by diff and by grep for the new symbols in that
-    file, both empty).
-  - Five files that grew past the repo's 300-line cap were split into
-    focused siblings: `ordinary_authority_release_support.rs` (file/key
-    parsing helpers), `ordinary_authority_release_fixture.rs` (test-only
-    signed-release scaffolding, now shared by both the release tests and the
-    new provisioning tests), `private_provider_provisioning_error.rs`
-    (`PrivateProvisionError` + its pre-effect classification),
-    `private_provider_provisioning_release_tests.rs`,
-    `prompt_provider_provision_boundary/effect.rs`
-    (`PromptProviderProvisionEffect`), `command_fingerprint.rs` /
-    `command_fingerprint_tests.rs`, and
-    `private_provider_prompt_provision_release_tests.rs` in `gent-store`.
-- Full verification block (below) passed, including
-  `python3 tools/check-architecture.py` (every touched file ≤300 lines) and
-  the full `cargo test --workspace --all-features` (107 test binaries, 0
-  failures) — see the exact command list in this document's own
-  "Verification passed after this batch" section.
-- Reusing the existing runtime-update Ed25519 trust root remains the standing
-  decision for the still-dormant `ordinary_authority_release.rs` verification
-  path itself (unchanged by this batch). Do not introduce another release key
-  or trust store. Runtime metadata remains distinct from provider authority
-  despite sharing the protected root.
-- Rejected approach (unchanged): porting app drivers or enabling authority
-  from independent evidence/key paths. Both violate the single daemon
-  authority source. Also rejected: snapshots/recovery caches, fake
-  containment, public Claurst, and (new this batch) a workspace-wide
-  `Sha256Digest` newtype — every digest in this codebase is a validated plain
-  `String`, and this batch kept that convention rather than introducing one
-  exception.
-- Next priority is item 2 of "Next implementation order": prove the private
-  prompt-provision authority profile end-to-end (still not composed into
-  shipped `daemon_bootstrap.rs`) against the realtime contract in
-  `docs/realtime-agent-chat-client-plan.md` — persist-before-broadcast facts,
-  bounded backpressure/process-tree drain, terminal settlement, turn follow,
-  cursor reread/reconnect, provider/context switch — by driving the dormant
-  seam directly in integration tests (the existing `#[allow(dead_code)]`
-  composition constructors in `runtime_facade_authority.rs` already allow
-  this). `daemon_bootstrap.rs` still does not compose this.
+- `main` is at `83d3495` (item 1, committed). This session's item-2 batch is
+  **uncommitted** in the working tree pending approval. `clouseau-app` was
+  not touched by either batch.
+- Item 1 (`83d3495`): bound `VerifiedOrdinaryAuthorityRelease`'s digest through
+  `ProviderPromptProvisionCommandBinding`/`ProviderInstallProvenance`, added
+  `Command::receipt_fingerprint_sha256()`, bumped schema to `gent-fresh-schema-v10`,
+  and made `private_provider_provisioning/effect.rs` re-run `SignedOrdinaryAuthorityRelease::
+  load_bound` immediately before npm — mismatch/reauthorization-failure settle
+  `Unprovable`, never silently retried. Split five oversized files into siblings
+  (`ordinary_authority_release_{support,fixture}.rs`,
+  `private_provider_provisioning_{error,release_tests}.rs`, `command_fingerprint*.rs`, etc.).
+- Item 2 (this batch): `crates/gentd/src/prompt_provider_provision_profile_{support,tests}.rs`
+  compose a REAL `RuntimeFacade` (via the still-uncalled
+  `from_state_with_prompt_provider_provision_authority`) — real on-disk `SqliteLedger`,
+  real `PromptProviderProvisionBoundary`, real digest-bound `PrivateProviderProvisioner`
+  with a real signed-release fixture and real `SqliteProvisionReceiptReader`; only the
+  npm/binary boundary (installer, post-install verifier) is a controlled double. Four
+  `#[tokio::test]`s drive it over `transport::serve_connection` with the real wire codec:
+  persist-before-broadcast, cursor reread/reconnect (no duplicate replay, full replay from
+  a fresh connection), exact-retry idempotency, and terminal settlement (consent-refusal,
+  post-install-ambiguous). All four passed after fixing one bug (`SqliteLedger::open` needs
+  its parent dir pre-created, unlike `tempfile::tempdir()` itself). Turn-follow/backpressure/
+  context-switch/`/goal` belong to the Claude/Codex session-runner authority (item 4), out
+  of scope for this npm-install profile.
+- Full verification block (below) passed after both batches. Standing decisions unchanged:
+  reuse the runtime-update Ed25519 trust root; no `Sha256Digest` newtype; reject porting app
+  drivers, independent evidence/key paths, snapshots/recovery caches, fake containment,
+  public Claurst.
 
-Resume here: start proving the prompt-provision profile end-to-end (item 2). Build integration
-tests that compose `PromptProviderProvisionBoundary`/`PrivateProviderProvisioner` (now digest-
-bound) directly, drive them through admit → provision → settle/reject/unprovable → readiness
-release, and assert every fact is persisted before any client-visible broadcast and that
-reconnect resumes from cursor with no synthesized state. Use
-`docs/realtime-agent-chat-client-plan.md`'s "Required authority work" checklist as the
-acceptance list. Only after that composes should reviewed-plan authority (item 3) begin, since
-its approved-plan execution depends on the same public-driver authority gate.
+Resume here: item 3 needs item 4's public-driver authority first — an approved plan reserves a
+child run only a composed Claude/Codex authority can execute. Item 4's real gate is the missing
+strict evidence cells (Claude persistent-permission, compaction, malformed-tolerance; Codex
+malformed-tolerance), and live Claude capture is currently blocked: Claude Code `2.1.234` lacks
+`--permission-prompt-tool`. That tooling gap must be resolved before any phase needing a real
+running provider can proceed. Terminal parity (item 5) is independently tractable meanwhile.

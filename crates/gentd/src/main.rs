@@ -137,6 +137,10 @@ mod private_session_atomic_port;
 mod private_session_driver;
 #[allow(dead_code)] // Only an explicit authority constructor may compose this private boundary.
 mod prompt_provider_provision_boundary;
+#[cfg(test)]
+mod prompt_provider_provision_profile_support;
+#[cfg(test)]
+mod prompt_provider_provision_profile_tests;
 mod prompt_provider_provision_transport;
 #[allow(dead_code)] // Only an explicit authority composition may inject this admission.
 mod prompt_readiness_admission;
