@@ -66,6 +66,9 @@ lifecycle state are prohibited.
 - The dormant private provisioner now rechecks the complete canonical
   dependency-action command before npm: receipt/idempotency/epoch plus provider,
   action, consent, and reviewed-plan digest.
+- The fixed private npm install path disables lifecycle scripts during both
+  tarball packing and verified archive installation; no package `preinstall`,
+  `install`, or `postinstall` hook may run from this path.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised

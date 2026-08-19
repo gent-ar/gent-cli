@@ -135,8 +135,8 @@ If the selected public provider CLI is missing, the prompt path may make one
 daemon-owned, receipt-backed provisioning attempt before the provider launch.
 The native app supplies a Node runtime location with its installed Gent pair;
 it does not bundle, launch, update, or retain Claude Code/Codex itself. Gent
-uses that runtime's `npm` to pack an exact policy-selected package without
-lifecycle scripts, verifies the tarball SHA-512 SRI, then installs that verified
+uses that runtime's `npm` to pack and install an exact policy-selected package
+with lifecycle scripts disabled, verifies the tarball SHA-512 SRI, then installs that verified
 archive into a private Gent prefix before discovering and locking its executable.
 A retry never repeats an ambiguous install effect.
 

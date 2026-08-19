@@ -47,6 +47,7 @@ impl NpmGlobalPrefix {
             executable: self.npm.to_string_lossy().into_owned(),
             arguments: vec![
                 "install".into(),
+                "--ignore-scripts".into(),
                 "--global".into(),
                 "--prefix".into(),
                 self.prefix.to_string_lossy().into_owned(),
@@ -141,9 +142,10 @@ mod tests {
         );
         let installed = npm.install_archive(std::path::Path::new("/private/staging/codex.tgz"));
         assert_eq!(
-            installed.arguments[3],
+            installed.arguments[4],
             "/private/gentd/providers/npm-global"
         );
-        assert_eq!(installed.arguments[4], "/private/staging/codex.tgz");
+        assert_eq!(installed.arguments[5], "/private/staging/codex.tgz");
+        assert_eq!(installed.arguments[1], "--ignore-scripts");
     }
 }
