@@ -56,7 +56,7 @@ impl RuntimeFacade {
         Self::from_state_inner(
             state,
             runtime_update_checks,
-            Some(authority.prompt_wake()),
+            Some(authority.prompt_ingress()),
             Arc::new(ProviderModeSelectionGate::new(
                 [AgentChatProvider::Claude, AgentChatProvider::Codex],
                 [AgentChatMode::Ask, AgentChatMode::Plan],

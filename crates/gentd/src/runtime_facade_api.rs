@@ -47,15 +47,19 @@ impl api::RuntimeApi for RuntimeFacade {
             .status()
             .map_err(|error| error.to_string())?
             .host_epoch;
-        if let Some(wake) = &self.ordinary_prompt_wake {
-            let mut wake = wake.clone();
+        if let Some(ingress) = &self.ordinary_prompt_ingress {
+            let _permit = prompt_intent(&frame)
+                .then(|| ingress.acquire_prompt())
+                .transpose()
+                .map_err(prompt_admission_error)?;
+            let mut ingress = ingress.clone();
             agent_chat_api::exchange_with_wake(
                 &self.agent_chat_conversations,
                 &self.agent_chat_prompts,
                 &self.agent_chat_switches,
                 host_epoch,
                 frame,
-                &mut wake,
+                &mut ingress,
             )
         } else {
             agent_chat_api::exchange(
@@ -263,5 +267,25 @@ impl api::RuntimeApi for RuntimeFacade {
         self.coordinator
             .conversation_content(conversation_id, before.as_ref(), limit)
             .map_err(|error| error.to_string())
+    }
+}
+
+fn prompt_intent(frame: &AgentChatIntentFrame) -> bool {
+    matches!(
+        frame,
+        AgentChatIntentFrame::SendPrompt { .. } | AgentChatIntentFrame::QueuePrompt { .. }
+    )
+}
+
+fn prompt_admission_error(
+    error: crate::ordinary_lifecycle_control::OrdinaryPromptAdmissionError,
+) -> String {
+    match error {
+        crate::ordinary_lifecycle_control::OrdinaryPromptAdmissionError::RecoveryInProgress => {
+            "ordinary lifecycle recovery is still in progress".to_owned()
+        }
+        crate::ordinary_lifecycle_control::OrdinaryPromptAdmissionError::ShuttingDown => {
+            "ordinary lifecycle is shutting down".to_owned()
+        }
     }
 }

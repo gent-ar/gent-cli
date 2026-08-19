@@ -21,8 +21,9 @@ use crate::codex_authority_composition::{
 };
 use crate::codex_authority_preflight::{self, CodexAuthorityPreflightError};
 use crate::ordinary_lifecycle_cadence::{
-    OrdinaryLifecycleCadence, OrdinaryPromptWake, pair as cadence_pair,
+    OrdinaryLifecycleCadence, OrdinaryPromptIngress, pair as cadence_pair,
 };
+use crate::ordinary_lifecycle_control::OrdinaryLifecycleControl;
 use crate::ordinary_lifecycle_router::{OrdinaryProviderHost, OrdinaryPublicLifecycleRouter};
 use crate::provider_lifecycle_host::ProviderLifecycleHost;
 use crate::runtime_facade::DaemonCompositionState;
@@ -65,7 +66,8 @@ pub(crate) enum OrdinaryAuthorityError {
 #[derive(Clone, Debug)]
 pub(crate) struct OrdinaryAuthorityRuntime {
     router: Arc<Mutex<OrdinaryPublicLifecycleRouter<SqliteLedger>>>,
-    prompt_wake: OrdinaryPromptWake<SqliteLedger>,
+    control: OrdinaryLifecycleControl,
+    prompt_ingress: OrdinaryPromptIngress<SqliteLedger>,
     cadence: OrdinaryLifecycleCadence<SqliteLedger>,
 }
 
@@ -76,15 +78,21 @@ impl OrdinaryAuthorityRuntime {
         Arc::clone(&self.router)
     }
 
-    /// Returns the paired post-commit wake adapter for the authority-bound facade.
+    /// Returns the sealed prompt admission and post-commit wake pair for the authority facade.
     #[must_use]
-    pub(crate) fn prompt_wake(&self) -> OrdinaryPromptWake<SqliteLedger> {
-        self.prompt_wake.clone()
+    pub(crate) fn prompt_ingress(&self) -> OrdinaryPromptIngress<SqliteLedger> {
+        self.prompt_ingress.clone()
+    }
+
+    /// Returns the transient latch a future facade must check before committing a prompt.
+    #[must_use]
+    pub(crate) fn lifecycle_control(&self) -> OrdinaryLifecycleControl {
+        self.control.clone()
     }
 
     /// Runs recovery and the demand-driven lifecycle cadence for this authority.
-    pub(crate) async fn run_cadence(&self) {
-        self.cadence.clone().run().await;
+    pub(crate) async fn run_cadence(&self) -> Result<(), String> {
+        self.cadence.clone().run().await
     }
 
     /// Drives every pre-approved host at most once.
@@ -132,10 +140,11 @@ pub(crate) fn compose_ordinary_authority(
     )
     .map_err(|_| OrdinaryAuthorityError::RouterUnavailable)?;
     let router = Arc::new(Mutex::new(router));
-    let (prompt_wake, cadence) = cadence_pair(Arc::clone(&router));
+    let (control, prompt_ingress, cadence) = cadence_pair(Arc::clone(&router));
     Ok(OrdinaryAuthorityRuntime {
         router,
-        prompt_wake,
+        control,
+        prompt_ingress,
         cadence,
     })
 }

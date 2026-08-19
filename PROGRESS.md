@@ -63,6 +63,12 @@ lifecycle state are prohibited.
   router aggregates shutdown/escalation/completion only after an owner-proven
   terminal drain; an undrained tree stays failed closed. Separate transient IPC cancellation stops accepts and gracefully closes
   negotiated connections without a task abort or ledger side effect.
+- The dormant ordinary cadence now begins closed, opens only after durable
+  recovery reaches idle, and exits unopened on an earlier shutdown request. Its
+  sealed facade ingress holds one transient permit from before prompt
+  persistence through the post-commit wake; shutdown closes admission then
+  waits for existing permits before draining. These controls are not durable
+  state and are not composed by the observer daemon.
 - Its dormant Ask/Plan path now uses the bounded, lock-rechecked direct-host
   launcher restricted to read-only workspace access. This does not relax the
   separate enforced-sandbox requirement for Agent, Autonomous, or Bypass work.
@@ -123,9 +129,9 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Add the remaining admission latch and cancellation-aware ordinary cadence,
-   then bind the sealed Ask/Plan Claude/Codex composition to an explicit daemon
-   authority only after strict provider evidence and lock-backed provisioning.
+1. Bind the sealed Ask/Plan Claude/Codex composition to an explicit daemon
+   authority only after strict provider evidence and lock-backed provisioning;
+   integrate its transient admission/shutdown control with listener lifecycle.
 2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
    process-tree drain, terminal settlement, and reconnect by durable cursors.
 3. Add the private Claurst bridge under the identical public fact contract and

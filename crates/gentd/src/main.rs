@@ -88,6 +88,8 @@ mod ordinary_authority_bootstrap;
 mod ordinary_authority_composition;
 mod ordinary_lifecycle_cadence;
 #[allow(dead_code)]
+mod ordinary_lifecycle_control;
+#[allow(dead_code)]
 mod ordinary_lifecycle_router;
 #[cfg(test)]
 mod ordinary_lifecycle_router_tests;

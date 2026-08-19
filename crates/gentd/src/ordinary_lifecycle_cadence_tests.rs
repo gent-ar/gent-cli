@@ -11,7 +11,8 @@ use gent_types::{
 };
 
 use crate::agent_chat_api::{PromptCommitWake, PromptWake};
-use crate::ordinary_lifecycle_cadence::{OrdinaryLifecycleCadence, OrdinaryPromptWake, pair};
+use crate::ordinary_lifecycle_cadence::{OrdinaryLifecycleCadence, OrdinaryPromptIngress, pair};
+use crate::ordinary_lifecycle_control::{OrdinaryLifecycleControl, OrdinaryLifecyclePhase};
 use crate::ordinary_lifecycle_router::{OrdinaryLifecycleHost, OrdinaryPublicLifecycleRouter};
 
 #[derive(Clone)]
@@ -99,21 +100,24 @@ impl OrdinaryLifecycleHost for Host {
 
 #[tokio::test]
 async fn recovery_drives_once_then_waits_without_idle_polling() {
-    let (cadence, _, events, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let (control, cadence, _, events, _, _, _) =
+        cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
     let task = tokio::spawn(cadence.run());
 
     wait_for(&events, 2).await;
     tokio::time::sleep(Duration::from_millis(120)).await;
     assert_eq!(&*events.lock().unwrap(), &["recovery", "drive"]);
+    drop(control.acquire_prompt().unwrap());
     task.abort();
 }
 
 #[tokio::test]
 async fn committed_prompt_notifies_and_drives_only_its_selected_provider() {
-    let (cadence, mut wake, events, other_events, _, _) =
+    let (control, cadence, mut wake, events, other_events, _, _) =
         cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
     let task = tokio::spawn(cadence.run());
     wait_for(&events, 2).await;
+    wait_for_ready(&control).await;
     events.lock().unwrap().clear();
     other_events.lock().unwrap().clear();
 
@@ -126,7 +130,7 @@ async fn committed_prompt_notifies_and_drives_only_its_selected_provider() {
 
 #[tokio::test]
 async fn active_host_repeats_until_it_settles_then_stops() {
-    let (cadence, _, events, _, _, _) = cadence(AgentChatProvider::Codex, 1, Duration::ZERO);
+    let (_, cadence, _, events, _, _, _) = cadence(AgentChatProvider::Codex, 1, Duration::ZERO);
     let task = tokio::spawn(cadence.run());
 
     wait_for(&events, 3).await;
@@ -137,10 +141,11 @@ async fn active_host_repeats_until_it_settles_then_stops() {
 
 #[tokio::test]
 async fn repeated_wakes_never_drive_a_host_concurrently() {
-    let (cadence, mut wake, events, _, in_flight, max_in_flight) =
+    let (control, cadence, mut wake, events, _, in_flight, max_in_flight) =
         cadence(AgentChatProvider::Codex, 0, Duration::from_millis(80));
     let task = tokio::spawn(cadence.run());
     wait_for(&events, 2).await;
+    wait_for_ready(&control).await;
     events.lock().unwrap().clear();
 
     wake.wake_after_prompt_commit(prompt()).unwrap();
@@ -156,8 +161,9 @@ async fn repeated_wakes_never_drive_a_host_concurrently() {
 }
 
 type CadenceParts = (
+    OrdinaryLifecycleControl,
     OrdinaryLifecycleCadence<Ledger>,
-    OrdinaryPromptWake<Ledger>,
+    OrdinaryPromptIngress<Ledger>,
     Arc<Mutex<Vec<&'static str>>>,
     Arc<Mutex<Vec<&'static str>>>,
     Arc<AtomicUsize>,
@@ -185,8 +191,9 @@ fn cadence(provider: AgentChatProvider, active_passes: usize, delay: Duration) -
         )
         .unwrap(),
     ));
-    let (wake, cadence) = pair(router);
+    let (control, wake, cadence) = pair(router);
     (
+        control,
         cadence,
         wake,
         events,
@@ -228,6 +235,16 @@ async fn wait_for(events: &Arc<Mutex<Vec<&'static str>>>, length: usize) {
 async fn wait_for_in_flight(max_in_flight: &Arc<AtomicUsize>) {
     tokio::time::timeout(Duration::from_secs(1), async {
         while max_in_flight.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+async fn wait_for_ready(control: &OrdinaryLifecycleControl) {
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while control.phase() != OrdinaryLifecyclePhase::Ready {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })

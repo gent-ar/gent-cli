@@ -35,8 +35,8 @@ pub(crate) struct RuntimeFacade {
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger, RuntimeSelectionGate>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
     turn_follow_source: Option<SqliteLedger>,
-    ordinary_prompt_wake:
-        Option<crate::ordinary_lifecycle_cadence::OrdinaryPromptWake<SqliteLedger>>,
+    ordinary_prompt_ingress:
+        Option<crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>>,
     goals: GoalService<SqliteLedger>,
     reviewed_plans: ReviewedPlanService<SqliteLedger>,
     orchestration: OrchestrationService<SqliteLedger>,
@@ -69,8 +69,8 @@ impl RuntimeFacade {
     fn from_state_inner(
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-        ordinary_prompt_wake: Option<
-            crate::ordinary_lifecycle_cadence::OrdinaryPromptWake<SqliteLedger>,
+        ordinary_prompt_ingress: Option<
+            crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>,
         >,
         selection_gate: RuntimeSelectionGate,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -108,7 +108,7 @@ impl RuntimeFacade {
             ),
             agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
             turn_follow_source,
-            ordinary_prompt_wake,
+            ordinary_prompt_ingress,
             goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),
             reviewed_plans: ReviewedPlanService::new(
                 ledger.clone(),

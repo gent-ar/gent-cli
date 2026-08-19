@@ -88,6 +88,12 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   aggregates explicit shutdown/escalation/completion; Unix IPC has a transient,
   cancellation-aware listener/connection drain seam with no task abort or
   durable lifecycle side effect. Neither is composed by the observer daemon.
+- The ordinary cadence now starts closed, opens only after ledger recovery
+  reaches idle, and refuses an earlier shutdown without a recovery wake. Its
+  sealed facade ingress holds a transient admission permit before prompt
+  persistence through the post-commit wake; shutdown closes admission then
+  waits for existing permits before draining. This is process-local control,
+  not a snapshot, ledger record, or observer capability.
 - Committed, redacted development driver corpus plus public normalized live
   full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
   opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.
