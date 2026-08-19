@@ -125,7 +125,6 @@ impl SignedOrdinaryAuthorityRelease {
             .ok_or(OrdinaryAuthorityReleaseError::Malformed)?;
         release.verify(root_key, runtime.node_digest_sha256(), now)
     }
-
     fn verify(
         self,
         root_key: &str,
@@ -136,7 +135,7 @@ impl SignedOrdinaryAuthorityRelease {
         if self.key_id != root.0 {
             return Err(OrdinaryAuthorityReleaseError::UnknownSigner);
         }
-        if !valid_signature(&self.signature_hex) {
+        if self.signature_hex.len() != 128 || !valid_hex(&self.signature_hex) {
             return Err(OrdinaryAuthorityReleaseError::InvalidSignature);
         }
         let signature = Signature::from_slice(
@@ -145,11 +144,7 @@ impl SignedOrdinaryAuthorityRelease {
         )
         .map_err(|_| OrdinaryAuthorityReleaseError::InvalidSignature)?;
         root.1
-            .verify(
-                &serde_json::to_vec(&self.payload)
-                    .map_err(|_| OrdinaryAuthorityReleaseError::Malformed)?,
-                &signature,
-            )
+            .verify(&canonical_payload(&self.payload)?, &signature)
             .map_err(|_| OrdinaryAuthorityReleaseError::InvalidSignature)?;
         if self.payload.version != VERSION
             || self.payload.revoked
@@ -287,13 +282,18 @@ fn valid_id(value: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
-fn valid_signature(value: &str) -> bool {
-    value.len() == 128 && valid_hex(value)
-}
 fn valid_hex(value: &str) -> bool {
     value
         .bytes()
         .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+fn canonical_payload(
+    payload: &OrdinaryAuthorityReleasePayload,
+) -> Result<Vec<u8>, OrdinaryAuthorityReleaseError> {
+    serde_json::to_vec(
+        &serde_json::to_value(payload).map_err(|_| OrdinaryAuthorityReleaseError::Malformed)?,
+    )
+    .map_err(|_| OrdinaryAuthorityReleaseError::Malformed)
 }
 #[cfg(test)]
 #[path = "ordinary_authority_release_tests.rs"]

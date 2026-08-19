@@ -90,7 +90,7 @@ fn release(root: &SigningKey, node_digest: &str) -> SignedOrdinaryAuthorityRelea
     };
     SignedOrdinaryAuthorityRelease {
         key_id: "root".into(),
-        signature_hex: hex::encode(root.sign(&serde_json::to_vec(&payload).unwrap()).to_bytes()),
+        signature_hex: hex::encode(root.sign(&canonical_payload(&payload).unwrap()).to_bytes()),
         payload,
     }
 }
