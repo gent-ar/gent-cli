@@ -133,7 +133,7 @@ fn mismatched_owners_fail_before_reading_evidence_or_constructing_a_prefix() {
 }
 
 #[test]
-fn unsupported_selection_fails_before_reading_evidence_or_constructing_a_prefix() {
+fn mismatched_epochs_fail_before_reading_evidence_or_constructing_a_prefix() {
     let directory = tempfile::tempdir().unwrap();
     let state = DaemonCompositionState::open(
         directory.path(),
@@ -142,7 +142,58 @@ fn unsupported_selection_fails_before_reading_evidence_or_constructing_a_prefix(
     )
     .unwrap();
     let mut input = config();
-    input.selections[0].provider = AgentChatProvider::Claurst;
+    input.claude.host_epoch = HostEpoch(2);
+
+    assert!(matches!(
+        compose_ordinary_authority(&state, input, Sandbox),
+        Err(OrdinaryAuthorityError::HostEpochMismatch)
+    ));
+    assert!(!state.data_dir().join("providers").exists());
+}
+
+#[test]
+fn invalid_selection_sets_fail_before_reading_evidence_or_constructing_a_prefix() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = DaemonCompositionState::open(
+        directory.path(),
+        &declared_capabilities(),
+        CompatibilityAssessment::default(),
+    )
+    .unwrap();
+    let mut empty = config();
+    empty.selections.clear();
+    assert!(matches!(
+        compose_ordinary_authority(&state, empty, Sandbox),
+        Err(OrdinaryAuthorityError::MissingSelections)
+    ));
+
+    let mut duplicate = config();
+    duplicate.selections.push(duplicate.selections[0].clone());
+    assert!(matches!(
+        compose_ordinary_authority(&state, duplicate, Sandbox),
+        Err(OrdinaryAuthorityError::DuplicateSelection)
+    ));
+
+    let mut unsupported = config();
+    unsupported.selections[0].provider = AgentChatProvider::Claurst;
+    assert!(matches!(
+        compose_ordinary_authority(&state, unsupported, Sandbox),
+        Err(OrdinaryAuthorityError::UnsupportedSelection)
+    ));
+    assert!(!state.data_dir().join("providers").exists());
+}
+
+#[test]
+fn agent_mode_fails_before_reading_evidence_or_constructing_a_prefix() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = DaemonCompositionState::open(
+        directory.path(),
+        &declared_capabilities(),
+        CompatibilityAssessment::default(),
+    )
+    .unwrap();
+    let mut input = config();
+    input.selections[0].mode = AgentChatMode::Agent;
 
     assert!(matches!(
         compose_ordinary_authority(&state, input, Sandbox),

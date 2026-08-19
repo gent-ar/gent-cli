@@ -2,10 +2,10 @@
 
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
-    AGENT_CHAT_TRANSCRIPT_CAPABILITY, ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
-    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    GOAL_CAPABILITY, ORCHESTRATION_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY,
-    RUNTIME_UPDATE_CHECK_CAPABILITY,
+    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
+    CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
+    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, GOAL_CAPABILITY,
+    ORCHESTRATION_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
 use gent_types::CapabilitySet;
 
@@ -50,6 +50,39 @@ const DECLARED: [RuntimeCapability; 7] = [
     RuntimeCapability::Receipts,
 ];
 
+/// One concrete handler eligible for an authority profile's wire advertisement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeCapabilityFeature {
+    AgentChat,
+    TurnFollow,
+    RuntimeUpdateCheck,
+    RuntimeMaintenance,
+}
+
+/// Concrete runtime handlers eligible for one authority profile's wire advertisement.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RuntimeCapabilityProfile {
+    features: Vec<RuntimeCapabilityFeature>,
+}
+
+impl RuntimeCapabilityProfile {
+    /// Builds a stable deduplicated profile from concrete handler observations.
+    #[must_use]
+    pub fn new(features: impl IntoIterator<Item = RuntimeCapabilityFeature>) -> Self {
+        let mut unique = Vec::new();
+        for feature in features {
+            if !unique.contains(&feature) {
+                unique.push(feature);
+            }
+        }
+        Self { features: unique }
+    }
+
+    fn has(&self, feature: RuntimeCapabilityFeature) -> bool {
+        self.features.contains(&feature)
+    }
+}
+
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum CatalogError {
     #[error("declared capability is not observed: {0}")]
@@ -85,18 +118,17 @@ pub fn declared_capabilities() -> CapabilitySet {
 /// Returns the catalog for an explicitly approved durable agent-chat authority profile.
 #[must_use]
 pub fn declared_capabilities_with_agent_chat(agent_chat_enabled: bool) -> CapabilitySet {
-    declared_capabilities_with_profiles(agent_chat_enabled, false, false)
+    let profile = RuntimeCapabilityProfile::new(
+        agent_chat_enabled.then_some(RuntimeCapabilityFeature::AgentChat),
+    );
+    declared_capabilities_with_profiles(&profile)
 }
 
 /// Returns the catalog for explicit authority profiles that have concrete handlers.
 #[must_use]
-pub fn declared_capabilities_with_profiles(
-    agent_chat_enabled: bool,
-    runtime_update_check_enabled: bool,
-    runtime_maintenance_enabled: bool,
-) -> CapabilitySet {
+pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -> CapabilitySet {
     let mut capabilities = capability_set(DECLARED);
-    if agent_chat_enabled {
+    if profile.has(RuntimeCapabilityFeature::AgentChat) {
         capabilities
             .0
             .push(RuntimeCapability::AgentChatIntents.wire_name().into());
@@ -108,13 +140,18 @@ pub fn declared_capabilities_with_profiles(
             .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
         capabilities.0.push(GOAL_CAPABILITY.to_owned());
         capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
+        if profile.has(RuntimeCapabilityFeature::TurnFollow) {
+            capabilities
+                .0
+                .push(AGENT_CHAT_TURN_FOLLOW_CAPABILITY.to_owned());
+        }
     }
-    if runtime_update_check_enabled {
+    if profile.has(RuntimeCapabilityFeature::RuntimeUpdateCheck) {
         capabilities
             .0
             .push(RUNTIME_UPDATE_CHECK_CAPABILITY.to_owned());
     }
-    if runtime_maintenance_enabled {
+    if profile.has(RuntimeCapabilityFeature::RuntimeMaintenance) {
         capabilities
             .0
             .push(RUNTIME_MAINTENANCE_CAPABILITY.to_owned());
@@ -153,22 +190,36 @@ pub fn capability_set(observed: impl IntoIterator<Item = RuntimeCapability>) -> 
 pub fn validate_observed_capabilities(
     observed: &CapabilitySet,
 ) -> Result<CapabilitySet, CatalogError> {
-    let declared = declared_capabilities_with_profiles(
-        observed
-            .0
-            .iter()
-            .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY),
-        observed
-            .0
-            .iter()
-            .any(|capability| capability == RUNTIME_UPDATE_CHECK_CAPABILITY),
-        observed
-            .0
-            .iter()
-            .any(|capability| capability == RUNTIME_MAINTENANCE_CAPABILITY),
+    let profile = RuntimeCapabilityProfile::new(
+        [
+            AGENT_CHAT_INTENTS_CAPABILITY,
+            AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
+            RUNTIME_UPDATE_CHECK_CAPABILITY,
+            RUNTIME_MAINTENANCE_CAPABILITY,
+        ]
+        .into_iter()
+        .filter_map(|capability| feature_from_observed(capability, observed)),
     );
+    let declared = declared_capabilities_with_profiles(&profile);
     reconcile(&declared, observed)?;
     Ok(declared)
+}
+
+fn feature_from_observed(
+    capability: &str,
+    observed: &CapabilitySet,
+) -> Option<RuntimeCapabilityFeature> {
+    observed
+        .0
+        .iter()
+        .any(|actual| actual == capability)
+        .then(|| match capability {
+            AGENT_CHAT_INTENTS_CAPABILITY => RuntimeCapabilityFeature::AgentChat,
+            AGENT_CHAT_TURN_FOLLOW_CAPABILITY => RuntimeCapabilityFeature::TurnFollow,
+            RUNTIME_UPDATE_CHECK_CAPABILITY => RuntimeCapabilityFeature::RuntimeUpdateCheck,
+            RUNTIME_MAINTENANCE_CAPABILITY => RuntimeCapabilityFeature::RuntimeMaintenance,
+            _ => unreachable!("only known capability names are passed"),
+        })
 }
 
 #[cfg(test)]
