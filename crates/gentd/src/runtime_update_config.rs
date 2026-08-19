@@ -96,7 +96,7 @@ pub(crate) fn load_trusted(
     if trust_path.is_none() && keys.is_empty() {
         return Err("runtime update requires a trust document or --runtime-release-key".into());
     }
-    let trust = RuntimeReleaseTrust::new(load_keys(trust_path, keys)?);
+    let trust = RuntimeReleaseTrust::new(load_trust_keys(trust_path, keys)?);
     let cached = CachedRuntimeRelease::load(cache_path, &trust, now_unix_seconds)
         .map_err(|error| format!("runtime release cache is not trusted: {error}"))?;
     Ok(TrustedRuntimeRelease {
@@ -115,7 +115,8 @@ pub(crate) fn load_trusted(
     })
 }
 
-fn load_keys(
+/// Loads the one runtime-release trust root used by update and provider authority artifacts.
+pub(crate) fn load_trust_keys(
     trust_path: Option<&Path>,
     explicit: &[String],
 ) -> Result<BTreeMap<String, VerifyingKey>, String> {
@@ -143,7 +144,7 @@ fn load_keys(
 /// # Errors
 /// Returns an error when the file is unavailable, symlinked, or invalid.
 pub(crate) fn load_keys_from_file(path: &Path) -> Result<BTreeMap<String, VerifyingKey>, String> {
-    load_keys(Some(path), &[])
+    load_trust_keys(Some(path), &[])
 }
 
 fn parse_keys(values: &[String]) -> Result<BTreeMap<String, VerifyingKey>, String> {

@@ -12,7 +12,11 @@ use gent_adapters::{
 };
 use gent_ports::PackageInstallPolicy;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 const VERSION: u16 = 1;
 const MAX_BYTES: u64 = 262_144;
 const MAX_KEYS: usize = 8;
@@ -89,8 +93,6 @@ pub(crate) enum OrdinaryAuthorityReleaseError {
     TooLarge,
     #[error("ordinary authority release artifact is malformed")]
     Malformed,
-    #[error("ordinary authority release root key is invalid")]
-    InvalidRootKey,
     #[error("ordinary authority release signer is not trusted")]
     UnknownSigner,
     #[error("ordinary authority release signature is invalid")]
@@ -108,7 +110,7 @@ impl SignedOrdinaryAuthorityRelease {
     /// one signed artifact.
     pub(crate) fn load_bound(
         path: &Path,
-        root_key: &str,
+        root_keys: &BTreeMap<String, VerifyingKey>,
         runtime: &AppNodeRuntimeLock,
         now: u64,
     ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
@@ -123,18 +125,17 @@ impl SignedOrdinaryAuthorityRelease {
         (serde_json::to_value(&release).ok() == Some(value))
             .then_some(())
             .ok_or(OrdinaryAuthorityReleaseError::Malformed)?;
+        let root_key = root_keys
+            .get(&release.key_id)
+            .ok_or(OrdinaryAuthorityReleaseError::UnknownSigner)?;
         release.verify(root_key, runtime.node_digest_sha256(), now)
     }
     fn verify(
         self,
-        root_key: &str,
+        root_key: &VerifyingKey,
         node_digest: &str,
         now: u64,
     ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
-        let root = parse_root_key(root_key)?;
-        if self.key_id != root.0 {
-            return Err(OrdinaryAuthorityReleaseError::UnknownSigner);
-        }
         if self.signature_hex.len() != 128 || !valid_hex(&self.signature_hex) {
             return Err(OrdinaryAuthorityReleaseError::InvalidSignature);
         }
@@ -143,7 +144,7 @@ impl SignedOrdinaryAuthorityRelease {
                 .map_err(|_| OrdinaryAuthorityReleaseError::InvalidSignature)?,
         )
         .map_err(|_| OrdinaryAuthorityReleaseError::InvalidSignature)?;
-        root.1
+        root_key
             .verify(&canonical_payload(&self.payload)?, &signature)
             .map_err(|_| OrdinaryAuthorityReleaseError::InvalidSignature)?;
         if self.payload.version != VERSION
@@ -227,24 +228,6 @@ fn read(path: &Path) -> Result<Vec<u8>, OrdinaryAuthorityReleaseError> {
     (bytes.len() as u64 <= MAX_BYTES)
         .then_some(bytes)
         .ok_or(OrdinaryAuthorityReleaseError::TooLarge)
-}
-fn parse_root_key(value: &str) -> Result<(String, VerifyingKey), OrdinaryAuthorityReleaseError> {
-    let (id, hex) = value
-        .split_once(':')
-        .ok_or(OrdinaryAuthorityReleaseError::InvalidRootKey)?;
-    let key = hex::decode(hex).map_err(|_| OrdinaryAuthorityReleaseError::InvalidRootKey)?;
-    (valid_id(id) && valid_hex(hex) && key.len() == 32)
-        .then_some(())
-        .ok_or(OrdinaryAuthorityReleaseError::InvalidRootKey)?;
-    Ok((
-        id.into(),
-        VerifyingKey::from_bytes(
-            key.as_slice()
-                .try_into()
-                .map_err(|_| OrdinaryAuthorityReleaseError::InvalidRootKey)?,
-        )
-        .map_err(|_| OrdinaryAuthorityReleaseError::InvalidRootKey)?,
-    ))
 }
 fn keys(values: &[ReleaseVerificationKey]) -> Result<TrustedKeySet, OrdinaryAuthorityReleaseError> {
     if values.is_empty() || values.len() > MAX_KEYS {

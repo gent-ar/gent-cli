@@ -8,7 +8,7 @@ use gent_types::{
     SignedRuntimeRelease,
 };
 
-use super::{load, load_keys, parse_keys, platform_target};
+use super::{load, load_trust_keys, parse_keys, platform_target};
 
 #[test]
 fn key_parser_fails_closed() {
@@ -96,7 +96,7 @@ fn trust_document_is_strict_and_can_supply_the_only_key() {
         ),
     )
     .unwrap();
-    assert!(load_keys(Some(&path), &[]).is_ok());
+    assert!(load_trust_keys(Some(&path), &[]).is_ok());
     std::fs::write(&path, r#"{"schemaVersion":2,"keys":[]}"#).unwrap();
-    assert!(load_keys(Some(&path), &[]).is_err());
+    assert!(load_trust_keys(Some(&path), &[]).is_err());
 }

@@ -24,9 +24,9 @@ fn one_signed_release_binds_its_nested_authority_to_the_locked_node() {
     let release = release(&signer, runtime.node_digest_sha256());
     let path = root.path().join("ordinary-authority.json");
     fs::write(&path, serde_json::to_vec(&release).unwrap()).unwrap();
-    let root_key = format!("root:{}", hex::encode(signer.verifying_key().as_bytes()));
     let verified =
-        SignedOrdinaryAuthorityRelease::load_bound(&path, &root_key, &runtime, 10).unwrap();
+        SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10)
+            .unwrap();
     assert_eq!(verified.providers(), &[VerifiedProviderAuthority::Codex]);
     assert_eq!(
         verified.compatibility().manifest_sha256(),
@@ -55,15 +55,14 @@ fn unknown_data_and_changed_node_fail_before_any_authority_is_returned() {
         .unwrap()
         .insert("unknown".into(), serde_json::json!(true));
     fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-    let root_key = format!("root:{}", hex::encode(signer.verifying_key().as_bytes()));
     assert!(matches!(
-        SignedOrdinaryAuthorityRelease::load_bound(&path, &root_key, &runtime, 10),
+        SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10,),
         Err(OrdinaryAuthorityReleaseError::Malformed)
     ));
     fs::write(&path, serde_json::to_vec(&release).unwrap()).unwrap();
     fs::write(root.path().join("node/bin/node"), "changed").unwrap();
     assert!(matches!(
-        SignedOrdinaryAuthorityRelease::load_bound(&path, &root_key, &runtime, 10),
+        SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10,),
         Err(OrdinaryAuthorityReleaseError::EmbeddedAuthority)
     ));
 }
@@ -192,6 +191,10 @@ fn key(id: &str, key: &SigningKey) -> ReleaseVerificationKey {
         key_id: id.into(),
         public_key_hex: hex::encode(key.verifying_key().as_bytes()),
     }
+}
+
+fn root_keys(key: &SigningKey) -> BTreeMap<String, ed25519_dalek::VerifyingKey> {
+    [("root".into(), key.verifying_key())].into()
 }
 
 fn digest(manifest: &SignedCompatibilityManifest) -> String {

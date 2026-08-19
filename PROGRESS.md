@@ -168,6 +168,8 @@ lifecycle state are prohibited.
   and delegated verification keys. It validates every inner signature and binds
   package policy to the locked Node before returning material; no bootstrap
   reads it yet and no independent authority paths are accepted by its format.
+  It uses the existing protected runtime-update Ed25519 release root, not a new
+  signing setup; runtime metadata and provider authority remain distinct data.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised

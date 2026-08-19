@@ -46,6 +46,10 @@ execution rather than using a moving source URL.
 `GENT_RUNTIME_RELEASE_PRIVATE_KEY` is an Ed25519 PKCS#8 PEM. The metadata
 signer uses only the Python standard library so the same signed envelope can
 be produced and verified by the repository's macOS, Linux, and Windows gates.
+The same protected key is also Gent's ordinary-provider-authority root: it
+signs the one release artifact that binds provider evidence, compatibility, and
+the exact npm package policy. This does not add a second signing setup or let
+runtime-update metadata itself authorize a provider.
 
 Before the first runtime-update release, generate the protected key material
 locally (the output file is mode `0600` on Unix and is never added to the repository):
