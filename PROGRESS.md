@@ -156,6 +156,10 @@ lifecycle state are prohibited.
   SHA-512 tarball integrity, expiry/revocation, and the current locked Node
   digest. It is revalidated before use and is not a prompt-time cache, writer,
   or observer capability.
+- The app-supplied Node lock also pins npm's CLI module. Fixed package commands
+  run that module through the exact locked Node binary and recheck the full
+  Node/npm/CLI chain before each npm effect, never resolving host Node through
+  `PATH`. This remains dormant in observer mode.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised

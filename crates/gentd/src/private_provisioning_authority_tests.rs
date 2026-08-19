@@ -197,6 +197,9 @@ fn authority() -> (Authority, Installer, SqliteLedger, tempfile::TempDir) {
     let node = bin.join("node");
     fs::write(&node, "node").unwrap();
     fs::write(bin.join(npm_name()), "npm").unwrap();
+    let npm_cli = root.path().join("lib/node_modules/npm/bin");
+    fs::create_dir_all(&npm_cli).unwrap();
+    fs::write(npm_cli.join("npm-cli.js"), "npm cli").unwrap();
     let runtime = AppNodeRuntimeLock::capture(Some(node.into_os_string()), root.path()).unwrap();
     let installer = Installer::default();
     let provisioner = PrivateProviderProvisioner::new(

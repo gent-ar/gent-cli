@@ -90,7 +90,7 @@ fn unix_seconds() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     use gent_drivers::installer::NpmGlobalPrefix;
     use gent_ports::{ApprovedPackageInstall, DependencyActionExecutor};
@@ -105,8 +105,9 @@ mod tests {
             ("codex", "@openai/codex"),
             ("codex", "@openai/codex"),
         ];
+        let root = tempfile::tempdir().unwrap();
         let npm = NpmGlobalPrefix::new(
-            PathBuf::from("/app/node/npm"),
+            runtime(root.path()),
             PathBuf::from("/private/gentd/providers/npm-global"),
         );
         for (provider, package) in cases {
@@ -120,9 +121,31 @@ mod tests {
                 },
                 std::path::Path::new("/private/staging"),
             );
-            assert_eq!(command.executable, "/app/node/npm");
-            assert_eq!(command.arguments[5], format!("{package}@1.2.3"));
+            assert!(command.executable.ends_with("bin/node"));
+            assert!(command.arguments[0].ends_with("npm-cli.js"));
+            assert_eq!(command.arguments[6], format!("{package}@1.2.3"));
         }
+    }
+
+    fn runtime(root: &std::path::Path) -> gent_drivers::node_runtime_lock::NodeRuntimeLock {
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join("node"), "node").unwrap();
+        fs::write(bin.join(npm_name()), "npm").unwrap();
+        let cli = root.join("lib/node_modules/npm/bin");
+        fs::create_dir_all(&cli).unwrap();
+        fs::write(cli.join("npm-cli.js"), "npm cli").unwrap();
+        gent_drivers::node_runtime_lock::NodeRuntimeLock::capture(&bin.join("node")).unwrap()
+    }
+
+    #[cfg(windows)]
+    const fn npm_name() -> &'static str {
+        "npm.cmd"
+    }
+
+    #[cfg(not(windows))]
+    const fn npm_name() -> &'static str {
+        "npm"
     }
 
     #[test]

@@ -73,7 +73,7 @@ impl AppNodeRuntimeLock {
     pub(crate) fn rechecked_npm_prefix(&self) -> Result<NpmGlobalPrefix, AppNodeRuntimeLockError> {
         self.recheck()?;
         Ok(NpmGlobalPrefix::new(
-            self.lock.npm_path().into(),
+            self.lock.clone(),
             self.private_prefix.clone(),
         ))
     }
@@ -97,8 +97,10 @@ mod tests {
             .rechecked_npm_prefix()
             .unwrap()
             .install_archive(std::path::Path::new("/private/verified.tgz"));
-        assert_eq!(install.arguments[3], "--prefix");
-        assert!(install.arguments[4].ends_with("gentd/providers/npm-global"));
+        assert!(install.executable.ends_with("bin/node"));
+        assert!(install.arguments[0].ends_with("npm-cli.js"));
+        assert_eq!(install.arguments[4], "--prefix");
+        assert!(install.arguments[5].ends_with("gentd/providers/npm-global"));
         runtime.recheck().unwrap();
     }
 
@@ -121,6 +123,9 @@ mod tests {
         let node = bin.join("node");
         fs::write(&node, "node").unwrap();
         fs::write(bin.join(npm_name()), "npm").unwrap();
+        let cli = root.join("lib/node_modules/npm/bin");
+        fs::create_dir_all(&cli).unwrap();
+        fs::write(cli.join("npm-cli.js"), "npm cli").unwrap();
         node
     }
 

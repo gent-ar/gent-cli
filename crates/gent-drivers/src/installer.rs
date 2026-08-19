@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use gent_ports::ApprovedPackageInstall;
 
+use crate::node_runtime_lock::{NodeRuntimeLock, NodeRuntimeLockError};
+
 /// A reviewed installer command. Arguments are never interpreted by a shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstallerInvocation {
@@ -14,22 +16,23 @@ pub struct InstallerInvocation {
 /// Private `npm` prefix used only for daemon-owned public provider installation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NpmGlobalPrefix {
-    npm: PathBuf,
+    runtime: NodeRuntimeLock,
     prefix: PathBuf,
 }
 
 impl NpmGlobalPrefix {
     #[must_use]
-    pub fn new(npm: PathBuf, prefix: PathBuf) -> Self {
-        Self { npm, prefix }
+    pub fn new(runtime: NodeRuntimeLock, prefix: PathBuf) -> Self {
+        Self { runtime, prefix }
     }
 
     /// Builds a fixed package fetch into an already-created private staging directory.
     #[must_use]
     pub fn pack(&self, package: &ApprovedPackageInstall, staging: &Path) -> InstallerInvocation {
         InstallerInvocation {
-            executable: self.npm.to_string_lossy().into_owned(),
+            executable: self.runtime.node_path().to_string_lossy().into_owned(),
             arguments: vec![
+                self.runtime.npm_cli_path().to_string_lossy().into_owned(),
                 "pack".into(),
                 "--ignore-scripts".into(),
                 "--json".into(),
@@ -44,8 +47,9 @@ impl NpmGlobalPrefix {
     #[must_use]
     pub fn install_archive(&self, archive: &Path) -> InstallerInvocation {
         InstallerInvocation {
-            executable: self.npm.to_string_lossy().into_owned(),
+            executable: self.runtime.node_path().to_string_lossy().into_owned(),
             arguments: vec![
+                self.runtime.npm_cli_path().to_string_lossy().into_owned(),
                 "install".into(),
                 "--ignore-scripts".into(),
                 "--global".into(),
@@ -60,6 +64,14 @@ impl NpmGlobalPrefix {
     #[must_use]
     pub fn prefix(&self) -> &Path {
         &self.prefix
+    }
+
+    /// Rechecks the entire locked Node/npm command chain before an npm process starts.
+    ///
+    /// # Errors
+    /// Returns when Node, npm, or the npm CLI module changed after capture.
+    pub fn recheck(&self) -> Result<(), NodeRuntimeLockError> {
+        self.runtime.recheck()
     }
 }
 
@@ -99,6 +111,8 @@ pub enum InstallerError {
     Failed(String),
     #[error("installer filesystem operation failed: {0}")]
     Io(String),
+    #[error("locked Node/npm runtime changed: {0}")]
+    Runtime(String),
     #[error("npm pack did not return one valid JSON artifact")]
     PackOutput,
     #[error("npm pack returned an unsafe artifact path")]
@@ -111,14 +125,18 @@ pub enum InstallerError {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use gent_ports::ApprovedPackageInstall;
 
     #[test]
     fn npm_commands_use_only_the_private_prefix_and_fixed_arguments() {
+        let root = tempfile::tempdir().unwrap();
         let npm = super::NpmGlobalPrefix::new(
-            PathBuf::from("/app/node/bin/npm"),
+            runtime(root.path()),
             PathBuf::from("/private/gentd/providers/npm-global"),
         );
         let package = ApprovedPackageInstall {
@@ -129,24 +147,47 @@ mod tests {
             package_policy_digest_sha256: "a".repeat(64),
         };
         let packed = npm.pack(&package, std::path::Path::new("/private/staging"));
-        assert_eq!(packed.executable, "/app/node/bin/npm");
-        assert_eq!(
-            packed.arguments,
-            [
-                "pack",
-                "--ignore-scripts",
-                "--json",
-                "--pack-destination",
-                "/private/staging",
-                "@openai/codex@0.147.0"
-            ]
-        );
+        assert!(packed.executable.ends_with("bin/node"));
+        assert_eq!(packed.arguments[0], npm_cli(root.path()).to_string_lossy());
+        assert_eq!(packed.arguments[1], "pack");
+        assert_eq!(packed.arguments[2], "--ignore-scripts");
+        assert_eq!(packed.arguments[3], "--json");
+        assert_eq!(packed.arguments[4], "--pack-destination");
+        assert_eq!(packed.arguments[5], "/private/staging");
+        assert_eq!(packed.arguments[6], "@openai/codex@0.147.0");
         let installed = npm.install_archive(std::path::Path::new("/private/staging/codex.tgz"));
         assert_eq!(
-            installed.arguments[4],
+            installed.arguments[5],
             "/private/gentd/providers/npm-global"
         );
-        assert_eq!(installed.arguments[5], "/private/staging/codex.tgz");
-        assert_eq!(installed.arguments[1], "--ignore-scripts");
+        assert_eq!(installed.arguments[6], "/private/staging/codex.tgz");
+        assert_eq!(installed.arguments[2], "--ignore-scripts");
+    }
+
+    fn runtime(root: &Path) -> crate::node_runtime_lock::NodeRuntimeLock {
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join("node"), "node").unwrap();
+        fs::write(bin.join(npm_name()), "npm").unwrap();
+        let cli = root.join("lib/node_modules/npm/bin");
+        fs::create_dir_all(&cli).unwrap();
+        fs::write(cli.join("npm-cli.js"), "npm cli").unwrap();
+        crate::node_runtime_lock::NodeRuntimeLock::capture(&bin.join("node")).unwrap()
+    }
+
+    fn npm_cli(root: &Path) -> PathBuf {
+        root.join("lib/node_modules/npm/bin/npm-cli.js")
+            .canonicalize()
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    const fn npm_name() -> &'static str {
+        "npm.cmd"
+    }
+
+    #[cfg(not(windows))]
+    const fn npm_name() -> &'static str {
+        "npm"
     }
 }

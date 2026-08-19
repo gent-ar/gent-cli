@@ -9,11 +9,12 @@ use std::time::UNIX_EPOCH;
 
 use sha2::{Digest, Sha256};
 
-/// Canonical identity of the Node runtime and its required sibling `npm`.
+/// Canonical identity of the Node runtime and its required npm command files.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NodeRuntimeLock {
     node: LockedRuntimeFile,
     npm: LockedRuntimeFile,
+    npm_cli: LockedRuntimeFile,
 }
 
 /// One immutable runtime executable identity.
@@ -35,7 +36,7 @@ pub enum NodeRuntimeLockError {
 }
 
 impl NodeRuntimeLock {
-    /// Captures the canonical Node binary and its canonical sibling `npm`.
+    /// Captures the canonical Node binary, sibling `npm`, and its CLI module.
     ///
     /// # Errors
     /// Returns an error when either executable cannot be inspected.
@@ -48,7 +49,8 @@ impl NodeRuntimeLock {
                 .ok_or(NodeRuntimeLockError::NpmNotSibling)?
                 .join(npm_name()),
         )?;
-        Ok(Self { node, npm })
+        let npm_cli = LockedRuntimeFile::capture(&npm_cli_path(&node.canonical_path)?)?;
+        Ok(Self { node, npm, npm_cli })
     }
 
     /// Rechecks the locked files and their Node-sibling relationship.
@@ -59,6 +61,7 @@ impl NodeRuntimeLock {
     pub fn recheck(&self) -> Result<(), NodeRuntimeLockError> {
         self.node.recheck()?;
         self.npm.recheck()?;
+        self.npm_cli.recheck()?;
         let expected = LockedRuntimeFile::capture(
             &self
                 .node
@@ -69,6 +72,10 @@ impl NodeRuntimeLock {
         )?;
         (expected == self.npm)
             .then_some(())
+            .ok_or(NodeRuntimeLockError::NpmNotSibling)?;
+        let expected_cli = LockedRuntimeFile::capture(&npm_cli_path(&self.node.canonical_path)?)?;
+        (expected_cli == self.npm_cli)
+            .then_some(())
             .ok_or(NodeRuntimeLockError::NpmNotSibling)
     }
 
@@ -78,10 +85,16 @@ impl NodeRuntimeLock {
         &self.node.digest_sha256
     }
 
-    /// Canonical executable path used only after [`Self::recheck`] succeeds.
+    /// Canonical npm shim path, retained only to prove its sibling relationship.
     #[must_use]
     pub fn npm_path(&self) -> &Path {
         &self.npm.canonical_path
+    }
+
+    /// Canonical npm CLI module executed through the locked Node binary.
+    #[must_use]
+    pub fn npm_cli_path(&self) -> &Path {
+        &self.npm_cli.canonical_path
     }
 
     /// Canonical Node executable identity for audit and diagnostics.
@@ -89,6 +102,15 @@ impl NodeRuntimeLock {
     pub fn node_path(&self) -> &Path {
         &self.node.canonical_path
     }
+}
+
+fn npm_cli_path(node: &Path) -> Result<PathBuf, NodeRuntimeLockError> {
+    let bin = node.parent().ok_or(NodeRuntimeLockError::NpmNotSibling)?;
+    #[cfg(windows)]
+    let root = bin;
+    #[cfg(not(windows))]
+    let root = bin.parent().ok_or(NodeRuntimeLockError::NpmNotSibling)?;
+    Ok(root.join("lib/node_modules/npm/bin/npm-cli.js"))
 }
 
 impl LockedRuntimeFile {
@@ -140,6 +162,7 @@ mod tests {
         let lock = NodeRuntimeLock::capture(&node).unwrap();
         assert_eq!(lock.node_path(), node.canonicalize().unwrap());
         assert!(lock.npm_path().ends_with(super::npm_name()));
+        assert!(lock.npm_cli_path().ends_with("npm-cli.js"));
         assert_eq!(lock.node_digest_sha256().len(), 64);
         lock.recheck().unwrap();
     }
@@ -150,6 +173,22 @@ mod tests {
         let node = write_pair(root.path());
         let lock = NodeRuntimeLock::capture(&node).unwrap();
         fs::write(root.path().join("bin").join(super::npm_name()), "new npm").unwrap();
+        assert!(matches!(
+            lock.recheck(),
+            Err(NodeRuntimeLockError::RuntimeChanged)
+        ));
+    }
+
+    #[test]
+    fn modified_npm_cli_is_refused_before_provisioning() {
+        let root = tempfile::tempdir().unwrap();
+        let node = write_pair(root.path());
+        let lock = NodeRuntimeLock::capture(&node).unwrap();
+        fs::write(
+            root.path().join("lib/node_modules/npm/bin/npm-cli.js"),
+            "new npm cli",
+        )
+        .unwrap();
         assert!(matches!(
             lock.recheck(),
             Err(NodeRuntimeLockError::RuntimeChanged)
@@ -174,6 +213,9 @@ mod tests {
         let node = bin.join("node");
         fs::write(&node, "node").unwrap();
         fs::write(bin.join(super::npm_name()), "npm").unwrap();
+        let cli = root.join("lib/node_modules/npm/bin");
+        fs::create_dir_all(&cli).unwrap();
+        fs::write(cli.join("npm-cli.js"), "npm cli").unwrap();
         node
     }
 }

@@ -34,7 +34,7 @@ impl VerifiedNpmInstaller {
         let staging = staging_directory(npm.prefix())?;
         let archive = pack(npm, package, staging.path())?;
         verify_integrity(&archive, &package.integrity)?;
-        run(&npm.install_archive(&archive))
+        run(npm, &npm.install_archive(&archive))
     }
 }
 
@@ -55,6 +55,8 @@ fn pack(
     package: &ApprovedPackageInstall,
     staging: &Path,
 ) -> Result<PathBuf, InstallerError> {
+    npm.recheck()
+        .map_err(|error| InstallerError::Runtime(error.to_string()))?;
     let invocation = npm.pack(package, staging);
     let output = Command::new(&invocation.executable)
         .args(&invocation.arguments)
@@ -138,7 +140,9 @@ fn verify_integrity(archive: &Path, sri: &str) -> Result<(), InstallerError> {
     }
 }
 
-fn run(invocation: &InstallerInvocation) -> Result<(), InstallerError> {
+fn run(npm: &NpmGlobalPrefix, invocation: &InstallerInvocation) -> Result<(), InstallerError> {
+    npm.recheck()
+        .map_err(|error| InstallerError::Runtime(error.to_string()))?;
     let status = Command::new(&invocation.executable)
         .args(&invocation.arguments)
         .status()
