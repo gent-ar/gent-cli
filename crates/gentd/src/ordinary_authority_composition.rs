@@ -90,7 +90,7 @@ impl OrdinaryAuthorityRuntime {
     ///
     /// Hosts remain inactive until the post-commit prompt wake reaches their router, so this
     /// cadence cannot launch a provider before the durable prompt transaction completes.
-    pub(crate) fn drive_once(&self) -> Result<(), OrdinaryAuthorityError> {
+    pub(crate) fn drive_once(&self) -> Result<bool, OrdinaryAuthorityError> {
         self.router
             .lock()
             .map_err(|_| OrdinaryAuthorityError::RouterUnavailable)?

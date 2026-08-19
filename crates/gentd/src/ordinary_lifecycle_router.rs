@@ -16,6 +16,7 @@ pub(crate) trait OrdinaryLifecycleHost: Send {
     fn provider(&self) -> AgentChatProvider;
     fn wake(&mut self) -> Result<(), ()>;
     fn drive(&mut self) -> Result<(), ()>;
+    fn needs_drive(&self) -> bool;
 }
 
 /// Names one bounded provider owner for the ordinary daemon composition.
@@ -52,6 +53,10 @@ where
 
     fn drive(&mut self) -> Result<(), ()> {
         self.host.drive().map(|_| ()).map_err(|_| ())
+    }
+
+    fn needs_drive(&self) -> bool {
+        self.host.is_armed()
     }
 }
 
@@ -95,13 +100,15 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
         Ok(Self { reads, hosts })
     }
 
-    /// Drives every approved host at most once; durable work remains queued on backpressure.
-    pub(crate) fn drive_once(&mut self) -> Result<(), OrdinaryLifecycleRouterError> {
+    /// Drives every approved host at most once and reports whether another demand-driven pass is needed.
+    pub(crate) fn drive_once(&mut self) -> Result<bool, OrdinaryLifecycleRouterError> {
+        let mut needs_drive = false;
         for host in &mut self.hosts {
             host.drive()
                 .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
+            needs_drive |= host.needs_drive();
         }
-        Ok(())
+        Ok(needs_drive)
     }
 }
 

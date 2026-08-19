@@ -71,6 +71,10 @@ impl OrdinaryLifecycleHost for Host {
         self.calls.lock().unwrap().push("drive");
         Ok(())
     }
+
+    fn needs_drive(&self) -> bool {
+        false
+    }
 }
 
 #[test]
@@ -118,7 +122,7 @@ fn cadence_drives_each_private_host_at_most_once() {
         host(AgentChatProvider::Codex, Arc::clone(&codex_calls)),
     );
 
-    router.drive_once().unwrap();
+    assert!(!router.drive_once().unwrap());
     assert_eq!(&*claude_calls.lock().unwrap(), &["drive"]);
     assert_eq!(&*codex_calls.lock().unwrap(), &["drive"]);
 }
