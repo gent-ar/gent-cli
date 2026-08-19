@@ -39,6 +39,7 @@ mod policies;
 mod provider_auth;
 mod provider_lifecycle_values;
 mod provider_prompt_provision;
+mod provider_prompt_readiness;
 mod reviewed_plan;
 mod run_checkpoints;
 mod run_lifecycle_fact;
@@ -131,6 +132,7 @@ pub use provider_prompt_provision::{
     ProviderPromptProvisionBinding, ProviderPromptProvisionCommandBinding,
     ProviderPromptProvisionPackageBinding,
 };
+pub use provider_prompt_readiness::ProviderPromptReadinessBinding;
 pub use reviewed_plan::{
     ContextPolicy, PlanAction, PlanActionKind, PlanArtifact, PlanDiff, PlanDiffKind,
     PlanPermissionPreview, PlanRevision, PlanRisk, PlanRiskKind, PlanRiskSeverity, PlanStatus,

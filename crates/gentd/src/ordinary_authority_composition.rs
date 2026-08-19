@@ -1,7 +1,7 @@
 //! Sealed composition of the dormant ordinary Claude and Codex lifecycle hosts.
 //!
 //! This module deliberately has no bootstrap, argument, environment, or protocol surface. It
-//! first validates both provider evidence inputs, then creates the already bounded private hosts
+//! first validates every selected provider evidence input, then creates the already bounded private hosts
 //! and shares their router with a future facade composition. The returned cadence owner is the
 //! only value that can drive that router.
 
@@ -24,20 +24,32 @@ use crate::ordinary_lifecycle_cadence::{
     OrdinaryLifecycleCadence, OrdinaryPromptIngress, pair as cadence_pair,
 };
 use crate::ordinary_lifecycle_control::OrdinaryLifecycleControl;
-use crate::ordinary_lifecycle_router::{OrdinaryProviderHost, OrdinaryPublicLifecycleRouter};
+use crate::ordinary_lifecycle_router::{
+    OrdinaryLifecycleHost, OrdinaryProviderHost, OrdinaryPublicLifecycleRouter,
+};
 use crate::provider_lifecycle_host::ProviderLifecycleHost;
 use crate::runtime_facade::DaemonCompositionState;
 
 const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
 
-/// Private inputs for the simultaneous ordinary Claude and Codex composition.
+/// One public provider authority included in a private ordinary composition.
 ///
-/// Neither configuration is serializable or accepted by the shipped daemon. Their coordinator
-/// and epoch must match, so one router cannot accidentally operate two durable owners.
+/// A provider is independently evidence-gated. Requiring unavailable Claude evidence before an
+/// otherwise valid Codex authority would make provider selection an accidental cross-provider
+/// dependency and prevent a truthful partial rollout.
+#[derive(Debug)]
+pub(crate) enum OrdinaryProviderAuthorityConfig {
+    Claude(PrivateClaudeAuthorityConfig),
+    Codex(PrivateCodexAuthorityConfig),
+}
+
+/// Private inputs for one or more independently approved public-provider hosts.
+///
+/// Neither configuration is serializable or accepted by the shipped daemon. When multiple hosts
+/// are composed, their coordinator and epoch must match so one router cannot operate two owners.
 #[derive(Debug)]
 pub(crate) struct OrdinaryAuthorityConfig {
-    pub(crate) codex: PrivateCodexAuthorityConfig,
-    pub(crate) claude: PrivateClaudeAuthorityConfig,
+    pub(crate) providers: Vec<OrdinaryProviderAuthorityConfig>,
 }
 
 /// Failure before or while assembling the dormant ordinary lifecycle router.
@@ -47,6 +59,10 @@ pub(crate) enum OrdinaryAuthorityError {
     CoordinatorMismatch,
     #[error("ordinary Claude and Codex host epochs must match")]
     HostEpochMismatch,
+    #[error("ordinary authority requires at least one public provider")]
+    MissingProvider,
+    #[error("ordinary authority contains a duplicate public provider")]
+    DuplicateProvider,
     #[error(transparent)]
     CodexPreflight(#[from] CodexAuthorityPreflightError),
     #[error(transparent)]
@@ -123,20 +139,28 @@ pub(crate) fn compose_ordinary_authority(
     validate_shared_owner(&config)?;
     preflight_all(state, &config)?;
     let launcher = ReadOnlyHostLauncher::new(STREAM_CAPTURE_BYTES);
-    let codex = compose_private_codex_authority(state, &config.codex, launcher)?;
-    let claude = compose_private_claude_authority(state, config.claude, launcher)?;
+    let mut hosts: Vec<Box<dyn OrdinaryLifecycleHost>> = Vec::new();
+    for provider in config.providers {
+        match provider {
+            OrdinaryProviderAuthorityConfig::Codex(config) => {
+                let host = compose_private_codex_authority(state, &config, launcher)?;
+                hosts.push(Box::new(OrdinaryProviderHost::new(
+                    AgentChatProvider::Codex,
+                    ProviderLifecycleHost::new(host),
+                )));
+            }
+            OrdinaryProviderAuthorityConfig::Claude(config) => {
+                let host = compose_private_claude_authority(state, config, launcher)?;
+                hosts.push(Box::new(OrdinaryProviderHost::new(
+                    AgentChatProvider::Claude,
+                    ProviderLifecycleHost::new(host),
+                )));
+            }
+        }
+    }
     let router = OrdinaryPublicLifecycleRouter::new(
         AgentChatReadService::new(state.ledger().clone()),
-        vec![
-            Box::new(OrdinaryProviderHost::new(
-                AgentChatProvider::Codex,
-                ProviderLifecycleHost::new(codex),
-            )),
-            Box::new(OrdinaryProviderHost::new(
-                AgentChatProvider::Claude,
-                ProviderLifecycleHost::new(claude),
-            )),
-        ],
+        hosts,
     )
     .map_err(|_| OrdinaryAuthorityError::RouterUnavailable)?;
     let router = Arc::new(Mutex::new(router));
@@ -150,31 +174,71 @@ pub(crate) fn compose_ordinary_authority(
 }
 
 fn validate_shared_owner(config: &OrdinaryAuthorityConfig) -> Result<(), OrdinaryAuthorityError> {
-    (config.codex.coordinator_id == config.claude.coordinator_id)
-        .then_some(())
-        .ok_or(OrdinaryAuthorityError::CoordinatorMismatch)?;
-    (config.codex.host_epoch == config.claude.host_epoch)
-        .then_some(())
-        .ok_or(OrdinaryAuthorityError::HostEpochMismatch)
+    let Some(first) = config.providers.first() else {
+        return Err(OrdinaryAuthorityError::MissingProvider);
+    };
+    let (first_owner, epoch) = owner(first);
+    for (index, provider) in config.providers.iter().enumerate() {
+        let (candidate_owner, candidate_epoch) = owner(provider);
+        if candidate_owner != first_owner {
+            return Err(OrdinaryAuthorityError::CoordinatorMismatch);
+        }
+        if candidate_epoch != epoch {
+            return Err(OrdinaryAuthorityError::HostEpochMismatch);
+        }
+        if config.providers[..index]
+            .iter()
+            .any(|previous| provider_name(previous) == provider_name(provider))
+        {
+            return Err(OrdinaryAuthorityError::DuplicateProvider);
+        }
+    }
+    Ok(())
 }
 
 fn preflight_all(
     state: &DaemonCompositionState,
     config: &OrdinaryAuthorityConfig,
 ) -> Result<(), OrdinaryAuthorityError> {
-    codex_authority_preflight::load(
-        &config.codex.evidence_record,
-        &config.codex.trusted_keys,
-        state.compatibility(),
-        config.codex.now_unix_seconds,
-    )?;
-    claude_authority_preflight::load(
-        &config.claude.evidence_record,
-        &config.claude.trusted_keys,
-        state.compatibility(),
-        config.claude.now_unix_seconds,
-    )?;
+    for provider in &config.providers {
+        match provider {
+            OrdinaryProviderAuthorityConfig::Codex(config) => {
+                codex_authority_preflight::load(
+                    &config.evidence_record,
+                    &config.trusted_keys,
+                    state.compatibility(),
+                    config.now_unix_seconds,
+                )?;
+            }
+            OrdinaryProviderAuthorityConfig::Claude(config) => {
+                claude_authority_preflight::load(
+                    &config.evidence_record,
+                    &config.trusted_keys,
+                    state.compatibility(),
+                    config.now_unix_seconds,
+                )?;
+            }
+        }
+    }
     Ok(())
+}
+
+fn owner(provider: &OrdinaryProviderAuthorityConfig) -> (&str, gent_types::HostEpoch) {
+    match provider {
+        OrdinaryProviderAuthorityConfig::Claude(config) => {
+            (&config.coordinator_id, config.host_epoch)
+        }
+        OrdinaryProviderAuthorityConfig::Codex(config) => {
+            (&config.coordinator_id, config.host_epoch)
+        }
+    }
+}
+
+const fn provider_name(provider: &OrdinaryProviderAuthorityConfig) -> AgentChatProvider {
+    match provider {
+        OrdinaryProviderAuthorityConfig::Claude(_) => AgentChatProvider::Claude,
+        OrdinaryProviderAuthorityConfig::Codex(_) => AgentChatProvider::Codex,
+    }
 }
 
 #[cfg(test)]

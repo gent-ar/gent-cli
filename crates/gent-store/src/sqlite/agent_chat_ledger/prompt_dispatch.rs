@@ -2,8 +2,8 @@
 
 use gent_ports::{AgentChatPromptDispatchLedger, IngressMode, LedgerError};
 use gent_types::{
-    AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, HostEpoch,
-    Receipt, ReceiptId, ReceiptStatus,
+    AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command,
+    Event, HostEpoch, ProviderPromptReadinessBinding, Receipt, ReceiptId, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -29,6 +29,15 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError> {
         prompt_dispatch_readiness::release(self, message_id, expected_run_id, host_epoch)
+    }
+
+    fn release_verified_agent_chat_prompt_after_readiness(
+        &self,
+        command: &Command,
+        terminal: &Event,
+        binding: &ProviderPromptReadinessBinding,
+    ) -> Result<Receipt, LedgerError> {
+        prompt_dispatch_readiness::release_verified(self, command, terminal, binding)
     }
 
     fn begin_agent_chat_prompt_launch(

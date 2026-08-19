@@ -141,6 +141,21 @@ fn client_requests_the_exact_turn_follow_capability() {
     );
 }
 
+#[test]
+fn client_requests_daemon_owned_provider_readiness_and_provisioning() {
+    let capabilities = client_capabilities();
+    assert!(
+        capabilities
+            .0
+            .contains(&gent_protocol::PROVIDER_READINESS_CAPABILITY.into())
+    );
+    assert!(
+        capabilities
+            .0
+            .contains(&gent_protocol::PROMPT_PROVIDER_PROVISION_CAPABILITY.into())
+    );
+}
+
 #[tokio::test]
 async fn wait_for_connection_retries_until_a_listener_is_ready() {
     let directory = tempfile::tempdir().unwrap();

@@ -1,11 +1,33 @@
 //! Durable claim and settlement ownership for provider-bound agent-chat prompts.
 
-use gent_types::{AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, HostEpoch};
+use gent_types::{
+    AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, Event, HostEpoch,
+    ProviderPromptReadinessBinding, Receipt,
+};
 
 use crate::LedgerError;
 
 /// Reads and transitions the durable outbox populated only for `SendPrompt` requests.
 pub trait AgentChatPromptDispatchLedger: Send + Sync {
+    /// Atomically records one verified provider-ready decision and releases its exact held prompt.
+    ///
+    /// The command binds the prompt receipt, conversation, current run, and selected provider. A
+    /// matching retry returns the original settled receipt without changing dispatch ownership.
+    /// This transition only makes the prompt claimable; it never wakes or starts a provider.
+    ///
+    /// # Errors
+    /// Returns when the proof, current-run/provider fence, epoch, or terminal event differs.
+    fn release_verified_agent_chat_prompt_after_readiness(
+        &self,
+        _: &Command,
+        _: &Event,
+        _: &ProviderPromptReadinessBinding,
+    ) -> Result<Receipt, LedgerError> {
+        Err(LedgerError::Invariant(
+            "verified agent chat prompt readiness release is unavailable".into(),
+        ))
+    }
+
     /// Releases one exact prompt only after daemon-owned provider readiness is durably proven.
     ///
     /// The default fails closed so generic ledger fakes cannot bypass the readiness boundary.
