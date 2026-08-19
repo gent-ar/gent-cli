@@ -5,13 +5,14 @@ use std::path::Path;
 use gent_protocol::AgentChatIntentFrame;
 use gent_runtime::{
     AgentChatConversationRequest, AgentChatConversationResult, AgentChatConversationService,
+    AgentChatSelectionGate,
 };
 use gent_types::HostEpoch;
 
 use crate::workspace_identity::CanonicalWorkspace;
 
-pub(super) fn create<L>(
-    service: &AgentChatConversationService<L>,
+pub(super) fn create<L, G>(
+    service: &AgentChatConversationService<L, G>,
     host_epoch: HostEpoch,
     request_id: gent_types::AgentChatRequestId,
     receipt_id: gent_types::ReceiptId,
@@ -20,6 +21,7 @@ pub(super) fn create<L>(
 ) -> Result<Vec<AgentChatIntentFrame>, String>
 where
     L: gent_ports::AgentChatLedger + gent_ports::AgentChatWorkspaceLedger,
+    G: AgentChatSelectionGate,
 {
     let workspace = CanonicalWorkspace::from_path(Path::new(workspace_path))
         .map_err(|_| "agent-chat workspace must be an accessible local directory".to_owned())?;

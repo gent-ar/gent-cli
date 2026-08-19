@@ -10,7 +10,7 @@ use gent_types::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::RuntimeError;
+use crate::{AgentChatSelectionGate, AllowAnyAgentChatSelection, RuntimeError};
 
 /// Explicit permission to create local agent-chat state.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -42,20 +42,39 @@ pub enum AgentChatConversationResult {
 
 /// Allocates retry-stable public identities and delegates their atomic ownership to the ledger.
 #[derive(Clone, Debug)]
-pub struct AgentChatConversationService<L> {
+pub struct AgentChatConversationService<L, G = AllowAnyAgentChatSelection> {
     ledger: L,
     authority: AgentChatConversationAuthority,
+    selection_gate: G,
 }
 
-impl<L> AgentChatConversationService<L> {
+impl<L> AgentChatConversationService<L, AllowAnyAgentChatSelection> {
     /// Builds an inert observer service unless the future writer is explicitly approved.
     #[must_use]
     pub fn new(ledger: L, authority: AgentChatConversationAuthority) -> Self {
-        Self { ledger, authority }
+        Self::with_selection_gate(ledger, authority, AllowAnyAgentChatSelection)
     }
 }
 
-impl<L: AgentChatLedger + AgentChatWorkspaceLedger> AgentChatConversationService<L> {
+impl<L, G> AgentChatConversationService<L, G> {
+    /// Builds a service whose approved writes must pass the supplied pure selection gate.
+    #[must_use]
+    pub fn with_selection_gate(
+        ledger: L,
+        authority: AgentChatConversationAuthority,
+        selection_gate: G,
+    ) -> Self {
+        Self {
+            ledger,
+            authority,
+            selection_gate,
+        }
+    }
+}
+
+impl<L: AgentChatLedger + AgentChatWorkspaceLedger, G: AgentChatSelectionGate>
+    AgentChatConversationService<L, G>
+{
     /// Creates one empty conversation and its root run without starting a provider.
     ///
     /// # Errors
@@ -66,6 +85,9 @@ impl<L: AgentChatLedger + AgentChatWorkspaceLedger> AgentChatConversationService
     ) -> Result<AgentChatConversationResult, RuntimeError> {
         if self.authority != AgentChatConversationAuthority::Approved {
             return Ok(AgentChatConversationResult::DeniedObserver);
+        }
+        if !self.selection_gate.allows(&request.selection) {
+            return Err(RuntimeError::AgentChatSelectionDenied);
         }
         Ok(AgentChatConversationResult::Created(
             self.ledger.create_agent_chat_conversation_in_workspace(
@@ -101,11 +123,55 @@ fn stable_identity(kind: &str, request_id: &AgentChatRequestId) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentChatConversationRequest, ledger_create};
-    use gent_types::{
-        AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
-        HostEpoch, ReceiptId, WorkspaceRecord,
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
     };
+
+    use super::{AgentChatConversationRequest, ledger_create};
+    use gent_ports::{AgentChatLedger, AgentChatWorkspaceLedger, LedgerError};
+    use gent_types::{
+        AgentChatConversationCreate, AgentChatConversationCreated, AgentChatEffort, AgentChatMode,
+        AgentChatProvider, AgentChatRequestId, AgentChatSelection, HostEpoch, ReceiptId,
+        WorkspaceRecord,
+    };
+
+    use crate::{
+        AgentChatConversationAuthority, AgentChatConversationService,
+        ExactAgentChatSelectionAllowlist, RuntimeError,
+    };
+
+    #[derive(Clone, Default)]
+    struct CountingLedger(Arc<AtomicUsize>);
+
+    impl AgentChatLedger for CountingLedger {
+        fn create_agent_chat_conversation(
+            &self,
+            _: &AgentChatConversationCreate,
+        ) -> Result<AgentChatConversationCreated, LedgerError> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Err(LedgerError::Invariant("unexpected create".into()))
+        }
+    }
+
+    impl AgentChatWorkspaceLedger for CountingLedger {
+        fn create_agent_chat_conversation_in_workspace(
+            &self,
+            _: &AgentChatConversationCreate,
+            _: &WorkspaceRecord,
+        ) -> Result<AgentChatConversationCreated, LedgerError> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Err(LedgerError::Invariant("unexpected workspace create".into()))
+        }
+
+        fn agent_chat_workspace_for_run(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<WorkspaceRecord, LedgerError> {
+            Err(LedgerError::Invariant("unexpected workspace read".into()))
+        }
+    }
 
     fn request(request_id: &str) -> AgentChatConversationRequest {
         AgentChatConversationRequest {
@@ -134,5 +200,26 @@ mod tests {
         assert_eq!(first.conversation_id, second.conversation_id);
         assert_eq!(first.run_id, second.run_id);
         assert_eq!(first.idempotency_key, second.idempotency_key);
+    }
+
+    #[test]
+    fn approved_create_rejects_disallowed_selection_before_ledger_write() {
+        let ledger = CountingLedger::default();
+        let service = AgentChatConversationService::with_selection_gate(
+            ledger.clone(),
+            AgentChatConversationAuthority::Approved,
+            ExactAgentChatSelectionAllowlist::new([AgentChatSelection {
+                provider: AgentChatProvider::Codex,
+                model: "gpt-5.6".into(),
+                effort: AgentChatEffort::Low,
+                mode: AgentChatMode::Ask,
+            }]),
+        );
+
+        assert!(matches!(
+            service.create(&request("rejected")),
+            Err(RuntimeError::AgentChatSelectionDenied)
+        ));
+        assert_eq!(ledger.0.load(Ordering::Relaxed), 0);
     }
 }

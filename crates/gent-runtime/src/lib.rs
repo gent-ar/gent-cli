@@ -5,6 +5,7 @@ mod agent_chat_dispatch;
 mod agent_chat_prompts;
 mod agent_chat_reads;
 mod agent_chat_run_context;
+mod agent_chat_selection_gate;
 mod agent_chat_selection_switch;
 mod agent_chat_transcripts;
 mod attachment_receipts;
@@ -66,6 +67,9 @@ pub use agent_chat_prompts::{
 };
 pub use agent_chat_reads::AgentChatReadService;
 pub use agent_chat_run_context::AgentChatRunContextService;
+pub use agent_chat_selection_gate::{
+    AgentChatSelectionGate, AllowAnyAgentChatSelection, ExactAgentChatSelectionAllowlist,
+};
 pub use agent_chat_selection_switch::{
     AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchRequest,
     AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
@@ -143,6 +147,8 @@ pub enum RuntimeError {
     Core(#[from] gent_core::CoreError),
     #[error(transparent)]
     Port(#[from] gent_ports::PortError),
+    #[error("agent-chat selection is not allowed by the composed authority")]
+    AgentChatSelectionDenied,
 }
 impl<L: Ledger> Coordinator<L> {
     #[must_use]

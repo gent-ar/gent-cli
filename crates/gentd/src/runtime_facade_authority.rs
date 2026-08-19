@@ -1,12 +1,12 @@
 //! Explicit non-observer facade constructors kept outside the default composition.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use gent_store::SqliteLedger;
+use gent_runtime::ExactAgentChatSelectionAllowlist;
 
 use super::{DaemonCompositionState, RuntimeFacade};
 use crate::{
-    ordinary_lifecycle_router::OrdinaryPublicLifecycleRouter,
+    ordinary_authority_composition::OrdinaryAuthorityRuntime,
     runtime_update_config::DaemonRuntimeUpdateChecks,
 };
 
@@ -22,7 +22,13 @@ impl RuntimeFacade {
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::from_state_inner(state, runtime_update_checks, true, None)
+        Self::from_state_inner(
+            state,
+            runtime_update_checks,
+            true,
+            None,
+            Arc::new(gent_runtime::AllowAnyAgentChatSelection),
+        )
     }
 
     /// Builds the dormant ordinary terminal seam with its one private lifecycle router.
@@ -36,13 +42,16 @@ impl RuntimeFacade {
     pub(crate) fn from_state_with_ordinary_terminal_authority(
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-        router: OrdinaryPublicLifecycleRouter<SqliteLedger>,
+        authority: &OrdinaryAuthorityRuntime,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         Self::from_state_inner(
             state,
             runtime_update_checks,
             true,
-            Some(Arc::new(Mutex::new(router))),
+            Some(authority.router()),
+            Arc::new(ExactAgentChatSelectionAllowlist::new(
+                authority.selections().iter().cloned(),
+            )),
         )
     }
 }

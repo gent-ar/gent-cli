@@ -1,7 +1,7 @@
 # Gent CLI continuation handoff
 
 Use this document with the implementation plan and repository state when
-resuming work in a new conversation. Facts are current through 2026-08-18; this
+resuming work in a new conversation. Facts are current through 2026-08-19; this
 does not claim observer-mode `gentd` has live provider authority.
 
 ## Repository and safety
@@ -70,11 +70,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   and turn identities. `gent <prompt>` defaults its new selection to Ask and
   returns those identities without guessing a later lifecycle or keeping a
   terminal-owned correlation map.
-- A private ordinary-lifecycle router now resolves the committed prompt's
-  provider from the durable run selection, then arms only its matching bounded
-  lifecycle host. It has no durable state and enters the facade only through a
-  dormant ordinary-authority constructor; bootstrap never calls it until every
-  explicit authority gate validates.
+- A sealed dormant ordinary authority preflights Claude and Codex evidence before
+  host construction, admits only exact nonempty Claude/Codex Ask or Plan selections,
+  and rejects other selections before a ledger write. Its shared lifecycle router
+  resolves durable provider selection and arms only the matching bounded host;
+  bootstrap neither constructs it nor advertises it.
 - Committed, redacted development driver corpus plus public normalized live
   full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
   opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.
@@ -116,10 +116,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Compose one explicit ordinary Ask/Plan Claude/Codex daemon authority profile:
-   a bounded lifecycle router wakes from the committed prompt identity, resolves
-   only its canonical ledger run/workspace, and drives the existing locked runner
-   seams. Default observer mode and unproven broad modes remain absent.
+1. Bind the sealed Ask/Plan Claude/Codex composition to a real daemon cadence only
+   after a contained macOS backend and strict provider evidence. Its router already
+   wakes from committed durable prompts; default observer and broad modes stay absent.
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor
    reread/reconnect, provider/context switch, and exact `/goal` projection.
@@ -143,7 +142,7 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - Two strict Codex cells are recorded. Four strict cells are missing: Claude persistent
   permission, compaction, malformed tolerance, and Codex malformed tolerance.
   Claurst needs private bridge/CI evidence. Never fabricate recordings.
-- Live Claude capture was safely blocked before invocation: Claude Code `2.1.233`
+- Live Claude capture was safely blocked before invocation: Claude Code `2.1.234`
   lacks `--permission-prompt-tool`. Codex observed `0.144.1`; no documented
   provider-output fault control was found for malformed-output scenarios.
 - Use `python3 tools/update-public-driver-transcripts.py`; keep captures redacted

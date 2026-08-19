@@ -3,8 +3,8 @@
 use gent_protocol::AgentChatIntentFrame;
 use gent_runtime::{
     AgentChatConversationService, AgentChatPromptRequest, AgentChatPromptResult,
-    AgentChatPromptService, AgentChatSelectionSwitchRequest, AgentChatSelectionSwitchResult,
-    AgentChatSelectionSwitchService,
+    AgentChatPromptService, AgentChatSelectionGate, AgentChatSelectionSwitchRequest,
+    AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
 };
 use gent_types::{
     AgentChatConversationId, AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatRunId,
@@ -44,10 +44,10 @@ impl PromptCommitWake for NoopPromptCommitWake {
 }
 
 /// Handles the durable subset available before provider lifecycle composition.
-pub(crate) fn exchange<L>(
-    conversations: &AgentChatConversationService<L>,
+pub(crate) fn exchange<L, C, S>(
+    conversations: &AgentChatConversationService<L, C>,
     prompts: &AgentChatPromptService<L>,
-    switches: &AgentChatSelectionSwitchService<L>,
+    switches: &AgentChatSelectionSwitchService<L, S>,
     host_epoch: HostEpoch,
     frame: AgentChatIntentFrame,
 ) -> Result<Vec<AgentChatIntentFrame>, String>
@@ -56,6 +56,8 @@ where
         + gent_ports::AgentChatWorkspaceLedger
         + gent_ports::AgentChatPromptLedger
         + gent_ports::AgentChatSelectionLedger,
+    C: AgentChatSelectionGate,
+    S: AgentChatSelectionGate,
 {
     exchange_with_wake(
         conversations,
@@ -72,10 +74,10 @@ where
 /// This is intentionally a composition seam rather than a transport capability. A wake failure
 /// reports that the saved prompt needs a receipt-safe retry; it never rolls back or fabricates a
 /// provider result.
-pub(crate) fn exchange_with_wake<L, W>(
-    conversations: &AgentChatConversationService<L>,
+pub(crate) fn exchange_with_wake<L, C, S, W>(
+    conversations: &AgentChatConversationService<L, C>,
     prompts: &AgentChatPromptService<L>,
-    switches: &AgentChatSelectionSwitchService<L>,
+    switches: &AgentChatSelectionSwitchService<L, S>,
     host_epoch: HostEpoch,
     frame: AgentChatIntentFrame,
     wake: &mut W,
@@ -85,6 +87,8 @@ where
         + gent_ports::AgentChatWorkspaceLedger
         + gent_ports::AgentChatPromptLedger
         + gent_ports::AgentChatSelectionLedger,
+    C: AgentChatSelectionGate,
+    S: AgentChatSelectionGate,
     W: PromptCommitWake,
 {
     match frame {
@@ -181,13 +185,14 @@ struct PromptInput {
     disposition: AgentChatPromptDisposition,
 }
 
-fn switch<L>(
-    service: &AgentChatSelectionSwitchService<L>,
+fn switch<L, G>(
+    service: &AgentChatSelectionSwitchService<L, G>,
     host_epoch: HostEpoch,
     input: SwitchInput,
 ) -> Result<Vec<AgentChatIntentFrame>, String>
 where
     L: gent_ports::AgentChatSelectionLedger,
+    G: AgentChatSelectionGate,
 {
     match service
         .switch(&AgentChatSelectionSwitchRequest {

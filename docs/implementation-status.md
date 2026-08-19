@@ -239,10 +239,9 @@ For the current working-tree context and continuation order, read [the handoff](
       create/send/queue/interrupt/decision/cursor-subscription frames with request and receipt
       correlation. They are deliberately uncomposed by observer-mode `gentd`; no frame activates
       a provider or creates a write surface today.
-- [x] Dedicated uncomposed agent-chat conversation and prompt boundaries. Their approved-runtime
-      paths atomically persist a conversation/root run/selection or a receipt/turn/protected user
-      message/ordinal respectively; retries are stable and observer authority returns before any
-      ledger write. They do not start providers or advertise an IPC capability.
+- [x] Dedicated uncomposed agent-chat conversation and prompt boundaries. Approved creation and
+      switch paths can use a sealed exact allowlist and reject disallowed selections before any
+      ledger write; allowed persistence remains retry-stable and observer authority is inert.
 - [x] Language-neutral local IPC fixtures with canonical JSON and exact length-prefixed wire
       bytes for negotiation, errors, cursor replay, and every reserved agent-chat frame. The
       validator rejects a composed declaration for any reserved capability, so fixture presence

@@ -46,6 +46,9 @@ lifecycle state are prohibited.
   from the durable run selection and arms only that bounded host. It retains no
   durable state and is injected only by a dormant ordinary-authority facade
   constructor, never by default observer composition.
+- That sealed ordinary composition preflights both private evidence records
+  before host construction, permits only an exact nonempty Claude/Codex Ask or
+  Plan allowlist, and rejects every other selection before a ledger write.
 - Pure Claude/Codex normalizers, locked-process/session runner seams, bounded
   output/backpressure/drain primitives, and private Claurst bridge port types.
 - Codex app-server handshake, thread, and turn frames now always include the
@@ -79,8 +82,8 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Compose one explicit ordinary Ask/Plan Claude/Codex authority profile behind
-   `gentd`, retaining hard observer as the default.
+1. Bind the sealed ordinary Ask/Plan Claude/Codex composition to a real daemon
+   cadence only after a contained macOS backend and strict provider evidence.
 2. Connect prompt-commit wakeups to a bounded daemon lifecycle router that
    resolves the canonical run/workspace, rechecks locks/policy/evidence, and
    produces normalized facts before client broadcast.
