@@ -4,6 +4,7 @@ use super::{
     OrdinaryAuthorityBootstrapError, OrdinaryAuthorityBootstrapInput,
     OrdinaryProviderBootstrapConfig, parse,
 };
+use crate::ordinary_authority_composition::OrdinaryProviderAuthorityConfig;
 
 const KEY: &str = "review:key";
 
@@ -91,6 +92,31 @@ fn one_provider_keeps_an_unavailable_other_provider_out_of_preflight() {
             trusted_keys: vec![KEY.into()],
         }]
     );
+}
+
+#[test]
+fn selected_provider_binds_only_daemon_owned_owner_epoch_and_clock() {
+    let mut input = OrdinaryAuthorityBootstrapInput {
+        enabled: true,
+        ..OrdinaryAuthorityBootstrapInput::default()
+    };
+    input.codex_evidence_record = Some(PathBuf::from("/unread/codex.json"));
+    input.codex_trusted_keys.push(KEY.into());
+    input.compatibility_cache = Some(PathBuf::from("/unread/compatibility.json"));
+    input.compatibility_keys.push(KEY.into());
+    let config = parse(input).unwrap().unwrap().into_authority_config(
+        "daemon-owner",
+        gent_types::HostEpoch(9),
+        42,
+    );
+    assert!(matches!(
+        &config.providers[..],
+        [OrdinaryProviderAuthorityConfig::Codex(provider)]
+            if provider.coordinator_id == "daemon-owner"
+                && provider.host_epoch == gent_types::HostEpoch(9)
+                && provider.now_unix_seconds == 42
+                && provider.evidence_record.as_path() == std::path::Path::new("/unread/codex.json")
+    ));
 }
 
 #[test]

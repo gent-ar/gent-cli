@@ -7,6 +7,14 @@
 
 use std::path::PathBuf;
 
+use gent_types::HostEpoch;
+
+use crate::{
+    claude_authority_composition::PrivateClaudeAuthorityConfig,
+    codex_authority_composition::PrivateCodexAuthorityConfig,
+    ordinary_authority_composition::{OrdinaryAuthorityConfig, OrdinaryProviderAuthorityConfig},
+};
+
 /// Raw inputs a future private bootstrap may receive from its own reviewed configuration source.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct OrdinaryAuthorityBootstrapInput {
@@ -43,6 +51,49 @@ pub(crate) struct OrdinaryAuthorityBootstrapConfig {
     pub(crate) providers: Vec<OrdinaryProviderBootstrapConfig>,
     pub(crate) compatibility_cache: PathBuf,
     pub(crate) compatibility_keys: Vec<String>,
+}
+
+impl OrdinaryAuthorityBootstrapConfig {
+    /// Binds validated non-secret inputs to the daemon-owned owner and epoch.
+    ///
+    /// This has no file I/O or provider effect. The receiving composition still preflights every
+    /// selected evidence record immediately before constructing a lifecycle host.
+    #[must_use]
+    pub(crate) fn into_authority_config(
+        self,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        now_unix_seconds: u64,
+    ) -> OrdinaryAuthorityConfig {
+        OrdinaryAuthorityConfig {
+            providers: self
+                .providers
+                .into_iter()
+                .map(|provider| match provider {
+                    OrdinaryProviderBootstrapConfig::Claude {
+                        evidence_record,
+                        trusted_keys,
+                    } => OrdinaryProviderAuthorityConfig::Claude(PrivateClaudeAuthorityConfig {
+                        evidence_record,
+                        trusted_keys,
+                        coordinator_id: coordinator_id.into(),
+                        host_epoch,
+                        now_unix_seconds,
+                    }),
+                    OrdinaryProviderBootstrapConfig::Codex {
+                        evidence_record,
+                        trusted_keys,
+                    } => OrdinaryProviderAuthorityConfig::Codex(PrivateCodexAuthorityConfig {
+                        evidence_record,
+                        trusted_keys,
+                        coordinator_id: coordinator_id.into(),
+                        host_epoch,
+                        now_unix_seconds,
+                    }),
+                })
+                .collect(),
+        }
+    }
 }
 
 /// Controlled rejection before any authority evidence or compatibility input is read.
