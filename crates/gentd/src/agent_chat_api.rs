@@ -21,6 +21,14 @@ use create::create;
 pub(crate) trait PromptCommitWake {
     type Error;
 
+    /// Whether this explicit composition may assess a newly held prompt before waking a host.
+    ///
+    /// The default keeps generic and observer-facing chat persistence inert. Only a daemon-owned
+    /// readiness admission may opt in, and it must retain the prompt when readiness is not proven.
+    fn handles_awaiting_readiness(&self) -> bool {
+        false
+    }
+
     fn wake_after_prompt_commit(&mut self, prompt: PromptWake) -> Result<(), Self::Error>;
 }
 
@@ -244,7 +252,10 @@ where
         .map_err(|error| error.to_string())?
     {
         AgentChatPromptResult::Saved(saved) => {
-            if saved.delivery == AgentChatPromptDelivery::AwaitingProvider {
+            let should_notify = saved.delivery == AgentChatPromptDelivery::AwaitingProvider
+                || (saved.delivery == AgentChatPromptDelivery::AwaitingReadiness
+                    && wake.handles_awaiting_readiness());
+            if should_notify {
                 wake
                     .wake_after_prompt_commit(wake_identity(&input.conversation_id, &saved))
                     .map_err(|_| {

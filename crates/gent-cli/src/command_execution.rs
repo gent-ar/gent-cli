@@ -11,8 +11,8 @@ use crate::local_ipc::request;
 use crate::{
     Args, CommandLine, ConversationCommand, DependencyCommand, conversation_activity,
     conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, orchestration_cli, permissions_cli, provider_auth_cli, reviewed_plan_cli,
-    terminal_browser,
+    event_stream, orchestration_cli, permissions_cli, provider_auth_cli, provider_lifecycle_cli,
+    reviewed_plan_cli, terminal_browser,
 };
 
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -79,6 +79,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         }
         CommandLine::Auth { action } => {
             print(provider_auth_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
+        CommandLine::Provider { action } => {
+            print(provider_lifecycle_cli::execute(data_dir, no_autostart, action).await?)?;
         }
         CommandLine::Status => {
             print(request(data_dir, no_autostart, WireFrame::StatusRequest).await?)?;

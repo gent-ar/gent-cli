@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::{
     chat_cli, decision::DecisionCommandLine, goal_cli, orchestration_cli, permissions_cli,
-    provider_auth_cli, reviewed_plan_cli, update_check::UpdateCommand,
+    provider_auth_cli, provider_lifecycle_cli, reviewed_plan_cli, update_check::UpdateCommand,
 };
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
@@ -82,6 +82,11 @@ pub(crate) enum CommandLine {
     Auth {
         #[command(subcommand)]
         action: provider_auth_cli::ProviderAuthCommand,
+    },
+    /// Ask Gentd about one held prompt or consent to its daemon-issued provider install review.
+    Provider {
+        #[command(subcommand)]
+        action: provider_lifecycle_cli::ProviderLifecycleCommand,
     },
     Status,
     Submit {

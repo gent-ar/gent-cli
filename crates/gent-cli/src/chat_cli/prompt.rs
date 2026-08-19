@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use gent_protocol::AgentChatIntentFrame;
-use gent_types::{AgentChatConversationId, AgentChatPromptDelivery, AgentChatRunId};
+use gent_types::{AgentChatConversationId, AgentChatPromptDelivery, AgentChatRunId, Receipt};
 
 /// Exact durable identities created by one accepted terminal prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -12,6 +12,7 @@ pub(crate) struct PromptAccepted {
     pub(crate) run_id: AgentChatRunId,
     pub(crate) turn_id: String,
     pub(crate) delivery: AgentChatPromptDelivery,
+    pub(crate) receipt: Receipt,
 }
 
 /// Persists one interactive terminal prompt without starting a provider process.
@@ -37,6 +38,7 @@ pub(crate) async fn send(
         run_id,
         turn_id,
         delivery,
+        receipt,
         ..
     } = response
     else {
@@ -47,5 +49,6 @@ pub(crate) async fn send(
         run_id,
         turn_id,
         delivery,
+        receipt,
     })
 }

@@ -138,6 +138,8 @@ mod private_session_driver;
 #[allow(dead_code)] // Only an explicit authority constructor may compose this private boundary.
 mod prompt_provider_provision_boundary;
 mod prompt_provider_provision_transport;
+#[allow(dead_code)] // Only an explicit authority composition may inject this admission.
+mod prompt_readiness_admission;
 mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;

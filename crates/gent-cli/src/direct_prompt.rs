@@ -19,6 +19,7 @@ pub(crate) enum DirectPromptResult {
         conversation_id: String,
         run_id: String,
         turn_id: String,
+        prompt_receipt_id: String,
         delivery: gent_types::AgentChatPromptDelivery,
     },
     Goal {
@@ -98,6 +99,7 @@ pub(crate) async fn execute(
         conversation_id: accepted.conversation_id.0,
         run_id: accepted.run_id.0,
         turn_id: accepted.turn_id,
+        prompt_receipt_id: accepted.receipt.receipt_id.0,
         delivery: accepted.delivery,
     }))
 }
