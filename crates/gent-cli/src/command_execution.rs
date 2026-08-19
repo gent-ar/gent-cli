@@ -26,10 +26,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
     if conversations && (command.is_some() || direct_prompt.prompt.is_some()) {
         return Err("--conversations cannot be combined with a command or prompt".into());
     }
-    if let Some(reply) =
-        crate::direct_prompt::execute(data_dir.clone(), no_autostart, direct_prompt).await?
+    if crate::direct_prompt_execution::execute(data_dir.clone(), no_autostart, direct_prompt)
+        .await?
     {
-        print(reply)?;
         return Ok(());
     }
     if conversations || command.is_none() {
@@ -106,6 +105,7 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
     }
     Ok(())
 }
+
 async fn conversation(
     data_dir: Option<std::path::PathBuf>,
     no_autostart: bool,
@@ -178,7 +178,7 @@ async fn submit(
     print(request(data_dir, no_autostart, WireFrame::Command(command)).await?)
 }
 
-fn print(value: impl serde::Serialize) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn print(value: impl serde::Serialize) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
 }

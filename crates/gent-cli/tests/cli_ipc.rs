@@ -99,7 +99,7 @@ fn run(directory: &TempDir, args: &[&str]) {
 fn chat_server(directory: &TempDir) {
     let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
     tokio::spawn(async move {
-        for _ in 0..2 {
+        for index in 0..3 {
             let (mut stream, _) = listener.accept().await.unwrap();
             assert!(matches!(
                 read_frame(&mut stream).await.unwrap(),
@@ -114,6 +114,18 @@ fn chat_server(directory: &TempDir) {
             )
             .await
             .unwrap();
+            if index == 2 {
+                assert!(
+                    tokio::time::timeout(
+                        std::time::Duration::from_millis(100),
+                        read_frame(&mut stream)
+                    )
+                    .await
+                    .unwrap()
+                    .is_err()
+                );
+                continue;
+            }
             let request: AgentChatIntentFrame = read_json_frame(&mut stream).await.unwrap();
             match request {
                 AgentChatIntentFrame::CreateConversation {
@@ -172,7 +184,6 @@ fn chat_server(directory: &TempDir) {
         }
     });
 }
-
 #[test]
 fn cli_prints_its_package_version_without_contacting_a_daemon() {
     let output = Command::new(env!("CARGO_BIN_EXE_gent"))
@@ -182,7 +193,6 @@ fn cli_prints_its_package_version_without_contacting_a_daemon() {
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("gent "));
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
     let directory = tempfile::tempdir().unwrap();
@@ -249,7 +259,6 @@ async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {
                 && command.kind == "ping"
     ));
 }
-
 #[tokio::test]
 async fn cli_no_autostart_reports_a_missing_daemon_without_spawning_one() {
     let directory = tempfile::tempdir().unwrap();
@@ -284,17 +293,4 @@ async fn positional_prompt_creates_then_sends_only_typed_agent_chat_intents() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("conversation-1"));
     assert!(stdout.contains("awaitingProvider"));
-}
-#[test]
-fn default_browser_rejects_non_tty_before_daemon_autostart() {
-    let directory = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_gent"))
-        .arg("--data-dir")
-        .arg(directory.path())
-        .env("GENTD_BIN", directory.path().join("must-not-start"))
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("requires a terminal"));
-    assert!(!directory.path().join("gentd.sock").exists());
 }

@@ -69,6 +69,35 @@ pub(crate) async fn run(
     unreachable!("the bounded reconnect loop always returns")
 }
 
+/// Follows an accepted prompt when the negotiated daemon exposes live turn authority.
+///
+/// Returns `false` for an observer or persistence-only daemon without sending a follow request.
+pub(crate) async fn follow_accepted_if_supported(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    conversation_id: String,
+    run_id: String,
+    turn_id: String,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let (_, capabilities) = connect_and_negotiate(data_dir.clone(), no_autostart).await?;
+    if !supports(&capabilities.0) {
+        return Ok(false);
+    }
+    run(
+        data_dir,
+        no_autostart,
+        FollowTurnArgs {
+            conversation_id,
+            run_id,
+            turn_id,
+            after_cursor: 0,
+            reconnect_attempts: 3,
+        },
+    )
+    .await?;
+    Ok(true)
+}
+
 async fn require_support(
     data_dir: Option<PathBuf>,
     no_autostart: bool,

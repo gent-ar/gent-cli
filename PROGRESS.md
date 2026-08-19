@@ -30,7 +30,9 @@ lifecycle state are prohibited.
   artifact/approval reservation, clear-context ordinal-zero boundaries, and
   provider-switch child runs.
 - A committed prompt acceptance carries the exact durable conversation, run,
-  and turn IDs. `gent <prompt>` defaults a newly created selection to Ask.
+  and turn IDs. `gent <prompt>` defaults a newly created selection to Ask and
+  automatically follows a turn only when the daemon explicitly negotiates its
+  durable turn-follow capability; observer mode remains acceptance-only.
 - `gent chat create` and a new direct prompt bind the terminal current directory
   (or explicit `--workspace`) to one daemon-canonical workspace in the same
   SQLite transaction as the conversation/root run and receipt. Unbound ledger

@@ -2,7 +2,9 @@ use gent_protocol::{Hello, Negotiated, WireFrame, read_frame, write_frame};
 use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX};
 use tokio::net::UnixListener;
 
-use super::{default_daemon_binary, default_data_dir, request, wait_for_connection};
+use super::{
+    client_capabilities, default_daemon_binary, default_data_dir, request, wait_for_connection,
+};
 
 fn status() -> WireFrame {
     WireFrame::Status(HostStatus {
@@ -127,6 +129,16 @@ async fn request_rejects_unexpected_negotiation_and_command_responses() {
 fn defaults_resolve_to_non_empty_local_paths() {
     assert!(default_daemon_binary().file_name().is_some());
     assert!(!default_data_dir().as_os_str().is_empty());
+}
+
+#[test]
+fn client_requests_the_exact_turn_follow_capability() {
+    assert!(
+        client_capabilities()
+            .0
+            .iter()
+            .any(|capability| capability == gent_protocol::AGENT_CHAT_TURN_FOLLOW_CAPABILITY)
+    );
 }
 
 #[tokio::test]

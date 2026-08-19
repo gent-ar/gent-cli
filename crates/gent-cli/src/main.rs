@@ -12,6 +12,7 @@ mod conversation_status;
 mod conversation_timeline;
 mod decision;
 mod direct_prompt;
+mod direct_prompt_execution;
 mod event_stream;
 mod goal_cli;
 mod local_ipc;
