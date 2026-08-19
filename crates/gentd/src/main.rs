@@ -90,6 +90,8 @@ mod orchestration_transport_tests;
 mod ordinary_authority_bootstrap;
 #[allow(dead_code)]
 mod ordinary_authority_composition;
+#[allow(dead_code)]
+mod ordinary_authority_release;
 mod ordinary_lifecycle_cadence;
 #[allow(dead_code)]
 mod ordinary_lifecycle_control;
