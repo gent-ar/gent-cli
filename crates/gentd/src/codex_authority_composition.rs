@@ -12,7 +12,7 @@ use gent_drivers::codex_prompt_runner::CodexPromptRunner;
 use gent_drivers::{SandboxedLauncher, SandboxedProviderLaunch};
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, SandboxedLaunchRequest};
+use gent_types::{HostEpoch, SandboxLaunchProfile};
 
 use crate::approved_codex_host::ApprovedCodexHost;
 use crate::authority_profile::{
@@ -51,8 +51,8 @@ pub(crate) struct PrivateCodexAuthorityConfig {
     pub(crate) working_directory: Option<String>,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) now_unix_seconds: u64,
-    /// An immutable executable lock and credential-free sandbox profile supplied only by Gent.
-    pub(crate) sandbox_request: SandboxedLaunchRequest,
+    /// Credential-free containment profile supplied only by Gent.
+    pub(crate) sandbox_profile: SandboxLaunchProfile,
 }
 
 /// Private authority host whose lifecycle can only spawn through contained-launch infrastructure.
@@ -115,8 +115,6 @@ where
 pub(crate) enum PrivateCodexAuthorityError {
     #[error("private Codex coordinator identity must be bounded and nonempty")]
     InvalidCoordinator,
-    #[error("private Codex sandbox request must be bound to the Codex provider")]
-    InvalidSandboxRequest,
     #[error(transparent)]
     Preflight(#[from] CodexAuthorityPreflightError),
     #[error(transparent)]
@@ -154,7 +152,7 @@ where
     )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = CodexPromptRunner::new(
-        SandboxedLauncher::new(config.sandbox_request.clone(), sandbox),
+        SandboxedLauncher::new(config.sandbox_profile.clone(), sandbox),
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Codex authority buffer policy is valid"),
     );
@@ -191,10 +189,7 @@ where
 fn validate(config: &PrivateCodexAuthorityConfig) -> Result<(), PrivateCodexAuthorityError> {
     (!config.coordinator_id.trim().is_empty() && config.coordinator_id.len() <= 256)
         .then_some(())
-        .ok_or(PrivateCodexAuthorityError::InvalidCoordinator)?;
-    (config.sandbox_request.lock.provider == "codex")
-        .then_some(())
-        .ok_or(PrivateCodexAuthorityError::InvalidSandboxRequest)
+        .ok_or(PrivateCodexAuthorityError::InvalidCoordinator)
 }
 
 fn profile(digest: &str) -> Result<ValidatedAuthorityProfile, PrivateCodexAuthorityError> {

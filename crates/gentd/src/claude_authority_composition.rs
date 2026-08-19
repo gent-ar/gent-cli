@@ -11,7 +11,7 @@ use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::{SandboxedLauncher, SandboxedProviderLaunch};
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, SandboxedLaunchRequest};
+use gent_types::{HostEpoch, SandboxLaunchProfile};
 
 use crate::approved_claude_host::ApprovedClaudeHost;
 use crate::authority_profile::{
@@ -48,8 +48,8 @@ pub(crate) struct PrivateClaudeAuthorityConfig<S> {
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) now_unix_seconds: u64,
-    /// An immutable executable lock and credential-free sandbox profile supplied only by Gent.
-    pub(crate) sandbox_request: SandboxedLaunchRequest,
+    /// Credential-free containment profile supplied only by Gent.
+    pub(crate) sandbox_profile: SandboxLaunchProfile,
     pub(crate) sandbox_launch: S,
 }
 
@@ -116,8 +116,6 @@ where
 pub(crate) enum PrivateClaudeAuthorityError {
     #[error("private Claude coordinator identity must be bounded and nonempty")]
     InvalidCoordinator,
-    #[error("private Claude sandbox request must be bound to the Claude provider")]
-    InvalidSandboxRequest,
     #[error(transparent)]
     Preflight(#[from] ClaudeAuthorityPreflightError),
     #[error(transparent)]
@@ -152,7 +150,7 @@ where
     )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = ClaudePromptRunner::new(
-        SandboxedLauncher::new(config.sandbox_request, config.sandbox_launch),
+        SandboxedLauncher::new(config.sandbox_profile, config.sandbox_launch),
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Claude authority buffer policy is valid"),
     );
@@ -190,10 +188,7 @@ fn validate<S>(
 ) -> Result<(), PrivateClaudeAuthorityError> {
     (!config.coordinator_id.trim().is_empty() && config.coordinator_id.len() <= 256)
         .then_some(())
-        .ok_or(PrivateClaudeAuthorityError::InvalidCoordinator)?;
-    (config.sandbox_request.lock.provider == "claude")
-        .then_some(())
-        .ok_or(PrivateClaudeAuthorityError::InvalidSandboxRequest)
+        .ok_or(PrivateClaudeAuthorityError::InvalidCoordinator)
 }
 
 fn profile(digest: &str) -> Result<ValidatedAuthorityProfile, PrivateClaudeAuthorityError> {

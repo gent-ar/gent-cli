@@ -5,7 +5,7 @@ use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
 use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
 use gent_runtime::catalog::declared_capabilities;
 use gent_types::{
-    HostEpoch, RunVersionLock, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
+    HostEpoch, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
     SandboxedLaunchRequest,
 };
 
@@ -67,17 +67,7 @@ fn config() -> PrivateClaudeAuthorityConfig<Sandbox> {
         coordinator_id: "private-claude-host".into(),
         host_epoch: HostEpoch(1),
         now_unix_seconds: 1,
-        sandbox_request: SandboxedLaunchRequest {
-            lock: RunVersionLock {
-                provider: "claude".into(),
-                canonical_path: "/private/gent/claude".into(),
-                file_identity: "1:2".into(),
-                digest_sha256: "a".repeat(64),
-                version: "1.0.0".into(),
-                compatibility_entry: "claude-1.0.0".into(),
-            },
-            profile: sandbox_profile(),
-        },
+        sandbox_profile: sandbox_profile(),
         sandbox_launch: Sandbox,
     }
 }
@@ -95,12 +85,6 @@ fn private_claude_config_rejects_blank_or_unbounded_coordinator_before_preflight
     assert!(matches!(
         validate(&oversized),
         Err(PrivateClaudeAuthorityError::InvalidCoordinator)
-    ));
-    let mut wrong_provider = config();
-    wrong_provider.sandbox_request.lock.provider = "codex".into();
-    assert!(matches!(
-        validate(&wrong_provider),
-        Err(PrivateClaudeAuthorityError::InvalidSandboxRequest)
     ));
 }
 

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use gent_types::SandboxedLaunchRequest;
+use gent_types::{SandboxLaunchProfile, SandboxedLaunchRequest};
 
 use crate::lock::LockError;
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
@@ -54,16 +54,19 @@ pub trait SandboxedProviderLaunch: Send + Sync {
 /// an unrelated `SystemLauncher`.
 #[derive(Clone, Debug)]
 pub struct SandboxedLauncher<S> {
-    request: SandboxedLaunchRequest,
+    profile: SandboxLaunchProfile,
     inner: Arc<S>,
 }
 
 impl<S> SandboxedLauncher<S> {
-    /// Binds a platform containment-and-spawn port to a single immutable executable/profile.
+    /// Binds a platform containment-and-spawn port to one immutable Gent-owned profile.
+    ///
+    /// The exact executable lock comes from each daemon-resolved [`ProviderLaunch`], avoiding a
+    /// second configuration lock that could diverge before contained spawning.
     #[must_use]
-    pub fn new(request: SandboxedLaunchRequest, inner: S) -> Self {
+    pub fn new(profile: SandboxLaunchProfile, inner: S) -> Self {
         Self {
-            request,
+            profile,
             inner: Arc::new(inner),
         }
     }
@@ -76,14 +79,17 @@ where
     type Process = S::Process;
 
     fn launch(&self, launch: &ProviderLaunch) -> Result<Self::Process, SupervisorError> {
-        let expected = &self.request.lock;
-        (launch.lock == *expected
-            && launch.provider == expected.provider
-            && launch.executable.to_string_lossy() == expected.canonical_path)
+        let lock = &launch.lock;
+        (launch.provider == lock.provider
+            && launch.executable.to_string_lossy() == lock.canonical_path)
             .then_some(())
             .ok_or(SupervisorError::Lock(LockError::ProviderChanged))?;
+        let request = SandboxedLaunchRequest {
+            lock: lock.clone(),
+            profile: self.profile.clone(),
+        };
         self.inner
-            .launch_sandboxed(&self.request, launch)
+            .launch_sandboxed(&request, launch)
             .map_err(map_error)
     }
 }
@@ -179,33 +185,21 @@ mod tests {
     #[test]
     fn atomic_port_receives_the_bound_profile_with_the_exact_spawn() {
         let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(request(), port);
+        let launcher = SandboxedLauncher::new(request().profile, port);
         launcher.launch(&launch("codex", "/private/codex")).unwrap();
         let calls = launcher.inner.0.lock().unwrap();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0.lock.provider, "codex");
+        assert_eq!(calls[0].0.lock, calls[0].1.lock);
         assert_eq!(calls[0].1.executable, PathBuf::from("/private/codex"));
     }
 
     #[test]
     fn altered_launch_never_reaches_the_atomic_port() {
         let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(request(), port);
+        let launcher = SandboxedLauncher::new(request().profile, port);
         assert!(matches!(
             launcher.launch(&launch("claude", "/private/claude")),
-            Err(SupervisorError::Lock(LockError::ProviderChanged))
-        ));
-        assert!(launcher.inner.0.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn mismatched_lock_never_reaches_the_atomic_port() {
-        let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(request(), port);
-        let mut altered = launch("codex", "/private/codex");
-        altered.lock.digest_sha256 = "b".repeat(64);
-        assert!(matches!(
-            launcher.launch(&altered),
             Err(SupervisorError::Lock(LockError::ProviderChanged))
         ));
         assert!(launcher.inner.0.lock().unwrap().is_empty());
