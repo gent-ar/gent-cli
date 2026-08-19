@@ -255,3 +255,44 @@ the daemon facade observer test. Re-run all of it after nontrivial changes.
 Before major scope decisions, read the original app planning source only:
 `/Users/ivanmatiasfort/Clouseau/clouseau-app/GENT-CLI/README.md`, then
 `00-PLATFORM-CONTRACT.md` through `10-LIVE-LIFECYCLE-AND-SELF-UPDATE.md`.
+
+## Latest continuation state (2026-08-19)
+
+- Clean, pushed `main` ends at `29d1984`; the working tree was clean when this
+  handoff was written. The user has authorized commits/pushes after required
+  gates, but never touch `clouseau-app`.
+- The just-completed sequence was deliberately narrow: `f817dae` made the one
+  signed authority release yield verified in-memory provider grants; `c2f5d85`
+  removed the old path/key/evidence bootstrap and derives lifecycle owner/epoch
+  from daemon state; `543447f` made npm pack/install, provider shims, and the
+  fixed version probe use the locked app Node environment; `db7e6f0` retained a
+  canonical complete-artifact SHA-256; `29d1984` removed the unused generic
+  provisioning effect owner.
+- Reusing the existing runtime-update Ed25519 trust root was explicitly chosen.
+  Do not introduce another release key or trust store. Runtime metadata remains
+  distinct from provider authority despite sharing the protected root.
+- The authoritative release loader is
+  `crates/gentd/src/ordinary_authority_release.rs`. Its digest is canonicalized
+  from parsed/re-serialized JSON, intentionally stable across whitespace; do
+  not replace it with a raw file hash or persist/cache the verified artifact.
+- `PrivatePrefixProvisionedProviderVerifier::system(runtime)` now requires a
+  `NodeRuntimeLock` and probes through `NodeReadOnlyHostLauncher`. The shared
+  environment has an allowlisted PATH (locked Node plus `/usr/bin:/bin` on Unix)
+  and strips Node/npm controls. This was needed because an npm shim can use
+  `#!/usr/bin/env node`; direct `Command::new(shim)` could select ambient Node.
+- Rejected approach: porting app drivers or enabling authority from independent
+  evidence/key paths. Both violate the single daemon authority source. Also
+  rejected: snapshots/recovery caches, fake containment, and public Claurst.
+- Next priority is to bind `VerifiedOrdinaryAuthorityRelease`'s artifact digest
+  into `ProviderPromptProvisionCommandBinding`, receipt fingerprint, and
+  `ProviderInstallProvenance`, then re-read/re-verify that same release before
+  npm. This will touch `gent-types`, prompt boundary derivation, SQLite fixtures,
+  and provisioning effect; do not add optional/legacy fields or a second ledger.
+- After that, compose one combined `RuntimeFacade` containing ordinary ingress,
+  readiness, and prompt provisioning. Keep `daemon_bootstrap.rs` hard observer
+  until real evidence and containment gates justify an explicit authority path.
+
+Resume here: start at `ordinary_authority_release.rs` and the prompt-provision binding/effect
+files named above. Carry the already available canonical artifact digest through the exact
+daemon-built command and durable provenance, then make the pre-effect path revalidate the same
+signed release against the locked Node runtime; preserve observer capability absence throughout.
