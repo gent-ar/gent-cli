@@ -41,6 +41,102 @@ fn unprovable_settlement_terminally_fences_the_exact_reserved_prompt() {
     );
 }
 
+#[test]
+fn proven_pre_effect_failure_reopens_the_exact_reserved_prompt_idempotently() {
+    let (ledger, message_id, command, receipt, binding) = reserved_prompt();
+    let terminal = failure(&command, &receipt, "pre-effect-failed");
+    let rejected = ledger
+        .reject_pre_effect_verified_provider_prompt_provision(
+            &command, &receipt, &terminal, &binding,
+        )
+        .unwrap();
+    assert_eq!(rejected.status, ReceiptStatus::Rejected);
+    assert_eq!(dispatch_state(&ledger, &message_id), "awaiting_readiness");
+    assert_eq!(
+        ledger
+            .reject_pre_effect_verified_provider_prompt_provision(
+                &command, &rejected, &terminal, &binding,
+            )
+            .unwrap()
+            .status,
+        ReceiptStatus::Rejected
+    );
+}
+
+#[test]
+fn pre_effect_failure_rejects_conflicting_terminal_or_status() {
+    let (ledger, message_id, command, receipt, binding) = reserved_prompt();
+    let terminal = failure(&command, &receipt, "pre-effect-failed");
+    ledger
+        .reject_pre_effect_verified_provider_prompt_provision(
+            &command, &receipt, &terminal, &binding,
+        )
+        .unwrap();
+    let conflicting = failure(&command, &receipt, "different-terminal");
+    assert!(
+        ledger
+            .reject_pre_effect_verified_provider_prompt_provision(
+                &command,
+                &receipt,
+                &conflicting,
+                &binding,
+            )
+            .is_err()
+    );
+    assert_eq!(dispatch_state(&ledger, &message_id), "awaiting_readiness");
+
+    let (ledger, message_id, command, receipt, binding) = reserved_prompt();
+    let terminal = Event {
+        cursor: 0,
+        event_id: "unprovable".into(),
+        receipt_id: receipt.receipt_id.clone(),
+        host_epoch: receipt.host_epoch,
+        kind: "privatePromptProvisionUnprovable".into(),
+        payload: json!({}),
+    };
+    ledger
+        .settle_unprovable_provider_prompt_provision(&command, &receipt, &terminal, &binding)
+        .unwrap();
+    assert!(
+        ledger
+            .reject_pre_effect_verified_provider_prompt_provision(
+                &command,
+                &receipt,
+                &failure(&command, &receipt, "pre-effect-failed"),
+                &binding,
+            )
+            .is_err()
+    );
+    assert_eq!(dispatch_state(&ledger, &message_id), "unprovable");
+}
+
+#[test]
+fn conflicting_failure_event_rolls_back_receipt_and_reservation() {
+    let (ledger, message_id, command, receipt, binding) = reserved_prompt();
+    assert!(
+        ledger
+            .reject_pre_effect_verified_provider_prompt_provision(
+                &command,
+                &receipt,
+                &failure(&command, &receipt, "accepted"),
+                &binding,
+            )
+            .is_err()
+    );
+    assert_eq!(dispatch_state(&ledger, &message_id), "provisioning");
+}
+
+fn failure(command: &Command, receipt: &Receipt, event_id: &str) -> Event {
+    Event {
+        cursor: 0,
+        event_id: event_id.into(),
+        receipt_id: receipt.receipt_id.clone(),
+        host_epoch: receipt.host_epoch,
+        kind: "privatePromptProvisionFailed".into(),
+        payload: command.payload.clone(),
+    }
+}
+
 fn reserved_prompt() -> (
     SqliteLedger,
     String,

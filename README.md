@@ -172,7 +172,6 @@ systemd-user timer (Linux), or per-user Scheduled Task (Windows) treats GitHub
 `latest` only as an untrusted stable-tag hint, then repeats the signed idle-lock,
 health-check, and rollback path. It serializes/backoffs; never starts provider
 work or replaces `gentd` in process.
-
 Running `gent` with no subcommand, or `gent --conversations`, opens the local
 conversation browser. It lists durable identities and run counts. Observer mode
 shows a disabled composer; the opt-in ledger profile enables input, selected
@@ -182,8 +181,9 @@ start that isolated profile with `GENT_AGENT_CHAT_AUTHORITY=1 gentd`; none start
 
 `gent orchestration fanout --graph-json FILE` and `cross-review --request-json FILE` accept exact JSON `FanoutRequest`/`CrossReviewRequest` values; exact positional `/fanout FILE` and `/cross-review FILE` use the same strict inputs; `read --conversation-id ID --graph-id ID` reads their graph.
 They require the explicit persistence profile's `orchestration-v1` capability, make/read only daemon-owned graph records, and never schedule or start a provider worker.
-
 ## Development
+
+To reclaim build space, run `make clean-spaces` from any directory; it anchors itself here and removes only reproducible Cargo `target/` artifacts and optional `.cargo-cache/`, never `.gentd/`, `.gent/`, `GENT_DATA_DIR`, or the shared Cargo home cache.
 
 ```sh
 cargo fmt --check

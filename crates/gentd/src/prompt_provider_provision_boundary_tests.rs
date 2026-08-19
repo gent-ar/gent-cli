@@ -6,8 +6,7 @@ use gent_ports::{
     ProvisionedProviderLockLedger,
 };
 use gent_protocol::{
-    DependencyPlanRequest, DependencyProvider, PromptProviderProvisionFrame,
-    PromptProviderProvisionState,
+    DependencyProvider, PromptProviderProvisionFrame, PromptProviderProvisionState,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -22,12 +21,16 @@ use super::{
     PrivateProvisionError, PrivateProvisionRequest, PrivateProvisionResult,
     PromptProviderProvisionBoundary, PromptProviderProvisionEffect,
 };
-use crate::{authority_clock::AuthorityClock, dependency_catalog::DependencyCatalog};
+use crate::{
+    authority_clock::AuthorityClock, dependency_catalog::DependencyCatalog,
+    private_provider_review::install_review,
+};
 
 #[derive(Clone, Copy)]
 enum Outcome {
     Installed,
     Ambiguous,
+    PreEffectFailure,
 }
 
 #[derive(Clone)]
@@ -44,10 +47,12 @@ impl PromptProviderProvisionEffect for Effect {
         _: &gent_types::ProviderPromptProvisionCommandBinding,
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
         self.calls.lock().unwrap().push(request.clone());
-        Ok(match self.outcome {
+        let result = match self.outcome {
             Outcome::Installed => PrivateProvisionResult::Installed(Box::new(installation())),
             Outcome::Ambiguous => PrivateProvisionResult::Ambiguous,
-        })
+            Outcome::PreEffectFailure => return Err(PrivateProvisionError::Policy("stale".into())),
+        };
+        Ok(result)
     }
 }
 
@@ -167,25 +172,6 @@ fn mismatched_review_never_calls_npm_and_keeps_the_prompt_retryable() {
     );
 }
 
-#[test]
-fn ambiguous_effect_is_unprovable_and_an_exact_retry_never_replays_it() {
-    let (ledger, saved) = seeded();
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let boundary = boundary(ledger, Outcome::Ambiguous, Arc::clone(&calls));
-    let request = confirm(&saved, true, plan_digest());
-    for _ in 0..2 {
-        let reply = boundary.confirm(request.clone()).unwrap();
-        assert!(matches!(
-            reply,
-            PromptProviderProvisionFrame::Result {
-                state: PromptProviderProvisionState::Unprovable,
-                ..
-            }
-        ));
-    }
-    assert_eq!(calls.lock().unwrap().len(), 1);
-}
-
 fn boundary(
     ledger: SqliteLedger,
     outcome: Outcome,
@@ -201,12 +187,14 @@ fn boundary(
 }
 
 fn plan_digest() -> String {
-    DependencyCatalog::default()
-        .plan(DependencyPlanRequest {
-            provider: DependencyProvider::Codex,
-            action: gent_protocol::DependencyAction::Install,
-        })
-        .reviewed_plan_digest
+    install_review(
+        &DependencyCatalog::default(),
+        &Policy,
+        &Clock,
+        DependencyProvider::Codex,
+    )
+    .unwrap()
+    .reviewed_plan_digest
 }
 
 fn confirm(
@@ -284,3 +272,6 @@ fn installation() -> ProvisionedProviderInstallation {
         },
     }
 }
+
+#[path = "prompt_provider_provision_boundary_outcomes.rs"]
+mod outcomes;

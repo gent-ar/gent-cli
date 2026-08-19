@@ -9,6 +9,7 @@ use super::{DaemonCompositionState, RuntimeFacade};
 use crate::{
     ordinary_authority_composition::OrdinaryAuthorityRuntime,
     prompt_provider_provision_boundary::PromptProviderProvisionPort,
+    provider_readiness_boundary::ProviderReadinessPort,
     runtime_update_config::DaemonRuntimeUpdateChecks,
 };
 
@@ -25,6 +26,7 @@ impl RuntimeFacade {
     pub(crate) fn from_state_with_prompt_provider_provision_authority(
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
+        readiness: Arc<dyn ProviderReadinessPort>,
         authority: Arc<dyn PromptProviderProvisionPort>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         if !state
@@ -39,6 +41,7 @@ impl RuntimeFacade {
             state,
             runtime_update_checks,
             None,
+            Some(readiness),
             Some(authority),
             Arc::new(gent_runtime::AllowAnyAgentChatSelection),
         )
@@ -61,6 +64,7 @@ impl RuntimeFacade {
         Self::from_state_inner(
             state,
             runtime_update_checks,
+            None,
             None,
             None,
             Arc::new(gent_runtime::AllowAnyAgentChatSelection),
@@ -90,6 +94,7 @@ impl RuntimeFacade {
             state,
             runtime_update_checks,
             Some(authority.prompt_ingress()),
+            None,
             None,
             Arc::new(ProviderModeSelectionGate::new(
                 [AgentChatProvider::Claude, AgentChatProvider::Codex],

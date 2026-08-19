@@ -17,6 +17,8 @@ use super::{
     },
 };
 
+#[path = "private_provider_prompt_provision_pre_effect_failure.rs"]
+mod pre_effect_failure;
 #[path = "private_provider_prompt_provision_rejection.rs"]
 mod rejection;
 #[path = "private_provider_prompt_provision_unprovable.rs"]
@@ -183,6 +185,16 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
         binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError> {
         rejection::settle(self, command, terminal, binding)
+    }
+
+    fn reject_pre_effect_verified_provider_prompt_provision(
+        &self,
+        command: &Command,
+        receipt: &Receipt,
+        terminal: &Event,
+        binding: &ProviderPromptProvisionCommandBinding,
+    ) -> Result<Receipt, LedgerError> {
+        pre_effect_failure::settle(self, command, receipt, terminal, binding)
     }
 }
 

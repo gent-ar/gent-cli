@@ -107,6 +107,25 @@ pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
         binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError>;
 
+    /// Atomically rejects one already-reserved prompt provision before npm can run.
+    ///
+    /// This is only for failures proven to precede the external effect. It changes the exact
+    /// accepted receipt to `Rejected`, appends `privatePromptProvisionFailed`, and returns the
+    /// held dispatch from `provisioning` to `awaiting_readiness` in one transaction. An exact
+    /// retry returns that same terminal receipt; every conflicting receipt, command, or event
+    /// fails closed.
+    ///
+    /// # Errors
+    /// Returns when the accepted receipt, command, reserved prompt binding, or terminal event
+    /// differs, leaving every durable fact unmodified.
+    fn reject_pre_effect_verified_provider_prompt_provision(
+        &self,
+        command: &Command,
+        receipt: &Receipt,
+        terminal: &Event,
+        binding: &ProviderPromptProvisionCommandBinding,
+    ) -> Result<Receipt, LedgerError>;
+
     /// Terminally marks one reserved prompt provision unprovable without releasing its prompt.
     ///
     /// This is used after an accepted receipt is recovered or an external effect becomes

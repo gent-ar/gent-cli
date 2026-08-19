@@ -1,13 +1,11 @@
 use gent_drivers::lock::capture;
 use gent_ports::{LedgerError, ProvisionedProviderLockReader};
-use gent_protocol::{DependencyAction, DependencyProvider};
 use gent_types::{
     AgentChatProvider, ProviderInstallProvenance, ProvisionedProviderInstallation,
     ProvisionedProviderLock,
 };
 
 use super::{PrivateProviderReadiness, PrivateProviderReadinessService};
-use crate::dependency_catalog::DependencyCatalog;
 
 #[derive(Clone, Debug)]
 enum Reader {
@@ -31,10 +29,7 @@ impl ProvisionedProviderLockReader for Reader {
 fn missing_lock_yields_a_daemon_generated_install_review() {
     let readiness = service(Reader::Available(Box::new(None))).assess(AgentChatProvider::Claude);
 
-    assert!(
-        matches!(readiness, PrivateProviderReadiness::InstallReview(plan)
-        if plan.provider == DependencyProvider::Claude && plan.action == DependencyAction::Install)
-    );
+    assert_eq!(readiness, PrivateProviderReadiness::InstallReview);
 }
 
 #[test]
@@ -48,10 +43,7 @@ fn changed_lock_requires_a_new_install_review_without_path_fallback() {
     let readiness = service(Reader::Available(Box::new(Some(installation(lock)))))
         .assess(AgentChatProvider::Codex);
 
-    assert!(
-        matches!(readiness, PrivateProviderReadiness::InvalidInstallation(plan)
-        if plan.provider == DependencyProvider::Codex)
-    );
+    assert_eq!(readiness, PrivateProviderReadiness::InvalidInstallation);
 }
 
 #[test]
@@ -69,7 +61,7 @@ fn unreadable_provenance_never_proposes_an_install() {
 }
 
 fn service(reader: Reader) -> PrivateProviderReadinessService<Reader> {
-    PrivateProviderReadinessService::new(DependencyCatalog::default(), reader)
+    PrivateProviderReadinessService::new(reader)
 }
 
 fn installation(lock: gent_types::RunVersionLock) -> ProvisionedProviderInstallation {

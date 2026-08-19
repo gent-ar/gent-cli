@@ -16,6 +16,7 @@ use crate::{
     CompatibilityAssessment,
     api::RuntimeApi,
     prompt_provider_provision_boundary::PromptProviderProvisionPort,
+    provider_readiness_boundary::ProviderReadinessPort,
     runtime_facade::{DaemonCompositionState, RuntimeFacade},
 };
 
@@ -127,6 +128,7 @@ fn explicit_prompt_provision_authority_is_required_for_its_capability() {
     let runtime = RuntimeFacade::from_state_with_prompt_provider_provision_authority(
         state,
         None,
+        Arc::new(FakeReadiness),
         Arc::new(FakePromptProvision),
     )
     .unwrap();
@@ -138,6 +140,18 @@ fn explicit_prompt_provision_authority_is_required_for_its_capability() {
             .iter()
             .any(|item| item == gent_protocol::PROMPT_PROVIDER_PROVISION_CAPABILITY)
     );
+}
+
+#[derive(Clone)]
+struct FakeReadiness;
+
+impl ProviderReadinessPort for FakeReadiness {
+    fn assess(
+        &self,
+        frame: gent_protocol::ProviderReadinessFrame,
+    ) -> Result<gent_protocol::ProviderReadinessFrame, String> {
+        Ok(frame)
+    }
 }
 
 #[derive(Clone)]

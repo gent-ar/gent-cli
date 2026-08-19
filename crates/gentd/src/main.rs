@@ -124,6 +124,7 @@ mod private_provider_provisioning;
 mod private_provider_provisioning_sqlite;
 #[allow(dead_code)]
 mod private_provider_readiness;
+mod private_provider_review;
 #[allow(dead_code)]
 mod private_provider_verifier;
 #[allow(dead_code)]

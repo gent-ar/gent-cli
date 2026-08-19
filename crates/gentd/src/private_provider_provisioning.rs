@@ -71,6 +71,28 @@ pub(crate) enum PrivateProvisionError {
     VerificationUnavailable,
 }
 
+impl PrivateProvisionError {
+    /// Whether the effect boundary was certainly not reached.
+    ///
+    /// An installer failure is deliberately excluded: npm may have changed the private prefix
+    /// before returning an error, so its receipt must remain unprovable rather than retryable.
+    pub(crate) const fn is_definitely_pre_effect(&self) -> bool {
+        match self {
+            Self::ReceiptNotAccepted
+            | Self::ReceiptUnavailable(_)
+            | Self::ReceiptMismatch
+            | Self::PromptBindingMismatch
+            | Self::PromptPackageMismatch
+            | Self::Runtime(_)
+            | Self::Policy(_)
+            | Self::ProviderMismatch
+            | Self::PolicyIdentity
+            | Self::VerificationUnavailable => true,
+            Self::Installer(_) => false,
+        }
+    }
+}
+
 /// Discovers and locks one public provider executable after fixed npm installation.
 ///
 /// This port is the post-effect authority boundary: no provider run may use a package until its

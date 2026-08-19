@@ -34,6 +34,17 @@ fn confirmation_cannot_inject_provider_native_or_plan_values() {
         }))
         .is_err()
     );
+    assert!(
+        serde_json::from_value::<PromptProviderProvisionFrame>(json!({
+            "type": "confirm", "body": {
+                "receiptId": "receipt", "idempotencyKey": "key", "hostEpoch": 1,
+                "promptReceiptId": "prompt", "conversationId": "conversation", "runId": "run",
+                "consentGranted": true, "reviewedPlanDigest": "a".repeat(64),
+                "package": { "packageName": "@openai/codex" }
+            }
+        }))
+        .is_err()
+    );
 }
 
 #[test]

@@ -1,12 +1,15 @@
 use gent_ports::{AgentChatReadLedger, PackageInstallPolicy};
-use gent_protocol::{DependencyAction, DependencyPlanRequest, PromptProviderProvisionFrame};
+use gent_protocol::PromptProviderProvisionFrame;
 use gent_runtime::AgentChatReadService;
 use gent_types::{
     ProviderPromptProvisionBinding, ProviderPromptProvisionCommandBinding,
     ProviderPromptProvisionPackageBinding,
 };
 
-use crate::{authority_clock::AuthorityClock, dependency_catalog::DependencyCatalog};
+use crate::{
+    authority_clock::AuthorityClock, dependency_catalog::DependencyCatalog,
+    private_provider_review::install_review,
+};
 
 use super::values::{Derived, public_provider};
 
@@ -50,16 +53,7 @@ where
         .map(|run| run.selection)
         .ok_or_else(|| "agent-chat current run is absent from its conversation".to_owned())?;
     let provider = public_provider(selection.provider)?;
-    let plan = catalog.plan(DependencyPlanRequest {
-        provider,
-        action: DependencyAction::Install,
-    });
-    let package = policy
-        .approved_package(provider.as_str(), clock.now_unix_seconds())
-        .map_err(|error| error.to_string())?;
-    if package.provider != provider.as_str() {
-        return Err("package policy selected a different provider".into());
-    }
+    let review = install_review(catalog, policy, clock, provider)?;
     let binding = ProviderPromptProvisionCommandBinding {
         prompt: ProviderPromptProvisionBinding {
             prompt_receipt_id,
@@ -70,13 +64,13 @@ where
             consent_granted,
             reviewed_plan_digest,
         },
-        expected_reviewed_plan_digest: plan.reviewed_plan_digest,
+        expected_reviewed_plan_digest: review.reviewed_plan_digest,
         package: ProviderPromptProvisionPackageBinding {
-            provider: package.provider,
-            package_name: package.package_name,
-            version: package.version,
-            integrity: package.integrity,
-            package_policy_digest_sha256: package.package_policy_digest_sha256,
+            provider: provider.as_str().into(),
+            package_name: review.package.package_name,
+            version: review.package.version,
+            integrity: review.package.integrity,
+            package_policy_digest_sha256: review.package.package_policy_digest_sha256,
         },
     };
     binding

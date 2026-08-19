@@ -4,9 +4,8 @@ use std::sync::Arc;
 
 use crate::dependency_actions::ObserverDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
-use crate::private_provider_readiness::PrivateProviderReadinessService;
 use crate::prompt_provider_provision_boundary::PromptProviderProvisionPort;
-use crate::provider_readiness_boundary::ProviderReadinessBoundary;
+use crate::provider_readiness_boundary::ProviderReadinessPort;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 use gent_runtime::{
@@ -39,7 +38,7 @@ pub(crate) struct RuntimeFacade {
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger, RuntimeSelectionGate>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
-    provider_readiness: Option<ProviderReadinessBoundary<SqliteLedger>>,
+    provider_readiness: Option<Arc<dyn ProviderReadinessPort>>,
     prompt_provider_provision: Option<Arc<dyn PromptProviderProvisionPort>>,
     turn_follow_source: Option<SqliteLedger>,
     ordinary_prompt_ingress:
@@ -70,6 +69,7 @@ impl RuntimeFacade {
             runtime_update_checks,
             None,
             None,
+            None,
             Arc::new(AllowAnyAgentChatSelection),
         )
     }
@@ -80,6 +80,7 @@ impl RuntimeFacade {
         ordinary_prompt_ingress: Option<
             crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>,
         >,
+        provider_readiness: Option<Arc<dyn ProviderReadinessPort>>,
         prompt_provider_provision: Option<Arc<dyn PromptProviderProvisionPort>>,
         selection_gate: RuntimeSelectionGate,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -90,6 +91,16 @@ impl RuntimeFacade {
             capability_profile,
             compatibility,
         } = state;
+        if capability_profile.provider_readiness_enabled() && provider_readiness.is_none() {
+            return Err(
+                "provider readiness requires an explicit private authority composition".into(),
+            );
+        }
+        if !capability_profile.provider_readiness_enabled() && provider_readiness.is_some() {
+            return Err(
+                "provider readiness authority requires its typed capability profile".into(),
+            );
+        }
         if capability_profile.prompt_provider_provision_enabled()
             && prompt_provider_provision.is_none()
         {
@@ -107,7 +118,6 @@ impl RuntimeFacade {
         }
         let agent_chat_enabled = capability_profile.agent_chat_enabled();
         let reviewed_plan_enabled = capability_profile.reviewed_plans_enabled();
-        let provider_readiness_enabled = capability_profile.provider_readiness_enabled();
         let maintenance_enabled = capability_profile.runtime_maintenance_enabled();
         let attachments = AttachmentService::new(
             ledger.clone(),
@@ -120,12 +130,6 @@ impl RuntimeFacade {
             compatibility.clone(),
             data_dir.join("providers").join("npm-global"),
         );
-        let provider_readiness = provider_readiness_enabled.then(|| {
-            ProviderReadinessBoundary::new(
-                AgentChatReadService::new(ledger.clone()),
-                PrivateProviderReadinessService::new(dependencies.clone(), ledger.clone()),
-            )
-        });
         Ok(Self {
             agent_chat_conversations: AgentChatConversationService::with_selection_gate(
                 ledger.clone(),

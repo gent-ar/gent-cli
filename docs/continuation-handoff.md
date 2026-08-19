@@ -108,10 +108,12 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - The client-visible delivery value is `awaitingReadiness`. Generic chat
   persistence does not wake an ordinary lifecycle for a held prompt; the future
   readiness authority must release the exact durable prompt before it wakes it.
-- provider-readiness-v1 is now a separately negotiated, exact conversation/run
-  read surface in an explicit profile only. It produces daemon-derived
-  Ready/Review/Unavailable replies and preserves observer and chat-only
-  capability absence. It does not yet authorize provisioning or a provider launch.
+- provider-readiness-v2 is a separately negotiated, exact conversation/run
+  read surface in an explicit private-authority profile only. Its public review
+  digest binds the provider, action, instruction, consent requirement, package
+  name/version/integrity, and signed-policy digest. A profile cannot advertise
+  readiness without that exact-review authority; observer and chat-only profiles
+  preserve capability absence. It does not authorize a provider launch.
 - prompt-provider-provision-v1 has a strict, uncomposed confirmation DTO. A client may echo
   only its provision receipt, exact held prompt/conversation/run, consent, epoch, and the
   daemon-issued review digest; provider/action/package/path/plan/policy are absent. A new

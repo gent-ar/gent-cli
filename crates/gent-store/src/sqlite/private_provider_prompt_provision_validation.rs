@@ -53,6 +53,24 @@ pub(super) fn validate_unprovable(
     .ok_or_else(|| LedgerError::Invariant("invalid prompt provision failure settlement".into()))
 }
 
+pub(super) fn validate_pre_effect_failure(
+    command: &Command,
+    receipt: &Receipt,
+    terminal: &Event,
+    binding: &ProviderPromptProvisionCommandBinding,
+) -> Result<(), LedgerError> {
+    validate_admission(command, binding)?;
+    (command_receipt_identity(command, receipt)
+        && matches!(
+            receipt.status,
+            ReceiptStatus::Accepted | ReceiptStatus::Rejected
+        )
+        && terminal_matches(receipt, terminal, "privatePromptProvisionFailed")
+        && terminal.payload == command.payload)
+        .then_some(())
+        .ok_or_else(|| LedgerError::Invariant("invalid prompt provision pre-effect failure".into()))
+}
+
 pub(super) fn validate_rejection_admission(
     command: &Command,
     terminal: &Event,

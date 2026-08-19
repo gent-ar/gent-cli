@@ -3,10 +3,10 @@
 use gent_types::{AgentChatConversationId, AgentChatProvider, AgentChatRunId};
 use serde::{Deserialize, Serialize};
 
-use crate::DependencyPlan;
+use crate::ProviderInstallReview;
 
 /// Required before a client may ask Gent to assess one selected provider run.
-pub const PROVIDER_READINESS_CAPABILITY: &str = "provider-readiness-v1";
+pub const PROVIDER_READINESS_CAPABILITY: &str = "provider-readiness-v2";
 
 /// Server-owned reason why readiness cannot produce a public install review.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -47,7 +47,7 @@ pub enum ProviderReadinessFrame {
         conversation_id: AgentChatConversationId,
         run_id: AgentChatRunId,
         state: ProviderReadinessReviewState,
-        plan: DependencyPlan,
+        review: ProviderInstallReview,
     },
     Unavailable {
         conversation_id: AgentChatConversationId,
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn readiness_request_has_no_client_provider_or_plan() {
-        assert_eq!(PROVIDER_READINESS_CAPABILITY, "provider-readiness-v1");
+        assert_eq!(PROVIDER_READINESS_CAPABILITY, "provider-readiness-v2");
         assert!(
             serde_json::from_value::<ProviderReadinessFrame>(json!({
                 "type": "assess", "body": { "conversationId": "c", "runId": "r" }

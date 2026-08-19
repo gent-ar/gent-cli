@@ -26,6 +26,7 @@ mod orchestration;
 mod permission_policy;
 mod prompt_provider_provision;
 mod provider_auth;
+mod provider_install_review;
 mod provider_readiness;
 mod reviewed_plan;
 mod runs;
@@ -70,6 +71,9 @@ pub use prompt_provider_provision::{
 pub use provider_auth::{
     MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame,
     ProviderAuthFrameError, read_provider_auth_frame, write_provider_auth_frame,
+};
+pub use provider_install_review::{
+    ProviderInstallReview, ProviderPackageReview, provider_install_review_digest,
 };
 pub use provider_readiness::{
     PROVIDER_READINESS_CAPABILITY, ProviderReadinessFrame, ProviderReadinessReviewState,

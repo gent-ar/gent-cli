@@ -229,8 +229,36 @@ where
                     PromptProviderProvisionState::Completed,
                 ))
             }
-            Ok(_) | Err(_) => self.unprovable(command, &derived.binding, receipt),
+            Ok(PrivateProvisionResult::ConsentRequired | PrivateProvisionResult::Rejected) => {
+                self.pre_effect_failure(command, &derived.binding, receipt)
+            }
+            Err(error) if error.is_definitely_pre_effect() => {
+                self.pre_effect_failure(command, &derived.binding, receipt)
+            }
+            Ok(PrivateProvisionResult::Ambiguous) | Err(_) => {
+                self.unprovable(command, &derived.binding, receipt)
+            }
         }
+    }
+
+    fn pre_effect_failure(
+        &self,
+        command: &Command,
+        binding: &ProviderPromptProvisionCommandBinding,
+        receipt: &Receipt,
+    ) -> Result<PromptProviderProvisionFrame, String> {
+        let terminal = event(command, "failed", "privatePromptProvisionFailed");
+        let receipt = self
+            .ledger
+            .reject_pre_effect_verified_provider_prompt_provision(
+                command, receipt, &terminal, binding,
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(result(
+            receipt,
+            binding,
+            PromptProviderProvisionState::Failed,
+        ))
     }
 
     fn unprovable(

@@ -27,6 +27,10 @@ fn capabilities() -> CapabilitySet {
     CapabilitySet(vec![PROVIDER_READINESS_CAPABILITY.into()])
 }
 
+fn retired_capabilities() -> CapabilitySet {
+    CapabilitySet(vec!["provider-readiness-v1".into()])
+}
+
 fn unavailable(conversation_id: &str, run_id: &str) -> ProviderReadinessFrame {
     ProviderReadinessFrame::Unavailable {
         conversation_id: AgentChatConversationId(conversation_id.into()),
@@ -45,6 +49,23 @@ async fn transport_requires_capability_before_parsing_or_dispatching() {
                 reply: unavailable("c", "r")
             },
             &CapabilitySet::default(),
+            &request(),
+        )
+        .await
+        .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn retired_readiness_capability_cannot_dispatch_v2_frames() {
+    let (_, mut writer) = duplex(1024);
+    assert!(
+        !dispatch_port(
+            &mut writer,
+            &Port {
+                reply: unavailable("c", "r")
+            },
+            &retired_capabilities(),
             &request(),
         )
         .await
