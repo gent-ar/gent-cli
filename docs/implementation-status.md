@@ -266,10 +266,11 @@ For the current working-tree context and continuation order, read [the handoff](
    Codex malformed-tolerance. Captures must be redacted, scenario-specific, and live. A malformed
    capture additionally needs a documented provider-emitted fault control, diagnostic, and
    following ordinary frame; proxy or injected corruption is rejected.
-   Installed Claude Code 2.1.233 has neither `--permission-prompt-tool` nor a structural bounded
-   compaction signal (only `--permission-mode` and `--autocompact` at 100k–1M tokens); Codex CLI
-   0.144.1 and isolated 0.147.0 inspection expose no provider-output fault control. No safe capture
-   is available until that changes.
+   `--permission-prompt-tool` is undocumented (absent from `claude --help` on 2.1.235) but real and
+   functional (`claude --permission-prompt-tool stdio --version` exits 0), matching the native
+   app's own `control_request`/`control_response` relay over `stream-json` stdio, never an
+   external MCP server; the capture tool now uses that pattern and is unblocked. Compaction has no
+   bounded structural signal yet; Codex CLI 0.144.1/0.147.0 expose no output-fault control.
 4. [ ] The authenticated Claurst bridge and its CI evidence belong only in app-owned private
    code. Public Gent must never contain Claurst credentials, endpoints, or routing implementation.
 5. [ ] No data upgrade path, dual-run, compatibility layer, or deployed fence-aware legacy

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -16,6 +17,9 @@ assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
+sys.path.insert(0, str(ROOT / "tools"))
+from public_driver_capture_permission import PersistentPermissionReader  # noqa: E402
+
 
 def test_dry_run_does_not_start_provider() -> None:
     output = ROOT / "fixtures/public-driver-transcripts/capture-permission-test.jsonl"
@@ -24,37 +28,71 @@ def test_dry_run_does_not_start_provider() -> None:
     plan = json.loads(result.stdout)
     assert plan["approval"] == "exact disposable command only"
     assert plan["rawOutput"] == "bounded-memory-only"
-    command = MODULE.command(Path("<claude>"), "haiku", "<local-config>", "mkdir -p /tmp/probe")
-    assert "--permission-prompt-tool" in command
+    command = MODULE.command(Path("<claude>"), "haiku")
+    # The real relay Claude Code's own protocol uses on every app session — never an
+    # external MCP approval server.
+    index = command.index("--permission-prompt-tool")
+    assert command[index + 1] == "stdio"
+    assert "--strict-mcp-config" not in command
+    assert "--mcp-config" not in command
     assert "--dangerously-skip-permissions" not in command
     assert not output.exists()
 
 
-def test_exact_command_and_correlated_two_call_facts_are_required() -> None:
+def test_reader_confirms_persistence_without_a_second_prompt() -> None:
     expected = "mkdir -p /tmp/gent-evidence/approved"
-    stream = "\n".join((
-        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"one","input":{"command":"mkdir -p /tmp/gent-evidence/approved"}}]}}',
-        '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"one"}]}}',
-        '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"two","input":{"command":"mkdir -p /tmp/gent-evidence/approved"}}]}}',
-        '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"two"}]}}',
-        '{"type":"assistant","message":{"content":"GENT_PERSISTENT_PERMISSION_OK"}}',
-        '{"type":"result","subtype":"success","is_error":false}',
-    ))
-    assert MODULE.permitted({"tool_name": "Bash", "input": {"command": expected}}, expected)
-    assert not MODULE.permitted({"tool_name": "Bash", "input": {"command": "rm -rf /"}}, expected)
-    assert MODULE.observed(stream, expected)
-    assert not MODULE.observed(stream.replace('"id":"two"', '"id":"one"', 1), expected)
+    lines = [
+        json.dumps({"type": "control_request", "request_id": "r1", "request": {
+            "subtype": "can_use_tool", "tool_name": "Bash",
+            "input": {"command": expected},
+            "permission_suggestions": [{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": expected}], "behavior": "allow"}],
+        }}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "id": "one", "input": {"command": expected}},
+        ]}}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash", "id": "two", "input": {"command": expected}},
+        ]}}),
+        json.dumps({"type": "result", "subtype": "success", "is_error": False}),
+    ]
+    reader = PersistentPermissionReader(1 << 20, expected)
+    reader.drain(io.BytesIO(("\n".join(lines) + "\n").encode()))
+    assert reader.approval_requested.is_set()
+    assert reader.second_call_seen.is_set()
+    assert reader.terminal.is_set()
+    assert not reader.reprompted.is_set()
+    assert reader.request is not None
+    suggestions = reader.request["request"]["permission_suggestions"]
+    assert suggestions[0]["type"] == "addRules"
 
 
-def test_permission_prompt_version_gate_is_explicit() -> None:
-    assert MODULE.permission_prompt_supported("usage: claude --permission-prompt-tool tool")
-    assert not MODULE.permission_prompt_supported("usage: claude --permission-mode manual")
+def test_reader_flags_a_second_prompt_as_non_persistence() -> None:
+    expected = "mkdir -p /tmp/gent-evidence/approved"
+    request = {"type": "control_request", "request_id": "r1", "request": {
+        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": expected},
+    }}
+    lines = [json.dumps(request), json.dumps({**request, "request_id": "r2"})]
+    reader = PersistentPermissionReader(1 << 20, expected)
+    reader.drain(io.BytesIO(("\n".join(lines) + "\n").encode()))
+    assert reader.approval_requested.is_set()
+    assert reader.reprompted.is_set()
+
+
+def test_reader_ignores_an_unrelated_command() -> None:
+    expected = "mkdir -p /tmp/gent-evidence/approved"
+    other = json.dumps({"type": "control_request", "request_id": "r1", "request": {
+        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "rm -rf /"},
+    }})
+    reader = PersistentPermissionReader(1 << 20, expected)
+    reader.drain(io.BytesIO((other + "\n").encode()))
+    assert not reader.approval_requested.is_set()
 
 
 def main() -> None:
     test_dry_run_does_not_start_provider()
-    test_exact_command_and_correlated_two_call_facts_are_required()
-    test_permission_prompt_version_gate_is_explicit()
+    test_reader_confirms_persistence_without_a_second_prompt()
+    test_reader_flags_a_second_prompt_as_non_persistence()
+    test_reader_ignores_an_unrelated_command()
     print("Claude persistent-permission capture checks passed")
 
 

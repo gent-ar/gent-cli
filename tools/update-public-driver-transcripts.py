@@ -15,10 +15,10 @@ MANIFEST = ROOT / "fixtures/public-driver-transcripts/manifest.yml"
 DEFAULT_MODEL = {"claude": "haiku", "codex": "gpt-5.6-luna"}
 CAPTURE_PREREQUISITES = {
     ("claude", "permission_persistent"): (
-        "requires an installed Claude version that exposes the documented "
-        "--permission-prompt-tool interface; then use the bounded local MCP "
-        "capture, which records one approval for two identical disposable calls, "
-        "never an always-allow permission mode."
+        "grants one Bash approval over Claude's own --permission-prompt-tool stdio "
+        "relay (the same mechanism the production app uses on every session), then "
+        "confirms an identical disposable command runs a second time with no "
+        "further prompt; never an always-allow permission mode."
     ),
     ("claude", "compaction"): (
         "requires a documented Claude compaction signal or control; do not induce "

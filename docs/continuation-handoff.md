@@ -218,9 +218,12 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - Two strict Codex cells are recorded. Four strict cells are missing: Claude persistent
   permission, compaction, malformed tolerance, and Codex malformed tolerance.
   Claurst needs private bridge/CI evidence. Never fabricate recordings.
-- Live Claude capture was safely blocked before invocation: Claude Code `2.1.234`
-  lacks `--permission-prompt-tool`. Codex observed `0.144.1`; no documented
-  provider-output fault control was found for malformed-output scenarios.
+- `--permission-prompt-tool` is undocumented (absent from `claude --help` on 2.1.235) but real and
+  functional, verified live — matches the native app's own Claude adapter, which uses it
+  unconditionally via `control_request`/`control_response` over `stream-json` stdio, never an
+  external MCP server. `tools/capture-claude-persistent-permission-transcript.py` now uses that
+  exact pattern; persistent-permission capture is unblocked. Compaction/malformed-tolerance capture
+  (both vendors, `0.144.1` observed for Codex) still has no documented bounded signal to capture.
 - Use `python3 tools/update-public-driver-transcripts.py`; keep captures redacted
   and admitted only through the transcript manifest.
 - The `drivers_transcript/` corpus is a committed, sanitized development asset.
@@ -263,38 +266,34 @@ Before major scope decisions, read the original app planning source only:
 
 ## Latest continuation state (2026-08-19, revised)
 
-- `main` is at `83d3495` (item 1, committed). This session's item-2 batch is
-  **uncommitted** in the working tree pending approval. `clouseau-app` was
-  not touched by either batch.
-- Item 1 (`83d3495`): bound `VerifiedOrdinaryAuthorityRelease`'s digest through
+- `main` is at `83d3495` (item 1, committed). Items 2 and 3 below are **uncommitted**,
+  pending approval. `clouseau-app` is read for reference only, never edited.
+- Item 1 (`83d3495`): bound the signed release's digest through
   `ProviderPromptProvisionCommandBinding`/`ProviderInstallProvenance`, added
-  `Command::receipt_fingerprint_sha256()`, bumped schema to `gent-fresh-schema-v10`,
-  and made `private_provider_provisioning/effect.rs` re-run `SignedOrdinaryAuthorityRelease::
-  load_bound` immediately before npm — mismatch/reauthorization-failure settle
-  `Unprovable`, never silently retried. Split five oversized files into siblings
-  (`ordinary_authority_release_{support,fixture}.rs`,
-  `private_provider_provisioning_{error,release_tests}.rs`, `command_fingerprint*.rs`, etc.).
-- Item 2 (this batch): `crates/gentd/src/prompt_provider_provision_profile_{support,tests}.rs`
-  compose a REAL `RuntimeFacade` (via the still-uncalled
-  `from_state_with_prompt_provider_provision_authority`) — real on-disk `SqliteLedger`,
-  real `PromptProviderProvisionBoundary`, real digest-bound `PrivateProviderProvisioner`
-  with a real signed-release fixture and real `SqliteProvisionReceiptReader`; only the
-  npm/binary boundary (installer, post-install verifier) is a controlled double. Four
-  `#[tokio::test]`s drive it over `transport::serve_connection` with the real wire codec:
-  persist-before-broadcast, cursor reread/reconnect (no duplicate replay, full replay from
-  a fresh connection), exact-retry idempotency, and terminal settlement (consent-refusal,
-  post-install-ambiguous). All four passed after fixing one bug (`SqliteLedger::open` needs
-  its parent dir pre-created, unlike `tempfile::tempdir()` itself). Turn-follow/backpressure/
-  context-switch/`/goal` belong to the Claude/Codex session-runner authority (item 4), out
-  of scope for this npm-install profile.
-- Full verification block (below) passed after both batches. Standing decisions unchanged:
-  reuse the runtime-update Ed25519 trust root; no `Sha256Digest` newtype; reject porting app
-  drivers, independent evidence/key paths, snapshots/recovery caches, fake containment,
-  public Claurst.
+  `Command::receipt_fingerprint_sha256()`, bumped schema to `v10`, and made the effect
+  re-verify the release immediately before npm (mismatch settles `Unprovable`, never
+  retried). Split five oversized files into siblings.
+- Item 2: `prompt_provider_provision_profile_{support,tests}.rs` compose a REAL
+  `RuntimeFacade` (`from_state_with_prompt_provider_provision_authority`, still uncalled by
+  bootstrap) — real ledger, boundary, digest-bound provisioner, signed-release fixture; only
+  the npm/binary boundary is a double. Four tests drive it over the real wire codec:
+  persist-before-broadcast, cursor reread/reconnect, exact-retry idempotency, terminal
+  settlement. Turn-follow/backpressure/context-switch/`/goal` belong to item 4, not this
+  npm-install profile.
+- Item 3 (evidence tooling, not authority code): "Claude Code lacks `--permission-prompt-tool`"
+  was wrong — verified live, undocumented but functional; the app uses it unconditionally via
+  `control_request`/`control_response` over `stream-json` stdio, never an external MCP server.
+  Rewrote the capture script + added `tools/public_driver_capture_permission.py` on that proven
+  pattern; persistent-permission capture is unblocked. Corrected the same stale claim in
+  `docs/implementation-status.md`.
+- Verification passed for items 1–2; item 3 is Python-only (syntax + its own no-provider tests
+  passed; no live capture run yet — needs your go-ahead). Standing decisions: reuse the Ed25519
+  trust root; no `Sha256Digest` newtype; never embed/depend on the app's code at gent-cli
+  runtime, but DO mine its proven protocol knowledge into gent-cli's own Rust implementation;
+  reject independent evidence/key paths, snapshots, fake containment, public Claurst.
 
-Resume here: item 3 needs item 4's public-driver authority first — an approved plan reserves a
-child run only a composed Claude/Codex authority can execute. Item 4's real gate is the missing
-strict evidence cells (Claude persistent-permission, compaction, malformed-tolerance; Codex
-malformed-tolerance), and live Claude capture is currently blocked: Claude Code `2.1.234` lacks
-`--permission-prompt-tool`. That tooling gap must be resolved before any phase needing a real
-running provider can proceed. Terminal parity (item 5) is independently tractable meanwhile.
+Resume here: capture the now-unblocked `claude/permission_persistent` cell (needs your authenticated
+Claude CLI + go-ahead). Compaction/malformed-tolerance (both vendors) still need a documented
+bounded signal. Item 4 (Claude/Codex authority composition) is the real unlock for items 3+ —
+build it by porting proven behavior from `{claude,codex}_driver.dart`, not from scratch. Terminal
+parity (item 5) is independently tractable meanwhile.
