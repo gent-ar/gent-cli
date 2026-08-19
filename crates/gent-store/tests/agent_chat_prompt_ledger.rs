@@ -98,3 +98,26 @@ fn unknown_conversation_or_closed_ingress_leaves_existing_run_content_unchanged(
     );
     assert!(ledger.list_run_messages("run-1").unwrap().is_empty());
 }
+
+#[test]
+fn exact_run_fence_refuses_a_prompt_for_another_selected_run() {
+    let ledger = ledger();
+
+    assert!(
+        ledger
+            .save_agent_chat_prompt_for_run(
+                &prompt("wrong-run", "never saved"),
+                &AgentChatRunId("other-run".into()),
+            )
+            .is_err()
+    );
+    assert!(ledger.list_run_messages("run-1").unwrap().is_empty());
+
+    let saved = ledger
+        .save_agent_chat_prompt_for_run(
+            &prompt("right-run", "saved"),
+            &AgentChatRunId("run-1".into()),
+        )
+        .unwrap();
+    assert_eq!(saved.run_id.0, "run-1");
+}

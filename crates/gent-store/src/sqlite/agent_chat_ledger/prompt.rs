@@ -22,13 +22,22 @@ impl AgentChatPromptLedger for SqliteLedger {
         &self,
         prompt: &AgentChatPromptCreate,
     ) -> Result<AgentChatPromptSaved, LedgerError> {
-        save(self, prompt)
+        save(self, prompt, None)
+    }
+
+    fn save_agent_chat_prompt_for_run(
+        &self,
+        prompt: &AgentChatPromptCreate,
+        expected_run_id: &AgentChatRunId,
+    ) -> Result<AgentChatPromptSaved, LedgerError> {
+        save(self, prompt, Some(expected_run_id))
     }
 }
 
 fn save(
     ledger: &SqliteLedger,
     prompt: &AgentChatPromptCreate,
+    expected_run_id: Option<&AgentChatRunId>,
 ) -> Result<AgentChatPromptSaved, LedgerError> {
     validate(prompt)?;
     let command = command_for(prompt);
@@ -59,6 +68,11 @@ fn save(
     }
     reject_receipt_id_collision(&transaction, prompt)?;
     let run_id = current_run(&transaction, &prompt.conversation_id.0)?;
+    if expected_run_id.is_some_and(|expected| expected.0 != run_id) {
+        return Err(LedgerError::Invariant(
+            "agent chat prompt run is no longer the durable current run".into(),
+        ));
+    }
     let message = insert_prompt(&transaction, prompt, &run_id)?;
     let receipt = Receipt {
         receipt_id: prompt.receipt_id.clone(),

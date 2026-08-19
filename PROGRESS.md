@@ -120,6 +120,10 @@ lifecycle state are prohibited.
   install review for missing or changed locks, fails closed when provenance is
   unreadable, and never touches Node, npm, a prompt, or Claurst. It remains
   uncomposed until the reviewed-consent and selection gates are proven.
+- Provider-ready prompt admission now has an atomic exact-run fence: a private
+  caller can require the reviewed run to still be current in the same SQLite
+  transaction that writes the prompt. A changed selection writes nothing. The
+  ordinary prompt path stays unchanged until the capability is composed.
 - A sealed all-or-nothing ordinary-authority input parser rejects partial
   evidence/compatibility settings and durable-chat-profile conflicts without
   I/O. It accepts no coordinator or epoch and is not yet a daemon argument or

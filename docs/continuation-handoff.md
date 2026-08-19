@@ -100,6 +100,10 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   Claude/Codex locks. Missing or changed locks produce a Gent-generated install
   review; unreadable provenance fails closed, and Claurst never enters this npm
   path. It has no IPC frame, bootstrap composition, prompt hook, or installer.
+- The prompt ledger exposes a private exact-run admission method. It confirms
+  the expected reviewed run inside the prompt write transaction and rejects a
+  concurrent selection change without saving a message. Public prompt frames
+  still use the existing path until a reviewed readiness capability is composed.
 - An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
   evidence/compatibility inputs and conflicts with durable chat-only authority without
   I/O; it deliberately receives neither user-supplied coordinator nor epoch.

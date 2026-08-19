@@ -6,7 +6,7 @@
 use gent_ports::AgentChatPromptLedger;
 use gent_types::{
     AgentChatConversationId, AgentChatPromptCreate, AgentChatPromptDisposition,
-    AgentChatPromptSaved, AgentChatRequestId, HostEpoch, ReceiptId,
+    AgentChatPromptSaved, AgentChatRequestId, AgentChatRunId, HostEpoch, ReceiptId,
 };
 
 use crate::RuntimeError;
@@ -68,6 +68,28 @@ impl<L: AgentChatPromptLedger> AgentChatPromptService<L> {
         }
         Ok(AgentChatPromptResult::Saved(Box::new(
             self.ledger.save_agent_chat_prompt(&to_create(request))?,
+        )))
+    }
+
+    /// Persists a prompt only when the exact reviewed run remains current.
+    ///
+    /// This is a private composition seam for provider-readiness/consent. Ordinary prompt
+    /// persistence deliberately keeps its existing current-run behavior until that authority is
+    /// composed and advertised.
+    ///
+    /// # Errors
+    /// Returns when durable prompt ownership or the exact current-run fence cannot be verified.
+    pub fn submit_for_run(
+        &self,
+        request: &AgentChatPromptRequest,
+        expected_run_id: &AgentChatRunId,
+    ) -> Result<AgentChatPromptResult, RuntimeError> {
+        if self.authority != AgentChatPromptAuthority::Approved {
+            return Ok(AgentChatPromptResult::DeniedObserver);
+        }
+        Ok(AgentChatPromptResult::Saved(Box::new(
+            self.ledger
+                .save_agent_chat_prompt_for_run(&to_create(request), expected_run_id)?,
         )))
     }
 }

@@ -1,6 +1,6 @@
 //! Atomic ownership boundary for one immutable agent-chat prompt.
 
-use gent_types::{AgentChatPromptCreate, AgentChatPromptSaved};
+use gent_types::{AgentChatPromptCreate, AgentChatPromptSaved, AgentChatRunId};
 
 use crate::LedgerError;
 
@@ -17,4 +17,21 @@ pub trait AgentChatPromptLedger: Send + Sync {
         &self,
         prompt: &AgentChatPromptCreate,
     ) -> Result<AgentChatPromptSaved, LedgerError>;
+
+    /// Saves a prompt only if the conversation still selects the reviewed run.
+    ///
+    /// The default fails closed so existing read/persistence fakes cannot accidentally claim
+    /// they provide the atomic provider-readiness fence.
+    ///
+    /// # Errors
+    /// Returns when the implementation cannot atomically confirm the expected current run.
+    fn save_agent_chat_prompt_for_run(
+        &self,
+        _: &AgentChatPromptCreate,
+        _: &AgentChatRunId,
+    ) -> Result<AgentChatPromptSaved, LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat prompt run fence is unavailable".into(),
+        ))
+    }
 }
