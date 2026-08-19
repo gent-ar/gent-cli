@@ -34,6 +34,11 @@ pub struct ProviderInstallProvenance {
     pub package_integrity: String,
     pub package_policy_digest_sha256: String,
     pub node_runtime_digest_sha256: String,
+    /// Digest of the exact signed ordinary-authority release reauthorized immediately before
+    /// this installation's npm effect.
+    pub release_artifact_digest_sha256: String,
+    /// Fingerprint of the exact accepted command that produced this installation.
+    pub receipt_fingerprint_sha256: String,
 }
 
 /// A verified provider executable together with immutable installation provenance.

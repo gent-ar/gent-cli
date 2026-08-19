@@ -5,7 +5,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use gent_drivers::installer::DependencyInstaller;
 use gent_ports::{
     AgentChatReadLedger, Ledger, PackageInstallPolicy, PrivateProviderPromptProvisionLedger,
     ReceiptClaim,
@@ -17,15 +16,13 @@ use gent_types::{Command, ProviderPromptProvisionCommandBinding, Receipt, Receip
 use crate::{
     authority_clock::AuthorityClock,
     dependency_catalog::DependencyCatalog,
-    private_provider_compatibility::ProvisionedProviderCompatibility,
-    private_provider_provisioning::{
-        PrivateProviderProvisioner, PrivateProvisionError, PrivateProvisionRequest,
-        PrivateProvisionResult, ProvisionReceiptReader, ProvisionedProviderVerifier,
-    },
+    private_provider_provisioning::{PrivateProvisionRequest, PrivateProvisionResult},
 };
 
 mod derive;
+mod effect;
 mod values;
+use effect::PromptProviderProvisionEffect;
 use values::{Derived, event, public_provider_name, result};
 
 /// Narrow type-erased port used by the facade only after explicit private composition.
@@ -37,35 +34,6 @@ pub(crate) trait PromptProviderProvisionPort: Send + Sync {
     ) -> Result<PromptProviderProvisionFrame, String>;
 }
 
-/// Private effect seam which lets this boundary test durable authority without npm.
-pub(crate) trait PromptProviderProvisionEffect: Clone + Send + Sync {
-    /// Runs the already-reserved, exact prompt-scoped provision command.
-    fn provision_prompt(
-        &self,
-        request: &PrivateProvisionRequest,
-        command: &Command,
-        binding: &ProviderPromptProvisionCommandBinding,
-    ) -> Result<PrivateProvisionResult, PrivateProvisionError>;
-}
-
-impl<I, P, V, R, B> PromptProviderProvisionEffect for PrivateProviderProvisioner<I, P, V, R, B>
-where
-    I: DependencyInstaller + Clone + Send + Sync,
-    P: PackageInstallPolicy + Clone + Send + Sync,
-    V: ProvisionedProviderVerifier,
-    R: ProvisionReceiptReader,
-    B: ProvisionedProviderCompatibility,
-{
-    fn provision_prompt(
-        &self,
-        request: &PrivateProvisionRequest,
-        command: &Command,
-        binding: &ProviderPromptProvisionCommandBinding,
-    ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
-        self.provision_prompt_with_command(request, command, binding)
-    }
-}
-
 /// Serialized authority for exact public-provider prompt provision confirmations.
 #[derive(Clone)]
 pub(crate) struct PromptProviderProvisionBoundary<L, P, E, C> {
@@ -75,13 +43,22 @@ pub(crate) struct PromptProviderProvisionBoundary<L, P, E, C> {
     policy: P,
     effect: E,
     clock: C,
+    release_artifact_digest_sha256: String,
     serial: Arc<Mutex<()>>,
 }
 
 impl<L, P, E, C> PromptProviderProvisionBoundary<L, P, E, C> {
-    /// Binds one daemon ledger, catalog, policy, provisioner, and daemon-owned clock.
+    /// Binds one daemon ledger, catalog, policy, provisioner, daemon-owned clock, and the exact
+    /// signed ordinary-authority release digest every derived binding must be stamped with.
     #[must_use]
-    pub(crate) fn new(ledger: L, catalog: DependencyCatalog, policy: P, effect: E, clock: C) -> Self
+    pub(crate) fn new(
+        ledger: L,
+        catalog: DependencyCatalog,
+        policy: P,
+        effect: E,
+        clock: C,
+        release_artifact_digest_sha256: String,
+    ) -> Self
     where
         L: Clone,
     {
@@ -92,6 +69,7 @@ impl<L, P, E, C> PromptProviderProvisionBoundary<L, P, E, C> {
             policy,
             effect,
             clock,
+            release_artifact_digest_sha256,
             serial: Arc::new(Mutex::new(())),
         }
     }
@@ -114,8 +92,14 @@ where
             .serial
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let derived =
-            derive::request(&self.reads, &self.catalog, &self.policy, &self.clock, frame)?;
+        let derived = derive::request(
+            &self.reads,
+            &self.catalog,
+            &self.policy,
+            &self.clock,
+            &self.release_artifact_digest_sha256,
+            frame,
+        )?;
         let command = gent_runtime::prompt_provider_provision_command(
             derived.receipt_id.clone(),
             derived.idempotency_key.clone(),

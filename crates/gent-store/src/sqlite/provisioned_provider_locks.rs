@@ -57,7 +57,7 @@ impl ProvisionedProviderLockLedger for SqliteLedger {
     ) -> Result<Option<ProvisionedProviderInstallation>, LedgerError> {
         self.lock()?
             .query_row(
-                "SELECT provider, canonical_path, file_identity, digest_sha256, version, compatibility_entry, package_name, package_version, package_integrity, package_policy_digest_sha256, node_runtime_digest_sha256 FROM provisioned_provider_locks WHERE provider = ?1 ORDER BY installation_ordinal DESC LIMIT 1",
+                "SELECT provider, canonical_path, file_identity, digest_sha256, version, compatibility_entry, package_name, package_version, package_integrity, package_policy_digest_sha256, node_runtime_digest_sha256, release_artifact_digest_sha256, receipt_fingerprint_sha256 FROM provisioned_provider_locks WHERE provider = ?1 ORDER BY installation_ordinal DESC LIMIT 1",
                 [provider],
                 read_installation,
             )
@@ -114,8 +114,8 @@ pub(super) fn save_installation(
     require_provenance(&installation.provenance)?;
     connection
         .execute(
-            "INSERT INTO provisioned_provider_locks (provider, receipt_id, idempotency_key, host_epoch, canonical_path, file_identity, digest_sha256, version, compatibility_entry, package_name, package_version, package_integrity, package_policy_digest_sha256, node_runtime_digest_sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![installation.lock.run_lock.provider, receipt.receipt_id.0, receipt.idempotency_key, receipt.host_epoch.0, installation.lock.run_lock.canonical_path, installation.lock.run_lock.file_identity, installation.lock.run_lock.digest_sha256, installation.lock.run_lock.version, installation.lock.run_lock.compatibility_entry, installation.provenance.package_name, installation.provenance.package_version, installation.provenance.package_integrity, installation.provenance.package_policy_digest_sha256, installation.provenance.node_runtime_digest_sha256],
+            "INSERT INTO provisioned_provider_locks (provider, receipt_id, idempotency_key, host_epoch, canonical_path, file_identity, digest_sha256, version, compatibility_entry, package_name, package_version, package_integrity, package_policy_digest_sha256, node_runtime_digest_sha256, release_artifact_digest_sha256, receipt_fingerprint_sha256) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![installation.lock.run_lock.provider, receipt.receipt_id.0, receipt.idempotency_key, receipt.host_epoch.0, installation.lock.run_lock.canonical_path, installation.lock.run_lock.file_identity, installation.lock.run_lock.digest_sha256, installation.lock.run_lock.version, installation.lock.run_lock.compatibility_entry, installation.provenance.package_name, installation.provenance.package_version, installation.provenance.package_integrity, installation.provenance.package_policy_digest_sha256, installation.provenance.node_runtime_digest_sha256, installation.provenance.release_artifact_digest_sha256, installation.provenance.receipt_fingerprint_sha256],
         )
         .map(|_| ())
         .map_err(storage_error)
@@ -127,7 +127,7 @@ fn find_by_receipt(
 ) -> Result<Option<ProvisionedProviderInstallation>, LedgerError> {
     connection
         .query_row(
-            "SELECT provider, canonical_path, file_identity, digest_sha256, version, compatibility_entry, package_name, package_version, package_integrity, package_policy_digest_sha256, node_runtime_digest_sha256 FROM provisioned_provider_locks WHERE receipt_id = ?1",
+            "SELECT provider, canonical_path, file_identity, digest_sha256, version, compatibility_entry, package_name, package_version, package_integrity, package_policy_digest_sha256, node_runtime_digest_sha256, release_artifact_digest_sha256, receipt_fingerprint_sha256 FROM provisioned_provider_locks WHERE receipt_id = ?1",
             [receipt_id],
             read_installation,
         )
@@ -153,6 +153,8 @@ fn read_installation(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProvisionedPro
             package_integrity: row.get(8)?,
             package_policy_digest_sha256: row.get(9)?,
             node_runtime_digest_sha256: row.get(10)?,
+            release_artifact_digest_sha256: row.get(11)?,
+            receipt_fingerprint_sha256: row.get(12)?,
         },
     })
 }
@@ -164,7 +166,9 @@ fn require_provenance(provenance: &ProviderInstallProvenance) -> Result<(), Ledg
         && !provenance.package_integrity.is_empty();
     (exact_package
         && is_sha256(&provenance.package_policy_digest_sha256)
-        && is_sha256(&provenance.node_runtime_digest_sha256))
+        && is_sha256(&provenance.node_runtime_digest_sha256)
+        && is_sha256(&provenance.release_artifact_digest_sha256)
+        && is_sha256(&provenance.receipt_fingerprint_sha256))
     .then_some(())
     .ok_or_else(|| LedgerError::Invariant("provider installation provenance is invalid".into()))
 }

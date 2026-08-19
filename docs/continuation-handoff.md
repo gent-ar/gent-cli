@@ -187,9 +187,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Add a signed policy/evidence loader and explicit authority token that binds package-policy
-   envelope/terms, compatibility evidence, and the locked app Node runtime before composing the
-   private prompt-provision boundary. Default observer and broad modes stay absent.
+1. **Done, uncommitted (2026-08-19):** bind the signed release's artifact digest through
+   `ProviderPromptProvisionCommandBinding`/`ProviderInstallProvenance`, add a receipt fingerprint,
+   and re-verify the same signed release immediately before npm. See "Latest continuation state"
+   above for the exact files. Default observer and broad modes remain absent throughout
+   (`daemon_bootstrap.rs` has a zero-line diff).
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor
    reread/reconnect, provider/context switch, and exact `/goal` projection.
@@ -256,43 +258,83 @@ Before major scope decisions, read the original app planning source only:
 `/Users/ivanmatiasfort/Clouseau/clouseau-app/GENT-CLI/README.md`, then
 `00-PLATFORM-CONTRACT.md` through `10-LIVE-LIFECYCLE-AND-SELF-UPDATE.md`.
 
-## Latest continuation state (2026-08-19)
+## Latest continuation state (2026-08-19, revised)
 
-- Clean, pushed `main` ends at `29d1984`; the working tree was clean when this
-  handoff was written. The user has authorized commits/pushes after required
-  gates, but never touch `clouseau-app`.
-- The just-completed sequence was deliberately narrow: `f817dae` made the one
-  signed authority release yield verified in-memory provider grants; `c2f5d85`
-  removed the old path/key/evidence bootstrap and derives lifecycle owner/epoch
-  from daemon state; `543447f` made npm pack/install, provider shims, and the
-  fixed version probe use the locked app Node environment; `db7e6f0` retained a
-  canonical complete-artifact SHA-256; `29d1984` removed the unused generic
-  provisioning effect owner.
-- Reusing the existing runtime-update Ed25519 trust root was explicitly chosen.
-  Do not introduce another release key or trust store. Runtime metadata remains
-  distinct from provider authority despite sharing the protected root.
-- The authoritative release loader is
-  `crates/gentd/src/ordinary_authority_release.rs`. Its digest is canonicalized
-  from parsed/re-serialized JSON, intentionally stable across whitespace; do
-  not replace it with a raw file hash or persist/cache the verified artifact.
-- `PrivatePrefixProvisionedProviderVerifier::system(runtime)` now requires a
-  `NodeRuntimeLock` and probes through `NodeReadOnlyHostLauncher`. The shared
-  environment has an allowlisted PATH (locked Node plus `/usr/bin:/bin` on Unix)
-  and strips Node/npm controls. This was needed because an npm shim can use
-  `#!/usr/bin/env node`; direct `Command::new(shim)` could select ambient Node.
-- Rejected approach: porting app drivers or enabling authority from independent
-  evidence/key paths. Both violate the single daemon authority source. Also
-  rejected: snapshots/recovery caches, fake containment, and public Claurst.
-- Next priority is to bind `VerifiedOrdinaryAuthorityRelease`'s artifact digest
-  into `ProviderPromptProvisionCommandBinding`, receipt fingerprint, and
-  `ProviderInstallProvenance`, then re-read/re-verify that same release before
-  npm. This will touch `gent-types`, prompt boundary derivation, SQLite fixtures,
-  and provisioning effect; do not add optional/legacy fields or a second ledger.
-- After that, compose one combined `RuntimeFacade` containing ordinary ingress,
-  readiness, and prompt provisioning. Keep `daemon_bootstrap.rs` hard observer
-  until real evidence and containment gates justify an explicit authority path.
+- `main` is still at `29d1984`; this batch is **uncommitted** in the working
+  tree (commits/pushes require the user's explicit approval per turn, not
+  granted yet this session). `clouseau-app` was not touched.
+- This batch closed item 1 of "Next implementation order" below: the signed
+  ordinary-authority release's artifact digest is now bound through the
+  prompt-provider-provision chain and re-verified immediately before npm.
+  Concretely:
+  - `Command::receipt_fingerprint_sha256()` (new, `crates/gent-types/src/command_fingerprint.rs`)
+    is a deterministic SHA-256 over `receipt_id + idempotency_key + host_epoch + kind + payload`.
+  - `ProviderPromptProvisionCommandBinding` gained `release_artifact_digest_sha256`;
+    `ProviderInstallProvenance` gained `release_artifact_digest_sha256` and
+    `receipt_fingerprint_sha256`. Schema bumped to `gent-fresh-schema-v10`
+    (`provisioned_provider_locks` gained the two matching columns) — this
+    workspace has no incremental migrations pre-release, so a fresh-schema
+    bump was correct, not a versioned migration.
+  - `crates/gent-store/src/sqlite/private_provider_prompt_provision_validation.rs::validate()`
+    now cross-checks both new fields against the durable command/binding at
+    settlement, independent of whatever the effect already checked.
+  - `PrivateProviderProvisioner` gained an `Option<ReleaseAuthorityConfig>`
+    (mirrors the existing `verifier: Option<V>` precedent). When a prompt
+    binding is present, `private_provider_provisioning/effect.rs` re-runs
+    `SignedOrdinaryAuthorityRelease::load_bound` immediately before the npm
+    effect and compares its digest against the one bound at admission.
+    Mismatch or reauthorization failure maps to `PrivateProvisionError::
+    ReleaseDigestMismatch` / `ReleaseReauthorizationFailed`, both classified
+    **not** pre-effect — they settle through the existing `Unprovable` path,
+    never silently retried, matching the codebase's established ambiguity
+    handling (npm installer failures use the same non-retry discipline).
+  - `daemon_bootstrap.rs` has a **zero-line diff** — this entire seam remains
+    exactly as uncomposed/unreachable as before; observer default behavior is
+    unchanged (spot-checked by diff and by grep for the new symbols in that
+    file, both empty).
+  - Five files that grew past the repo's 300-line cap were split into
+    focused siblings: `ordinary_authority_release_support.rs` (file/key
+    parsing helpers), `ordinary_authority_release_fixture.rs` (test-only
+    signed-release scaffolding, now shared by both the release tests and the
+    new provisioning tests), `private_provider_provisioning_error.rs`
+    (`PrivateProvisionError` + its pre-effect classification),
+    `private_provider_provisioning_release_tests.rs`,
+    `prompt_provider_provision_boundary/effect.rs`
+    (`PromptProviderProvisionEffect`), `command_fingerprint.rs` /
+    `command_fingerprint_tests.rs`, and
+    `private_provider_prompt_provision_release_tests.rs` in `gent-store`.
+- Full verification block (below) passed, including
+  `python3 tools/check-architecture.py` (every touched file ≤300 lines) and
+  the full `cargo test --workspace --all-features` (107 test binaries, 0
+  failures) — see the exact command list in this document's own
+  "Verification passed after this batch" section.
+- Reusing the existing runtime-update Ed25519 trust root remains the standing
+  decision for the still-dormant `ordinary_authority_release.rs` verification
+  path itself (unchanged by this batch). Do not introduce another release key
+  or trust store. Runtime metadata remains distinct from provider authority
+  despite sharing the protected root.
+- Rejected approach (unchanged): porting app drivers or enabling authority
+  from independent evidence/key paths. Both violate the single daemon
+  authority source. Also rejected: snapshots/recovery caches, fake
+  containment, public Claurst, and (new this batch) a workspace-wide
+  `Sha256Digest` newtype — every digest in this codebase is a validated plain
+  `String`, and this batch kept that convention rather than introducing one
+  exception.
+- Next priority is item 2 of "Next implementation order": prove the private
+  prompt-provision authority profile end-to-end (still not composed into
+  shipped `daemon_bootstrap.rs`) against the realtime contract in
+  `docs/realtime-agent-chat-client-plan.md` — persist-before-broadcast facts,
+  bounded backpressure/process-tree drain, terminal settlement, turn follow,
+  cursor reread/reconnect, provider/context switch — by driving the dormant
+  seam directly in integration tests (the existing `#[allow(dead_code)]`
+  composition constructors in `runtime_facade_authority.rs` already allow
+  this). `daemon_bootstrap.rs` still does not compose this.
 
-Resume here: start at `ordinary_authority_release.rs` and the prompt-provision binding/effect
-files named above. Carry the already available canonical artifact digest through the exact
-daemon-built command and durable provenance, then make the pre-effect path revalidate the same
-signed release against the locked Node runtime; preserve observer capability absence throughout.
+Resume here: start proving the prompt-provision profile end-to-end (item 2). Build integration
+tests that compose `PromptProviderProvisionBoundary`/`PrivateProviderProvisioner` (now digest-
+bound) directly, drive them through admit → provision → settle/reject/unprovable → readiness
+release, and assert every fact is persisted before any client-visible broadcast and that
+reconnect resumes from cursor with no synthesized state. Use
+`docs/realtime-agent-chat-client-plan.md`'s "Required authority work" checklist as the
+acceptance list. Only after that composes should reviewed-plan authority (item 3) begin, since
+its approved-plan execution depends on the same public-driver authority gate.

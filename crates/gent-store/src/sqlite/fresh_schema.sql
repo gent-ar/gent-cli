@@ -2,7 +2,7 @@ CREATE TABLE gent_schema (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     identity TEXT NOT NULL
 );
-INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v9');
+INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v10');
 CREATE TABLE host_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     epoch INTEGER NOT NULL,
@@ -63,7 +63,9 @@ CREATE TABLE provisioned_provider_locks (
     package_version TEXT NOT NULL,
     package_integrity TEXT NOT NULL,
     package_policy_digest_sha256 TEXT NOT NULL,
-    node_runtime_digest_sha256 TEXT NOT NULL
+    node_runtime_digest_sha256 TEXT NOT NULL,
+    release_artifact_digest_sha256 TEXT NOT NULL,
+    receipt_fingerprint_sha256 TEXT NOT NULL
 );
 CREATE INDEX provisioned_provider_locks_by_provider
 ON provisioned_provider_locks(provider, installation_ordinal DESC);

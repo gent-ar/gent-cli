@@ -133,6 +133,8 @@ fn installation() -> ProvisionedProviderInstallation {
             package_integrity: "sha512-test".into(),
             package_policy_digest_sha256: "b".repeat(64),
             node_runtime_digest_sha256: "c".repeat(64),
+            release_artifact_digest_sha256: "d".repeat(64),
+            receipt_fingerprint_sha256: "e".repeat(64),
         },
     }
 }

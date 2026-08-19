@@ -18,6 +18,7 @@ pub(super) fn request<L, P, C>(
     catalog: &DependencyCatalog,
     policy: &P,
     clock: &C,
+    release_artifact_digest_sha256: &str,
     frame: PromptProviderProvisionFrame,
 ) -> Result<Derived, String>
 where
@@ -65,6 +66,7 @@ where
             reviewed_plan_digest,
         },
         expected_reviewed_plan_digest: review.reviewed_plan_digest,
+        release_artifact_digest_sha256: release_artifact_digest_sha256.into(),
         package: ProviderPromptProvisionPackageBinding {
             provider: provider.as_str().into(),
             package_name: review.package.package_name,

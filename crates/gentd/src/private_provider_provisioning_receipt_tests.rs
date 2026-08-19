@@ -34,7 +34,7 @@ impl DependencyInstaller for Installer {
 }
 
 #[derive(Clone)]
-struct Policy;
+pub(super) struct Policy;
 
 impl PackageInstallPolicy for Policy {
     fn approved_package(
@@ -66,7 +66,7 @@ impl ProvisionedProviderVerifier for Verifier {
 }
 
 #[derive(Clone)]
-enum ReceiptReader {
+pub(super) enum ReceiptReader {
     Accepted,
     Different,
     Unavailable,
@@ -161,6 +161,13 @@ fn changed_policy_package_refuses_before_npm() {
 }
 
 fn prompt_binding(version: &str) -> ProviderPromptProvisionCommandBinding {
+    prompt_binding_with_release_digest(version, &"d".repeat(64))
+}
+
+pub(super) fn prompt_binding_with_release_digest(
+    version: &str,
+    release_artifact_digest_sha256: &str,
+) -> ProviderPromptProvisionCommandBinding {
     ProviderPromptProvisionCommandBinding {
         prompt: ProviderPromptProvisionBinding {
             prompt_receipt_id: ReceiptId("prompt".into()),
@@ -172,6 +179,7 @@ fn prompt_binding(version: &str) -> ProviderPromptProvisionCommandBinding {
             reviewed_plan_digest: "a".repeat(64),
         },
         expected_reviewed_plan_digest: "a".repeat(64),
+        release_artifact_digest_sha256: release_artifact_digest_sha256.into(),
         package: ProviderPromptProvisionPackageBinding {
             provider: "codex".into(),
             package_name: "package".into(),
@@ -195,7 +203,7 @@ fn provisioner(
     PrivateProviderProvisioner::new(runtime(), installer, Policy, Some(Verifier), receipts)
 }
 
-fn request() -> PrivateProvisionRequest {
+pub(super) fn request() -> PrivateProvisionRequest {
     PrivateProvisionRequest {
         receipt: Receipt {
             receipt_id: ReceiptId("receipt".into()),
@@ -212,9 +220,12 @@ fn request() -> PrivateProvisionRequest {
 }
 
 fn runtime() -> AppNodeRuntimeLock {
-    let root = tempfile::tempdir().unwrap().keep();
+    runtime_at(&tempfile::tempdir().unwrap().keep())
+}
+
+pub(super) fn runtime_at(root: &std::path::Path) -> AppNodeRuntimeLock {
     let bin = root.join("bin");
-    fs::create_dir(&bin).unwrap();
+    fs::create_dir_all(&bin).unwrap();
     let node = bin.join("node");
     fs::write(&node, "node").unwrap();
     fs::write(bin.join(npm_name()), "npm").unwrap();

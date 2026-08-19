@@ -4,8 +4,9 @@
 //! evidence-approved host supplies a durable accepted receipt and explicit consent after a prompt
 //! identifies a missing public provider. Claurst never enters this public npm path.
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path, path::PathBuf};
 
+use ed25519_dalek::VerifyingKey;
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
@@ -14,10 +15,19 @@ pub(crate) use gent_types::ProvisionedProviderLock;
 use gent_types::ReceiptStatus;
 use gent_types::{ProviderPromptProvisionCommandBinding, ProvisionedProviderInstallation, Receipt};
 
+pub(crate) use crate::private_provider_provisioning_error::PrivateProvisionError;
 use crate::{
-    node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError},
+    node_runtime_lock::AppNodeRuntimeLock,
     private_provider_compatibility::ProvisionedProviderCompatibility,
 };
+
+/// Where and how to re-verify the signed ordinary-authority release immediately before an npm
+/// effect. Absent by default; only a future explicit composition supplies this.
+#[derive(Clone, Debug)]
+pub(crate) struct ReleaseAuthorityConfig {
+    pub(crate) path: PathBuf,
+    pub(crate) root_keys: BTreeMap<String, VerifyingKey>,
+}
 
 mod effect;
 
@@ -42,55 +52,6 @@ pub(crate) enum PrivateProvisionResult {
     /// The external effect may have happened, but runtime identity changed before verification.
     /// The future receipt owner must settle this as `Unprovable`, never retry automatically.
     Ambiguous,
-}
-
-/// Failure before or during a fixed, signed public-provider package operation.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum PrivateProvisionError {
-    #[error("private provisioning requires an accepted durable receipt")]
-    ReceiptNotAccepted,
-    #[error("durable provisioning receipt is unavailable: {0}")]
-    ReceiptUnavailable(String),
-    #[error("durable provisioning receipt no longer matches the accepted request")]
-    ReceiptMismatch,
-    #[error("prompt provision command does not match its daemon-derived binding")]
-    PromptBindingMismatch,
-    #[error("signed package policy changed after the reviewed prompt binding")]
-    PromptPackageMismatch,
-    #[error(transparent)]
-    Runtime(#[from] AppNodeRuntimeLockError),
-    #[error("signed package policy failed: {0}")]
-    Policy(String),
-    #[error("signed package policy selected a different provider")]
-    ProviderMismatch,
-    #[error("signed package policy identity is invalid")]
-    PolicyIdentity,
-    #[error("fixed npm installer failed: {0}")]
-    Installer(String),
-    #[error("post-install provider verification is unavailable")]
-    VerificationUnavailable,
-}
-
-impl PrivateProvisionError {
-    /// Whether the effect boundary was certainly not reached.
-    ///
-    /// An installer failure is deliberately excluded: npm may have changed the private prefix
-    /// before returning an error, so its receipt must remain unprovable rather than retryable.
-    pub(crate) const fn is_definitely_pre_effect(&self) -> bool {
-        match self {
-            Self::ReceiptNotAccepted
-            | Self::ReceiptUnavailable(_)
-            | Self::ReceiptMismatch
-            | Self::PromptBindingMismatch
-            | Self::PromptPackageMismatch
-            | Self::Runtime(_)
-            | Self::Policy(_)
-            | Self::ProviderMismatch
-            | Self::PolicyIdentity
-            | Self::VerificationUnavailable => true,
-            Self::Installer(_) => false,
-        }
-    }
 }
 
 /// Discovers and locks one public provider executable after fixed npm installation.
@@ -127,6 +88,7 @@ pub(crate) struct PrivateProviderProvisioner<I, P, V, R, B> {
     verifier: Option<V>,
     receipts: R,
     compatibility: B,
+    release_authority: Option<ReleaseAuthorityConfig>,
 }
 
 impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
@@ -138,6 +100,7 @@ impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
         verifier: Option<V>,
         receipts: R,
         compatibility: B,
+        release_authority: Option<ReleaseAuthorityConfig>,
     ) -> Self {
         Self {
             runtime,
@@ -146,6 +109,7 @@ impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
             verifier,
             receipts,
             compatibility,
+            release_authority,
         }
     }
 }
@@ -174,6 +138,26 @@ impl<I, P, V, R>
             verifier,
             receipts,
             crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
+            None,
+        )
+    }
+
+    pub(crate) fn with_release_authority(
+        runtime: AppNodeRuntimeLock,
+        installer: I,
+        policy: P,
+        verifier: Option<V>,
+        receipts: R,
+        release_authority: ReleaseAuthorityConfig,
+    ) -> Self {
+        Self::with_compatibility(
+            runtime,
+            installer,
+            policy,
+            verifier,
+            receipts,
+            crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
+            Some(release_authority),
         )
     }
 }
@@ -197,6 +181,7 @@ impl<
         verifier: Option<V>,
         receipts: R,
         compatibility: B,
+        release_authority: Option<ReleaseAuthorityConfig>,
     ) -> Result<Self, PrivateProvisionError> {
         Ok(Self::with_compatibility(
             AppNodeRuntimeLock::from_environment(data_dir)?,
@@ -205,6 +190,7 @@ impl<
             verifier,
             receipts,
             compatibility,
+            release_authority,
         ))
     }
 
@@ -287,6 +273,10 @@ mod error_tests;
 #[cfg(test)]
 #[path = "private_provider_provisioning_receipt_tests.rs"]
 mod receipt_tests;
+
+#[cfg(test)]
+#[path = "private_provider_provisioning_release_tests.rs"]
+mod release_tests;
 
 #[cfg(test)]
 #[path = "private_provider_provisioning_compatibility_tests.rs"]

@@ -61,6 +61,8 @@ pub struct ProviderPromptProvisionCommandBinding {
     pub prompt: ProviderPromptProvisionBinding,
     /// Digest of the current daemon-issued review, retained separately from the client echo.
     pub expected_reviewed_plan_digest: String,
+    /// Digest of the exact signed ordinary-authority release this command was authorized under.
+    pub release_artifact_digest_sha256: String,
     pub package: ProviderPromptProvisionPackageBinding,
 }
 
@@ -70,6 +72,7 @@ impl ProviderPromptProvisionCommandBinding {
     pub fn is_valid(&self) -> bool {
         self.prompt.is_valid()
             && digest(&self.expected_reviewed_plan_digest)
+            && digest(&self.release_artifact_digest_sha256)
             && self.package.provider == self.prompt.provider
             && package_text(&self.package.package_name, 214)
             && package_text(&self.package.version, 128)
@@ -134,6 +137,7 @@ mod tests {
                 reviewed_plan_digest: "a".repeat(64),
             },
             expected_reviewed_plan_digest: "a".repeat(64),
+            release_artifact_digest_sha256: "c".repeat(64),
             package: ProviderPromptProvisionPackageBinding {
                 provider: "codex".into(),
                 package_name: "@openai/codex".into(),
@@ -149,6 +153,13 @@ mod tests {
                     provider: "claude".into(),
                     ..command.package.clone()
                 },
+                ..command.clone()
+            }
+            .is_valid()
+        );
+        assert!(
+            !ProviderPromptProvisionCommandBinding {
+                release_artifact_digest_sha256: "not-a-digest".into(),
                 ..command
             }
             .is_valid()

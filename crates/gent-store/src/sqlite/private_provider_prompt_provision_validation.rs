@@ -23,9 +23,13 @@ pub(super) fn validate(
         && installation.provenance.package_version == binding.package.version
         && installation.provenance.package_integrity == binding.package.integrity
         && installation.provenance.package_policy_digest_sha256
-            == binding.package.package_policy_digest_sha256)
-        .then_some(())
-        .ok_or_else(|| LedgerError::Invariant("invalid prompt provision settlement".into()))
+            == binding.package.package_policy_digest_sha256
+        && installation.provenance.release_artifact_digest_sha256
+            == binding.release_artifact_digest_sha256
+        && installation.provenance.receipt_fingerprint_sha256
+            == command.receipt_fingerprint_sha256())
+    .then_some(())
+    .ok_or_else(|| LedgerError::Invariant("invalid prompt provision settlement".into()))
 }
 
 pub(super) fn validate_admission(

@@ -102,6 +102,44 @@ fn malformed_provenance_rolls_back_without_settling() {
     assert_eq!(settle(&ledger, &receipt, None), ReceiptStatus::Unprovable);
 }
 
+#[test]
+fn malformed_release_artifact_digest_rolls_back_without_settling() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let receipt = accepted(&ledger, "one");
+    let mut invalid = installation("v1");
+    invalid.provenance.release_artifact_digest_sha256 = "not-a-digest".into();
+    assert!(
+        ledger
+            .settle_provisioned_provider_provision(
+                &receipt,
+                Some(&invalid),
+                ReceiptStatus::Settled,
+                &terminal(&receipt),
+            )
+            .is_err()
+    );
+    assert_eq!(settle(&ledger, &receipt, None), ReceiptStatus::Unprovable);
+}
+
+#[test]
+fn malformed_receipt_fingerprint_rolls_back_without_settling() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let receipt = accepted(&ledger, "one");
+    let mut invalid = installation("v1");
+    invalid.provenance.receipt_fingerprint_sha256 = "not-a-digest".into();
+    assert!(
+        ledger
+            .settle_provisioned_provider_provision(
+                &receipt,
+                Some(&invalid),
+                ReceiptStatus::Settled,
+                &terminal(&receipt),
+            )
+            .is_err()
+    );
+    assert_eq!(settle(&ledger, &receipt, None), ReceiptStatus::Unprovable);
+}
+
 fn settle(
     ledger: &SqliteLedger,
     receipt: &Receipt,
@@ -180,6 +218,8 @@ fn installation(version: &str) -> ProvisionedProviderInstallation {
             package_integrity: "sha512-test".into(),
             package_policy_digest_sha256: "b".repeat(64),
             node_runtime_digest_sha256: "c".repeat(64),
+            release_artifact_digest_sha256: "d".repeat(64),
+            receipt_fingerprint_sha256: "e".repeat(64),
         },
     }
 }

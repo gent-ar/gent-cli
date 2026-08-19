@@ -11,6 +11,9 @@ mod agent_chat_run_context;
 mod agent_chat_switch;
 mod agent_chat_terminal_settlement;
 mod attachments;
+mod command_fingerprint;
+#[cfg(test)]
+mod command_fingerprint_tests;
 #[cfg(test)]
 mod contract_edge_tests;
 mod conversation_activity;

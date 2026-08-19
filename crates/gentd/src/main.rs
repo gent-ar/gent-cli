@@ -121,6 +121,8 @@ mod private_provider_lock_validation;
 #[allow(dead_code)]
 mod private_provider_provisioning;
 #[allow(dead_code)]
+mod private_provider_provisioning_error;
+#[allow(dead_code)]
 mod private_provider_provisioning_sqlite;
 #[allow(dead_code)]
 mod private_provider_readiness;

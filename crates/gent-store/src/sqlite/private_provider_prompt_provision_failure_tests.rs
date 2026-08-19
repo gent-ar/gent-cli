@@ -188,6 +188,7 @@ fn reserved_prompt() -> (
             reviewed_plan_digest: "a".repeat(64),
         },
         expected_reviewed_plan_digest: "a".repeat(64),
+        release_artifact_digest_sha256: "d".repeat(64),
         package: ProviderPromptProvisionPackageBinding {
             provider: "codex".into(),
             package_name: "@openai/codex".into(),

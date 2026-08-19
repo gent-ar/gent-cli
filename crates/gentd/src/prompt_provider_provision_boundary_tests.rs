@@ -18,11 +18,12 @@ use gent_types::{
 };
 
 use super::{
-    PrivateProvisionError, PrivateProvisionRequest, PrivateProvisionResult,
-    PromptProviderProvisionBoundary, PromptProviderProvisionEffect,
+    PrivateProvisionRequest, PrivateProvisionResult, PromptProviderProvisionBoundary,
+    PromptProviderProvisionEffect,
 };
 use crate::{
     authority_clock::AuthorityClock, dependency_catalog::DependencyCatalog,
+    private_provider_provisioning_error::PrivateProvisionError,
     private_provider_review::install_review,
 };
 
@@ -43,12 +44,14 @@ impl PromptProviderProvisionEffect for Effect {
     fn provision_prompt(
         &self,
         request: &PrivateProvisionRequest,
-        _: &gent_types::Command,
-        _: &gent_types::ProviderPromptProvisionCommandBinding,
+        command: &gent_types::Command,
+        binding: &gent_types::ProviderPromptProvisionCommandBinding,
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
         self.calls.lock().unwrap().push(request.clone());
         let result = match self.outcome {
-            Outcome::Installed => PrivateProvisionResult::Installed(Box::new(installation())),
+            Outcome::Installed => {
+                PrivateProvisionResult::Installed(Box::new(installation(command, binding)))
+            }
             Outcome::Ambiguous => PrivateProvisionResult::Ambiguous,
             Outcome::PreEffectFailure => return Err(PrivateProvisionError::Policy("stale".into())),
         };
@@ -183,6 +186,7 @@ fn boundary(
         Policy,
         Effect { outcome, calls },
         Clock,
+        "d".repeat(64),
     )
 }
 
@@ -251,7 +255,10 @@ fn seeded() -> (SqliteLedger, gent_types::AgentChatPromptSaved) {
     (ledger, saved)
 }
 
-fn installation() -> ProvisionedProviderInstallation {
+fn installation(
+    command: &gent_types::Command,
+    binding: &gent_types::ProviderPromptProvisionCommandBinding,
+) -> ProvisionedProviderInstallation {
     ProvisionedProviderInstallation {
         lock: ProvisionedProviderLock {
             run_lock: RunVersionLock {
@@ -269,6 +276,8 @@ fn installation() -> ProvisionedProviderInstallation {
             package_integrity: "sha512-test".into(),
             package_policy_digest_sha256: "b".repeat(64),
             node_runtime_digest_sha256: "c".repeat(64),
+            release_artifact_digest_sha256: binding.release_artifact_digest_sha256.clone(),
+            receipt_fingerprint_sha256: command.receipt_fingerprint_sha256(),
         },
     }
 }

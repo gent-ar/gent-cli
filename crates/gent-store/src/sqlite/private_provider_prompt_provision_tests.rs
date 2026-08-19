@@ -32,7 +32,7 @@ fn verified_install_and_exact_prompt_release_commit_together() {
         ledger
             .find_provisioned_provider_installation("codex")
             .unwrap(),
-        Some(installation())
+        Some(installation(&command, &binding))
     );
     assert_eq!(
         settle(&ledger, &binding, &command, &receipt)
@@ -53,7 +53,7 @@ fn event_conflict_rolls_back_lock_receipt_and_prompt_release() {
             .settle_verified_provider_prompt_provision(
                 &command,
                 &receipt,
-                &installation(),
+                &installation(&command, &binding),
                 &terminal,
                 &binding,
             )
@@ -85,7 +85,7 @@ fn stale_or_mismatched_prompt_binding_cannot_release_a_prompt() {
             .settle_verified_provider_prompt_provision(
                 &command,
                 &receipt,
-                &installation(),
+                &installation(&command, &binding),
                 &terminal(&receipt),
                 &binding,
             )
@@ -184,6 +184,7 @@ pub(super) fn provision(
             reviewed_plan_digest: "a".repeat(64),
         },
         expected_reviewed_plan_digest: "a".repeat(64),
+        release_artifact_digest_sha256: "d".repeat(64),
         package: ProviderPromptProvisionPackageBinding {
             provider: "codex".into(),
             package_name: "@openai/codex".into(),
@@ -231,7 +232,7 @@ fn settle(
     ledger.settle_verified_provider_prompt_provision(
         command,
         receipt,
-        &installation(),
+        &installation(command, binding),
         &terminal(receipt),
         binding,
     )
@@ -248,7 +249,10 @@ pub(super) fn terminal(receipt: &Receipt) -> Event {
     }
 }
 
-pub(super) fn installation() -> ProvisionedProviderInstallation {
+pub(super) fn installation(
+    command: &Command,
+    binding: &ProviderPromptProvisionCommandBinding,
+) -> ProvisionedProviderInstallation {
     ProvisionedProviderInstallation {
         lock: ProvisionedProviderLock {
             run_lock: RunVersionLock {
@@ -266,6 +270,8 @@ pub(super) fn installation() -> ProvisionedProviderInstallation {
             package_integrity: "sha512-test".into(),
             package_policy_digest_sha256: "b".repeat(64),
             node_runtime_digest_sha256: "c".repeat(64),
+            release_artifact_digest_sha256: binding.release_artifact_digest_sha256.clone(),
+            receipt_fingerprint_sha256: command.receipt_fingerprint_sha256(),
         },
     }
 }
@@ -281,7 +287,6 @@ pub(super) fn dispatch_state(ledger: &SqliteLedger, message_id: &str) -> String 
         )
         .unwrap()
 }
-
 pub(super) fn receipt_status(ledger: &SqliteLedger, key: &str) -> String {
     ledger
         .lock()

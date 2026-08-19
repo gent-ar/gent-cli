@@ -6,7 +6,7 @@ use super::tests;
 fn package_provenance_mismatch_rolls_back_lock_receipt_and_prompt_release() {
     let (ledger, saved) = tests::seeded();
     let (binding, command, receipt) = tests::provision(&ledger, &saved);
-    let mut wrong_installation = tests::installation();
+    let mut wrong_installation = tests::installation(&command, &binding);
     wrong_installation.provenance.package_version = "2.0.0".into();
     assert!(
         ledger

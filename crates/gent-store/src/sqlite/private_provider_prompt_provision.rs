@@ -245,6 +245,9 @@ mod failure_tests;
 #[path = "private_provider_prompt_provision_package_tests.rs"]
 mod package_tests;
 #[cfg(test)]
+#[path = "private_provider_prompt_provision_release_tests.rs"]
+mod release_tests;
+#[cfg(test)]
 #[path = "private_provider_prompt_provision_reservation_tests.rs"]
 mod reservation_tests;
 #[cfg(test)]

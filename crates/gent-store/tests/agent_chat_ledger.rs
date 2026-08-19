@@ -65,7 +65,7 @@ fn creates_conversation_root_run_selection_and_settled_receipt_together() {
     assert!(
         connection
             .query_row(
-                "SELECT 1 FROM gent_schema WHERE identity = 'gent-fresh-schema-v9'",
+                "SELECT 1 FROM gent_schema WHERE identity = 'gent-fresh-schema-v10'",
                 [],
                 |_| Ok(()),
             )
