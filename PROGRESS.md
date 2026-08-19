@@ -171,8 +171,9 @@ lifecycle state are prohibited.
 - One bounded, strict signed ordinary-authority release artifact now embeds its
   selected public providers, compatibility envelope, evidence, package policy,
   and delegated verification keys. It validates every inner signature and binds
-  package policy to the locked Node before returning material; no bootstrap
-  reads it yet and no independent authority paths are accepted by its format.
+  package policy to the locked Node before returning material. Its canonical
+  complete-artifact SHA-256 is retained for the future receipt/provenance fence;
+  no bootstrap reads it yet and no independent authority paths are accepted.
   It rejects duplicate provider grants, and uses the existing protected runtime-
   update Ed25519 release root, not a new signing setup; runtime metadata and
   provider authority remain distinct data.

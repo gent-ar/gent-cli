@@ -13,6 +13,7 @@ use gent_adapters::{
     compatibility_cache::CachedCompatibilityManifest,
     package_policy::{PackagePolicy, PackagePolicyEntry, SignedPackagePolicy},
 };
+use sha2::Digest;
 
 use super::*;
 
@@ -43,6 +44,12 @@ fn one_signed_release_binds_its_nested_authority_to_the_locked_node() {
             .version,
         "0.1.0"
     );
+    assert_eq!(
+        verified.artifact_digest_sha256(),
+        hex::encode(sha2::Sha256::digest(
+            serde_json::to_vec(&serde_json::to_value(&release).unwrap()).unwrap()
+        ))
+    );
 }
 
 #[test]
@@ -68,6 +75,28 @@ fn unknown_data_and_changed_node_fail_before_any_authority_is_returned() {
         SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10,),
         Err(OrdinaryAuthorityReleaseError::EmbeddedAuthority)
     ));
+}
+
+#[test]
+fn authority_binding_uses_canonical_artifact_content_not_whitespace() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path());
+    let signer = SigningKey::from_bytes(&[7; 32]);
+    let release = release(&signer, runtime.node_digest_sha256());
+    let compact = root.path().join("compact.json");
+    let pretty = root.path().join("pretty.json");
+    fs::write(&compact, serde_json::to_vec(&release).unwrap()).unwrap();
+    fs::write(&pretty, serde_json::to_vec_pretty(&release).unwrap()).unwrap();
+    let compact =
+        SignedOrdinaryAuthorityRelease::load_bound(&compact, &root_keys(&signer), &runtime, 10)
+            .unwrap();
+    let pretty =
+        SignedOrdinaryAuthorityRelease::load_bound(&pretty, &root_keys(&signer), &runtime, 10)
+            .unwrap();
+    assert_eq!(
+        compact.artifact_digest_sha256(),
+        pretty.artifact_digest_sha256()
+    );
 }
 
 fn release(root: &SigningKey, node_digest: &str) -> SignedOrdinaryAuthorityRelease {

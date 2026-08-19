@@ -14,6 +14,7 @@ use gent_adapters::{
 };
 use gent_ports::PackageInstallPolicy;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -59,9 +60,9 @@ enum ProviderAuthorityRelease {
         evidence_keys: Vec<ReleaseVerificationKey>,
     },
 }
-/// Material that has passed one root signature and every embedded authority fence.
 #[derive(Clone, Debug)]
 pub(crate) struct VerifiedOrdinaryAuthorityRelease {
+    artifact_digest_sha256: String,
     compatibility: CompatibilityAssessment,
     package_policy: VerifiedPackagePolicy,
     providers: Vec<VerifiedProviderAuthority>,
@@ -72,6 +73,11 @@ pub(crate) enum VerifiedProviderAuthority {
     Codex(CodexAuthorityPreflight),
 }
 impl VerifiedOrdinaryAuthorityRelease {
+    /// Returns the SHA-256 identity of the complete signed artifact bytes.
+    #[must_use]
+    pub(crate) fn artifact_digest_sha256(&self) -> &str {
+        &self.artifact_digest_sha256
+    }
     #[must_use]
     pub(crate) fn compatibility(&self) -> CompatibilityAssessment {
         self.compatibility.clone()
@@ -106,10 +112,6 @@ pub(crate) enum OrdinaryAuthorityReleaseError {
 }
 impl SignedOrdinaryAuthorityRelease {
     /// Reads and fully validates one immutable release artifact against one root trust anchor.
-    ///
-    /// The root key is a bootstrap trust anchor, not a second mutable authority source. All
-    /// provider scope, nested verification keys, compatibility, and npm policy come from this
-    /// one signed artifact.
     pub(crate) fn load_bound(
         path: &Path,
         root_keys: &BTreeMap<String, VerifyingKey>,
@@ -127,16 +129,29 @@ impl SignedOrdinaryAuthorityRelease {
         (serde_json::to_value(&release).ok() == Some(value))
             .then_some(())
             .ok_or(OrdinaryAuthorityReleaseError::Malformed)?;
+        let artifact_digest_sha256 = hex::encode(Sha256::digest(
+            serde_json::to_vec(
+                &serde_json::to_value(&release)
+                    .map_err(|_| OrdinaryAuthorityReleaseError::Malformed)?,
+            )
+            .map_err(|_| OrdinaryAuthorityReleaseError::Malformed)?,
+        ));
         let root_key = root_keys
             .get(&release.key_id)
             .ok_or(OrdinaryAuthorityReleaseError::UnknownSigner)?;
-        release.verify(root_key, runtime.node_digest_sha256(), now)
+        release.verify(
+            root_key,
+            runtime.node_digest_sha256(),
+            now,
+            artifact_digest_sha256,
+        )
     }
     fn verify(
         self,
         root_key: &VerifyingKey,
         node_digest: &str,
         now: u64,
+        artifact_digest_sha256: String,
     ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
         if self.signature_hex.len() != 128 || !valid_hex(&self.signature_hex) {
             return Err(OrdinaryAuthorityReleaseError::InvalidSignature);
@@ -209,6 +224,7 @@ impl SignedOrdinaryAuthorityRelease {
         }
         (!providers.is_empty())
             .then_some(VerifiedOrdinaryAuthorityRelease {
+                artifact_digest_sha256,
                 compatibility,
                 package_policy: policy,
                 providers,
