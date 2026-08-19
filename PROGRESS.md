@@ -49,6 +49,9 @@ lifecycle state are prohibited.
 - That sealed ordinary composition preflights both private evidence records
   before host construction, permits only an exact nonempty Claude/Codex Ask or
   Plan allowlist, and rejects every other selection before a ledger write.
+- Its dormant Ask/Plan path now uses the bounded, lock-rechecked direct-host
+  launcher restricted to read-only workspace access. This does not relax the
+  separate enforced-sandbox requirement for Agent, Autonomous, or Bypass work.
 - One typed runtime capability profile now drives daemon service composition and
   wire advertisement. Turn following and reviewed plans require their explicit
   profile features (and agent chat); observer and persistence-only profiles

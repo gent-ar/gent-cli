@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use gent_drivers::SandboxedProviderLaunch;
+use gent_drivers::ReadOnlyHostLauncher;
 use gent_runtime::AgentChatReadService;
 use gent_store::SqliteLedger;
 use gent_types::{AgentChatMode, AgentChatProvider, AgentChatSelection};
@@ -24,14 +24,16 @@ use crate::ordinary_lifecycle_router::{OrdinaryProviderHost, OrdinaryPublicLifec
 use crate::provider_lifecycle_host::ProviderLifecycleHost;
 use crate::runtime_facade::DaemonCompositionState;
 
+const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
+
 /// Private inputs for the simultaneous ordinary Claude and Codex composition.
 ///
 /// Neither configuration is serializable or accepted by the shipped daemon. Their coordinator
 /// and epoch must match, so one router cannot accidentally operate two durable owners.
 #[derive(Debug)]
-pub(crate) struct OrdinaryAuthorityConfig<C> {
+pub(crate) struct OrdinaryAuthorityConfig {
     pub(crate) codex: PrivateCodexAuthorityConfig,
-    pub(crate) claude: PrivateClaudeAuthorityConfig<C>,
+    pub(crate) claude: PrivateClaudeAuthorityConfig,
     /// Exact selections an authority facade may permit before a prompt is persisted.
     pub(crate) selections: Vec<AgentChatSelection>,
 }
@@ -99,27 +101,23 @@ impl OrdinaryAuthorityRuntime {
 
 /// Preflights and composes the private ordinary Claude/Codex lifecycle without bootstrap wiring.
 ///
-/// Both evidence records are read and validated before either private resolver or sandboxed
-/// runner is constructed. Each provider-specific composition repeats its preflight immediately
+/// Both evidence records are read and validated before either private resolver or launcher is
+/// constructed. Each provider-specific composition repeats its preflight immediately
 /// before construction, closing the read-to-compose interval without accepting a stale result.
 ///
 /// # Errors
-/// Returns before any private-prefix discovery or contained launch if either preflight fails.
-pub(crate) fn compose_ordinary_authority<C, X>(
+/// Returns before any private-prefix discovery or provider launch if either preflight fails.
+pub(crate) fn compose_ordinary_authority(
     state: &DaemonCompositionState,
-    config: OrdinaryAuthorityConfig<C>,
-    codex_sandbox: X,
-) -> Result<OrdinaryAuthorityRuntime, OrdinaryAuthorityError>
-where
-    C: SandboxedProviderLaunch + std::fmt::Debug + 'static,
-    X: SandboxedProviderLaunch + 'static,
-{
+    config: OrdinaryAuthorityConfig,
+) -> Result<OrdinaryAuthorityRuntime, OrdinaryAuthorityError> {
     validate_shared_owner(&config)?;
     validate_selections(&config.selections)?;
     preflight_all(state, &config)?;
     let selections = config.selections.clone();
-    let codex = compose_private_codex_authority(state, &config.codex, codex_sandbox)?;
-    let claude = compose_private_claude_authority(state, config.claude)?;
+    let launcher = ReadOnlyHostLauncher::new(STREAM_CAPTURE_BYTES);
+    let codex = compose_private_codex_authority(state, &config.codex, launcher)?;
+    let claude = compose_private_claude_authority(state, config.claude, launcher)?;
     let router = OrdinaryPublicLifecycleRouter::new(
         AgentChatReadService::new(state.ledger().clone()),
         vec![
@@ -140,9 +138,7 @@ where
     })
 }
 
-fn validate_shared_owner<C>(
-    config: &OrdinaryAuthorityConfig<C>,
-) -> Result<(), OrdinaryAuthorityError> {
+fn validate_shared_owner(config: &OrdinaryAuthorityConfig) -> Result<(), OrdinaryAuthorityError> {
     (config.codex.coordinator_id == config.claude.coordinator_id)
         .then_some(())
         .ok_or(OrdinaryAuthorityError::CoordinatorMismatch)?;
@@ -177,9 +173,9 @@ fn validate_selections(selections: &[AgentChatSelection]) -> Result<(), Ordinary
     Ok(())
 }
 
-fn preflight_all<C>(
+fn preflight_all(
     state: &DaemonCompositionState,
-    config: &OrdinaryAuthorityConfig<C>,
+    config: &OrdinaryAuthorityConfig,
 ) -> Result<(), OrdinaryAuthorityError> {
     codex_authority_preflight::load(
         &config.codex.evidence_record,

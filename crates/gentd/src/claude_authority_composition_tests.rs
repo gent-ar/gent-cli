@@ -1,13 +1,8 @@
 use std::path::PathBuf;
 
-use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
-use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
-use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
+use gent_drivers::ReadOnlyHostLauncher;
 use gent_runtime::catalog::RuntimeCapabilityProfile;
-use gent_types::{
-    HostEpoch, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits,
-    SandboxedLaunchRequest,
-};
+use gent_types::HostEpoch;
 
 use super::{
     PrivateClaudeAuthorityConfig, PrivateClaudeAuthorityError, compose_private_claude_authority,
@@ -16,45 +11,7 @@ use super::{
 use crate::CompatibilityAssessment;
 use crate::runtime_facade::DaemonCompositionState;
 
-#[derive(Debug)]
-struct Sandbox;
-#[derive(Debug)]
-struct Process;
-impl ProcessTreeControl for Process {
-    fn signal_tree(&self, _: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-        Ok(())
-    }
-}
-impl ProviderProcess for Process {
-    fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
-        Ok(())
-    }
-}
-impl SandboxedProviderLaunch for Sandbox {
-    type Process = Process;
-    fn launch_sandboxed(
-        &self,
-        _: &SandboxedLaunchRequest,
-        _: &ProviderLaunch,
-    ) -> Result<Process, SandboxedProviderLaunchError> {
-        Ok(Process)
-    }
-}
-
-fn sandbox_policy() -> SandboxLaunchPolicy {
-    SandboxLaunchPolicy::new(
-        vec!["LANG".into()],
-        SandboxNetworkPolicy::Disabled,
-        SandboxResourceLimits {
-            max_processes: 4,
-            max_memory_bytes: 1,
-            max_cpu_time_ms: 1,
-        },
-    )
-    .unwrap()
-}
-
-fn config() -> PrivateClaudeAuthorityConfig<Sandbox> {
+fn config() -> PrivateClaudeAuthorityConfig {
     PrivateClaudeAuthorityConfig {
         evidence_record: PathBuf::from("/does-not-exist/claude-evidence.json"),
         trusted_keys: vec![
@@ -63,8 +20,6 @@ fn config() -> PrivateClaudeAuthorityConfig<Sandbox> {
         coordinator_id: "private-claude-host".into(),
         host_epoch: HostEpoch(1),
         now_unix_seconds: 1,
-        sandbox_policy: sandbox_policy(),
-        sandbox_launch: Sandbox,
     }
 }
 
@@ -94,13 +49,7 @@ fn missing_private_evidence_fails_before_a_claude_host_or_private_prefix_is_cons
     )
     .unwrap();
     assert!(matches!(
-        compose_private_claude_authority(
-            &state,
-            PrivateClaudeAuthorityConfig {
-                sandbox_launch: Sandbox,
-                ..config()
-            },
-        ),
+        compose_private_claude_authority(&state, config(), ReadOnlyHostLauncher::new(1)),
         Err(PrivateClaudeAuthorityError::Preflight(_))
     ));
     assert!(

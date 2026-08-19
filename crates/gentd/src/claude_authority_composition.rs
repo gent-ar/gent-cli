@@ -1,17 +1,17 @@
 //! Private, fail-closed Claude authority composition.
 //!
 //! This dormant seam is never selected by daemon bootstrap or a command-line argument. A future
-//! private owner must provide signed Claude evidence, a locked private prefix, and a native
-//! sandbox preflight implementation before it can construct a Claude scheduler host.
+//! private owner must provide signed Claude evidence and a locked private prefix before it can
+//! construct a Claude scheduler host.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
-use gent_drivers::{SandboxedLauncher, SandboxedProviderLaunch};
+use gent_drivers::supervisor::ProcessLauncher;
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, SandboxLaunchPolicy};
+use gent_types::HostEpoch;
 
 use crate::approved_claude_host::ApprovedClaudeHost;
 use crate::authority_profile::{
@@ -40,34 +40,30 @@ const EVIDENCE_REFERENCE: &str = "private-claude-authority-v1";
 /// Private supervisor inputs for a single Claude-only process authority profile.
 ///
 /// This value is not protocol-serializable and no shipped daemon command constructs it. The
-/// sandbox profile and contained-launch implementation are Gent-owned composition inputs.
+/// launcher is selected only by Gent daemon composition.
 #[derive(Debug)]
-pub(crate) struct PrivateClaudeAuthorityConfig<S> {
+pub(crate) struct PrivateClaudeAuthorityConfig {
     pub(crate) evidence_record: PathBuf,
     pub(crate) trusted_keys: Vec<String>,
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) now_unix_seconds: u64,
-    /// Credential-free, path-free containment policy supplied only by Gent.
-    pub(crate) sandbox_policy: SandboxLaunchPolicy,
-    pub(crate) sandbox_launch: S,
 }
 
-type SandboxedClaudeRunner<S> =
-    ClaudePromptRunner<SandboxedLauncher<S>, <S as SandboxedProviderLaunch>::Process>;
+type PrivateClaudeRunner<L> = ClaudePromptRunner<L, <L as ProcessLauncher>::Process>;
 
-/// Private authority host whose lifecycle can only spawn through contained-launch infrastructure.
-pub(crate) struct PrivateClaudeAuthorityHost<S: SandboxedProviderLaunch> {
+/// Private authority host whose launcher is selected only by daemon composition.
+pub(crate) struct PrivateClaudeAuthorityHost<L: ProcessLauncher> {
     supervisor: PrivateClaudeSupervisor<
         SqliteLedger,
-        SandboxedClaudeRunner<S>,
+        PrivateClaudeRunner<L>,
         ClaudeOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
     >,
 }
 
-impl<S> PrivateClaudeAuthorityHost<S>
+impl<L> PrivateClaudeAuthorityHost<L>
 where
-    S: SandboxedProviderLaunch + std::fmt::Debug + 'static,
+    L: ProcessLauncher + 'static,
 {
     /// Drives one recovery/tick/drain pass through the only private lifecycle owner.
     pub(crate) fn wake(&mut self) -> Result<PrivateClaudeWake, gent_runtime::RuntimeError> {
@@ -89,9 +85,9 @@ where
     }
 }
 
-impl<S> PrivateLifecycleOwner for PrivateClaudeAuthorityHost<S>
+impl<L> PrivateLifecycleOwner for PrivateClaudeAuthorityHost<L>
 where
-    S: SandboxedProviderLaunch + std::fmt::Debug + 'static,
+    L: ProcessLauncher + 'static,
 {
     type Wake = PrivateClaudeWake;
     type Shutdown = PrivateClaudeShutdown;
@@ -124,22 +120,24 @@ pub(crate) enum PrivateClaudeAuthorityError {
     Runtime(#[from] PublicDriversRuntimeError),
 }
 
-/// Composes a sandbox-gated Claude lifecycle after loading fresh signed evidence.
+/// Composes a mode-gated Claude lifecycle after loading fresh signed evidence.
 ///
 /// Evidence and the exact compatibility envelope are revalidated before this function creates a
-/// private-prefix resolver or a process runner. It does not discover, probe, launch, or advertise
-/// Claude. A caller must retain the returned host and schedule its bounded recovery and ticks;
+/// private-prefix resolver or a process runner. The caller selects the mode-compatible launcher.
+/// It does not discover, probe, launch, or advertise Claude. A caller must retain the returned
+/// host and schedule its bounded recovery and ticks;
 /// daemon bootstrap must not compose it until every authority/evidence gate is proven.
 ///
 /// # Errors
 /// Returns before process-runner construction if coordinator identity or evidence validation
 /// fails, and otherwise returns only an authority-composition failure.
-pub(crate) fn compose_private_claude_authority<S>(
+pub(crate) fn compose_private_claude_authority<L>(
     state: &DaemonCompositionState,
-    config: PrivateClaudeAuthorityConfig<S>,
-) -> Result<PrivateClaudeAuthorityHost<S>, PrivateClaudeAuthorityError>
+    config: PrivateClaudeAuthorityConfig,
+    launcher: L,
+) -> Result<PrivateClaudeAuthorityHost<L>, PrivateClaudeAuthorityError>
 where
-    S: SandboxedProviderLaunch + std::fmt::Debug + 'static,
+    L: ProcessLauncher + 'static,
 {
     validate(&config)?;
     let preflight = claude_authority_preflight::load(
@@ -150,7 +148,7 @@ where
     )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = ClaudePromptRunner::new(
-        SandboxedLauncher::new(config.sandbox_policy, config.sandbox_launch),
+        launcher,
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Claude authority buffer policy is valid"),
     );
@@ -183,9 +181,7 @@ where
     })
 }
 
-fn validate<S>(
-    config: &PrivateClaudeAuthorityConfig<S>,
-) -> Result<(), PrivateClaudeAuthorityError> {
+fn validate(config: &PrivateClaudeAuthorityConfig) -> Result<(), PrivateClaudeAuthorityError> {
     (!config.coordinator_id.trim().is_empty() && config.coordinator_id.len() <= 256)
         .then_some(())
         .ok_or(PrivateClaudeAuthorityError::InvalidCoordinator)

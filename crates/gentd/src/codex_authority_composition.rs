@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::codex_prompt_runner::CodexPromptRunner;
-use gent_drivers::{SandboxedLauncher, SandboxedProviderLaunch};
+use gent_drivers::supervisor::ProcessLauncher;
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, SandboxLaunchPolicy};
+use gent_types::HostEpoch;
 
 use crate::approved_codex_host::ApprovedCodexHost;
 use crate::authority_profile::{
@@ -36,8 +36,7 @@ const BUFFERED_BYTES: usize = 256 * 1024;
 const MAX_ACTIVE_CODEX_RUNS: usize = 4;
 const EVIDENCE_REFERENCE: &str = "private-codex-authority-v1";
 
-type SandboxedCodexRunner<S> =
-    CodexPromptRunner<SandboxedLauncher<S>, <S as SandboxedProviderLaunch>::Process>;
+type PrivateCodexRunner<L> = CodexPromptRunner<L, <L as ProcessLauncher>::Process>;
 
 /// Private supervisor inputs for the one Codex-only process authority profile.
 ///
@@ -50,22 +49,20 @@ pub(crate) struct PrivateCodexAuthorityConfig {
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) now_unix_seconds: u64,
-    /// Credential-free, path-free containment policy supplied only by Gent.
-    pub(crate) sandbox_policy: SandboxLaunchPolicy,
 }
 
-/// Private authority host whose lifecycle can only spawn through contained-launch infrastructure.
-pub(crate) struct PrivateCodexAuthorityHost<S: SandboxedProviderLaunch> {
+/// Private authority host whose launcher is selected only by daemon composition.
+pub(crate) struct PrivateCodexAuthorityHost<L: ProcessLauncher> {
     supervisor: PrivateCodexSupervisor<
         SqliteLedger,
-        SandboxedCodexRunner<S>,
+        PrivateCodexRunner<L>,
         CodexOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
     >,
 }
 
-impl<S> PrivateCodexAuthorityHost<S>
+impl<L> PrivateCodexAuthorityHost<L>
 where
-    S: SandboxedProviderLaunch + 'static,
+    L: ProcessLauncher + 'static,
 {
     /// Drives one recovery/tick/drain pass through the only private lifecycle owner.
     pub(crate) fn wake(&mut self) -> Result<PrivateCodexWake, gent_runtime::RuntimeError> {
@@ -87,9 +84,9 @@ where
     }
 }
 
-impl<S> PrivateLifecycleOwner for PrivateCodexAuthorityHost<S>
+impl<L> PrivateLifecycleOwner for PrivateCodexAuthorityHost<L>
 where
-    S: SandboxedProviderLaunch + 'static,
+    L: ProcessLauncher + 'static,
 {
     type Wake = PrivateCodexWake;
     type Shutdown = PrivateCodexShutdown;
@@ -125,8 +122,8 @@ pub(crate) enum PrivateCodexAuthorityError {
 /// Composes a Codex-only lifecycle after loading fresh signed evidence.
 ///
 /// Evidence and the exact compatibility envelope are revalidated before this function creates a
-/// resolver or runner. The supplied contained-launch port receives every exact
-/// lock/profile/spawn request as one atomic platform operation.
+/// resolver or runner. The sealed ordinary composition supplies its read-only launcher; any
+/// future broad composition must supply an independently enforced containment launcher.
 /// This does not discover, probe, launch, or advertise a provider; the caller must retain the
 /// returned host and schedule its bounded `wake` method. Its lifecycle cannot be driven around
 /// the retained supervisor, but it still has no prompt wake source or daemon bootstrap wiring.
@@ -134,13 +131,13 @@ pub(crate) enum PrivateCodexAuthorityError {
 /// # Errors
 /// Returns before runner construction if the coordinator or signed evidence/compatibility fence
 /// is invalid, and otherwise returns an authority-composition failure.
-pub(crate) fn compose_private_codex_authority<S>(
+pub(crate) fn compose_private_codex_authority<L>(
     state: &DaemonCompositionState,
     config: &PrivateCodexAuthorityConfig,
-    sandbox: S,
-) -> Result<PrivateCodexAuthorityHost<S>, PrivateCodexAuthorityError>
+    launcher: L,
+) -> Result<PrivateCodexAuthorityHost<L>, PrivateCodexAuthorityError>
 where
-    S: SandboxedProviderLaunch + 'static,
+    L: ProcessLauncher + 'static,
 {
     validate(config)?;
     let preflight = codex_authority_preflight::load(
@@ -151,7 +148,7 @@ where
     )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = CodexPromptRunner::new(
-        SandboxedLauncher::new(config.sandbox_policy.clone(), sandbox),
+        launcher,
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Codex authority buffer policy is valid"),
     );

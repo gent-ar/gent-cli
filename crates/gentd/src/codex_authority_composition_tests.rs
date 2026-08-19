@@ -1,12 +1,7 @@
 use std::path::PathBuf;
 
-use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
-use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
-use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
-use gent_types::{
-    HostEpoch, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits,
-    SandboxedLaunchRequest,
-};
+use gent_drivers::ReadOnlyHostLauncher;
+use gent_types::HostEpoch;
 
 use super::{
     PrivateCodexAuthorityConfig, PrivateCodexAuthorityError, compose_private_codex_authority,
@@ -25,45 +20,6 @@ fn config() -> PrivateCodexAuthorityConfig {
         coordinator_id: "private-codex-host".into(),
         host_epoch: HostEpoch(1),
         now_unix_seconds: 1,
-        sandbox_policy: sandbox_policy(),
-    }
-}
-
-fn sandbox_policy() -> SandboxLaunchPolicy {
-    SandboxLaunchPolicy::new(
-        vec!["TERM".into()],
-        SandboxNetworkPolicy::Disabled,
-        SandboxResourceLimits {
-            max_processes: 4,
-            max_memory_bytes: 1_000_000,
-            max_cpu_time_ms: 60_000,
-        },
-    )
-    .unwrap()
-}
-
-#[derive(Debug)]
-struct Sandbox;
-#[derive(Debug)]
-struct Process;
-impl ProcessTreeControl for Process {
-    fn signal_tree(&self, _: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-        Ok(())
-    }
-}
-impl ProviderProcess for Process {
-    fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
-        Ok(())
-    }
-}
-impl SandboxedProviderLaunch for Sandbox {
-    type Process = Process;
-    fn launch_sandboxed(
-        &self,
-        _: &SandboxedLaunchRequest,
-        _: &ProviderLaunch,
-    ) -> Result<Process, SandboxedProviderLaunchError> {
-        Ok(Process)
     }
 }
 
@@ -93,7 +49,7 @@ fn missing_private_evidence_fails_before_a_codex_host_is_constructed() {
     )
     .unwrap();
     assert!(matches!(
-        compose_private_codex_authority(&state, &config(), Sandbox),
+        compose_private_codex_authority(&state, &config(), ReadOnlyHostLauncher::new(1)),
         Err(PrivateCodexAuthorityError::Preflight(_))
     ));
     assert!(
