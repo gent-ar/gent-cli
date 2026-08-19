@@ -75,6 +75,7 @@ mod goal_transport;
 #[cfg(test)]
 mod goal_transport_tests;
 mod host_lock;
+mod locked_provider_resolver;
 #[allow(dead_code)]
 mod node_runtime_lock;
 mod orchestration_api;
@@ -83,6 +84,7 @@ mod orchestration_transport;
 mod orchestration_transport_tests;
 #[allow(dead_code)]
 mod ordinary_authority_composition;
+mod ordinary_lifecycle_cadence;
 #[allow(dead_code)]
 mod ordinary_lifecycle_router;
 #[cfg(test)]
@@ -110,6 +112,8 @@ mod private_provider_provisioning;
 mod private_provider_provisioning_sqlite;
 #[allow(dead_code)]
 mod private_provider_verifier;
+#[allow(dead_code)]
+mod private_provision_settlement;
 #[allow(dead_code)]
 mod private_session_atomic_port;
 #[allow(dead_code)]

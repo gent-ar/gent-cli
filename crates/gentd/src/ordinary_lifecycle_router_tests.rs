@@ -55,6 +55,7 @@ impl AgentChatReadLedger for Ledger {
 struct Host {
     provider: AgentChatProvider,
     calls: Arc<Mutex<Vec<&'static str>>>,
+    armed: bool,
 }
 
 impl OrdinaryLifecycleHost for Host {
@@ -62,18 +63,26 @@ impl OrdinaryLifecycleHost for Host {
         self.provider
     }
 
+    fn arm_authority_recovery(&mut self) -> Result<(), ()> {
+        self.armed = true;
+        self.calls.lock().unwrap().push("recovery");
+        Ok(())
+    }
+
     fn wake(&mut self) -> Result<(), ()> {
+        self.armed = true;
         self.calls.lock().unwrap().push("wake");
         Ok(())
     }
 
     fn drive(&mut self) -> Result<(), ()> {
+        self.armed = false;
         self.calls.lock().unwrap().push("drive");
         Ok(())
     }
 
     fn needs_drive(&self) -> bool {
-        false
+        self.armed
     }
 }
 
@@ -113,7 +122,7 @@ fn unavailable_private_bridge_host_fails_closed_without_waking_another_provider(
 }
 
 #[test]
-fn cadence_drives_each_private_host_at_most_once() {
+fn cadence_skips_unarmed_hosts_and_drives_each_armed_host_once() {
     let claude_calls = Arc::new(Mutex::new(Vec::new()));
     let codex_calls = Arc::new(Mutex::new(Vec::new()));
     let mut router = router(
@@ -123,8 +132,31 @@ fn cadence_drives_each_private_host_at_most_once() {
     );
 
     assert!(!router.drive_once().unwrap());
-    assert_eq!(&*claude_calls.lock().unwrap(), &["drive"]);
-    assert_eq!(&*codex_calls.lock().unwrap(), &["drive"]);
+    assert!(claude_calls.lock().unwrap().is_empty());
+    assert!(codex_calls.lock().unwrap().is_empty());
+
+    router.wake_after_prompt_commit(wake()).unwrap();
+    assert!(!router.drive_once().unwrap());
+    assert_eq!(&*claude_calls.lock().unwrap(), &["wake", "drive"]);
+    assert!(codex_calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn authority_recovery_arms_all_hosts_without_starting_them_inline() {
+    let claude_calls = Arc::new(Mutex::new(Vec::new()));
+    let codex_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut router = router(
+        AgentChatProvider::Claude,
+        host(AgentChatProvider::Claude, Arc::clone(&claude_calls)),
+        host(AgentChatProvider::Codex, Arc::clone(&codex_calls)),
+    );
+
+    router.activate_recovery().unwrap();
+    assert_eq!(&*claude_calls.lock().unwrap(), &["recovery"]);
+    assert_eq!(&*codex_calls.lock().unwrap(), &["recovery"]);
+    assert!(!router.drive_once().unwrap());
+    assert_eq!(&*claude_calls.lock().unwrap(), &["recovery", "drive"]);
+    assert_eq!(&*codex_calls.lock().unwrap(), &["recovery", "drive"]);
 }
 
 #[test]
@@ -186,7 +218,11 @@ fn host(
     provider: AgentChatProvider,
     calls: Arc<Mutex<Vec<&'static str>>>,
 ) -> Box<dyn OrdinaryLifecycleHost> {
-    Box::new(Host { provider, calls })
+    Box::new(Host {
+        provider,
+        calls,
+        armed: false,
+    })
 }
 
 fn wake() -> PromptWake {

@@ -1,6 +1,6 @@
 //! Daemon composition of observer and explicitly approved durable-chat services.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::dependency_actions::ObserverDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
@@ -35,9 +35,8 @@ pub(crate) struct RuntimeFacade {
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger, RuntimeSelectionGate>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
     turn_follow_source: Option<SqliteLedger>,
-    ordinary_prompt_wake: Option<
-        Arc<Mutex<crate::ordinary_lifecycle_router::OrdinaryPublicLifecycleRouter<SqliteLedger>>>,
-    >,
+    ordinary_prompt_wake:
+        Option<crate::ordinary_lifecycle_cadence::OrdinaryPromptWake<SqliteLedger>>,
     goals: GoalService<SqliteLedger>,
     reviewed_plans: ReviewedPlanService<SqliteLedger>,
     orchestration: OrchestrationService<SqliteLedger>,
@@ -71,11 +70,7 @@ impl RuntimeFacade {
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
         ordinary_prompt_wake: Option<
-            Arc<
-                Mutex<
-                    crate::ordinary_lifecycle_router::OrdinaryPublicLifecycleRouter<SqliteLedger>,
-                >,
-            >,
+            crate::ordinary_lifecycle_cadence::OrdinaryPromptWake<SqliteLedger>,
         >,
         selection_gate: RuntimeSelectionGate,
     ) -> Result<Self, Box<dyn std::error::Error>> {

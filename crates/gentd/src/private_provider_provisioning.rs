@@ -9,7 +9,10 @@ use std::path::Path;
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
-use gent_types::{Receipt, ReceiptStatus, RunVersionLock};
+pub(crate) use gent_types::ProvisionedProviderLock;
+use gent_types::{
+    ProviderInstallProvenance, ProvisionedProviderInstallation, Receipt, ReceiptStatus,
+};
 
 use crate::node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError};
 
@@ -28,7 +31,7 @@ pub(crate) struct PrivateProvisionRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateProvisionResult {
     ConsentRequired,
-    Installed(ProvisionedProviderLock),
+    Installed(Box<ProvisionedProviderInstallation>),
     /// The external effect may have happened, but runtime identity changed before verification.
     /// The future receipt owner must settle this as `Unprovable`, never retry automatically.
     Ambiguous,
@@ -49,17 +52,12 @@ pub(crate) enum PrivateProvisionError {
     Policy(String),
     #[error("signed package policy selected a different provider")]
     ProviderMismatch,
+    #[error("signed package policy identity is invalid")]
+    PolicyIdentity,
     #[error("fixed npm installer failed: {0}")]
     Installer(String),
     #[error("post-install provider verification is unavailable")]
     VerificationUnavailable,
-}
-
-/// Immutable executable/version/digest lock recorded by a future receipt owner before a run.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ProvisionedProviderLock {
-    /// The complete executable identity captured after the fixed version probe.
-    pub(crate) run_lock: RunVersionLock,
 }
 
 /// Discovers and locks one public provider executable after fixed npm installation.
@@ -189,6 +187,9 @@ impl<
         if package.provider != request.provider.as_str() {
             return Err(PrivateProvisionError::ProviderMismatch);
         }
+        if !valid_digest(&package.package_policy_digest_sha256) {
+            return Err(PrivateProvisionError::PolicyIdentity);
+        }
         // Keep the runtime fence adjacent to the only external effect. Policy selection is
         // pure/read-only, so it must not create a gap after this recheck.
         let npm = self.runtime.rechecked_npm_prefix()?;
@@ -199,12 +200,28 @@ impl<
             return Ok(PrivateProvisionResult::Ambiguous);
         }
         match verifier.lock(request.provider, npm.prefix()) {
-            Ok(lock) if valid_lock(&lock, request.provider, npm.prefix()) => {
-                Ok(PrivateProvisionResult::Installed(lock))
-            }
+            Ok(lock) if valid_lock(&lock, request.provider, npm.prefix()) => Ok(
+                PrivateProvisionResult::Installed(Box::new(ProvisionedProviderInstallation {
+                    lock,
+                    provenance: ProviderInstallProvenance {
+                        package_name: package.package_name,
+                        package_version: package.version,
+                        package_integrity: package.integrity,
+                        package_policy_digest_sha256: package.package_policy_digest_sha256,
+                        node_runtime_digest_sha256: self.runtime.node_digest_sha256().into(),
+                    },
+                })),
+            ),
             Ok(_) | Err(_) => Ok(PrivateProvisionResult::Ambiguous),
         }
     }
+}
+
+fn valid_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn valid_lock(lock: &ProvisionedProviderLock, provider: DependencyProvider, prefix: &Path) -> bool {

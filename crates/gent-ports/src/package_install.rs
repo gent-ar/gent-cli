@@ -10,6 +10,8 @@ pub struct ApprovedPackageInstall {
     pub package_name: String,
     pub version: String,
     pub integrity: String,
+    /// SHA-256 of the verified signed policy that selected this exact package.
+    pub package_policy_digest_sha256: String,
 }
 
 impl ApprovedPackageInstall {
@@ -54,6 +56,7 @@ mod tests {
             package_name: "@openai/codex".into(),
             version: "0.147.0".into(),
             integrity: "sha512-test".into(),
+            package_policy_digest_sha256: "a".repeat(64),
         };
         assert_eq!(package.selector(), "@openai/codex@0.147.0");
     }

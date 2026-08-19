@@ -89,6 +89,16 @@ where
         self.armed
     }
 
+    /// Arms the owner for its one durable startup recovery pass.
+    ///
+    /// This does not inspect or launch a provider. A daemon-owned cadence must later call
+    /// [`Self::drive`], whose owner recovery reclaims only durable pre-launch work.
+    pub(crate) fn arm_authority_recovery(
+        &mut self,
+    ) -> Result<ProviderLifecycleWake, ProviderLifecycleHostError<O::Error>> {
+        ProviderLifecycleWakePort::wake_after_prompt_commit(self)
+    }
+
     /// Drives exactly one recovery, polling, drain, or signal operation after arming.
     ///
     /// When no control command is pending, a drive requests one ordinary wake. A pending control

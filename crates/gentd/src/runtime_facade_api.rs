@@ -47,17 +47,15 @@ impl api::RuntimeApi for RuntimeFacade {
             .status()
             .map_err(|error| error.to_string())?
             .host_epoch;
-        if let Some(router) = &self.ordinary_prompt_wake {
-            let mut router = router
-                .lock()
-                .map_err(|_| "ordinary lifecycle router is unavailable".to_owned())?;
+        if let Some(wake) = &self.ordinary_prompt_wake {
+            let mut wake = wake.clone();
             agent_chat_api::exchange_with_wake(
                 &self.agent_chat_conversations,
                 &self.agent_chat_prompts,
                 &self.agent_chat_switches,
                 host_epoch,
                 frame,
-                &mut *router,
+                &mut wake,
             )
         } else {
             agent_chat_api::exchange(

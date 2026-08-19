@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use super::queries::storage_error;
 
-const SCHEMA_ID: &str = "gent-fresh-schema-v7";
+const SCHEMA_ID: &str = "gent-fresh-schema-v8";
 const SCHEMA: &str = include_str!("fresh_schema.sql");
 
 /// Opens an empty database with Gent's complete current schema.

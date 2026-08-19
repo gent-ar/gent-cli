@@ -71,10 +71,15 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   returns those identities without guessing a later lifecycle or keeping a
   terminal-owned correlation map.
 - A sealed dormant ordinary authority preflights Claude and Codex evidence before
-  host construction, admits only exact nonempty Claude/Codex Ask or Plan selections,
-  and rejects other selections before a ledger write. Its shared lifecycle router
-  resolves durable provider selection and arms only the matching bounded host;
-  bootstrap neither constructs it nor advertises it.
+  host construction. Its pure gate admits valid model/effort selections for only
+  Claude/Codex Ask or Plan, while the lock-checked launch path remains the
+  executable compatibility authority. Its shared lifecycle router resolves durable
+  provider selection and arms only the matching bounded host; a paired Notify cadence
+  replays ledger recovery then polls only active work. Bootstrap constructs neither.
+- A private provision settlement transaction records only a verified install and its
+  package-policy/Node/receipt provenance with its terminal receipt. Ambiguous effects
+  become unprovable; the dormant Claude/Codex resolvers read and recheck this lock
+  directly, with no prefix or `PATH` discovery.
 - Committed, redacted development driver corpus plus public normalized live
   full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
   opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.
@@ -116,9 +121,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Bind the sealed Ask/Plan Claude/Codex composition to a real daemon cadence only
-   after a contained macOS backend and strict provider evidence. Its router already
-   wakes from committed durable prompts; default observer and broad modes stay absent.
+1. Bind the sealed Ask/Plan Claude/Codex composition and its demand-driven cadence to
+   explicit bootstrap only after strict provider evidence. Default observer and broad
+   modes stay absent.
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor
    reread/reconnect, provider/context switch, and exact `/goal` projection.

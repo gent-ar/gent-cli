@@ -14,6 +14,7 @@ use crate::provider_lifecycle_host::{ProviderLifecycleHost, ProviderLifecycleWak
 /// Minimal private control surface shared by one already-approved provider host.
 pub(crate) trait OrdinaryLifecycleHost: Send {
     fn provider(&self) -> AgentChatProvider;
+    fn arm_authority_recovery(&mut self) -> Result<(), ()>;
     fn wake(&mut self) -> Result<(), ()>;
     fn drive(&mut self) -> Result<(), ()>;
     fn needs_drive(&self) -> bool;
@@ -43,6 +44,13 @@ where
 {
     fn provider(&self) -> AgentChatProvider {
         self.provider
+    }
+
+    fn arm_authority_recovery(&mut self) -> Result<(), ()> {
+        self.host
+            .arm_authority_recovery()
+            .map(|_| ())
+            .map_err(|_| ())
     }
 
     fn wake(&mut self) -> Result<(), ()> {
@@ -104,11 +112,25 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
     pub(crate) fn drive_once(&mut self) -> Result<bool, OrdinaryLifecycleRouterError> {
         let mut needs_drive = false;
         for host in &mut self.hosts {
+            if !host.needs_drive() {
+                continue;
+            }
             host.drive()
                 .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
             needs_drive |= host.needs_drive();
         }
         Ok(needs_drive)
+    }
+
+    /// Arms every approved owner for one durable startup recovery pass.
+    ///
+    /// This has no provider side effect; a caller-controlled cadence drives the resulting wake.
+    pub(crate) fn activate_recovery(&mut self) -> Result<(), OrdinaryLifecycleRouterError> {
+        for host in &mut self.hosts {
+            host.arm_authority_recovery()
+                .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
+        }
+        Ok(())
     }
 }
 

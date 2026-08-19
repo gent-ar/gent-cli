@@ -45,6 +45,7 @@ mod orchestration_ledger;
 mod policies;
 mod policy_ledger;
 mod provision_receipts;
+mod provisioned_provider_locks;
 mod queries;
 mod reviewed_plan_values;
 mod reviewed_plans;

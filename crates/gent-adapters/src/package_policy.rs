@@ -3,6 +3,7 @@
 use ed25519_dalek::{Signature, Verifier};
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::compatibility::{CompatibilityError, TrustedKeySet};
 
@@ -38,6 +39,7 @@ pub struct SignedPackagePolicy {
 pub struct VerifiedPackagePolicy {
     policy: SignedPackagePolicy,
     node_runtime_digest_sha256: String,
+    policy_digest_sha256: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -82,6 +84,7 @@ impl SignedPackagePolicy {
         Ok(VerifiedPackagePolicy {
             policy: self.clone(),
             node_runtime_digest_sha256: node_runtime_digest_sha256.into(),
+            policy_digest_sha256: digest_policy(self)?,
         })
     }
 }
@@ -109,11 +112,18 @@ impl PackageInstallPolicy for VerifiedPackagePolicy {
                 package_name: entry.package_name.clone(),
                 version: entry.version.clone(),
                 integrity: entry.integrity.clone(),
+                package_policy_digest_sha256: self.policy_digest_sha256.clone(),
             })
             .ok_or_else(|| PackageInstallPolicyError::Unavailable {
                 provider: provider.into(),
             })
     }
+}
+
+fn digest_policy(policy: &SignedPackagePolicy) -> Result<String, PackagePolicyError> {
+    let bytes = serde_json::to_vec(policy)
+        .map_err(|error| PackagePolicyError::Serialization(error.to_string()))?;
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 
 fn trust_error(error: &CompatibilityError) -> PackagePolicyError {

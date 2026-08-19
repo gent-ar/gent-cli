@@ -10,9 +10,10 @@ use gent_drivers::{
     lock::capture,
 };
 use gent_protocol::DependencyProvider;
+use gent_types::ProvisionedProviderLock;
 
 use crate::{
-    private_provider_provisioning::{ProvisionedProviderLock, ProvisionedProviderVerifier},
+    private_provider_provisioning::ProvisionedProviderVerifier,
     provider_resolver::SystemVersionProbe,
 };
 

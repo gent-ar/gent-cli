@@ -65,19 +65,19 @@ impl<D: ExecutableDiscovery, P: VersionProbe> PublicProviderResolver
 /// The wrapper rejects every other public or private provider before delegation, so an approved
 /// Codex record cannot cause Claude discovery or probing.
 #[derive(Debug)]
-pub(crate) struct CodexOnlyResolver<D, P> {
-    inner: DaemonProviderResolver<D, P>,
+pub(crate) struct CodexOnlyResolver<R> {
+    inner: R,
 }
 
-impl<D, P> CodexOnlyResolver<D, P> {
+impl<R> CodexOnlyResolver<R> {
     /// Binds an already configured daemon resolver without performing discovery or probing.
     #[must_use]
-    pub(crate) const fn new(inner: DaemonProviderResolver<D, P>) -> Self {
+    pub(crate) const fn new(inner: R) -> Self {
         Self { inner }
     }
 }
 
-impl<D: ExecutableDiscovery, P: VersionProbe> PublicProviderResolver for CodexOnlyResolver<D, P> {
+impl<R: PublicProviderResolver> PublicProviderResolver for CodexOnlyResolver<R> {
     fn resolve(&self, provider: &str) -> Result<RunVersionLock, PublicProviderRunError> {
         if provider != "codex" {
             return Err(PublicProviderRunError::CompatibilityDenied);

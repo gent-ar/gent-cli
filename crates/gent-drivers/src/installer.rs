@@ -126,6 +126,7 @@ mod tests {
             package_name: "@openai/codex".into(),
             version: "0.147.0".into(),
             integrity: "sha512-test".into(),
+            package_policy_digest_sha256: "a".repeat(64),
         };
         let packed = npm.pack(&package, std::path::Path::new("/private/staging"));
         assert_eq!(packed.executable, "/app/node/bin/npm");

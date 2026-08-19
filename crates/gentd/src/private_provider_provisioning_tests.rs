@@ -54,6 +54,7 @@ impl PackageInstallPolicy for Policy {
             package_name: "@openai/codex".into(),
             version: "1.0.0".into(),
             integrity: "sha512-test".into(),
+            package_policy_digest_sha256: "a".repeat(64),
         })
     }
 }
@@ -248,7 +249,7 @@ fn valid_post_install_executable_version_and_digest_lock_can_settle_installed() 
     );
     assert!(matches!(
         provisioner.provision(&request()).unwrap(),
-        PrivateProvisionResult::Installed(lock) if lock.run_lock.provider == "codex"
+        PrivateProvisionResult::Installed(lock) if lock.lock.run_lock.provider == "codex"
     ));
 }
 

@@ -81,6 +81,12 @@ before it can authenticate or run. A successful provider update follows the
 same transaction and creates a new immutable run lock. An interrupted or
 ambiguous `npm` process is `unprovable`, not retried automatically.
 
+The verified signed package policy, not the prompt or a caller argument,
+produces the policy digest recorded with the accepted receipt, Node digest,
+exact package coordinates, and verified executable lock. The lock must be
+persisted and terminally settled as one Gent-owned transaction before ordinary
+provider resolution may use it.
+
 The user prompt is the initiation point, not proof of package authority. Gent
 must surface terms/consent required by the selected vendor/package policy and
 record the decision durably. Observer mode, missing evidence, an unsigned

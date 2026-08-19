@@ -75,6 +75,21 @@ impl PackageInstallPolicy for GoodPolicy {
 }
 
 #[derive(Clone)]
+struct BadDigestPolicy;
+
+impl PackageInstallPolicy for BadDigestPolicy {
+    fn approved_package(
+        &self,
+        provider: &str,
+        _: u64,
+    ) -> Result<ApprovedPackageInstall, PackageInstallPolicyError> {
+        let mut package = package(provider);
+        package.package_policy_digest_sha256 = "not-a-digest".into();
+        Ok(package)
+    }
+}
+
+#[derive(Clone)]
 struct NeverVerifier;
 
 impl ProvisionedProviderVerifier for NeverVerifier {
@@ -113,6 +128,24 @@ fn rejected_or_mismatched_policy_never_reaches_the_installer() {
     assert!(matches!(
         provisioner.provision(&request()),
         Err(PrivateProvisionError::ProviderMismatch)
+    ));
+    assert_eq!(*installer.0.lock().unwrap(), 0);
+}
+
+#[test]
+fn invalid_policy_identity_never_reaches_the_installer() {
+    let (_temp, runtime) = runtime();
+    let installer = Installer::default();
+    let provisioner = PrivateProviderProvisioner::new(
+        runtime,
+        installer.clone(),
+        BadDigestPolicy,
+        Some(NeverVerifier),
+        TestAcceptedReceiptReader,
+    );
+    assert!(matches!(
+        provisioner.provision(&request()),
+        Err(PrivateProvisionError::PolicyIdentity)
     ));
     assert_eq!(*installer.0.lock().unwrap(), 0);
 }
@@ -209,6 +242,7 @@ fn package(provider: &str) -> ApprovedPackageInstall {
         package_name: "package".into(),
         version: "1.0.0".into(),
         integrity: "sha512-test".into(),
+        package_policy_digest_sha256: "a".repeat(64),
     }
 }
 

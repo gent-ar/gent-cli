@@ -2,7 +2,7 @@ CREATE TABLE gent_schema (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     identity TEXT NOT NULL
 );
-INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v7');
+INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v8');
 CREATE TABLE host_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     epoch INTEGER NOT NULL,
@@ -48,6 +48,25 @@ CREATE TABLE run_version_locks (
     version TEXT NOT NULL,
     compatibility_entry TEXT NOT NULL
 );
+CREATE TABLE provisioned_provider_locks (
+    installation_ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    receipt_id TEXT NOT NULL UNIQUE,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    host_epoch INTEGER NOT NULL,
+    canonical_path TEXT NOT NULL,
+    file_identity TEXT NOT NULL,
+    digest_sha256 TEXT NOT NULL,
+    version TEXT NOT NULL,
+    compatibility_entry TEXT NOT NULL,
+    package_name TEXT NOT NULL,
+    package_version TEXT NOT NULL,
+    package_integrity TEXT NOT NULL,
+    package_policy_digest_sha256 TEXT NOT NULL,
+    node_runtime_digest_sha256 TEXT NOT NULL
+);
+CREATE INDEX provisioned_provider_locks_by_provider
+ON provisioned_provider_locks(provider, installation_ordinal DESC);
 CREATE TABLE run_leases (
     run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id),
     coordinator_id TEXT NOT NULL,

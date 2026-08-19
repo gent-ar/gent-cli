@@ -51,8 +51,13 @@ lifecycle state are prohibited.
   selected host, preventing an idle settled session from creating a permanent
   polling cadence.
 - That sealed ordinary composition preflights both private evidence records
-  before host construction, permits only an exact nonempty Claude/Codex Ask or
-  Plan allowlist, and rejects every other selection before a ledger write.
+  before host construction. Its pure gate accepts any valid model/effort for
+  Claude/Codex Ask or Plan, while rejecting every other provider or mode before
+  a ledger write; executable compatibility remains the lock-checked launch gate.
+- Its one daemon-owned, notification-driven cadence is paired with the
+  post-commit prompt wake. It replays durable recovery work at composition
+  startup and polls only while a bounded host reports active work; it retains no
+  snapshot, cache, or mirrored lifecycle state and is still not bootstrapped.
 - Its dormant Ask/Plan path now uses the bounded, lock-rechecked direct-host
   launcher restricted to read-only workspace access. This does not relax the
   separate enforced-sandbox requirement for Agent, Autonomous, or Bypass work.
@@ -76,6 +81,14 @@ lifecycle state are prohibited.
 - The fixed private npm install path disables lifecycle scripts during both
   tarball packing and verified archive installation; no package `preinstall`,
   `install`, or `postinstall` hook may run from this path.
+- Verified private installations now have append-only fresh-schema provenance:
+  accepted receipt/idempotency/epoch, immutable executable lock, exact package
+  name/version/integrity, signed-policy digest, and supplied Node digest. The
+  verified policy itself supplies its digest; a prompt or caller cannot do so.
+- The private settlement coordinator atomically records that installation and
+  terminally settles the receipt; ambiguous npm effects become `Unprovable` and
+  cannot replay. Claude/Codex dormant resolution reads only that lock and
+  rechecks its exact identity—there is no prefix or `PATH` rediscovery.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised
@@ -101,14 +114,12 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Bind the sealed ordinary Ask/Plan Claude/Codex composition to a real daemon
-   cadence only after a contained macOS backend and strict provider evidence.
-2. Connect prompt-commit wakeups to a bounded daemon lifecycle router that
-   resolves the canonical run/workspace, rechecks locks/policy/evidence, and
-   produces normalized facts before client broadcast.
-3. Prove terminal follow, context/provider switching, `/goal`, backpressure,
+1. Bind the sealed ordinary Ask/Plan Claude/Codex composition and its existing
+   demand-driven cadence to an explicit daemon authority only after strict
+   provider evidence, lock-backed provisioning, and graceful drain/shutdown.
+2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
    process-tree drain, terminal settlement, and reconnect by durable cursors.
-4. Add the private Claurst bridge under the identical public fact contract and
+3. Add the private Claurst bridge under the identical public fact contract and
    its private CI evidence; then complete native-app IPC parity and remove app
    drivers in a separately authorized clean cutover.
 

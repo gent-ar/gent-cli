@@ -132,6 +132,7 @@ mod tests {
             package_name: "package".into(),
             version: "1.0.0".into(),
             integrity: "sha512-test".into(),
+            package_policy_digest_sha256: "a".repeat(64),
         }
     }
 

@@ -1,8 +1,8 @@
 //! Private, fail-closed Claude authority composition.
 //!
 //! This dormant seam is never selected by daemon bootstrap or a command-line argument. A future
-//! private owner must provide signed Claude evidence and a locked private prefix before it can
-//! construct a Claude scheduler host.
+//! private owner must provide signed Claude evidence and a durable locked installation before it
+//! can construct a Claude scheduler host.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,10 +24,8 @@ use crate::claude_authority_supervisor::{
 };
 use crate::claude_private_resolver::ClaudeOnlyResolver;
 use crate::claude_prompt_lifecycle::ClaudePromptRunner;
+use crate::locked_provider_resolver::LockedProviderResolver;
 use crate::private_lifecycle_loop::PrivateLifecycleOwner;
-use crate::provider_resolver::{
-    DaemonProviderResolver, PrivatePrefixDiscovery, SystemVersionProbe,
-};
 use crate::public_driver_runtime::{PublicDriversRuntime, PublicDriversRuntimeError};
 use crate::runtime_facade::DaemonCompositionState;
 
@@ -57,7 +55,7 @@ pub(crate) struct PrivateClaudeAuthorityHost<L: ProcessLauncher> {
     supervisor: PrivateClaudeSupervisor<
         SqliteLedger,
         PrivateClaudeRunner<L>,
-        ClaudeOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
+        ClaudeOnlyResolver<LockedProviderResolver<SqliteLedger>>,
     >,
 }
 
@@ -127,7 +125,7 @@ pub(crate) enum PrivateClaudeAuthorityError {
 /// Composes a mode-gated Claude lifecycle after loading fresh signed evidence.
 ///
 /// Evidence and the exact compatibility envelope are revalidated before this function creates a
-/// private-prefix resolver or a process runner. The caller selects the mode-compatible launcher.
+/// ledger-backed resolver or a process runner. The caller selects the mode-compatible launcher.
 /// It does not discover, probe, launch, or advertise Claude. A caller must retain the returned
 /// host and schedule its bounded recovery and ticks;
 /// daemon bootstrap must not compose it until every authority/evidence gate is proven.
@@ -156,12 +154,7 @@ where
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Claude authority buffer policy is valid"),
     );
-    let prefix = state.data_dir().join("providers").join("npm-global");
-    let resolver = ClaudeOnlyResolver::new(DaemonProviderResolver::new(
-        state.compatibility().clone(),
-        PrivatePrefixDiscovery::new(prefix),
-        SystemVersionProbe,
-    ));
+    let resolver = ClaudeOnlyResolver::new(LockedProviderResolver::new(state.ledger().clone()));
     let goals = Arc::new(GoalService::new(
         state.ledger().clone(),
         GoalAuthority::Approved,

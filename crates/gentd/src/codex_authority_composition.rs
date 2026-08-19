@@ -23,10 +23,9 @@ use crate::codex_authority_preflight::{self, CodexAuthorityPreflightError};
 use crate::codex_authority_supervisor::{
     PrivateCodexEscalation, PrivateCodexShutdown, PrivateCodexSupervisor, PrivateCodexWake,
 };
+use crate::locked_provider_resolver::LockedProviderResolver;
 use crate::private_lifecycle_loop::PrivateLifecycleOwner;
-use crate::provider_resolver::{
-    CodexOnlyResolver, DaemonProviderResolver, PrivatePrefixDiscovery, SystemVersionProbe,
-};
+use crate::provider_resolver::CodexOnlyResolver;
 use crate::public_driver_runtime::{PublicDriversRuntime, PublicDriversRuntimeError};
 use crate::runtime_facade::DaemonCompositionState;
 
@@ -40,8 +39,8 @@ type PrivateCodexRunner<L> = CodexPromptRunner<L, <L as ProcessLauncher>::Proces
 
 /// Private supervisor inputs for the one Codex-only process authority profile.
 ///
-/// This is intentionally not a public command-line configuration. The prefix is derived from
-/// the single daemon composition state and cannot be redirected to `PATH` or an app provider.
+/// This is intentionally not a public command-line configuration. The executable comes only
+/// from the daemon's durable provisioned-installation ledger, never `PATH` or an app provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PrivateCodexAuthorityConfig {
     pub(crate) evidence_record: PathBuf,
@@ -56,7 +55,7 @@ pub(crate) struct PrivateCodexAuthorityHost<L: ProcessLauncher> {
     supervisor: PrivateCodexSupervisor<
         SqliteLedger,
         PrivateCodexRunner<L>,
-        CodexOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
+        CodexOnlyResolver<LockedProviderResolver<SqliteLedger>>,
     >,
 }
 
@@ -156,12 +155,7 @@ where
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Codex authority buffer policy is valid"),
     );
-    let prefix = state.data_dir().join("providers").join("npm-global");
-    let resolver = CodexOnlyResolver::new(DaemonProviderResolver::new(
-        state.compatibility().clone(),
-        PrivatePrefixDiscovery::new(prefix),
-        SystemVersionProbe,
-    ));
+    let resolver = CodexOnlyResolver::new(LockedProviderResolver::new(state.ledger().clone()));
     let goals = Arc::new(GoalService::new(
         state.ledger().clone(),
         GoalAuthority::Approved,

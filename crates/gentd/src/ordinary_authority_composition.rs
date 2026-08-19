@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use gent_drivers::ReadOnlyHostLauncher;
 use gent_runtime::AgentChatReadService;
 use gent_store::SqliteLedger;
-use gent_types::{AgentChatMode, AgentChatProvider, AgentChatSelection};
+use gent_types::AgentChatProvider;
 
 use crate::claude_authority_composition::{
     PrivateClaudeAuthorityConfig, PrivateClaudeAuthorityError, compose_private_claude_authority,
@@ -20,6 +20,9 @@ use crate::codex_authority_composition::{
     PrivateCodexAuthorityConfig, PrivateCodexAuthorityError, compose_private_codex_authority,
 };
 use crate::codex_authority_preflight::{self, CodexAuthorityPreflightError};
+use crate::ordinary_lifecycle_cadence::{
+    OrdinaryLifecycleCadence, OrdinaryPromptWake, pair as cadence_pair,
+};
 use crate::ordinary_lifecycle_router::{OrdinaryProviderHost, OrdinaryPublicLifecycleRouter};
 use crate::provider_lifecycle_host::ProviderLifecycleHost;
 use crate::runtime_facade::DaemonCompositionState;
@@ -34,8 +37,6 @@ const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
 pub(crate) struct OrdinaryAuthorityConfig {
     pub(crate) codex: PrivateCodexAuthorityConfig,
     pub(crate) claude: PrivateClaudeAuthorityConfig,
-    /// Exact selections an authority facade may permit before a prompt is persisted.
-    pub(crate) selections: Vec<AgentChatSelection>,
 }
 
 /// Failure before or while assembling the dormant ordinary lifecycle router.
@@ -45,12 +46,6 @@ pub(crate) enum OrdinaryAuthorityError {
     CoordinatorMismatch,
     #[error("ordinary Claude and Codex host epochs must match")]
     HostEpochMismatch,
-    #[error("ordinary authority requires at least one exact approved selection")]
-    MissingSelections,
-    #[error("ordinary authority selections must be unique")]
-    DuplicateSelection,
-    #[error("ordinary authority allows only Claude/Codex Ask or Plan selections")]
-    UnsupportedSelection,
     #[error(transparent)]
     CodexPreflight(#[from] CodexAuthorityPreflightError),
     #[error(transparent)]
@@ -70,7 +65,8 @@ pub(crate) enum OrdinaryAuthorityError {
 #[derive(Clone, Debug)]
 pub(crate) struct OrdinaryAuthorityRuntime {
     router: Arc<Mutex<OrdinaryPublicLifecycleRouter<SqliteLedger>>>,
-    selections: Vec<AgentChatSelection>,
+    prompt_wake: OrdinaryPromptWake<SqliteLedger>,
+    cadence: OrdinaryLifecycleCadence<SqliteLedger>,
 }
 
 impl OrdinaryAuthorityRuntime {
@@ -80,10 +76,15 @@ impl OrdinaryAuthorityRuntime {
         Arc::clone(&self.router)
     }
 
-    /// Returns the exact, validated selection allowlist for the authority-bound facade.
+    /// Returns the paired post-commit wake adapter for the authority-bound facade.
     #[must_use]
-    pub(crate) fn selections(&self) -> &[AgentChatSelection] {
-        &self.selections
+    pub(crate) fn prompt_wake(&self) -> OrdinaryPromptWake<SqliteLedger> {
+        self.prompt_wake.clone()
+    }
+
+    /// Runs recovery and the demand-driven lifecycle cadence for this authority.
+    pub(crate) async fn run_cadence(&self) {
+        self.cadence.clone().run().await;
     }
 
     /// Drives every pre-approved host at most once.
@@ -112,9 +113,7 @@ pub(crate) fn compose_ordinary_authority(
     config: OrdinaryAuthorityConfig,
 ) -> Result<OrdinaryAuthorityRuntime, OrdinaryAuthorityError> {
     validate_shared_owner(&config)?;
-    validate_selections(&config.selections)?;
     preflight_all(state, &config)?;
-    let selections = config.selections.clone();
     let launcher = ReadOnlyHostLauncher::new(STREAM_CAPTURE_BYTES);
     let codex = compose_private_codex_authority(state, &config.codex, launcher)?;
     let claude = compose_private_claude_authority(state, config.claude, launcher)?;
@@ -132,9 +131,12 @@ pub(crate) fn compose_ordinary_authority(
         ],
     )
     .map_err(|_| OrdinaryAuthorityError::RouterUnavailable)?;
+    let router = Arc::new(Mutex::new(router));
+    let (prompt_wake, cadence) = cadence_pair(Arc::clone(&router));
     Ok(OrdinaryAuthorityRuntime {
-        router: Arc::new(Mutex::new(router)),
-        selections,
+        router,
+        prompt_wake,
+        cadence,
     })
 }
 
@@ -145,32 +147,6 @@ fn validate_shared_owner(config: &OrdinaryAuthorityConfig) -> Result<(), Ordinar
     (config.codex.host_epoch == config.claude.host_epoch)
         .then_some(())
         .ok_or(OrdinaryAuthorityError::HostEpochMismatch)
-}
-
-fn validate_selections(selections: &[AgentChatSelection]) -> Result<(), OrdinaryAuthorityError> {
-    (!selections.is_empty())
-        .then_some(())
-        .ok_or(OrdinaryAuthorityError::MissingSelections)?;
-    for (index, selection) in selections.iter().enumerate() {
-        selection
-            .validate()
-            .map_err(|_| OrdinaryAuthorityError::UnsupportedSelection)?;
-        matches!(
-            selection.provider,
-            AgentChatProvider::Claude | AgentChatProvider::Codex
-        )
-        .then_some(())
-        .ok_or(OrdinaryAuthorityError::UnsupportedSelection)?;
-        matches!(selection.mode, AgentChatMode::Ask | AgentChatMode::Plan)
-            .then_some(())
-            .ok_or(OrdinaryAuthorityError::UnsupportedSelection)?;
-        selections[..index]
-            .iter()
-            .all(|previous| previous != selection)
-            .then_some(())
-            .ok_or(OrdinaryAuthorityError::DuplicateSelection)?;
-    }
-    Ok(())
 }
 
 fn preflight_all(

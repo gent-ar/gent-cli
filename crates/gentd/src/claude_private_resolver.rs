@@ -3,30 +3,24 @@
 use gent_ports::{PublicProviderResolver, PublicProviderRunError};
 use gent_types::RunVersionLock;
 
-use crate::provider_resolver::DaemonProviderResolver;
-
-/// Rejects every provider except Claude before private executable discovery can run.
+/// Rejects every provider except Claude before durable locked resolution can run.
 ///
-/// The wrapped resolver is configured with [`crate::provider_resolver::PrivatePrefixDiscovery`],
-/// so an authority host can discover only Gent's locked private installation, never `PATH`.
+/// The authority composition wraps a ledger-backed resolver, so it can use only Gent's verified
+/// private installation and never discovers an executable through `PATH`.
 #[derive(Debug)]
-pub(crate) struct ClaudeOnlyResolver<D, P> {
-    inner: DaemonProviderResolver<D, P>,
+pub(crate) struct ClaudeOnlyResolver<R> {
+    inner: R,
 }
 
-impl<D, P> ClaudeOnlyResolver<D, P> {
-    /// Binds an inert private resolver without discovery or version probing.
+impl<R> ClaudeOnlyResolver<R> {
+    /// Binds an inert provider-scoped resolver without performing resolution.
     #[must_use]
-    pub(crate) const fn new(inner: DaemonProviderResolver<D, P>) -> Self {
+    pub(crate) const fn new(inner: R) -> Self {
         Self { inner }
     }
 }
 
-impl<D, P> PublicProviderResolver for ClaudeOnlyResolver<D, P>
-where
-    D: gent_drivers::discovery::ExecutableDiscovery,
-    P: gent_drivers::discovery::VersionProbe,
-{
+impl<R: PublicProviderResolver> PublicProviderResolver for ClaudeOnlyResolver<R> {
     fn resolve(&self, provider: &str) -> Result<RunVersionLock, PublicProviderRunError> {
         if provider != "claude" {
             return Err(PublicProviderRunError::CompatibilityDenied);

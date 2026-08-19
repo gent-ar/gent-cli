@@ -29,6 +29,7 @@ mod policy_ledger;
 mod private_claurst_bridge;
 mod provider_auth_discovery;
 mod provider_driver;
+mod provisioned_provider_lock_ledger;
 mod public_provider_resolver;
 mod public_provider_runner;
 mod reviewed_plan_ledger;
@@ -85,6 +86,9 @@ pub use provider_auth_discovery::{
     ProviderAuthDiscoveryPort,
 };
 pub use provider_driver::ProviderDriver;
+pub use provisioned_provider_lock_ledger::{
+    ProvisionedProviderLockLedger, ProvisionedProviderLockReader,
+};
 pub use public_provider_resolver::PublicProviderResolver;
 pub use public_provider_runner::{PublicProviderRunError, PublicProviderRunner};
 pub use reviewed_plan_ledger::ReviewedPlanLedger;

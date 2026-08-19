@@ -69,6 +69,10 @@ For the current working-tree context and continuation order, read [the handoff](
       immutable durable run-version locks, and a daemon-owned resolver component. The shipped
       observer still denies public lifecycle requests before resolving an executable; enabling
       authority additionally requires composition approval and real-provider evidence.
+- [x] Fresh-only SQLite storage for append-only verified provider-installation provenance:
+      accepted receipt/idempotency/epoch, exact package coordinates, signed-policy and Node digests,
+      and immutable executable lock. A private uncomposed transaction settles it atomically;
+      ambiguous effects are unprovable and lock-backed resolver authority remains unadvertised.
 - [x] When a fresh authorized lock is available, a changed executable produces a separately
       reserved child run with immutable lineage; it never mutates the parent run or silently
       substitutes a provider.
@@ -240,8 +244,9 @@ For the current working-tree context and continuation order, read [the handoff](
       correlation. They are deliberately uncomposed by observer-mode `gentd`; no frame activates
       a provider or creates a write surface today.
 - [x] Dedicated uncomposed agent-chat conversation and prompt boundaries. Approved creation and
-      switch paths can use a sealed exact allowlist and reject disallowed selections before any
-      ledger write; allowed persistence remains retry-stable and observer authority is inert.
+      switch paths use a sealed provider/mode gate that accepts valid evolving model/effort values
+      only for their composed provider modes before a ledger write; allowed persistence remains
+      retry-stable and observer authority is inert.
 - [x] Language-neutral local IPC fixtures with canonical JSON and exact length-prefixed wire
       bytes for negotiation, errors, cursor replay, and every reserved agent-chat frame. The
       validator rejects a composed declaration for any reserved capability, so fixture presence
@@ -276,24 +281,20 @@ For the current working-tree context and continuation order, read [the handoff](
    independent clean-install, terminal-IPC, automatic-update-status, and supervisor-rejection checks.
 7. [ ] Reviewed-plan storage, exact approval/rejection, and receipt-backed context-boundary child reservations exist but remain unadvertised until lifecycle/evidence authority is approved; see [reviewed-plan execution](agent-chat-execution-plan.md). `gent-canvas`, `gent-forge`, live MCP/Git authority, and seamless live provider switching are also follow-on work.
 8. [ ] Provider-auth discovery and consented Claude/Codex login require the typed `askTool` contract, sandboxed authority, locked binaries, and redacted live evidence; see [provider-auth-plan.md](provider-auth-plan.md).
-9. [ ] Prompt-triggered Claude/Codex provisioning has a private preflight seam that rechecks
-   the app-supplied Node runtime and verifies the executable, but still needs signed policy,
-   receipt-bound authority composition, sandbox proof, and evidence. The app never bundles or
-   falls back to a direct provider CLI; see [provider-auth-plan.md](provider-auth-plan.md).
+9. [ ] Prompt-triggered Claude/Codex provisioning rechecks the app-supplied Node runtime and
+   verifies the executable, but still needs authority composition, sandbox proof, and evidence.
 10. [ ] Gent-native multi-agent orchestration is planned, not implemented: typed
     task graphs, `/fanout`, `/cross-review`, isolated worktree leases, custom
     harness profiles, cross-vendor findings, and cursor-resumable recovery must
     pass graph/review, policy/goal/epoch, lifecycle, and evidence gates before
     any capability is advertised; see [the orchestration plan](multi-agent-orchestration-plan.md).
 
-Also required: a separately authorized Flutter integration must use the negotiated, long-lived
-`gentd` connection for agent-chat work and must not launch provider binaries directly. Pairing and
-application-specific UI automations stay Flutter-owned. The client boundary is
-`docs/flutter-handoff-v1.md`.
+Also required: Flutter uses the negotiated long-lived `gentd` connection and never launches a
+provider. Pairing and app-specific UI automations stay Flutter-owned; see `docs/flutter-handoff-v1.md`.
 
 ## Recorded follow-on scope
-After the authority/evidence gates, `gent-canvas`, `gent-forge`, and
-`gent-automations` remain separate typed Gent domains; pairing and non-agent UI
-automation stay app-owned. Provider selection and multi-agent node dispatch
-must create immutable child runs, preserve provider-neutral lineage, and never expose Claurst
-secrets; the coverage manifest blocks authority transfer while real evidence is absent, and a future app launch still enforces one writer/epoch.
+After the authority/evidence gates, `gent-canvas`, `gent-forge`, and `gent-automations` remain
+separate typed Gent domains; pairing and non-agent UI automation stay app-owned. Provider selection
+and multi-agent node dispatch must create immutable child runs, preserve provider-neutral lineage,
+and never expose Claurst secrets; the coverage manifest blocks authority transfer while real evidence
+is absent, and a future app launch still enforces one writer/epoch.

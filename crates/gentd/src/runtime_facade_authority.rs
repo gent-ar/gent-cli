@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use gent_runtime::ExactAgentChatSelectionAllowlist;
+use gent_runtime::ProviderModeSelectionGate;
+use gent_types::{AgentChatMode, AgentChatProvider};
 
 use super::{DaemonCompositionState, RuntimeFacade};
 use crate::{
@@ -36,7 +37,8 @@ impl RuntimeFacade {
     /// Builds the dormant ordinary terminal seam with its one private lifecycle router.
     ///
     /// The caller must have already validated the authority profile, evidence, private prefix,
-    /// and canonical workspace bindings. This constructor is deliberately absent from bootstrap.
+    /// and canonical workspace bindings. Ask/Plan accepts current valid model and effort values;
+    /// provider executable compatibility is checked again immediately before launch.
     ///
     /// # Errors
     /// Returns an error when the durable attachment store cannot open.
@@ -54,9 +56,10 @@ impl RuntimeFacade {
         Self::from_state_inner(
             state,
             runtime_update_checks,
-            Some(authority.router()),
-            Arc::new(ExactAgentChatSelectionAllowlist::new(
-                authority.selections().iter().cloned(),
+            Some(authority.prompt_wake()),
+            Arc::new(ProviderModeSelectionGate::new(
+                [AgentChatProvider::Claude, AgentChatProvider::Codex],
+                [AgentChatMode::Ask, AgentChatMode::Plan],
             )),
         )
     }
