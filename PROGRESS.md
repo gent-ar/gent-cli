@@ -122,8 +122,14 @@ lifecycle state are prohibited.
   uncomposed until the reviewed-consent and selection gates are proven.
 - Provider-ready prompt admission now has an atomic exact-run fence: a private
   caller can require the reviewed run to still be current in the same SQLite
-  transaction that writes the prompt. A changed selection writes nothing. The
-  ordinary prompt path stays unchanged until the capability is composed.
+  transaction that writes the prompt. A changed selection writes nothing.
+  Every new `SendPrompt` is instead held durably as `awaiting_readiness`; only
+  an internal, epoch- and current-run-fenced release can make it claimable.
+  This is a fresh-schema revision, not a migration or recovery snapshot.
+- Accepted send receipts now report `awaitingReadiness`, rather than implying a
+  provider outbox entry. The generic chat path does not wake a lifecycle for
+  that state; only a future private readiness authority can release the held
+  prompt and then issue its lifecycle wake.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.

@@ -10,6 +10,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use super::super::SqliteLedger;
 use super::super::epoch::require_epoch;
 use super::super::queries::{host_ingress, storage_error};
+use super::prompt_dispatch_readiness;
 
 impl AgentChatPromptDispatchLedger for SqliteLedger {
     fn claim_agent_chat_prompt_dispatch(
@@ -19,6 +20,15 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         provider: AgentChatProvider,
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
         claim(self, coordinator_id, host_epoch, provider)
+    }
+
+    fn release_agent_chat_prompt_after_readiness(
+        &self,
+        message_id: &str,
+        expected_run_id: &AgentChatRunId,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        prompt_dispatch_readiness::release(self, message_id, expected_run_id, host_epoch)
     }
 
     fn begin_agent_chat_prompt_launch(
@@ -145,7 +155,7 @@ fn claim(
     require_open(&transaction, host_epoch)?;
     let message_id = transaction
         .query_row(
-            "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' ORDER BY d.created_rowid LIMIT 1",
+            "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1) ORDER BY d.created_rowid LIMIT 1",
             params![provider_name(provider)],
             |row| row.get::<_, String>(0),
         )
@@ -227,7 +237,10 @@ fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<(), LedgerErr
     transaction.commit().map_err(storage_error)
 }
 
-fn require_open(transaction: &Transaction<'_>, host_epoch: HostEpoch) -> Result<(), LedgerError> {
+pub(super) fn require_open(
+    transaction: &Transaction<'_>,
+    host_epoch: HostEpoch,
+) -> Result<(), LedgerError> {
     let ingress = host_ingress(transaction)?;
     require_epoch(host_epoch, ingress.epoch)?;
     if ingress.mode == IngressMode::Closed {

@@ -50,6 +50,13 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
         .unwrap();
     assert!(settlement(&ledger, &saved.message.turn_id).is_none());
     ledger
+        .release_agent_chat_prompt_after_readiness(
+            &saved.message.message_id,
+            &saved.run_id,
+            HostEpoch(1),
+        )
+        .unwrap();
+    ledger
         .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
         .unwrap();
     ledger

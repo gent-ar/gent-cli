@@ -41,7 +41,7 @@ impl PromptCommitWake for Wake {
 }
 
 #[test]
-fn only_a_saved_prompt_notifies_the_post_commit_wake_port() {
+fn generic_prompt_persistence_holds_send_without_notifying_lifecycle() {
     let (_, conversations, prompts, switches) = services();
     let created = exchange(
         &conversations,
@@ -79,20 +79,12 @@ fn only_a_saved_prompt_notifies_the_post_commit_wake_port() {
         [AgentChatIntentFrame::Accepted { conversation_id: accepted_conversation, run_id, turn_id, .. }]
             if accepted_conversation == &conversation_id && run_id == &root_run_id && !turn_id.is_empty()
     ));
-    assert_eq!(wake.calls.get(), 1);
-    let wake = wake
-        .last
-        .expect("saved prompt must provide durable wake identity");
-    assert_eq!(wake.conversation_id, conversation_id);
-    assert_eq!(wake.receipt_id, ReceiptId("prompt-receipt".into()));
-    assert_eq!(
-        wake.disposition,
-        gent_types::AgentChatPromptDisposition::Send
-    );
+    assert_eq!(wake.calls.get(), 0);
+    assert!(wake.last.is_none());
 }
 
 #[test]
-fn a_wake_failure_never_retracts_the_durable_prompt() {
+fn unavailable_generic_wake_cannot_make_a_held_prompt_claimable() {
     let (ledger, conversations, prompts, switches) = services();
     let created = exchange(
         &conversations,
@@ -113,7 +105,7 @@ fn a_wake_failure_never_retracts_the_durable_prompt() {
         last: None,
         failure: Some("bounded host unavailable"),
     };
-    let error = exchange_with_wake(
+    let accepted = exchange_with_wake(
         &conversations,
         &prompts,
         &switches,
@@ -126,9 +118,12 @@ fn a_wake_failure_never_retracts_the_durable_prompt() {
         },
         &mut wake,
     )
-    .unwrap_err();
-    assert!(error.contains("durable prompt was saved"));
-    assert_eq!(wake.calls.get(), 1);
+    .unwrap();
+    assert!(matches!(
+        accepted.as_slice(),
+        [AgentChatIntentFrame::Accepted { .. }]
+    ));
+    assert_eq!(wake.calls.get(), 0);
     assert!(
         ledger
             .claim_agent_chat_prompt_dispatch(
@@ -137,7 +132,7 @@ fn a_wake_failure_never_retracts_the_durable_prompt() {
                 AgentChatProvider::Codex,
             )
             .unwrap()
-            .is_some()
+            .is_none()
     );
 }
 

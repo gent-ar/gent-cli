@@ -150,6 +150,9 @@ const fn delivery_notice(delivery: AgentChatPromptDelivery) -> &'static str {
         AgentChatPromptDelivery::Queued => {
             "Prompt queued locally; no provider delivery was attempted."
         }
+        AgentChatPromptDelivery::AwaitingReadiness => {
+            "Prompt is durable and awaiting Gent's verified provider readiness review."
+        }
         AgentChatPromptDelivery::AwaitingProvider => {
             "Prompt is durable and awaiting an authorized provider lifecycle."
         }
@@ -165,6 +168,7 @@ mod tests {
     #[test]
     fn prompt_delivery_notice_never_claims_a_provider_started() {
         assert!(delivery_notice(AgentChatPromptDelivery::Queued).contains("no provider"));
+        assert!(delivery_notice(AgentChatPromptDelivery::AwaitingReadiness).contains("readiness"));
         assert!(delivery_notice(AgentChatPromptDelivery::AwaitingProvider).contains("awaiting"));
     }
 

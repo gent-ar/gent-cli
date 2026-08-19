@@ -24,6 +24,8 @@ pub enum AgentChatPromptDisposition {
 pub enum AgentChatPromptDelivery {
     /// The caller explicitly requested local queueing; no provider delivery was attempted.
     Queued,
+    /// The prompt is durable but cannot enter the provider outbox until Gent verifies readiness.
+    AwaitingReadiness,
     /// The prompt is durable but awaits a separately authorized provider lifecycle.
     AwaitingProvider,
 }
@@ -54,7 +56,7 @@ impl AgentChatPromptDisposition {
     #[must_use]
     pub const fn delivery(self) -> AgentChatPromptDelivery {
         match self {
-            Self::Send => AgentChatPromptDelivery::AwaitingProvider,
+            Self::Send => AgentChatPromptDelivery::AwaitingReadiness,
             Self::Queue => AgentChatPromptDelivery::Queued,
         }
     }
@@ -74,7 +76,7 @@ mod tests {
     fn delivery_is_derived_without_claiming_a_provider_launch() {
         assert_eq!(
             AgentChatPromptDisposition::Send.delivery(),
-            AgentChatPromptDelivery::AwaitingProvider
+            AgentChatPromptDelivery::AwaitingReadiness
         );
         assert_eq!(
             AgentChatPromptDisposition::Queue.delivery(),

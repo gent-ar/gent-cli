@@ -1,11 +1,27 @@
 //! Durable claim and settlement ownership for provider-bound agent-chat prompts.
 
-use gent_types::{AgentChatPromptSaved, AgentChatProvider, HostEpoch};
+use gent_types::{AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, HostEpoch};
 
 use crate::LedgerError;
 
 /// Reads and transitions the durable outbox populated only for `SendPrompt` requests.
 pub trait AgentChatPromptDispatchLedger: Send + Sync {
+    /// Releases one exact prompt only after daemon-owned provider readiness is durably proven.
+    ///
+    /// The default fails closed so generic ledger fakes cannot bypass the readiness boundary.
+    /// # Errors
+    /// Returns when the implementation cannot atomically retain the current run fence.
+    fn release_agent_chat_prompt_after_readiness(
+        &self,
+        _: &str,
+        _: &AgentChatRunId,
+        _: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat prompt readiness release is unavailable".into(),
+        ))
+    }
+
     /// Atomically claims the oldest pre-launch prompt for this daemon epoch.
     /// # Errors
     /// Returns an error when ingress is closed, the epoch is stale, or persistence fails.

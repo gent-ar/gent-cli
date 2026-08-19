@@ -102,8 +102,12 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   path. It has no IPC frame, bootstrap composition, prompt hook, or installer.
 - The prompt ledger exposes a private exact-run admission method. It confirms
   the expected reviewed run inside the prompt write transaction and rejects a
-  concurrent selection change without saving a message. Public prompt frames
-  still use the existing path until a reviewed readiness capability is composed.
+  concurrent selection change without saving a message. New send prompts are
+  held as `awaiting_readiness`, never claimable by a lifecycle runner, until an
+  internal epoch/current-run-fenced authority releases that exact prompt.
+- The client-visible delivery value is `awaitingReadiness`. Generic chat
+  persistence does not wake an ordinary lifecycle for a held prompt; the future
+  readiness authority must release the exact durable prompt before it wakes it.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
   same selected-run ordering as prompt ownership. Clients must carry that
   identity into future readiness and prompt-fence requests rather than infer it.

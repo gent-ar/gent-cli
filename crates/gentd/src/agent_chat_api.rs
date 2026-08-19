@@ -7,7 +7,7 @@ use gent_runtime::{
     AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
 };
 use gent_types::{
-    AgentChatConversationId, AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatRunId,
+    AgentChatConversationId, AgentChatPromptDelivery, AgentChatPromptDisposition, AgentChatRunId,
     HostEpoch, ReceiptId,
 };
 #[path = "agent_chat_api_create.rs"]
@@ -69,11 +69,10 @@ where
     )
 }
 
-/// Handles one finite exchange and notifies a private lifecycle owner after prompt durability.
+/// Handles one finite exchange without making a retained prompt lifecycle-claimable.
 ///
-/// This is intentionally a composition seam rather than a transport capability. A wake failure
-/// reports that the saved prompt needs a receipt-safe retry; it never rolls back or fabricates a
-/// provider result.
+/// This remains a composition seam rather than a transport capability. A future private
+/// readiness authority alone may release and wake a held prompt after it proves the provider.
 pub(crate) fn exchange_with_wake<L, C, S, W>(
     conversations: &AgentChatConversationService<L, C>,
     prompts: &AgentChatPromptService<L>,
@@ -245,11 +244,14 @@ where
         .map_err(|error| error.to_string())?
     {
         AgentChatPromptResult::Saved(saved) => {
-            wake.wake_after_prompt_commit(wake_identity(&input.conversation_id, &saved))
-                .map_err(|_| {
-                "durable prompt was saved but its lifecycle wake was unavailable; retry the same receipt"
-                    .to_owned()
-            })?;
+            if saved.delivery == AgentChatPromptDelivery::AwaitingProvider {
+                wake
+                    .wake_after_prompt_commit(wake_identity(&input.conversation_id, &saved))
+                    .map_err(|_| {
+                        "durable prompt was saved but its lifecycle wake was unavailable; retry the same receipt"
+                            .to_owned()
+                    })?;
+            }
             Ok(vec![AgentChatIntentFrame::Accepted {
                 request_id: input.request_id,
                 receipt: saved.receipt.clone(),
@@ -265,7 +267,7 @@ where
 
 fn wake_identity(
     conversation_id: &AgentChatConversationId,
-    saved: &AgentChatPromptSaved,
+    saved: &gent_types::AgentChatPromptSaved,
 ) -> PromptWake {
     PromptWake {
         conversation_id: conversation_id.clone(),
