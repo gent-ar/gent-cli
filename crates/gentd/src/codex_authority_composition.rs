@@ -107,6 +107,10 @@ where
     fn needs_drive(&self) -> bool {
         self.supervisor.needs_drive()
     }
+
+    fn shutdown_complete(&self) -> bool {
+        self.supervisor.shutdown_complete()
+    }
 }
 
 /// Failure before a private Codex authority host becomes reachable.

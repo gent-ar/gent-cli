@@ -106,6 +106,12 @@ where
         ) || (self.state == PrivateCodexSupervisorState::Running && self.host.needs_drive())
     }
 
+    /// Returns true only after the owner has observed every process tree drain to a real stop.
+    #[must_use]
+    pub(crate) fn shutdown_complete(&self) -> bool {
+        self.state == PrivateCodexSupervisorState::Stopped
+    }
+
     /// Recovers once, then executes one bounded host tick for each private wake.
     ///
     /// # Errors

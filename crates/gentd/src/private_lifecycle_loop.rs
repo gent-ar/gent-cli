@@ -57,6 +57,14 @@ pub(crate) trait PrivateLifecycleOwner {
     /// host through its post-commit wake port. This keeps the daemon demand-driven rather than
     /// polling a settled provider session forever.
     fn needs_drive(&self) -> bool;
+
+    /// Reports only a real, owner-proven terminal shutdown.
+    ///
+    /// A false result keeps the daemon failed closed when a process tree is undrained even if it
+    /// no longer asks for an ordinary polling wake.
+    fn shutdown_complete(&self) -> bool {
+        false
+    }
 }
 
 type PrivateLifecycleTickResult<O> = Result<
@@ -102,6 +110,12 @@ where
     #[must_use]
     pub(crate) fn owner_needs_drive(&self) -> bool {
         self.owner.needs_drive()
+    }
+
+    /// Returns whether the owner proved shutdown terminal after its durable drain work.
+    #[must_use]
+    pub(crate) fn owner_shutdown_complete(&self) -> bool {
+        self.owner.shutdown_complete()
     }
 
     /// Queues one caller-selected operation without executing it.

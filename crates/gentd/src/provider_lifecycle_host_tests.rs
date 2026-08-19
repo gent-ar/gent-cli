@@ -47,6 +47,10 @@ impl PrivateLifecycleOwner for Owner {
     fn needs_drive(&self) -> bool {
         self.needs_drive.get()
     }
+
+    fn shutdown_complete(&self) -> bool {
+        true
+    }
 }
 
 #[test]

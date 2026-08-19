@@ -99,8 +99,8 @@ where
     /// recovery before it can request shutdown. This preserves the distinction between an owner
     /// that never inspected durable work and one that finished an explicit drain.
     #[must_use]
-    pub(crate) const fn shutdown_complete(&self) -> bool {
-        self.shutdown_requested && !self.armed
+    pub(crate) fn shutdown_complete(&self) -> bool {
+        self.shutdown_requested && self.lifecycle.owner_shutdown_complete()
     }
 
     /// Arms the owner for its one durable startup recovery pass.

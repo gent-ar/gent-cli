@@ -82,6 +82,7 @@ fn shutdown_signals_the_tree_in_order_then_refuses_to_fake_terminal_settlement()
         ]
     );
     assert!(ledger.find_event("codex:run-a:exit:1").unwrap().is_none());
+    assert!(!supervisor.shutdown_complete());
 }
 
 #[test]
@@ -112,6 +113,7 @@ fn a_drain_stops_only_after_the_existing_lifecycle_settles_an_exit() {
         PrivateCodexWake::Drain(drain) if drain.exited_runs == 1
     ));
     assert_eq!(supervisor.state(), PrivateCodexSupervisorState::Stopped);
+    assert!(supervisor.shutdown_complete());
     assert!(ledger.find_event("codex:run-a:exit:1").unwrap().is_some());
 }
 

@@ -73,6 +73,7 @@ fn shutdown_signals_in_order_and_refuses_to_fake_terminal_settlement() {
             .unwrap()
             .is_none()
     );
+    assert!(!supervisor.shutdown_complete());
 }
 
 #[test]
@@ -95,6 +96,7 @@ fn drain_only_stops_after_process_exit_is_persisted() {
         PrivateClaudeWake::Drain(drain) if drain.exited_runs == 1
     ));
     assert_eq!(supervisor.state(), PrivateClaudeSupervisorState::Stopped);
+    assert!(supervisor.shutdown_complete());
     assert!(
         ledger
             .find_event("claude:run-a:terminal:1")

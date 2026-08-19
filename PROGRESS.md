@@ -60,8 +60,8 @@ lifecycle state are prohibited.
   snapshot, cache, or mirrored lifecycle state and is still not bootstrapped.
 - Private ordinary hosts reject shutdown before recovery, while recovered idle
   hosts queue only their drain command—never a synthetic prompt wake. The
-  router aggregates shutdown/escalation/completion without creating a provider
-  fact. Separate transient IPC cancellation stops accepts and gracefully closes
+  router aggregates shutdown/escalation/completion only after an owner-proven
+  terminal drain; an undrained tree stays failed closed. Separate transient IPC cancellation stops accepts and gracefully closes
   negotiated connections without a task abort or ledger side effect.
 - Its dormant Ask/Plan path now uses the bounded, lock-rechecked direct-host
   launcher restricted to read-only workspace access. This does not relax the

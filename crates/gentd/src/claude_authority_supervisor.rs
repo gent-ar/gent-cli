@@ -107,6 +107,12 @@ where
         ) || (self.state == PrivateClaudeSupervisorState::Running && self.host.needs_drive())
     }
 
+    /// Returns true only after the owner has observed every process tree drain to a real stop.
+    #[must_use]
+    pub(crate) fn shutdown_complete(&self) -> bool {
+        self.state == PrivateClaudeSupervisorState::Stopped
+    }
+
     /// Runs initial recovery once, then one bounded tick or drain for every private wake.
     ///
     /// # Errors
