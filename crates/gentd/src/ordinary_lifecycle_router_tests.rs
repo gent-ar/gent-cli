@@ -32,6 +32,7 @@ impl AgentChatReadLedger for Ledger {
     fn read_agent_chat_detail(&self, _: &str) -> Result<AgentChatConversationDetail, LedgerError> {
         Ok(AgentChatConversationDetail {
             summary: summary(self.provider),
+            current_run_id: "run".into(),
             runs: vec![AgentChatRun {
                 run_id: "run-1".into(),
                 parent_run_id: None,

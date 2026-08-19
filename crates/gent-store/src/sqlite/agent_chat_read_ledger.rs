@@ -67,7 +67,14 @@ fn detail(
         .map_err(storage_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(storage_error)?;
-    Ok(AgentChatConversationDetail { summary, runs })
+    let current_run_id = runs.last().map(|run| run.run_id.clone()).ok_or_else(|| {
+        LedgerError::Invariant("agent chat conversation has no selected run".into())
+    })?;
+    Ok(AgentChatConversationDetail {
+        summary,
+        current_run_id,
+        runs,
+    })
 }
 
 fn selection(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentChatSelection> {

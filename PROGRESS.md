@@ -124,6 +124,9 @@ lifecycle state are prohibited.
   caller can require the reviewed run to still be current in the same SQLite
   transaction that writes the prompt. A changed selection writes nothing. The
   ordinary prompt path stays unchanged until the capability is composed.
+- Conversation detail now exposes the durable current run identity explicitly,
+  rather than asking either client to infer it from a run list. That identity is
+  the selection token a future readiness review and fenced prompt will share.
 - A sealed all-or-nothing ordinary-authority input parser rejects partial
   evidence/compatibility settings and durable-chat-profile conflicts without
   I/O. It accepts no coordinator or epoch and is not yet a daemon argument or

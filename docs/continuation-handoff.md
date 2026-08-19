@@ -104,6 +104,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   the expected reviewed run inside the prompt write transaction and rejects a
   concurrent selection change without saving a message. Public prompt frames
   still use the existing path until a reviewed readiness capability is composed.
+- Agent-chat detail now includes the durable `currentRunId`, calculated by the
+  same selected-run ordering as prompt ownership. Clients must carry that
+  identity into future readiness and prompt-fence requests rather than infer it.
 - An uncomposed all-or-nothing bootstrap parser rejects partial ordinary authority
   evidence/compatibility inputs and conflicts with durable chat-only authority without
   I/O; it deliberately receives neither user-supplied coordinator nor epoch.

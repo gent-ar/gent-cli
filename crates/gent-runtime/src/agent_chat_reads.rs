@@ -150,6 +150,7 @@ mod tests {
         ) -> Result<AgentChatConversationDetail, LedgerError> {
             Ok(AgentChatConversationDetail {
                 summary: summary(),
+                current_run_id: "run".into(),
                 runs: self.runs.clone(),
             })
         }

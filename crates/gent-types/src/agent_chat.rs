@@ -109,6 +109,8 @@ pub enum AgentChatRunState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentChatConversationDetail {
     pub summary: AgentChatConversationSummary,
+    /// The one durable run currently selected for future prompts.
+    pub current_run_id: String,
     pub runs: Vec<AgentChatRun>,
 }
 
