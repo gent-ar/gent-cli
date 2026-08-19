@@ -119,7 +119,7 @@ mod tests {
         AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
         AgentChatConversationFrame, AgentChatTranscriptFrame, WireFrame, read_frame,
     };
-    use gent_types::{CapabilitySet, DoctorReport, EventResume, HostStatus, Receipt};
+    use gent_types::{CapabilitySet, DoctorReport, EventPage, HostStatus, Receipt};
     use serde_json::json;
     use tokio::io::duplex;
 
@@ -138,7 +138,7 @@ mod tests {
         fn submit(&self, _: gent_types::Command) -> Result<Receipt, String> {
             Err("unused".into())
         }
-        fn resume_events(&self, _: u64) -> Result<EventResume, String> {
+        fn read_event_page(&self, _: u64, _: usize) -> Result<EventPage, String> {
             Err("unused".into())
         }
         fn doctor(&self) -> DoctorReport {

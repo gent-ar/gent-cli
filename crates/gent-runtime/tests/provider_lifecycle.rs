@@ -1,11 +1,10 @@
-use gent_ports::{Ledger, RunLease, RunProjectionLedger, RunRecord};
+use gent_ports::{Ledger, RunLease, RunLifecycleFactLedger, RunRecord};
 use gent_runtime::{
     Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, DecisionCommand, DecisionSettlementPhase, EventResume, HostEpoch,
-    NormalizedProviderEvent,
+    CapabilitySet, DecisionCommand, DecisionSettlementPhase, HostEpoch, NormalizedProviderEvent,
 };
 
 fn ingress(
@@ -36,14 +35,14 @@ fn prepare(ledger: &SqliteLedger) {
 }
 
 #[test]
-fn source_event_precedes_session_and_projection_updates() {
+fn source_event_precedes_session_and_immutable_lifecycle_fact_updates() {
     let ledger = SqliteLedger::in_memory().unwrap();
     prepare(&ledger);
     let service = ingress(ledger.clone(), ProviderRunAuthority::PublicDrivers);
     service
         .record(
             "source-session".into(),
-            "run-a".into(),
+            "run-a",
             "daemon-a",
             HostEpoch(1),
             ProviderLifecycleEffect::SessionStarted {
@@ -55,7 +54,7 @@ fn source_event_precedes_session_and_projection_updates() {
         service
             .record(
                 "source-session".into(),
-                "run-a".into(),
+                "run-a",
                 "daemon-a",
                 HostEpoch(1),
                 ProviderLifecycleEffect::SessionStarted {
@@ -67,7 +66,7 @@ fn source_event_precedes_session_and_projection_updates() {
     service
         .record(
             "source-session".into(),
-            "run-a".into(),
+            "run-a",
             "daemon-a",
             HostEpoch(1),
             ProviderLifecycleEffect::SessionStarted {
@@ -78,7 +77,7 @@ fn source_event_precedes_session_and_projection_updates() {
     let status = service
         .record(
             "source-turn".into(),
-            "run-a".into(),
+            "run-a",
             "daemon-a",
             HostEpoch(1),
             ProviderLifecycleEffect::Normalized(NormalizedProviderEvent::TurnStarted {
@@ -87,7 +86,7 @@ fn source_event_precedes_session_and_projection_updates() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(status.status.snapshot_cursor, 2);
+    assert_eq!(status.status.cursor, 2);
     assert_eq!(
         ledger
             .find_run_session_binding("run-a")
@@ -96,10 +95,15 @@ fn source_event_precedes_session_and_projection_updates() {
             .provider_session_id,
         "native-a"
     );
-    assert!(ledger.find_run_projection("run-a").unwrap().is_some());
-    let EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
-        panic!("a fresh provider source read cannot require resync");
-    };
+    assert_eq!(
+        ledger
+            .read_run_lifecycle_fact_page("run-a", 0, 64)
+            .unwrap()
+            .facts
+            .len(),
+        1
+    );
+    let events = ledger.read_event_page(0, 100).unwrap().events;
     assert_eq!(
         events.len(),
         2,
@@ -126,7 +130,7 @@ fn provider_settlement_is_daemon_owned_and_observer_is_hard_disabled() {
         observer
             .record(
                 "denied".into(),
-                "run-a".into(),
+                "run-a",
                 "daemon-a",
                 HostEpoch(1),
                 ProviderLifecycleEffect::SessionStarted {
@@ -139,7 +143,7 @@ fn provider_settlement_is_daemon_owned_and_observer_is_hard_disabled() {
     service
         .record(
             "session".into(),
-            "run-a".into(),
+            "run-a",
             "daemon-a",
             HostEpoch(1),
             ProviderLifecycleEffect::SessionStarted {
@@ -150,7 +154,7 @@ fn provider_settlement_is_daemon_owned_and_observer_is_hard_disabled() {
     service
         .record(
             "settled".into(),
-            "run-a".into(),
+            "run-a",
             "daemon-a",
             HostEpoch(1),
             ProviderLifecycleEffect::ProviderSettled {

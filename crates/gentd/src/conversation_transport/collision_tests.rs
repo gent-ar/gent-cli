@@ -9,8 +9,8 @@ use gent_protocol::{
 };
 use gent_types::{
     CapabilitySet, Command, ConversationContentPage, ConversationListItem, ConversationStatus,
-    ConversationTimeline, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
-    HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
+    ConversationTimeline, DecisionCommand, DecisionSettlement, DoctorReport, EventPage, HostStatus,
+    PROTOCOL_MAX, PROTOCOL_MIN, Receipt,
 };
 use tokio::io::duplex;
 
@@ -33,7 +33,7 @@ impl RuntimeApi for ContentRuntime {
     fn submit(&self, _: Command) -> Result<Receipt, String> {
         Err("unused".into())
     }
-    fn resume_events(&self, _: u64) -> Result<EventResume, String> {
+    fn read_event_page(&self, _: u64, _: usize) -> Result<EventPage, String> {
         Err("unused".into())
     }
     fn doctor(&self) -> DoctorReport {

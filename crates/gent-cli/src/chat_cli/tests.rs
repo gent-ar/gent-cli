@@ -3,7 +3,8 @@ use gent_protocol::{
     read_json_frame, write_frame, write_json_frame,
 };
 use gent_types::{
-    AgentChatConversationId, CapabilitySet, HostEpoch, PROTOCOL_MAX, Receipt, ReceiptStatus,
+    AgentChatConversationId, AgentChatPromptDelivery, CapabilitySet, HostEpoch, PROTOCOL_MAX,
+    Receipt, ReceiptStatus,
 };
 use tokio::net::UnixListener;
 
@@ -58,6 +59,7 @@ async fn create_negotiates_agent_chat_and_requires_a_matching_created_reply() {
         Some(directory.path().into()),
         true,
         ChatCommand::Create(CreateArgs {
+            workspace: None,
             provider: Provider::Claude,
             model: "haiku".into(),
             effort: Effort::Low,
@@ -197,7 +199,8 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
             context,
             request_id: Some("request-1".into()),
             receipt_id: Some("receipt-1".into()),
-        }));
+        }))
+        .unwrap();
         let AgentChatIntentFrame::SwitchSelection {
             selection,
             context_policy,
@@ -226,7 +229,8 @@ fn clear_context_refuses_a_reply_that_claims_inherited_history() {
         context: super::switch::Context::Clear,
         request_id: Some("request-1".into()),
         receipt_id: Some("receipt-1".into()),
-    }));
+    }))
+    .unwrap();
     let AgentChatIntentFrame::SwitchSelection {
         request_id,
         receipt_id,
@@ -253,4 +257,36 @@ fn clear_context_refuses_a_reply_that_claims_inherited_history() {
         context_through_ordinal: 1,
     };
     assert!(!valid_reply(&request, &reply));
+}
+
+#[test]
+fn accepted_prompt_must_retain_the_requested_conversation_identity() {
+    let request = AgentChatIntentFrame::SendPrompt {
+        request_id: gent_types::AgentChatRequestId("request-1".into()),
+        receipt_id: gent_types::ReceiptId("receipt-1".into()),
+        conversation_id: AgentChatConversationId("conversation-1".into()),
+        text: "hello".into(),
+    };
+    let mut reply = AgentChatIntentFrame::Accepted {
+        request_id: gent_types::AgentChatRequestId("request-1".into()),
+        receipt: Receipt {
+            receipt_id: gent_types::ReceiptId("receipt-1".into()),
+            idempotency_key: "retry-1".into(),
+            status: ReceiptStatus::Accepted,
+            host_epoch: HostEpoch(1),
+        },
+        conversation_id: AgentChatConversationId("other-conversation".into()),
+        run_id: gent_types::AgentChatRunId("run-1".into()),
+        turn_id: "turn-1".into(),
+        delivery: AgentChatPromptDelivery::AwaitingProvider,
+    };
+    assert!(!valid_reply(&request, &reply));
+    let AgentChatIntentFrame::Accepted {
+        conversation_id, ..
+    } = &mut reply
+    else {
+        unreachable!();
+    };
+    *conversation_id = AgentChatConversationId("conversation-1".into());
+    assert!(valid_reply(&request, &reply));
 }

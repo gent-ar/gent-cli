@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
-use gent_ports::{SandboxedProviderPreflight, SandboxedProviderPreflightError};
+use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
+use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
+use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
 use gent_types::{
-    HostEpoch, RunVersionLock, SandboxBackendId, SandboxEnforcement, SandboxLaunchAttestation,
-    SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
+    HostEpoch, RunVersionLock, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
+    SandboxedLaunchRequest,
 };
 
 use super::{
@@ -54,31 +56,28 @@ fn sandbox_request() -> SandboxedLaunchRequest {
     }
 }
 
-#[derive(Clone, Copy)]
-enum SandboxResult {
-    Unavailable,
-    ChangedLock,
-    Attested,
+#[derive(Debug)]
+struct Sandbox;
+#[derive(Debug)]
+struct Process;
+impl ProcessTreeControl for Process {
+    fn signal_tree(&self, _: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
+        Ok(())
+    }
 }
-
-struct Sandbox(SandboxResult);
-
-impl SandboxedProviderPreflight for Sandbox {
-    fn preflight(
+impl ProviderProcess for Process {
+    fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
+        Ok(())
+    }
+}
+impl SandboxedProviderLaunch for Sandbox {
+    type Process = Process;
+    fn launch_sandboxed(
         &self,
-        request: &SandboxedLaunchRequest,
-    ) -> Result<SandboxLaunchAttestation, SandboxedProviderPreflightError> {
-        match self.0 {
-            SandboxResult::Unavailable => Err(SandboxedProviderPreflightError::Unavailable),
-            SandboxResult::ChangedLock => Err(SandboxedProviderPreflightError::LockChanged),
-            SandboxResult::Attested => request
-                .attest_after_lock_recheck(
-                    &request.lock,
-                    SandboxBackendId::new("test-native-sandbox".into()).unwrap(),
-                    SandboxEnforcement::Enforced,
-                )
-                .map_err(|_| SandboxedProviderPreflightError::AttestationRejected),
-        }
+        _: &SandboxedLaunchRequest,
+        _: &ProviderLaunch,
+    ) -> Result<Process, SandboxedProviderLaunchError> {
+        Ok(Process)
     }
 }
 
@@ -114,7 +113,7 @@ fn missing_private_evidence_fails_before_a_codex_host_is_constructed() {
     )
     .unwrap();
     assert!(matches!(
-        compose_private_codex_authority(&state, &config(), Sandbox(SandboxResult::Attested)),
+        compose_private_codex_authority(&state, &config(), Sandbox),
         Err(PrivateCodexAuthorityError::Preflight(_))
     ));
     assert!(
@@ -124,40 +123,4 @@ fn missing_private_evidence_fails_before_a_codex_host_is_constructed() {
             .join("npm-global")
             .exists()
     );
-}
-
-#[test]
-fn unavailable_sandbox_prevents_evidence_loading_or_host_construction() {
-    let directory = tempfile::tempdir().unwrap();
-    let state = DaemonCompositionState::open(
-        directory.path(),
-        &declared_capabilities(),
-        CompatibilityAssessment::default(),
-    )
-    .unwrap();
-    assert!(matches!(
-        compose_private_codex_authority(&state, &config(), Sandbox(SandboxResult::Unavailable)),
-        Err(PrivateCodexAuthorityError::Sandbox(
-            SandboxedProviderPreflightError::Unavailable
-        ))
-    ));
-    assert!(!state.data_dir().join("providers").exists());
-}
-
-#[test]
-fn changed_lock_prevents_evidence_loading_or_host_construction() {
-    let directory = tempfile::tempdir().unwrap();
-    let state = DaemonCompositionState::open(
-        directory.path(),
-        &declared_capabilities(),
-        CompatibilityAssessment::default(),
-    )
-    .unwrap();
-    assert!(matches!(
-        compose_private_codex_authority(&state, &config(), Sandbox(SandboxResult::ChangedLock)),
-        Err(PrivateCodexAuthorityError::Sandbox(
-            SandboxedProviderPreflightError::LockChanged
-        ))
-    ));
-    assert!(!state.data_dir().join("providers").exists());
 }

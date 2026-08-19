@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS agent_chat_conversations (
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT NOT NULL,
-    mode TEXT NOT NULL
+    mode TEXT NOT NULL,
+    workspace_id TEXT REFERENCES workspaces(workspace_id)
 );
 CREATE TABLE IF NOT EXISTS agent_chat_run_selections (
     run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id),

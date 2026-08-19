@@ -26,7 +26,7 @@ because a code path and deterministic test exist.
 | App-facing behavior | Gent-owned portable meaning | Current code-level state | Required proof before app cutover |
 | --- | --- | --- | --- |
 | Create, prompt, queue, interrupt, follow-up | Receipt- and epoch-fenced conversation/run/turn commands; no text scraping | Typed protocol and durable intent state exist; live provider dispatch is withheld | End-to-end real-provider run with reconnect and exact-retry cases |
-| Reconnect and cursor resume | Replace stale state from snapshot/resync, then consume ordered deltas | Event cursor, snapshot/resync, timeline/activity contracts exist | Live disconnect/restart evidence for every enabled provider |
+| Reconnect and cursor resume | Re-read bounded durable pages, then consume ordered facts after the last cursor | Generic event pages are cursor-only; activity follows the same durable-page contract | Live disconnect/restart evidence for every enabled provider |
 | Model, effort, mode, provider choice | Persist the selected values on immutable run lineage before dispatch | Selection/switch lineage and provider runner inputs exist | Each provider's accepted values and rejection paths recorded |
 | Cross-provider continuity | Start a child run with frozen Gent history; never transfer a native session | Fresh-context rendering and clear-context ordinal-zero guards exist | Codex → Claude → Claurst → Codex live transcript proving continuity |
 | Native resume | Reuse a native session only for the same provider/run when the durable binding permits it | Claude and Codex runner/session seams exist | Resume/restart evidence for each provider and stale-binding rejection |

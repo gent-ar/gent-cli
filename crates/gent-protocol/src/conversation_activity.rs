@@ -1,6 +1,6 @@
-//! Additive frames for cursor-resumable, content-free conversation activity.
+//! Additive frames for cursor-resumable, content-free conversation activity facts.
 
-use gent_types::ConversationActivity;
+use gent_types::ConversationActivityPage;
 use serde::{Deserialize, Serialize};
 
 /// Capability required before an authoritative activity endpoint may accept requests.
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// The shipped observer daemon deliberately does not advertise this capability.
 pub const CONVERSATION_ACTIVITY_CAPABILITY: &str = "conversation-activity-v1";
 
-/// Dedicated activity projection frames, separate from commands and global event streaming.
+/// Dedicated activity-history frames, separate from commands and global event streaming.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(
     tag = "type",
@@ -23,10 +23,8 @@ pub enum ConversationActivityFrame {
         run_id: String,
         after_cursor: u64,
     },
-    /// A complete current projection when a client must replace stale local state.
-    Snapshot(ConversationActivity),
-    /// Ordered complete projections strictly after the requested cursor.
-    Delta(Vec<ConversationActivity>),
+    /// One bounded page of immutable facts strictly after the requested cursor.
+    Facts(ConversationActivityPage),
 }
 
 #[cfg(test)]

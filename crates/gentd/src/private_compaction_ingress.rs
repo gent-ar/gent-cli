@@ -1,12 +1,10 @@
 //! Private durable ingress for normalized provider compaction facts.
 
-use std::collections::BTreeMap;
-
 use gent_core::{
     AgentChatCompactionEffect, AgentChatCompactionState, reduce_agent_chat_compaction,
 };
 use gent_drivers::public_protocol::PublicCompactionObservation;
-use gent_ports::{AgentChatReadLedger, IngressMode, Ledger};
+use gent_ports::{AgentChatCompactionLedger, AgentChatReadLedger, IngressMode, Ledger};
 use gent_runtime::{
     AgentChatCompactionRecoveryAuthority, AgentChatCompactionRecoveryRequest,
     AgentChatCompactionRecoveryResult, AgentChatCompactionRecoveryService, AgentChatReadService,
@@ -54,14 +52,12 @@ pub(crate) enum PrivateCompactionResult {
 
 /// Unadvertised daemon composition over the pure reducer and atomic child-switch ledger.
 ///
-/// A provider adapter must have already discarded its raw frame before constructing the request.
-/// The ingress never receives a provider-native session value and is not reachable from transport.
+/// The ingress receives no provider-native session value and is unreachable from transport.
 #[derive(Debug)]
 pub(crate) struct PrivateCompactionIngress<L> {
     ledger: L,
     recovery: AgentChatCompactionRecoveryService<L>,
     authority: AgentChatCompactionRecoveryAuthority,
-    states: BTreeMap<String, AgentChatCompactionState>,
 }
 
 impl<L: Clone> PrivateCompactionIngress<L> {
@@ -71,13 +67,17 @@ impl<L: Clone> PrivateCompactionIngress<L> {
             recovery: AgentChatCompactionRecoveryService::new(ledger.clone(), authority),
             ledger,
             authority,
-            states: BTreeMap::new(),
         }
     }
 }
 
-impl<L: Clone + Ledger + gent_ports::AgentChatSelectionLedger + AgentChatReadLedger>
-    PrivateCompactionIngress<L>
+impl<
+    L: Clone
+        + Ledger
+        + gent_ports::AgentChatSelectionLedger
+        + AgentChatReadLedger
+        + AgentChatCompactionLedger,
+> PrivateCompactionIngress<L>
 {
     /// Converts an already-normalized provider observation using only daemon-owned correlation.
     ///
@@ -130,12 +130,7 @@ impl<L: Clone + Ledger + gent_ports::AgentChatSelectionLedger + AgentChatReadLed
             Some(_) => return Err(invariant("compaction event id was reused")),
             None => self.ledger.append_event(&source)?,
         };
-        let state = self
-            .states
-            .get(&request.run_id.0)
-            .cloned()
-            .unwrap_or_default();
-        let (next, effect) = reduce_agent_chat_compaction(state, source.cursor, &request.fact);
+        let effect = self.replay_effect(&request.run_id, &source.event_id)?;
         let result = self.recovery.apply(
             &AgentChatCompactionRecoveryRequest {
                 source_event_id: source.event_id.clone(),
@@ -147,7 +142,6 @@ impl<L: Clone + Ledger + gent_ports::AgentChatSelectionLedger + AgentChatReadLed
             },
             &effect,
         )?;
-        self.states.insert(request.run_id.0, next);
         Ok(match result {
             AgentChatCompactionRecoveryResult::DeniedObserver => {
                 return Err(invariant(
@@ -188,6 +182,41 @@ impl<L: Clone + Ledger + gent_ports::AgentChatSelectionLedger + AgentChatReadLed
         (actual == request.selection)
             .then_some(())
             .ok_or_else(|| invariant("compaction selection is not the durable run selection"))
+    }
+
+    /// Replays only immutable compaction events for one run; no process-local recovery state is
+    /// retained across an ingress restart or used as a replacement for the ledger.
+    fn replay_effect(
+        &self,
+        run_id: &AgentChatRunId,
+        source_event_id: &str,
+    ) -> Result<AgentChatCompactionEffect, RuntimeError> {
+        let mut after_cursor = 0;
+        let mut state = AgentChatCompactionState::default();
+        let mut source_effect = None;
+        loop {
+            let page = self
+                .ledger
+                .read_agent_chat_compaction_page(&run_id.0, after_cursor, 128)?;
+            for event in page.events {
+                let Some(fact) = compaction_fact(&event, run_id)? else {
+                    continue;
+                };
+                let (next, effect) = reduce_agent_chat_compaction(state, event.cursor, &fact);
+                state = next;
+                if event.event_id == source_event_id {
+                    source_effect = Some(effect);
+                }
+            }
+            let Some(next) = page.next_after_cursor else {
+                break;
+            };
+            if next <= after_cursor {
+                return Err(invariant("compaction event page cursor did not advance"));
+            }
+            after_cursor = next;
+        }
+        source_effect.ok_or_else(|| invariant("compaction source was not replayable"))
     }
 }
 
@@ -239,6 +268,31 @@ fn same_source(existing: &Event, proposed: &Event) -> bool {
         && existing.host_epoch == proposed.host_epoch
         && existing.kind == proposed.kind
         && existing.payload == proposed.payload
+}
+
+fn compaction_fact(
+    event: &Event,
+    expected_run_id: &AgentChatRunId,
+) -> Result<Option<AgentChatCompactionFact>, RuntimeError> {
+    if event.kind != "agentChatCompaction" {
+        return Ok(None);
+    }
+    let run_id = event
+        .payload
+        .get("runId")
+        .and_then(serde_json::Value::as_str);
+    if run_id != Some(expected_run_id.0.as_str()) {
+        return Ok(None);
+    }
+    serde_json::from_value(
+        event
+            .payload
+            .get("compaction")
+            .cloned()
+            .ok_or_else(|| invariant("compaction event is missing its normalized fact"))?,
+    )
+    .map(Some)
+    .map_err(|_| invariant("compaction event fact is malformed"))
 }
 
 fn invariant(message: &str) -> RuntimeError {

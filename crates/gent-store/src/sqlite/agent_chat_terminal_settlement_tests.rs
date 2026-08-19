@@ -1,12 +1,13 @@
 use gent_ports::{
-    AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, ConversationLedger,
-    TranscriptLedger, agent_chat_terminal_settlement::AgentChatTerminalSettlementReader,
+    AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatWorkspaceLedger,
+    ConversationLedger, TranscriptLedger,
+    agent_chat_terminal_settlement::AgentChatTerminalSettlementReader,
 };
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, DurableTurnPhase, HostEpoch, NormalizedTranscriptAppend,
-    NormalizedTranscriptKind, ReceiptId,
+    NormalizedTranscriptKind, ReceiptId, WorkspaceRecord,
 };
 
 use super::SqliteLedger;
@@ -17,19 +18,25 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
     let path = directory.path().join("gent.db");
     let ledger = SqliteLedger::open(&path).unwrap();
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Codex,
+                    model: "gpt".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
             },
-        })
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
@@ -41,7 +48,7 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
             text: "continue".into(),
         })
         .unwrap();
-    assert!(snapshot(&ledger, &saved.message.turn_id).is_none());
+    assert!(settlement(&ledger, &saved.message.turn_id).is_none());
     ledger
         .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
         .unwrap();
@@ -54,7 +61,7 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
     ledger
         .settle_agent_chat_prompt_dispatch(&saved.message.message_id, "daemon-a", HostEpoch(1))
         .unwrap();
-    assert!(snapshot(&ledger, &saved.message.turn_id).is_none());
+    assert!(settlement(&ledger, &saved.message.turn_id).is_none());
     ledger
         .replace_turn_phase(
             &saved.message.turn_id,
@@ -78,7 +85,7 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
     drop(ledger);
     let reopened = SqliteLedger::open(&path).unwrap();
     assert!(matches!(
-        snapshot(&reopened, &saved.message.turn_id),
+        settlement(&reopened, &saved.message.turn_id),
         Some(value)
             if value.conversation_id == "conversation-a"
                 && value.phase == DurableTurnPhase::Completed
@@ -87,7 +94,7 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
     ));
 }
 
-fn snapshot(
+fn settlement(
     ledger: &SqliteLedger,
     turn_id: &str,
 ) -> Option<gent_types::AgentChatTerminalSettlement> {

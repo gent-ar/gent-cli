@@ -1,7 +1,5 @@
 //! Coordinator orchestration over pure policy and durable ports.
 mod agent_chat_compaction_recovery;
-mod agent_chat_controller_delta;
-mod agent_chat_controller_snapshot;
 mod agent_chat_conversations;
 mod agent_chat_dispatch;
 mod agent_chat_prompts;
@@ -41,7 +39,7 @@ mod provider_lifecycle;
 mod public_runs;
 mod reviewed_plans;
 mod run_checkpoints;
-mod run_projections;
+mod run_lifecycle_status;
 mod runtime_maintenance;
 mod runtime_release_cache;
 mod runtime_release_trust;
@@ -55,14 +53,6 @@ mod workspaces;
 pub use agent_chat_compaction_recovery::{
     AgentChatCompactionRecoveryAuthority, AgentChatCompactionRecoveryRequest,
     AgentChatCompactionRecoveryResult, AgentChatCompactionRecoveryService,
-};
-pub use agent_chat_controller_delta::{
-    AgentChatControllerDeltaPage, AgentChatControllerDeltaReader, AgentChatControllerDeltaRequest,
-    AgentChatControllerDeltaSource,
-};
-pub use agent_chat_controller_snapshot::{
-    AgentChatControllerSnapshot, AgentChatControllerSnapshotBuilder,
-    AgentChatControllerSnapshotRequest, AgentChatControllerSnapshotSource,
 };
 pub use agent_chat_conversations::{
     AgentChatConversationAuthority, AgentChatConversationRequest, AgentChatConversationResult,
@@ -112,7 +102,7 @@ pub use provider_activity::{ProviderActivityFact, ProviderActivityIngress};
 pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use public_runs::{ProviderRunAuthority, PublicRunService};
 pub use reviewed_plans::{ReviewedPlanAuthority, ReviewedPlanResult, ReviewedPlanService};
-pub use run_projections::RunProjectionService;
+pub use run_lifecycle_status::RunLifecycleStatusService;
 pub use runtime_maintenance::{RuntimeMaintenanceAuthority, RuntimeMaintenanceService};
 pub use runtime_release_cache::{CachedRuntimeRelease, RuntimeReleaseCacheError};
 pub use runtime_release_trust::{

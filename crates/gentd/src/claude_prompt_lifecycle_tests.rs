@@ -9,8 +9,8 @@ use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
-    AgentChatLedger, AgentChatPromptLedger, PublicProviderResolver, PublicProviderRunError,
-    PublicProviderRunner,
+    AgentChatPromptLedger, AgentChatWorkspaceLedger, PublicProviderResolver,
+    PublicProviderRunError, PublicProviderRunner,
 };
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
@@ -18,7 +18,7 @@ use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, NormalizedLifecycleSignal,
-    NormalizedProviderEvent, ReceiptId, RunVersionLock, TurnPhase,
+    NormalizedProviderEvent, ReceiptId, RunVersionLock, TurnPhase, WorkspaceRecord,
 };
 
 use crate::approved_claude_host::ApprovedClaudeHost;
@@ -176,19 +176,25 @@ fn ready_settles_but_keeps_one_shot_claude_binding_until_exit_then_resumes() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Claude,
-                model: "claude-test".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation_id.clone(),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "claude-test".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
             },
-        })
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     prompt(&ledger, &conversation_id, "a");
     let runner = Runner::default();

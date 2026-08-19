@@ -1,13 +1,14 @@
 //! Daemon-owned provider-effect ingress with durable-source-before-projection ordering.
 
 use gent_core::DecisionEvidence;
-use gent_ports::{IngressMode, Ledger, RunProjectionLedger, RunSessionBinding};
+use gent_ports::{IngressMode, Ledger, RunLifecycleFactLedger, RunSessionBinding};
 use gent_types::{
-    Event, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, ReceiptId, RunLiveStatus,
+    Event, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent,
+    NormalizedSessionLifecycle, ReceiptId, RunLifecycleFact, RunLiveStatus,
 };
 use sha2::{Digest, Sha256};
 
-use crate::{Coordinator, ProviderRunAuthority, RunProjectionService, RuntimeError};
+use crate::{Coordinator, ProviderRunAuthority, RunLifecycleStatusService, RuntimeError};
 
 /// One effect emitted by an owned provider runner or private bridge adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,19 +25,19 @@ pub enum ProviderLifecycleEffect {
 #[derive(Debug)]
 pub struct ProviderLifecycleIngress<L> {
     coordinator: Coordinator<L>,
-    projections: RunProjectionService<L>,
+    status: RunLifecycleStatusService<L>,
     authority: ProviderRunAuthority,
 }
 
 impl<L> ProviderLifecycleIngress<L>
 where
-    L: Clone + Ledger + RunProjectionLedger,
+    L: Clone + Ledger + RunLifecycleFactLedger,
 {
     /// Constructs an inert ingress unless public-driver authority is explicitly supplied.
     #[must_use]
     pub fn new(coordinator: Coordinator<L>, authority: ProviderRunAuthority) -> Self {
         Self {
-            projections: RunProjectionService::new(coordinator.clone()),
+            status: RunLifecycleStatusService::new(coordinator.clone()),
             coordinator,
             authority,
         }
@@ -52,13 +53,13 @@ where
     pub fn record(
         &self,
         event_id: String,
-        run_id: String,
+        run_id: &str,
         coordinator_id: &str,
         host_epoch: HostEpoch,
         effect: ProviderLifecycleEffect,
     ) -> Result<Option<RunLiveStatus>, RuntimeError> {
-        self.require_owner(&run_id, coordinator_id, host_epoch, needs_session(&effect))?;
-        let source = Self::source_event(event_id, &run_id, host_epoch, &effect)?;
+        self.require_owner(run_id, coordinator_id, host_epoch, needs_session(&effect))?;
+        let source = Self::source_event(event_id, run_id, host_epoch, &effect)?;
         let source = match self.coordinator.ledger.find_event(&source.event_id)? {
             Some(existing) if same_source(&existing, &source) => existing,
             Some(_) => return Err(invariant("provider lifecycle event id was reused")),
@@ -71,7 +72,7 @@ where
                 self.coordinator
                     .ledger
                     .save_run_session_binding(&RunSessionBinding {
-                        run_id,
+                        run_id: run_id.to_string(),
                         provider_session_id,
                     })?;
                 Ok(None)
@@ -81,20 +82,13 @@ where
                     self.coordinator
                         .apply_decision_evidence(decision_id, DecisionEvidence::ProviderSettled)?;
                 }
-                self.projections
-                    .record_normalized_event(
-                        run_id,
-                        coordinator_id,
-                        host_epoch,
-                        source.cursor,
-                        &event,
-                    )
-                    .map(Some)
+                self.record_fact(run_id, source, NormalizedSessionLifecycle::Event { event })
             }
-            ProviderLifecycleEffect::Lifecycle(signal) => self
-                .projections
-                .record_lifecycle_signal(run_id, coordinator_id, host_epoch, source.cursor, &signal)
-                .map(Some),
+            ProviderLifecycleEffect::Lifecycle(signal) => self.record_fact(
+                run_id,
+                source,
+                NormalizedSessionLifecycle::Signal { signal },
+            ),
             ProviderLifecycleEffect::ProviderAcknowledged { decision_id } => self
                 .coordinator
                 .apply_decision_evidence(&decision_id, DecisionEvidence::ProviderAcknowledged)
@@ -105,6 +99,24 @@ where
                 .map(|_| None),
             ProviderLifecycleEffect::Terminal { .. } => Ok(None),
         }
+    }
+
+    fn record_fact(
+        &self,
+        run_id: &str,
+        source: Event,
+        lifecycle: NormalizedSessionLifecycle,
+    ) -> Result<Option<RunLiveStatus>, RuntimeError> {
+        self.coordinator
+            .ledger
+            .append_run_lifecycle_fact(&RunLifecycleFact {
+                run_id: run_id.to_string(),
+                event_id: source.event_id,
+                host_epoch: source.host_epoch,
+                cursor: source.cursor,
+                lifecycle,
+            })?;
+        self.status.live_status(run_id)
     }
 
     fn require_owner(

@@ -36,14 +36,8 @@ where
         return Ok(false);
     };
     match runtime.conversation_activity(&conversation_id, &run_id, after_cursor) {
-        Ok(ConversationActivityRead::Snapshot(activity)) => {
-            write_json_frame(stream, &ConversationActivityFrame::Snapshot(activity)).await?;
-        }
-        Ok(ConversationActivityRead::Delta(activities)) => {
-            write_json_frame(stream, &ConversationActivityFrame::Delta(activities)).await?;
-        }
-        Ok(ConversationActivityRead::Missing) => {
-            write_error(stream, "notFound", "conversation activity does not exist").await?;
+        Ok(ConversationActivityRead::Page(page)) => {
+            write_json_frame(stream, &ConversationActivityFrame::Facts(page)).await?;
         }
         Ok(ConversationActivityRead::DeniedObserver) => {
             write_error(

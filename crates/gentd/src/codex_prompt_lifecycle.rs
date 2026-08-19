@@ -6,8 +6,7 @@ use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
-    NormalizedSessionBatchLedger, PublicProviderResolver, PublicProviderRunError,
-    RunProjectionLedger, TranscriptLedger,
+    NormalizedSessionBatchLedger, PublicProviderResolver, PublicProviderRunError, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
 use gent_types::{AgentChatPromptSaved, HostEpoch};
@@ -15,11 +14,9 @@ use gent_types::{AgentChatPromptSaved, HostEpoch};
 use crate::public_driver_runtime::{NormalizedSessionFact, PublicDriverFact, PublicDriversRuntime};
 
 mod execution;
-mod sandboxed_execution;
 mod scheduler;
 mod start;
 pub(crate) use execution::CodexPromptExecution;
-pub(crate) use sandboxed_execution::SandboxedCodexPromptExecution;
 
 /// Outcome of claiming and attempting one durable Codex prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,7 +53,7 @@ impl<L, D, R> CodexPromptLifecycle<L, D, R>
 where
     L: Clone
         + Ledger
-        + RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + ConversationActivityLedger
         + TranscriptLedger
         + NormalizedSessionBatchLedger
@@ -183,7 +180,7 @@ where
         if matches!(fact, PublicWireFact::SessionStarted { .. }) {
             let event_id = self.next_event_id(run_id, "session")?;
             self.runtime.record(
-                run_id.into(),
+                run_id,
                 &self.coordinator_id,
                 host_epoch,
                 PublicDriverFact::PublicWire {
@@ -225,7 +222,7 @@ where
     ) -> Result<(), RuntimeError> {
         let event_id = self.next_event_id(run_id, "exit")?;
         self.runtime.record(
-            run_id.into(),
+            run_id,
             &self.coordinator_id,
             host_epoch,
             PublicDriverFact::SessionEffect {

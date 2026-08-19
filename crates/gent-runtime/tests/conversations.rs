@@ -1,11 +1,11 @@
 use gent_core::Run;
-use gent_ports::{RunProjectionLedger, TurnPhaseUpdate};
+use gent_ports::{Ledger, RunLifecycleFactLedger, TurnPhaseUpdate};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
     CapabilitySet, ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
-    ConversationRecord, DurableTurnPhase, HostEpoch, RunLifecycleProjection, RunProjectionRecord,
-    TurnRecord,
+    ConversationRecord, DurableTurnPhase, Event, HostEpoch, NormalizedProviderEvent,
+    NormalizedSessionLifecycle, ReceiptId, RunLifecycleFact, TurnRecord,
 };
 
 fn coordinator() -> Coordinator<SqliteLedger> {
@@ -188,15 +188,28 @@ fn status_never_exposes_provider_sessions_and_keeps_projection_identity() {
             },
         )
         .unwrap();
-    ledger
-        .save_run_projection(&RunProjectionRecord {
-            run_id: "run-root".into(),
+    let lifecycle = NormalizedSessionLifecycle::Event {
+        event: NormalizedProviderEvent::TurnStarted {
+            turn_id: "turn-1".into(),
+        },
+    };
+    let source = ledger
+        .append_event(&Event {
+            cursor: 0,
+            event_id: "status-source".into(),
+            receipt_id: ReceiptId("status-receipt".into()),
             host_epoch: HostEpoch(3),
-            projection: RunLifecycleProjection {
-                cursor: 8,
-                active_turn_id: Some("turn-1".into()),
-                ..RunLifecycleProjection::default()
-            },
+            kind: "normalizedSessionLifecycle".into(),
+            payload: serde_json::json!({ "runId": "run-root", "lifecycle": lifecycle }),
+        })
+        .unwrap();
+    ledger
+        .append_run_lifecycle_fact(&RunLifecycleFact {
+            run_id: "run-root".into(),
+            event_id: "status-source".into(),
+            host_epoch: HostEpoch(3),
+            cursor: source.cursor,
+            lifecycle,
         })
         .unwrap();
     let status = coordinator.conversation_status("conversation-a").unwrap();

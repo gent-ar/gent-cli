@@ -3,10 +3,10 @@
 //! This service deliberately has no provider, process, prompt, or daemon dependency. It only
 //! turns client request correlation into stable public identities before one atomic ledger call.
 
-use gent_ports::AgentChatLedger;
+use gent_ports::{AgentChatLedger, AgentChatWorkspaceLedger};
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationCreated, AgentChatConversationId,
-    AgentChatRequestId, AgentChatRunId, AgentChatSelection, HostEpoch, ReceiptId,
+    AgentChatRequestId, AgentChatRunId, AgentChatSelection, HostEpoch, ReceiptId, WorkspaceRecord,
 };
 use sha2::{Digest, Sha256};
 
@@ -29,6 +29,8 @@ pub struct AgentChatConversationRequest {
     pub receipt_id: ReceiptId,
     pub host_epoch: HostEpoch,
     pub selection: AgentChatSelection,
+    /// Daemon-canonicalized workspace; raw client paths never reach this pure service.
+    pub workspace: WorkspaceRecord,
 }
 
 /// A denied observer request or the durable receipt and identities it created.
@@ -53,7 +55,7 @@ impl<L> AgentChatConversationService<L> {
     }
 }
 
-impl<L: AgentChatLedger> AgentChatConversationService<L> {
+impl<L: AgentChatLedger + AgentChatWorkspaceLedger> AgentChatConversationService<L> {
     /// Creates one empty conversation and its root run without starting a provider.
     ///
     /// # Errors
@@ -66,8 +68,10 @@ impl<L: AgentChatLedger> AgentChatConversationService<L> {
             return Ok(AgentChatConversationResult::DeniedObserver);
         }
         Ok(AgentChatConversationResult::Created(
-            self.ledger
-                .create_agent_chat_conversation(&ledger_create(request))?,
+            self.ledger.create_agent_chat_conversation_in_workspace(
+                &ledger_create(request),
+                &request.workspace,
+            )?,
         ))
     }
 }
@@ -100,7 +104,7 @@ mod tests {
     use super::{AgentChatConversationRequest, ledger_create};
     use gent_types::{
         AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
-        HostEpoch, ReceiptId,
+        HostEpoch, ReceiptId, WorkspaceRecord,
     };
 
     fn request(request_id: &str) -> AgentChatConversationRequest {
@@ -113,6 +117,10 @@ mod tests {
                 model: "haiku".into(),
                 effort: AgentChatEffort::Low,
                 mode: AgentChatMode::Ask,
+            },
+            workspace: WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
             },
         }
     }

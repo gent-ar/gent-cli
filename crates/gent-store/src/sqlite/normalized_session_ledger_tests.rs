@@ -1,13 +1,13 @@
 use gent_ports::{
-    AgentChatLedger, AgentChatPromptLedger, ConversationActivityLedger, Ledger,
-    NormalizedSessionBatchLedger, RunProjectionLedger, TranscriptLedger,
+    AgentChatPromptLedger, AgentChatWorkspaceLedger, ConversationActivityLedger, Ledger,
+    NormalizedSessionBatchLedger, RunLifecycleFactLedger, TranscriptLedger,
 };
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, ConversationActivityFact, ConversationActivityScope,
     HostEpoch, NormalizedProviderEvent, NormalizedSessionBatch, NormalizedSessionLifecycle,
-    NormalizedTranscriptAppend, NormalizedTranscriptKind, ReceiptId,
+    NormalizedTranscriptAppend, NormalizedTranscriptKind, ReceiptId, WorkspaceRecord,
 };
 
 use super::SqliteLedger;
@@ -15,19 +15,25 @@ use super::SqliteLedger;
 fn prepared() -> (SqliteLedger, String) {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Codex,
+                    model: "gpt".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
             },
-        })
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     let prompt = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
@@ -99,25 +105,22 @@ fn batch_commits_all_projections_with_exact_retry_cursors() {
     assert_eq!(first.lifecycle_cursor, 1);
     assert_eq!(first.transcript_cursor, Some(1));
     assert_eq!(first.activity_cursor, Some(2));
-    let gent_types::EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
-        panic!("fresh event feed should be a delta");
-    };
+    let events = ledger.read_event_page(0, 100).unwrap().events;
     assert_eq!(events.len(), 2);
     assert_eq!(
         ledger
-            .find_run_projection("run-a")
+            .read_run_lifecycle_fact_page("run-a", 0, 64)
             .unwrap()
-            .unwrap()
-            .projection
+            .facts[0]
             .cursor,
         first.lifecycle_cursor
     );
     assert_eq!(
         ledger
-            .find_conversation_activity("conversation-a", "run-a")
+            .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
             .unwrap()
-            .unwrap()
-            .activity
+            .facts[0]
+            .scope()
             .cursor,
         first.activity_cursor.unwrap()
     );
@@ -143,12 +146,19 @@ fn batch_collision_rolls_back_every_prior_projection() {
             .unwrap()
             .is_none()
     );
-    assert!(ledger.find_run_projection("run-a").unwrap().is_none());
     assert!(
         ledger
-            .find_conversation_activity("conversation-a", "run-a")
+            .read_run_lifecycle_fact_page("run-a", 0, 64)
             .unwrap()
-            .is_none()
+            .facts
+            .is_empty()
+    );
+    assert!(
+        ledger
+            .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
+            .unwrap()
+            .facts
+            .is_empty()
     );
     assert!(
         ledger

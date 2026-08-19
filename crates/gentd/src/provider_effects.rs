@@ -2,7 +2,7 @@
 //! Composition-edge adapter from pure public-driver effects to runtime lifecycle ingress.
 
 use gent_drivers::{SessionEffect, public_protocol::PublicWireFact};
-use gent_ports::{Ledger, RunProjectionLedger};
+use gent_ports::{Ledger, RunLifecycleFactLedger};
 use gent_runtime::{
     Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
     RuntimeError,
@@ -20,7 +20,7 @@ pub(crate) struct ProviderEffectDispatcher<L> {
 
 impl<L> ProviderEffectDispatcher<L>
 where
-    L: Clone + Ledger + RunProjectionLedger,
+    L: Clone + Ledger + RunLifecycleFactLedger,
 {
     /// Builds an inert dispatcher unless public-driver authority is explicitly supplied.
     #[must_use]
@@ -37,7 +37,7 @@ where
     pub(crate) fn record(
         &self,
         event_id: String,
-        run_id: String,
+        run_id: &str,
         coordinator_id: &str,
         host_epoch: HostEpoch,
         effect: &SessionEffect,
@@ -56,7 +56,7 @@ where
     pub(crate) fn record_public_wire_fact(
         &self,
         event_id: String,
-        run_id: String,
+        run_id: &str,
         coordinator_id: &str,
         host_epoch: HostEpoch,
         fact: &PublicWireFact,
@@ -102,7 +102,7 @@ mod tests {
     use gent_runtime::{Coordinator, ProviderRunAuthority};
     use gent_store::SqliteLedger;
     use gent_types::{
-        CapabilitySet, EventResume, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent,
+        CapabilitySet, EventPage, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent,
         RootActivity,
     };
 
@@ -137,7 +137,7 @@ mod tests {
             dispatcher
                 .record(
                     "ignored-retry".into(),
-                    "run-a".into(),
+                    "run-a",
                     "daemon-a",
                     HostEpoch(1),
                     &SessionEffect::StartAttempt { attempt: 2 },
@@ -148,7 +148,7 @@ mod tests {
         dispatcher
             .record(
                 "driver-session".into(),
-                "run-a".into(),
+                "run-a",
                 "daemon-a",
                 HostEpoch(1),
                 &SessionEffect::SessionStarted {
@@ -159,7 +159,7 @@ mod tests {
         let status = dispatcher
             .record(
                 "driver-turn".into(),
-                "run-a".into(),
+                "run-a",
                 "daemon-a",
                 HostEpoch(1),
                 &SessionEffect::Normalized {
@@ -170,12 +170,12 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(status.status.snapshot_cursor, 2);
+        assert_eq!(status.status.cursor, 2);
         assert_eq!(
             dispatcher
                 .record(
                     "driver-terminal".into(),
-                    "run-a".into(),
+                    "run-a",
                     "daemon-a",
                     HostEpoch(1),
                     &SessionEffect::Terminal {
@@ -193,9 +193,7 @@ mod tests {
                 .provider_session_id,
             "native-session"
         );
-        let EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
-            panic!("driver facts must remain cursor-resumable");
-        };
+        let EventPage { events, .. } = ledger.read_event_page(0, 100).unwrap();
         assert_eq!(events.len(), 3);
         assert!(!events[0].payload.to_string().contains("native-session"));
     }
@@ -211,7 +209,7 @@ mod tests {
         dispatcher
             .record_public_wire_fact(
                 "public-session".into(),
-                "run-a".into(),
+                "run-a",
                 "daemon-a",
                 HostEpoch(1),
                 &PublicWireFact::SessionStarted {
@@ -222,7 +220,7 @@ mod tests {
         let status = dispatcher
             .record_public_wire_fact(
                 "public-activity".into(),
-                "run-a".into(),
+                "run-a",
                 "daemon-a",
                 HostEpoch(1),
                 &PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {
@@ -231,7 +229,7 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(status.status.snapshot_cursor, 2);
+        assert_eq!(status.status.cursor, 2);
         let source = ledger.find_event("public-session").unwrap().unwrap();
         assert!(!source.payload.to_string().contains("provider-private-id"));
     }
@@ -248,7 +246,7 @@ mod tests {
             dispatcher
                 .record(
                     "provider-exit".into(),
-                    "run-a".into(),
+                    "run-a",
                     "daemon-a",
                     HostEpoch(1),
                     &SessionEffect::Terminal {

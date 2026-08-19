@@ -6,8 +6,6 @@ mod activity_transport_tests;
 mod agent_chat_api;
 #[cfg(test)]
 mod agent_chat_api_tests;
-#[allow(dead_code)]
-mod agent_chat_controller_transport;
 mod agent_chat_read_transport;
 mod agent_chat_subscription;
 mod agent_chat_transport;
@@ -83,6 +81,10 @@ mod orchestration_api;
 mod orchestration_transport;
 #[cfg(test)]
 mod orchestration_transport_tests;
+#[allow(dead_code)]
+mod ordinary_lifecycle_router;
+#[cfg(test)]
+mod ordinary_lifecycle_router_tests;
 mod permission_policy_api;
 mod permission_policy_transport;
 mod permission_workspace;
@@ -102,6 +104,10 @@ mod private_lifecycle_loop;
 mod private_paths;
 #[allow(dead_code)]
 mod private_provider_provisioning;
+#[allow(dead_code)]
+mod private_provider_provisioning_sqlite;
+#[allow(dead_code)]
+mod private_provider_verifier;
 #[allow(dead_code)]
 mod private_session_atomic_port;
 #[allow(dead_code)]
@@ -136,8 +142,6 @@ mod transport;
 #[cfg(test)]
 mod transport_decision_tests;
 #[cfg(test)]
-mod transport_event_tests;
-#[cfg(test)]
 mod transport_stream_tests;
 #[cfg(test)]
 mod transport_tests;
@@ -149,6 +153,10 @@ mod transport_turn_follow_tests;
 mod transport_windows;
 #[cfg(all(test, windows))]
 mod transport_windows_tests;
+#[allow(dead_code)]
+mod workspace_identity;
+#[cfg(test)]
+mod workspace_identity_tests;
 
 #[cfg(test)]
 pub(crate) use compatibility_assessment::CompatibilityAssessment;

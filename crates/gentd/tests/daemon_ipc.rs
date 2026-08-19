@@ -77,7 +77,6 @@ fn hello() -> WireFrame {
         protocol_max: PROTOCOL_MAX,
         capabilities: CapabilitySet(vec![
             "decisions".into(),
-            "event-resync".into(),
             "events".into(),
             "host-epoch".into(),
             "receipts".into(),
@@ -155,10 +154,10 @@ async fn command_receipts_are_idempotent_and_events_resume_over_ipc() {
     );
     assert!(matches!(
         request(&mut stream, WireFrame::Subscribe { after_cursor: 0 }).await,
-        WireFrame::Events { events }
-            if events.len() == 2
-                && events[0].kind == "commandAccepted"
-                && events[1].kind == "commandSettled"
+        WireFrame::Events { page }
+            if page.events.len() == 2
+                && page.events[0].kind == "commandAccepted"
+                && page.events[1].kind == "commandSettled"
     ));
 }
 

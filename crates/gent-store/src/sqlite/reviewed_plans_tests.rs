@@ -1,5 +1,5 @@
 use gent_ports::{
-    AgentChatLedger, AgentChatPromptLedger, AgentChatRunContextReader, PolicyLedger,
+    AgentChatPromptLedger, AgentChatRunContextReader, AgentChatWorkspaceLedger, PolicyLedger,
     ReviewedPlanLedger, WorkspaceLedger,
 };
 use gent_types::{
@@ -42,14 +42,20 @@ fn seeded() -> (SqliteLedger, PlanArtifact, StartImplementationRequest) {
         })
         .unwrap();
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("create-receipt".into()),
-            idempotency_key: "create-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-1".into()),
-            run_id: AgentChatRunId("run-1".into()),
-            selection: selection(),
-        })
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("create-receipt".into()),
+                idempotency_key: "create-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-1".into()),
+                run_id: AgentChatRunId("run-1".into()),
+                selection: selection(),
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
+            },
+        )
         .unwrap();
     let prompt = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
@@ -129,6 +135,33 @@ fn trusted_plan_approval_is_atomic_retry_safe_and_clear_has_no_session_boundary(
             .status,
         PlanStatus::Approved
     );
+}
+
+#[test]
+fn preserve_context_freezes_the_existing_history_ordinal() {
+    let (ledger, plan, mut request) = seeded();
+    ledger.save_trusted_plan(&plan).unwrap();
+    request.context_policy = ContextPolicy::Preserve;
+    let expected: u64 = ledger
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT COALESCE(MAX(ordinal), 0) FROM conversation_message_ordinals WHERE conversation_id = ?1",
+            ["conversation-1"],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    let result = ledger.approve_reviewed_plan(&request).unwrap();
+
+    assert!(expected > 0);
+    assert_eq!(result.context_policy, ContextPolicy::Preserve);
+    assert_eq!(result.context_through_ordinal, expected);
+    let context = ledger
+        .read_agent_chat_run_context(&result.conversation_id, &result.implementation_run_id)
+        .unwrap();
+    assert_eq!(context.context_policy, ContextPolicy::Preserve);
+    assert_eq!(context.context_through_ordinal, expected);
 }
 
 #[test]

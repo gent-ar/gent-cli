@@ -48,7 +48,7 @@ mod tests {
                     receipt_id: ReceiptId(format!("receipt-{cursor}")),
                     signal: NormalizedLifecycleSignal::AttentionCleared,
                     reported: ConversationLiveStatus {
-                        snapshot_cursor: cursor,
+                        cursor,
                         ..ConversationLiveStatus::default()
                     },
                 })

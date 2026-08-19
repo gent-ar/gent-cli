@@ -1,4 +1,4 @@
-use gent_ports::{AgentChatLedger, CapabilityCatalogLedger, ConversationLedger};
+use gent_ports::{AgentChatLedger, ConversationLedger};
 use gent_runtime::TurnFollowRequest;
 use gent_runtime::catalog::declared_capabilities;
 use gent_types::{
@@ -26,15 +26,6 @@ fn preopened_composition_state_builds_the_identical_observer_facade() {
     assert_eq!(state.data_dir(), directory.path());
     assert_eq!(
         state.coordinator().status().unwrap().capabilities,
-        capabilities
-    );
-    assert_eq!(
-        state
-            .ledger()
-            .capability_catalog()
-            .unwrap()
-            .unwrap()
-            .capabilities,
         capabilities
     );
     assert_eq!(

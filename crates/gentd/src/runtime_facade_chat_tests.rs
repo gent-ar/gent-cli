@@ -34,7 +34,7 @@ fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
             .contains(&AGENT_CHAT_TRANSCRIPT_CAPABILITY.into())
     );
     assert!(capabilities.0.contains(&ORCHESTRATION_CAPABILITY.into()));
-    assert!(capabilities.0.contains(&REVIEWED_PLAN_CAPABILITY.into()));
+    assert!(!capabilities.0.contains(&REVIEWED_PLAN_CAPABILITY.into()));
     let runtime = build_runtime(
         directory.path(),
         &capabilities,
@@ -45,6 +45,7 @@ fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
         .agent_chat_intent(AgentChatIntentFrame::CreateConversation {
             request_id: AgentChatRequestId("request-1".into()),
             receipt_id: ReceiptId("receipt-1".into()),
+            workspace_path: ".".into(),
             selection: AgentChatSelection {
                 provider: AgentChatProvider::Codex,
                 model: "gpt-5.6".into(),

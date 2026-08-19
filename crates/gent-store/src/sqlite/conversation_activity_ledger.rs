@@ -1,9 +1,8 @@
-//! `SQLite` persistence for complete conversation activity reducer state.
+//! `SQLite` persistence for immutable conversation activity facts.
 
-use gent_ports::{
-    ConversationActivityLedger, LedgerError, MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS,
-};
-use gent_types::ConversationActivityRecord;
+use gent_core::{activity_scope, validate_conversation_activity_fact};
+use gent_ports::{ConversationActivityLedger, LedgerError, MAX_CONVERSATION_ACTIVITY_PAGE_FACTS};
+use gent_types::{ConversationActivityFact, ConversationActivityPage};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use super::SqliteLedger;
@@ -11,77 +10,65 @@ use super::conversations::conversation_id_for_run;
 use super::queries::{find_run, storage_error};
 
 impl ConversationActivityLedger for SqliteLedger {
-    fn save_conversation_activity(
+    fn append_conversation_activity(
         &self,
-        record: &ConversationActivityRecord,
+        fact: &ConversationActivityFact,
     ) -> Result<(), LedgerError> {
         let mut connection = self.lock()?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
-        save(&transaction, record)?;
+        append(&transaction, fact)?;
         transaction.commit().map_err(storage_error)
     }
 
-    fn find_conversation_activity(
-        &self,
-        conversation_id: &str,
-        run_id: &str,
-    ) -> Result<Option<ConversationActivityRecord>, LedgerError> {
-        let connection = self.lock()?;
-        find(&connection, conversation_id, run_id)
-    }
-
-    fn resume_conversation_activity(
+    fn read_conversation_activity_page(
         &self,
         conversation_id: &str,
         run_id: &str,
         after_cursor: u64,
-    ) -> Result<Vec<ConversationActivityRecord>, LedgerError> {
+        limit: usize,
+    ) -> Result<ConversationActivityPage, LedgerError> {
         let connection = self.lock()?;
-        resume(&connection, conversation_id, run_id, after_cursor)
+        page(&connection, conversation_id, run_id, after_cursor, limit)
     }
 }
 
-pub(super) fn save(
+pub(super) fn append(
     connection: &Connection,
-    record: &ConversationActivityRecord,
+    fact: &ConversationActivityFact,
 ) -> Result<(), LedgerError> {
-    validate(connection, record)?;
-    if let Some(existing) = find_at_cursor(connection, record)? {
-        return if existing == *record {
-            Ok(())
-        } else {
-            Err(LedgerError::Invariant(
-                "activity cursor conflicts with existing state".into(),
-            ))
-        };
+    validate(connection, fact)?;
+    let scope = activity_scope(fact);
+    let payload = encode(fact)?;
+    let existing = connection
+        .query_row(
+            "SELECT payload FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 AND cursor = ?3",
+            params![scope.conversation_id, scope.run_id, scope.cursor],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    if let Some(existing) = existing {
+        return (existing == payload).then_some(()).ok_or_else(|| {
+            LedgerError::Invariant("activity cursor conflicts with an immutable fact".into())
+        });
     }
-    match find(
-        connection,
-        &record.activity.conversation_id,
-        &record.activity.run_id,
-    )? {
-        Some(current) => save_after_current(connection, &current, record),
-        None => insert(connection, record),
-    }
+    connection.execute(
+        "INSERT INTO conversation_activity_facts (conversation_id, run_id, host_epoch, cursor, payload) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![scope.conversation_id, scope.run_id, scope.host_epoch.0, scope.cursor, payload],
+    ).map_err(storage_error)?;
+    Ok(())
 }
 
-fn validate(
-    connection: &Connection,
-    record: &ConversationActivityRecord,
-) -> Result<(), LedgerError> {
-    let activity = &record.activity;
-    if activity.activity_sequence == 0 || activity.revision != activity.activity_sequence {
-        return Err(LedgerError::Invariant(
-            "activity revision and sequence must be equal and nonzero".into(),
-        ));
-    }
-    if find_run(connection, &activity.run_id)?.is_none() {
+fn validate(connection: &Connection, fact: &ConversationActivityFact) -> Result<(), LedgerError> {
+    validate_conversation_activity_fact(fact).map_err(LedgerError::Invariant)?;
+    let scope = activity_scope(fact);
+    if find_run(connection, &scope.run_id)?.is_none() {
         return Err(LedgerError::Invariant("activity run does not exist".into()));
     }
-    if conversation_id_for_run(connection, &activity.run_id)?.as_deref()
-        != Some(&activity.conversation_id)
+    if conversation_id_for_run(connection, &scope.run_id)?.as_deref()
+        != Some(&scope.conversation_id)
     {
         return Err(LedgerError::Invariant(
             "activity run must belong to its conversation".into(),
@@ -90,97 +77,46 @@ fn validate(
     Ok(())
 }
 
-fn save_after_current(
-    connection: &Connection,
-    current: &ConversationActivityRecord,
-    next: &ConversationActivityRecord,
-) -> Result<(), LedgerError> {
-    let previous = &current.activity;
-    let activity = &next.activity;
-    if activity.host_epoch != previous.host_epoch {
-        return Err(LedgerError::Invariant(
-            "activity host epoch cannot change in place".into(),
-        ));
-    }
-    if activity.cursor <= previous.cursor
-        || activity.revision <= previous.revision
-        || activity.activity_sequence <= previous.activity_sequence
-    {
-        return Err(LedgerError::Invariant("activity ordering regressed".into()));
-    }
-    insert(connection, next)
-}
-
-fn insert(connection: &Connection, record: &ConversationActivityRecord) -> Result<(), LedgerError> {
-    connection
-        .execute(
-            "INSERT INTO conversation_activity_projection_journal (conversation_id, run_id, host_epoch, cursor, revision, activity_sequence, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![record.activity.conversation_id, record.activity.run_id, record.activity.host_epoch.0, record.activity.cursor, record.activity.revision, record.activity.activity_sequence, encode(record)?],
-        )
-        .map_err(storage_error)?;
-    Ok(())
-}
-
-pub(super) fn find(
-    connection: &Connection,
-    conversation_id: &str,
-    run_id: &str,
-) -> Result<Option<ConversationActivityRecord>, LedgerError> {
-    connection
-        .query_row(
-            "SELECT payload FROM conversation_activity_projection_journal WHERE conversation_id = ?1 AND run_id = ?2 ORDER BY cursor DESC LIMIT 1",
-            params![conversation_id, run_id],
-            |row| decode_payload(&row.get::<_, String>(0)?),
-        )
-        .optional()
-        .map_err(storage_error)
-}
-
-fn find_at_cursor(
-    connection: &Connection,
-    record: &ConversationActivityRecord,
-) -> Result<Option<ConversationActivityRecord>, LedgerError> {
-    connection
-        .query_row(
-            "SELECT payload FROM conversation_activity_projection_journal WHERE conversation_id = ?1 AND run_id = ?2 AND cursor = ?3",
-            params![record.activity.conversation_id, record.activity.run_id, record.activity.cursor],
-            |row| decode_payload(&row.get::<_, String>(0)?),
-        )
-        .optional()
-        .map_err(storage_error)
-}
-
-fn resume(
+fn page(
     connection: &Connection,
     conversation_id: &str,
     run_id: &str,
     after_cursor: u64,
-) -> Result<Vec<ConversationActivityRecord>, LedgerError> {
-    let mut statement = connection
-        .prepare(
-            "SELECT payload FROM conversation_activity_projection_journal WHERE conversation_id = ?1 AND run_id = ?2 AND cursor > ?3 ORDER BY cursor LIMIT ?4",
-        )
-        .map_err(storage_error)?;
+    limit: usize,
+) -> Result<ConversationActivityPage, LedgerError> {
+    if !(1..=MAX_CONVERSATION_ACTIVITY_PAGE_FACTS).contains(&limit) {
+        return Err(LedgerError::Invariant(
+            "activity page limit is out of bounds".into(),
+        ));
+    }
+    let mut statement = connection.prepare(
+        "SELECT payload FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 AND cursor > ?3 ORDER BY cursor LIMIT ?4",
+    ).map_err(storage_error)?;
     let rows = statement
         .query_map(
-            params![
-                conversation_id,
-                run_id,
-                after_cursor,
-                MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS
-            ],
-            |row| decode_payload(&row.get::<_, String>(0)?),
+            params![conversation_id, run_id, after_cursor, limit + 1],
+            |row| decode(&row.get::<_, String>(0)?),
         )
         .map_err(storage_error)?;
-    rows.collect::<Result<_, _>>().map_err(storage_error)
+    let mut facts = rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
+    let next_after_cursor = (facts.len() > limit)
+        .then(|| {
+            facts.pop();
+            facts.last().map(|fact| activity_scope(fact).cursor)
+        })
+        .flatten();
+    Ok(ConversationActivityPage {
+        facts,
+        next_after_cursor,
+    })
 }
 
-fn decode_payload(payload: &str) -> rusqlite::Result<ConversationActivityRecord> {
+fn decode(payload: &str) -> rusqlite::Result<ConversationActivityFact> {
     serde_json::from_str(payload).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
     })
 }
 
-fn encode(record: &ConversationActivityRecord) -> Result<String, LedgerError> {
-    serde_json::to_string(record).map_err(storage_error)
+fn encode(fact: &ConversationActivityFact) -> Result<String, LedgerError> {
+    serde_json::to_string(fact).map_err(storage_error)
 }

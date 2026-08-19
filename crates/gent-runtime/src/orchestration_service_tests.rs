@@ -2,8 +2,8 @@ use gent_ports::{LedgerError, OrchestrationLedger, OrchestrationWrite};
 use gent_types::{
     AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
     AgentChatSelection, CrossReviewRequest, FanoutRequest, HarnessProfileRef, HostEpoch,
-    ReviewCandidate, TaskGraph, TaskGraphBinding, TaskNode, TaskNodeSpec, TaskNodeStatus, TaskRole,
-    WorktreePolicy,
+    ReviewCandidate, TaskGraph, TaskGraphBinding, TaskGraphFactPage, TaskNode, TaskNodeSpec,
+    TaskNodeStatus, TaskRole, WorktreePolicy,
 };
 
 use crate::{OrchestrationAuthority, OrchestrationResult, OrchestrationService};
@@ -12,6 +12,9 @@ use crate::{OrchestrationAuthority, OrchestrationResult, OrchestrationService};
 struct PanicLedger;
 impl OrchestrationLedger for PanicLedger {
     fn task_graph(&self, _: &str) -> Result<Option<TaskGraph>, LedgerError> {
+        panic!("observer read")
+    }
+    fn task_graph_facts(&self, _: &str, _: u64, _: u16) -> Result<TaskGraphFactPage, LedgerError> {
         panic!("observer read")
     }
     fn apply_fanout(&self, _: &FanoutRequest) -> Result<OrchestrationWrite, LedgerError> {
@@ -29,6 +32,12 @@ struct Ledger(TaskGraph);
 impl OrchestrationLedger for Ledger {
     fn task_graph(&self, _: &str) -> Result<Option<TaskGraph>, LedgerError> {
         Ok(Some(self.0.clone()))
+    }
+    fn task_graph_facts(&self, _: &str, _: u64, _: u16) -> Result<TaskGraphFactPage, LedgerError> {
+        Ok(TaskGraphFactPage {
+            facts: vec![],
+            next_after_cursor: None,
+        })
     }
     fn apply_fanout(&self, _: &FanoutRequest) -> Result<OrchestrationWrite, LedgerError> {
         Ok(OrchestrationWrite::Created(self.0.clone()))
@@ -125,6 +134,10 @@ fn observer_never_reads_or_writes_orchestration_storage() {
         service.cross_review(&review()).unwrap(),
         OrchestrationResult::DeniedObserver
     );
+    assert_eq!(
+        service.graph_facts("graph-1", 0, 1).unwrap(),
+        OrchestrationResult::DeniedObserver
+    );
 }
 #[test]
 fn approved_service_maps_graph_reads_and_atomic_writes() {
@@ -148,4 +161,8 @@ fn approved_service_maps_graph_reads_and_atomic_writes() {
         service.cross_review(&review()).unwrap(),
         OrchestrationResult::Graph(Box::new(graph))
     );
+    assert!(matches!(
+        service.graph_facts("graph-1", 0, 1).unwrap(),
+        OrchestrationResult::FactPage(_)
+    ));
 }

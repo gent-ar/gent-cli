@@ -173,7 +173,7 @@ mod tests {
         .state;
 
         let status = projected_live_status(&state);
-        assert_eq!(status.snapshot_cursor, 2);
+        assert_eq!(status.cursor, 2);
         assert!(status.has_live_subagent_work);
         assert!(status.is_waiting_for_subagents);
     }

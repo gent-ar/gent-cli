@@ -2,12 +2,17 @@
 
 use gent_protocol::AgentChatIntentFrame;
 use gent_runtime::{
-    AgentChatConversationRequest, AgentChatConversationResult, AgentChatConversationService,
-    AgentChatPromptRequest, AgentChatPromptResult, AgentChatPromptService,
-    AgentChatSelectionSwitchRequest, AgentChatSelectionSwitchResult,
+    AgentChatConversationService, AgentChatPromptRequest, AgentChatPromptResult,
+    AgentChatPromptService, AgentChatSelectionSwitchRequest, AgentChatSelectionSwitchResult,
     AgentChatSelectionSwitchService,
 };
-use gent_types::{AgentChatPromptDisposition, HostEpoch};
+use gent_types::{
+    AgentChatConversationId, AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatRunId,
+    HostEpoch, ReceiptId,
+};
+#[path = "agent_chat_api_create.rs"]
+mod create;
+use create::create;
 
 /// Daemon-composition notification issued only after a prompt transaction commits.
 ///
@@ -16,7 +21,16 @@ use gent_types::{AgentChatPromptDisposition, HostEpoch};
 pub(crate) trait PromptCommitWake {
     type Error;
 
-    fn wake_after_prompt_commit(&mut self) -> Result<(), Self::Error>;
+    fn wake_after_prompt_commit(&mut self, prompt: PromptWake) -> Result<(), Self::Error>;
+}
+
+/// Durable-only identity delivered to an authority-owned lifecycle router after a prompt commit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PromptWake {
+    pub(crate) conversation_id: AgentChatConversationId,
+    pub(crate) run_id: AgentChatRunId,
+    pub(crate) receipt_id: ReceiptId,
+    pub(crate) disposition: AgentChatPromptDisposition,
 }
 
 struct NoopPromptCommitWake;
@@ -24,7 +38,7 @@ struct NoopPromptCommitWake;
 impl PromptCommitWake for NoopPromptCommitWake {
     type Error = std::convert::Infallible;
 
-    fn wake_after_prompt_commit(&mut self) -> Result<(), Self::Error> {
+    fn wake_after_prompt_commit(&mut self, _: PromptWake) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -39,6 +53,7 @@ pub(crate) fn exchange<L>(
 ) -> Result<Vec<AgentChatIntentFrame>, String>
 where
     L: gent_ports::AgentChatLedger
+        + gent_ports::AgentChatWorkspaceLedger
         + gent_ports::AgentChatPromptLedger
         + gent_ports::AgentChatSelectionLedger,
 {
@@ -67,6 +82,7 @@ pub(crate) fn exchange_with_wake<L, W>(
 ) -> Result<Vec<AgentChatIntentFrame>, String>
 where
     L: gent_ports::AgentChatLedger
+        + gent_ports::AgentChatWorkspaceLedger
         + gent_ports::AgentChatPromptLedger
         + gent_ports::AgentChatSelectionLedger,
     W: PromptCommitWake,
@@ -75,8 +91,16 @@ where
         AgentChatIntentFrame::CreateConversation {
             request_id,
             receipt_id,
+            workspace_path,
             selection,
-        } => create(conversations, host_epoch, request_id, receipt_id, selection),
+        } => create(
+            conversations,
+            host_epoch,
+            request_id,
+            receipt_id,
+            &workspace_path,
+            selection,
+        ),
         AgentChatIntentFrame::SendPrompt {
             request_id,
             receipt_id,
@@ -170,7 +194,7 @@ where
             request_id: input.request_id.clone(),
             receipt_id: input.receipt_id,
             host_epoch,
-            conversation_id: input.conversation_id,
+            conversation_id: input.conversation_id.clone(),
             parent_run_id: input.parent_run_id,
             selection: input.selection,
             context_policy: input.context_policy,
@@ -194,37 +218,6 @@ where
     }
 }
 
-fn create<L>(
-    service: &AgentChatConversationService<L>,
-    host_epoch: HostEpoch,
-    request_id: gent_types::AgentChatRequestId,
-    receipt_id: gent_types::ReceiptId,
-    selection: gent_types::AgentChatSelection,
-) -> Result<Vec<AgentChatIntentFrame>, String>
-where
-    L: gent_ports::AgentChatLedger,
-{
-    match service
-        .create(&AgentChatConversationRequest {
-            request_id: request_id.clone(),
-            receipt_id,
-            host_epoch,
-            selection,
-        })
-        .map_err(|error| error.to_string())?
-    {
-        AgentChatConversationResult::Created(created) => Ok(vec![AgentChatIntentFrame::Created {
-            request_id,
-            receipt: created.receipt,
-            conversation_id: created.conversation_id,
-            run_id: created.run_id,
-        }]),
-        AgentChatConversationResult::DeniedObserver => {
-            Err("agent-chat authority is disabled".into())
-        }
-    }
-}
-
 fn prompt<L, W>(
     service: &AgentChatPromptService<L>,
     host_epoch: HostEpoch,
@@ -240,23 +233,39 @@ where
             request_id: input.request_id.clone(),
             receipt_id: input.receipt_id,
             host_epoch,
-            conversation_id: input.conversation_id,
+            conversation_id: input.conversation_id.clone(),
             disposition: input.disposition,
             text: input.text,
         })
         .map_err(|error| error.to_string())?
     {
         AgentChatPromptResult::Saved(saved) => {
-            wake.wake_after_prompt_commit().map_err(|_| {
+            wake.wake_after_prompt_commit(wake_identity(&input.conversation_id, &saved))
+                .map_err(|_| {
                 "durable prompt was saved but its lifecycle wake was unavailable; retry the same receipt"
                     .to_owned()
             })?;
             Ok(vec![AgentChatIntentFrame::Accepted {
                 request_id: input.request_id,
                 receipt: saved.receipt.clone(),
+                conversation_id: input.conversation_id,
+                run_id: saved.run_id.clone(),
+                turn_id: saved.message.turn_id.clone(),
                 delivery: saved.delivery,
             }])
         }
         AgentChatPromptResult::DeniedObserver => Err("agent-chat authority is disabled".into()),
+    }
+}
+
+fn wake_identity(
+    conversation_id: &AgentChatConversationId,
+    saved: &AgentChatPromptSaved,
+) -> PromptWake {
+    PromptWake {
+        conversation_id: conversation_id.clone(),
+        run_id: saved.run_id.clone(),
+        receipt_id: saved.receipt.receipt_id.clone(),
+        disposition: saved.disposition,
     }
 }

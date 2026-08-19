@@ -41,7 +41,7 @@ impl<L, D, R> PublicDriversRuntime<L, D, R>
 where
     L: Clone
         + Ledger
-        + gent_ports::RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + gent_ports::ConversationActivityLedger
         + gent_ports::TranscriptLedger
         + gent_ports::AgentChatPromptDispatchLedger

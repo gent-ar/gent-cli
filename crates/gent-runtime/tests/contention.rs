@@ -126,10 +126,7 @@ fn concurrent_command_retries_produce_one_receipt_and_event_pair() {
     });
     let receipts = receipts.map(|thread| thread.join().unwrap());
     assert_eq!(receipts[0], receipts[1]);
-    assert!(matches!(
-        coordinator.resume_events(0).unwrap(),
-        gent_types::EventResume::Delta { events } if events.len() == 2
-    ));
+    assert_eq!(coordinator.read_event_page(0, 100).unwrap().events.len(), 2);
 }
 
 #[test]
@@ -183,9 +180,7 @@ fn file_backed_ledger_preserves_events_and_epoch_after_restart() {
         CapabilitySet::default(),
     );
     assert_eq!(restarted.status().unwrap().host_epoch, HostEpoch(1));
-    let gent_types::EventResume::Delta { events } = restarted.resume_events(0).unwrap() else {
-        panic!("uncompacted event feed must return a delta");
-    };
+    let events = restarted.read_event_page(0, 100).unwrap().events;
     assert_eq!(events.len(), 2);
     assert!(
         events

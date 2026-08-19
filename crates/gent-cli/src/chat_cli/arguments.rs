@@ -1,6 +1,7 @@
 //! CLI-only argument DTOs for provider-neutral chat intents and reads.
 
 use clap::{Args, ValueEnum};
+use std::path::PathBuf;
 
 /// Prompt-first terminal arguments. A missing prompt preserves the conversation browser default.
 #[derive(Debug, Args)]
@@ -12,6 +13,9 @@ pub(crate) struct DirectPromptArgs {
     /// Required with `--conversation-id` for the positional `/goal <summary>` shorthand.
     #[arg(long, requires = "prompt")]
     pub(crate) run_id: Option<String>,
+    /// Local workspace for a new conversation. Defaults to the terminal's current directory.
+    #[arg(long, requires = "prompt", conflicts_with = "conversation_id")]
+    pub(crate) workspace: Option<PathBuf>,
     /// Choose a provider only when creating a new conversation. Use `gent chat switch` to
     /// change the selected provider, model, effort, or mode of an existing conversation.
     #[arg(
@@ -40,7 +44,7 @@ pub(crate) struct DirectPromptArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = Mode::Agent,
+        default_value_t = Mode::Ask,
         requires = "prompt",
         conflicts_with = "conversation_id"
     )]
@@ -49,6 +53,9 @@ pub(crate) struct DirectPromptArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct CreateArgs {
+    /// Local workspace for the new conversation. Defaults to the current directory.
+    #[arg(long)]
+    pub(crate) workspace: Option<PathBuf>,
     #[arg(long, value_enum)]
     pub(crate) provider: Provider,
     #[arg(long)]

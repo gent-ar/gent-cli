@@ -66,7 +66,7 @@ pub fn reduce_lifecycle(mut state: LifecycleState, event: LifecycleEvent) -> Lif
 }
 
 #[must_use]
-pub fn live_status(state: &LifecycleState, snapshot_cursor: u64) -> ConversationLiveStatus {
+pub fn live_status(state: &LifecycleState, cursor: u64) -> ConversationLiveStatus {
     let has_live_subagent_work = state.children.values().any(WorkPhase::is_live);
     let has_live_command_work = state.commands.values().any(WorkPhase::is_live);
     // Adapters may report a generation fact before the corresponding turn-phase update arrives.
@@ -80,7 +80,7 @@ pub fn live_status(state: &LifecycleState, snapshot_cursor: u64) -> Conversation
                 | TurnPhase::Compacting
         );
     ConversationLiveStatus {
-        snapshot_cursor,
+        cursor,
         is_processing,
         is_waiting_for_subagents: !state.root_activity.is_generating() && has_live_subagent_work,
         has_live_subagent_work,

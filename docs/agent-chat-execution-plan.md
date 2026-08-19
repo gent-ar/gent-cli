@@ -9,7 +9,7 @@ of the shipped observer daemon.
 Gent owns the reducer, durable records, permission evaluation, context boundary,
 provider selection, and lifecycle facts. `gent` renders and invokes those same
 commands directly in the terminal. The native app is another IPC client: it
-renders Gent snapshots and sends typed user choices, but does not keep a second
+renders Gent durable typed records/pages and sends typed user choices, but does not keep a second
 plan state machine, rebuild context, select a provider, or infer execution
 state. A capability unavailable to `gent` is unavailable to the native app.
 The complete browse/create/prompt/follow-up/reconnect lifecycle is specified in
@@ -31,14 +31,14 @@ provider, or make activity live truth.
    IDs, credentials, and hidden reasoning do not become plan fields. Its closed
    reducer states are draft, readyForReview, approved, rejected, superseded, and
    terminallyFailed; the review history is append-only.
-2. The app requests a review snapshot by plan ID. The snapshot includes the
+2. The app requests an immutable revision-bound plan artifact by plan ID. It includes the
    plan revision, its source boundary, actions/diffs/risks/permission preview,
    supported selection choices, and the current terminal status. It is
    cursor/revision bound and cannot be inferred from displayed text.
 3. `Start implementing` is a receipt-backed command for one exact reviewed
    plan revision. The user chooses provider, model, effort, and mode at this
    approval point; Gent validates that choice against the locked provider
-   capability catalog rather than trusting an app-side model list. It also
+   live composed provider capabilities rather than trusting an app-side model list. It also
    freezes the policy revision and host epoch evaluated at approval.
 4. Approval creates a new immutable implementation child run. It never mutates
    the plan run or changes a provider/model in place. The child records its
@@ -116,7 +116,7 @@ reference implementations, not a permanent dual architecture. After Gent has
 passed the authority and provider-evidence gates, app integration must proceed
 as one reviewed cutover:
 
-1. Move each app surface to the negotiated Gent IPC snapshot, delta, transcript,
+1. Move each app surface to the negotiated Gent IPC bounded reads, cursor deltas, transcript,
    plan, permission, login, and reconnect contracts; verify parity using the
    same provider-neutral fixtures as `gent`.
 2. Delete the matching app driver, stdout parser, process launcher, provider

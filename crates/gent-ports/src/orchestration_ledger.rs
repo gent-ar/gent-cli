@@ -1,6 +1,6 @@
 //! Durable boundary for future Gent-owned fanout and cross-review graphs.
 
-use gent_types::{CrossReviewRequest, FanoutRequest, TaskGraph};
+use gent_types::{CrossReviewRequest, FanoutRequest, TaskGraph, TaskGraphFactPage};
 
 use crate::LedgerError;
 
@@ -12,13 +12,23 @@ pub enum OrchestrationWrite {
     Current(TaskGraph),
 }
 
-/// Persistence boundary for typed orchestration state; it never launches a provider or worktree.
+/// Persistence boundary for append-only orchestration facts; it never launches a provider or worktree.
 pub trait OrchestrationLedger: Send + Sync {
-    /// Reads one graph only by its immutable Gent-owned identity.
+    /// Reads one deterministic graph view reduced from immutable facts.
     ///
     /// # Errors
     /// Returns an error when durable state cannot be read.
     fn task_graph(&self, graph_id: &str) -> Result<Option<TaskGraph>, LedgerError>;
+    /// Reads one bounded, strictly cursor-ordered page of immutable graph facts.
+    ///
+    /// # Errors
+    /// Returns an error when durable state cannot be read or `limit` is outside its bound.
+    fn task_graph_facts(
+        &self,
+        graph_id: &str,
+        after_cursor: u64,
+        limit: u16,
+    ) -> Result<TaskGraphFactPage, LedgerError>;
     /// Atomically creates the initial typed fanout graph or returns its identical durable retry.
     ///
     /// # Errors

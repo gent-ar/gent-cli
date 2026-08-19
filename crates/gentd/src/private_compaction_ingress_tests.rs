@@ -113,6 +113,37 @@ fn approved_ingress_persists_the_fact_before_creating_a_fresh_recovery_child() {
 }
 
 #[test]
+fn replay_after_ingress_restart_uses_the_durable_fact_and_same_child_receipt() {
+    let ledger = prepared_ledger();
+    let first = PrivateCompactionIngress::new(
+        ledger.clone(),
+        AgentChatCompactionRecoveryAuthority::Approved,
+    )
+    .record(failed())
+    .unwrap();
+    let PrivateCompactionResult::Recovered(first_child) = first else {
+        panic!("initial compaction must create a child");
+    };
+
+    // A fresh ingress deliberately has no remembered reducer state. The durable source event
+    // and deterministic recovery receipt must be sufficient to reproduce the same result.
+    let replay = PrivateCompactionIngress::new(
+        ledger.clone(),
+        AgentChatCompactionRecoveryAuthority::Approved,
+    )
+    .record(failed())
+    .unwrap();
+    assert_eq!(replay, PrivateCompactionResult::Recovered(first_child));
+    assert_eq!(
+        ledger
+            .list_conversation_runs("conversation-a")
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
 fn observer_ingress_cannot_persist_or_recover() {
     let ledger = prepared_ledger();
     let mut ingress = PrivateCompactionIngress::new(

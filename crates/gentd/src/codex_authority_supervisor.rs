@@ -7,7 +7,7 @@
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
-    NormalizedSessionBatchLedger, PublicProviderResolver, RunProjectionLedger, TranscriptLedger,
+    NormalizedSessionBatchLedger, PublicProviderResolver, TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 
@@ -69,7 +69,7 @@ impl<L, D, R> PrivateCodexSupervisor<L, D, R>
 where
     L: Clone
         + Ledger
-        + RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + ConversationActivityLedger
         + TranscriptLedger
         + NormalizedSessionBatchLedger

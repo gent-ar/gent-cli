@@ -1,8 +1,9 @@
 //! Daemon composition of observer and explicitly approved durable-chat services.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY;
+use gent_protocol::{AGENT_CHAT_INTENTS_CAPABILITY, REVIEWED_PLAN_CAPABILITY};
 use gent_runtime::catalog::validate_observed_capabilities;
 use gent_runtime::{
     AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
@@ -21,6 +22,9 @@ use crate::dependency_catalog::DependencyCatalog;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 
+#[path = "runtime_facade_authority.rs"]
+mod authority;
+
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeFacade {
     agent_chat_conversations: AgentChatConversationService<SqliteLedger>,
@@ -28,6 +32,9 @@ pub(crate) struct RuntimeFacade {
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
     turn_follow_source: Option<SqliteLedger>,
+    ordinary_prompt_wake: Option<
+        Arc<Mutex<crate::ordinary_lifecycle_router::OrdinaryPublicLifecycleRouter<SqliteLedger>>>,
+    >,
     goals: GoalService<SqliteLedger>,
     reviewed_plans: ReviewedPlanService<SqliteLedger>,
     orchestration: OrchestrationService<SqliteLedger>,
@@ -42,7 +49,7 @@ pub(crate) struct RuntimeFacade {
 
 /// The one already-open durable state shared by future daemon compositions.
 ///
-/// Opening this state performs the current local-storage and capability-catalog preparation only.
+/// Opening this state prepares only current local storage and live capability validation.
 /// It does not discover or launch a provider, and does not select any authority profile.
 #[derive(Debug)]
 pub(crate) struct DaemonCompositionState {
@@ -67,7 +74,6 @@ impl DaemonCompositionState {
         let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
         crate::permission_workspace::ensure(&ledger, data_dir)?;
         let coordinator = Coordinator::new(ledger.clone(), capabilities);
-        coordinator.persist_capability_catalog()?;
         Ok(Self {
             data_dir: data_dir.into(),
             ledger,
@@ -88,7 +94,7 @@ impl DaemonCompositionState {
         &self.ledger
     }
 
-    /// Returns the coordinator bound to this state and its persisted capability catalog.
+    /// Returns the coordinator bound to this state and its live capability declaration.
     #[must_use]
     pub(crate) fn coordinator(&self) -> &Coordinator<SqliteLedger> {
         &self.coordinator
@@ -137,27 +143,20 @@ impl RuntimeFacade {
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::from_state_inner(state, runtime_update_checks, false)
-    }
-
-    /// Builds an explicit future authority seam for exact, read-only turn following.
-    ///
-    /// No shipped bootstrap calls this constructor or advertises the corresponding capability.
-    ///
-    /// # Errors
-    /// Returns an error when the durable attachment store cannot open.
-    #[allow(dead_code)] // Reserved for an explicit future authority composition only.
-    pub(crate) fn from_state_with_turn_follow_authority(
-        state: DaemonCompositionState,
-        runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::from_state_inner(state, runtime_update_checks, true)
+        Self::from_state_inner(state, runtime_update_checks, false, None)
     }
 
     fn from_state_inner(
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
         turn_follow_enabled: bool,
+        ordinary_prompt_wake: Option<
+            Arc<
+                Mutex<
+                    crate::ordinary_lifecycle_router::OrdinaryPublicLifecycleRouter<SqliteLedger>,
+                >,
+            >,
+        >,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let DaemonCompositionState {
             data_dir,
@@ -170,6 +169,10 @@ impl RuntimeFacade {
             .0
             .iter()
             .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY);
+        let reviewed_plan_enabled = capabilities
+            .0
+            .iter()
+            .any(|capability| capability == REVIEWED_PLAN_CAPABILITY);
         let maintenance_enabled = capabilities
             .0
             .iter()
@@ -194,10 +197,11 @@ impl RuntimeFacade {
             ),
             agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
             turn_follow_source,
+            ordinary_prompt_wake,
             goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),
             reviewed_plans: ReviewedPlanService::new(
                 ledger.clone(),
-                reviewed_plan_authority(agent_chat_enabled),
+                reviewed_plan_authority(reviewed_plan_enabled),
             ),
             orchestration: OrchestrationService::new(
                 ledger.clone(),

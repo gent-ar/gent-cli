@@ -6,7 +6,7 @@ use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PublicProviderResolver,
-    PublicProviderRunError, RunProjectionLedger, TranscriptLedger,
+    PublicProviderRunError, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
 use gent_types::{AgentChatPromptSaved, HostEpoch};
@@ -14,12 +14,10 @@ use gent_types::{AgentChatPromptSaved, HostEpoch};
 use crate::public_driver_runtime::{NormalizedSessionFact, PublicDriverFact, PublicDriversRuntime};
 
 mod execution;
-mod sandboxed_execution;
 mod scheduler;
 mod start;
 #[allow(unused_imports)]
 pub(crate) use execution::{ClaudePromptExecution, ClaudePromptRunner, ClaudePromptStart};
-pub(crate) use sandboxed_execution::SandboxedClaudePromptExecution;
 pub(crate) use scheduler::ClaudeLifecycleTick;
 
 /// Outcome of claiming and attempting one durable Claude prompt.
@@ -59,7 +57,7 @@ impl<L, D, R> ClaudePromptLifecycle<L, D, R>
 where
     L: Clone
         + Ledger
-        + RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + ConversationActivityLedger
         + TranscriptLedger
         + NormalizedSessionBatchLedger
@@ -171,7 +169,7 @@ where
         if matches!(fact, PublicWireFact::SessionStarted { .. }) {
             let event_id = self.next_event_id(run_id, "session")?;
             self.runtime.record(
-                run_id.into(),
+                run_id,
                 &self.coordinator_id,
                 host_epoch,
                 PublicDriverFact::PublicWire {
@@ -229,7 +227,7 @@ where
     ) -> Result<(), RuntimeError> {
         let event_id = self.next_event_id(run_id, "terminal")?;
         self.runtime.record(
-            run_id.into(),
+            run_id,
             &self.coordinator_id,
             host_epoch,
             PublicDriverFact::SessionEffect {

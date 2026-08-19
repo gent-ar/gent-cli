@@ -17,7 +17,8 @@ use crate::{
 pub(crate) enum DirectPromptResult {
     Prompt {
         conversation_id: String,
-        run_id: Option<String>,
+        run_id: String,
+        turn_id: String,
         delivery: gent_types::AgentChatPromptDelivery,
     },
     Goal {
@@ -79,8 +80,8 @@ pub(crate) async fn execute(
     if args.run_id.is_some() {
         return Err("--run-id is only valid with positional `/goal <summary>`".into());
     }
-    let (conversation_id, run_id) = if let Some(conversation_id) = args.conversation_id {
-        (AgentChatConversationId(conversation_id), None)
+    let conversation_id = if let Some(conversation_id) = args.conversation_id {
+        AgentChatConversationId(conversation_id)
     } else {
         let selection = AgentChatSelection {
             provider: provider(args.provider),
@@ -88,15 +89,16 @@ pub(crate) async fn execute(
             effort: effort(args.effort),
             mode: mode(args.mode),
         };
-        let (conversation_id, run_id) =
-            chat_cli::create(data_dir.clone(), no_autostart, selection).await?;
-        (conversation_id, Some(run_id))
+        let (conversation_id, _) =
+            chat_cli::create(data_dir.clone(), no_autostart, selection, args.workspace).await?;
+        conversation_id
     };
-    let delivery = chat_cli::send(data_dir, no_autostart, conversation_id.0.clone(), text).await?;
+    let accepted = chat_cli::send(data_dir, no_autostart, conversation_id.0, text).await?;
     Ok(Some(DirectPromptResult::Prompt {
-        conversation_id: conversation_id.0,
-        run_id: run_id.map(|value| value.0),
-        delivery,
+        conversation_id: accepted.conversation_id.0,
+        run_id: accepted.run_id.0,
+        turn_id: accepted.turn_id,
+        delivery: accepted.delivery,
     }))
 }
 
@@ -233,6 +235,7 @@ mod tests {
                 prompt: Some(format!("/fanout {}", request_path.display())),
                 conversation_id: None,
                 run_id: None,
+                workspace: None,
                 provider: Provider::Codex,
                 model: "unused".into(),
                 effort: Effort::Medium,

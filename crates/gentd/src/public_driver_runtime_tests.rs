@@ -1,8 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use crate::authority_profile::{
+    AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest, ValidatedAuthorityProfile,
 };
-
+use crate::compatibility_assessment::CompatibilityAssessment;
+use crate::public_driver_runtime::{
+    PublicDriverFact, PublicDriverFactResult, PublicDriversRuntime, PublicDriversRuntimeError,
+};
 use ed25519_dalek::{Signer, SigningKey};
 use gent_adapters::compatibility::{
     CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest, TrustedKeySet,
@@ -10,8 +12,8 @@ use gent_adapters::compatibility::{
 use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_drivers::SessionEffect;
 use gent_ports::{
-    AgentChatLedger, AgentChatPromptLedger, ConversationActivityLedger, PublicProviderResolver,
-    PublicProviderRunError, PublicProviderRunner,
+    AgentChatPromptLedger, AgentChatWorkspaceLedger, ConversationActivityLedger,
+    PublicProviderResolver, PublicProviderRunError, PublicProviderRunner,
 };
 use gent_protocol::{DependencyProvider, PublicRunOutcome, PublicRunStartRequest};
 use gent_runtime::Coordinator;
@@ -21,38 +23,28 @@ use gent_types::{
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, CapabilitySet, ConversationActivityFact,
     ConversationActivityScope, HostEpoch, NormalizedProviderEvent, NormalizedTranscriptKind,
-    ReceiptId, RunVersionLock,
+    ReceiptId, RunVersionLock, WorkspaceRecord,
 };
-
-use crate::authority_profile::{
-    AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest, ValidatedAuthorityProfile,
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
-use crate::compatibility_assessment::CompatibilityAssessment;
-use crate::public_driver_runtime::{
-    PublicDriverFact, PublicDriverFactResult, PublicDriversRuntime, PublicDriversRuntimeError,
-};
-
 #[derive(Clone, Debug)]
 struct Runner(Arc<AtomicUsize>);
-
 impl PublicProviderRunner for Runner {
     fn start(&self, _: &str, _: &RunVersionLock) -> Result<(), PublicProviderRunError> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
-
     fn resume(&self, _: &str, _: &RunVersionLock, _: &str) -> Result<(), PublicProviderRunError> {
         Ok(())
     }
-
     fn interrupt(&self, _: &str) -> Result<(), PublicProviderRunError> {
         Ok(())
     }
 }
-
 #[derive(Debug)]
 struct Resolver;
-
 impl PublicProviderResolver for Resolver {
     fn resolve(&self, provider: &str) -> Result<RunVersionLock, PublicProviderRunError> {
         (provider == "claude")
@@ -60,7 +52,6 @@ impl PublicProviderResolver for Resolver {
             .ok_or(PublicProviderRunError::CompatibilityDenied)
     }
 }
-
 fn lock() -> RunVersionLock {
     RunVersionLock {
         provider: "claude".into(),
@@ -71,7 +62,6 @@ fn lock() -> RunVersionLock {
         compatibility_entry: "claude-1".into(),
     }
 }
-
 fn compatibility() -> CompatibilityAssessment {
     let key = SigningKey::from_bytes(&[9; 32]);
     let payload = CompatibilityManifest {
@@ -132,21 +122,7 @@ fn runtime(
 #[test]
 fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingress() {
     let ledger = SqliteLedger::in_memory().unwrap();
-    ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("receipt-conversation".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Claude,
-                model: "claude".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
-            },
-        })
-        .unwrap();
+    create_conversation(&ledger);
     let prompt = save_prompt(&ledger);
     let compatibility = compatibility();
     let (runtime, starts) = runtime(ledger.clone(), approved(&compatibility), compatibility);
@@ -173,7 +149,7 @@ fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingr
     assert_eq!(starts.load(Ordering::SeqCst), 1);
     let session = runtime
         .record(
-            "run-a".into(),
+            "run-a",
             "daemon-a",
             HostEpoch(1),
             PublicDriverFact::SessionEffect {
@@ -188,7 +164,7 @@ fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingr
     assert!(matches!(
         runtime
             .record(
-                "run-a".into(),
+                "run-a",
                 "daemon-a",
                 HostEpoch(1),
                 PublicDriverFact::SessionEffect {
@@ -205,7 +181,7 @@ fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingr
     ));
     let activity = runtime
         .record(
-            "run-a".into(),
+            "run-a",
             "daemon-a",
             HostEpoch(1),
             PublicDriverFact::Activity(gent_runtime::ProviderActivityFact {
@@ -224,12 +200,34 @@ fn approved_profile_connects_precreated_chat_runs_to_lifecycle_and_activity_ingr
         .unwrap();
     assert!(matches!(activity, PublicDriverFactResult::Activity(_)));
     assert_transcript(&runtime, prompt.message.turn_id);
-    assert!(
-        ledger
-            .find_conversation_activity("conversation-a", "run-a")
-            .unwrap()
-            .is_some()
-    );
+    let activity = ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
+        .unwrap();
+    assert_eq!(activity.facts.len(), 1);
+}
+
+fn create_conversation(ledger: &SqliteLedger) {
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("receipt-conversation".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "claude".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
+        .unwrap();
 }
 
 fn save_prompt(ledger: &SqliteLedger) -> gent_types::AgentChatPromptSaved {
@@ -259,7 +257,7 @@ fn assert_transcript(
         is_partial: false,
     });
     assert!(matches!(
-        runtime.record("run-a".into(), "daemon-a", HostEpoch(1), fact),
+        runtime.record("run-a", "daemon-a", HostEpoch(1), fact),
         Ok(PublicDriverFactResult::Transcript(_))
     ));
 }

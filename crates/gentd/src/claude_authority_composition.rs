@@ -8,11 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
-use gent_drivers::{SystemLauncher, SystemProcess};
-use gent_ports::{SandboxedProviderPreflight, SandboxedProviderPreflightError};
+use gent_drivers::{SandboxedLauncher, SandboxedProviderLaunch};
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, SandboxLaunchAttestation, SandboxedLaunchRequest};
+use gent_types::{HostEpoch, SandboxedLaunchRequest};
 
 use crate::approved_claude_host::ApprovedClaudeHost;
 use crate::authority_profile::{
@@ -24,7 +23,7 @@ use crate::claude_authority_supervisor::{
     PrivateClaudeEscalation, PrivateClaudeShutdown, PrivateClaudeSupervisor, PrivateClaudeWake,
 };
 use crate::claude_private_resolver::ClaudeOnlyResolver;
-use crate::claude_prompt_lifecycle::{ClaudePromptRunner, SandboxedClaudePromptExecution};
+use crate::claude_prompt_lifecycle::ClaudePromptRunner;
 use crate::private_lifecycle_loop::PrivateLifecycleOwner;
 use crate::provider_resolver::{
     DaemonProviderResolver, PrivatePrefixDiscovery, SystemVersionProbe,
@@ -41,7 +40,7 @@ const EVIDENCE_REFERENCE: &str = "private-claude-authority-v1";
 /// Private supervisor inputs for a single Claude-only process authority profile.
 ///
 /// This value is not protocol-serializable and no shipped daemon command constructs it. The
-/// sandbox profile and preflight are supplied only by a future trusted composition owner.
+/// sandbox profile and contained-launch implementation are Gent-owned composition inputs.
 #[derive(Debug)]
 pub(crate) struct PrivateClaudeAuthorityConfig<S> {
     pub(crate) evidence_record: PathBuf,
@@ -51,32 +50,25 @@ pub(crate) struct PrivateClaudeAuthorityConfig<S> {
     pub(crate) now_unix_seconds: u64,
     /// An immutable executable lock and credential-free sandbox profile supplied only by Gent.
     pub(crate) sandbox_request: SandboxedLaunchRequest,
-    pub(crate) sandbox_preflight: S,
+    pub(crate) sandbox_launch: S,
 }
 
 type SandboxedClaudeRunner<S> =
-    SandboxedClaudePromptExecution<ClaudePromptRunner<SystemLauncher, SystemProcess>, S>;
+    ClaudePromptRunner<SandboxedLauncher<S>, <S as SandboxedProviderLaunch>::Process>;
 
-/// Private authority host whose lifecycle is inseparable from its sandbox attestation.
-pub(crate) struct PrivateClaudeAuthorityHost<S> {
+/// Private authority host whose lifecycle can only spawn through contained-launch infrastructure.
+pub(crate) struct PrivateClaudeAuthorityHost<S: SandboxedProviderLaunch> {
     supervisor: PrivateClaudeSupervisor<
         SqliteLedger,
         SandboxedClaudeRunner<S>,
         ClaudeOnlyResolver<PrivatePrefixDiscovery, SystemVersionProbe>,
     >,
-    attestation: SandboxLaunchAttestation,
 }
 
 impl<S> PrivateClaudeAuthorityHost<S>
 where
-    S: SandboxedProviderPreflight + std::fmt::Debug + 'static,
+    S: SandboxedProviderLaunch + std::fmt::Debug + 'static,
 {
-    /// Returns the containment proof that gated this host's construction.
-    #[must_use]
-    pub(crate) fn sandbox_attestation(&self) -> &SandboxLaunchAttestation {
-        &self.attestation
-    }
-
     /// Drives one recovery/tick/drain pass through the only private lifecycle owner.
     pub(crate) fn wake(&mut self) -> Result<PrivateClaudeWake, gent_runtime::RuntimeError> {
         self.supervisor.wake()
@@ -99,7 +91,7 @@ where
 
 impl<S> PrivateLifecycleOwner for PrivateClaudeAuthorityHost<S>
 where
-    S: SandboxedProviderPreflight + std::fmt::Debug + 'static,
+    S: SandboxedProviderLaunch + std::fmt::Debug + 'static,
 {
     type Wake = PrivateClaudeWake;
     type Shutdown = PrivateClaudeShutdown;
@@ -132,10 +124,6 @@ pub(crate) enum PrivateClaudeAuthorityError {
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
-    #[error(transparent)]
-    Sandbox(#[from] SandboxedProviderPreflightError),
-    #[error("sandbox attestation is not bound to the exact Claude executable and profile")]
-    InvalidSandboxAttestation,
 }
 
 /// Composes a sandbox-gated Claude lifecycle after loading fresh signed evidence.
@@ -153,13 +141,9 @@ pub(crate) fn compose_private_claude_authority<S>(
     config: PrivateClaudeAuthorityConfig<S>,
 ) -> Result<PrivateClaudeAuthorityHost<S>, PrivateClaudeAuthorityError>
 where
-    S: SandboxedProviderPreflight + std::fmt::Debug + 'static,
+    S: SandboxedProviderLaunch + std::fmt::Debug + 'static,
 {
     validate(&config)?;
-    let attestation = config
-        .sandbox_preflight
-        .preflight(&config.sandbox_request)?;
-    validate_attestation(&config.sandbox_request, &attestation)?;
     let preflight = claude_authority_preflight::load(
         &config.evidence_record,
         &config.trusted_keys,
@@ -167,14 +151,10 @@ where
         config.now_unix_seconds,
     )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
-    let runner = SandboxedClaudePromptExecution::new(
-        ClaudePromptRunner::new(
-            SystemLauncher::new(STREAM_CAPTURE_BYTES),
-            BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
-                .expect("fixed Claude authority buffer policy is valid"),
-        ),
-        config.sandbox_preflight,
-        config.sandbox_request,
+    let runner = ClaudePromptRunner::new(
+        SandboxedLauncher::new(config.sandbox_request, config.sandbox_launch),
+        BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
+            .expect("fixed Claude authority buffer policy is valid"),
     );
     let prefix = state.data_dir().join("providers").join("npm-global");
     let resolver = ClaudeOnlyResolver::new(DaemonProviderResolver::new(
@@ -202,7 +182,6 @@ where
             config.host_epoch,
             MAX_ACTIVE_CLAUDE_RUNS,
         )),
-        attestation,
     })
 }
 
@@ -215,17 +194,6 @@ fn validate<S>(
     (config.sandbox_request.lock.provider == "claude")
         .then_some(())
         .ok_or(PrivateClaudeAuthorityError::InvalidSandboxRequest)
-}
-
-fn validate_attestation(
-    request: &SandboxedLaunchRequest,
-    attestation: &SandboxLaunchAttestation,
-) -> Result<(), PrivateClaudeAuthorityError> {
-    (request.lock.digest_sha256 == attestation.executable_digest_sha256
-        && request.lock.file_identity == attestation.executable_file_identity
-        && request.profile.digest_sha256() == attestation.profile_digest_sha256)
-        .then_some(())
-        .ok_or(PrivateClaudeAuthorityError::InvalidSandboxAttestation)
 }
 
 fn profile(digest: &str) -> Result<ValidatedAuthorityProfile, PrivateClaudeAuthorityError> {

@@ -1,8 +1,8 @@
 //! Versioned wire DTOs and length-prefixed JSON framing shared by every transport.
 
 use gent_types::{
-    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, Event,
-    EventSnapshot, HostStatus, OnboardingState, Receipt,
+    CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, EventPage,
+    HostStatus, OnboardingState, Receipt,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::io;
@@ -11,7 +11,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 mod agent_chat;
-mod agent_chat_controller;
 mod agent_chat_intent;
 mod attachments;
 mod conversation_activity;
@@ -36,10 +35,6 @@ mod turn_follow;
 pub use agent_chat::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
     AgentChatConversationFrame, AgentChatTranscriptFrame,
-};
-pub use agent_chat_controller::{
-    AGENT_CHAT_CONTROLLER_STREAM_CAPABILITY, AgentChatControllerDelta, AgentChatControllerSnapshot,
-    AgentChatControllerStreamEnd, AgentChatControllerStreamFrame,
 };
 pub use agent_chat_intent::{
     AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd,
@@ -141,11 +136,7 @@ pub enum WireFrame {
         after_cursor: u64,
     },
     Events {
-        events: Vec<Event>,
-    },
-    EventResync {
-        snapshot: EventSnapshot,
-        events: Vec<Event>,
+        page: EventPage,
     },
     Error {
         code: String,

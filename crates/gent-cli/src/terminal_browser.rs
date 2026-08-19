@@ -60,7 +60,7 @@ fn submit(
             match request {
                 terminal::UiRequest::Create { selection } => {
                     let (conversation_id, run_id) =
-                        chat_cli::create(data_dir, no_autostart, selection)
+                        chat_cli::create(data_dir, no_autostart, selection, None)
                             .await
                             .map_err(|error| error.to_string())?;
                     Ok(result(
@@ -73,11 +73,15 @@ fn submit(
                     conversation_id,
                     text,
                 } => {
-                    let delivery =
+                    let accepted =
                         chat_cli::send(data_dir, no_autostart, conversation_id.clone(), text)
                             .await
                             .map_err(|error| error.to_string())?;
-                    Ok(result(conversation_id, None, delivery_notice(delivery)))
+                    Ok(result(
+                        accepted.conversation_id.0,
+                        Some(accepted.run_id.0),
+                        delivery_notice(accepted.delivery),
+                    ))
                 }
                 terminal::UiRequest::Goal {
                     conversation_id,

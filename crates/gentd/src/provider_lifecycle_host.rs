@@ -16,7 +16,10 @@ where
 {
     type Error = ProviderLifecycleHostError<O::Error>;
 
-    fn wake_after_prompt_commit(&mut self) -> Result<(), Self::Error> {
+    fn wake_after_prompt_commit(
+        &mut self,
+        _: crate::agent_chat_api::PromptWake,
+    ) -> Result<(), Self::Error> {
         ProviderLifecycleWakePort::wake_after_prompt_commit(self).map(|_| ())
     }
 }

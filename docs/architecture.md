@@ -70,16 +70,22 @@ of it.
 
 ## Future lifecycle and runtime-update boundary
 
-When authority is separately approved, `gentd` will be the sole writer of a
-versioned `ConversationActivity` projection for agent-chat conversations. The
-projection will be cursor- and revision-bound, derive thinking, command,
-subagent, decision, interruption, and terminal states only from durable
-facts, and be the client fallback for a compatible Flutter caller. A client
-may render that projection or show transport staleness; it must not infer a
-lifecycle from provider text or timers.
+When authority is separately approved, `gentd` will be the sole writer of
+cursor-ordered `ConversationActivity` facts for agent-chat conversations.
+Those facts carry the revision-bound thinking, command, subagent, decision,
+interruption, and terminal states derived only from durable records. Every
+client rebuilds its view by reading bounded durable pages and then consuming
+facts strictly after its cursor. Snapshot, recovery-snapshot, recovery-cache,
+mirrored-state, and state-replacement layers are prohibited. Derived in-memory
+views are optional, disposable, and non-authoritative: they must never be
+serialized, transmitted as truth, or used to recover/reconnect. On an epoch or
+cursor mismatch, reload immutable bounded pages (from zero when the cursor is
+not accepted), then replay facts strictly after the accepted cursor. A client
+may show transport staleness, but it must not infer lifecycle from provider
+text or timers.
 
-The existing run-level lifecycle reducers are foundations, not this public
-projection. The default observer daemon offers no authoritative provider
+The existing run-level lifecycle reducers are foundations, not these public
+facts. The default observer daemon offers no authoritative provider
 lifecycle and the terminal client remains content-free with its composer
 disabled. The explicit `--agent-chat-authority` profile is narrower: it writes
 only durable create/send/queue intent records under the usual fences, and never
@@ -128,7 +134,7 @@ stage, launch, or replace a process; the default daemon never enables this profi
 Device pairing, LAN transport, relay hosting, and application-specific UI
 automations stay Flutter-app-owned. They do not grant a second coordinator or
 become `gentd` APIs; any future app transport consumes the same negotiated
-projection and receipt/cursor protocol rather than duplicating lifecycle
+durable-page and receipt/cursor protocol rather than duplicating lifecycle
 inference. A future `gent-automations` agent domain is separate from that app
 scope and must establish its own port, receipt, evidence, and authority gates.
 

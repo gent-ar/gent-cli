@@ -15,6 +15,7 @@ pub mod installer;
 pub mod interrupt;
 pub mod launch_spec;
 pub mod lock;
+pub mod macos_provider_helper;
 pub mod message_encoding;
 pub mod ndjson;
 pub mod node_runtime_lock;
@@ -25,14 +26,22 @@ pub mod process;
 mod process_streams;
 pub mod public_protocol;
 pub mod run_runner;
+pub mod sandboxed_launch;
 pub mod session;
 mod session_frames;
 pub mod supervisor;
 
 pub use discovery::PublicProvider;
+pub use macos_provider_helper::{
+    MacosHelperDenial, MacosHelperPrepare, MacosProviderHelperClient, MacosProviderHelperError,
+    MacosProviderHelperTransport,
+};
 pub use output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 pub use process::{CapturedStream, ProcessOutput, SystemLauncher, SystemProcess};
 pub use run_runner::DriverRunRunner;
+pub use sandboxed_launch::{
+    SandboxedLauncher, SandboxedProviderLaunch, SandboxedProviderLaunchError,
+};
 pub use session::{DriverSession, OutputLimits, SessionEffect, SessionInput, SessionStatus};
 pub use supervisor::{
     LaunchIntent, ProcessLauncher, ProviderLaunch, ProviderProcess, ProviderSupervisor,

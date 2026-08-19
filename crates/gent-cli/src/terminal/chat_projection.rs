@@ -15,7 +15,7 @@ pub(crate) struct ChatProjection {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub(crate) enum ProjectionError {
-    #[error("transcript snapshot belongs to another conversation")]
+    #[error("transcript page belongs to another conversation")]
     WrongConversation,
     #[error("transcript cursor is not strictly ascending")]
     NonMonotonicCursor,
@@ -24,7 +24,7 @@ pub(crate) enum ProjectionError {
 }
 
 impl ChatProjection {
-    /// Replaces all display state from a daemon snapshot after connect or resync.
+    /// Builds display state from one durable page after connect or a cursor restart.
     pub(crate) fn from_page(
         conversation_id: String,
         host_epoch: HostEpoch,
@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_replaces_state_and_deltas_are_strictly_cursor_and_epoch_bound() {
+    fn page_builds_state_and_deltas_are_strictly_cursor_and_epoch_bound() {
         let page = NormalizedTranscriptPage {
             conversation_id: "conversation".into(),
             events: vec![event(2, "normalized", false)],

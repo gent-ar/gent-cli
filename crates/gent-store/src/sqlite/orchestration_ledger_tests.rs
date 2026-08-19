@@ -7,8 +7,8 @@ use gent_types::{
     AgentChatProvider, AgentChatRunId, AgentChatSelection, CrossReviewRequest, FanoutRequest,
     GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord, GoalStatus, HarnessProfileRef, HostEpoch,
     PermissionMode, PolicyRecord, PolicyScope, ReceiptId, RepositoryRecord, ReviewCandidate,
-    TaskGraph, TaskGraphBinding, TaskNode, TaskNodeSpec, TaskNodeStatus, TaskRole, WorkspaceRecord,
-    WorktreePolicy,
+    TaskGraph, TaskGraphBinding, TaskGraphFactKind, TaskNode, TaskNodeSpec, TaskNodeStatus,
+    TaskRole, WorkspaceRecord, WorktreePolicy,
 };
 
 use super::SqliteLedger;
@@ -178,4 +178,31 @@ fn cross_review_is_atomic_cross_provider_and_revision_fenced() {
     same.reviewer.profile.provider = AgentChatProvider::Codex;
     same.reviewer.selection.provider = AgentChatProvider::Codex;
     assert!(ledger.apply_cross_review(&same).is_err());
+}
+
+#[test]
+fn graph_is_reconstructed_from_bounded_ordered_immutable_facts() {
+    let ledger = ledger();
+    ledger
+        .apply_fanout(&FanoutRequest {
+            graph: graph(),
+            expected_parent_run_id: AgentChatRunId("run-1".into()),
+        })
+        .unwrap();
+    ledger.apply_cross_review(&review("review-1")).unwrap();
+    let first = ledger.task_graph_facts("graph-1", 0, 2).unwrap();
+    assert_eq!(first.facts.len(), 2);
+    assert!(matches!(
+        first.facts[0].kind,
+        TaskGraphFactKind::Created { .. }
+    ));
+    let cursor = first.next_after_cursor.unwrap();
+    let second = ledger.task_graph_facts("graph-1", cursor, 2).unwrap();
+    assert_eq!(second.facts.len(), 2);
+    assert!(matches!(
+        second.facts[0].kind,
+        TaskGraphFactKind::ReviewAccepted { .. }
+    ));
+    assert!(second.next_after_cursor.is_none());
+    assert_eq!(ledger.task_graph("graph-1").unwrap().unwrap().revision, 2);
 }

@@ -8,7 +8,7 @@ use gent_protocol::{
 };
 use gent_types::{
     Command, ConversationContentCursor, ConversationContentPage, ConversationStatus,
-    ConversationTimeline, DecisionCommand, DecisionSettlement, DoctorReport, EventResume,
+    ConversationTimeline, DecisionCommand, DecisionSettlement, DoctorReport, EventPage,
     HostStatus, Receipt,
 };
 
@@ -32,9 +32,9 @@ impl api::RuntimeApi for RuntimeFacade {
             .map_err(|error| error.to_string())
     }
 
-    fn resume_events(&self, cursor: u64) -> Result<EventResume, String> {
+    fn read_event_page(&self, after_cursor: u64, limit: usize) -> Result<EventPage, String> {
         self.coordinator
-            .resume_events(cursor)
+            .read_event_page(after_cursor, limit)
             .map_err(|error| error.to_string())
     }
 
@@ -47,13 +47,27 @@ impl api::RuntimeApi for RuntimeFacade {
             .status()
             .map_err(|error| error.to_string())?
             .host_epoch;
-        agent_chat_api::exchange(
-            &self.agent_chat_conversations,
-            &self.agent_chat_prompts,
-            &self.agent_chat_switches,
-            host_epoch,
-            frame,
-        )
+        if let Some(router) = &self.ordinary_prompt_wake {
+            let mut router = router
+                .lock()
+                .map_err(|_| "ordinary lifecycle router is unavailable".to_owned())?;
+            agent_chat_api::exchange_with_wake(
+                &self.agent_chat_conversations,
+                &self.agent_chat_prompts,
+                &self.agent_chat_switches,
+                host_epoch,
+                frame,
+                &mut *router,
+            )
+        } else {
+            agent_chat_api::exchange(
+                &self.agent_chat_conversations,
+                &self.agent_chat_prompts,
+                &self.agent_chat_switches,
+                host_epoch,
+                frame,
+            )
+        }
     }
 
     fn agent_chat_conversation(

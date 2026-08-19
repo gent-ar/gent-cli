@@ -10,6 +10,7 @@ use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatPromptDisposition, AgentChatProvider,
     AgentChatRequestId, AgentChatRunId, AgentChatSelection, ContextPolicy, HostEpoch, ReceiptId,
+    WorkspaceRecord,
 };
 
 #[test]
@@ -89,12 +90,20 @@ fn create(ledger: SqliteLedger) -> (gent_types::AgentChatConversationId, AgentCh
                 receipt_id: ReceiptId("create-receipt".into()),
                 host_epoch: HostEpoch(1),
                 selection: selection(AgentChatProvider::Codex, "gpt-5.6", AgentChatMode::Ask),
+                workspace: workspace(),
             })
             .unwrap();
     let AgentChatConversationResult::Created(created) = result else {
         panic!("conversation must be created")
     };
     (created.conversation_id, created.run_id)
+}
+
+fn workspace() -> WorkspaceRecord {
+    WorkspaceRecord {
+        workspace_id: "workspace-1".into(),
+        canonical_path: "/workspace".into(),
+    }
 }
 
 fn save(ledger: SqliteLedger, conversation_id: &gent_types::AgentChatConversationId, id: &str) {

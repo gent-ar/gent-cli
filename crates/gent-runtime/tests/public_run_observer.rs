@@ -13,7 +13,7 @@ use gent_protocol::{
 };
 use gent_runtime::{Coordinator, ProviderRunAuthority, PublicRunService};
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, EventResume, HostEpoch, RunVersionLock};
+use gent_types::{CapabilitySet, HostEpoch, RunVersionLock};
 
 #[derive(Debug)]
 struct Calls(Arc<AtomicUsize>);
@@ -121,10 +121,7 @@ fn observer_denies_all_public_lifecycle_requests_before_effects_or_ledger_writes
     assert!(ledger.find_run_version_lock("run-a").unwrap().is_none());
     assert!(ledger.find_run_session_binding("run-a").unwrap().is_none());
     assert!(ledger.find_run_lease("run-a").unwrap().is_none());
-    assert!(matches!(
-        ledger.resume_events(0).unwrap(),
-        EventResume::Delta { events } if events.is_empty()
-    ));
+    assert!(ledger.read_event_page(0, 100).unwrap().events.is_empty());
 }
 
 fn start_request() -> PublicRunStartRequest {

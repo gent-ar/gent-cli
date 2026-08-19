@@ -8,7 +8,7 @@ use gent_runtime::{
 use gent_store::SqliteLedger;
 use gent_types::{
     CapabilitySet, ConversationActivityFact, ConversationActivityScope, ConversationRecord,
-    EventResume, HostEpoch,
+    HostEpoch,
 };
 
 fn fact(event_id: &str) -> ProviderActivityFact {
@@ -76,37 +76,37 @@ fn approved_owned_fact_uses_its_durable_source_cursor_and_retries_safely() {
         ProviderRunAuthority::PublicDrivers,
     );
 
-    let ConversationActivityResult::Applied(activity) =
+    let ConversationActivityResult::Recorded(activity) =
         service.record("daemon-a", fact("a-1")).unwrap()
     else {
-        panic!("owned fact must update the activity projection")
+        panic!("owned fact must persist")
     };
-    assert_eq!(activity.cursor, 1);
-    assert_eq!(activity.conversation_id, "conversation-a");
-    assert_eq!(activity.run_id, "run-a");
-    assert_eq!(activity.host_epoch, HostEpoch(1));
+    assert_eq!(activity.scope().cursor, 1);
+    assert_eq!(activity.scope().conversation_id, "conversation-a");
+    assert_eq!(activity.scope().run_id, "run-a");
+    assert_eq!(activity.scope().host_epoch, HostEpoch(1));
     assert!(matches!(
         service.record("daemon-a", fact("a-1")).unwrap(),
-        ConversationActivityResult::Unchanged(retry) if retry.cursor == 1
+        ConversationActivityResult::Recorded(retry) if retry.scope().cursor == 1
     ));
 
-    let EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
-        panic!("a fresh provider activity source cannot require resync");
-    };
+    let events = ledger.read_event_page(0, 100).unwrap().events;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].kind, "providerActivity");
     assert_eq!(events[0].payload["conversationId"], "conversation-a");
     assert_eq!(events[0].payload["activity"]["type"], "turnStarted");
     assert!(
         ledger
-            .find_conversation_activity("conversation-a", "run-a")
+            .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
             .unwrap()
-            .is_some()
+            .facts
+            .len()
+            == 1
     );
 }
 
 #[test]
-fn observer_rejection_does_not_append_a_source_or_projection() {
+fn observer_rejection_does_not_append_a_source_or_fact() {
     let ledger = SqliteLedger::in_memory().unwrap();
     prepare(&ledger);
     let service = ingress(
@@ -116,15 +116,14 @@ fn observer_rejection_does_not_append_a_source_or_projection() {
     );
 
     assert!(service.record("daemon-a", fact("denied")).is_err());
-    let EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
-        panic!("an empty fresh event stream cannot require resync");
-    };
+    let events = ledger.read_event_page(0, 100).unwrap().events;
     assert!(events.is_empty());
     assert!(
         ledger
-            .find_conversation_activity("conversation-a", "run-a")
+            .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
             .unwrap()
-            .is_none()
+            .facts
+            .is_empty()
     );
 }
 
@@ -144,8 +143,6 @@ fn fact_needs_owned_session_and_a_source_allocated_cursor() {
         scope.cursor = 9;
     }
     assert!(service.record("daemon-a", caller_cursor).is_err());
-    let EventResume::Delta { events } = ledger.resume_events(0).unwrap() else {
-        panic!("rejected sources cannot require resync");
-    };
+    let events = ledger.read_event_page(0, 100).unwrap().events;
     assert!(events.is_empty());
 }

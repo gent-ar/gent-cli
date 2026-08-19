@@ -1,9 +1,12 @@
-use gent_ports::{AgentChatLedger, AgentChatPromptLedger, ConversationPromptLedger, Ledger};
+use gent_ports::{
+    AgentChatPromptLedger, AgentChatWorkspaceLedger, ConversationPromptLedger, Ledger,
+};
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDelivery, AgentChatPromptDisposition, AgentChatProvider,
     AgentChatRequestId, AgentChatRunId, AgentChatSelection, HostEpoch, ReceiptId, ReceiptStatus,
+    WorkspaceRecord,
 };
 
 fn conversation() -> AgentChatConversationCreate {
@@ -36,7 +39,13 @@ fn prompt(request_id: &str, text: &str) -> AgentChatPromptCreate {
 fn ledger() -> SqliteLedger {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
-        .create_agent_chat_conversation(&conversation())
+        .create_agent_chat_conversation_in_workspace(
+            &conversation(),
+            &WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
+            },
+        )
         .unwrap();
     ledger
 }

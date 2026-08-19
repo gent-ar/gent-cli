@@ -1,14 +1,14 @@
 use gent_types::{
-    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
-    EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
+    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventPage,
+    HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
 mod active_goal_resolver;
+mod agent_chat_compaction_ledger;
 mod agent_chat_ledger;
 mod agent_chat_run_context;
 pub mod agent_chat_terminal_settlement;
 mod attachment_blobs;
 mod attachment_ledger;
-mod capability_catalog;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
 mod conversation_content;
@@ -34,7 +34,7 @@ mod public_provider_resolver;
 mod public_provider_runner;
 mod reviewed_plan_ledger;
 mod run_checkpoint_ledger;
-mod run_projections;
+mod run_lifecycle_facts;
 mod run_sessions;
 mod run_version_authorizer;
 pub mod runtime_update;
@@ -44,14 +44,14 @@ mod transcript_ledger;
 mod turn_follow;
 mod workspace_ledger;
 pub use active_goal_resolver::ActiveGoalResolver;
+pub use agent_chat_compaction_ledger::AgentChatCompactionLedger;
 pub use agent_chat_ledger::{
     AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatReadLedger,
-    AgentChatSelectionLedger,
+    AgentChatSelectionLedger, AgentChatWorkspaceLedger,
 };
 pub use agent_chat_run_context::AgentChatRunContextReader;
 pub use attachment_blobs::AttachmentBlobStore;
 pub use attachment_ledger::{AttachmentClaim, AttachmentLedger};
-pub use capability_catalog::CapabilityCatalogLedger;
 pub use conversation_activity_ledger::*;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_content::ConversationContentReader;
@@ -92,7 +92,7 @@ pub use public_provider_resolver::PublicProviderResolver;
 pub use public_provider_runner::{PublicProviderRunError, PublicProviderRunner};
 pub use reviewed_plan_ledger::ReviewedPlanLedger;
 pub use run_checkpoint_ledger::RunCheckpointLedger;
-pub use run_projections::RunProjectionLedger;
+pub use run_lifecycle_facts::RunLifecycleFactLedger;
 pub use run_sessions::RunSessionBinding;
 pub use run_version_authorizer::RunVersionAuthorizer;
 #[rustfmt::skip]
@@ -212,15 +212,10 @@ pub trait Ledger: Send + Sync {
         let _ = event_id;
         Err(LedgerError::Invariant("event lookup is unavailable".into()))
     }
-    /// Safely resumes an event feed, returning a replacement snapshot for stale cursors.
+    /// Reads one bounded page from the immutable cursor-ordered event log.
     /// # Errors
     /// Returns an error when events cannot be read.
-    fn resume_events(&self, cursor: u64) -> Result<EventResume, LedgerError>;
-    /// Atomically persists a newer projection snapshot and retires its covered event prefix.
-    ///
-    /// # Errors
-    /// Returns an error if the snapshot regresses, exceeds the durable event head, or cannot commit.
-    fn compact_events(&self, snapshot: &EventSnapshot) -> Result<(), LedgerError>;
+    fn read_event_page(&self, after_cursor: u64, limit: usize) -> Result<EventPage, LedgerError>;
     /// Creates an immutable lineage node. A child must name an existing parent.
     ///
     /// # Errors

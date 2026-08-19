@@ -46,10 +46,9 @@ fn print_frame(frame: &EventStreamFrame) -> Result<Option<u64>, io::Error> {
 
 fn acknowledged_cursor(frame: &EventStreamFrame) -> Option<u64> {
     match frame {
-        EventStreamFrame::Replay { events } | EventStreamFrame::Events { events } => {
-            events.last().map(|event| event.cursor)
+        EventStreamFrame::Replay { page } | EventStreamFrame::Events { page } => {
+            page.events.last().map(|event| event.cursor)
         }
-        EventStreamFrame::Resync { snapshot } => Some(snapshot.cursor),
         EventStreamFrame::Attach { .. }
         | EventStreamFrame::Ack { .. }
         | EventStreamFrame::Error { .. } => None,
@@ -63,7 +62,12 @@ mod tests {
 
     #[test]
     fn acknowledgements_follow_the_last_durable_cursor() {
-        let frame = EventStreamFrame::Replay { events: Vec::new() };
+        let frame = EventStreamFrame::Replay {
+            page: gent_types::EventPage {
+                events: Vec::new(),
+                next_after_cursor: None,
+            },
+        };
         assert_eq!(acknowledged_cursor(&frame), None);
     }
 

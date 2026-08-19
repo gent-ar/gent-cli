@@ -5,11 +5,11 @@ use gent_protocol::{
     AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
     AgentChatIntentFrame, AgentChatTurnFollowFrame, AttachmentFrame, CONVERSATION_INDEX_CAPABILITY,
     CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    EventStreamFrame, GOAL_CAPABILITY, ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
-    WireFrame, negotiate, read_frame, read_json_frame, write_frame,
+    EventStreamFrame, GOAL_CAPABILITY, ORCHESTRATION_CAPABILITY, WireFrame, negotiate, read_frame,
+    read_json_frame, write_frame,
 };
 use gent_runtime::catalog::{RuntimeCapability, capability_set};
-use gent_types::{CapabilitySet, EventResume, PROTOCOL_MAX, PROTOCOL_MIN};
+use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde_json::Value;
 
 #[cfg(unix)]
@@ -34,7 +34,6 @@ pub(crate) fn observed_capabilities(
     let mut capabilities = capability_set([
         RuntimeCapability::Attachments,
         RuntimeCapability::Decisions,
-        RuntimeCapability::EventResync,
         RuntimeCapability::EventStream,
         RuntimeCapability::Events,
         RuntimeCapability::HostEpoch,
@@ -61,7 +60,6 @@ pub(crate) fn observed_capabilities(
             .0
             .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
         capabilities.0.push(GOAL_CAPABILITY.to_owned());
-        capabilities.0.push(REVIEWED_PLAN_CAPABILITY.to_owned());
         capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
         if turn_follow_enabled {
             capabilities
@@ -119,13 +117,7 @@ where
             if let Ok(EventStreamFrame::Attach { after_cursor }) =
                 serde_json::from_value(raw.clone())
             {
-                return crate::event_stream::serve(
-                    stream,
-                    runtime,
-                    after_cursor,
-                    extensions.supports("event-resync"),
-                )
-                .await;
+                return crate::event_stream::serve(stream, runtime, after_cursor).await;
             }
         }
         if extensions.supports(AGENT_CHAT_INTENTS_CAPABILITY) {
@@ -169,7 +161,7 @@ where
         if dispatch_extension(&mut stream, &runtime, &extensions, &raw).await? {
             continue;
         }
-        let frame = command_frame(&runtime, raw, extensions.supports("event-resync"));
+        let frame = command_frame(&runtime, raw);
         match frame {
             Ok(frame) => write_frame(&mut stream, &frame).await?,
             Err(message) => write_error(&mut stream, "invalidCommand", &message).await?,

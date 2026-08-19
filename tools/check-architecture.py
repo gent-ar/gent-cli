@@ -34,6 +34,27 @@ PRODUCT_DOMAINS = {
 SOURCE_SUFFIXES = {".md", ".ps1", ".py", ".rs", ".sh", ".toml", ".yaml", ".yml"}
 SCRIPT_NAMES = {"validate-coverage-manifest"}
 GENERATED_OR_FIXTURE_ROOTS = {"fixtures", "target"}
+SNAPSHOT_CONTRACTS = {
+    "README.md": ("snapshot/recovery-cache/mirrored-state/replacement layer",),
+    "docs/architecture.md": (
+        "Snapshot, recovery-snapshot, recovery-cache,",
+        "views are optional, disposable, and non-authoritative",
+        "reload immutable bounded pages (from zero when the cursor is",
+    ),
+    "docs/realtime-agent-chat-client-plan.md": (
+        "Snapshots, recovery caches, mirrored state, and state replacement are prohibited",
+        "in-memory view is optional and disposable, never serialized or sent as authoritative state",
+    ),
+    "docs/flutter-handoff-v1.md": (
+        "in-memory view is disposable and",
+        "If a cursor is not accepted, reload from ordinal/cursor",
+    ),
+    "docs/continuation-handoff.md": (
+        "Snapshot state, recovery caches, mirrored state, and replacement layers are",
+        "Derived views are disposable/non-authoritative: never serialize,",
+        "pages (from cursor zero when needed), then replay normalized facts",
+    ),
+}
 
 
 def source_files() -> list[pathlib.Path]:
@@ -80,6 +101,17 @@ def check_file_lengths() -> list[str]:
     return errors
 
 
+def check_snapshot_contract() -> list[str]:
+    """Requires the stale-state prohibition at every client boundary."""
+    errors = []
+    for relative, required_fragments in SNAPSHOT_CONTRACTS.items():
+        contents = (ROOT / relative).read_text(encoding="utf-8")
+        for fragment in required_fragments:
+            if fragment not in contents:
+                errors.append(f"{relative} is missing no-snapshot contract: {fragment!r}")
+    return errors
+
+
 def test_module_lines(lines: list[str]) -> set[int]:
     """Returns line indexes enclosed by a conventional `#[cfg(test)] mod` body."""
     ignored = set()
@@ -121,7 +153,12 @@ def check_production_imports() -> list[str]:
     return errors
 
 
-errors = check_dependencies() + check_production_imports() + check_file_lengths()
+errors = (
+    check_dependencies()
+    + check_production_imports()
+    + check_file_lengths()
+    + check_snapshot_contract()
+)
 if errors:
     print("architecture check failed:", *errors, sep="\n- ", file=sys.stderr)
     sys.exit(1)

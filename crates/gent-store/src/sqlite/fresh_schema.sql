@@ -2,7 +2,7 @@ CREATE TABLE gent_schema (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     identity TEXT NOT NULL
 );
-INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v1');
+INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v7');
 CREATE TABLE host_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     epoch INTEGER NOT NULL,
@@ -30,13 +30,8 @@ CREATE TABLE events (
     kind TEXT NOT NULL,
     payload TEXT NOT NULL
 );
-CREATE TABLE event_snapshots (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    cursor INTEGER NOT NULL,
-    host_epoch INTEGER NOT NULL,
-    schema_version INTEGER NOT NULL,
-    payload TEXT NOT NULL
-);
+CREATE INDEX events_compaction_run_cursor
+ON events(kind, json_extract(payload, '$.runId'), cursor);
 CREATE TABLE conversations (conversation_id TEXT PRIMARY KEY NOT NULL);
 CREATE TABLE runs (
     run_id TEXT PRIMARY KEY NOT NULL,
@@ -68,12 +63,15 @@ CREATE TABLE run_session_bindings (
     run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id),
     provider_session_id TEXT NOT NULL
 );
-CREATE TABLE run_projections (
-    run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id),
-    host_epoch INTEGER NOT NULL,
+CREATE TABLE run_lifecycle_facts (
+    run_id TEXT NOT NULL REFERENCES runs(run_id),
     cursor INTEGER NOT NULL,
-    payload TEXT NOT NULL
+    event_id TEXT NOT NULL UNIQUE,
+    host_epoch INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (run_id, cursor)
 );
+CREATE INDEX run_lifecycle_facts_by_run_cursor ON run_lifecycle_facts (run_id, cursor);
 CREATE TABLE turns (
     turn_id TEXT PRIMARY KEY NOT NULL,
     conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
@@ -96,11 +94,6 @@ CREATE TABLE conversation_artifacts (
     supersedes_artifact_id TEXT REFERENCES conversation_artifacts(artifact_id)
 );
 CREATE INDEX conversation_artifacts_by_conversation ON conversation_artifacts (conversation_id);
-CREATE TABLE capability_catalog (
-    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    schema_version INTEGER NOT NULL,
-    capabilities TEXT NOT NULL
-);
 CREATE TABLE workspaces (workspace_id TEXT PRIMARY KEY NOT NULL, canonical_path TEXT NOT NULL UNIQUE);
 CREATE TABLE repositories (
     repository_id TEXT PRIMARY KEY NOT NULL,
@@ -193,16 +186,15 @@ CREATE TABLE conversation_message_ordinals (
     UNIQUE (conversation_id, ordinal)
 );
 CREATE INDEX conversation_message_ordinals_by_conversation_ordinal ON conversation_message_ordinals (conversation_id, ordinal DESC);
-CREATE TABLE conversation_activity_projection_journal (
+CREATE TABLE conversation_activity_facts (
     conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
     run_id TEXT NOT NULL REFERENCES runs(run_id),
     host_epoch INTEGER NOT NULL,
     cursor INTEGER NOT NULL CHECK (cursor > 0),
-    revision INTEGER NOT NULL CHECK (revision > 0),
-    activity_sequence INTEGER NOT NULL CHECK (activity_sequence > 0),
     payload TEXT NOT NULL,
     PRIMARY KEY (conversation_id, run_id, cursor)
 );
+CREATE INDEX conversation_activity_facts_by_run_cursor ON conversation_activity_facts (conversation_id, run_id, cursor);
 CREATE TABLE runtime_update_journal (
     attempt_id TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision > 0),
@@ -216,7 +208,8 @@ CREATE TABLE agent_chat_conversations (
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT NOT NULL,
-    mode TEXT NOT NULL
+    mode TEXT NOT NULL,
+    workspace_id TEXT REFERENCES workspaces(workspace_id)
 );
 CREATE TABLE agent_chat_run_selections (
     run_id TEXT PRIMARY KEY NOT NULL REFERENCES runs(run_id),
@@ -281,7 +274,21 @@ CREATE TABLE conversation_goals (
     status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'abandoned', 'failed')),
     summary TEXT NOT NULL
 ); CREATE INDEX conversation_goals_by_conversation ON conversation_goals (conversation_id, creation_order);
-CREATE TABLE orchestration_graphs (graph_id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id), root_run_id TEXT NOT NULL REFERENCES runs(run_id), revision INTEGER NOT NULL CHECK (revision > 0), host_epoch INTEGER NOT NULL, graph_json TEXT NOT NULL); CREATE TABLE orchestration_idempotency (idempotency_key TEXT PRIMARY KEY NOT NULL, graph_id TEXT NOT NULL REFERENCES orchestration_graphs(graph_id), command_json TEXT NOT NULL);
+CREATE TABLE orchestration_graph_facts (
+    cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+    graph_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    idempotency_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+CREATE INDEX orchestration_graph_facts_by_graph_cursor
+    ON orchestration_graph_facts (graph_id, cursor);
+CREATE TABLE orchestration_idempotency (
+    idempotency_key TEXT PRIMARY KEY NOT NULL,
+    graph_id TEXT NOT NULL,
+    command_json TEXT NOT NULL
+);
 CREATE TABLE agent_chat_transcript_events (
     conversation_id TEXT NOT NULL REFERENCES agent_chat_conversations(conversation_id), cursor INTEGER NOT NULL CHECK (cursor > 0),
     event_id TEXT NOT NULL UNIQUE,

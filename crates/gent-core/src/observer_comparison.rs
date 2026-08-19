@@ -104,7 +104,7 @@ mod tests {
             receipt_id: ReceiptId(format!("receipt-{cursor}")),
             signal,
             reported: ConversationLiveStatus {
-                snapshot_cursor: cursor,
+                cursor,
                 ..ConversationLiveStatus::default()
             },
         }
@@ -145,7 +145,7 @@ mod tests {
         state = state.compare(&command).projection;
         let mut attention = tap(4, NormalizedLifecycleSignal::AttentionRequired);
         attention.reported = state.status();
-        attention.reported.snapshot_cursor = 4;
+        attention.reported.cursor = 4;
         attention.reported.needs_attention = true;
         assert!(state.compare(&attention).diagnostic.is_none());
     }

@@ -14,7 +14,7 @@ the fresh `.gentd` data directory; the app retains only display-local state.
 ## Required end state
 
 The terminal and native app must use the same negotiated capability, request,
-snapshot, delta, receipt, epoch, reconnect, and cursor-resume contracts for
+bounded durable page, delta, receipt, epoch, reconnect, and cursor-resume contracts for
 conversations, prompts/follow-ups, browsing, model/effort/mode/provider
 selection, permissions/login, tools, reviewed plans, `/goal`, and clear
 context. Neither client may infer lifecycle state from text, timers, or native
@@ -36,7 +36,7 @@ plan but can never inject one.
 ## Atomic session and restart proof
 
 An enabling lifecycle composition must transactionally record each normalized
-provider source ID, ordered cursor, projection delta, scoped session binding,
+provider source ID, ordered cursor, immutable fact delta, scoped session binding,
 and terminal settlement before any client delta is broadcast. An accepted
 duplicate returns its original cursor; a changed reuse of that source ID is
 rejected. A failed transaction emits nothing. Terminal settlement and its
@@ -72,7 +72,7 @@ condition below is independently proven:
 
 1. A daemon-owned Claude/Codex bounded lifecycle host and the private Claurst
    bridge normalize durable facts before broadcast, apply backpressure, drain
-   process trees, settle terminals, and serve snapshots/deltas/reconnect.
+   process trees, settle terminals, and serve durable pages/deltas/cursor replay.
 2. The approved composition rechecks an enforced sandbox attestation, signed
    compatibility/package policy, exact locked binary, durable receipt,
    idempotency key, host epoch, parent/run revision, and permission policy.

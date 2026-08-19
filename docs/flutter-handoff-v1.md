@@ -45,8 +45,9 @@ profile and must remain private to that OS user.
    Additive endpoints use their own frame enum after negotiation; they are not
    generic `command` frames.
 5. On disconnect, protocol error, `cursorExpired`, or a subscription
-   `resyncRequired`, reconnect, negotiate again, replace local state from the
-   relevant snapshot/page, then resume from the returned cursor.
+   `resyncRequired`, reconnect, negotiate again, re-read the relevant bounded
+   durable page, then resume from the last acknowledged cursor. Gent has no
+   provider/client snapshot state or recovery layer.
 
 Never scrape human-oriented terminal output as the app protocol. `gent` is a
 convenient bootstrap and manual UI; local IPC plus the fixture is the durable
@@ -73,7 +74,7 @@ Use `ConversationActivity` only when the negotiated activity capability exists.
 Its `schemaVersion`, conversation ID, run ID, host epoch, cursor, revision, and
 activity sequence are all mandatory consistency boundaries. Render
 `thinking`, `waitingForCommand`, and `waitingForSubagents` only from a valid
-authoritative snapshot/delta; do not infer them from text, timers, or a prompt
+authoritative durable page/delta; do not infer them from text, timers, or a prompt
 receipt. No current Flutter integration may present these values as live
 provider truth because provider fact ingress is not enabled.
 
@@ -89,8 +90,11 @@ future native app relies on that pair rather than implementing a second updater.
 must not open the SQLite ledger, write its files, spawn a provider, or maintain
 a competing lifecycle projection. Persist the last accepted cursor and relevant
 host epoch with the app's local view, but treat a newly observed epoch as a
-state boundary: discard in-flight assumptions, reload snapshots/pages, and
-re-negotiate capabilities.
+state boundary: discard in-flight assumptions, reload durable pages, and
+re-negotiate capabilities. Any derived in-memory view is disposable and
+non-authoritative; it must never be serialized, sent as truth, or used for
+recovery/reconnect. If a cursor is not accepted, reload from ordinal/cursor
+zero and replay immutable facts.
 
 For a base `command`, send the currently observed `hostEpoch`, a new receipt
 ID, and a stable idempotency key. Retry only the exact same command with those
@@ -103,6 +107,13 @@ The app must ensure one local Gent profile/data directory has one active host
 writer. Starting `gent` concurrently is safe only because `gentd` owns the
 host lock and epoch. Flutter must not bypass that lock with its own daemon,
 alternate database writer, copied socket, or direct provider process.
+
+The app uses one multiplexed IPC connection for its conversations, rather than
+one `gent` process or one provider process per conversation. `gentd` is
+demand-started and owns all resource scheduling: it queues durable prompts and
+starts only bounded active provider runs. Workspace identity is a canonical
+Gent ledger binding on each conversation/run; neither Flutter's cwd nor a
+client-provided prompt field can select a provider working directory.
 
 ## Required native-app cutover
 

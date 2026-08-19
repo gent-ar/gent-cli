@@ -4,12 +4,12 @@
 //! evidence-approved host supplies a durable accepted receipt and explicit consent after a prompt
 //! identifies a missing public provider. Claurst never enters this public npm path.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::DependencyProvider;
-use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
+use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus, RunVersionLock};
 
 use crate::node_runtime_lock::{AppNodeRuntimeLock, AppNodeRuntimeLockError};
 
@@ -56,10 +56,8 @@ pub(crate) enum PrivateProvisionError {
 /// Immutable executable/version/digest lock recorded by a future receipt owner before a run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProvisionedProviderLock {
-    pub(crate) provider: DependencyProvider,
-    pub(crate) executable: PathBuf,
-    pub(crate) version: String,
-    pub(crate) digest_sha256: String,
+    /// The complete executable identity captured after the fixed version probe.
+    pub(crate) run_lock: RunVersionLock,
 }
 
 /// Discovers and locks one public provider executable after fixed npm installation.
@@ -208,22 +206,29 @@ impl<
 }
 
 fn valid_lock(lock: &ProvisionedProviderLock, provider: DependencyProvider, prefix: &Path) -> bool {
-    let Ok(executable) = lock.executable.canonicalize() else {
+    let Ok(executable) = Path::new(&lock.run_lock.canonical_path).canonicalize() else {
         return false;
     };
     let Ok(prefix) = prefix.canonicalize() else {
         return false;
     };
-    lock.provider == provider
+    lock.run_lock.provider == provider.as_str()
         && executable.starts_with(prefix)
         && executable.is_file()
-        && !lock.version.trim().is_empty()
-        && lock.version.len() <= 512
-        && !lock.version.contains('\0')
-        && lock.digest_sha256.len() == 64
-        && lock.digest_sha256.bytes().all(|byte| {
+        && executable.display().to_string() == lock.run_lock.canonical_path
+        && valid_version(&lock.run_lock.version)
+        && lock.run_lock.digest_sha256.len() == 64
+        && lock.run_lock.digest_sha256.bytes().all(|byte| {
             byte.is_ascii_digit() || (byte.is_ascii_lowercase() && byte.is_ascii_hexdigit())
         })
+        && gent_drivers::lock::recheck(&lock.run_lock).is_ok()
+}
+
+fn valid_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 512
+        && version.trim() == version
+        && !version.contains('\0')
 }
 
 #[cfg(test)]

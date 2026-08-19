@@ -1,5 +1,4 @@
 #![cfg(unix)]
-
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +13,6 @@ use gent_types::{
 };
 use tempfile::TempDir;
 use tokio::net::UnixListener;
-
 fn status() -> WireFrame {
     WireFrame::Status(HostStatus {
         host_epoch: HostEpoch(7),
@@ -23,7 +21,6 @@ fn status() -> WireFrame {
         capabilities: CapabilitySet(vec!["events".into(), "receipts".into()]),
     })
 }
-
 fn server(directory: &TempDir, connections: usize) -> Arc<Mutex<Vec<WireFrame>>> {
     let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
     let received = Arc::new(Mutex::new(Vec::new()));
@@ -123,6 +120,7 @@ fn chat_server(directory: &TempDir) {
                     request_id,
                     receipt_id,
                     selection,
+                    ..
                 } => {
                     assert_eq!(selection.provider, gent_types::AgentChatProvider::Codex);
                     write_json_frame(
@@ -160,6 +158,9 @@ fn chat_server(directory: &TempDir) {
                                 status: ReceiptStatus::Settled,
                                 host_epoch: HostEpoch(7),
                             },
+                            conversation_id: AgentChatConversationId("conversation-1".into()),
+                            run_id: AgentChatRunId("run-1".into()),
+                            turn_id: "turn-1".into(),
                             delivery: AgentChatPromptDelivery::AwaitingProvider,
                         },
                     )
@@ -284,7 +285,6 @@ async fn positional_prompt_creates_then_sends_only_typed_agent_chat_intents() {
     assert!(stdout.contains("conversation-1"));
     assert!(stdout.contains("awaitingProvider"));
 }
-
 #[test]
 fn default_browser_rejects_non_tty_before_daemon_autostart() {
     let directory = tempfile::tempdir().unwrap();

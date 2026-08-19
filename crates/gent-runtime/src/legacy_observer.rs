@@ -40,7 +40,7 @@ impl<T: LegacyEventTap> LegacyObserver<T> {
         if self.blocked {
             return Ok(self.result(Vec::new()));
         }
-        let cursor = self.projection.status().snapshot_cursor;
+        let cursor = self.projection.status().cursor;
         let mut diagnostics = Vec::new();
         for tap in self.tap.read_after(cursor)? {
             let comparison = self.projection.clone().compare(&tap);
@@ -56,7 +56,7 @@ impl<T: LegacyEventTap> LegacyObserver<T> {
 
     fn result(&self, diagnostics: Vec<ObserverDiagnostic>) -> ObserverPoll {
         ObserverPoll {
-            cursor: self.projection.status().snapshot_cursor,
+            cursor: self.projection.status().cursor,
             diagnostics,
             blocked: self.blocked,
         }
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn divergence_blocks_future_reads_without_writing_a_ledger() {
         let matching = ConversationLiveStatus {
-            snapshot_cursor: 1,
+            cursor: 1,
             ..ConversationLiveStatus::default()
         };
         let observer = Tap(vec![

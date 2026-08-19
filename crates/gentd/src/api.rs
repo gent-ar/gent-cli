@@ -1,20 +1,17 @@
 //! Daemon-facing runtime port. Transport adapters depend only on this boundary.
 
 use gent_protocol::{
-    AgentChatControllerSnapshot, AgentChatConversationFrame, AgentChatIntentFrame,
-    AgentChatTranscriptFrame, AttachmentFrame, DecisionRecoveryEvidence, DecisionSubmission,
-    DependencyActionRequest, DependencyActionResult, DependencyPlan, DependencyPlanRequest,
-    GoalFrame, OrchestrationFrame, PermissionPolicyFrame, ProviderAuthFrame,
-    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
-    ReviewedPlanFrame,
+    AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
+    DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
+    DependencyPlan, DependencyPlanRequest, GoalFrame, OrchestrationFrame, PermissionPolicyFrame,
+    ProviderAuthFrame, PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest,
+    PublicRunStartRequest, ReviewedPlanFrame,
 };
-use gent_runtime::{
-    AgentChatControllerDeltaPage, ConversationActivityRead, TurnFollowRead, TurnFollowRequest,
-};
+use gent_runtime::{ConversationActivityRead, TurnFollowRead, TurnFollowRequest};
 use gent_types::{
     CapabilitySet, Command, ConversationContentCursor, ConversationContentPage,
     ConversationListItem, ConversationStatus, ConversationTimeline, DecisionCommand,
-    DecisionSettlement, DoctorReport, EventResume, HostStatus, OnboardingState, Receipt,
+    DecisionSettlement, DoctorReport, EventPage, HostStatus, OnboardingState, Receipt,
     RuntimeMaintenanceReport, RuntimeMaintenanceRequest, RuntimeUpdateCheckReport,
     RuntimeUpdateCheckRequest,
 };
@@ -23,7 +20,7 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     fn capabilities(&self) -> Result<CapabilitySet, String>;
     fn status(&self) -> Result<HostStatus, String>;
     fn submit(&self, command: Command) -> Result<Receipt, String>;
-    fn resume_events(&self, cursor: u64) -> Result<EventResume, String>;
+    fn read_event_page(&self, after_cursor: u64, limit: usize) -> Result<EventPage, String>;
     fn doctor(&self) -> DoctorReport;
     fn onboarding(&self) -> OnboardingState {
         OnboardingState::from_doctor(&self.doctor())
@@ -100,27 +97,6 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     /// The default keeps observer and persistence-only profiles unable to follow a turn.
     fn agent_chat_turn_follow(&self, _: TurnFollowRequest) -> Result<TurnFollowRead, String> {
         Err("agent-chat turn follow is unavailable while gentd is observer-disabled".into())
-    }
-    /// Reads one replacement projection for a future negotiated controller stream.
-    ///
-    /// The hard observer deliberately keeps this unavailable. The controller transport is not
-    /// composed into the shipped IPC listener, and this method must only return normalized,
-    /// provider-neutral data when a future authority explicitly overrides it.
-    fn agent_chat_controller_snapshot(
-        &self,
-        _: &str,
-        _: u64,
-    ) -> Result<AgentChatControllerSnapshot, String> {
-        Err("agent-chat controller stream is unavailable while gentd is observer-disabled".into())
-    }
-    /// Reads one bounded normalized controller delta batch for the expected host epoch.
-    fn agent_chat_controller_delta(
-        &self,
-        _: &str,
-        _: u64,
-        _: gent_types::HostEpoch,
-    ) -> Result<AgentChatControllerDeltaPage, String> {
-        Err("agent-chat controller stream is unavailable while gentd is observer-disabled".into())
     }
     /// Reads or appends one local, provider-neutral permission-policy revision.
     fn permission_policy(&self, _: PermissionPolicyFrame) -> Result<PermissionPolicyFrame, String> {

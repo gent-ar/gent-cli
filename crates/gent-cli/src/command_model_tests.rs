@@ -94,6 +94,15 @@ fn positional_prompt_selects_the_typed_prompt_first_flow() {
 }
 
 #[test]
+fn positional_prompt_defaults_to_read_only_ask_mode() {
+    let args = Args::try_parse_from(["gent", "summarize this project"]).unwrap();
+    assert!(matches!(
+        args.direct_prompt.mode,
+        crate::chat_cli::Mode::Ask
+    ));
+}
+
+#[test]
 fn an_existing_conversation_rejects_ignored_selection_flags() {
     let args = Args::try_parse_from([
         "gent",

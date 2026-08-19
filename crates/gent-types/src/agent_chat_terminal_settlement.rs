@@ -1,4 +1,4 @@
-//! Durable terminal settlement snapshot for one provider-bound agent-chat turn.
+//! Derived durable terminal settlement record for one provider-bound agent-chat turn.
 
 use serde::{Deserialize, Serialize};
 

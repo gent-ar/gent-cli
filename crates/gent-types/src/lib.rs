@@ -11,11 +11,9 @@ mod agent_chat_run_context;
 mod agent_chat_switch;
 mod agent_chat_terminal_settlement;
 mod attachments;
-mod capability_catalog;
 #[cfg(test)]
 mod contract_edge_tests;
 mod conversation_activity;
-mod conversation_activity_record;
 mod conversation_artifact;
 mod conversation_content;
 mod conversation_context;
@@ -23,7 +21,7 @@ mod conversation_prompts;
 mod conversations;
 mod decision;
 mod doctor;
-mod event_resume;
+mod event_page;
 mod external_provider_bridge;
 mod git_operations;
 mod goal;
@@ -34,6 +32,7 @@ mod normalized_session;
 mod observer_tap;
 mod onboarding;
 mod orchestration;
+mod orchestration_facts;
 #[cfg(test)]
 mod orchestration_tests;
 mod permission_control;
@@ -42,7 +41,7 @@ mod provider_auth;
 mod provider_lifecycle_values;
 mod reviewed_plan;
 mod run_checkpoints;
-mod run_projection;
+mod run_lifecycle_fact;
 mod runtime_maintenance;
 mod runtime_update;
 mod sandbox_launch;
@@ -74,12 +73,10 @@ pub use agent_chat_terminal_settlement::AgentChatTerminalSettlement;
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
 };
-pub use capability_catalog::CapabilityCatalogRecord;
 pub use conversation_activity::{
-    ActivityWork, ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivity,
-    ConversationActivityFact, ConversationActivityScope, ConversationActivityState,
+    ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivityFact,
+    ConversationActivityPage, ConversationActivityScope,
 };
-pub use conversation_activity_record::ConversationActivityRecord;
 pub use conversation_artifact::{
     ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
 };
@@ -99,7 +96,7 @@ pub use doctor::{
     CompatibilityTrust, DoctorNextAction, ExecutableIdentity, McpDoctorStatus, McpPermissionStatus,
     PrivateBridgeAvailability, PublicProviderStatus,
 };
-pub use event_resume::{EventResume, EventSnapshot};
+pub use event_page::EventPage;
 pub use external_provider_bridge::{ExternalProviderSession, ExternalProviderTerminal};
 pub use git_operations::{GitOperationKind, GitOperationPhase, GitOperationRecord};
 pub use goal::{
@@ -115,6 +112,7 @@ pub use normalized_session::{
 pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
 pub use orchestration::*;
+pub use orchestration_facts::{TaskGraphFact, TaskGraphFactKind, TaskGraphFactPage};
 pub use permission_control::*;
 pub use policies::{
     PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
@@ -133,7 +131,7 @@ pub use reviewed_plan::{
     StartImplementationResult,
 };
 pub use run_checkpoints::RunCheckpointRecord;
-pub use run_projection::{RunLifecycleProjection, RunLiveStatus, RunProjectionRecord};
+pub use run_lifecycle_fact::{RunLifecycleFact, RunLifecycleFactPage, RunLiveStatus};
 pub use runtime_maintenance::{RuntimeMaintenanceReport, RuntimeMaintenanceRequest};
 pub use runtime_update::{
     RUNTIME_RELEASE_INDEX_VERSION, RUNTIME_RELEASE_MANIFEST_VERSION, RuntimeReleaseArtifact,

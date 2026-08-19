@@ -1,9 +1,8 @@
-//! Owned provider activity ingress with durable-source-before-projection ordering.
+//! Owned provider activity ingress with durable-source-before-fact ordering.
 
-use gent_ports::{ConversationActivityLedger, IngressMode, Ledger, RunProjectionLedger};
-use gent_types::{
-    ConversationActivityFact, ConversationActivityScope, Event, HostEpoch, ReceiptId,
-};
+use gent_core::{activity_scope, with_activity_cursor};
+use gent_ports::{ConversationActivityLedger, IngressMode, Ledger};
+use gent_types::{ConversationActivityFact, Event, HostEpoch, ReceiptId};
 
 use crate::{
     ConversationActivityResult, ConversationActivityService, Coordinator, ProviderRunAuthority,
@@ -20,10 +19,10 @@ pub struct ProviderActivityFact {
     pub activity: ConversationActivityFact,
 }
 
-/// Bridges an owned provider fact to the conversation activity projection.
+/// Bridges an owned provider fact to canonical conversation activity storage.
 ///
 /// This future-authority component is deliberately independent from daemon composition. It
-/// rejects observer mode before it writes either source events or activity checkpoints.
+/// rejects observer mode before it writes either source events or activity facts.
 #[derive(Debug)]
 pub struct ProviderActivityIngress<L> {
     coordinator: Coordinator<L>,
@@ -33,7 +32,7 @@ pub struct ProviderActivityIngress<L> {
 
 impl<L> ProviderActivityIngress<L>
 where
-    L: Clone + Ledger + RunProjectionLedger + ConversationActivityLedger,
+    L: Clone + Ledger + ConversationActivityLedger,
 {
     /// Creates an inert ingress unless explicit public-driver authority is supplied.
     #[must_use]
@@ -49,10 +48,10 @@ where
         }
     }
 
-    /// Persists one owned activity source, then applies its source cursor to the projection.
+    /// Persists one owned activity source, then assigns its source cursor to the fact.
     ///
     /// A retry finds the original source event and reapplies its exact cursor, making a partial
-    /// source-before-projection failure recoverable without allowing caller-selected ordering.
+    /// source-before-fact failure recoverable without allowing caller-selected ordering.
     ///
     /// # Errors
     /// Returns an error when authority, run ownership, source identity, or persistence fails.
@@ -61,7 +60,7 @@ where
         coordinator_id: &str,
         input: ProviderActivityFact,
     ) -> Result<ConversationActivityResult, RuntimeError> {
-        let scope = scope(&input.activity);
+        let scope = activity_scope(&input.activity);
         self.require_owner(&scope.run_id, coordinator_id, scope.host_epoch)?;
         validate_input(&input)?;
         let proposed = source_event(&input);
@@ -72,12 +71,12 @@ where
         };
         match self
             .activity
-            .record(&with_cursor(input.activity, source.cursor))?
+            .record(&with_activity_cursor(input.activity, source.cursor))?
         {
             ConversationActivityResult::DeniedObserver => {
                 Err(invariant("provider activity service is not approved"))
             }
-            result => Ok(result),
+            result @ ConversationActivityResult::Recorded(_) => Ok(result),
         }
     }
 
@@ -124,7 +123,7 @@ where
 }
 
 fn validate_input(input: &ProviderActivityFact) -> Result<(), RuntimeError> {
-    let scope = scope(&input.activity);
+    let scope = activity_scope(&input.activity);
     if input.event_id.trim().is_empty()
         || scope.conversation_id.trim().is_empty()
         || scope.run_id.trim().is_empty()
@@ -141,7 +140,7 @@ fn validate_input(input: &ProviderActivityFact) -> Result<(), RuntimeError> {
 }
 
 fn source_event(input: &ProviderActivityFact) -> Event {
-    let scope = scope(&input.activity);
+    let scope = activity_scope(&input.activity);
     Event {
         cursor: 0,
         event_id: input.event_id.clone(),
@@ -155,35 +154,6 @@ fn source_event(input: &ProviderActivityFact) -> Event {
             "activity": input.activity,
         }),
     }
-}
-
-fn scope(fact: &ConversationActivityFact) -> &ConversationActivityScope {
-    match fact {
-        ConversationActivityFact::TurnStarted { scope }
-        | ConversationActivityFact::RootActivity { scope, .. }
-        | ConversationActivityFact::RootPhase { scope, .. }
-        | ConversationActivityFact::WorkPhase { scope, .. }
-        | ConversationActivityFact::DecisionPending { scope, .. }
-        | ConversationActivityFact::DecisionSettled { scope, .. }
-        | ConversationActivityFact::InterruptRequested { scope }
-        | ConversationActivityFact::Recovered { scope }
-        | ConversationActivityFact::Terminal { scope, .. } => scope,
-    }
-}
-
-fn with_cursor(mut fact: ConversationActivityFact, cursor: u64) -> ConversationActivityFact {
-    match &mut fact {
-        ConversationActivityFact::TurnStarted { scope }
-        | ConversationActivityFact::RootActivity { scope, .. }
-        | ConversationActivityFact::RootPhase { scope, .. }
-        | ConversationActivityFact::WorkPhase { scope, .. }
-        | ConversationActivityFact::DecisionPending { scope, .. }
-        | ConversationActivityFact::DecisionSettled { scope, .. }
-        | ConversationActivityFact::InterruptRequested { scope }
-        | ConversationActivityFact::Recovered { scope }
-        | ConversationActivityFact::Terminal { scope, .. } => scope.cursor = cursor,
-    }
-    fact
 }
 
 fn same_source(existing: &Event, proposed: &Event) -> bool {

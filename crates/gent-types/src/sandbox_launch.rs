@@ -117,6 +117,18 @@ impl SandboxLaunchProfile {
         write_field(&mut hasher, "cpu", &self.limits.max_cpu_time_ms.to_string());
         format!("{:x}", hasher.finalize())
     }
+
+    /// Returns the network policy that a platform helper must enforce.
+    #[must_use]
+    pub const fn network(&self) -> &SandboxNetworkPolicy {
+        &self.network
+    }
+
+    /// Returns the resource ceilings that a platform helper must enforce.
+    #[must_use]
+    pub const fn limits(&self) -> SandboxResourceLimits {
+        self.limits
+    }
 }
 
 /// Opaque launch request retained at the daemon/provider process boundary.

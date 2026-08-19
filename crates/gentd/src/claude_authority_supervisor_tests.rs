@@ -8,12 +8,13 @@ use crate::claude_prompt_lifecycle_tests::{Resolver, Runner, compatibility, prof
 use crate::public_driver_runtime::PublicDriversRuntime;
 use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::interrupt::ProcessTreeSignal;
-use gent_ports::{AgentChatLedger, Ledger};
+use gent_ports::{AgentChatWorkspaceLedger, Ledger};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, ReceiptId,
+    WorkspaceRecord,
 };
 
 #[test]
@@ -133,19 +134,25 @@ fn host(
 fn conversation(ledger: &SqliteLedger) -> AgentChatConversationId {
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Claude,
-                model: "claude-test".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation_id.clone(),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "claude-test".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
             },
-        })
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     conversation_id
 }

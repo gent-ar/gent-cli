@@ -63,7 +63,7 @@ fn chat_commit_port_only_arms_the_private_host() {
     let calls = owner.0.clone();
     let mut host = ProviderLifecycleHost::new(owner);
 
-    crate::agent_chat_api::PromptCommitWake::wake_after_prompt_commit(&mut host).unwrap();
+    host.wake_after_prompt_commit().unwrap();
     assert!(host.is_armed());
     assert!(calls.borrow().is_empty());
 }

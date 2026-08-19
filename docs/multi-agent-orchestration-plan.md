@@ -10,7 +10,7 @@ does not import another project's code, configuration language, endpoints, or
 credentials.
 
 `gentd` remains the sole composition root and ledger writer. `gent` and the
-native app are equal protocol clients: they render graph snapshots and submit
+native app are equal protocol clients: they read bounded graph records/pages and submit
 typed commands. Neither launches a worker, parses provider output, allocates a
 worktree, decides scheduling, or writes orchestration state. Claurst remains a
 credential-free public port with its implementation and evidence in private
@@ -90,7 +90,7 @@ explicitly and do not silently retry an external effect.
 ## Cross-vendor review
 
 `CrossReview` binds reviewers to a candidate node's immutable artifact digest,
-base revision, goal revision, policy revision, and worktree snapshot. Each
+base revision, goal revision, policy revision, and worktree state digest. Each
 review produces structured `ReviewFinding` values: stable finding ID, severity,
 category, location reference, evidence digest, disposition, and reviewer
 attempt provenance. Provider output cannot select its own review disposition.
@@ -119,9 +119,9 @@ receive the validated projection. A graph transition similarly rechecks the
 current parent, graph/node revision, host epoch, policy revision, receipt, and
 goal revision in one ledger transaction.
 
-Clients reconnect by negotiating, loading a graph snapshot, then subscribing
-after its cursor. Cursor expiry, host epoch change, or a gap requires snapshot
-reload; clients never infer a finished worker from missing output. Terminal and
+Clients reconnect by negotiating, reading bounded graph records/pages, then subscribing
+after the last cursor. Cursor expiry, host epoch change, or a gap requires a durable re-read;
+clients never infer a finished worker from missing output. Terminal and
 native app render the identical graph and review frames.
 
 ## Storage and module boundaries
@@ -140,10 +140,10 @@ composes authority. `gent-cli` depends solely on protocol/types.
    exhaustively test graph validity, terminality, retries, role/profile rules,
    review independence, and all stale/idempotency/policy/goal/epoch fences.
 2. Add fresh SQLite ledgers and transactional graph reservation/settlement,
-   worktree leases, snapshots/deltas, restart/recovery, and contention tests.
+   worktree leases, cursor facts/pages, restart/replay, and contention tests.
 3. Add strict protocol frames and terminal graph clients; prove observer
    capability absence and malformed/bounded-frame rejection. The persistence
-   foundation is complete; scheduler, snapshots, and dispatch remain future work.
+   foundation is complete; scheduler, cursor replay, and dispatch remain future work.
 4. Compose no runner yet. Add fake runner/profile/worktree integration tests for
    bounded scheduling, process-tree drain, backpressure, reconnect, and
    persist-before-broadcast.

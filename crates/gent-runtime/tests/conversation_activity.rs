@@ -5,23 +5,18 @@ use gent_runtime::{
 };
 use gent_store::SqliteLedger;
 use gent_types::{
-    ActivityWorkKind, ConversationActivityFact, ConversationActivityScope, ConversationRecord,
-    HostEpoch, WorkPhase,
+    ConversationActivityFact, ConversationActivityScope, ConversationRecord, HostEpoch,
 };
 
-fn scope(cursor: u64) -> ConversationActivityScope {
-    ConversationActivityScope {
-        conversation_id: "conversation-1".into(),
-        run_id: "run-1".into(),
-        turn_id: "turn-1".into(),
-        host_epoch: HostEpoch(1),
-        cursor,
-    }
-}
-
-fn start(cursor: u64) -> ConversationActivityFact {
+fn fact(cursor: u64) -> ConversationActivityFact {
     ConversationActivityFact::TurnStarted {
-        scope: scope(cursor),
+        scope: ConversationActivityScope {
+            conversation_id: "conversation-1".into(),
+            run_id: "run-1".into(),
+            turn_id: format!("turn-{cursor}"),
+            host_epoch: HostEpoch(1),
+            cursor,
+        },
     }
 }
 
@@ -47,76 +42,39 @@ fn observer_service_does_not_read_or_write_activity() {
         ConversationActivityAuthority::Observer,
     );
     assert_eq!(
-        service.record(&start(1)).unwrap(),
+        service.record(&fact(1)).unwrap(),
         ConversationActivityResult::DeniedObserver
     );
     assert_eq!(
-        service.resume("conversation-1", "run-1", 0).unwrap(),
-        ConversationActivityResult::DeniedObserver
+        service.read("conversation-1", "run-1", 0).unwrap(),
+        ConversationActivityRead::DeniedObserver
     );
 }
 
 #[test]
-fn approved_service_persists_reduced_facts_and_cursor_resume() {
+fn approved_service_persists_immutable_facts_and_reads_a_page() {
     let ledger = SqliteLedger::in_memory().unwrap();
     setup(&ledger);
-    let service =
-        ConversationActivityService::new(ledger.clone(), ConversationActivityAuthority::Approved);
-    let ConversationActivityResult::Applied(first) = service.record(&start(1)).unwrap() else {
-        panic!("expected activity")
-    };
-    assert_eq!(first.cursor, 1);
-    let work = ConversationActivityFact::WorkPhase {
-        scope: scope(2),
-        work_id: "command-1".into(),
-        kind: ActivityWorkKind::Command,
-        phase: WorkPhase::Running,
-    };
-    let ConversationActivityResult::Applied(second) = service.record(&work).unwrap() else {
-        panic!("expected activity")
-    };
-    assert_eq!(second.cursor, 2);
-    assert_eq!(second.work.len(), 1);
-    let ConversationActivityResult::Resumed(records) =
-        service.resume("conversation-1", "run-1", 0).unwrap()
-    else {
-        panic!("expected resume")
-    };
+    let service = ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved);
     assert_eq!(
-        records
-            .into_iter()
-            .map(|activity| activity.cursor)
-            .collect::<Vec<_>>(),
-        vec![1, 2]
+        service.record(&fact(1)).unwrap(),
+        ConversationActivityResult::Recorded(fact(1))
     );
+    assert_eq!(
+        service.record(&fact(2)).unwrap(),
+        ConversationActivityResult::Recorded(fact(2))
+    );
+    assert!(matches!(
+        service.read("conversation-1", "run-1", 0).unwrap(),
+        ConversationActivityRead::Page(page) if page.facts == vec![fact(1), fact(2)] && page.next_after_cursor.is_none()
+    ));
 }
 
 #[test]
-fn activity_facts_obey_the_host_fence_before_reduction() {
+fn activity_facts_obey_the_host_fence_before_persistence() {
     let ledger = SqliteLedger::in_memory().unwrap();
     setup(&ledger);
     ledger.close_ingress(HostEpoch(1)).unwrap();
     let service = ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved);
-    assert!(service.record(&start(1)).is_err());
-}
-
-#[test]
-fn activity_read_uses_snapshot_when_a_bounded_delta_cannot_be_complete() {
-    let ledger = SqliteLedger::in_memory().unwrap();
-    setup(&ledger);
-    let service = ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved);
-    service.record(&start(1)).unwrap();
-    for cursor in 2..=129 {
-        let fact = ConversationActivityFact::WorkPhase {
-            scope: scope(cursor),
-            work_id: "command-1".into(),
-            kind: ActivityWorkKind::Command,
-            phase: WorkPhase::Running,
-        };
-        service.record(&fact).unwrap();
-    }
-    assert!(matches!(
-        service.read("conversation-1", "run-1", 0).unwrap(),
-        ConversationActivityRead::Snapshot(activity) if activity.cursor == 129
-    ));
+    assert!(service.record(&fact(1)).is_err());
 }

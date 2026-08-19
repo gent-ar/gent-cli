@@ -6,7 +6,7 @@ use gent_ports::{
     ClaurstCheckpoint, ClaurstDrainRequest, ClaurstFactValue, ClaurstNormalizedFact,
     ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, GoalLedger,
     Ledger, MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge, RunCheckpointLedger,
-    RunProjectionLedger,
+    RunLifecycleFactLedger,
 };
 use gent_runtime::{
     Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
@@ -51,7 +51,7 @@ pub(crate) struct PrivateClaurstIngress<L, B> {
 
 impl<L, B> PrivateClaurstIngress<L, B>
 where
-    L: Clone + std::fmt::Debug + Ledger + GoalLedger + RunCheckpointLedger + RunProjectionLedger,
+    L: Clone + std::fmt::Debug + Ledger + GoalLedger + RunCheckpointLedger + RunLifecycleFactLedger,
     B: PrivateClaurstBridge,
 {
     /// Creates an unadvertised ingress. A separate private composition must explicitly own it.
@@ -133,7 +133,7 @@ where
         }
         self.lifecycle.record(
             event_id(&binding.source_id, "session"),
-            binding.run_id.clone(),
+            &binding.run_id,
             &self.coordinator_id,
             host_epoch,
             ProviderLifecycleEffect::SessionStarted {
@@ -216,7 +216,7 @@ where
         if let Some(kind) = terminal_kind {
             self.lifecycle.record(
                 event_id(source_id, kind),
-                state.binding.run_id.clone(),
+                &state.binding.run_id,
                 &self.coordinator_id,
                 host_epoch,
                 ProviderLifecycleEffect::Terminal {
@@ -254,7 +254,7 @@ where
         };
         self.lifecycle.record(
             event_id(&binding.source_id, &format!("fact-{}", fact.cursor)),
-            binding.run_id.clone(),
+            &binding.run_id,
             &self.coordinator_id,
             host_epoch,
             effect,

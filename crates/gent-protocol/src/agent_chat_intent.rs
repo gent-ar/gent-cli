@@ -29,6 +29,8 @@ pub enum AgentChatIntentFrame {
     CreateConversation {
         request_id: AgentChatRequestId,
         receipt_id: gent_types::ReceiptId,
+        /// Raw local path, canonicalized and validated by gentd before it is persisted.
+        workspace_path: String,
         selection: AgentChatSelection,
     },
     SendPrompt {
@@ -99,6 +101,12 @@ pub enum AgentChatIntentFrame {
     Accepted {
         request_id: AgentChatRequestId,
         receipt: Receipt,
+        /// Canonical conversation resolved while committing the prompt.
+        conversation_id: AgentChatConversationId,
+        /// Immutable run selected by the ledger while committing the prompt.
+        run_id: AgentChatRunId,
+        /// Immutable turn created by the same transaction as the receipt.
+        turn_id: String,
         /// Durable local delivery state; this never attests that a provider was launched.
         delivery: AgentChatPromptDelivery,
     },
@@ -186,6 +194,37 @@ mod tests {
                         "status": "settled", "hostEpoch": 1
                     },
                     "conversationId": "conversation-1", "runId": "run-1"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn accepted_prompt_returns_the_ledger_assigned_turn() {
+        let frame = AgentChatIntentFrame::Accepted {
+            request_id: AgentChatRequestId("request-1".into()),
+            receipt: Receipt {
+                receipt_id: ReceiptId("receipt-1".into()),
+                idempotency_key: "retry-1".into(),
+                status: ReceiptStatus::Accepted,
+                host_epoch: HostEpoch(1),
+            },
+            conversation_id: AgentChatConversationId("conversation-1".into()),
+            run_id: AgentChatRunId("run-1".into()),
+            turn_id: "turn-1".into(),
+            delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider,
+        };
+        assert_eq!(
+            serde_json::to_value(frame).unwrap(),
+            json!({
+                "type": "accepted",
+                "body": {
+                    "requestId": "request-1", "receipt": {
+                        "receiptId": "receipt-1", "idempotencyKey": "retry-1",
+                        "status": "accepted", "hostEpoch": 1
+                    },
+                    "conversationId": "conversation-1", "runId": "run-1",
+                    "turnId": "turn-1", "delivery": "awaitingProvider"
                 }
             })
         );

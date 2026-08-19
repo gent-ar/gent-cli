@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use super::queries::storage_error;
 
-const SCHEMA_ID: &str = "gent-fresh-schema-v1";
+const SCHEMA_ID: &str = "gent-fresh-schema-v7";
 const SCHEMA: &str = include_str!("fresh_schema.sql");
 
 /// Opens an empty database with Gent's complete current schema.
@@ -76,6 +76,18 @@ mod tests {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("CREATE TABLE old_gent_ledger (identity TEXT PRIMARY KEY);")
+            .unwrap();
+        assert!(apply(&mut connection).is_err());
+    }
+
+    #[test]
+    fn rejects_the_previous_fresh_schema_identity() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE gent_schema (singleton INTEGER PRIMARY KEY, identity TEXT NOT NULL); \
+                 INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v4');",
+            )
             .unwrap();
         assert!(apply(&mut connection).is_err());
     }

@@ -1,9 +1,12 @@
-use gent_ports::{AgentChatLedger, ConversationLedger, Ledger};
+use gent_ports::{
+    AgentChatCompactionLedger, AgentChatLedger, AgentChatWorkspaceLedger, ConversationLedger,
+    Ledger,
+};
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
-    AgentChatProvider, AgentChatRunId, AgentChatSelection, ConversationRecord, HostEpoch,
-    ReceiptId,
+    AgentChatProvider, AgentChatRunId, AgentChatSelection, ConversationRecord, Event, HostEpoch,
+    ReceiptId, WorkspaceRecord,
 };
 use rusqlite::Connection;
 
@@ -62,11 +65,45 @@ fn creates_conversation_root_run_selection_and_settled_receipt_together() {
     assert!(
         connection
             .query_row(
-                "SELECT 1 FROM gent_schema WHERE identity = 'gent-fresh-schema-v1'",
+                "SELECT 1 FROM gent_schema WHERE identity = 'gent-fresh-schema-v7'",
                 [],
                 |_| Ok(()),
             )
             .is_ok()
+    );
+}
+
+#[test]
+fn workspace_bound_creation_is_atomic_and_retry_safe() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let create = create("workspace");
+    let workspace = WorkspaceRecord {
+        workspace_id: "workspace-1".into(),
+        canonical_path: "/verified/workspace".into(),
+    };
+
+    ledger
+        .create_agent_chat_conversation_in_workspace(&create, &workspace)
+        .unwrap();
+    assert_eq!(
+        ledger
+            .create_agent_chat_conversation_in_workspace(&create, &workspace)
+            .unwrap()
+            .run_id,
+        create.run_id
+    );
+    assert_eq!(
+        ledger
+            .agent_chat_workspace_for_run(&create.conversation_id.0, &create.run_id.0)
+            .unwrap(),
+        workspace
+    );
+    let mut conflicting = workspace;
+    conflicting.canonical_path = "/other/workspace".into();
+    assert!(
+        ledger
+            .create_agent_chat_conversation_in_workspace(&create, &conflicting)
+            .is_err()
     );
 }
 
@@ -155,5 +192,48 @@ fn closed_ingress_rejects_before_creating_any_agent_chat_state() {
             .find_conversation("conversation-closed")
             .unwrap()
             .is_none()
+    );
+}
+
+#[test]
+fn compaction_pages_are_filtered_canonical_events_not_a_second_fact_store() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    ledger
+        .create_agent_chat_conversation(&create("compaction"))
+        .unwrap();
+    let event = |event_id: &str, kind: &str, run_id: &str| Event {
+        cursor: 0,
+        event_id: event_id.into(),
+        receipt_id: ReceiptId("provider:run-compaction".into()),
+        host_epoch: HostEpoch(1),
+        kind: kind.into(),
+        payload: serde_json::json!({
+            "runId": run_id,
+            "compaction": {"type":"started","eventId":event_id,"turnId":"turn-1"}
+        }),
+    };
+    ledger
+        .append_event(&event(
+            "compaction-one",
+            "agentChatCompaction",
+            "run-compaction",
+        ))
+        .unwrap();
+    ledger
+        .append_event(&event("other-run", "agentChatCompaction", "run-other"))
+        .unwrap();
+    ledger
+        .append_event(&event("other-kind", "providerLifecycle", "run-compaction"))
+        .unwrap();
+
+    let page = ledger
+        .read_agent_chat_compaction_page("run-compaction", 0, 10)
+        .unwrap();
+    assert_eq!(page.next_after_cursor, None);
+    assert_eq!(page.events.len(), 1);
+    assert_eq!(page.events[0].event_id, "compaction-one");
+    assert_eq!(
+        ledger.find_event("compaction-one").unwrap(),
+        Some(page.events[0].clone())
     );
 }

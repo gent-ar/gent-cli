@@ -1,14 +1,14 @@
 //! Coordinator orchestration for the durable conversation → run → turn hierarchy.
 
-use gent_core::{permits_turn_transition, projected_live_status, restore_projection};
+use gent_core::permits_turn_transition;
 use gent_ports::{
-    ConversationArtifactLedger, ConversationLedger, Ledger, LedgerError, RunProjectionLedger,
+    ConversationArtifactLedger, ConversationLedger, Ledger, LedgerError, RunLifecycleFactLedger,
     RunRecord, TurnPhaseUpdate,
 };
 use gent_types::{
     ConversationArtifact, ConversationArtifactSummary, ConversationListItem, ConversationRecord,
     ConversationRunStatus, ConversationStatus, ConversationTimeline, ConversationTimelineRun,
-    DurableTurnPhase, RunLiveStatus, TurnRecord,
+    DurableTurnPhase, TurnRecord,
 };
 
 use crate::{Coordinator, RuntimeError, to_record};
@@ -162,7 +162,7 @@ fn artifact_summary(artifact: &ConversationArtifact) -> ConversationArtifactSumm
 
 impl<L> Coordinator<L>
 where
-    L: Ledger + ConversationLedger + RunProjectionLedger,
+    L: Clone + Ledger + ConversationLedger + RunLifecycleFactLedger,
 {
     /// Resolves durable conversation lineage and optional run projections without side effects.
     ///
@@ -175,15 +175,13 @@ where
         let runs = self.ledger.list_conversation_runs(conversation_id)?;
         let mut statuses = Vec::with_capacity(runs.len());
         for run in runs {
-            let live = self.ledger.find_run_projection(&run.run_id)?;
-            let active_turn_id = live
-                .as_ref()
-                .and_then(|record| record.projection.active_turn_id.clone());
-            let live_status = live.map(|record| RunLiveStatus {
-                run_id: record.run_id,
-                host_epoch: record.host_epoch,
-                status: projected_live_status(&restore_projection(&record.projection)),
-            });
+            let live_status =
+                crate::RunLifecycleStatusService::new(self.clone()).live_status(&run.run_id)?;
+            let active_turn_id = if live_status.is_some() {
+                active_turn_id(&self.ledger, &run.run_id)?
+            } else {
+                None
+            };
             statuses.push(ConversationRunStatus {
                 run_id: run.run_id,
                 parent_run_id: run.parent_run_id,
@@ -196,5 +194,36 @@ where
             conversation_id: conversation_id.into(),
             runs: statuses,
         })
+    }
+}
+
+fn active_turn_id<L>(ledger: &L, run_id: &str) -> Result<Option<String>, gent_ports::LedgerError>
+where
+    L: RunLifecycleFactLedger,
+{
+    let mut cursor = 0;
+    let mut active = None;
+    loop {
+        let page = ledger.read_run_lifecycle_fact_page(run_id, cursor, 128)?;
+        for fact in page.facts {
+            match fact.lifecycle {
+                gent_types::NormalizedSessionLifecycle::Event {
+                    event: gent_types::NormalizedProviderEvent::TurnStarted { turn_id },
+                } => active = Some(turn_id),
+                gent_types::NormalizedSessionLifecycle::Event {
+                    event: gent_types::NormalizedProviderEvent::TurnEnded { turn_id },
+                } if active.as_deref() == Some(&turn_id) => active = None,
+                _ => {}
+            }
+        }
+        let Some(next) = page.next_after_cursor else {
+            return Ok(active);
+        };
+        if next <= cursor {
+            return Err(gent_ports::LedgerError::Invariant(
+                "lifecycle fact page cursor did not advance".into(),
+            ));
+        }
+        cursor = next;
     }
 }

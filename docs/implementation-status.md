@@ -19,14 +19,15 @@ For the current working-tree context and continuation order, read [the handoff](
       retry-safe commit, durable resume, and independently idempotent begin/append/commit
       receipts. The shared receipt journal fingerprints each mutation command and records an
       accepted and terminal event before a retry is acknowledged.
-- [x] Durable event snapshots and transactional compaction with explicit stale-cursor resync.
+- [x] Immutable durable event history with bounded cursor pages; no state-replacement or
+      compaction layer exists.
 - [x] Atomic fresh-only SQLite schema creation with a fixed identity and legacy-ledger refusal.
 - [x] Durable run and worktree lease arbitration with separate-connection contention tests.
 - [x] File-backed SQLite restart recovery for host epoch and cursor-ordered receipt events.
-- [x] Pure run-lineage, cursor-deduplicated lifecycle projection, and live-status reducers.
+- [x] Pure run-lineage, cursor-deduplicated lifecycle-fact, and live-status reducers.
 - [x] Pure, content-safe legacy lifecycle shadow comparator and a read-only legacy-tap port;
       it is not composed into `gentd` and has no legacy-host or provider evidence yet.
-- [x] Ephemeral read-only legacy-tap polling service that blocks further projection advancement
+- [x] Ephemeral read-only legacy-tap polling service that blocks further derived-state advancement
       at the first divergence; it owns no SQLite ledger, IPC mutation surface, or process work.
 - [x] Pure idempotent decision-settlement reducer with unprovable and recovery-required terminal paths.
 - [x] Durable SQLite decision settlement with restart-safe terminal outcomes and optimistic contention handling.
@@ -34,7 +35,7 @@ For the current working-tree context and continuation order, read [the handoff](
       provider acknowledgement or settlement; those lifecycle facts are accepted only behind a
       daemon-owned ingress, with legacy wire evidence rejected after negotiation.
 - [x] Dormant authority-gated provider-effect ingress persists a stable, secret-free source event
-      before daemon-owned session binding, decision settlement, or run projection reduction; it
+      before daemon-owned session binding, decision settlement, or lifecycle-fact append; it
       rejects source-ID substitution and all observer-mode calls, and is not composed by `gentd`.
 - [x] A dormant `gentd` composition-edge adapter maps validated public-driver session effects
       into that daemon-owned ingress; process-local retry effects are never persisted and
@@ -45,8 +46,8 @@ For the current working-tree context and continuation order, read [the handoff](
       rejects every external install. A dormant approved executor accepts only signer-verified
       package/version/integrity entries, packs without scripts, verifies tarball SHA-512 SRI, and
       never installs private Claurst components or runs during `gent doctor`.
-- [x] Capability-gated local event attachment: initial replay, snapshot resync, cursor-ordered
-      bounded batches, client acknowledgements, and `gent events --follow` over the existing IPC.
+- [x] Capability-gated local event attachment: bounded initial and subsequent cursor pages,
+      acknowledgement-gated backpressure, and `gent events --follow` over the existing IPC.
       The daemon polls its durable ledger at a bounded interval; it does not yet claim a producer
       notification path or automatic client reconnect.
 - [x] Credential-free private external-provider bridge DTOs and dedicated handshake/lifecycle
@@ -74,7 +75,7 @@ For the current working-tree context and continuation order, read [the handoff](
       lock and daemon lease. Exact retries are stable; competing same-epoch owners and any lock
       replacement are rejected before a provider spawn is possible.
 - [x] Immutable, restart-safe provider-native session bindings; resume ignores the legacy client wire value.
-- [x] Lease- and session-bound durable run lifecycle projections, with cursor-monotonic restart recovery.
+- [x] Lease- and session-bound immutable run lifecycle facts, with cursor-monotonic restart replay.
 - [x] Durable immutable conversation → run → turn identity, provider-switch lineage, and monotonic turn lifecycle transitions.
 - [x] Durable workspace → repository → worktree identities, deliberately separate from lease arbitration and Git execution.
 - [x] Durable worktree-scoped Git-operation records with optimistic, terminal-safe lifecycle transitions;
@@ -86,7 +87,8 @@ For the current working-tree context and continuation order, read [the handoff](
 - [x] Negotiated `gent permissions show|set` stores append-only, secret-free revisions: Default,
       Plan, Auto-Accept Edits, Autonomous, or persistent Bypass after one explicit confirmation.
       The pure evaluator keeps Plan non-escalating; broad modes fail closed without containment and no policy starts a provider.
-- [x] Read-only conversation status derivation from durable lineage and run projections, with no provider session disclosure.
+- [x] Read-only conversation status derivation from durable lineage and replayed lifecycle facts,
+      with no provider session disclosure.
 - [x] Durable title/recap provenance records: source turns, provider/model version, input digest,
       immutable lineage, and atomic supersession.
 - [x] Capability-gated, same-socket `gent conversation status` transport; it creates no receipt and does not use command or event frames.
@@ -101,8 +103,9 @@ For the current working-tree context and continuation order, read [the handoff](
       or observer-mode write path is exposed.
 - [x] Explicit `gentd --agent-chat-authority` local profile: negotiated `gent chat create`,
       `send`, and `queue` persist through receipt and epoch fences without composing any provider,
-      MCP, Git, or private-bridge effect. Accepted prompts expose durable `awaitingProvider` or
-      `queued` delivery rather than claiming execution. The default daemon remains observer-only.
+      MCP, Git, or private-bridge effect. Accepted prompts expose durable delivery and exact ledger
+      conversation/run/turn identities rather than execution; direct `gent <prompt>` defaults to Ask.
+      The default daemon remains observer-only.
 - [x] Receipt-backed `gent chat switch` creates a new immutable, selected child run only when
       the expected parent is still the durable current run. It records a frozen conversation
       history ordinal before the child begins; retries are stable and later prompts target the
@@ -112,17 +115,15 @@ For the current working-tree context and continuation order, read [the handoff](
 - [x] Additive normalized lifecycle signals for root phase and explicit generation activity,
       subagent and command work, and attention; lease-owned durable projections preserve them.
       Waiting work is derived from activity rather than inferred from root phase.
-- [x] Versioned, content-free `ConversationActivity` DTOs and a pure conversation-scoped reducer
-      with epoch/cursor fencing, terminal dominance, decision priority, descendant liveness, and
-      stale-turn rejection. Complete reducer checkpoints are journaled and cursor-resumable per
-      conversation/run. An authority-gated runtime service fences facts before reduction and
-      persists exact reducer checkpoints; it remains intentionally unadvertised and uncomposed by
-      the observer daemon.
-- [x] Dedicated `conversation-activity-v1` snapshot/delta protocol frames bind reads to a
-      conversation, run, and durable cursor, with a bounded-delta snapshot fallback. A dedicated
-      daemon adapter and protocol-only `gent conversation activity` reader exist, but the observer
-      daemon does not advertise or serve the capability because it has no authoritative provider
-      fact ingress. The reader rejects mixed-run, regressing, or internally inconsistent deltas.
+- [x] Versioned, content-free immutable `ConversationActivityFact` records with explicit scope,
+      epoch/cursor fencing, and deterministic ordering. An authority-gated runtime service appends
+      only valid durable facts and remains intentionally unadvertised and uncomposed by the
+      observer daemon.
+- [x] Dedicated `conversation-activity-v1` fact-page frames bind bounded reads to a conversation,
+      run, and durable cursor. A dedicated daemon adapter and protocol-only `gent conversation
+      activity` reader exist, but the observer daemon does not advertise or serve the capability
+      because it has no authoritative provider fact ingress. The reader rejects mixed-run,
+      regressing, or internally inconsistent fact pages; it has no replacement-state fallback.
 - [x] Content-free runtime-release metadata and a pure update eligibility/lifecycle reducer. It
       preserves a closed-ingress boundary for health, activation, and failure, and refuses rollback
       after a forward-only schema release. Runtime-owned Ed25519 trust, signer revocation, manifest
@@ -247,11 +248,11 @@ For the current working-tree context and continuation order, read [the handoff](
       cannot be mistaken for observer-mode authority.
 
 ## Required before Gent is a live app backend
-
 1. [ ] `gentd` remains observer/intent-only: it must not route live Claude, Codex, Claurst,
    MCP, or Git work until each authority gate is proven. Dormant seams are not live authority.
 2. [ ] There is no authoritative provider-lifecycle ingress yet. The required realtime
-   browse/create/prompt/follow-up/reconnect path is in [the client contract](realtime-agent-chat-client-plan.md).
+   browse/create/prompt/follow-up/reconnect path is one demand-started, multiplexed `gentd` per
+   `.gentd` profile with canonical workspace bindings and daemon-owned shared limits; see [the client contract](realtime-agent-chat-client-plan.md).
    An enabling composition must atomically record normalized source/session/cursor/delta/terminal
    state and replay from durable cursors; see [the test matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
    Until approved, Flutter and terminal clients must not treat activity as live truth.
@@ -291,7 +292,6 @@ application-specific UI automations stay Flutter-owned. The client boundary is
 `docs/flutter-handoff-v1.md`.
 
 ## Recorded follow-on scope
-
 After the authority/evidence gates, `gent-canvas`, `gent-forge`, and
 `gent-automations` remain separate typed Gent domains; pairing and non-agent UI
 automation stay app-owned. Provider selection and multi-agent node dispatch

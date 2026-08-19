@@ -23,7 +23,6 @@ mod permission_control;
 #[cfg(test)]
 mod permission_control_tests;
 mod permission_policy;
-mod projection_snapshot;
 mod provider_auth;
 mod reviewed_plan;
 mod runtime_update;
@@ -36,7 +35,7 @@ pub use agent_chat_compaction::{
 };
 pub use attachment_transfer::*;
 pub use conversation_activity::{
-    ConversationActivityProjection, ConversationActivityUpdate, project_conversation_activity,
+    activity_scope, validate_conversation_activity_fact, with_activity_cursor,
 };
 pub use decision_settlement::{
     DecisionCommandOutcome, DecisionCommandUpdate, DecisionEvidence, DecisionEvidenceUpdate,
@@ -63,7 +62,6 @@ pub use permission_control::{
 pub use permission_policy::{
     PermissionDecision, evaluate_permission, evaluate_permission_with_sandbox,
 };
-pub use projection_snapshot::{restore_projection, snapshot_projection};
 pub use provider_auth::{
     ProviderAuthEffect, ProviderAuthEvent, ProviderAuthRejection, ProviderAuthState,
     reduce_provider_auth,

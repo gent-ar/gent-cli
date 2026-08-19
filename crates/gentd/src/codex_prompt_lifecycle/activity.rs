@@ -1,4 +1,4 @@
-//! Conversation activity projection mapping for daemon-normalized Codex facts.
+//! Conversation activity fact mapping for daemon-normalized Codex facts.
 
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_types::{

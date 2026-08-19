@@ -1,20 +1,16 @@
-//! Capability-catalog reconciliation is pure: declarations must match observed behavior.
+//! Capability reconciliation is pure: live declarations must match observed behavior.
 
-use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
     AGENT_CHAT_TRANSCRIPT_CAPABILITY, ATTACHMENTS_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
     CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    GOAL_CAPABILITY, ORCHESTRATION_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
-    RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
+    GOAL_CAPABILITY, ORCHESTRATION_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY,
+    RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
-use gent_types::{CapabilityCatalogRecord, CapabilitySet};
+use gent_types::CapabilitySet;
 
 #[cfg(unix)]
 use gent_protocol::CONVERSATION_CONTENT_CAPABILITY;
-
-use crate::Coordinator;
-use crate::RuntimeError;
 
 /// A capability the runtime may advertise after its transport proves a handler exists.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,7 +18,6 @@ pub enum RuntimeCapability {
     AgentChatIntents,
     Attachments,
     Decisions,
-    EventResync,
     EventStream,
     Events,
     HostEpoch,
@@ -36,7 +31,6 @@ impl RuntimeCapability {
             Self::AgentChatIntents => AGENT_CHAT_INTENTS_CAPABILITY,
             Self::Attachments => ATTACHMENTS_CAPABILITY,
             Self::Decisions => "decisions",
-            Self::EventResync => "event-resync",
             Self::EventStream => EVENT_STREAM_CAPABILITY,
             Self::Events => "events",
             Self::HostEpoch => "host-epoch",
@@ -46,10 +40,9 @@ impl RuntimeCapability {
     }
 }
 
-const DECLARED: [RuntimeCapability; 8] = [
+const DECLARED: [RuntimeCapability; 7] = [
     RuntimeCapability::Attachments,
     RuntimeCapability::Decisions,
-    RuntimeCapability::EventResync,
     RuntimeCapability::EventStream,
     RuntimeCapability::Events,
     RuntimeCapability::HostEpoch,
@@ -114,7 +107,6 @@ pub fn declared_capabilities_with_profiles(
             .0
             .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
         capabilities.0.push(GOAL_CAPABILITY.to_owned());
-        capabilities.0.push(REVIEWED_PLAN_CAPABILITY.to_owned());
         capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
     }
     if runtime_update_check_enabled {
@@ -177,24 +169,6 @@ pub fn validate_observed_capabilities(
     );
     reconcile(&declared, observed)?;
     Ok(declared)
-}
-
-impl<L> Coordinator<L>
-where
-    L: CapabilityCatalogLedger,
-{
-    /// Persists the complete capability set validated for this daemon process.
-    ///
-    /// # Errors
-    /// Returns an error when durable storage rejects the catalog snapshot.
-    pub fn persist_capability_catalog(&self) -> Result<(), RuntimeError> {
-        self.ledger
-            .save_capability_catalog(&CapabilityCatalogRecord {
-                schema_version: 1,
-                capabilities: self.capabilities.clone(),
-            })?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]

@@ -1,41 +1,32 @@
-//! Durable boundary for restart-safe, conversation-scoped activity projections.
+//! Durable boundary for immutable, conversation-scoped activity facts.
 
-use gent_types::ConversationActivityRecord;
+use gent_types::{ConversationActivityFact, ConversationActivityPage};
 
 use crate::LedgerError;
 
-/// Maximum complete projection checkpoints returned by one resume request.
-pub const MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS: usize = 128;
+/// Maximum facts returned by one activity-history page.
+pub const MAX_CONVERSATION_ACTIVITY_PAGE_FACTS: usize = 64;
 
-/// Persistence for complete conversation activity reducer state.
+/// Persistence for canonical conversation activity facts.
 pub trait ConversationActivityLedger: Send + Sync {
-    /// Saves one strictly newer complete state, preserving identical retries.
+    /// Appends one assigned, immutable activity fact, preserving an identical retry.
     ///
     /// # Errors
     /// Returns an error when lineage or ordering invariants fail, or storage fails.
-    fn save_conversation_activity(
+    fn append_conversation_activity(
         &self,
-        record: &ConversationActivityRecord,
+        fact: &ConversationActivityFact,
     ) -> Result<(), LedgerError>;
 
-    /// Reads the latest restart-safe activity state for one run in a conversation.
+    /// Reads one bounded, cursor-ordered page strictly after `after_cursor`.
     ///
     /// # Errors
     /// Returns an error when durable state cannot be read.
-    fn find_conversation_activity(
-        &self,
-        conversation_id: &str,
-        run_id: &str,
-    ) -> Result<Option<ConversationActivityRecord>, LedgerError>;
-
-    /// Replays ordered checkpoints strictly after one durable activity cursor.
-    ///
-    /// # Errors
-    /// Returns an error when durable state cannot be read.
-    fn resume_conversation_activity(
+    fn read_conversation_activity_page(
         &self,
         conversation_id: &str,
         run_id: &str,
         after_cursor: u64,
-    ) -> Result<Vec<ConversationActivityRecord>, LedgerError>;
+        limit: usize,
+    ) -> Result<ConversationActivityPage, LedgerError>;
 }

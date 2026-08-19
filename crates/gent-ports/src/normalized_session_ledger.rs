@@ -4,7 +4,7 @@ use gent_types::{NormalizedSessionBatch, NormalizedSessionBatchResult};
 
 use crate::LedgerError;
 
-/// Commits lifecycle, transcript, and activity projections as one idempotent durable batch.
+/// Commits lifecycle, transcript, and immutable activity facts as one idempotent durable batch.
 ///
 /// The implementation must enforce host/run/turn ownership and return only after every requested
 /// projection plus its source cursor is durable. It must not accept raw provider output.

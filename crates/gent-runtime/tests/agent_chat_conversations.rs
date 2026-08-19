@@ -6,7 +6,7 @@ use gent_runtime::{
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
-    HostEpoch, ReceiptId, ReceiptStatus,
+    HostEpoch, ReceiptId, ReceiptStatus, WorkspaceRecord,
 };
 
 fn request(id: &str) -> AgentChatConversationRequest {
@@ -19,6 +19,10 @@ fn request(id: &str) -> AgentChatConversationRequest {
             model: "haiku".into(),
             effort: AgentChatEffort::Low,
             mode: AgentChatMode::Ask,
+        },
+        workspace: WorkspaceRecord {
+            workspace_id: "workspace-1".into(),
+            canonical_path: "/workspace".into(),
         },
     }
 }

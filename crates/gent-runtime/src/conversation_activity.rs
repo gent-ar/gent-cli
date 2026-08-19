@@ -1,42 +1,38 @@
-//! Authority-gated persistence of pure conversation activity projections.
+//! Authority-gated persistence and paging of canonical conversation activity facts.
 
-use gent_core::{ConversationActivityProjection, project_conversation_activity};
+use gent_core::{activity_scope, validate_conversation_activity_fact};
 use gent_ports::{
-    ConversationActivityLedger, IngressMode, Ledger, MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS,
+    ConversationActivityLedger, IngressMode, Ledger, MAX_CONVERSATION_ACTIVITY_PAGE_FACTS,
 };
-use gent_types::{ConversationActivity, ConversationActivityFact, ConversationActivityScope};
+use gent_types::{ConversationActivityFact, ConversationActivityPage, ConversationActivityScope};
 
 use crate::RuntimeError;
 
 /// Explicit boundary for activity facts that could otherwise drive a client UI.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ConversationActivityAuthority {
-    /// Shipped observer behavior: do not inspect, reduce, or persist activity facts.
+    /// Shipped observer behavior: do not inspect, persist, or serve activity facts.
     #[default]
     Observer,
     /// Reserved for a separately approved single coordinator with authoritative fact ingress.
     Approved,
 }
 
-/// Result of recording or resuming content-free activity data.
+/// Result of recording one immutable activity fact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConversationActivityResult {
     DeniedObserver,
-    Unchanged(ConversationActivity),
-    Applied(ConversationActivity),
-    Resumed(Vec<ConversationActivity>),
+    Recorded(ConversationActivityFact),
 }
 
-/// A bounded, cursor-based activity response with an explicit replacement fallback.
+/// A bounded activity-history response without replacement state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConversationActivityRead {
     DeniedObserver,
-    Missing,
-    Snapshot(ConversationActivity),
-    Delta(Vec<ConversationActivity>),
+    Page(ConversationActivityPage),
 }
 
-/// Reduces typed facts through the pure state machine before append-only persistence.
+/// Persists typed facts only for an explicitly approved coordinator.
 #[derive(Clone, Debug)]
 pub struct ConversationActivityService<L> {
     ledger: L,
@@ -52,10 +48,10 @@ impl<L> ConversationActivityService<L> {
 }
 
 impl<L: Ledger + ConversationActivityLedger> ConversationActivityService<L> {
-    /// Reduces and saves one cursor-ordered activity fact only for an approved coordinator.
+    /// Appends one assigned, immutable fact only for an approved coordinator.
     ///
     /// # Errors
-    /// Returns an error when host fencing or append-only activity persistence rejects the fact.
+    /// Returns an error when host fencing or durable fact persistence rejects the fact.
     pub fn record(
         &self,
         fact: &ConversationActivityFact,
@@ -63,53 +59,16 @@ impl<L: Ledger + ConversationActivityLedger> ConversationActivityService<L> {
         if self.authority != ConversationActivityAuthority::Approved {
             return Ok(ConversationActivityResult::DeniedObserver);
         }
-        let scope = scope(fact);
+        validate_conversation_activity_fact(fact)
+            .map_err(gent_ports::LedgerError::Invariant)
+            .map_err(RuntimeError::Ledger)?;
+        let scope = activity_scope(fact);
         require_open_host(&self.ledger, scope)?;
-        let projection = self
-            .ledger
-            .find_conversation_activity(&scope.conversation_id, &scope.run_id)?
-            .map_or_else(
-                || {
-                    ConversationActivityProjection::new(
-                        scope.conversation_id.clone(),
-                        scope.run_id.clone(),
-                        scope.host_epoch,
-                    )
-                },
-                ConversationActivityProjection::from_record,
-            );
-        let update = project_conversation_activity(projection, fact);
-        let activity = update.projection.snapshot().clone();
-        if !update.applied {
-            return Ok(ConversationActivityResult::Unchanged(activity));
-        }
-        self.ledger
-            .save_conversation_activity(&update.projection.record())?;
-        Ok(ConversationActivityResult::Applied(activity))
+        self.ledger.append_conversation_activity(fact)?;
+        Ok(ConversationActivityResult::Recorded(fact.clone()))
     }
 
-    /// Resumes complete activity projections strictly after one durable cursor.
-    ///
-    /// # Errors
-    /// Returns an error when activity persistence cannot be read.
-    pub fn resume(
-        &self,
-        conversation_id: &str,
-        run_id: &str,
-        after_cursor: u64,
-    ) -> Result<ConversationActivityResult, RuntimeError> {
-        if self.authority != ConversationActivityAuthority::Approved {
-            return Ok(ConversationActivityResult::DeniedObserver);
-        }
-        let records =
-            self.ledger
-                .resume_conversation_activity(conversation_id, run_id, after_cursor)?;
-        Ok(ConversationActivityResult::Resumed(
-            records.into_iter().map(|record| record.activity).collect(),
-        ))
-    }
-
-    /// Returns bounded deltas or a replacement snapshot when a cursor may have fallen behind.
+    /// Reads a bounded, ordered page of immutable facts.
     ///
     /// # Errors
     /// Returns an error when durable activity data cannot be read.
@@ -122,22 +81,13 @@ impl<L: Ledger + ConversationActivityLedger> ConversationActivityService<L> {
         if self.authority != ConversationActivityAuthority::Approved {
             return Ok(ConversationActivityRead::DeniedObserver);
         }
-        let Some(current) = self
-            .ledger
-            .find_conversation_activity(conversation_id, run_id)?
-        else {
-            return Ok(ConversationActivityRead::Missing);
-        };
-        let records =
-            self.ledger
-                .resume_conversation_activity(conversation_id, run_id, after_cursor)?;
-        if records.len() == MAX_CONVERSATION_ACTIVITY_RESUME_RECORDS
-            || (records.is_empty() && after_cursor < current.activity.cursor)
-        {
-            return Ok(ConversationActivityRead::Snapshot(current.activity));
-        }
-        Ok(ConversationActivityRead::Delta(
-            records.into_iter().map(|record| record.activity).collect(),
+        Ok(ConversationActivityRead::Page(
+            self.ledger.read_conversation_activity_page(
+                conversation_id,
+                run_id,
+                after_cursor,
+                MAX_CONVERSATION_ACTIVITY_PAGE_FACTS,
+            )?,
         ))
     }
 }
@@ -161,18 +111,4 @@ fn require_open_host<L: Ledger>(
         ));
     }
     Ok(())
-}
-
-fn scope(fact: &ConversationActivityFact) -> &ConversationActivityScope {
-    match fact {
-        ConversationActivityFact::TurnStarted { scope }
-        | ConversationActivityFact::RootActivity { scope, .. }
-        | ConversationActivityFact::RootPhase { scope, .. }
-        | ConversationActivityFact::WorkPhase { scope, .. }
-        | ConversationActivityFact::DecisionPending { scope, .. }
-        | ConversationActivityFact::DecisionSettled { scope, .. }
-        | ConversationActivityFact::InterruptRequested { scope }
-        | ConversationActivityFact::Recovered { scope }
-        | ConversationActivityFact::Terminal { scope, .. } => scope,
-    }
 }

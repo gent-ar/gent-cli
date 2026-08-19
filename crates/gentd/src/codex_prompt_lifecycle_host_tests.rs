@@ -1,7 +1,8 @@
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
-    AgentChatLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger, TranscriptLedger,
+    AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatWorkspaceLedger,
+    TranscriptLedger,
 };
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
@@ -9,7 +10,7 @@ use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatPromptCreate,
     AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId, AgentChatRunId,
     CapabilitySet, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, ReceiptId,
-    TurnPhase,
+    TurnPhase, WorkspaceRecord,
 };
 
 use crate::approved_codex_host::ApprovedCodexHost;
@@ -24,16 +25,7 @@ use super::codex_prompt_lifecycle_tests::{
 fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
-    ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: selection(),
-        })
-        .unwrap();
+    create_conversation(&ledger, conversation_id.clone());
     let prompt = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("prompt-a".into()),
@@ -118,4 +110,23 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             .is_none()
     );
     assert_eq!(prompt.message.text, "hello");
+}
+
+fn create_conversation(ledger: &SqliteLedger, conversation_id: AgentChatConversationId) {
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id,
+                run_id: AgentChatRunId("run-a".into()),
+                selection: selection(),
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
+        .unwrap();
 }

@@ -145,7 +145,7 @@ mod tests {
     };
     use gent_types::{
         CapabilitySet, Command, ConversationListItem, ConversationStatus, ConversationTimeline,
-        DecisionCommand, DecisionSettlement, DoctorReport, EventResume, HostStatus, PROTOCOL_MAX,
+        DecisionCommand, DecisionSettlement, DoctorReport, EventPage, HostStatus, PROTOCOL_MAX,
         PROTOCOL_MIN, Receipt,
     };
     use tokio::io::duplex;
@@ -168,7 +168,7 @@ mod tests {
         fn submit(&self, _: Command) -> Result<Receipt, String> {
             Err("not used".into())
         }
-        fn resume_events(&self, _: u64) -> Result<EventResume, String> {
+        fn read_event_page(&self, _: u64, _: usize) -> Result<EventPage, String> {
             Err("not used".into())
         }
         fn doctor(&self) -> DoctorReport {

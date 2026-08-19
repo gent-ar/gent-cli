@@ -9,13 +9,12 @@ use gent_protocol::{
 };
 use gent_runtime::ConversationActivityRead;
 use gent_types::{
-    CONVERSATION_ACTIVITY_SCHEMA_VERSION, CapabilitySet, Command, ConversationActivity,
-    ConversationActivityState, ConversationStatus, ConversationTimeline, DecisionCommand,
-    DecisionSettlement, DoctorReport, EventResume, HostEpoch, HostStatus, PROTOCOL_MAX,
-    PROTOCOL_MIN, Receipt, RuntimeMaintenanceReport, RuntimeMaintenanceRequest,
-    RuntimeReleaseChannel, RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest,
-    RuntimeUpdateCheckState, RuntimeUpdateHandoff, RuntimeUpdateRecord, RuntimeUpdateStatus,
-    RuntimeVersion, TurnPhase,
+    CapabilitySet, Command, ConversationActivityFact, ConversationActivityPage,
+    ConversationActivityScope, ConversationStatus, ConversationTimeline, DecisionCommand,
+    DecisionSettlement, DoctorReport, EventPage, HostEpoch, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN,
+    Receipt, RuntimeMaintenanceReport, RuntimeMaintenanceRequest, RuntimeReleaseChannel,
+    RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest, RuntimeUpdateCheckState,
+    RuntimeUpdateHandoff, RuntimeUpdateRecord, RuntimeUpdateStatus, RuntimeVersion,
 };
 use tokio::io::duplex;
 
@@ -48,7 +47,7 @@ impl RuntimeApi for ActivityRuntime {
     fn submit(&self, _: Command) -> Result<Receipt, String> {
         Err("not used".into())
     }
-    fn resume_events(&self, _: u64) -> Result<EventResume, String> {
+    fn read_event_page(&self, _: u64, _: usize) -> Result<EventPage, String> {
         Err("not used".into())
     }
     fn doctor(&self) -> DoctorReport {
@@ -129,20 +128,17 @@ impl RuntimeApi for ActivityRuntime {
         run_id: &str,
         _: u64,
     ) -> Result<ConversationActivityRead, String> {
-        Ok(ConversationActivityRead::Snapshot(ConversationActivity {
-            schema_version: CONVERSATION_ACTIVITY_SCHEMA_VERSION,
-            conversation_id: conversation_id.into(),
-            run_id: run_id.into(),
-            host_epoch: HostEpoch(4),
-            revision: 2,
-            activity_sequence: 3,
-            cursor: 8,
-            active_turn_id: Some("turn-1".into()),
-            root_phase: TurnPhase::Processing,
-            state: ConversationActivityState::Thinking,
-            pending_decision_id: None,
-            work: Vec::new(),
-            has_error: false,
+        Ok(ConversationActivityRead::Page(ConversationActivityPage {
+            facts: vec![ConversationActivityFact::TurnStarted {
+                scope: ConversationActivityScope {
+                    conversation_id: conversation_id.into(),
+                    run_id: run_id.into(),
+                    turn_id: "turn-1".into(),
+                    host_epoch: HostEpoch(4),
+                    cursor: 8,
+                },
+            }],
+            next_after_cursor: None,
         }))
     }
 }
@@ -165,7 +161,7 @@ fn observer_capabilities_do_not_advertise_authority_or_update_work() {
 }
 
 #[tokio::test]
-async fn activity_snapshot_requires_a_negotiated_activity_capability() {
+async fn activity_facts_require_a_negotiated_activity_capability() {
     let (mut client, server) = duplex(1024);
     let task = tokio::spawn(serve_connection(
         server,
@@ -203,8 +199,8 @@ async fn activity_snapshot_requires_a_negotiated_activity_capability() {
         read_json_frame::<_, ConversationActivityFrame>(&mut client)
             .await
             .unwrap(),
-        ConversationActivityFrame::Snapshot(activity)
-            if activity.cursor == 8 && activity.state == ConversationActivityState::Thinking
+        ConversationActivityFrame::Facts(page)
+            if page.facts[0].scope().cursor == 8 && page.next_after_cursor.is_none()
     ));
     drop(client);
     assert!(task.await.unwrap().is_err());

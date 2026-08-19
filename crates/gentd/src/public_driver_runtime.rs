@@ -5,7 +5,7 @@ use crate::provider_effects::ProviderEffectDispatcher;
 use gent_ports::{
     ActiveGoalResolver, AgentChatPromptDispatchLedger, AgentChatReadLedger,
     ConversationActivityLedger, Ledger, PublicProviderResolver, PublicProviderRunner,
-    RunProjectionLedger, TranscriptLedger,
+    TranscriptLedger,
 };
 use gent_runtime::{
     AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult,
@@ -36,7 +36,7 @@ impl<L, D, R> PublicDriversRuntime<L, D, R>
 where
     L: Clone
         + Ledger
-        + RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger,
@@ -143,7 +143,7 @@ where
     /// Persists one runner-owned source fact through its matching durable ingress.
     pub(crate) fn record(
         &self,
-        run_id: String,
+        run_id: &str,
         coordinator_id: &str,
         host_epoch: HostEpoch,
         fact: PublicDriverFact,

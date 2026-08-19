@@ -3,14 +3,16 @@ use std::sync::{Arc, Mutex};
 
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
-use gent_ports::{ActiveGoalResolver, AgentChatLedger, AgentChatPromptLedger, LedgerError};
+use gent_ports::{
+    ActiveGoalResolver, AgentChatPromptLedger, AgentChatWorkspaceLedger, LedgerError,
+};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatPromptCreate,
     AgentChatPromptDisposition, AgentChatRequestId, AgentChatRunId, CapabilitySet,
     GOAL_SCHEMA_VERSION, GoalBinding, GoalProjection, GoalRecord, GoalStatus, HostEpoch, ReceiptId,
-    TurnPhase,
+    TurnPhase, WorkspaceRecord,
 };
 
 use crate::approved_codex_host::ApprovedCodexHost;
@@ -63,14 +65,20 @@ fn save(ledger: &SqliteLedger, request: &str, text: &str) {
 fn codex_resolves_a_fresh_goal_projection_for_initial_and_follow_up_turns() {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: selection(),
-        })
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: selection(),
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     save(&ledger, "first", "first prompt");
     let runner = Runner::default();

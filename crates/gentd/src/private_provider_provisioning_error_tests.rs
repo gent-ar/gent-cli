@@ -5,9 +5,10 @@ use std::{
 };
 
 use gent_drivers::installer::{DependencyInstaller, InstallerError, NpmGlobalPrefix};
+use gent_drivers::lock::capture;
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
 use gent_protocol::DependencyProvider;
-use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
+use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus, RunVersionLock};
 
 use super::{
     PrivateProviderProvisioner, PrivateProvisionError, ProvisionedProviderLock,
@@ -142,24 +143,27 @@ fn lock_validation_rejects_escape_empty_version_and_noncanonical_digest() {
     fs::create_dir_all(executable.parent().unwrap()).unwrap();
     fs::write(&executable, "codex").unwrap();
     let lock = ProvisionedProviderLock {
-        provider: DependencyProvider::Codex,
-        executable: executable.clone(),
-        version: "1.0.0".into(),
-        digest_sha256: "a".repeat(64),
+        run_lock: capture("codex", &executable, "1.0.0", "test").unwrap(),
     };
     assert!(super::valid_lock(&lock, DependencyProvider::Codex, &prefix));
     for replacement in [
         ProvisionedProviderLock {
-            executable: temp.path().join("escape"),
-            ..lock.clone()
+            run_lock: RunVersionLock {
+                canonical_path: temp.path().join("escape").display().to_string(),
+                ..lock.run_lock.clone()
+            },
         },
         ProvisionedProviderLock {
-            version: " \t".into(),
-            ..lock.clone()
+            run_lock: RunVersionLock {
+                version: " \t".into(),
+                ..lock.run_lock.clone()
+            },
         },
         ProvisionedProviderLock {
-            digest_sha256: "A".repeat(64),
-            ..lock
+            run_lock: RunVersionLock {
+                digest_sha256: "A".repeat(64),
+                ..lock.run_lock.clone()
+            },
         },
     ] {
         assert!(!super::valid_lock(

@@ -53,12 +53,15 @@ fn staging_retries_then_commits_only_verified_content() {
             .state,
         AttachmentState::Available
     );
-    assert!(matches!(
-        ledger.resume_events(0).unwrap(),
-        gent_types::EventResume::Delta { events }
-            if events.len() == 6
-                && events.iter().filter(|event| event.kind == "attachmentSettled").count() == 3
-    ));
+    let events = ledger.read_event_page(0, 100).unwrap().events;
+    assert_eq!(events.len(), 6);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "attachmentSettled")
+            .count(),
+        3
+    );
 }
 
 #[test]

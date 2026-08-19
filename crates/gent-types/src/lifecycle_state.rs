@@ -54,12 +54,12 @@ impl WorkPhase {
     }
 }
 
-/// A complete volatile snapshot sent over status transport, never transcript content.
+/// A complete volatile status sent over transport, never transcript content.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::struct_excessive_bools)] // The wire contract intentionally transports independent UI facts.
 pub struct ConversationLiveStatus {
-    pub snapshot_cursor: u64,
+    pub cursor: u64,
     pub is_processing: bool,
     pub is_waiting_for_subagents: bool,
     pub has_live_subagent_work: bool,

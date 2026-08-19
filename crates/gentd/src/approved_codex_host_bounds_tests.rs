@@ -4,13 +4,13 @@ use crate::codex_prompt_lifecycle_tests::{Resolver, Runner, compatibility, profi
 use crate::public_driver_runtime::PublicDriversRuntime;
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
-use gent_ports::{AgentChatLedger, AgentChatPromptLedger, Ledger};
+use gent_ports::{AgentChatPromptLedger, AgentChatWorkspaceLedger, Ledger};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatPromptCreate,
     AgentChatPromptDisposition, AgentChatRequestId, AgentChatRunId, CapabilitySet, HostEpoch,
-    NormalizedLifecycleSignal, ReceiptId, TurnPhase,
+    NormalizedLifecycleSignal, ReceiptId, TurnPhase, WorkspaceRecord,
 };
 
 #[test]
@@ -112,14 +112,20 @@ fn host(
 fn setup_conversation(ledger: &SqliteLedger) -> AgentChatConversationId {
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: selection(),
-        })
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation_id.clone(),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: selection(),
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     conversation_id
 }

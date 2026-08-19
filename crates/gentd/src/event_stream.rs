@@ -4,7 +4,7 @@ use std::io;
 use std::time::Duration;
 
 use gent_protocol::{EventStreamFrame, MAX_FRAME_BYTES, read_json_frame, write_json_frame};
-use gent_types::{Event, EventResume};
+use gent_types::EventPage;
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -18,14 +18,13 @@ pub(crate) async fn serve<S, R>(
     stream: S,
     runtime: R,
     after_cursor: u64,
-    supports_resync: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
     R: RuntimeApi,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
-    let mut sent = send_resume(&mut writer, &runtime, after_cursor, true, supports_resync).await?;
+    let mut sent = send_page(&mut writer, &runtime, after_cursor, true).await?;
     let mut acknowledged = after_cursor;
     loop {
         tokio::select! {
@@ -47,76 +46,71 @@ where
                 Err(error) => return Err(Box::new(error)),
             },
             () = tokio::time::sleep(POLL_INTERVAL) => {
-                sent = send_resume(&mut writer, &runtime, sent, false, supports_resync).await?;
+                if acknowledged == sent {
+                    sent = send_page(&mut writer, &runtime, sent, false).await?;
+                }
             }
         }
     }
 }
 
-async fn send_resume<W, R>(
+async fn send_page<W, R>(
     writer: &mut W,
     runtime: &R,
     after_cursor: u64,
     initial: bool,
-    supports_resync: bool,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>>
 where
     W: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    match runtime
-        .resume_events(after_cursor)
-        .map_err(io::Error::other)?
-    {
-        EventResume::Delta { events } => send_events(writer, events, after_cursor, initial).await,
-        EventResume::Resync { snapshot, events } => {
-            if !supports_resync {
-                return Err("event resync requires an upgraded client".into());
-            }
-            write_json_frame(
-                writer,
-                &EventStreamFrame::Resync {
-                    snapshot: snapshot.clone(),
-                },
-            )
-            .await?;
-            send_events(writer, events, snapshot.cursor.max(after_cursor), false).await
-        }
-    }
+    let page = runtime
+        .read_event_page(after_cursor, MAX_BATCH_EVENTS)
+        .map_err(io::Error::other)?;
+    send_events(writer, page, after_cursor, initial).await
 }
 
 async fn send_events<W>(
     writer: &mut W,
-    events: Vec<Event>,
+    page: EventPage,
     after_cursor: u64,
     initial: bool,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>>
 where
     W: AsyncWrite + Unpin,
 {
-    let batches = batches(events, after_cursor)?;
+    let batches = batches(page, after_cursor)?;
     if batches.is_empty() && initial {
-        write_json_frame(writer, &EventStreamFrame::Replay { events: Vec::new() }).await?;
+        write_json_frame(
+            writer,
+            &EventStreamFrame::Replay {
+                page: EventPage {
+                    events: Vec::new(),
+                    next_after_cursor: None,
+                },
+            },
+        )
+        .await?;
         return Ok(after_cursor);
     }
     let mut cursor = after_cursor;
-    for events in batches {
-        cursor = events.last().map_or(cursor, |event| event.cursor);
+    for page in batches {
+        cursor = page.events.last().map_or(cursor, |event| event.cursor);
         let frame = if initial {
-            EventStreamFrame::Replay { events }
+            EventStreamFrame::Replay { page }
         } else {
-            EventStreamFrame::Events { events }
+            EventStreamFrame::Events { page }
         };
         write_json_frame(writer, &frame).await?;
     }
     Ok(cursor)
 }
 
-fn batches(events: Vec<Event>, after_cursor: u64) -> Result<Vec<Vec<Event>>, io::Error> {
+fn batches(page: EventPage, after_cursor: u64) -> Result<Vec<EventPage>, io::Error> {
     let mut previous = after_cursor;
     let mut result = Vec::new();
     let mut batch = Vec::new();
-    for event in events {
+    for event in page.events {
         if event.cursor <= previous {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -127,7 +121,10 @@ fn batches(events: Vec<Event>, after_cursor: u64) -> Result<Vec<Vec<Event>>, io:
         batch.push(event);
         let too_large = batch.len() > MAX_BATCH_EVENTS
             || serde_json::to_vec(&EventStreamFrame::Events {
-                events: batch.clone(),
+                page: EventPage {
+                    events: batch.clone(),
+                    next_after_cursor: None,
+                },
             })
             .map_err(io::Error::other)?
             .len()
@@ -140,12 +137,19 @@ fn batches(events: Vec<Event>, after_cursor: u64) -> Result<Vec<Vec<Event>>, io:
                     "event exceeds stream frame bound",
                 ));
             }
-            result.push(std::mem::take(&mut batch));
+            let next_after_cursor = batch.last().map(|event| event.cursor);
+            result.push(EventPage {
+                events: std::mem::take(&mut batch),
+                next_after_cursor,
+            });
             batch.push(event);
         }
     }
     if !batch.is_empty() {
-        result.push(batch);
+        result.push(EventPage {
+            events: batch,
+            next_after_cursor: page.next_after_cursor,
+        });
     }
     Ok(result)
 }
@@ -167,7 +171,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::batches;
-    use gent_types::{Event, HostEpoch, ReceiptId};
+    use gent_types::{Event, EventPage, HostEpoch, ReceiptId};
 
     fn event(cursor: u64) -> Event {
         Event {
@@ -182,16 +186,37 @@ mod tests {
 
     #[test]
     fn batches_keep_strict_order_and_bound_count() {
-        let events = (1..=65).map(event).collect();
-        let batches = batches(events, 0).unwrap();
+        let page = EventPage {
+            events: (1..=65).map(event).collect(),
+            next_after_cursor: None,
+        };
+        let batches = batches(page, 0).unwrap();
         assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].len(), 64);
-        assert_eq!(batches[1][0].cursor, 65);
+        assert_eq!(batches[0].events.len(), 64);
+        assert_eq!(batches[1].events[0].cursor, 65);
     }
 
     #[test]
     fn stale_or_duplicate_cursors_are_rejected() {
-        assert!(batches(vec![event(2), event(2)], 0).is_err());
-        assert!(batches(vec![event(1)], 1).is_err());
+        assert!(
+            batches(
+                EventPage {
+                    events: vec![event(2), event(2)],
+                    next_after_cursor: None
+                },
+                0
+            )
+            .is_err()
+        );
+        assert!(
+            batches(
+                EventPage {
+                    events: vec![event(1)],
+                    next_after_cursor: None
+                },
+                1
+            )
+            .is_err()
+        );
     }
 }

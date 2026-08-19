@@ -99,6 +99,9 @@ fn accepted(request_id: AgentChatRequestId, receipt_id: ReceiptId) -> AgentChatI
     AgentChatIntentFrame::Accepted {
         request_id,
         receipt: receipt(receipt_id),
+        conversation_id: gent_types::AgentChatConversationId("conversation-1".into()),
+        run_id: gent_types::AgentChatRunId("run-1".into()),
+        turn_id: "turn-1".into(),
         delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider,
     }
 }
@@ -129,14 +132,14 @@ async fn prompt_reply_requires_a_correlated_receipt() {
             .unwrap()
     );
     assert!(
-        matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Accepted { request_id, receipt, delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider } if request_id.0 == "request-1" && receipt.receipt_id.0 == "receipt-1")
+        matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Accepted { request_id, receipt, conversation_id, run_id, turn_id, delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider } if request_id.0 == "request-1" && receipt.receipt_id.0 == "receipt-1" && conversation_id.0 == "conversation-1" && run_id.0 == "run-1" && turn_id == "turn-1")
     );
 }
 
 #[tokio::test]
 async fn create_reply_includes_durable_conversation_and_run_identities() {
     let (mut reader, mut writer) = duplex(4096);
-    let request = json!({ "type": "createConversation", "body": { "requestId": "create-1", "receiptId": "receipt-1", "selection": { "provider": "claude", "model": "haiku", "effort": "low", "mode": "ask" } } });
+    let request = json!({ "type": "createConversation", "body": { "requestId": "create-1", "receiptId": "receipt-1", "workspacePath": "/workspace", "selection": { "provider": "claude", "model": "haiku", "effort": "low", "mode": "ask" } } });
     assert!(
         dispatch_port(&mut writer, &FakePort, &capabilities(), &request)
             .await
@@ -259,7 +262,7 @@ async fn absent_capability_leaves_the_frame_for_the_generic_rejection_path() {
 #[tokio::test]
 async fn observer_port_error_is_a_protocol_error_without_a_provider_effect() {
     let (mut reader, mut writer) = duplex(4096);
-    let request = json!({ "type": "createConversation", "body": { "requestId": "r", "receiptId": "x", "selection": { "provider": "claude", "model": "haiku", "effort": "low", "mode": "ask" } } });
+    let request = json!({ "type": "createConversation", "body": { "requestId": "r", "receiptId": "x", "workspacePath": "/workspace", "selection": { "provider": "claude", "model": "haiku", "effort": "low", "mode": "ask" } } });
     assert!(
         dispatch_port(&mut writer, &ObserverPort, &capabilities(), &request)
             .await

@@ -4,7 +4,7 @@ use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PublicProviderResolver,
-    RunProjectionLedger, TranscriptLedger,
+    TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 use gent_types::HostEpoch;
@@ -15,7 +15,7 @@ impl<L, D, R> ClaudePromptLifecycle<L, D, R>
 where
     L: Clone
         + Ledger
-        + RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + ConversationActivityLedger
         + TranscriptLedger
         + NormalizedSessionBatchLedger

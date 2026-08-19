@@ -9,13 +9,14 @@ use gent_protocol::{
     write_json_frame,
 };
 use gent_types::{
-    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatPromptDelivery,
-    AgentChatProvider, AgentChatRequestId, AgentChatSelection, ReceiptId,
+    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId,
+    AgentChatSelection, ReceiptId,
 };
 use serde_json::Value;
 
 mod arguments;
 pub(crate) mod follow;
+mod prompt;
 mod reads;
 pub(crate) mod switch;
 pub(crate) mod turn_follow;
@@ -24,6 +25,7 @@ pub(crate) use arguments::{
     ConversationArgs, CreateArgs, DirectPromptArgs, Effort, Mode, PromptArgs, Provider,
     TranscriptArgs,
 };
+pub(crate) use prompt::send;
 #[derive(Debug, Subcommand)]
 pub(crate) enum ChatCommand {
     Create(CreateArgs),
@@ -94,7 +96,7 @@ pub(crate) async fn execute(
     ) {
         return Err("agent-chat reads and follow bypass one-shot intent frames".into());
     }
-    exchange(data_dir, no_autostart, frame(action)).await
+    exchange(data_dir, no_autostart, frame(action)?).await
 }
 
 /// Creates a selected conversation for an interactive terminal through the same IPC boundary.
@@ -102,6 +104,7 @@ pub(crate) async fn create(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     selection: AgentChatSelection,
+    workspace: Option<PathBuf>,
 ) -> Result<(AgentChatConversationId, gent_types::AgentChatRunId), Box<dyn std::error::Error>> {
     let response = exchange(
         data_dir,
@@ -109,6 +112,7 @@ pub(crate) async fn create(
         AgentChatIntentFrame::CreateConversation {
             request_id: request_id(None),
             receipt_id: receipt_id(None),
+            workspace_path: workspace_path(workspace)?,
             selection,
         },
     )
@@ -122,30 +126,6 @@ pub(crate) async fn create(
         return Err("daemon did not return a created conversation".into());
     };
     Ok((conversation_id, run_id))
-}
-
-/// Persists one interactive terminal prompt without starting a provider process.
-pub(crate) async fn send(
-    data_dir: Option<PathBuf>,
-    no_autostart: bool,
-    conversation_id: String,
-    text: String,
-) -> Result<AgentChatPromptDelivery, Box<dyn std::error::Error>> {
-    let response = exchange(
-        data_dir,
-        no_autostart,
-        AgentChatIntentFrame::SendPrompt {
-            request_id: request_id(None),
-            receipt_id: receipt_id(None),
-            conversation_id: AgentChatConversationId(conversation_id),
-            text,
-        },
-    )
-    .await?;
-    let AgentChatIntentFrame::Accepted { delivery, .. } = response else {
-        return Err("daemon did not accept the agent-chat prompt".into());
-    };
-    Ok(delivery)
 }
 
 async fn exchange(
@@ -175,11 +155,12 @@ async fn exchange(
         })
 }
 
-fn frame(action: ChatCommand) -> AgentChatIntentFrame {
-    match action {
+fn frame(action: ChatCommand) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
+    Ok(match action {
         ChatCommand::Create(args) => AgentChatIntentFrame::CreateConversation {
             request_id: request_id(args.request_id),
             receipt_id: receipt_id(args.receipt_id),
+            workspace_path: workspace_path(args.workspace)?,
             selection: AgentChatSelection {
                 provider: provider(args.provider),
                 model: args.model,
@@ -195,7 +176,15 @@ fn frame(action: ChatCommand) -> AgentChatIntentFrame {
         ChatCommand::Summary(_) | ChatCommand::Detail(_) | ChatCommand::Transcript(_) => {
             unreachable!("agent-chat reads bypass intent frames")
         }
-    }
+    })
+}
+
+fn workspace_path(value: Option<PathBuf>) -> Result<String, Box<dyn std::error::Error>> {
+    value
+        .unwrap_or(std::env::current_dir()?)
+        .into_os_string()
+        .into_string()
+        .map_err(|_| "workspace path must be valid UTF-8".into())
 }
 
 fn prompt_frame(args: PromptArgs, queued: bool) -> AgentChatIntentFrame {
@@ -249,19 +238,31 @@ fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIntentFrame) 
             AgentChatIntentFrame::SendPrompt {
                 request_id,
                 receipt_id,
+                conversation_id: expected_conversation_id,
                 ..
             }
             | AgentChatIntentFrame::QueuePrompt {
                 request_id,
                 receipt_id,
+                conversation_id: expected_conversation_id,
                 ..
             },
             AgentChatIntentFrame::Accepted {
                 request_id: reply,
                 receipt,
+                conversation_id,
+                run_id,
+                turn_id,
                 ..
             },
-        ) => reply == request_id && receipt.receipt_id == *receipt_id,
+        ) => {
+            reply == request_id
+                && receipt.receipt_id == *receipt_id
+                && conversation_id == expected_conversation_id
+                && !conversation_id.0.is_empty()
+                && !run_id.0.is_empty()
+                && !turn_id.is_empty()
+        }
         _ => false,
     }
 }

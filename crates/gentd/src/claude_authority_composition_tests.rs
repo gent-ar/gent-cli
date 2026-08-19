@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
-use gent_ports::{SandboxedProviderPreflight, SandboxedProviderPreflightError};
+use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
+use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
+use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
 use gent_runtime::catalog::declared_capabilities;
 use gent_types::{
-    HostEpoch, RunVersionLock, SandboxBackendId, SandboxEnforcement, SandboxLaunchProfile,
-    SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
+    HostEpoch, RunVersionLock, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
+    SandboxedLaunchRequest,
 };
 
 use super::{
@@ -14,30 +16,28 @@ use super::{
 use crate::CompatibilityAssessment;
 use crate::runtime_facade::DaemonCompositionState;
 
-#[derive(Clone, Copy, Debug)]
-enum SandboxResult {
-    Unavailable,
-    Attested,
-}
-
 #[derive(Debug)]
-struct Sandbox(SandboxResult);
-
-impl SandboxedProviderPreflight for Sandbox {
-    fn preflight(
+struct Sandbox;
+#[derive(Debug)]
+struct Process;
+impl ProcessTreeControl for Process {
+    fn signal_tree(&self, _: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
+        Ok(())
+    }
+}
+impl ProviderProcess for Process {
+    fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
+        Ok(())
+    }
+}
+impl SandboxedProviderLaunch for Sandbox {
+    type Process = Process;
+    fn launch_sandboxed(
         &self,
-        request: &SandboxedLaunchRequest,
-    ) -> Result<gent_types::SandboxLaunchAttestation, SandboxedProviderPreflightError> {
-        match self.0 {
-            SandboxResult::Unavailable => Err(SandboxedProviderPreflightError::Unavailable),
-            SandboxResult::Attested => request
-                .attest_after_lock_recheck(
-                    &request.lock,
-                    SandboxBackendId::new("test-native-sandbox".into()).unwrap(),
-                    SandboxEnforcement::Enforced,
-                )
-                .map_err(|_| SandboxedProviderPreflightError::AttestationRejected),
-        }
+        _: &SandboxedLaunchRequest,
+        _: &ProviderLaunch,
+    ) -> Result<Process, SandboxedProviderLaunchError> {
+        Ok(Process)
     }
 }
 
@@ -78,7 +78,7 @@ fn config() -> PrivateClaudeAuthorityConfig<Sandbox> {
             },
             profile: sandbox_profile(),
         },
-        sandbox_preflight: Sandbox(SandboxResult::Unavailable),
+        sandbox_launch: Sandbox,
     }
 }
 
@@ -117,7 +117,7 @@ fn missing_private_evidence_fails_before_a_claude_host_or_private_prefix_is_cons
         compose_private_claude_authority(
             &state,
             PrivateClaudeAuthorityConfig {
-                sandbox_preflight: Sandbox(SandboxResult::Attested),
+                sandbox_launch: Sandbox,
                 ..config()
             },
         ),
@@ -130,22 +130,4 @@ fn missing_private_evidence_fails_before_a_claude_host_or_private_prefix_is_cons
             .join("npm-global")
             .exists()
     );
-}
-
-#[test]
-fn unavailable_sandbox_prevents_claude_evidence_loading_or_host_construction() {
-    let directory = tempfile::tempdir().unwrap();
-    let state = DaemonCompositionState::open(
-        directory.path(),
-        &declared_capabilities(),
-        CompatibilityAssessment::default(),
-    )
-    .unwrap();
-    assert!(matches!(
-        compose_private_claude_authority(&state, config()),
-        Err(PrivateClaudeAuthorityError::Sandbox(
-            SandboxedProviderPreflightError::Unavailable
-        ))
-    ));
-    assert!(!state.data_dir().join("providers").exists());
 }

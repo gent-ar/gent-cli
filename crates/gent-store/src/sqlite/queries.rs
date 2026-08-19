@@ -58,13 +58,16 @@ pub(super) fn find_event(
         cursor: row.get(0)?, event_id: row.get(1)?, receipt_id: ReceiptId(row.get(2)?), host_epoch: HostEpoch(row.get(3)?), kind: row.get(4)?, payload: serde_json::from_str(&row.get::<_, String>(5)?).map_err(json_error)?,
     })).optional().map_err(storage_error)
 }
-pub(super) fn events_after(
+pub(super) fn events_page(
     connection: &Connection,
     cursor: u64,
+    limit: usize,
 ) -> Result<Vec<Event>, LedgerError> {
-    let mut statement = connection.prepare("SELECT cursor, event_id, receipt_id, host_epoch, kind, payload FROM events WHERE cursor > ?1 ORDER BY cursor ASC").map_err(storage_error)?;
+    let limit = i64::try_from(limit)
+        .map_err(|_| LedgerError::Invariant("event page limit exceeds SQLite range".into()))?;
+    let mut statement = connection.prepare("SELECT cursor, event_id, receipt_id, host_epoch, kind, payload FROM events WHERE cursor > ?1 ORDER BY cursor ASC LIMIT ?2").map_err(storage_error)?;
     let rows = statement
-        .query_map([cursor], |row| {
+        .query_map(rusqlite::params![cursor, limit], |row| {
             Ok(Event {
                 cursor: row.get(0)?,
                 event_id: row.get(1)?,

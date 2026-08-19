@@ -1,29 +1,37 @@
-use gent_ports::{AgentChatLedger, AgentChatPromptLedger, AgentChatReadLedger, TranscriptLedger};
+use gent_ports::{
+    AgentChatPromptLedger, AgentChatReadLedger, AgentChatWorkspaceLedger, TranscriptLedger,
+};
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, HostEpoch, NormalizedTranscriptAppend,
-    NormalizedTranscriptKind, ReceiptId,
+    NormalizedTranscriptKind, ReceiptId, WorkspaceRecord,
 };
 
 fn ledger() -> (SqliteLedger, AgentChatConversationId, String, String) {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-1".into());
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("receipt-conversation".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId("run-1".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt-5.6".into(),
-                effort: AgentChatEffort::High,
-                mode: AgentChatMode::Agent,
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("receipt-conversation".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation_id.clone(),
+                run_id: AgentChatRunId("run-1".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Codex,
+                    model: "gpt-5.6".into(),
+                    effort: AgentChatEffort::High,
+                    mode: AgentChatMode::Agent,
+                },
             },
-        })
+            &WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
+            },
+        )
         .unwrap();
     let prompt = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {

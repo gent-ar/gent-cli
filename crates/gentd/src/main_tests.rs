@@ -1,5 +1,4 @@
 use gent_core::DecisionCommandOutcome;
-use gent_ports::CapabilityCatalogLedger;
 use gent_protocol::{
     AgentChatIntentFrame, DecisionRecoveryEvidence, DependencyAction, DependencyActionRequest,
     DependencyPlanRequest, DependencyProvider, PublicRunInterruptRequest, PublicRunOutcome,
@@ -11,7 +10,7 @@ use gent_runtime::catalog::{
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId, AgentChatSelection,
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase,
-    EventResume, HostEpoch, McpPermissionStatus, ReceiptId,
+    EventPage, HostEpoch, McpPermissionStatus, ReceiptId,
 };
 use serde_json::json;
 
@@ -49,18 +48,8 @@ fn drifted_handlers_are_rejected_before_a_runtime_can_advertise_them() {
 }
 #[test]
 fn facade_exposes_only_durable_or_read_only_observer_operations() {
-    let (directory, runtime) = runtime();
+    let (_directory, runtime) = runtime();
     assert_eq!(runtime.capabilities().unwrap(), declared_capabilities());
-    assert_eq!(
-        gent_store::SqliteLedger::open(directory.path().join("gent.db"))
-            .unwrap()
-            .capability_catalog()
-            .unwrap(),
-        Some(gent_types::CapabilityCatalogRecord {
-            schema_version: 1,
-            capabilities: declared_capabilities(),
-        })
-    );
     let status = runtime.status().unwrap();
     assert_eq!(status.host_epoch, HostEpoch(1));
     assert_eq!(
@@ -79,8 +68,8 @@ fn facade_exposes_only_durable_or_read_only_observer_operations() {
         .unwrap();
     assert_eq!(receipt.idempotency_key, "key");
     assert!(matches!(
-        runtime.resume_events(0).unwrap(),
-        EventResume::Delta { events } if events.len() == 2
+        runtime.read_event_page(0, 100).unwrap(),
+        EventPage { events, next_after_cursor: None } if events.len() == 2
     ));
     assert_eq!(
         runtime.doctor().mcp.permission,
@@ -219,6 +208,7 @@ fn approved_agent_chat_profile_persists_create_and_prompt_without_a_provider() {
         .agent_chat_intent(AgentChatIntentFrame::CreateConversation {
             request_id: AgentChatRequestId("create-1".into()),
             receipt_id: ReceiptId("receipt-create".into()),
+            workspace_path: ".".into(),
             selection: AgentChatSelection {
                 provider: AgentChatProvider::Claude,
                 model: "haiku".into(),

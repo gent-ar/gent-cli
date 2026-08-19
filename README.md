@@ -12,9 +12,9 @@ than a second copy of application logic. The implemented vertical slice is:
 - `gentd`: a supervised local daemon using a Unix socket on macOS/Linux and a
   named pipe on Windows.
 - `gent`: a protocol-only client that starts a local daemon on demand.
-- Version negotiation, capability intersection, host-epoch fences,
-  idempotent command receipts, cursor-ordered durable events, and explicit
-  snapshot-backed resync after event compaction.
+- Version negotiation, capability intersection, host-epoch fences, idempotent
+  command receipts, bounded cursor-ordered durable reads, and fact replay. No
+  snapshot/recovery-cache/mirrored-state/replacement layer exists; current state is fact-derived.
 - SQLite-backed host state, a read-only `gent doctor` dependency report, and negotiated
   `gent conversation list`, `gent conversation status`, `gent conversation timeline`, and Unix-only
   `gent conversation content` reads. `gent conversation activity` is a protocol-only future
@@ -60,6 +60,8 @@ and intents. By default the daemon refuses mutations. For isolated local
 testing, start `gentd --agent-chat-authority`: it advertises
 `agent-chat-intents-v1` and `orchestration-v1`, and durably accepts create/send/queue and graph-record requests through the same receipt and epoch checks. It still rejects provider lifecycle, transcript streaming, MCP, Git, and private-bridge actions.
 
+Every new chat conversation supplies a local workspace path (`gent` defaults it to the terminal current directory; `gent chat create --workspace PATH` overrides it). `gentd` canonicalizes that path once, then atomically binds the derived Gent workspace record to the conversation/root run. The accepted prompt path uses only that durable binding; it never treats the daemon cwd as project state. This is a safety foundation, not an advertised provider launcher.
+
 ### Milestone scope contract
 
 - `gent-cli` is the only CLI surface; it is a thin protocol client and must remain
@@ -76,12 +78,10 @@ testing, start `gentd --agent-chat-authority`: it advertises
   Capture test or real sessions only when a developer explicitly opts in, then sanitize and review them before committing them; corpus records never authorize providers or count as public evidence.
   Before commit, validate and offline-replay the reviewed corpus with `python3 tools/validate-driver-transcript-corpus.py` and `python3 tools/replay-driver-transcript-corpus.py`; neither command contacts a provider or enables capture.
 - No source file in this milestone should exceed 300 lines; `python tools/check-architecture.py` enforces it.
-`fixtures/ipc-contract/manifest.json` is the language-neutral compatibility
-fixture for that local protocol. It records canonical JSON and the exact
-four-byte big-endian length-prefixed wire frames for handshake, errors, event
-resume, and reserved agent-chat values. A future Flutter client can validate
-its codec against it without embedding Rust or treating any reserved capability
-as available. Validate it with:
+`fixtures/ipc-contract/manifest.json` is the language-neutral compatibility fixture for that
+local protocol. It records canonical JSON and exact four-byte big-endian length-prefixed frames
+for handshake, errors, event resume, and reserved agent-chat values. A future Flutter client can
+validate its codec without embedding Rust or treating reserved capability as available:
 
 ```sh
 cargo run -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json

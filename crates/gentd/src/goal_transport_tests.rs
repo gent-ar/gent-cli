@@ -90,6 +90,7 @@ fn seed_conversation(runtime: &impl RuntimeApi) -> GoalBinding {
     let created = runtime
         .agent_chat_intent(gent_protocol::AgentChatIntentFrame::CreateConversation {
             request_id: AgentChatRequestId("conversation-1".into()),
+            workspace_path: ".".into(),
             selection: AgentChatSelection {
                 provider: AgentChatProvider::Codex,
                 model: "gpt-5.6".into(),

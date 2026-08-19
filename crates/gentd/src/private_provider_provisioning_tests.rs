@@ -5,6 +5,7 @@ use std::{
 };
 
 use gent_drivers::installer::{DependencyInstaller, InstallerError, NpmGlobalPrefix};
+use gent_drivers::lock::capture;
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
 use gent_protocol::DependencyProvider;
 use gent_types::{HostEpoch, Receipt, ReceiptId, ReceiptStatus};
@@ -81,16 +82,18 @@ impl ProvisionedProviderVerifier for Verifier {
         if self.unsupported {
             return Err("unsupported installed binary".into());
         }
-        Ok(ProvisionedProviderLock {
-            provider,
-            executable: prefix.join("bin").join(if self.changed {
+        capture(
+            provider.as_str(),
+            &prefix.join("bin").join(if self.changed {
                 "substituted"
             } else {
                 provider.as_str()
             }),
-            version: "1.0.0".into(),
-            digest_sha256: "a".repeat(64),
-        })
+            "1.0.0",
+            "test",
+        )
+        .map(|run_lock| ProvisionedProviderLock { run_lock })
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -245,10 +248,7 @@ fn valid_post_install_executable_version_and_digest_lock_can_settle_installed() 
     );
     assert!(matches!(
         provisioner.provision(&request()).unwrap(),
-        PrivateProvisionResult::Installed(ProvisionedProviderLock {
-            provider: DependencyProvider::Codex,
-            ..
-        })
+        PrivateProvisionResult::Installed(lock) if lock.run_lock.provider == "codex"
     ));
 }
 

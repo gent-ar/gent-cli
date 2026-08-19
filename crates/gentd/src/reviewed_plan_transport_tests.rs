@@ -37,7 +37,7 @@ fn observer_neither_advertises_nor_accepts_reviewed_plan_authority() {
 }
 
 #[test]
-fn approved_chat_persistence_profile_advertises_and_reads_reviewed_plans() {
+fn chat_persistence_profile_keeps_reviewed_plans_unadvertised_until_lifecycle_authority() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = build_runtime(
         directory.path(),
@@ -46,20 +46,20 @@ fn approved_chat_persistence_profile_advertises_and_reads_reviewed_plans() {
     )
     .unwrap();
     assert!(
-        runtime
+        !runtime
             .capabilities()
             .unwrap()
             .0
             .contains(&REVIEWED_PLAN_CAPABILITY.into())
     );
-    assert!(matches!(
+    assert_eq!(
         runtime
             .reviewed_plan(ReviewedPlanFrame::ReviewRead {
                 request_id: "request-1".into(),
                 conversation_id: AgentChatConversationId("conversation-1".into()),
                 plan_id: ReviewedPlanId("plan-1".into()),
             })
-            .unwrap(),
-        ReviewedPlanFrame::Review { plan: None, .. }
-    ));
+            .unwrap_err(),
+        "reviewed plans are unavailable while gentd is observer-disabled"
+    );
 }

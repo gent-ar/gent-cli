@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use gent_drivers::codex_prompt_runner::CodexPromptStart;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger, PublicProviderResolver,
-    RunProjectionLedger, TranscriptLedger,
+    TranscriptLedger,
 };
 use gent_protocol::{DependencyProvider, PublicRunOutcome, PublicRunStartRequest};
 use gent_runtime::RuntimeError;
@@ -26,7 +26,7 @@ pub(super) fn prompt<L, D, R>(
 where
     L: Clone
         + Ledger
-        + RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger
@@ -121,7 +121,7 @@ fn submit<L, D, R>(
 where
     L: Clone
         + Ledger
-        + RunProjectionLedger
+        + gent_ports::RunLifecycleFactLedger
         + ConversationActivityLedger
         + TranscriptLedger
         + AgentChatPromptDispatchLedger

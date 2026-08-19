@@ -1,7 +1,7 @@
 //! Observer-gated runtime access to typed, daemon-owned orchestration graphs.
 
 use gent_ports::{OrchestrationLedger, OrchestrationWrite};
-use gent_types::{CrossReviewRequest, FanoutRequest, TaskGraph};
+use gent_types::{CrossReviewRequest, FanoutRequest, TaskGraph, TaskGraphFactPage};
 
 use crate::RuntimeError;
 
@@ -19,6 +19,7 @@ pub enum OrchestrationResult {
     DeniedObserver,
     Missing,
     Graph(Box<TaskGraph>),
+    FactPage(TaskGraphFactPage),
 }
 
 /// Coordinates typed graph requests with an injected durable ledger and no provider access.
@@ -51,6 +52,24 @@ impl<L: OrchestrationLedger> OrchestrationService<L> {
             .map_or(OrchestrationResult::Missing, |graph| {
                 OrchestrationResult::Graph(Box::new(graph))
             }))
+    }
+    /// Reads a bounded ordered page of canonical graph facts through approved composition.
+    ///
+    /// # Errors
+    /// Returns a durable read error only after approved composition reaches the ledger.
+    pub fn graph_facts(
+        &self,
+        graph_id: &str,
+        after_cursor: u64,
+        limit: u16,
+    ) -> Result<OrchestrationResult, RuntimeError> {
+        if self.authority != OrchestrationAuthority::Approved {
+            return Ok(OrchestrationResult::DeniedObserver);
+        }
+        self.ledger
+            .task_graph_facts(graph_id, after_cursor, limit)
+            .map(OrchestrationResult::FactPage)
+            .map_err(RuntimeError::from)
     }
     /// Applies a typed fanout intent only through approved composition.
     ///

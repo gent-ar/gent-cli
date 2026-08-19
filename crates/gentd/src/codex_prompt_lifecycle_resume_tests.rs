@@ -1,10 +1,12 @@
-use gent_ports::{AgentChatLedger, AgentChatPromptLedger, Ledger, RunLease, RunSessionBinding};
+use gent_ports::{
+    AgentChatPromptLedger, AgentChatWorkspaceLedger, Ledger, RunLease, RunSessionBinding,
+};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, ReceiptId,
+    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, ReceiptId, WorkspaceRecord,
 };
 
 use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptLifecycle};
@@ -16,19 +18,25 @@ fn next_prompt_resumes_the_daemon_owned_codex_session_after_process_loss() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt-5.6".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation_id.clone(),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Codex,
+                    model: "gpt-5.6".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
             },
-        })
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     ledger
         .activate_existing_run_start(

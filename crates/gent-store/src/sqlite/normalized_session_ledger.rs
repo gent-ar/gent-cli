@@ -1,15 +1,15 @@
 //! Atomic persistence for one already-normalized provider session fact.
 use gent_ports::{IngressMode, LedgerError, NormalizedSessionBatchLedger, RunLease};
 use gent_types::{
-    ConversationActivityFact, Event, NormalizedProviderEvent, NormalizedSessionBatch,
-    NormalizedSessionBatchResult, ReceiptId,
+    Event, NormalizedProviderEvent, NormalizedSessionBatch, NormalizedSessionBatchResult,
+    ReceiptId, RunLifecycleFact,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::{
     SqliteLedger,
     epoch::require_epoch,
-    normalized_session_projection::{apply_activity, apply_lifecycle},
+    normalized_session_activity,
     queries::{
         append_event, find_event, find_run_lease, find_run_session_binding, host_ingress,
         storage_error,
@@ -32,10 +32,19 @@ impl NormalizedSessionBatchLedger for SqliteLedger {
         require_owner(&transaction, batch)?;
         reject_source_collisions(&transaction, batch)?;
         let lifecycle = append_event(&transaction, &lifecycle_event(batch))?;
-        apply_lifecycle(&transaction, batch, lifecycle.cursor)?;
+        super::run_lifecycle_facts::append_in_transaction(
+            &transaction,
+            &RunLifecycleFact {
+                run_id: batch.run_id.clone(),
+                event_id: batch.lifecycle_event_id.clone(),
+                host_epoch: batch.host_epoch,
+                cursor: lifecycle.cursor,
+                lifecycle: batch.lifecycle.clone(),
+            },
+        )?;
         let transcript_cursor = append_transcript(&transaction, batch)?;
-        let activity_cursor = append_activity(&transaction, batch)?;
-        apply_activity(&transaction, batch, activity_cursor)?;
+        let activity_cursor = normalized_session_activity::append(&transaction, batch)?;
+        normalized_session_activity::apply(&transaction, batch, activity_cursor)?;
         let result = NormalizedSessionBatchResult {
             lifecycle_cursor: lifecycle.cursor,
             transcript_cursor,
@@ -81,7 +90,7 @@ fn validate(batch: &NormalizedSessionBatch) -> Result<(), LedgerError> {
         }
     }
     if let Some(activity) = &batch.activity {
-        let scope = activity_scope(activity);
+        let scope = normalized_session_activity::scope(activity);
         if scope.conversation_id != batch.conversation_id
             || scope.run_id != batch.run_id
             || scope.turn_id != batch.turn_id
@@ -247,43 +256,6 @@ fn append_transcript(
         .map_err(storage_error)?;
     transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![batch.conversation_id, cursor, item.event_id, item.turn_id, item.run_id, transcript_kind(item.kind), item.text, i64::from(item.is_partial)]).map_err(storage_error)?;
     Ok(Some(cursor))
-}
-
-fn append_activity(
-    transaction: &Transaction<'_>,
-    batch: &NormalizedSessionBatch,
-) -> Result<Option<u64>, LedgerError> {
-    let (Some(event_id), Some(activity)) = (&batch.activity_event_id, &batch.activity) else {
-        return Ok(None);
-    };
-    let event = Event {
-        cursor: 0,
-        event_id: event_id.clone(),
-        receipt_id: ReceiptId(format!("providerActivity:{}", batch.run_id)),
-        host_epoch: batch.host_epoch,
-        kind: "providerActivity".into(),
-        payload: serde_json::json!({
-            "conversationId": batch.conversation_id,
-            "runId": batch.run_id,
-            "turnId": batch.turn_id,
-            "activity": activity,
-        }),
-    };
-    append_event(transaction, &event).map(|event| Some(event.cursor))
-}
-
-fn activity_scope(fact: &ConversationActivityFact) -> &gent_types::ConversationActivityScope {
-    match fact {
-        ConversationActivityFact::TurnStarted { scope }
-        | ConversationActivityFact::RootActivity { scope, .. }
-        | ConversationActivityFact::RootPhase { scope, .. }
-        | ConversationActivityFact::WorkPhase { scope, .. }
-        | ConversationActivityFact::DecisionPending { scope, .. }
-        | ConversationActivityFact::DecisionSettled { scope, .. }
-        | ConversationActivityFact::InterruptRequested { scope }
-        | ConversationActivityFact::Recovered { scope }
-        | ConversationActivityFact::Terminal { scope, .. } => scope,
-    }
 }
 
 fn fingerprint(batch: &NormalizedSessionBatch) -> Result<String, LedgerError> {

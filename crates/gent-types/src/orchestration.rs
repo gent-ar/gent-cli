@@ -87,7 +87,9 @@ pub struct TaskGraphBinding {
     pub base_revision_digest_sha256: String,
 }
 
-/// A durable graph snapshot suitable for pure transition reduction.
+/// A deterministic view reduced from immutable, ordered graph facts.
+///
+/// This is an API value, never mutable persisted state or a recovery snapshot.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskGraph {

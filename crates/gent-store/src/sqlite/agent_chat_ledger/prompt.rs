@@ -181,7 +181,7 @@ fn current_run(
     transaction: &Transaction<'_>,
     conversation_id: &str,
 ) -> Result<String, LedgerError> {
-    transaction.query_row("SELECT current.run_id FROM agent_chat_conversations c JOIN agent_chat_run_selections current JOIN runs r ON r.run_id = current.run_id WHERE c.conversation_id = ?1 AND r.conversation_id = c.conversation_id ORDER BY r.rowid DESC LIMIT 1", [conversation_id], |row| row.get(0)).optional().map_err(storage_error)?.ok_or_else(|| LedgerError::Invariant("agent chat conversation has no durable selected current run".into()))
+    transaction.query_row("SELECT current.run_id FROM agent_chat_conversations c JOIN agent_chat_run_selections current JOIN runs r ON r.run_id = current.run_id WHERE c.conversation_id = ?1 AND c.workspace_id IS NOT NULL AND r.conversation_id = c.conversation_id ORDER BY r.rowid DESC LIMIT 1", [conversation_id], |row| row.get(0)).optional().map_err(storage_error)?.ok_or_else(|| LedgerError::Invariant("agent chat conversation has no daemon-bound workspace and cannot accept a prompt".into()))
 }
 
 fn insert_prompt(

@@ -56,6 +56,9 @@ pub(crate) fn exchange<L: OrchestrationLedger>(
             OrchestrationResult::DeniedObserver => {
                 Err("orchestration is unavailable while gentd is observer-disabled".into())
             }
+            OrchestrationResult::FactPage(_) => {
+                Err("orchestration fact pages require a dedicated protocol request".into())
+            }
         },
         OrchestrationFrame::GraphSaved { .. } | OrchestrationFrame::Graph { .. } => {
             Err("orchestration response frames are server-only".into())
@@ -73,5 +76,8 @@ fn saved(result: OrchestrationResult, request_id: String) -> Result<Orchestratio
             Err("orchestration is unavailable while gentd is observer-disabled".into())
         }
         OrchestrationResult::Missing => Err("orchestration graph is not present".into()),
+        OrchestrationResult::FactPage(_) => {
+            Err("orchestration fact pages are not a graph write response".into())
+        }
     }
 }

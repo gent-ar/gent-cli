@@ -26,21 +26,47 @@ do not cross the public client contract. Gent may keep a provider-native resume
 token only in the daemon-owned execution edge and only for the matching locked
 provider/runtime; it never crosses a provider switch.
 
-## Realtime connection lifecycle
+## Target realtime connection lifecycle
 
-One Gent profile has one `gentd` host and one private data directory. Opening an
-agent-chat tab starts or locates the pair once, then the native app keeps a
-long-lived local IPC connection. `gent` terminal UI does the same. A command
-invocation may bootstrap the host, but it is never the per-prompt transport.
+One Gent profile has one `gentd` host and one private `.gentd` data directory.
+Opening an agent-chat tab starts or locates the pair once, then the native app
+keeps a long-lived local IPC connection. `gent` terminal UI does the same. A
+command invocation may bootstrap the host, but it is never the per-prompt
+transport. This is the target authority composition, not a claim that the
+current observer host can start a provider.
+
+The host is demand-started, not a permanent background service. It stays alive
+while it owns active work, a pending decision, or connected clients, and may
+exit after an explicit idle policy. All conversations share that one host and
+its one ledger. The app must multiplex them over IPC; it must never start one
+`gent` or one provider process per conversation.
+
+Only the daemon scheduler starts provider processes. It applies one
+daemon-wide resource budget plus provider-specific limits, keeps excess work in
+the durable prompt queue, and drains owned process trees before stopping. Those
+limits and the queue are daemon state, not app counters or terminal state.
+
+Each conversation/run must also retain its canonical workspace binding in the
+Gent ledger. A multi-conversation profile may contain several workspaces, so a
+daemon cwd, app cwd, or client-local workspace cache is not authoritative. The
+daemon validates that binding before launch and passes it only to the matching
+provider process; a prompt never supplies a process working directory.
 
 1. Bootstrap with `gent --data-dir <profile> status` only if no host exists.
 2. Connect, send `hello`, and require `negotiated` before every extension.
-3. Load conversation index and the selected conversation's read snapshot/page.
+3. Load conversation index and the selected conversation's bounded read pages.
 4. Attach one cursor-resumable event/activity subscription for the visible
-   conversation/run. Render only facts from its snapshot or ordered deltas.
+   conversation/run. Render only durable pages or ordered deltas.
 5. On disconnect, epoch change, cursor expiry, or resync request: invalidate
-   the affected projection, reconnect, negotiate, reload a snapshot, then
-   attach after the returned cursor. Do not synthesize missed states.
+   the affected projection, reconnect, negotiate, reload bounded durable pages,
+   then attach after the last acknowledged cursor. Do not synthesize missed states.
+
+Snapshots, recovery caches, mirrored state, and state replacement are prohibited as client or
+daemon mechanisms. Gent rebuilds by reading bounded durable pages and replaying normalized facts
+after a cursor; it never retains provider-native session state as a recovery artifact. A derived
+in-memory view is optional and disposable, never serialized or sent as authoritative state; on an
+epoch/cursor mismatch it is discarded and rebuilt from immutable facts (from cursor zero when
+necessary).
 
 The client may maintain display-only local view state such as scroll position,
 selected row, and input text. It must discard any assumption about a run when
@@ -72,7 +98,7 @@ the matching capability.
 ### Browse and resume
 
 When the tab opens, Gent returns conversation identities, titles, current
-selection, run lineage, and the latest durable activity snapshot. Selecting a
+selection, run lineage, and the latest bounded durable activity page. Selecting a
 conversation loads its ordered normalized history and attaches its live stream.
 The terminal browser uses the same requests. Conversation rows, session cards,
 thinking/loading indicators, waiting-for-command, and waiting-for-subagents are
@@ -83,7 +109,11 @@ projections of daemon facts, never app-owned booleans.
 Creating a conversation submits a typed selection of provider, model, effort,
 and mode. Gent durably creates the conversation/root run and returns a receipt.
 Sending a prompt submits a receipt/idempotency-bound command to that run. The
-daemon persists the accepted intent before it can launch any provider work.
+daemon persists the accepted intent before it can launch any provider work. Its
+accepted response identifies that exact durable conversation, run, and turn;
+clients use those identities to follow work and never infer them from state.
+For a new direct `gent <prompt>` conversation, the CLI selection defaults to
+Ask unless the user explicitly selects another mode.
 
 `/goal <summary>` is a separate, typed Gent command bound to an existing
 conversation/run. Gent validates and durably revisions the active goal, then
@@ -150,7 +180,7 @@ Before this contract is advertised, implement and prove all of the following:
 - Private app-owned Claurst bridge ingress with the same normalized lifecycle
   contract. Public Gent contains only the bridge port, never endpoints or
   credentials.
-- Read snapshots plus cursor-resumable live event/activity subscriptions for
+- Bounded durable read pages plus cursor-resumable live event/activity subscriptions for
   conversation browsing, transcript, runs, turns, tools, decisions, and plans.
 - Durable reviewed-plan storage and approval reservation, including policy/epoch
   fences, idempotency, parent/run lineage, clear-context ordinal zero, and
@@ -158,7 +188,7 @@ Before this contract is advertised, implement and prove all of the following:
 - Goal-ledger lookup at every provider turn, with only the currently active
   revision projected into Claude, Codex, or the private Claurst bridge. A goal
   transition cannot be silently reused as stale provider context.
-- A capability catalog that advertises each live feature only when its concrete
+- Live composed capabilities that advertise each feature only when its concrete
   handler, authority profile, binary lock, sandbox, fixtures, and evidence are
   present. Observer mode must hard-disable every live provider path.
 - Native-client IPC fixtures for bootstrap, reconnect/resync, create, prompt,
@@ -174,7 +204,7 @@ Before this contract is advertised, implement and prove all of the following:
 ## Acceptance scenario
 
 An agent-chat user can open the native tab or run `gent`, browse conversations,
-select one, see a durable snapshot, submit a new prompt or follow-up, and watch
+select one, read durable pages, submit a new prompt or follow-up, and watch
 the same ordered normalized state arrive in both clients. If either client
 disconnects, it reconnects from a cursor without duplicate output or invented
 loading. Model/provider changes and clear context produce auditable child runs.

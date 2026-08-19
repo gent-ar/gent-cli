@@ -2,7 +2,7 @@ use gent_core::Run;
 use gent_ports::{IngressMode, Ledger, LedgerError, WorktreeLease};
 use gent_runtime::{Coordinator, RuntimeError};
 use gent_store::SqliteLedger;
-use gent_types::{CapabilitySet, Command, EventResume, HostEpoch, ReceiptId, ReceiptStatus};
+use gent_types::{CapabilitySet, Command, HostEpoch, ReceiptId, ReceiptStatus};
 use serde_json::json;
 
 fn command(key: &str, epoch: u64, kind: &str) -> Command {
@@ -22,9 +22,7 @@ fn acceptance_and_terminal_events_are_idempotent() {
     let command = command("once", 1, "ping");
     let first = coordinator.submit(&command).unwrap();
     assert_eq!(first, coordinator.submit(&command).unwrap());
-    assert!(
-        matches!(ledger.resume_events(0).unwrap(), EventResume::Delta { events } if events.len() == 2)
-    );
+    assert_eq!(ledger.read_event_page(0, 100).unwrap().events.len(), 2);
 }
 
 #[test]

@@ -8,6 +8,7 @@ use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatPromptDisposition,
     AgentChatProvider, AgentChatRequestId, AgentChatSelection, HostEpoch, ReceiptId, ReceiptStatus,
+    WorkspaceRecord,
 };
 
 fn selection() -> AgentChatSelection {
@@ -27,12 +28,20 @@ fn conversation(ledger: SqliteLedger) -> AgentChatConversationId {
                 receipt_id: ReceiptId("conversation-receipt".into()),
                 host_epoch: HostEpoch(1),
                 selection: selection(),
+                workspace: workspace(),
             })
             .unwrap();
     let AgentChatConversationResult::Created(created) = created else {
         panic!("approved setup must create a conversation");
     };
     created.conversation_id
+}
+
+fn workspace() -> WorkspaceRecord {
+    WorkspaceRecord {
+        workspace_id: "workspace-1".into(),
+        canonical_path: "/workspace".into(),
+    }
 }
 
 fn prompt(conversation_id: AgentChatConversationId) -> AgentChatPromptRequest {

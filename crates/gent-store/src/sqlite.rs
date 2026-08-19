@@ -3,19 +3,20 @@ use gent_ports::{
     ReceiptClaim, RunLease, RunLeaseClaim, RunRecord, RunSessionBinding, WorktreeLease,
 };
 use gent_types::{
-    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventResume,
-    EventSnapshot, HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
+    Command, DecisionCommand, DecisionSettlement, DecisionSettlementPhase, Event, EventPage,
+    HostEpoch, Receipt, ReceiptStatus, RunVersionLock,
 };
 use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
+mod agent_chat_compaction_ledger;
 mod agent_chat_ledger;
 mod agent_chat_read_ledger;
 mod agent_chat_run_context_ledger;
 mod agent_chat_terminal_settlement;
 #[cfg(test)]
 mod agent_chat_terminal_settlement_tests;
+mod agent_chat_workspace_ledger;
 mod attachment_ledger;
-mod capability_catalog;
 mod connection;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
@@ -25,6 +26,7 @@ mod conversation_prompts;
 mod conversations;
 mod decisions;
 mod epoch;
+mod event_pages;
 mod fresh_schema;
 mod git_operation_ledger;
 mod git_operations;
@@ -34,22 +36,23 @@ mod goal_ledger_tests;
 mod leases;
 mod mcp_connector_ledger;
 mod mcp_connectors;
+mod normalized_session_activity;
 mod normalized_session_ledger;
 #[cfg(test)]
 mod normalized_session_ledger_tests;
-mod normalized_session_projection;
+mod orchestration_facts;
 mod orchestration_ledger;
 mod policies;
 mod policy_ledger;
-mod projections;
+mod provision_receipts;
 mod queries;
 mod reviewed_plan_values;
 mod reviewed_plans;
 mod run_checkpoint_ledger;
 mod run_checkpoints;
+mod run_lifecycle_facts;
 mod runs;
 mod runtime_update_journal;
-mod snapshots;
 mod tool_source_ledger;
 mod tool_sources;
 mod transcript_ledger;
@@ -201,12 +204,8 @@ impl Ledger for SqliteLedger {
     fn find_event(&self, event_id: &str) -> Result<Option<Event>, LedgerError> {
         find_event(&*self.lock()?, event_id)
     }
-    fn resume_events(&self, cursor: u64) -> Result<EventResume, LedgerError> {
-        snapshots::resume(&*self.lock()?, cursor)
-    }
-    fn compact_events(&self, snapshot: &EventSnapshot) -> Result<(), LedgerError> {
-        let mut connection = self.lock()?;
-        snapshots::compact(&mut connection, snapshot)
+    fn read_event_page(&self, after_cursor: u64, limit: usize) -> Result<EventPage, LedgerError> {
+        event_pages::read(&*self.lock()?, after_cursor, limit)
     }
     fn create_run(&self, run: &RunRecord) -> Result<(), LedgerError> {
         runs::create(self, run)

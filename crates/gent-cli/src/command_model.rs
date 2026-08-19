@@ -141,7 +141,7 @@ pub(crate) enum ConversationCommand {
         #[arg(long)]
         conversation_id: String,
     },
-    /// Read one future authority-gated activity snapshot or ordered delta.
+    /// Read one future authority-gated ordered activity-fact page.
     Activity {
         #[arg(long)]
         conversation_id: String,

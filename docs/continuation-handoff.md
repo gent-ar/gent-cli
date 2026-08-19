@@ -1,7 +1,7 @@
 # Gent CLI continuation handoff
 
 Use this document with the implementation plan and repository state when
-resuming work in a new conversation. Facts are current through 2026-08-17; this
+resuming work in a new conversation. Facts are current through 2026-08-18; this
 does not claim observer-mode `gentd` has live provider authority.
 
 ## Repository and safety
@@ -66,6 +66,15 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - The dormant approved public-driver seam can inject a fresh active-goal resolver
   per Claude/Codex turn; terminal, stale, malformed, ambiguous, or mismatched
   goals are omitted/rejected before a runner. Bootstrap still injects no resolver.
+- A committed prompt response now carries the ledger-assigned conversation, run,
+  and turn identities. `gent <prompt>` defaults its new selection to Ask and
+  returns those identities without guessing a later lifecycle or keeping a
+  terminal-owned correlation map.
+- A private ordinary-lifecycle router now resolves the committed prompt's
+  provider from the durable run selection, then arms only its matching bounded
+  lifecycle host. It has no durable state and enters the facade only through a
+  dormant ordinary-authority constructor; bootstrap never calls it until every
+  explicit authority gate validates.
 - Committed, redacted development driver corpus plus public normalized live
   full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
   opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.
@@ -82,28 +91,40 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Required realtime experience
 
-1. The app starts/locates one `gentd` per private profile, then uses long-lived
-   local IPC. `gent` terminal uses the same protocol; never one process/prompt.
-2. Clients negotiate, read conversation index/snapshot/content, and attach
+1. One private `.gentd` profile owns one demand-started, multiplexed `gentd` and
+   one ledger. The app starts/locates it once and uses long-lived local IPC;
+   `gent` terminal uses the same protocol. It is not a permanent background
+   service and it is never one `gent` or provider process per prompt/conversation.
+   The daemon stays up for active work, pending decisions, or connected clients,
+   then may obey an explicit idle policy.
+2. Clients negotiate, read conversation index/content pages, and attach
    cursor-resumable event/activity subscriptions for the selected run.
 3. Create/prompt/follow-up/selection/plan/permission/login are typed commands
    with receipts, idempotency, epoch fences, and terminal outcomes.
 4. Daemon checks authority, policy, sandbox, binary lock, and evidence before
    spawn/resume. Provider facts persist before publication; failures are durable.
-5. On disconnect, epoch change, or cursor expiry, reload snapshot then resume
-   from its cursor: no duplicate output or invented loading state.
+   It alone applies shared resource budgets, queues excess durable prompts, and
+   drains owned provider process trees. A conversation/run has a canonical
+   ledger workspace binding; daemon or client cwd is never authoritative.
+5. On disconnect or epoch change, clients re-read bounded durable pages and resume
+   from their last acknowledged cursor: no duplicate output or invented loading state.
+   Snapshot state, recovery caches, mirrored state, and replacement layers are
+   prohibited. Derived views are disposable/non-authoritative: never serialize,
+   transmit, or recover from them. Clients and daemon reread bounded immutable
+   pages (from cursor zero when needed), then replay normalized facts after an
+   accepted cursor.
 
 ## Next implementation order
 
-1. Add the pure, durable multi-agent graph/profile/review foundations for typed
-   `/fanout` and `/cross-review`, then strict IPC and observer-absence tests.
-   They are daemon-owned orchestration commands, never provider prompt macros.
-2. Add reviewed-plan evidence/authority composition only after the lifecycle and
-   evidence gates; clients never inject provider plans and observer remains absent.
-3. Daemon-owned public Claude/Codex realtime authority: bounded session/process
-   runner, binary recheck before spawn/resume, normalized lifecycle ingress,
-   persist-before-broadcast, backpressure, process-tree drain, terminal settle,
-   cursor-replay/delta/reconnect coverage. Keep it unadvertised until proven.
+1. Compose one explicit ordinary Ask/Plan Claude/Codex daemon authority profile:
+   a bounded lifecycle router wakes from the committed prompt identity, resolves
+   only its canonical ledger run/workspace, and drives the existing locked runner
+   seams. Default observer mode and unproven broad modes remain absent.
+2. Prove that profile with normalized persist-before-broadcast facts, bounded
+   backpressure/process-tree drain, terminal settlement, turn follow, cursor
+   reread/reconnect, provider/context switch, and exact `/goal` projection.
+3. Add reviewed-plan authority composition only after the lifecycle and evidence
+   gates; clients never inject provider plans and observer remains absent.
 4. Compose task-graph scheduling only after public-driver authority: each node
    gets a leased isolated worktree, fresh goal projection, durable settle, and
    an independently locked profile. Claurst stays a private bridge port.
