@@ -46,6 +46,7 @@ mod runtime_update;
 mod sandbox_launch;
 #[cfg(test)]
 mod sandbox_launch_tests;
+mod sandbox_policy;
 mod tool_activity;
 mod tool_sources;
 mod turn_follow;
@@ -143,6 +144,7 @@ pub use sandbox_launch::{
     SandboxBackendId, SandboxLaunchAttestation, SandboxLaunchContractError, SandboxLaunchProfile,
     SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
 };
+pub use sandbox_policy::{SandboxLaunchPolicy, SandboxWorkspaceAccess};
 pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
 pub use turn_follow::TurnTerminal;

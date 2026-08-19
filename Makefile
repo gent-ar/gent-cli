@@ -4,5 +4,4 @@ SHELL := /bin/bash
 
 clean-spaces:
 	cargo clean
-	rm -rf target
 	rm -rf .cargo-cache

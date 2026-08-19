@@ -61,13 +61,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         Resolver,
     )
     .unwrap();
-    let mut host = ApprovedCodexHost::new(
-        runtime,
-        "daemon-a".into(),
-        Some("/work".into()),
-        HostEpoch(1),
-        1,
-    );
+    let mut host = ApprovedCodexHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
     let tick = host.tick().unwrap();
     assert_eq!(
         tick.dispatch,

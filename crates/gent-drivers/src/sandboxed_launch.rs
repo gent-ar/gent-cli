@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use gent_types::{SandboxLaunchProfile, SandboxedLaunchRequest};
+use gent_types::{SandboxLaunchPolicy, SandboxedLaunchRequest};
 
 use crate::lock::LockError;
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
@@ -47,26 +47,26 @@ pub trait SandboxedProviderLaunch: Send + Sync {
     ) -> Result<Self::Process, SandboxedProviderLaunchError>;
 }
 
-/// A `ProcessLauncher` adapter that keeps one immutable sandbox request bound to every spawn.
+/// A `ProcessLauncher` adapter that derives one sandbox request for every durable run.
 ///
 /// It is the only launcher that dormant sandbox-required compositions may construct. The inner
 /// port receives the profile and spawn request together, so it cannot attest and then delegate to
 /// an unrelated `SystemLauncher`.
 #[derive(Clone, Debug)]
 pub struct SandboxedLauncher<S> {
-    profile: SandboxLaunchProfile,
+    policy: SandboxLaunchPolicy,
     inner: Arc<S>,
 }
 
 impl<S> SandboxedLauncher<S> {
-    /// Binds a platform containment-and-spawn port to one immutable Gent-owned profile.
+    /// Binds a platform containment-and-spawn port to one path-free Gent-owned policy.
     ///
     /// The exact executable lock comes from each daemon-resolved [`ProviderLaunch`], avoiding a
     /// second configuration lock that could diverge before contained spawning.
     #[must_use]
-    pub fn new(profile: SandboxLaunchProfile, inner: S) -> Self {
+    pub fn new(policy: SandboxLaunchPolicy, inner: S) -> Self {
         Self {
-            profile,
+            policy,
             inner: Arc::new(inner),
         }
     }
@@ -84,9 +84,17 @@ where
             && launch.executable.to_string_lossy() == lock.canonical_path)
             .then_some(())
             .ok_or(SupervisorError::Lock(LockError::ProviderChanged))?;
+        let workspace_root = launch
+            .workspace_root
+            .as_deref()
+            .ok_or_else(|| SupervisorError::Launch("sandboxed launch lacks a workspace".into()))?;
+        let profile = self
+            .policy
+            .profile_for_workspace(workspace_root, launch.workspace_access)
+            .map_err(|_| SupervisorError::Launch("sandbox profile was rejected".into()))?;
         let request = SandboxedLaunchRequest {
             lock: lock.clone(),
-            profile: self.profile.clone(),
+            profile,
         };
         self.inner
             .launch_sandboxed(&request, launch)
@@ -109,7 +117,8 @@ mod tests {
     use std::sync::Mutex;
 
     use gent_types::{
-        RunVersionLock, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
+        RunVersionLock, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits,
+        SandboxWorkspaceAccess,
     };
 
     use super::*;
@@ -146,6 +155,19 @@ mod tests {
         }
     }
 
+    fn policy() -> SandboxLaunchPolicy {
+        SandboxLaunchPolicy::new(
+            vec![],
+            SandboxNetworkPolicy::Disabled,
+            SandboxResourceLimits {
+                max_processes: 1,
+                max_memory_bytes: 1,
+                max_cpu_time_ms: 1,
+            },
+        )
+        .unwrap()
+    }
+
     fn request() -> SandboxedLaunchRequest {
         SandboxedLaunchRequest {
             lock: RunVersionLock {
@@ -156,19 +178,12 @@ mod tests {
                 version: "1".into(),
                 compatibility_entry: "codex-1".into(),
             },
-            profile: SandboxLaunchProfile::new(
-                std::path::Path::new("/workspace"),
-                &[PathBuf::from("/workspace")],
-                &[],
-                vec![],
-                SandboxNetworkPolicy::Disabled,
-                SandboxResourceLimits {
-                    max_processes: 1,
-                    max_memory_bytes: 1,
-                    max_cpu_time_ms: 1,
-                },
-            )
-            .unwrap(),
+            profile: policy()
+                .profile_for_workspace(
+                    std::path::Path::new("/workspace"),
+                    SandboxWorkspaceAccess::ReadOnly,
+                )
+                .unwrap(),
         }
     }
 
@@ -179,13 +194,15 @@ mod tests {
             executable: executable.into(),
             arguments: vec![],
             intent: LaunchIntent::Start,
+            workspace_root: Some(PathBuf::from("/workspace")),
+            workspace_access: SandboxWorkspaceAccess::ReadOnly,
         }
     }
 
     #[test]
     fn atomic_port_receives_the_bound_profile_with_the_exact_spawn() {
         let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(request().profile, port);
+        let launcher = SandboxedLauncher::new(policy(), port);
         launcher.launch(&launch("codex", "/private/codex")).unwrap();
         let calls = launcher.inner.0.lock().unwrap();
         assert_eq!(calls.len(), 1);
@@ -197,11 +214,29 @@ mod tests {
     #[test]
     fn altered_launch_never_reaches_the_atomic_port() {
         let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(request().profile, port);
+        let launcher = SandboxedLauncher::new(policy(), port);
         assert!(matches!(
             launcher.launch(&launch("claude", "/private/claude")),
             Err(SupervisorError::Lock(LockError::ProviderChanged))
         ));
         assert!(launcher.inner.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn each_launch_derives_its_profile_from_its_own_workspace_and_mode() {
+        let port = LaunchPort::default();
+        let launcher = SandboxedLauncher::new(policy(), port);
+        let mut first = launch("codex", "/private/codex");
+        first.workspace_root = Some(PathBuf::from("/workspace-a"));
+        let mut second = first.clone();
+        second.workspace_root = Some(PathBuf::from("/workspace-b"));
+        second.workspace_access = SandboxWorkspaceAccess::ReadWrite;
+        launcher.launch(&first).unwrap();
+        launcher.launch(&second).unwrap();
+        let calls = launcher.inner.0.lock().unwrap();
+        assert_ne!(
+            calls[0].0.profile.digest_sha256(),
+            calls[1].0.profile.digest_sha256()
+        );
     }
 }

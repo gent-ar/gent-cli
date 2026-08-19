@@ -47,7 +47,8 @@ where
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
-        + gent_ports::ConversationContentReader,
+        + gent_ports::ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger,
     D: crate::codex_prompt_lifecycle::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
@@ -55,12 +56,11 @@ where
     pub(crate) fn new(
         runtime: PublicDriversRuntime<L, D, R>,
         coordinator_id: String,
-        working_directory: Option<String>,
         host_epoch: HostEpoch,
         max_active: usize,
     ) -> Self {
         Self {
-            lifecycle: CodexPromptLifecycle::new(runtime, coordinator_id, working_directory),
+            lifecycle: CodexPromptLifecycle::new(runtime, coordinator_id),
             host_epoch,
             max_active: max_active.max(1),
         }

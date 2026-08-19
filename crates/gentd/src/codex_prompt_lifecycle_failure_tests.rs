@@ -57,7 +57,7 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
         Resolver,
     )
     .unwrap();
-    let mut host = CodexPromptLifecycle::new(runtime, "daemon-a".into(), None);
+    let mut host = CodexPromptLifecycle::new(runtime, "daemon-a".into());
     assert!(matches!(
         host.dispatch_next(HostEpoch(1)).unwrap(),
         CodexPromptDispatchOutcome::Started { .. }

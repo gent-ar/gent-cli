@@ -91,5 +91,7 @@ fn start() -> ClaudeRunStart {
         goal: None,
         fresh_context: None,
         resume_session_id: None,
+        workspace_root: "/workspace".into(),
+        workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
     }
 }

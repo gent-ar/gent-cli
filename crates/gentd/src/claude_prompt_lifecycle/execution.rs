@@ -1,6 +1,7 @@
 //! Claude one-shot process adapter owned only by the dormant daemon lifecycle.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gent_drivers::claude_runner::{ClaudeRunStart, ClaudeRunnerEffect, ClaudeStreamRunner};
@@ -8,11 +9,15 @@ use gent_drivers::claude_turn_options::ClaudeTurnOptions;
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
-use gent_types::{FrozenConversationContext, GoalProjection, RunVersionLock};
+use gent_types::{
+    FrozenConversationContext, GoalProjection, RunVersionLock, SandboxWorkspaceAccess,
+};
 
 /// Prompt held only between a durable dispatch claim and a locked Claude launch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaudePromptStart {
+    pub(crate) workspace_root: PathBuf,
+    pub(crate) workspace_access: SandboxWorkspaceAccess,
     pub(crate) prompt: String,
     pub(crate) turn_options: ClaudeTurnOptions,
     pub(crate) goal: Option<GoalProjection>,
@@ -96,6 +101,8 @@ where
                 goal: prompt.goal,
                 fresh_context: prompt.fresh_context,
                 resume_session_id,
+                workspace_root: prompt.workspace_root,
+                workspace_access: prompt.workspace_access,
             })
             .map_err(map_error)
     }

@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use gent_types::{GoalProjection, RunVersionLock};
+use gent_types::{GoalProjection, RunVersionLock, SandboxWorkspaceAccess};
 
 use crate::buffering::BufferPolicy;
 use crate::codex_session::CodexSessionConfig;
@@ -24,6 +24,8 @@ pub struct CodexRunStart {
     pub run_id: String,
     pub lock: RunVersionLock,
     pub session: CodexSessionConfig,
+    pub workspace_root: PathBuf,
+    pub workspace_access: SandboxWorkspaceAccess,
     pub prompt: String,
     /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
     pub goal: Option<GoalProjection>,
@@ -109,6 +111,8 @@ where
             executable: PathBuf::from(&start.lock.canonical_path),
             arguments: vec!["app-server".into()],
             intent: LaunchIntent::Start,
+            workspace_root: Some(start.workspace_root),
+            workspace_access: start.workspace_access,
         };
         let process = self.launcher.launch(&launch)?;
         for effect in initial {

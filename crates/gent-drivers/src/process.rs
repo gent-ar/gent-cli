@@ -47,6 +47,9 @@ impl ProcessLauncher for SystemLauncher {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(workspace_root) = &launch.workspace_root {
+            command.current_dir(workspace_root);
+        }
         configure_process_tree(&mut command);
         let mut child = command
             .spawn()

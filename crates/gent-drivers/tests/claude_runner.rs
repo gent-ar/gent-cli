@@ -84,6 +84,8 @@ fn start(run_id: &str, root: &Path, session: Option<&str>) -> ClaudeRunStart {
         goal: None,
         fresh_context: None,
         resume_session_id: session.map(Into::into),
+        workspace_root: root.to_path_buf(),
+        workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
     }
 }
 
@@ -169,6 +171,10 @@ fn locked_claude_runner_launches_only_the_durable_model_and_bounded_plan_mode() 
     .unwrap();
     runner.start(request).unwrap();
 
+    assert_eq!(
+        state.launches.lock().unwrap()[0].workspace_root,
+        Some(directory.path().into())
+    );
     let arguments = &state.launches.lock().unwrap()[0].arguments;
     assert!(
         arguments

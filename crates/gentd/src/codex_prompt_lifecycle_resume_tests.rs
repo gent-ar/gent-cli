@@ -77,7 +77,7 @@ fn next_prompt_resumes_the_daemon_owned_codex_session_after_process_loss() {
         Resolver,
     )
     .unwrap();
-    let mut host = CodexPromptLifecycle::new(runtime, "daemon-b".into(), None);
+    let mut host = CodexPromptLifecycle::new(runtime, "daemon-b".into());
     assert!(matches!(
         host.dispatch_next(HostEpoch(2)).unwrap(),
         CodexPromptDispatchOutcome::Started { .. }

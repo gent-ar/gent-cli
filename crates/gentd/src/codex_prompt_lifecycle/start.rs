@@ -18,7 +18,6 @@ pub(super) fn prompt<L, D, R>(
     runtime: &PublicDriversRuntime<L, D, R>,
     runner: &D,
     coordinator_id: &str,
-    working_directory: Option<&str>,
     active: &mut BTreeMap<String, Binding>,
     prompt: AgentChatPromptSaved,
     host_epoch: HostEpoch,
@@ -32,18 +31,23 @@ where
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
-        + gent_ports::ConversationContentReader,
+        + gent_ports::ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let workspace = runtime.workspace_for_run(&prompt.message.conversation_id, &run_id)?;
+    let working_directory = workspace.canonical_path;
+    let workspace_root = std::path::PathBuf::from(&working_directory);
     let fresh_context = runtime
         .contexts
         .fresh_context_for_child(&prompt.message.conversation_id, &run_id)?;
+    let selection = runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?;
     let turn_options = gent_drivers::codex_session::CodexTurnOptions::from_selection(
-        &runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?,
-        working_directory,
+        &selection,
+        Some(&working_directory),
     )
     .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?;
     if runner.has_codex_session(&run_id) {
@@ -53,7 +57,9 @@ where
     if let Err(error) = runner.prepare_codex_prompt(
         run_id.clone(),
         CodexPromptStart {
-            working_directory: working_directory.map(str::to_owned),
+            working_directory: Some(working_directory),
+            workspace_root,
+            workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(selection.mode),
             prompt: prompt.message.text.clone(),
             goal,
             fresh_context: fresh_context.clone(),

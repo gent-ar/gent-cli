@@ -1,14 +1,7 @@
-//! Daemon-only sandbox launch-profile values.
-//!
-//! These values are intentionally neither serializable nor accepted from a client. They define
-//! the minimum trusted hand-off between future daemon sandbox preparation and provider spawning.
-
-use std::path::{Component, Path, PathBuf};
-
-use sha2::{Digest, Sha256};
-
+//! Daemon-only sandbox values, never serializable or client-provided, for contained provider spawn.
 use crate::{RunVersionLock, SandboxEnforcement};
-
+use sha2::{Digest, Sha256};
+use std::path::{Component, Path, PathBuf};
 /// Network posture that a sandbox backend must enforce, rather than suggest to a provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SandboxNetworkPolicy {
@@ -59,17 +52,8 @@ impl SandboxLaunchProfile {
         {
             return Err(SandboxLaunchContractError::InvalidRoots);
         }
+        Self::validate_policy(&inherited_environment, &network, limits)?;
         let inherited_environment = allowed_environment(inherited_environment)?;
-        if let SandboxNetworkPolicy::ReviewedEgress {
-            policy_digest_sha256,
-        } = &network
-        {
-            validate_digest(policy_digest_sha256)?;
-        }
-        if limits.max_processes == 0 || limits.max_memory_bytes == 0 || limits.max_cpu_time_ms == 0
-        {
-            return Err(SandboxLaunchContractError::MissingResourceLimit);
-        }
         Ok(Self {
             workspace_root,
             readable_roots,
@@ -128,6 +112,25 @@ impl SandboxLaunchProfile {
     #[must_use]
     pub const fn limits(&self) -> SandboxResourceLimits {
         self.limits
+    }
+
+    pub(crate) fn validate_policy(
+        inherited_environment: &[String],
+        network: &SandboxNetworkPolicy,
+        limits: SandboxResourceLimits,
+    ) -> Result<(), SandboxLaunchContractError> {
+        allowed_environment(inherited_environment.to_vec())?;
+        if let SandboxNetworkPolicy::ReviewedEgress {
+            policy_digest_sha256,
+        } = network
+        {
+            validate_digest(policy_digest_sha256)?;
+        }
+        if limits.max_processes == 0 || limits.max_memory_bytes == 0 || limits.max_cpu_time_ms == 0
+        {
+            return Err(SandboxLaunchContractError::MissingResourceLimit);
+        }
+        Ok(())
     }
 }
 

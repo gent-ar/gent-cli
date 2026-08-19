@@ -96,7 +96,7 @@ fn codex_resolves_a_fresh_goal_projection_for_initial_and_follow_up_turns() {
         projection(1),
         projection(4),
     ])))));
-    let mut host = ApprovedCodexHost::new(runtime, "daemon-a".into(), None, HostEpoch(1), 1);
+    let mut host = ApprovedCodexHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
     host.tick().unwrap();
     assert_eq!(
         runner.state.lock().unwrap().prepared_goals[0]

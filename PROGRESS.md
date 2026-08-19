@@ -37,6 +37,11 @@ lifecycle state are prohibited.
   (or explicit `--workspace`) to one daemon-canonical workspace in the same
   SQLite transaction as the conversation/root run and receipt. Unbound ledger
   fixtures cannot accept prompts.
+- Dormant Codex and Claude lifecycle starts now resolve that workspace per run,
+  pass it to the provider and process current directory, and derive their
+  sandbox profile from the same root and durable Ask/Plan/Agent access mode.
+  Private authority configuration is path-free, preventing one conversation's
+  workspace from leaking into another on a multiplexed daemon.
 - A private ordinary-lifecycle router resolves a committed prompt's provider
   from the durable run selection and arms only that bounded host. It retains no
   durable state and is injected only by a dormant ordinary-authority facade

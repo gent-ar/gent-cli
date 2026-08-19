@@ -1,13 +1,5 @@
-//! The composition edge for one public-provider process.
-//!
-//! This module is the only driver module that combines immutable locks, bounded buffering,
-//! session reduction, and interrupt escalation. It only accepts the public Claude and Codex
-//! executable identities; private bridges remain outside this crate.
-
-use std::path::PathBuf;
-
-use gent_types::RunVersionLock;
-
+//! The one public-provider composition edge: locks, bounded buffering, reduction, and interrupts.
+//! It accepts only Claude/Codex identities; private bridges remain outside this crate.
 use crate::buffering::{BufferPolicy, OfferResult, ReadDirective};
 use crate::interrupt::{
     InterruptEvent, InterruptPolicy, InterruptState, ProcessTreeControl, ProcessTreeError,
@@ -17,7 +9,8 @@ pub use crate::launch_spec::LaunchIntent;
 use crate::lock::{LockError, recheck};
 use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 use crate::session::{DriverSession, OutputLimits, SessionEffect, SessionInput};
-
+use gent_types::{RunVersionLock, SandboxWorkspaceAccess};
+use std::path::PathBuf;
 /// An immutable, public executable launch request passed to infrastructure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderLaunch {
@@ -26,6 +19,10 @@ pub struct ProviderLaunch {
     pub executable: PathBuf,
     pub arguments: Vec<String>,
     pub intent: LaunchIntent,
+    /// Durable workspace resolved by Gent for this run; never taken from a provider frame.
+    pub workspace_root: Option<PathBuf>,
+    /// Exact filesystem authority derived from the durable run selection.
+    pub workspace_access: SandboxWorkspaceAccess,
 }
 
 /// A live public provider process. Platform implementations own its tree and standard input.
@@ -289,6 +286,8 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
             executable: PathBuf::from(&self.lock.canonical_path),
             arguments,
             intent,
+            workspace_root: None,
+            workspace_access: SandboxWorkspaceAccess::ReadOnly,
         })
     }
 

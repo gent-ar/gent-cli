@@ -12,7 +12,7 @@ use gent_drivers::codex_prompt_runner::CodexPromptRunner;
 use gent_drivers::{SandboxedLauncher, SandboxedProviderLaunch};
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, SandboxLaunchProfile};
+use gent_types::{HostEpoch, SandboxLaunchPolicy};
 
 use crate::approved_codex_host::ApprovedCodexHost;
 use crate::authority_profile::{
@@ -48,11 +48,10 @@ pub(crate) struct PrivateCodexAuthorityConfig {
     pub(crate) evidence_record: PathBuf,
     pub(crate) trusted_keys: Vec<String>,
     pub(crate) coordinator_id: String,
-    pub(crate) working_directory: Option<String>,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) now_unix_seconds: u64,
-    /// Credential-free containment profile supplied only by Gent.
-    pub(crate) sandbox_profile: SandboxLaunchProfile,
+    /// Credential-free, path-free containment policy supplied only by Gent.
+    pub(crate) sandbox_policy: SandboxLaunchPolicy,
 }
 
 /// Private authority host whose lifecycle can only spawn through contained-launch infrastructure.
@@ -152,7 +151,7 @@ where
     )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = CodexPromptRunner::new(
-        SandboxedLauncher::new(config.sandbox_profile.clone(), sandbox),
+        SandboxedLauncher::new(config.sandbox_policy.clone(), sandbox),
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Codex authority buffer policy is valid"),
     );
@@ -179,7 +178,6 @@ where
         supervisor: PrivateCodexSupervisor::new(ApprovedCodexHost::new(
             runtime,
             config.coordinator_id.clone(),
-            config.working_directory.clone(),
             config.host_epoch,
             MAX_ACTIVE_CODEX_RUNS,
         )),

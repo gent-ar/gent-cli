@@ -40,7 +40,8 @@ where
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
-        + gent_ports::ConversationContentReader,
+        + gent_ports::ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger,
     D: super::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {

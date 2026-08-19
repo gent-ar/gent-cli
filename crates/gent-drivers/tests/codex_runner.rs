@@ -31,6 +31,7 @@ struct State {
     output: Mutex<VecDeque<Vec<u8>>>,
     writes: Mutex<Vec<Vec<u8>>>,
     write_fails: Mutex<bool>,
+    launches: Mutex<Vec<ProviderLaunch>>,
     exit: Mutex<Option<i32>>,
     signals: Mutex<Vec<ProcessTreeSignal>>,
 }
@@ -71,6 +72,7 @@ impl ProcessLauncher for Launcher {
     fn launch(&self, launch: &ProviderLaunch) -> Result<Process, SupervisorError> {
         assert_eq!(launch.provider, "codex");
         assert_eq!(launch.arguments, ["app-server"]);
+        self.0.launches.lock().unwrap().push(launch.clone());
         Ok(Process(Arc::clone(&self.0)))
     }
 }
@@ -86,6 +88,8 @@ fn start(run_id: &str, root: &Path) -> CodexRunStart {
             resume_thread_id: None,
             turn_options: options(),
         },
+        workspace_root: root.to_path_buf(),
+        workspace_access: gent_types::SandboxWorkspaceAccess::ReadWrite,
         prompt: "hello".into(),
         goal: None,
     }
@@ -107,6 +111,10 @@ fn owned_process_handshake_is_bounded_and_yields_only_normalized_facts() {
         BufferPolicy::new(4, 128 * 1024, 0, 0).unwrap(),
     );
     runner.start(start("run-1", directory.path())).unwrap();
+    assert_eq!(
+        state.launches.lock().unwrap()[0].workspace_root,
+        Some(directory.path().into())
+    );
     assert_eq!(method(&state.writes.lock().unwrap()[0]), "initialize");
 
     state.output.lock().unwrap().push_back(
@@ -197,6 +205,8 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
             "run-1".into(),
             CodexPromptStart {
                 working_directory: Some("/work".into()),
+                workspace_root: directory.path().into(),
+                workspace_access: gent_types::SandboxWorkspaceAccess::ReadWrite,
                 prompt: "first".into(),
                 goal: None,
                 fresh_context: None,
@@ -210,6 +220,8 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                 "run-1".into(),
                 CodexPromptStart {
                     working_directory: Some("/other".into()),
+                    workspace_root: directory.path().into(),
+                    workspace_access: gent_types::SandboxWorkspaceAccess::ReadWrite,
                     prompt: "must-not-replace".into(),
                     goal: None,
                     fresh_context: None,

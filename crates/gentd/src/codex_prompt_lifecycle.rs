@@ -45,7 +45,6 @@ pub(crate) struct CodexPromptLifecycle<L, D, R> {
     runtime: PublicDriversRuntime<L, D, R>,
     runner: D,
     coordinator_id: String,
-    working_directory: Option<String>,
     active: BTreeMap<String, Binding>,
 }
 
@@ -60,23 +59,19 @@ where
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
-        + gent_ports::ConversationContentReader,
+        + gent_ports::ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
     /// Binds a single coordinator to the same runner clone held by public-run reservation.
     #[must_use]
-    pub(crate) fn new(
-        runtime: PublicDriversRuntime<L, D, R>,
-        coordinator_id: String,
-        working_directory: Option<String>,
-    ) -> Self {
+    pub(crate) fn new(runtime: PublicDriversRuntime<L, D, R>, coordinator_id: String) -> Self {
         let runner = runtime.runner();
         Self {
             runtime,
             runner,
             coordinator_id,
-            working_directory,
             active: BTreeMap::new(),
         }
     }
@@ -114,7 +109,6 @@ where
                     &self.runtime,
                     &self.runner,
                     &self.coordinator_id,
-                    self.working_directory.as_deref(),
                     &mut self.active,
                     *prompt,
                     host_epoch,

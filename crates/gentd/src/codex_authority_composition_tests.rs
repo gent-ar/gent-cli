@@ -4,7 +4,7 @@ use gent_drivers::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeS
 use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
 use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
 use gent_types::{
-    HostEpoch, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
+    HostEpoch, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits,
     SandboxedLaunchRequest,
 };
 
@@ -23,18 +23,14 @@ fn config() -> PrivateCodexAuthorityConfig {
             "key:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
         ],
         coordinator_id: "private-codex-host".into(),
-        working_directory: None,
         host_epoch: HostEpoch(1),
         now_unix_seconds: 1,
-        sandbox_profile: sandbox_profile(),
+        sandbox_policy: sandbox_policy(),
     }
 }
 
-fn sandbox_profile() -> SandboxLaunchProfile {
-    SandboxLaunchProfile::new(
-        std::path::Path::new("/private/gent/workspace"),
-        &[PathBuf::from("/private/gent/workspace")],
-        &[],
+fn sandbox_policy() -> SandboxLaunchPolicy {
+    SandboxLaunchPolicy::new(
         vec!["TERM".into()],
         SandboxNetworkPolicy::Disabled,
         SandboxResourceLimits {

@@ -22,7 +22,8 @@ where
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader
-        + ConversationContentReader,
+        + ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger,
     D: super::ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {

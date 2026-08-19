@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use gent_types::{
     FrozenConversationContext, GoalProjection, NormalizedProviderEvent, RunVersionLock,
+    SandboxWorkspaceAccess,
 };
 
 use crate::PublicProvider;
@@ -34,6 +35,8 @@ pub struct ClaudeRunStart {
     /// Gent-owned history used only for a fresh provider-native session.
     pub fresh_context: Option<FrozenConversationContext>,
     pub resume_session_id: Option<String>,
+    pub workspace_root: PathBuf,
+    pub workspace_access: SandboxWorkspaceAccess,
 }
 
 /// One normalized Claude fact or terminal process settlement.
@@ -123,6 +126,8 @@ where
             executable: PathBuf::from(&start.lock.canonical_path),
             arguments,
             intent,
+            workspace_root: Some(start.workspace_root),
+            workspace_access: start.workspace_access,
         };
         let process = self.launcher.launch(&launch)?;
         if let Err(error) = process.write_frame(&input) {

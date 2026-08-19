@@ -11,7 +11,7 @@ use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::{SandboxedLauncher, SandboxedProviderLaunch};
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
-use gent_types::{HostEpoch, SandboxLaunchProfile};
+use gent_types::{HostEpoch, SandboxLaunchPolicy};
 
 use crate::approved_claude_host::ApprovedClaudeHost;
 use crate::authority_profile::{
@@ -48,8 +48,8 @@ pub(crate) struct PrivateClaudeAuthorityConfig<S> {
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) now_unix_seconds: u64,
-    /// Credential-free containment profile supplied only by Gent.
-    pub(crate) sandbox_profile: SandboxLaunchProfile,
+    /// Credential-free, path-free containment policy supplied only by Gent.
+    pub(crate) sandbox_policy: SandboxLaunchPolicy,
     pub(crate) sandbox_launch: S,
 }
 
@@ -150,7 +150,7 @@ where
     )?;
     let profile = profile(preflight.evidence().compatibility_manifest_sha256())?;
     let runner = ClaudePromptRunner::new(
-        SandboxedLauncher::new(config.sandbox_profile, config.sandbox_launch),
+        SandboxedLauncher::new(config.sandbox_policy, config.sandbox_launch),
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Claude authority buffer policy is valid"),
     );

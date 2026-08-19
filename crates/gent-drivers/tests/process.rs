@@ -17,6 +17,8 @@ fn shell_launch(script: &str) -> ProviderLaunch {
         provider: "claude".into(),
         arguments: vec!["-c".into(), script.into()],
         intent: LaunchIntent::Start,
+        workspace_root: None,
+        workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
     }
 }
 
@@ -68,6 +70,26 @@ fn system_launcher_rechecks_the_exact_launch_lock() {
         SystemLauncher::new(1).launch(&launch),
         Err(SupervisorError::Lock(_))
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn system_launcher_uses_the_durable_workspace_as_its_current_directory() {
+    let workspace = tempfile::tempdir().unwrap();
+    let mut launch = shell_launch("pwd");
+    launch.workspace_root = Some(workspace.path().into());
+    let process = SystemLauncher::new(4096).launch(&launch).unwrap();
+    assert!(process.wait().unwrap().success());
+    let actual = String::from_utf8(process.output().stdout.bytes).unwrap();
+    assert_eq!(
+        actual.trim(),
+        workspace
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
+    );
 }
 
 #[cfg(unix)]

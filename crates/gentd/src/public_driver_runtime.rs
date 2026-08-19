@@ -258,6 +258,22 @@ where
         self.dispatches.recover(host_epoch)
     }
 }
+
+impl<L, D, R> PublicDriversRuntime<L, D, R>
+where
+    L: gent_ports::AgentChatWorkspaceLedger,
+{
+    /// Resolves the one daemon-canonical workspace bound to the exact durable run.
+    pub(crate) fn workspace_for_run(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<gent_types::WorkspaceRecord, RuntimeError> {
+        self.ledger
+            .agent_chat_workspace_for_run(conversation_id, run_id)
+            .map_err(RuntimeError::from)
+    }
+}
 impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {
     pub(crate) fn selection_for_run(
         &self,

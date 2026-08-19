@@ -76,7 +76,8 @@ where
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
-        + gent_ports::ConversationContentReader,
+        + gent_ports::ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger,
     D: crate::codex_prompt_lifecycle::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {

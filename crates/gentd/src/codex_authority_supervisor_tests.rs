@@ -171,7 +171,7 @@ fn host(
         Resolver,
     )
     .unwrap();
-    ApprovedCodexHost::new(runtime, "daemon-a".into(), None, HostEpoch(1), 1)
+    ApprovedCodexHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1)
 }
 
 fn conversation(ledger: &SqliteLedger) -> AgentChatConversationId {

@@ -192,7 +192,7 @@ pub(crate) fn selection() -> AgentChatSelection {
 }
 
 pub(crate) fn assert_prepared_options(runner: &Runner) {
-    let expected = CodexTurnOptions::from_selection(&selection(), Some("/work")).unwrap();
+    let expected = CodexTurnOptions::from_selection(&selection(), Some("/workspace-a")).unwrap();
     let state = runner.state.lock().unwrap();
     assert_eq!(
         state.pending.as_ref().map(|entry| &entry.1.turn_options),

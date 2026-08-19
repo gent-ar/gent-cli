@@ -5,7 +5,7 @@ use gent_drivers::supervisor::{ProviderLaunch, ProviderProcess};
 use gent_drivers::{SandboxedProviderLaunch, SandboxedProviderLaunchError};
 use gent_runtime::catalog::declared_capabilities;
 use gent_types::{
-    HostEpoch, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
+    HostEpoch, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits,
     SandboxedLaunchRequest,
 };
 
@@ -41,12 +41,8 @@ impl SandboxedProviderLaunch for Sandbox {
     }
 }
 
-fn sandbox_profile() -> SandboxLaunchProfile {
-    let workspace = PathBuf::from("/workspace");
-    SandboxLaunchProfile::new(
-        &workspace,
-        std::slice::from_ref(&workspace),
-        std::slice::from_ref(&workspace),
+fn sandbox_policy() -> SandboxLaunchPolicy {
+    SandboxLaunchPolicy::new(
         vec!["LANG".into()],
         SandboxNetworkPolicy::Disabled,
         SandboxResourceLimits {
@@ -67,7 +63,7 @@ fn config() -> PrivateClaudeAuthorityConfig<Sandbox> {
         coordinator_id: "private-claude-host".into(),
         host_epoch: HostEpoch(1),
         now_unix_seconds: 1,
-        sandbox_profile: sandbox_profile(),
+        sandbox_policy: sandbox_policy(),
         sandbox_launch: Sandbox,
     }
 }

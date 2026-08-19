@@ -78,7 +78,8 @@ where
         + AgentChatPromptDispatchLedger
         + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader
-        + ConversationContentReader,
+        + ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger,
     D: crate::claude_prompt_lifecycle::ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {

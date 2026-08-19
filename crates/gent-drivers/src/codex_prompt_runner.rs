@@ -1,10 +1,13 @@
 //! `PublicProviderRunner` adapter that binds a durable prompt before a locked Codex launch.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
-use gent_types::{FrozenConversationContext, GoalProjection, RunVersionLock};
+use gent_types::{
+    FrozenConversationContext, GoalProjection, RunVersionLock, SandboxWorkspaceAccess,
+};
 
 use crate::buffering::BufferPolicy;
 use crate::codex_runner::{
@@ -20,6 +23,8 @@ use crate::supervisor::{ProcessLauncher, ProviderProcess};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexPromptStart {
     pub working_directory: Option<String>,
+    pub workspace_root: PathBuf,
+    pub workspace_access: SandboxWorkspaceAccess,
     pub prompt: String,
     /// Optional active goal copied from the Gent ledger before durable run dispatch.
     pub goal: Option<GoalProjection>,
@@ -171,6 +176,8 @@ where
                     resume_thread_id,
                     turn_options: prompt.turn_options,
                 },
+                workspace_root: prompt.workspace_root,
+                workspace_access: prompt.workspace_access,
                 prompt: rendered_prompt,
                 goal: prompt.goal,
             })
