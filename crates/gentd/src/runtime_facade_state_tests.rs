@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use gent_ports::{AgentChatLedger, ConversationLedger};
+use gent_protocol::PromptProviderProvisionFrame;
 use gent_runtime::TurnFollowRequest;
 use gent_runtime::catalog::{
     RuntimeCapabilityFeature, RuntimeCapabilityProfile, declared_capabilities_with_profiles,
@@ -12,6 +15,7 @@ use gent_types::{
 use crate::{
     CompatibilityAssessment,
     api::RuntimeApi,
+    prompt_provider_provision_boundary::PromptProviderProvisionPort,
     runtime_facade::{DaemonCompositionState, RuntimeFacade},
 };
 
@@ -104,6 +108,48 @@ fn prompt_provision_profile_cannot_advertise_without_its_private_authority() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn explicit_prompt_provision_authority_is_required_for_its_capability() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ProviderReadiness,
+        RuntimeCapabilityFeature::PromptProviderProvision,
+    ]);
+    let state = DaemonCompositionState::open(
+        directory.path(),
+        &profile,
+        CompatibilityAssessment::default(),
+    )
+    .unwrap();
+    let runtime = RuntimeFacade::from_state_with_prompt_provider_provision_authority(
+        state,
+        None,
+        Arc::new(FakePromptProvision),
+    )
+    .unwrap();
+    assert!(
+        runtime
+            .capabilities()
+            .unwrap()
+            .0
+            .iter()
+            .any(|item| item == gent_protocol::PROMPT_PROVIDER_PROVISION_CAPABILITY)
+    );
+}
+
+#[derive(Clone)]
+struct FakePromptProvision;
+
+impl PromptProviderProvisionPort for FakePromptProvision {
+    fn confirm(
+        &self,
+        frame: PromptProviderProvisionFrame,
+    ) -> Result<PromptProviderProvisionFrame, String> {
+        Ok(frame)
+    }
 }
 
 fn create() -> AgentChatConversationCreate {

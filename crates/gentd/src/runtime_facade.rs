@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::dependency_actions::ObserverDependencyExecutor;
 use crate::dependency_catalog::DependencyCatalog;
 use crate::private_provider_readiness::PrivateProviderReadinessService;
+use crate::prompt_provider_provision_boundary::PromptProviderProvisionPort;
 use crate::provider_readiness_boundary::ProviderReadinessBoundary;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
@@ -32,13 +33,14 @@ mod composition;
 pub(crate) use composition::build_runtime;
 pub(crate) use composition::{DaemonCompositionState, build_runtime_with_update_checks};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct RuntimeFacade {
     agent_chat_conversations: AgentChatConversationService<SqliteLedger, RuntimeSelectionGate>,
     agent_chat_prompts: AgentChatPromptService<SqliteLedger>,
     agent_chat_switches: AgentChatSelectionSwitchService<SqliteLedger, RuntimeSelectionGate>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
     provider_readiness: Option<ProviderReadinessBoundary<SqliteLedger>>,
+    prompt_provider_provision: Option<Arc<dyn PromptProviderProvisionPort>>,
     turn_follow_source: Option<SqliteLedger>,
     ordinary_prompt_ingress:
         Option<crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>>,
@@ -67,6 +69,7 @@ impl RuntimeFacade {
             state,
             runtime_update_checks,
             None,
+            None,
             Arc::new(AllowAnyAgentChatSelection),
         )
     }
@@ -77,6 +80,7 @@ impl RuntimeFacade {
         ordinary_prompt_ingress: Option<
             crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>,
         >,
+        prompt_provider_provision: Option<Arc<dyn PromptProviderProvisionPort>>,
         selection_gate: RuntimeSelectionGate,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let DaemonCompositionState {
@@ -86,10 +90,19 @@ impl RuntimeFacade {
             capability_profile,
             compatibility,
         } = state;
-        if capability_profile.prompt_provider_provision_enabled() {
+        if capability_profile.prompt_provider_provision_enabled()
+            && prompt_provider_provision.is_none()
+        {
             return Err(
                 "prompt provider provision requires an explicit private authority composition"
                     .into(),
+            );
+        }
+        if !capability_profile.prompt_provider_provision_enabled()
+            && prompt_provider_provision.is_some()
+        {
+            return Err(
+                "prompt provider provision authority requires its typed capability profile".into(),
             );
         }
         let agent_chat_enabled = capability_profile.agent_chat_enabled();
@@ -130,6 +143,7 @@ impl RuntimeFacade {
             ),
             agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
             provider_readiness,
+            prompt_provider_provision,
             turn_follow_source,
             ordinary_prompt_ingress,
             goals: GoalService::new(ledger.clone(), goal_authority(agent_chat_enabled)),

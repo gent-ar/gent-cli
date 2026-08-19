@@ -4,7 +4,7 @@ use gent_protocol::{
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
     DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
     DependencyPlan, DependencyPlanRequest, GoalFrame, OrchestrationFrame, PermissionPolicyFrame,
-    ProviderReadinessFrame, ReviewedPlanFrame,
+    PromptProviderProvisionFrame, ProviderReadinessFrame, ReviewedPlanFrame,
 };
 use gent_types::{
     Command, ConversationContentCursor, ConversationContentPage, ConversationStatus,
@@ -94,6 +94,16 @@ impl api::RuntimeApi for RuntimeFacade {
             .as_ref()
             .ok_or_else(|| "provider readiness is observer-disabled".to_owned())?
             .assess(frame)
+    }
+
+    fn prompt_provider_provision(
+        &self,
+        frame: PromptProviderProvisionFrame,
+    ) -> Result<PromptProviderProvisionFrame, String> {
+        self.prompt_provider_provision
+            .as_ref()
+            .ok_or_else(|| "prompt provider provisioning is observer-disabled".to_owned())?
+            .confirm(frame)
     }
 
     fn agent_chat_turn_follow(

@@ -60,11 +60,10 @@ pub(super) fn validate_rejected(
     binding: &ProviderPromptProvisionCommandBinding,
 ) -> Result<(), LedgerError> {
     checked(command, binding)?;
-    (command_matches_receipt(command, receipt) && rejection_matches(receipt, binding, terminal))
-        .then_some(())
-        .ok_or_else(|| {
-            LedgerError::Invariant("invalid prompt provision rejection settlement".into())
-        })
+    (command_matches_rejection_receipt(command, receipt)
+        && rejection_matches(receipt, binding, terminal))
+    .then_some(())
+    .ok_or_else(|| LedgerError::Invariant("invalid prompt provision rejection settlement".into()))
 }
 
 fn rejection_matches(
@@ -117,10 +116,21 @@ fn checked(
 }
 
 fn command_matches_receipt(command: &Command, receipt: &Receipt) -> bool {
+    command_receipt_identity(command, receipt) && receipt.status == ReceiptStatus::Accepted
+}
+
+fn command_matches_rejection_receipt(command: &Command, receipt: &Receipt) -> bool {
+    command_receipt_identity(command, receipt)
+        && matches!(
+            receipt.status,
+            ReceiptStatus::Accepted | ReceiptStatus::Rejected
+        )
+}
+
+fn command_receipt_identity(command: &Command, receipt: &Receipt) -> bool {
     command.receipt_id == receipt.receipt_id
         && command.idempotency_key == receipt.idempotency_key
         && command.host_epoch == receipt.host_epoch
-        && receipt.status == ReceiptStatus::Accepted
 }
 
 fn terminal_matches(receipt: &Receipt, terminal: &Event, kind: &str) -> bool {

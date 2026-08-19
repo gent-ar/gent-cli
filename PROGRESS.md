@@ -145,8 +145,9 @@ lifecycle state are prohibited.
   `provisioning` admission are likewise one immediate transaction, so recovery can never guess
   whether npm started. Declined consent and stale review digests settle a rejected receipt without
   changing the held dispatch; a later fresh confirmation remains possible. Ambiguous or recovered
-  effects become durable `unprovable` without release or replay. The capability has no transport
-  or bootstrap composition.
+  effects become durable `unprovable` without release or replay. A daemon-only boundary and
+  strict IPC transport now exist behind an explicit injected private-authority constructor; the
+  shipped bootstrap remains observer-only and cannot advertise the capability.
 - Conversation detail now exposes the durable current run identity explicitly,
   rather than asking either client to infer it from a run list. That identity is
   the selection token a future readiness review and fenced prompt will share.

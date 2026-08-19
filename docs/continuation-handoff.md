@@ -122,9 +122,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
   daemon-selected package name/version/integrity/policy digest; Gent rechecks all coordinates
   immediately before npm and requires the persisted installation provenance to match. Ambiguous/
   recovered effects settle that exact reservation `unprovable` without release or replay.
-  Consent refusal and stale review digest settle rejected, retryable no-effect receipts. It
-  validates consent, epoch, fingerprint, current selected run, provider, and immutable lock;
-  failures roll back. The capability is not in bootstrap, `RuntimeFacade`, or any transport.
+  Consent refusal and stale review digest settle rejected, retryable no-effect receipts. A
+  daemon-only boundary derives current selection, policy package, and review before atomically
+  admitting the effect; its strict capability-gated IPC transport validates every correlation.
+  Only an explicit injected private-authority `RuntimeFacade` constructor exposes it. Shipped
+  bootstrap remains observer-only and cannot advertise the capability.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
   same selected-run ordering as prompt ownership. Clients must carry that
   identity into future readiness and prompt-fence requests rather than infer it.
@@ -183,9 +185,9 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Add the private prompt-provision authority over the now atomically admitted, package-bound
-   command, then compose it only after strict evidence and sandbox proof.
-   Default observer and broad modes stay absent.
+1. Add a signed policy/evidence loader and explicit authority token that binds package-policy
+   envelope/terms, compatibility evidence, and the locked app Node runtime before composing the
+   private prompt-provision boundary. Default observer and broad modes stay absent.
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor
    reread/reconnect, provider/context switch, and exact `/goal` projection.

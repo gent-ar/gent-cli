@@ -8,10 +8,42 @@ use gent_types::{AgentChatMode, AgentChatProvider};
 use super::{DaemonCompositionState, RuntimeFacade};
 use crate::{
     ordinary_authority_composition::OrdinaryAuthorityRuntime,
+    prompt_provider_provision_boundary::PromptProviderProvisionPort,
     runtime_update_config::DaemonRuntimeUpdateChecks,
 };
 
 impl RuntimeFacade {
+    /// Builds the explicitly injected private prompt-provision authority.
+    ///
+    /// Bootstrap never calls this constructor. Its caller must first validate the evidence,
+    /// package policy, locked app Node runtime, and provider compatibility inputs used by the
+    /// supplied daemon-only boundary.
+    ///
+    /// # Errors
+    /// Returns when the typed capability profile or durable attachment store is unavailable.
+    #[allow(dead_code)] // Reserved for a separately approved private authority composition.
+    pub(crate) fn from_state_with_prompt_provider_provision_authority(
+        state: DaemonCompositionState,
+        runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
+        authority: Arc<dyn PromptProviderProvisionPort>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        if !state
+            .capability_profile()
+            .prompt_provider_provision_enabled()
+        {
+            return Err(
+                "prompt provider provision authority requires its typed capability profile".into(),
+            );
+        }
+        Self::from_state_inner(
+            state,
+            runtime_update_checks,
+            None,
+            Some(authority),
+            Arc::new(gent_runtime::AllowAnyAgentChatSelection),
+        )
+    }
+
     /// Builds an explicit future authority seam for exact, read-only turn following.
     ///
     /// No shipped bootstrap calls this constructor or advertises the corresponding capability.
@@ -29,6 +61,7 @@ impl RuntimeFacade {
         Self::from_state_inner(
             state,
             runtime_update_checks,
+            None,
             None,
             Arc::new(gent_runtime::AllowAnyAgentChatSelection),
         )
@@ -57,6 +90,7 @@ impl RuntimeFacade {
             state,
             runtime_update_checks,
             Some(authority.prompt_ingress()),
+            None,
             Arc::new(ProviderModeSelectionGate::new(
                 [AgentChatProvider::Claude, AgentChatProvider::Codex],
                 [AgentChatMode::Ask, AgentChatMode::Plan],

@@ -134,6 +134,9 @@ mod private_provisioning_authority;
 mod private_session_atomic_port;
 #[allow(dead_code)]
 mod private_session_driver;
+#[allow(dead_code)] // Only an explicit authority constructor may compose this private boundary.
+mod prompt_provider_provision_boundary;
+mod prompt_provider_provision_transport;
 mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;

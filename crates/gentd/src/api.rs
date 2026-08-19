@@ -4,8 +4,9 @@ use gent_protocol::{
     AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
     DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
     DependencyPlan, DependencyPlanRequest, GoalFrame, OrchestrationFrame, PermissionPolicyFrame,
-    ProviderAuthFrame, ProviderReadinessFrame, PublicRunInterruptRequest, PublicRunResponse,
-    PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
+    PromptProviderProvisionFrame, ProviderAuthFrame, ProviderReadinessFrame,
+    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
+    ReviewedPlanFrame,
 };
 use gent_runtime::{ConversationActivityRead, TurnFollowRead, TurnFollowRequest};
 use gent_types::{
@@ -98,6 +99,15 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         _: ProviderReadinessFrame,
     ) -> Result<ProviderReadinessFrame, String> {
         Err("provider readiness is unavailable while gentd is observer-disabled".into())
+    }
+    /// Confirms one daemon-derived provider-install review only in a private authority profile.
+    ///
+    /// This default refuses before package policy, Node, npm, or provider code can be reached.
+    fn prompt_provider_provision(
+        &self,
+        _: PromptProviderProvisionFrame,
+    ) -> Result<PromptProviderProvisionFrame, String> {
+        Err("prompt provider provisioning is unavailable while gentd is observer-disabled".into())
     }
     /// Reads one epoch-fenced page of one exact normalized turn in an approved composition.
     ///

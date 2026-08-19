@@ -183,6 +183,11 @@ where
     if crate::provider_readiness_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::prompt_provider_provision_transport::dispatch(stream, runtime, &extensions.0, raw)
+        .await?
+    {
+        return Ok(true);
+    }
     if crate::agent_chat_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }

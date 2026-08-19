@@ -209,6 +209,9 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
                 .then_some(durable)
                 .ok_or_else(|| LedgerError::Invariant("prompt provision already settled".into()));
         }
+        // Rejection is intentionally pre-effect, but it still belongs only to the current exact
+        // held prompt. This fences stale confirmations without changing its retryable dispatch.
+        prompt_message(&transaction, binding, "awaiting_readiness")?;
         transaction
             .execute(
                 "UPDATE receipts SET status = ?1 WHERE idempotency_key = ?2",
