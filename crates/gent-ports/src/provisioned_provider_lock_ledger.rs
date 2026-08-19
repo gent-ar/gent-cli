@@ -5,7 +5,7 @@ use gent_types::{
     Receipt, ReceiptStatus,
 };
 
-use crate::LedgerError;
+use crate::{LedgerError, ReceiptClaim};
 
 /// Reads verified public-provider installations without permitting an authority effect.
 ///
@@ -62,6 +62,20 @@ impl<T: ProvisionedProviderLockLedger + ?Sized> ProvisionedProviderLockReader fo
 /// This is distinct from generic dependency actions: its immutable command fingerprint binds the
 /// prompt receipt, conversation, current run, provider, action, consent, and reviewed digest.
 pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
+    /// Atomically claims one command and reserves its exact held prompt before an npm effect.
+    ///
+    /// A newly accepted receipt always means the dispatch has moved to `provisioning`; recovery
+    /// can therefore terminally mark it unprovable without guessing whether an effect began.
+    ///
+    /// # Errors
+    /// Returns when ingress, command, accepted event, current prompt, or dispatch state differs.
+    fn claim_and_reserve_verified_provider_prompt_provision(
+        &self,
+        command: &Command,
+        accepted: &Event,
+        binding: &ProviderPromptProvisionCommandBinding,
+    ) -> Result<ReceiptClaim, LedgerError>;
+
     /// Reserves one exact held prompt before its daemon-owned private npm effect.
     ///
     /// This persistent admission fences the current selected run and changes only the bound
@@ -76,6 +90,21 @@ pub trait PrivateProviderPromptProvisionLedger: Send + Sync {
         command: &Command,
         binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<(), LedgerError>;
+
+    /// Terminally rejects one current held prompt confirmation without reserving its effect.
+    ///
+    /// A consent refusal or stale review receives an idempotent receipt while leaving the held
+    /// prompt in `awaiting_readiness`, so a fresh explicit confirmation may be attempted later.
+    ///
+    /// # Errors
+    /// Returns when the exact command, receipt, current prompt binding, or terminal event differs.
+    fn settle_rejected_provider_prompt_provision(
+        &self,
+        command: &Command,
+        receipt: &Receipt,
+        terminal: &Event,
+        binding: &ProviderPromptProvisionCommandBinding,
+    ) -> Result<Receipt, LedgerError>;
 
     /// Terminally marks one reserved prompt provision unprovable without releasing its prompt.
     ///

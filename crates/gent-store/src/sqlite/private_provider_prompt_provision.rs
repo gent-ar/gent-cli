@@ -1,23 +1,92 @@
 //! One `SQLite` transaction for verified private provisioning and its held-prompt release.
 
-use gent_ports::{IngressMode, LedgerError, PrivateProviderPromptProvisionLedger};
+use gent_ports::{IngressMode, LedgerError, PrivateProviderPromptProvisionLedger, ReceiptClaim};
 use gent_types::{
     Command, Event, ProviderPromptProvisionCommandBinding, ProvisionedProviderInstallation,
     Receipt, ReceiptStatus,
 };
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{TransactionBehavior, params};
 
 use super::{
     SqliteLedger,
     epoch::require_epoch,
     provisioned_provider_locks::{existing_settlement, save_installation},
     queries::{
-        append_event, encode_status, find_receipt, host_ingress, receipt_matches_command,
-        storage_error,
+        append_event, encode_status, find_event, find_receipt, host_ingress, insert_receipt,
+        receipt_matches_command, storage_error,
     },
 };
 
+#[path = "private_provider_prompt_provision_unprovable.rs"]
+mod unprovable;
+#[path = "private_provider_prompt_provision_validation.rs"]
+mod validation;
+
+use validation::{prompt_message, validate, validate_admission, validate_rejected};
+
 impl PrivateProviderPromptProvisionLedger for SqliteLedger {
+    fn claim_and_reserve_verified_provider_prompt_provision(
+        &self,
+        command: &Command,
+        accepted: &Event,
+        binding: &ProviderPromptProvisionCommandBinding,
+    ) -> Result<ReceiptClaim, LedgerError> {
+        validate_admission(command, binding)?;
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        let ingress = host_ingress(&transaction)?;
+        require_epoch(command.host_epoch, ingress.epoch)?;
+        if ingress.mode == IngressMode::Closed {
+            return Err(LedgerError::IngressClosed {
+                epoch: ingress.epoch,
+            });
+        }
+        if accepted.receipt_id != command.receipt_id
+            || accepted.host_epoch != command.host_epoch
+            || accepted.kind != "privatePromptProvisionAccepted"
+            || accepted.payload != command.payload
+        {
+            return Err(LedgerError::Invariant(
+                "invalid prompt provision accepted event".into(),
+            ));
+        }
+        if let Some(receipt) = find_receipt(&transaction, &command.idempotency_key)? {
+            if !receipt_matches_command(&transaction, command)? {
+                return Err(LedgerError::Invariant(
+                    "idempotency key is bound to a different command".into(),
+                ));
+            }
+            if receipt.status == ReceiptStatus::Accepted {
+                prompt_message(&transaction, binding, "provisioning")?;
+            }
+            return Ok(ReceiptClaim::Existing(receipt));
+        }
+        let receipt = Receipt {
+            receipt_id: command.receipt_id.clone(),
+            idempotency_key: command.idempotency_key.clone(),
+            status: ReceiptStatus::Accepted,
+            host_epoch: ingress.epoch,
+        };
+        insert_receipt(&transaction, &receipt, command)?;
+        append_event(&transaction, accepted)?;
+        let message_id = prompt_message(&transaction, binding, "awaiting_readiness")?;
+        let reserved = transaction
+            .execute(
+                "UPDATE agent_chat_prompt_dispatches SET state = 'provisioning' WHERE message_id = ?1 AND state = 'awaiting_readiness'",
+                [message_id],
+            )
+            .map_err(storage_error)?;
+        if reserved != 1 {
+            return Err(LedgerError::Invariant(
+                "prompt provision held dispatch changed before admission".into(),
+            ));
+        }
+        transaction.commit().map_err(storage_error)?;
+        Ok(ReceiptClaim::Accepted(receipt))
+    }
+
     fn reserve_verified_provider_prompt_provision(
         &self,
         command: &Command,
@@ -102,7 +171,17 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
         terminal: &Event,
         binding: &ProviderPromptProvisionCommandBinding,
     ) -> Result<Receipt, LedgerError> {
-        validate_unprovable(command, receipt, terminal, binding)?;
+        unprovable::settle(self, command, receipt, terminal, binding)
+    }
+
+    fn settle_rejected_provider_prompt_provision(
+        &self,
+        command: &Command,
+        receipt: &Receipt,
+        terminal: &Event,
+        binding: &ProviderPromptProvisionCommandBinding,
+    ) -> Result<Receipt, LedgerError> {
+        validate_rejected(command, receipt, terminal, binding)?;
         let mut connection = self.lock()?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -119,67 +198,33 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
             ));
         }
         if durable.status != ReceiptStatus::Accepted {
-            return (durable.status == ReceiptStatus::Unprovable)
+            let exact_terminal =
+                find_event(&transaction, &terminal.event_id)?.is_some_and(|event| {
+                    event.receipt_id == terminal.receipt_id
+                        && event.host_epoch == terminal.host_epoch
+                        && event.kind == terminal.kind
+                        && event.payload == terminal.payload
+                });
+            return (durable.status == ReceiptStatus::Rejected && exact_terminal)
                 .then_some(durable)
                 .ok_or_else(|| LedgerError::Invariant("prompt provision already settled".into()));
         }
-        let message_id = prompt_message(&transaction, binding, "provisioning")?;
         transaction
             .execute(
                 "UPDATE receipts SET status = ?1 WHERE idempotency_key = ?2",
                 params![
-                    encode_status(&ReceiptStatus::Unprovable),
+                    encode_status(&ReceiptStatus::Rejected),
                     receipt.idempotency_key
                 ],
             )
             .map_err(storage_error)?;
         append_event(&transaction, terminal)?;
-        let changed = transaction
-            .execute(
-                "UPDATE agent_chat_prompt_dispatches SET state = 'unprovable' WHERE message_id = ?1 AND state = 'provisioning'",
-                [message_id],
-            )
-            .map_err(storage_error)?;
-        if changed != 1 {
-            return Err(LedgerError::Invariant(
-                "prompt provision reservation changed before terminal settlement".into(),
-            ));
-        }
         transaction.commit().map_err(storage_error)?;
         Ok(Receipt {
-            status: ReceiptStatus::Unprovable,
+            status: ReceiptStatus::Rejected,
             ..durable
         })
     }
-}
-
-fn validate(
-    command: &Command,
-    receipt: &Receipt,
-    installation: &ProvisionedProviderInstallation,
-    terminal: &Event,
-    binding: &ProviderPromptProvisionCommandBinding,
-) -> Result<(), LedgerError> {
-    let payload = serde_json::to_value(binding).map_err(storage_error)?;
-    (binding.is_valid()
-        && binding.prompt.consent_granted
-        && command.kind == "providerPromptProvision"
-        && command.payload == payload
-        && command.receipt_id == receipt.receipt_id
-        && command.idempotency_key == receipt.idempotency_key
-        && command.host_epoch == receipt.host_epoch
-        && receipt.status == ReceiptStatus::Accepted
-        && terminal.receipt_id == receipt.receipt_id
-        && terminal.host_epoch == receipt.host_epoch
-        && terminal.kind == "privatePromptProvisionInstalled"
-        && installation.lock.run_lock.provider == binding.prompt.provider
-        && installation.provenance.package_name == binding.package.package_name
-        && installation.provenance.package_version == binding.package.version
-        && installation.provenance.package_integrity == binding.package.integrity
-        && installation.provenance.package_policy_digest_sha256
-            == binding.package.package_policy_digest_sha256)
-        .then_some(())
-        .ok_or_else(|| LedgerError::Invariant("invalid prompt provision settlement".into()))
 }
 
 fn reserve(
@@ -222,71 +267,15 @@ fn reserve(
     transaction.commit().map_err(storage_error)
 }
 
-fn validate_admission(
-    command: &Command,
-    binding: &ProviderPromptProvisionCommandBinding,
-) -> Result<(), LedgerError> {
-    let payload = serde_json::to_value(binding).map_err(storage_error)?;
-    (binding.is_valid()
-        && binding.prompt.consent_granted
-        && command.kind == "providerPromptProvision"
-        && command.payload == payload
-        && !command.receipt_id.0.trim().is_empty()
-        && !command.idempotency_key.trim().is_empty())
-    .then_some(())
-    .ok_or_else(|| LedgerError::Invariant("invalid prompt provision admission".into()))
-}
-
-fn validate_unprovable(
-    command: &Command,
-    receipt: &Receipt,
-    terminal: &Event,
-    binding: &ProviderPromptProvisionCommandBinding,
-) -> Result<(), LedgerError> {
-    validate_admission(command, binding)?;
-    (command.receipt_id == receipt.receipt_id
-        && command.idempotency_key == receipt.idempotency_key
-        && command.host_epoch == receipt.host_epoch
-        && receipt.status == ReceiptStatus::Accepted
-        && terminal.receipt_id == receipt.receipt_id
-        && terminal.host_epoch == receipt.host_epoch
-        && terminal.kind == "privatePromptProvisionUnprovable")
-        .then_some(())
-        .ok_or_else(|| LedgerError::Invariant("invalid prompt provision failure settlement".into()))
-}
-
-fn prompt_message(
-    transaction: &rusqlite::Transaction<'_>,
-    binding: &ProviderPromptProvisionCommandBinding,
-    state: &str,
-) -> Result<String, LedgerError> {
-    let message_id = transaction
-        .query_row(
-            "SELECT p.message_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition = 'send' AND selected.provider = ?4 AND d.state = ?5 AND p.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections current_selected ON current_selected.run_id = current.run_id WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
-            params![
-                binding.prompt.prompt_receipt_id.0,
-                binding.prompt.conversation_id.0,
-                binding.prompt.run_id.0,
-                binding.prompt.provider,
-                state,
-            ],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
-    message_id.ok_or_else(|| {
-        LedgerError::Invariant(
-            "prompt provision does not own a held prompt for the current provider run".into(),
-        )
-    })
-}
-
 #[cfg(test)]
 #[path = "private_provider_prompt_provision_failure_tests.rs"]
 mod failure_tests;
 #[cfg(test)]
 #[path = "private_provider_prompt_provision_package_tests.rs"]
 mod package_tests;
+#[cfg(test)]
+#[path = "private_provider_prompt_provision_reservation_tests.rs"]
+mod reservation_tests;
 #[cfg(test)]
 #[path = "private_provider_prompt_provision_tests.rs"]
 mod tests;

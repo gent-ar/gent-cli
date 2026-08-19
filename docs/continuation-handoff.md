@@ -115,12 +115,14 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - prompt-provider-provision-v1 has a strict, uncomposed confirmation DTO. A client may echo
   only its provision receipt, exact held prompt/conversation/run, consent, epoch, and the
   daemon-issued review digest; provider/action/package/path/plan/policy are absent. A new
-  SQLite port first changes that exact `awaiting_readiness` send to `provisioning`, which blocks
-  a competing selection switch, then atomically persists a verified public-provider lock,
+  SQLite port atomically claims the accepted receipt and changes that exact `awaiting_readiness`
+  send to `provisioning`, which blocks a competing selection switch, then atomically persists a
+  verified public-provider lock,
   terminal provision receipt, and its release. Its private command additionally binds the
   daemon-selected package name/version/integrity/policy digest; Gent rechecks all coordinates
   immediately before npm and requires the persisted installation provenance to match. Ambiguous/
-  recovered effects settle that exact reservation `unprovable` without release or replay. It
+  recovered effects settle that exact reservation `unprovable` without release or replay.
+  Consent refusal and stale review digest settle rejected, retryable no-effect receipts. It
   validates consent, epoch, fingerprint, current selected run, provider, and immutable lock;
   failures roll back. The capability is not in bootstrap, `RuntimeFacade`, or any transport.
 - Agent-chat detail now includes the durable `currentRunId`, calculated by the
@@ -181,8 +183,8 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Next implementation order
 
-1. Add terminal consent/plan-mismatch settlement and the private prompt-provision authority over
-   the now package-bound command, then compose it only after strict evidence and sandbox proof.
+1. Add the private prompt-provision authority over the now atomically admitted, package-bound
+   command, then compose it only after strict evidence and sandbox proof.
    Default observer and broad modes stay absent.
 2. Prove that profile with normalized persist-before-broadcast facts, bounded
    backpressure/process-tree drain, terminal settlement, turn follow, cursor

@@ -162,7 +162,8 @@ fn prompt_binding_matches(
                 DependencyAction::Update => "update",
             }
         && binding.prompt.consent_granted == request.consent_granted
-        && binding.prompt.reviewed_plan_digest == request.reviewed_plan_digest)
+        && binding.prompt.reviewed_plan_digest == request.reviewed_plan_digest
+        && binding.prompt.reviewed_plan_digest == binding.expected_reviewed_plan_digest)
         .then_some(())
         .ok_or(PrivateProvisionError::PromptBindingMismatch)
 }

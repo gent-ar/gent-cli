@@ -59,6 +59,8 @@ pub struct ProviderPromptProvisionPackageBinding {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderPromptProvisionCommandBinding {
     pub prompt: ProviderPromptProvisionBinding,
+    /// Digest of the current daemon-issued review, retained separately from the client echo.
+    pub expected_reviewed_plan_digest: String,
     pub package: ProviderPromptProvisionPackageBinding,
 }
 
@@ -67,6 +69,7 @@ impl ProviderPromptProvisionCommandBinding {
     #[must_use]
     pub fn is_valid(&self) -> bool {
         self.prompt.is_valid()
+            && digest(&self.expected_reviewed_plan_digest)
             && self.package.provider == self.prompt.provider
             && package_text(&self.package.package_name, 214)
             && package_text(&self.package.version, 128)
@@ -130,6 +133,7 @@ mod tests {
                 consent_granted: true,
                 reviewed_plan_digest: "a".repeat(64),
             },
+            expected_reviewed_plan_digest: "a".repeat(64),
             package: ProviderPromptProvisionPackageBinding {
                 provider: "codex".into(),
                 package_name: "@openai/codex".into(),

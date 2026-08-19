@@ -42,6 +42,7 @@ mod tests {
                 consent_granted: true,
                 reviewed_plan_digest: "a".repeat(64),
             },
+            expected_reviewed_plan_digest: "a".repeat(64),
             package: ProviderPromptProvisionPackageBinding {
                 provider: "codex".into(),
                 package_name: "@openai/codex".into(),
