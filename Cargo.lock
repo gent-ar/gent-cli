@@ -488,6 +488,7 @@ dependencies = [
 name = "gent-adapters"
 version = "0.1.14"
 dependencies = [
+ "base64",
  "ed25519-dalek",
  "gent-ports",
  "gent-types",

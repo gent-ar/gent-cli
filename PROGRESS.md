@@ -151,6 +151,11 @@ lifecycle state are prohibited.
   complete Claude/Codex evidence records, rejects partial settings and
   durable-chat-profile conflicts without I/O, and accepts no coordinator or
   epoch. It is not yet a daemon argument or transport entry point.
+- A bounded, read-only signed package-policy release artifact admits only the
+  official Claude/Codex package identities, exact semantic versions, canonical
+  SHA-512 tarball integrity, expiry/revocation, and the current locked Node
+  digest. It is revalidated before use and is not a prompt-time cache, writer,
+  or observer capability.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
 ## Not complete / not advertised
