@@ -22,6 +22,7 @@ mod decision;
 mod dependencies;
 mod event_stream;
 mod goal;
+mod local_models;
 mod orchestration;
 mod permission_policy;
 mod prompt_provider_provision;
@@ -59,6 +60,10 @@ pub use dependencies::{
 };
 pub use event_stream::{EVENT_STREAM_CAPABILITY, EventStreamFrame};
 pub use goal::{GOAL_CAPABILITY, GoalFrame, GoalFrameError, MAX_GOAL_FRAME_BYTES};
+pub use local_models::{
+    LOCAL_MODELS_CAPABILITY, LocalModelDescriptor, LocalModelDownloadFailure, LocalModelFrame,
+    LocalModelFrameError, LocalModelInstallState,
+};
 pub use orchestration::{
     MAX_ORCHESTRATION_FRAME_BYTES, ORCHESTRATION_CAPABILITY, OrchestrationFrame,
     OrchestrationFrameError,
