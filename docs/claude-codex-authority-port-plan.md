@@ -57,7 +57,11 @@ the Dart driver:
    already has durable permission modes (Default/Plan/Auto-Accept
    Edits/Autonomous/Bypass — see "Current implemented batch"); this is the
    missing wire-level plumbing that would let those modes actually answer a
-   live `control_request`. No Rust type for `AgentControlRequest` exists yet.
+   live `control_request`. `gent-drivers/src/claude_control.rs` now provides a
+   strict, process-bound parser/encoder foundation: it retains only request,
+   tool, and tool-use identifiers outside the runner; raw suggestions remain
+   private until an allowed response optionally echoes them. Lifecycle-policy
+   composition and owned-stdin response delivery remain unimplemented.
 4. **Sub-agent activity via `parent_tool_use_id`** — `claude_driver.dart:433-437,514-611`.
    The app synthesizes a `subagent_activity` frame from a background
    transcript keyed by `parent_tool_use_id`, decoupled from the main
@@ -90,8 +94,8 @@ not new normalizer content, modulo whatever `codex_turn.rs` still lacks
 2. Extend `public_protocol.rs`'s `claude()` reducer with the `stream_event`
    wrapper and its nested cases (1, 2, 5 above) under existing test coverage
    patterns (`claude_runner_tests.rs` equivalent) — pure, no daemon wiring yet.
-3. Add `control_request`/`control_response` normalization + a pure encode
-   path, verified against the real captured fixture
+3. Compose the existing `control_request`/`control_response` codec into the
+   Claude runner and durable permission reducer, verified against the real captured fixture
    (`fixtures/public-driver-transcripts/claude-permission-persistent-haiku-20260819.jsonl`)
    rather than a hand-written test frame — this is exactly the kind of claim
    the strict evidence program is designed to keep honest.
