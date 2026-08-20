@@ -24,6 +24,7 @@ pub(crate) use arguments::{
     TranscriptArgs,
 };
 pub(crate) use prompt::send;
+pub(crate) use reads::transcript;
 pub(crate) use selection::{effort, mode, provider};
 
 #[derive(Debug, Subcommand)]

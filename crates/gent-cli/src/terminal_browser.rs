@@ -2,8 +2,10 @@
 
 use std::path::PathBuf;
 
-use gent_protocol::{AGENT_CHAT_INTENTS_CAPABILITY, CONVERSATION_STATUS_CAPABILITY};
-use gent_types::{AgentChatPromptDelivery, ConversationListItem, ConversationStatus};
+use gent_protocol::{
+    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
+};
+use gent_types::{AgentChatPromptDelivery, ConversationListItem};
 
 use crate::{chat_cli, conversation_index, conversation_status, local_ipc, terminal};
 
@@ -20,33 +22,86 @@ pub(crate) async fn open(
         .0
         .iter()
         .any(|value| value == AGENT_CHAT_INTENTS_CAPABILITY);
-    let status = initial_status(&index, &capabilities.0, data_dir.clone(), no_autostart).await;
+    let view = initial_view(&index, &capabilities.0, data_dir.clone(), no_autostart).await;
     let runtime = tokio::runtime::Handle::current();
+    let request_runtime = runtime.clone();
+    let request_data_dir = data_dir.clone();
+    let view_runtime = runtime.clone();
+    let view_data_dir = data_dir.clone();
+    let view_capabilities = capabilities.0.clone();
     terminal::run(
         terminal::UiState::new(index)
             .with_chat_input(enabled)
-            .with_status(status),
-        move |intent| submit(&runtime, data_dir.clone(), no_autostart, intent),
+            .with_view(view),
+        move |intent| {
+            submit(
+                &request_runtime,
+                request_data_dir.clone(),
+                no_autostart,
+                intent,
+            )
+        },
+        move |conversation_id| {
+            tokio::task::block_in_place(|| {
+                view_runtime.block_on(read_view(
+                    view_data_dir.clone(),
+                    no_autostart,
+                    conversation_id,
+                    &view_capabilities,
+                ))
+            })
+        },
     )?;
     Ok(())
 }
 
-async fn initial_status(
+async fn initial_view(
     index: &[ConversationListItem],
     capabilities: &[String],
     data_dir: Option<PathBuf>,
     no_autostart: bool,
-) -> Option<ConversationStatus> {
+) -> Option<terminal::ConversationView> {
     let conversation_id = index.first()?.conversation_id.clone();
-    if !capabilities
+    read_view(data_dir, no_autostart, conversation_id, capabilities)
+        .await
+        .ok()
+}
+
+async fn read_view(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    conversation_id: String,
+    capabilities: &[String],
+) -> Result<terminal::ConversationView, String> {
+    let status = if capabilities
         .iter()
         .any(|value| value == CONVERSATION_STATUS_CAPABILITY)
     {
-        return None;
-    }
-    conversation_status::request(data_dir, no_autostart, conversation_id)
-        .await
-        .ok()
+        Some(
+            conversation_status::request(data_dir.clone(), no_autostart, conversation_id.clone())
+                .await
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
+    let transcript = if capabilities
+        .iter()
+        .any(|value| value == AGENT_CHAT_TRANSCRIPT_CAPABILITY)
+    {
+        Some(
+            chat_cli::transcript(data_dir, no_autostart, conversation_id.clone(), None, 100)
+                .await
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
+    Ok(terminal::ConversationView::new(
+        conversation_id,
+        status,
+        transcript,
+    ))
 }
 
 fn submit(
@@ -163,7 +218,7 @@ const fn delivery_notice(delivery: AgentChatPromptDelivery) -> &'static str {
 mod tests {
     use gent_types::{AgentChatPromptDelivery, ConversationListItem};
 
-    use super::{delivery_notice, initial_status};
+    use super::{delivery_notice, initial_view};
 
     #[test]
     fn prompt_delivery_notice_never_claims_a_provider_started() {
@@ -173,11 +228,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_preload_never_infers_activity_without_the_capability() {
+    async fn initial_view_does_not_infer_activity_or_content_without_capabilities() {
         let index = vec![ConversationListItem {
             conversation_id: "conversation-1".into(),
             run_count: 1,
         }];
-        assert!(initial_status(&index, &[], None, true).await.is_none());
+        assert!(initial_view(&index, &[], None, true).await.is_none());
     }
 }

@@ -2,10 +2,11 @@
 
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, ContextPolicy,
-    ConversationListItem, ConversationStatus,
+    ConversationListItem,
 };
 
 use super::{
+    ConversationView,
     selection::{default_model, next_model},
     state_switch::request,
 };
@@ -64,6 +65,7 @@ pub(crate) enum UiEffect {
     Continue,
     Quit,
     Request(UiRequest),
+    Refresh(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,8 +76,8 @@ pub(crate) struct UiState {
     input: String,
     selection: AgentChatSelection,
     context_policy: ContextPolicy,
-    parent_run_id: Option<String>,
-    status: Option<ConversationStatus>,
+    pub(super) parent_run_id: Option<String>,
+    pub(super) view: Option<ConversationView>,
     notice: Option<String>,
 }
 
@@ -96,7 +98,7 @@ impl UiState {
             },
             context_policy: ContextPolicy::Preserve,
             parent_run_id: None,
-            status: None,
+            view: None,
             notice: None,
         }
     }
@@ -104,23 +106,6 @@ impl UiState {
     #[must_use]
     pub(crate) fn with_chat_input(mut self, chat_enabled: bool) -> Self {
         self.chat_enabled = chat_enabled;
-        self
-    }
-
-    /// Adds one content-free status only while it belongs to the selected conversation.
-    #[must_use]
-    pub(crate) fn with_status(mut self, status: Option<ConversationStatus>) -> Self {
-        self.status = status.filter(|status| {
-            self.selected()
-                .is_some_and(|item| item.conversation_id == status.conversation_id)
-        });
-        self.parent_run_id = self
-            .status
-            .as_ref()
-            .and_then(|status| match status.runs.as_slice() {
-                [run] if !run.run_id.is_empty() => Some(run.run_id.clone()),
-                _ => None,
-            });
         self
     }
 
@@ -133,15 +118,6 @@ impl UiState {
     pub(crate) fn selected(&self) -> Option<&ConversationListItem> {
         self.selected
             .and_then(|index| self.conversations.get(index))
-    }
-
-    /// Returns only status data that is known to match the current selection.
-    #[must_use]
-    pub(crate) fn selected_status(&self) -> Option<&ConversationStatus> {
-        self.status.as_ref().filter(|status| {
-            self.selected()
-                .is_some_and(|item| item.conversation_id == status.conversation_id)
-        })
     }
 
     #[must_use]
@@ -183,7 +159,7 @@ impl UiState {
                 0
             });
         self.selected = Some(index);
-        self.status = None;
+        self.view = None;
         if result.parent_run_id.is_some() || !was_selected {
             self.parent_run_id = result.parent_run_id;
         }
@@ -199,13 +175,9 @@ impl UiState {
         match command {
             UiCommand::Quit => UiEffect::Quit,
             UiCommand::SelectNext => {
-                self.select(|index, count| (index + 1).min(count.saturating_sub(1)));
-                UiEffect::Continue
+                self.select(|index, count| (index + 1).min(count.saturating_sub(1)))
             }
-            UiCommand::SelectPrevious => {
-                self.select(|index, _| index.saturating_sub(1));
-                UiEffect::Continue
-            }
+            UiCommand::SelectPrevious => self.select(|index, _| index.saturating_sub(1)),
             UiCommand::Insert(value) if self.chat_enabled => {
                 self.input.push(value);
                 UiEffect::Continue
@@ -270,15 +242,17 @@ impl UiState {
         }
     }
 
-    fn select(&mut self, next: impl FnOnce(usize, usize) -> usize) {
+    fn select(&mut self, next: impl FnOnce(usize, usize) -> usize) -> UiEffect {
         if let Some(current) = self.selected {
             let selected = next(current, self.conversations.len());
             if selected != current {
                 self.selected = Some(selected);
-                self.status = None;
+                self.view = None;
                 self.parent_run_id = None;
+                return UiEffect::Refresh(self.conversations[selected].conversation_id.clone());
             }
         }
+        UiEffect::Continue
     }
 }
 

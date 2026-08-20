@@ -14,9 +14,10 @@ use super::{
     state::{UiEffect, UiRequest, UiRequestResult, UiState},
 };
 
-pub(crate) fn run<F>(mut state: UiState, mut request: F) -> io::Result<()>
+pub(crate) fn run<F, R>(mut state: UiState, mut request: F, mut refresh: R) -> io::Result<()>
 where
     F: FnMut(UiRequest) -> Result<UiRequestResult, String>,
+    R: FnMut(String) -> Result<super::ConversationView, String>,
 {
     require_interactive()?;
     let mut terminal = TerminalSession::open()?;
@@ -30,6 +31,10 @@ where
                     UiEffect::Quit => return Ok(()),
                     UiEffect::Request(value) => match request(value) {
                         Ok(result) => state.apply_request(result),
+                        Err(error) => state.set_notice(error),
+                    },
+                    UiEffect::Refresh(conversation_id) => match refresh(conversation_id) {
+                        Ok(view) => state.apply_view(view),
                         Err(error) => state.set_notice(error),
                     },
                     UiEffect::Continue => {}

@@ -20,6 +20,10 @@ use std::sync::Arc;
 pub(crate) enum DriverCompatibilityAuthorizer {
     Bootstrap(CompatibilityAssessment),
     Fresh(FreshCompatibilityAuthorizer<SystemAuthorityClock>),
+    /// Explicit local executable locks used by the standalone Gent profile. This is intentionally
+    /// narrower than the release-backed authorizers: only locks captured by the local resolver
+    /// with the fixed marker can reach a provider launch.
+    StandaloneLocal,
 }
 impl RunVersionAuthorizer for DriverCompatibilityAuthorizer {
     fn authorize(
@@ -29,6 +33,14 @@ impl RunVersionAuthorizer for DriverCompatibilityAuthorizer {
         match self {
             Self::Bootstrap(a) => a.authorize(lock),
             Self::Fresh(a) => a.authorize(lock),
+            Self::StandaloneLocal
+                if lock.compatibility_entry == "standalone-local-v1"
+                    && !lock.provider.is_empty()
+                    && lock.digest_sha256.len() == 64 =>
+            {
+                Ok(())
+            }
+            Self::StandaloneLocal => Err(gent_ports::PublicProviderRunError::CompatibilityDenied),
         }
     }
 }
@@ -57,7 +69,7 @@ where
             profile,
             coordinator,
             ledger,
-            &compatibility,
+            Some(&compatibility),
             authorizer,
             runner,
             resolver,
@@ -76,7 +88,7 @@ where
             profile,
             coordinator,
             ledger,
-            &compatibility,
+            Some(&compatibility),
             DriverCompatibilityAuthorizer::Fresh(FreshCompatibilityAuthorizer::new(
                 compatibility.clone(),
                 SystemAuthorityClock,
@@ -85,11 +97,34 @@ where
             resolver,
         )
     }
+    /// Builds the real public-driver runtime from explicit locally captured executables.
+    ///
+    /// The caller still has to provide a prepared public-driver profile and a resolver that
+    /// rechecks each executable identity immediately before launch. Unlike the packaged
+    /// authority path this does not require a compatibility-manifest artifact.
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn new_standalone_local(
+        profile: ValidatedAuthorityProfile,
+        coordinator: Coordinator<L>,
+        ledger: L,
+        runner: D,
+        resolver: R,
+    ) -> Result<Self, PublicDriversRuntimeError> {
+        Self::build(
+            profile,
+            coordinator,
+            ledger,
+            None,
+            DriverCompatibilityAuthorizer::StandaloneLocal,
+            runner,
+            resolver,
+        )
+    }
     fn build(
         profile: ValidatedAuthorityProfile,
         coordinator: Coordinator<L>,
         ledger: L,
-        compatibility: &CompatibilityAssessment,
+        compatibility: Option<&CompatibilityAssessment>,
         authorizer: DriverCompatibilityAuthorizer,
         runner: D,
         resolver: R,
@@ -102,11 +137,13 @@ where
         else {
             return Err(PublicDriversRuntimeError::ObserverProfile);
         };
-        let Some(actual_digest) = compatibility.manifest_sha256() else {
-            return Err(PublicDriversRuntimeError::CompatibilityManifestUnavailable);
-        };
-        if actual_digest != approval.compatibility_manifest_sha256 {
-            return Err(PublicDriversRuntimeError::CompatibilityManifestMismatch);
+        if let Some(compatibility) = compatibility {
+            let Some(actual_digest) = compatibility.manifest_sha256() else {
+                return Err(PublicDriversRuntimeError::CompatibilityManifestUnavailable);
+            };
+            if actual_digest != approval.compatibility_manifest_sha256 {
+                return Err(PublicDriversRuntimeError::CompatibilityManifestMismatch);
+            }
         }
         Ok(Self {
             ledger: ledger.clone(),

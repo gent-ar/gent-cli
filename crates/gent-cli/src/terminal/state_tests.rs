@@ -12,10 +12,13 @@ fn item(id: &str) -> ConversationListItem {
 #[test]
 fn selection_is_clamped_and_empty_state_is_safe() {
     let mut state = UiState::new(vec![item("one"), item("two")]);
-    state.apply(UiCommand::SelectPrevious);
+    assert_eq!(state.apply(UiCommand::SelectPrevious), UiEffect::Continue);
     assert_eq!(state.selected().unwrap().conversation_id, "one");
-    state.apply(UiCommand::SelectNext);
-    state.apply(UiCommand::SelectNext);
+    assert_eq!(
+        state.apply(UiCommand::SelectNext),
+        UiEffect::Refresh("two".into())
+    );
+    assert_eq!(state.apply(UiCommand::SelectNext), UiEffect::Continue);
     assert_eq!(state.selected().unwrap().conversation_id, "two");
     let mut empty = UiState::new(Vec::new());
     assert!(empty.selected().is_none());

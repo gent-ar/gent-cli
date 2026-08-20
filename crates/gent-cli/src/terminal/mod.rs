@@ -7,7 +7,10 @@ mod render;
 mod selection;
 mod state;
 mod state_switch;
+mod state_view;
 mod terminal_loop;
+mod view;
 
 pub(crate) use state::{UiRequest, UiRequestResult, UiState};
 pub(crate) use terminal_loop::{require_interactive, run};
+pub(crate) use view::ConversationView;

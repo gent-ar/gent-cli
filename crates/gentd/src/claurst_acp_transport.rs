@@ -86,16 +86,18 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         if !workspace.is_absolute() {
             return Err(ClaurstAcpTransportError::InvalidSession);
         }
-        let initialize_id = self.send_request(
-            "initialize",
-            json!({
-                "protocolVersion": 1,
-                "clientCapabilities": {},
-                "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
-            }),
-        )?;
-        self.wait_for_response(initialize_id)?;
-        self.initialized = true;
+        if !self.initialized {
+            let initialize_id = self.send_request(
+                "initialize",
+                json!({
+                    "protocolVersion": 1,
+                    "clientCapabilities": {},
+                    "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
+                }),
+            )?;
+            self.wait_for_response(initialize_id)?;
+            self.initialized = true;
+        }
         let session_id =
             self.send_request("session/new", json!({"cwd": workspace, "mcpServers": []}))?;
         let response = self.wait_for_response(session_id)?;
@@ -211,10 +213,16 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
     ) -> Result<Option<ClaurstAcpTerminal>, ClaurstAcpTransportError> {
         let value = parse_frame(&frame)?;
         if value.get("id").and_then(Value::as_u64) == self.pending_prompt_id
-            && value.get("result").is_some()
+            && (value.get("result").is_some() || value.get("error").is_some())
         {
             self.pending_prompt_id = None;
-            return Ok(Some(prompt_terminal(&value)));
+            return Ok(Some(
+                value
+                    .get("error")
+                    .is_some()
+                    .then_some(ClaurstAcpTerminal::Failed)
+                    .unwrap_or_else(|| prompt_terminal(&value)),
+            ));
         }
         self.project(value)?;
         Ok(None)
@@ -273,81 +281,5 @@ fn prompt_terminal(value: &Value) -> ClaurstAcpTerminal {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{collections::VecDeque, path::Path};
-
-    use super::{ClaurstAcpFact, ClaurstAcpStdio, ClaurstAcpTerminal, ClaurstAcpTransport};
-    use gent_types::NormalizedProviderEvent;
-
-    struct Fake {
-        writes: Vec<Vec<u8>>,
-        reads: VecDeque<Vec<u8>>,
-    }
-    impl ClaurstAcpStdio for Fake {
-        fn write_frame(&mut self, frame: &[u8]) -> Result<(), String> {
-            self.writes.push(frame.to_vec());
-            Ok(())
-        }
-        fn try_read_frame(&mut self, _: usize) -> Result<Option<Vec<u8>>, String> {
-            Ok(self.reads.pop_front())
-        }
-    }
-    fn frame(value: serde_json::Value) -> Vec<u8> {
-        serde_json::to_vec(&value).unwrap()
-    }
-
-    #[test]
-    fn frames_upstream_handshake_prompt_stream_and_terminal_without_blocking() {
-        let fake = Fake {
-            writes: vec![],
-            reads: VecDeque::from([
-                frame(serde_json::json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}})),
-                frame(serde_json::json!({"jsonrpc":"2.0","id":2,"result":{"sessionId":"acp-1"}})),
-                frame(
-                    serde_json::json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello"}}}}),
-                ),
-                frame(
-                    serde_json::json!({"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}),
-                ),
-            ]),
-        };
-        let mut transport = ClaurstAcpTransport::new(fake);
-        assert_eq!(
-            transport
-                .initialize_session(Path::new("/workspace"))
-                .unwrap(),
-            "acp-1"
-        );
-        transport.prompt("acp-1", "hi").unwrap();
-        let drain = transport.drain(64).unwrap();
-        assert_eq!(drain.terminal, Some(ClaurstAcpTerminal::Completed));
-        assert_eq!(
-            drain.facts,
-            [ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
-                text: "hello".into(),
-                is_partial: true
-            })]
-        );
-    }
-
-    #[test]
-    fn permission_request_is_denied_until_gent_permission_composition_exists() {
-        let fake = Fake {
-            writes: vec![],
-            reads: VecDeque::from([
-                frame(serde_json::json!({"id":1,"result":{}})),
-                frame(serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}})),
-                frame(
-                    serde_json::json!({"id":99,"method":"session/request_permission","params":{}}),
-                ),
-            ]),
-        };
-        let mut transport = ClaurstAcpTransport::new(fake);
-        transport
-            .initialize_session(Path::new("/workspace"))
-            .unwrap();
-        let drain = transport.drain(1).unwrap();
-        assert_eq!(drain.facts.len(), 1);
-        let _ = transport;
-    }
-}
+#[path = "claurst_acp_transport_tests.rs"]
+mod tests;

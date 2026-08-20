@@ -43,6 +43,10 @@ mod claude_prompt_lifecycle_failure_tests;
 #[cfg(test)]
 mod claude_prompt_lifecycle_tests;
 #[allow(dead_code)]
+mod claude_standalone_authority;
+#[allow(dead_code)]
+mod claurst_acp_bridge;
+#[allow(dead_code)]
 mod claurst_acp_transport;
 #[allow(dead_code)]
 mod claurst_local_runtime;
@@ -68,6 +72,8 @@ mod codex_prompt_lifecycle_host_tests;
 mod codex_prompt_lifecycle_resume_tests;
 #[cfg(test)]
 mod codex_prompt_lifecycle_tests;
+#[allow(dead_code)]
+mod codex_standalone_authority;
 mod compatibility_assessment;
 #[cfg(test)]
 mod compatibility_lock_tests;
@@ -94,6 +100,8 @@ mod local_model_download;
 mod local_model_download_tests;
 #[allow(dead_code)]
 mod local_model_provisioning;
+#[allow(dead_code)]
+mod local_provider_locks;
 mod locked_provider_resolver;
 #[allow(dead_code)]
 mod node_runtime_lock;

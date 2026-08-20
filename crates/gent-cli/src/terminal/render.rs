@@ -62,16 +62,37 @@ fn detail_widget(state: &UiState) -> Paragraph<'static> {
         || "Select a conversation when one is available.\n\nNo transcript content is exposed in observer mode.".into(),
         |item| {
             format!(
-                "Conversation: {}\nRuns: {}\n\n{}",
+                "Conversation: {}\nRuns: {}\n\n{}\n\n{}",
                 item.conversation_id,
                 item.run_count,
                 status_text(state.selected_status()),
+                transcript_text(state.selected_transcript()),
             )
         },
     );
     Paragraph::new(body)
         .wrap(Wrap { trim: true })
         .block(Block::default().borders(Borders::ALL).title("Details"))
+}
+
+fn transcript_text(events: &[gent_types::NormalizedTranscriptEvent]) -> String {
+    if events.is_empty() {
+        return "Transcript: no normalized events available for this selection.".into();
+    }
+    let start = events.len().saturating_sub(12);
+    let entries = events[start..]
+        .iter()
+        .map(|event| {
+            let text = event.text.chars().take(360).collect::<String>();
+            let suffix = (text.len() < event.text.len()).then_some("…").unwrap_or("");
+            format!("{:?}: {text}{suffix}", event.kind)
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "Transcript (latest {} events):\n{}",
+        entries.len(),
+        entries.join("\n")
+    )
 }
 
 fn status_text(status: Option<&ConversationStatus>) -> String {
@@ -168,7 +189,7 @@ mod tests {
     };
     use ratatui::{Terminal, backend::TestBackend};
 
-    use super::{activity_text, render, status_text};
+    use super::{activity_text, render, status_text, transcript_text};
     use crate::terminal::UiState;
 
     #[test]
@@ -238,5 +259,20 @@ mod tests {
         assert!(text.contains("waiting for subagents"));
         assert!(text.contains("Provider: claude"));
         assert!(status_text(None).contains("not inferred"));
+    }
+
+    #[test]
+    fn transcript_text_is_bounded_and_contains_normalized_events() {
+        let event = gent_types::NormalizedTranscriptEvent {
+            cursor: 1,
+            event_id: "event".into(),
+            turn_id: "turn".into(),
+            run_id: "run".into(),
+            kind: gent_types::NormalizedTranscriptKind::AssistantMessage,
+            text: "answer".into(),
+            is_partial: false,
+        };
+        assert!(transcript_text(&[event]).contains("answer"));
+        assert!(transcript_text(&[]).contains("no normalized events"));
     }
 }

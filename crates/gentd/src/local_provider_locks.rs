@@ -15,13 +15,13 @@ use gent_types::RunVersionLock;
 
 /// Resolver input for one explicitly selected local public executable.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct LocalProviderLocks {
+pub(crate) struct LocalProviderLocks {
     locks: BTreeMap<String, RunVersionLock>,
 }
 
 /// Controlled errors while forming a standalone local executable resolver.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-pub(super) enum LocalProviderLockError {
+pub(crate) enum LocalProviderLockError {
     #[error("local provider path is unavailable")]
     PathUnavailable,
     #[error("local provider path is not a file")]
@@ -37,7 +37,7 @@ impl LocalProviderLocks {
     ///
     /// The placeholder version is intentionally not a compatibility claim. A future standalone
     /// authority must pair these locks with its own local compatibility authorizer before launch.
-    pub(super) fn capture(
+    pub(crate) fn capture(
         providers: impl IntoIterator<Item = (PublicProvider, std::path::PathBuf)>,
     ) -> Result<Self, LocalProviderLockError> {
         let mut locks = BTreeMap::new();
