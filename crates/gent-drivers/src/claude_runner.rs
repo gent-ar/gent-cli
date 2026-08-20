@@ -1,15 +1,8 @@
 //! Bounded daemon-owned Claude stream-JSON process runner.
-
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-
-use gent_types::{
-    FrozenConversationContext, GoalProjection, NormalizedProviderEvent, RunVersionLock,
-    SandboxWorkspaceAccess,
-};
-
 use crate::PublicProvider;
 use crate::buffering::BufferPolicy;
+use crate::claude_control::{ClaudePermissionBehavior, ClaudePermissionRequest};
+use crate::claude_permission_relay::ClaudePermissionRelay;
 use crate::claude_turn_options::ClaudeTurnOptions;
 use crate::goal_projection::project_prompt;
 use crate::interrupt::ProcessTreeSignal;
@@ -18,7 +11,12 @@ use crate::lock::{LockError, recheck};
 use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
 use crate::public_protocol::{PublicWireFact, normalize_public_frame};
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
-
+use gent_types::{
+    FrozenConversationContext, GoalProjection, NormalizedProviderEvent, RunVersionLock,
+    SandboxWorkspaceAccess,
+};
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 /// Maximum retained Claude stream-JSON line accepted at this process boundary.
 pub const MAX_CLAUDE_FRAME_BYTES: usize = 64 * 1024;
 
@@ -43,7 +41,12 @@ pub struct ClaudeRunStart {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClaudeRunnerEffect {
     Fact(PublicWireFact),
-    Exited { code: Option<i32> },
+    /// A provider permission relay which contains only the identifiers Gent needs to decide it.
+    /// Provider-native input and permission suggestions remain in the owned process boundary.
+    PermissionRequest(ClaudePermissionRequest),
+    Exited {
+        code: Option<i32>,
+    },
 }
 
 /// Controlled Claude process, framing, launch, or immutable-lock failure.
@@ -53,6 +56,8 @@ pub enum ClaudeRunnerError {
     AlreadyActive,
     #[error("Claude runner does not own the requested run")]
     NotActive,
+    #[error("Claude runner has no pending permission request with that identifier")]
+    PermissionRequestNotPending,
     #[error("Claude runner accepts only a locked Claude executable")]
     UnsupportedProvider,
     #[error("Claude prompt is invalid")]
@@ -79,6 +84,7 @@ pub struct ClaudeStreamRunner<L, P> {
 struct OwnedRun<P> {
     process: P,
     output: ProviderOutputPump,
+    permissions: ClaudePermissionRelay,
 }
 
 impl<L, P> ClaudeStreamRunner<L, P>
@@ -134,7 +140,14 @@ where
             let _ = process.signal_tree(ProcessTreeSignal::Terminate);
             return Err(error.into());
         }
-        self.runs.insert(start.run_id, OwnedRun { process, output });
+        self.runs.insert(
+            start.run_id,
+            OwnedRun {
+                process,
+                output,
+                permissions: ClaudePermissionRelay::default(),
+            },
+        );
         Ok(())
     }
 
@@ -175,6 +188,33 @@ where
             .ok_or(ClaudeRunnerError::NotActive)?
             .process
             .signal_tree(signal)?;
+        Ok(())
+    }
+
+    /// Writes one closed Gent permission decision to the exact Claude process that requested it.
+    ///
+    /// Raw provider suggestions are retained only until this response has been accepted by the
+    /// owned process. They can be echoed solely for an allowed persistent decision.
+    ///
+    /// # Errors
+    /// Returns an error without writing when the run or pending request is absent.
+    pub fn respond_permission(
+        &mut self,
+        run_id: &str,
+        request_id: &str,
+        behavior: ClaudePermissionBehavior,
+        persist_suggestions: bool,
+    ) -> Result<(), ClaudeRunnerError> {
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(ClaudeRunnerError::NotActive)?;
+        let response = run
+            .permissions
+            .response(request_id, behavior, persist_suggestions)
+            .ok_or(ClaudeRunnerError::PermissionRequestNotPending)?;
+        run.process.write_frame(&response)?;
+        run.permissions.settle(request_id);
         Ok(())
     }
 }
@@ -225,24 +265,34 @@ fn drain<P: ProviderProcess>(run: &mut OwnedRun<P>) -> Option<Vec<ClaudeRunnerEf
     while run.output.queued_frames() > 0 {
         let (frame, _) = run.output.take_frame();
         let Some(frame) = frame else { break };
-        effects.extend(normalize(&frame).into_iter().map(ClaudeRunnerEffect::Fact));
+        effects.extend(normalize(run, &frame));
     }
     (!effects.is_empty()).then_some(effects)
 }
 
-fn normalize(raw: &[u8]) -> Vec<PublicWireFact> {
-    serde_json::from_slice(raw).map_or_else(
-        |_| diagnostic("malformedClaudeFrame"),
-        |frame| normalize_public_frame(PublicProvider::Claude, &frame),
-    )
+fn normalize<P: ProviderProcess>(run: &mut OwnedRun<P>, raw: &[u8]) -> Vec<ClaudeRunnerEffect> {
+    let frame: serde_json::Value = match serde_json::from_slice(raw) {
+        Ok(frame) => frame,
+        Err(_) => return diagnostic("malformedClaudeFrame"),
+    };
+    if frame.get("type").and_then(serde_json::Value::as_str) == Some("control_request") {
+        return match run.permissions.accept(&frame) {
+            Ok(request) => vec![ClaudeRunnerEffect::PermissionRequest(request)],
+            Err(classification) => diagnostic(classification),
+        };
+    }
+    normalize_public_frame(PublicProvider::Claude, &frame)
+        .into_iter()
+        .map(ClaudeRunnerEffect::Fact)
+        .collect()
 }
 
-fn diagnostic(classification: &str) -> Vec<PublicWireFact> {
-    vec![PublicWireFact::Event(
+fn diagnostic(classification: &str) -> Vec<ClaudeRunnerEffect> {
+    vec![ClaudeRunnerEffect::Fact(PublicWireFact::Event(
         NormalizedProviderEvent::TransportDiagnostic {
             classification: classification.into(),
         },
-    )]
+    ))]
 }
 
 #[cfg(test)]

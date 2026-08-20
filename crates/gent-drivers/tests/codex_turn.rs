@@ -162,3 +162,35 @@ fn reuses_the_ready_native_thread_for_a_later_prompt() {
         ]
     );
 }
+
+#[test]
+fn fails_closed_for_server_to_client_requests_without_wedging_the_turn() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    let dynamic_tool = driver
+        .receive(br#"{"jsonrpc":"2.0","id":"private-request","method":"item/tool/call","params":{"tool":"private"}}"#)
+        .unwrap();
+    assert_eq!(
+        frames(&dynamic_tool),
+        vec![json!({
+            "id":"private-request",
+            "result":{"success":false,"contentItems":[{
+                "type":"inputText",
+                "text":"Gent has no registered executor for this experimental Codex dynamic tool."
+            }]}
+        })]
+    );
+    let auth = driver
+        .receive(br#"{"jsonrpc":"2.0","id":9,"method":"account/chatgptAuthTokens/refresh"}"#)
+        .unwrap();
+    assert_eq!(frames(&auth)[0]["error"]["code"], json!(-32603));
+    let malformed = driver
+        .receive(br#"{"jsonrpc":"2.0","id":null,"method":"attestation/generate"}"#)
+        .unwrap();
+    assert!(matches!(
+        malformed.as_slice(),
+        [CodexTurnEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { classification }))]
+            if classification == "malformedCodexClientRequest"
+    ));
+    let next = driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    assert_eq!(frames(&next)[1]["method"], json!("thread/start"));
+}

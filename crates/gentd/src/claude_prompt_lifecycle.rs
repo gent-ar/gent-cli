@@ -9,7 +9,9 @@ use gent_ports::{
     PublicProviderRunError, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
-use gent_types::{AgentChatPromptSaved, HostEpoch};
+use gent_types::{
+    AgentChatPromptSaved, HostEpoch, NormalizedLifecycleSignal, ToolPhase, TurnPhase,
+};
 
 use crate::public_driver_runtime::{NormalizedSessionFact, PublicDriverFact, PublicDriversRuntime};
 
@@ -140,6 +142,24 @@ where
                 ClaudeRunnerEffect::Fact(fact) => {
                     terminal |= self.record_wire(run_id, host_epoch, &fact)?;
                     facts = facts.saturating_add(1);
+                }
+                ClaudeRunnerEffect::PermissionRequest(request) => {
+                    for fact in [
+                        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase {
+                            phase: TurnPhase::WaitingPermission,
+                        }),
+                        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
+                            activity: gent_types::ToolActivity {
+                                tool_use_id: request.tool_use_id,
+                                tool_name: request.tool_name,
+                                phase: ToolPhase::WaitingPermission,
+                                output_digest: None,
+                            },
+                        }),
+                    ] {
+                        terminal |= self.record_wire(run_id, host_epoch, &fact)?;
+                        facts = facts.saturating_add(1);
+                    }
                 }
                 ClaudeRunnerEffect::Exited { code } => {
                     self.record_exit(run_id, host_epoch, code)?;

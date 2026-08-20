@@ -7,6 +7,7 @@ use gent_types::{GoalProjection, NormalizedProviderEvent};
 use serde_json::Value;
 
 use crate::PublicProvider;
+use crate::codex_client_request::{CodexClientRequestResponse, respond_to_codex_client_request};
 use crate::codex_session::{
     CodexAppServerSession, CodexSessionConfig, CodexSessionError, CodexSessionIngress,
 };
@@ -78,6 +79,15 @@ impl CodexTurnDriver {
         let Ok(frame) = serde_json::from_slice::<Value>(raw) else {
             return Ok(diagnostic("malformedCodexFrame"));
         };
+        match respond_to_codex_client_request(&frame, epoch_seconds()) {
+            CodexClientRequestResponse::Write(response) => {
+                return Ok(vec![CodexTurnEffect::Write(response)]);
+            }
+            CodexClientRequestResponse::Malformed => {
+                return Ok(diagnostic("malformedCodexClientRequest"));
+            }
+            CodexClientRequestResponse::NotHandled => {}
+        }
         let notification = frame.get("method").and_then(Value::as_str).is_some();
         let mut effects = if notification {
             facts(&frame)
@@ -127,6 +137,12 @@ impl CodexTurnDriver {
     pub fn interrupt(&mut self) -> Result<CodexTurnEffect, CodexTurnError> {
         Ok(CodexTurnEffect::Write(self.session.interrupt()?))
     }
+}
+
+fn epoch_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
 }
 
 fn writes(effects: &mut Vec<CodexTurnEffect>, frames: Vec<Vec<u8>>) {

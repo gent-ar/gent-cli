@@ -2,9 +2,11 @@
 
 pub mod buffering;
 pub mod claude_control;
+mod claude_permission_relay;
 pub mod claude_runner;
 pub mod claude_turn_options;
 pub mod codex_bootstrap;
+pub mod codex_client_request;
 pub mod codex_prompt_runner;
 pub mod codex_runner;
 pub mod codex_session;
