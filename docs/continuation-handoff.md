@@ -191,13 +191,11 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
    `ProviderPromptProvisionCommandBinding`/`ProviderInstallProvenance`, add a receipt fingerprint,
    and re-verify the same signed release immediately before npm. See "Latest continuation state"
    below for the exact files. `daemon_bootstrap.rs` has a zero-line diff throughout.
-2. **Done, uncommitted (2026-08-19):** prove that profile end-to-end — persist-before-broadcast,
-   cursor reread/reconnect, exact-retry idempotency, and terminal settlement (consent refusal,
-   unprovable) — via `crates/gentd/src/prompt_provider_provision_profile_tests.rs`, a real
-   `RuntimeFacade` driven over the real wire codec. See "Latest continuation state" below.
-   Backpressure/process-tree drain, turn follow, provider/context switch, and `/goal` projection
-   belong to the Claude/Codex session-runner authority (item 4), not this npm-install profile —
-   deferred there, not skipped.
+2. **Done (`975c096`):** proved that profile end-to-end — persist-before-broadcast, cursor
+   reread/reconnect, exact-retry idempotency, terminal settlement — via
+   `crates/gentd/src/prompt_provider_provision_profile_tests.rs`, a real `RuntimeFacade` driven
+   over the real wire codec. Backpressure/process-tree drain, turn follow, provider/context
+   switch, and `/goal` projection belong to item 4, not this npm-install profile — deferred there.
 3. Add reviewed-plan authority composition only after the lifecycle and evidence
    gates; clients never inject provider plans and observer remains absent.
 4. Compose task-graph scheduling only after public-driver authority: each node
@@ -236,8 +234,7 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 - The `drivers_transcript/` corpus is a committed, sanitized development asset.
   Normal Gent sessions never write it; validate it with
   `python3 tools/validate-driver-transcript-corpus.py`.
-- Do not claim a release for this uncommitted batch. Windows scheduled-task
-  execution needs Windows CI and was not run locally on macOS.
+- Windows scheduled-task execution needs Windows CI; not run locally on macOS.
 
 ## Verification passed after this batch
 
@@ -273,25 +270,31 @@ Before major scope decisions, read the original app planning source only:
 `/Users/ivanmatiasfort/Clouseau/clouseau-app/GENT-CLI/README.md`, then
 `00-PLATFORM-CONTRACT.md` through `10-LIVE-LIFECYCLE-AND-SELF-UPDATE.md`.
 
-## Latest continuation state (2026-08-19, revised)
+## Latest continuation state (2026-08-19, revised again)
 
-- `main` is at `83d3495` (item 1) and `975c096` (item 2) — see commit messages for detail, not
-  repeated here. Item 3 below is **uncommitted**, pending approval. `clouseau-app` is read-only
-  reference, never edited.
-- Item 3 (evidence tooling — DONE, real live evidence captured): "Claude lacks
-  `--permission-prompt-tool`" was wrong. Fixed `tools/capture-claude-persistent-permission-
-  transcript.py` + `tools/public_driver_capture_permission.py`; `claude/permission_persistent` is
-  now RECORDED. See "Evidence status" above for the mechanism finding (client-side grant memory,
-  not CLI-side) and two capture-tool bugs fixed (premature stdin close; `read(8192)` deadlocks
-  against a CLI gone silent mid-relay — needed `readline()`).
-- New: `/Users/ivanmatiasfort/Clouseau/gent-cli/CLAUDE.md` — durable rule to always check
+- `main` is at `24ecee9` (items 1-3 all committed: `83d3495`, `975c096`, `c340500`, `24ecee9` — see
+  commit messages, not repeated here). Working tree clean. `clouseau-app` is read-only reference.
+- Item 3 evidence-tooling mechanism finding and bug fixes: see "Evidence status" above.
+- `/Users/ivanmatiasfort/Clouseau/gent-cli/CLAUDE.md` exists: durable rule to always check
   `clouseau-app`'s drivers before designing/debugging provider protocol behavior.
-- Verification passed for all three items. Standing decisions unchanged: reuse the Ed25519 trust
-  root; no `Sha256Digest` newtype; never embed/depend on the app's code at gent-cli runtime, but
-  DO mine its proven protocol knowledge into gent-cli's own Rust; reject independent evidence/key
-  paths, snapshots, fake containment, public Claurst.
+- **New this pass: `docs/claude-codex-authority-port-plan.md`, written from direct code reading of
+  both sides.** Headline finding: item 4 is not a from-scratch build. A real Claude/Codex spawn-
+  and-normalize pipeline already exists in Rust and is fully wired to itself — spawn, frame
+  normalization, lifecycle dispatch/poll, lifecycle state machines, composition functions, signed
+  evidence gate, runtime wiring surface — just never composed by `daemon_bootstrap.rs` (`grep`:
+  zero references). The real gap is content: the Claude frame normalizer handles only top-level
+  `system`/`assistant`/`result`, missing the `stream_event` wrapper, `thinking` blocks,
+  `control_request`/`control_response` (the relay item 3's evidence just proved live), sub-agent
+  correlation, and tool-call deltas — confirmed against `claude_driver.dart`. Codex is closer to
+  parity, mainly needs wiring, modulo `codex_turn.rs` (unread this pass). Read the port-plan doc
+  before writing any item-4 Rust.
+- Verification passed for all committed items. Standing decisions unchanged: reuse the Ed25519
+  trust root; no `Sha256Digest` newtype; mine the app's protocol knowledge but never embed/depend
+  on its code; reject independent evidence/key paths, snapshots, fake containment, public Claurst.
 
-Resume here: item 4 (Claude/Codex authority composition) is the real unlock for items 3+. Read
-`docs/claude-codex-authority-port-plan.md` before writing any Rust for it. Compaction/malformed-
-tolerance capture (both vendors) has no documented bounded signal — lower priority than item 4.
-Terminal parity (item 5) is independently tractable meanwhile.
+Resume here: start item 4 by reading `codex_turn.rs` (only file in the port-plan's inventory not
+yet read) to confirm how much of the Codex gap list it already closes, then follow the port plan's
+suggested order — `gent-types` vocabulary additions (thinking event, `AgentControlRequest`) first,
+since the normalizer content work depends on them existing before any match arm can produce them.
+Compaction/malformed-tolerance capture (both vendors) still has no documented bounded signal —
+lower priority than item 4. Terminal parity (item 5) is independently tractable meanwhile.
