@@ -13,10 +13,10 @@ use {clap::Parser, std::path::PathBuf};
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host", version)]
 #[allow(clippy::struct_excessive_bools)] // Clap flags are independent authority opt-ins.
-struct Args {
+pub(crate) struct Args {
     /// Directory containing the local IPC endpoint and durable `SQLite` ledger.
     #[arg(long, env = "GENT_DATA_DIR")]
-    data_dir: Option<PathBuf>,
+    pub(crate) data_dir: Option<PathBuf>,
     /// Explicit Unix socket path, primarily for supervised Unix launches and tests.
     #[cfg(unix)]
     #[arg(long)]
@@ -29,7 +29,16 @@ struct Args {
     compatibility_keys: Vec<String>,
     /// Durable chat persistence only; never providers, MCP, Git, or the private bridge.
     #[arg(long, env = "GENT_AGENT_CHAT_AUTHORITY")]
-    agent_chat_authority: bool,
+    pub(crate) agent_chat_authority: bool,
+    /// Enable the signed, locked Claude/Codex ordinary-chat authority profile.
+    #[arg(long, env = "GENT_ORDINARY_AUTHORITY")]
+    pub(crate) ordinary_authority: bool,
+    /// Signed ordinary-authority release required with `--ordinary-authority`.
+    #[arg(long, env = "GENT_ORDINARY_AUTHORITY_RELEASE")]
+    pub(crate) ordinary_authority_release: Option<PathBuf>,
+    /// Trusted authority-release key as `key-id:lowercase-hex`; may be passed more than once.
+    #[arg(long = "ordinary-authority-key", env = "GENT_ORDINARY_AUTHORITY_KEY")]
+    pub(crate) ordinary_authority_keys: Vec<String>,
     /// Serve only a locally cached, revalidated signed runtime-release report.
     /// This does not enable downloads, staging, activation, or self-replacement.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_CHECK_AUTHORITY")]
@@ -70,6 +79,9 @@ struct Args {
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    if args.ordinary_authority {
+        return crate::ordinary_authority_bootstrap::run(args).await;
+    }
     enforce_hard_observer(&crate::authority_profile::shipped_observer_profile())?;
     if verify_staged_material(&args)? {
         return Ok(());
@@ -240,6 +252,14 @@ async fn serve_local(
         );
     }
     transport::serve(listener, runtime).await
+}
+
+pub(crate) async fn serve_ordinary(
+    runtime: RuntimeFacade,
+    args: &Args,
+    data_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    serve_local(runtime, args, data_dir, None).await
 }
 
 #[cfg(windows)]
