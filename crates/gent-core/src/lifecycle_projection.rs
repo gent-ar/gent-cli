@@ -115,6 +115,7 @@ fn lifecycle_events(
         NormalizedProviderEvent::DecisionSettled { .. } => vec![LifecycleEvent::AttentionCleared],
         NormalizedProviderEvent::TurnEnded { .. }
         | NormalizedProviderEvent::Output { .. }
+        | NormalizedProviderEvent::Thinking { .. }
         | NormalizedProviderEvent::TransportDiagnostic { .. } => Vec::new(),
     }
 }
@@ -126,7 +127,6 @@ fn terminal_events(event: LifecycleEvent, phase: &WorkPhase) -> Vec<LifecycleEve
     }
     events
 }
-
 #[cfg(test)]
 mod tests {
     use gent_types::{NormalizedProviderEvent, TurnPhase, WorkPhase};

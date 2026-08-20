@@ -59,10 +59,83 @@ fn claude(frame: &Value) -> Vec<PublicWireFact> {
         Some("system") if string(frame, "subtype") == Some("init") => {
             session(frame, "session_id", "malformedClaudeInit")
         }
+        Some("stream_event") => claude_stream_event(frame),
         Some("assistant") => claude_assistant(frame),
         Some("result") => claude_result(frame),
         _ => diagnostic("unsupportedClaudeFrame"),
     }
+}
+
+/// Reduces Claude's nested streaming envelope without retaining provider-native payloads.
+///
+/// The public runner already owns the durable Gent turn, so Claude's `message_start` cannot
+/// create a second turn from its opaque provider message id. It is nevertheless liveness proof.
+fn claude_stream_event(frame: &Value) -> Vec<PublicWireFact> {
+    let Some(event) = frame.get("event") else {
+        return diagnostic("malformedClaudeStreamEvent");
+    };
+    match string(event, "type") {
+        Some("message_start") => vec![PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootActivity {
+                activity: RootActivity::Generating,
+            },
+        )],
+        Some("content_block_start") => claude_stream_block_start(event),
+        Some("content_block_delta") => claude_stream_delta(event),
+        Some("content_block_stop")
+        | Some("message_stop")
+        | Some("message_delta")
+        | Some("ping") => Vec::new(),
+        Some(_) => diagnostic("unsupportedClaudeStreamEvent"),
+        None => diagnostic("malformedClaudeStreamEvent"),
+    }
+}
+
+fn claude_stream_block_start(event: &Value) -> Vec<PublicWireFact> {
+    let Some(block) = event.get("content_block") else {
+        return diagnostic("malformedClaudeContentBlockStart");
+    };
+    match string(block, "type") {
+        Some("tool_use") => {
+            tool_activity(block, ToolPhase::Started, "malformedClaudeToolUse", false)
+        }
+        Some("text") | Some("thinking") => Vec::new(),
+        Some(_) => diagnostic("unsupportedClaudeContentBlock"),
+        None => diagnostic("malformedClaudeContentBlockStart"),
+    }
+}
+
+fn claude_stream_delta(event: &Value) -> Vec<PublicWireFact> {
+    let Some(delta) = event.get("delta") else {
+        return diagnostic("malformedClaudeContentBlockDelta");
+    };
+    match string(delta, "type") {
+        Some("text_delta") => partial_text(delta, "text", false),
+        Some("thinking_delta") => partial_text(delta, "thinking", true),
+        // Claude supplies only a content-block index here. Associating it with a tool ID needs
+        // runner-owned block state, so a frame-local reducer must not guess.
+        Some("input_json_delta") => Vec::new(),
+        Some(_) => diagnostic("unsupportedClaudeContentBlockDelta"),
+        None => diagnostic("malformedClaudeContentBlockDelta"),
+    }
+}
+
+fn partial_text(delta: &Value, field: &str, thinking: bool) -> Vec<PublicWireFact> {
+    let Some(text) = string(delta, field).filter(|text| !text.is_empty()) else {
+        return diagnostic("malformedClaudeContentBlockDelta");
+    };
+    let event = if thinking {
+        NormalizedProviderEvent::Thinking {
+            text: text.into(),
+            is_partial: true,
+        }
+    } else {
+        NormalizedProviderEvent::Output {
+            text: text.into(),
+            is_partial: true,
+        }
+    };
+    vec![PublicWireFact::Event(event)]
 }
 
 fn session(frame: &Value, field: &str, invalid: &str) -> Vec<PublicWireFact> {

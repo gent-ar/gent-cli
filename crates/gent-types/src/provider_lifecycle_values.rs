@@ -56,6 +56,12 @@ pub enum NormalizedProviderEvent {
         text: String,
         is_partial: bool,
     },
+    /// Provider-supplied reasoning content. This remains distinct from assistant output so a
+    /// client can apply its own disclosure policy without treating it as an answer.
+    Thinking {
+        text: String,
+        is_partial: bool,
+    },
     TurnStarted {
         turn_id: String,
     },
