@@ -15,11 +15,7 @@ use crate::{
 };
 
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    if args.agent_chat_authority {
-        return Err(
-            "--agent-chat-authority and --ordinary-authority are mutually exclusive".into(),
-        );
-    }
+    validate_profile(&args)?;
     let data_dir = args
         .data_dir
         .clone()
@@ -56,6 +52,36 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     daemon_bootstrap::serve_ordinary(runtime, &args, &data_dir).await
 }
 
+fn validate_profile(args: &Args) -> Result<(), String> {
+    if args.agent_chat_authority {
+        return Err(
+            "--agent-chat-authority and --ordinary-authority are mutually exclusive".into(),
+        );
+    }
+    if args.ordinary_authority_release.is_none() {
+        return Err("ordinary authority requires --ordinary-authority-release".into());
+    }
+    if args.ordinary_authority_keys.is_empty() {
+        return Err("ordinary authority requires --ordinary-authority-key".into());
+    }
+    let conflicting = args.compatibility_cache.is_some()
+        || !args.compatibility_keys.is_empty()
+        || args.runtime_update_check_authority
+        || args.runtime_update_plan_authority
+        || args.runtime_update_recover_authority
+        || args.runtime_update_attempt_id.is_some()
+        || args.runtime_release_cache.is_some()
+        || args.runtime_release_trust.is_some()
+        || !args.runtime_release_keys.is_empty()
+        || args.verify_runtime_update_material
+        || args.runtime_release_manifest.is_some()
+        || args.runtime_release_archive.is_some()
+        || args.runtime_release_archive_manifest.is_some();
+    (!conflicting).then_some(()).ok_or_else(|| {
+        "ordinary authority cannot combine compatibility or runtime-update settings".into()
+    })
+}
+
 fn keys(values: &[String]) -> Result<BTreeMap<String, VerifyingKey>, String> {
     if values.is_empty() {
         return Err("ordinary authority requires --ordinary-authority-key".into());
@@ -87,3 +113,7 @@ fn keys(values: &[String]) -> Result<BTreeMap<String, VerifyingKey>, String> {
     }
     Ok(keys)
 }
+
+#[cfg(test)]
+#[path = "ordinary_authority_bootstrap_tests.rs"]
+mod tests;

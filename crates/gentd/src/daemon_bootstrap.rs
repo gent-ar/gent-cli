@@ -23,10 +23,10 @@ pub(crate) struct Args {
     socket: Option<PathBuf>,
     /// Read-only cache of a previously verified signed compatibility manifest.
     #[arg(long, env = "GENT_COMPATIBILITY_CACHE")]
-    compatibility_cache: Option<PathBuf>,
+    pub(crate) compatibility_cache: Option<PathBuf>,
     /// Trusted public key as `key-id:lowercase-hex`; may be passed more than once.
     #[arg(long = "compatibility-key", env = "GENT_COMPATIBILITY_KEY")]
-    compatibility_keys: Vec<String>,
+    pub(crate) compatibility_keys: Vec<String>,
     /// Durable chat persistence only; never providers, MCP, Git, or the private bridge.
     #[arg(long, env = "GENT_AGENT_CHAT_AUTHORITY")]
     pub(crate) agent_chat_authority: bool,
@@ -42,39 +42,39 @@ pub(crate) struct Args {
     /// Serve only a locally cached, revalidated signed runtime-release report.
     /// This does not enable downloads, staging, activation, or self-replacement.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_CHECK_AUTHORITY")]
-    runtime_update_check_authority: bool,
+    pub(crate) runtime_update_check_authority: bool,
     /// Durably plan one already-cached signed runtime release.
     /// This opt-in authority never downloads, stages, health-checks, or replaces this process.
     /// It exists to make an approved external-supervisor handoff auditable before activation is
     /// wired into a later delivery phase.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_PLAN_AUTHORITY")]
-    runtime_update_plan_authority: bool,
+    pub(crate) runtime_update_plan_authority: bool,
     /// Confirm a staged successor and open its new writer epoch after binding local IPC.
     /// This is only for an external supervisor after it has verified and started the exact staged
     /// Gent pair. It does not download, stage, replace, or launch another process.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_RECOVER_AUTHORITY")]
-    runtime_update_recover_authority: bool,
+    pub(crate) runtime_update_recover_authority: bool,
     #[arg(long, env = "GENT_RUNTIME_UPDATE_ATTEMPT_ID")]
-    runtime_update_attempt_id: Option<String>,
+    pub(crate) runtime_update_attempt_id: Option<String>,
     /// Cached signed release metadata required by the explicit read-only check profile.
     #[arg(long, env = "GENT_RUNTIME_RELEASE_CACHE")]
-    runtime_release_cache: Option<PathBuf>,
+    pub(crate) runtime_release_cache: Option<PathBuf>,
     /// Sigstore-verified public trust document published with runtime release metadata.
     #[arg(long, env = "GENT_RUNTIME_RELEASE_TRUST")]
-    runtime_release_trust: Option<PathBuf>,
+    pub(crate) runtime_release_trust: Option<PathBuf>,
     /// Trusted release key as `key-id:lowercase-hex`; may be passed more than once.
     #[arg(long = "runtime-release-key", env = "GENT_RUNTIME_RELEASE_KEY")]
-    runtime_release_keys: Vec<String>,
+    pub(crate) runtime_release_keys: Vec<String>,
     /// Verify staged update metadata and write its cache, then exit without opening a host.
     #[arg(long)]
-    verify_runtime_update_material: bool,
+    pub(crate) verify_runtime_update_material: bool,
     /// Bootstrap file paths, valid only with `--verify-runtime-update-material`.
     #[arg(long)]
-    runtime_release_manifest: Option<PathBuf>,
+    pub(crate) runtime_release_manifest: Option<PathBuf>,
     #[arg(long)]
-    runtime_release_archive: Option<PathBuf>,
+    pub(crate) runtime_release_archive: Option<PathBuf>,
     #[arg(long)]
-    runtime_release_archive_manifest: Option<PathBuf>,
+    pub(crate) runtime_release_archive_manifest: Option<PathBuf>,
 }
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
