@@ -11,8 +11,8 @@ use gent_drivers::lock::capture;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use gent_types::{
-    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, NormalizedProviderEvent,
-    SandboxWorkspaceAccess,
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection,
+    NormalizedLifecycleSignal, NormalizedProviderEvent, SandboxWorkspaceAccess, ToolPhase,
 };
 
 #[derive(Default)]
@@ -130,4 +130,32 @@ fn unknown_or_duplicate_permission_requests_never_write_a_response() {
             .is_err()
     );
     assert_eq!(state.writes.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn runner_correlates_native_tool_results_with_the_preceding_tool_start() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = runner(directory.path(), &state);
+    state.output.lock().unwrap().push_back(
+        br#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tool-1","name":"Bash"}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"private output"}]}}
+"#
+        .to_vec(),
+    );
+
+    let effects = runner.poll("run-1").unwrap().unwrap();
+    assert!(matches!(
+        &effects[0],
+        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::ToolActivity { activity }
+        )) if activity.tool_use_id == "tool-1" && activity.tool_name == "Bash" && activity.phase == ToolPhase::Started
+    ));
+    assert!(matches!(
+        &effects[1],
+        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::ToolActivity { activity }
+        )) if activity.tool_use_id == "tool-1" && activity.tool_name == "Bash" && activity.phase == ToolPhase::Completed && activity.output_digest.as_deref().is_some_and(|digest| digest.starts_with("sha256:"))
+    ));
+    assert!(!format!("{effects:?}").contains("private output"));
 }
