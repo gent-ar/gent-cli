@@ -43,9 +43,13 @@ mod claude_prompt_lifecycle_failure_tests;
 #[cfg(test)]
 mod claude_prompt_lifecycle_tests;
 #[allow(dead_code)]
+mod claurst_acp_transport;
+#[allow(dead_code)]
 mod claurst_local_runtime;
 #[allow(dead_code)]
 mod claurst_local_runtime_owner;
+#[cfg(test)]
+mod claurst_local_runtime_owner_tests;
 #[allow(dead_code)]
 mod codex_authority_composition;
 #[allow(dead_code)]

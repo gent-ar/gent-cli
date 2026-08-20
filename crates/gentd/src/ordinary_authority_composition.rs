@@ -31,6 +31,8 @@ use crate::ordinary_lifecycle_router::{
 use crate::provider_lifecycle_host::ProviderLifecycleHost;
 use crate::runtime_facade::DaemonCompositionState;
 
+mod local_provider_locks;
+
 const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
 
 /// Failure before or while assembling the dormant ordinary lifecycle router.
