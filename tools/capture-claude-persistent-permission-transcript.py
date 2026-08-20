@@ -73,7 +73,7 @@ def command(binary: Path, model: str) -> list[str]:
 
 
 def prompt_for(expected: str) -> str:
-    return f"Run `{expected}` exactly twice. Do not use any other tool or command. Then reply exactly {MARKER} and nothing else."
+    return f"Run `{expected}` exactly twice, as two separate tool calls. Do not use any other tool or command. Then reply exactly {MARKER} and nothing else."
 
 
 def frames() -> list[dict[str, object]]:

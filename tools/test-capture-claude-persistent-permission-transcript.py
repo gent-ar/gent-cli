@@ -21,6 +21,19 @@ sys.path.insert(0, str(ROOT / "tools"))
 from public_driver_capture_permission import PersistentPermissionReader  # noqa: E402
 
 
+class FakeStdin:
+    """Records every `control_response` written back, like a real process's stdin pipe."""
+
+    def __init__(self) -> None:
+        self.written: list[dict] = []
+
+    def write(self, data: bytes) -> None:
+        self.written.append(json.loads(data))
+
+    def flush(self) -> None:
+        pass
+
+
 def test_dry_run_does_not_start_provider() -> None:
     output = ROOT / "fixtures/public-driver-transcripts/capture-permission-test.jsonl"
     result = subprocess.run([sys.executable, str(SCRIPT), "--model", "haiku", "--output", str(output), "--dry-run"], text=True, capture_output=True, check=False)
@@ -39,59 +52,54 @@ def test_dry_run_does_not_start_provider() -> None:
     assert not output.exists()
 
 
-def test_reader_confirms_persistence_without_a_second_prompt() -> None:
+def control_request(request_id: str, command: str, suggestions: list | None = None) -> str:
+    return json.dumps({"type": "control_request", "request_id": request_id, "request": {
+        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": command},
+        "permission_suggestions": suggestions or [],
+    }})
+
+
+def test_reader_auto_grants_a_second_identical_request() -> None:
     expected = "mkdir -p /tmp/gent-evidence/approved"
-    lines = [
-        json.dumps({"type": "control_request", "request_id": "r1", "request": {
-            "subtype": "can_use_tool", "tool_name": "Bash",
-            "input": {"command": expected},
-            "permission_suggestions": [{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": expected}], "behavior": "allow"}],
-        }}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "Bash", "id": "one", "input": {"command": expected}},
-        ]}}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "Bash", "id": "two", "input": {"command": expected}},
-        ]}}),
-        json.dumps({"type": "result", "subtype": "success", "is_error": False}),
+    suggestions = [
+        {"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": expected}], "destination": "localSettings"},
+        {"type": "addDirectories", "directories": ["/tmp/gent-evidence"], "destination": "session"},
     ]
-    reader = PersistentPermissionReader(1 << 20, expected)
+    lines = [
+        control_request("r1", expected, suggestions),
+        control_request("r2", expected, suggestions),
+        json.dumps({"type": "result", "subtype": "success", "is_error": False, "permission_denials": []}),
+    ]
+    stdin = FakeStdin()
+    reader = PersistentPermissionReader(1 << 20, expected, stdin)
     reader.drain(io.BytesIO(("\n".join(lines) + "\n").encode()))
-    assert reader.approval_requested.is_set()
-    assert reader.second_call_seen.is_set()
+    assert reader.first_approval.is_set()
+    assert reader.second_approval.is_set()
     assert reader.terminal.is_set()
-    assert not reader.reprompted.is_set()
-    assert reader.request is not None
-    suggestions = reader.request["request"]["permission_suggestions"]
-    assert suggestions[0]["type"] == "addRules"
-
-
-def test_reader_flags_a_second_prompt_as_non_persistence() -> None:
-    expected = "mkdir -p /tmp/gent-evidence/approved"
-    request = {"type": "control_request", "request_id": "r1", "request": {
-        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": expected},
-    }}
-    lines = [json.dumps(request), json.dumps({**request, "request_id": "r2"})]
-    reader = PersistentPermissionReader(1 << 20, expected)
-    reader.drain(io.BytesIO(("\n".join(lines) + "\n").encode()))
-    assert reader.approval_requested.is_set()
-    assert reader.reprompted.is_set()
+    assert reader.result is not None and not reader.result["permission_denials"]
+    # Both requests were answered "allow", and the session-scoped suggestion was chosen
+    # over the disk-persisted one — the CLI relays every request; this client remembers.
+    assert len(stdin.written) == 2
+    for response in stdin.written:
+        body = response["response"]["response"]
+        assert body["behavior"] == "allow"
+        assert body["updatedPermissions"][0]["destination"] == "session"
+    assert stdin.written[0]["response"]["request_id"] == "r1"
+    assert stdin.written[1]["response"]["request_id"] == "r2"
 
 
 def test_reader_ignores_an_unrelated_command() -> None:
     expected = "mkdir -p /tmp/gent-evidence/approved"
-    other = json.dumps({"type": "control_request", "request_id": "r1", "request": {
-        "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "rm -rf /"},
-    }})
-    reader = PersistentPermissionReader(1 << 20, expected)
-    reader.drain(io.BytesIO((other + "\n").encode()))
-    assert not reader.approval_requested.is_set()
+    stdin = FakeStdin()
+    reader = PersistentPermissionReader(1 << 20, expected, stdin)
+    reader.drain(io.BytesIO((control_request("r1", "rm -rf /") + "\n").encode()))
+    assert not reader.first_approval.is_set()
+    assert not stdin.written
 
 
 def main() -> None:
     test_dry_run_does_not_start_provider()
-    test_reader_confirms_persistence_without_a_second_prompt()
-    test_reader_flags_a_second_prompt_as_non_persistence()
+    test_reader_auto_grants_a_second_identical_request()
     test_reader_ignores_an_unrelated_command()
     print("Claude persistent-permission capture checks passed")
 

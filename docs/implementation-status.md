@@ -261,16 +261,15 @@ For the current working-tree context and continuation order, read [the handoff](
    An enabling composition must atomically record normalized source/session/cursor/delta/terminal
    state and replay from durable cursors; see [the test matrix](native-app-cutover-readiness.md#atomic-session-and-restart-proof).
    Until approved, Flutter and terminal clients must not treat activity as live truth.
-3. [ ] The strict public evidence program has six Claude/Codex cells. Two Codex cells are
-   recorded; four remain: Claude persistent-permission, compaction, malformed-tolerance, and
-   Codex malformed-tolerance. Captures must be redacted, scenario-specific, and live. A malformed
-   capture additionally needs a documented provider-emitted fault control, diagnostic, and
-   following ordinary frame; proxy or injected corruption is rejected.
-   `--permission-prompt-tool` is undocumented (absent from `claude --help` on 2.1.235) but real and
-   functional (`claude --permission-prompt-tool stdio --version` exits 0), matching the native
-   app's own `control_request`/`control_response` relay over `stream-json` stdio, never an
-   external MCP server; the capture tool now uses that pattern and is unblocked. Compaction has no
-   bounded structural signal yet; Codex CLI 0.144.1/0.147.0 expose no output-fault control.
+3. [ ] The strict public evidence program has six Claude/Codex cells. Claude persistent-permission
+   is now recorded live (2026-08-19, `claude-permission-persistent-haiku-20260819.jsonl`); three
+   remain: Claude compaction, Claude malformed-tolerance, Codex malformed-tolerance. Captures must
+   be redacted, scenario-specific, and live; malformed needs a documented provider-emitted fault
+   control, diagnostic, and following ordinary frame — proxy/injected corruption is rejected. The
+   persistent-permission capture uses the app's own `--permission-prompt-tool stdio` relay (real,
+   undocumented) — the CLI relays every decision every time; the CLIENT remembers a grant and
+   auto-responds to a repeat identical request (see `docs/continuation-handoff.md`). Compaction has
+   no bounded structural signal yet; Codex 0.144.1/0.147.0 expose no output-fault control.
 4. [ ] The authenticated Claurst bridge and its CI evidence belong only in app-owned private
    code. Public Gent must never contain Claurst credentials, endpoints, or routing implementation.
 5. [ ] No data upgrade path, dual-run, compatibility layer, or deployed fence-aware legacy

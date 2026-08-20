@@ -215,14 +215,21 @@ normalizes, persists, cursor-orders, and streams the client-visible truth.
 
 ## Evidence status
 
-- Two strict Codex cells are recorded. Four strict cells are missing: Claude persistent
-  permission, compaction, malformed tolerance, and Codex malformed tolerance.
-  Claurst needs private bridge/CI evidence. Never fabricate recordings.
+- Claude persistent-permission is now RECORDED live (2026-08-19,
+  `claude-permission-persistent-haiku-20260819.jsonl`). Three strict cells remain missing: Claude
+  compaction, Claude malformed-tolerance, Codex malformed-tolerance. Claurst needs private
+  bridge/CI evidence. Never fabricate recordings.
 - `--permission-prompt-tool` is undocumented (absent from `claude --help` on 2.1.235) but real and
-  functional, verified live — matches the native app's own Claude adapter, which uses it
-  unconditionally via `control_request`/`control_response` over `stream-json` stdio, never an
-  external MCP server. `tools/capture-claude-persistent-permission-transcript.py` now uses that
-  exact pattern; persistent-permission capture is unblocked. Compaction/malformed-tolerance capture
+  functional, verified live — matches the native app's own Claude adapter. **Verified live
+  mechanism (important, non-obvious): the CLI relays every `can_use_tool` decision through this
+  channel EVERY time, even for an identical repeated command in the same turn, and even in a
+  fresh process that already has the grant written to `.claude/settings.local.json`. Persistence
+  is NOT CLI-side — it's the CLIENT's job to remember an already-granted `updatedPermissions` rule
+  and auto-respond to a later identical request without involving a human again.** Also found and
+  fixed two capture-tool bugs blocking this: premature `stdin.close()` breaks the relay
+  mid-exchange, and `stream.read(8192)` blocks indefinitely when Claude goes silent waiting
+  synchronously for a response — must use `readline()` for this bidirectional case, not chunked
+  reads (see `tools/public_driver_capture_permission.py`). Compaction/malformed-tolerance capture
   (both vendors, `0.144.1` observed for Codex) still has no documented bounded signal to capture.
 - Use `python3 tools/update-public-driver-transcripts.py`; keep captures redacted
   and admitted only through the transcript manifest.
@@ -259,6 +266,8 @@ the daemon facade observer test. Re-run all of it after nontrivial changes.
 - `docs/architecture.md`: crate dependency/composition law.
 - `docs/multi-agent-orchestration-plan.md`: planned daemon-owned fanout and
   cross-vendor review contract.
+- `docs/claude-codex-authority-port-plan.md`: file-by-file map from the native app's proven
+  Claude/Codex drivers into gent-cli's dormant Rust authority composition (item 4).
 
 Before major scope decisions, read the original app planning source only:
 `/Users/ivanmatiasfort/Clouseau/clouseau-app/GENT-CLI/README.md`, then
@@ -266,34 +275,23 @@ Before major scope decisions, read the original app planning source only:
 
 ## Latest continuation state (2026-08-19, revised)
 
-- `main` is at `83d3495` (item 1, committed). Items 2 and 3 below are **uncommitted**,
-  pending approval. `clouseau-app` is read for reference only, never edited.
-- Item 1 (`83d3495`): bound the signed release's digest through
-  `ProviderPromptProvisionCommandBinding`/`ProviderInstallProvenance`, added
-  `Command::receipt_fingerprint_sha256()`, bumped schema to `v10`, and made the effect
-  re-verify the release immediately before npm (mismatch settles `Unprovable`, never
-  retried). Split five oversized files into siblings.
-- Item 2: `prompt_provider_provision_profile_{support,tests}.rs` compose a REAL
-  `RuntimeFacade` (`from_state_with_prompt_provider_provision_authority`, still uncalled by
-  bootstrap) — real ledger, boundary, digest-bound provisioner, signed-release fixture; only
-  the npm/binary boundary is a double. Four tests drive it over the real wire codec:
-  persist-before-broadcast, cursor reread/reconnect, exact-retry idempotency, terminal
-  settlement. Turn-follow/backpressure/context-switch/`/goal` belong to item 4, not this
-  npm-install profile.
-- Item 3 (evidence tooling, not authority code): "Claude Code lacks `--permission-prompt-tool`"
-  was wrong — verified live, undocumented but functional; the app uses it unconditionally via
-  `control_request`/`control_response` over `stream-json` stdio, never an external MCP server.
-  Rewrote the capture script + added `tools/public_driver_capture_permission.py` on that proven
-  pattern; persistent-permission capture is unblocked. Corrected the same stale claim in
-  `docs/implementation-status.md`.
-- Verification passed for items 1–2; item 3 is Python-only (syntax + its own no-provider tests
-  passed; no live capture run yet — needs your go-ahead). Standing decisions: reuse the Ed25519
-  trust root; no `Sha256Digest` newtype; never embed/depend on the app's code at gent-cli
-  runtime, but DO mine its proven protocol knowledge into gent-cli's own Rust implementation;
-  reject independent evidence/key paths, snapshots, fake containment, public Claurst.
+- `main` is at `83d3495` (item 1) and `975c096` (item 2) — see commit messages for detail, not
+  repeated here. Item 3 below is **uncommitted**, pending approval. `clouseau-app` is read-only
+  reference, never edited.
+- Item 3 (evidence tooling — DONE, real live evidence captured): "Claude lacks
+  `--permission-prompt-tool`" was wrong. Fixed `tools/capture-claude-persistent-permission-
+  transcript.py` + `tools/public_driver_capture_permission.py`; `claude/permission_persistent` is
+  now RECORDED. See "Evidence status" above for the mechanism finding (client-side grant memory,
+  not CLI-side) and two capture-tool bugs fixed (premature stdin close; `read(8192)` deadlocks
+  against a CLI gone silent mid-relay — needed `readline()`).
+- New: `/Users/ivanmatiasfort/Clouseau/gent-cli/CLAUDE.md` — durable rule to always check
+  `clouseau-app`'s drivers before designing/debugging provider protocol behavior.
+- Verification passed for all three items. Standing decisions unchanged: reuse the Ed25519 trust
+  root; no `Sha256Digest` newtype; never embed/depend on the app's code at gent-cli runtime, but
+  DO mine its proven protocol knowledge into gent-cli's own Rust; reject independent evidence/key
+  paths, snapshots, fake containment, public Claurst.
 
-Resume here: capture the now-unblocked `claude/permission_persistent` cell (needs your authenticated
-Claude CLI + go-ahead). Compaction/malformed-tolerance (both vendors) still need a documented
-bounded signal. Item 4 (Claude/Codex authority composition) is the real unlock for items 3+ —
-build it by porting proven behavior from `{claude,codex}_driver.dart`, not from scratch. Terminal
-parity (item 5) is independently tractable meanwhile.
+Resume here: item 4 (Claude/Codex authority composition) is the real unlock for items 3+. Read
+`docs/claude-codex-authority-port-plan.md` before writing any Rust for it. Compaction/malformed-
+tolerance capture (both vendors) has no documented bounded signal — lower priority than item 4.
+Terminal parity (item 5) is independently tractable meanwhile.
