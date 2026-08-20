@@ -79,6 +79,7 @@ mod goal_transport;
 #[cfg(test)]
 mod goal_transport_tests;
 mod host_lock;
+mod local_model_catalog;
 mod locked_provider_resolver;
 #[allow(dead_code)]
 mod node_runtime_lock;

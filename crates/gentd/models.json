@@ -1,0 +1,20 @@
+{
+  "models": [
+    {
+      "id": "qwen3-4b-q4-k-m",
+      "label": "Qwen3 4B (Q4_K_M)",
+      "huggingface_url": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF/resolve/cb76885dc66d50759b207c5a48c4e78dfa00c638/Qwen_Qwen3-4B-Q4_K_M.gguf",
+      "local_filename": "qwen3-4b-q4-k-m.gguf",
+      "provider_model_id": "qwen3-4b-q4-k-m",
+      "size_bytes": 2497280960
+    },
+    {
+      "id": "qwen3-1-7b-q4-k-m",
+      "label": "Qwen3 1.7B (Q4_K_M)",
+      "huggingface_url": "https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/dcb19155b962dbb6389f4691a982043a8e651022/Qwen_Qwen3-1.7B-Q4_K_M.gguf",
+      "local_filename": "qwen3-1-7b-q4-k-m.gguf",
+      "provider_model_id": "qwen3-1-7b-q4-k-m",
+      "size_bytes": 1282439584
+    }
+  ]
+}

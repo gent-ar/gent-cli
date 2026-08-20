@@ -8,6 +8,8 @@ use serde_json::Value;
 
 use super::{PublicCompactionObservation, PublicWireFact};
 
+mod subagent;
+
 /// Reduces one current Codex app-server frame without retaining its raw payload.
 pub(super) fn normalize(frame: &Value) -> Vec<PublicWireFact> {
     match string(frame, "method") {
@@ -22,6 +24,9 @@ pub(super) fn normalize(frame: &Value) -> Vec<PublicWireFact> {
         Some("turn/plan/updated") => plan_update(frame),
         Some("item/plan/delta") => plan_delta(frame),
         Some("thread/compacted") => diagnostic("codexContextCompacted"),
+        // The turn bridge separately recognizes terminal child status only after an
+        // explicit launch correlation. A root-thread status is otherwise inert.
+        Some("thread/status/changed") => Vec::new(),
         Some(method) if method.ends_with("requestApproval") => attention(),
         Some(method) if housekeeping(method) => Vec::new(),
         Some(_) => diagnostic("unsupportedCodexNotification"),
@@ -117,6 +122,12 @@ fn item(frame: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
     };
     match string(item, "type") {
         Some("contextCompaction") => compaction(item, &phase),
+        // Current Codex app-server versions publish a child launch as a completed
+        // `subAgentActivity { kind: "started" }` receipt. The item id is the
+        // parent Agent tool and `agentThreadId` is the child identity; retain only
+        // that proven relationship rather than treating the receipt as a completed
+        // generic tool.
+        Some("subAgentActivity") => subagent::started(item, phase),
         Some(kind) if tool_kind(kind) => tool_activity(item, phase),
         Some(kind) if inert_item(kind) => Vec::new(),
         Some(_) => diagnostic("unsupportedCodexItem"),
@@ -236,7 +247,6 @@ fn tool_kind(kind: &str) -> bool {
             | "dynamicToolCall"
             | "collabAgentToolCall"
             | "collabToolCall"
-            | "subAgentActivity"
             | "webSearch"
             | "imageView"
             | "imageGeneration"

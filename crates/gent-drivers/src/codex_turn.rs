@@ -3,7 +3,9 @@
 //! The daemon-owned process edge writes only the returned frames and persists only the returned
 //! facts. It never receives raw provider fields, native identities, or unbounded output here.
 
-use gent_types::{GoalProjection, NormalizedProviderEvent};
+use std::collections::BTreeMap;
+
+use gent_types::{GoalProjection, NormalizedProviderEvent, WorkPhase};
 use serde_json::Value;
 
 use crate::PublicProvider;
@@ -40,6 +42,9 @@ pub enum CodexTurnError {
 pub struct CodexTurnDriver {
     session: CodexAppServerSession,
     prompt: Option<String>,
+    /// Child-thread ownership learned only from Codex's explicit launch receipt.
+    /// Root thread status frames therefore cannot accidentally settle child work.
+    child_parent_by_thread: BTreeMap<String, String>,
 }
 
 impl CodexTurnDriver {
@@ -60,6 +65,7 @@ impl CodexTurnDriver {
             Self {
                 session,
                 prompt: Some(prompt),
+                child_parent_by_thread: BTreeMap::new(),
             },
             vec![CodexTurnEffect::Write(initialize)],
         ))
@@ -90,7 +96,7 @@ impl CodexTurnDriver {
         }
         let notification = frame.get("method").and_then(Value::as_str).is_some();
         let mut effects = if notification {
-            facts(&frame)
+            self.facts(&frame)
         } else {
             Vec::new()
         };
@@ -149,11 +155,52 @@ fn writes(effects: &mut Vec<CodexTurnEffect>, frames: Vec<Vec<u8>>) {
     effects.extend(frames.into_iter().map(CodexTurnEffect::Write));
 }
 
-fn facts(frame: &Value) -> Vec<CodexTurnEffect> {
-    normalize_public_frame(PublicProvider::Codex, frame)
-        .into_iter()
-        .map(CodexTurnEffect::Fact)
-        .collect()
+impl CodexTurnDriver {
+    fn facts(&mut self, frame: &Value) -> Vec<CodexTurnEffect> {
+        let facts = normalize_public_frame(PublicProvider::Codex, frame);
+        for fact in &facts {
+            if let PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
+                child_id,
+                parent_tool_use_id,
+            }) = fact
+            {
+                self.child_parent_by_thread
+                    .entry(child_id.clone())
+                    .or_insert_with(|| parent_tool_use_id.clone());
+            }
+        }
+        let mut effects: Vec<_> = facts.into_iter().map(CodexTurnEffect::Fact).collect();
+        if let Some((child_id, phase)) = child_terminal(frame, &self.child_parent_by_thread) {
+            self.child_parent_by_thread.remove(&child_id);
+            effects.push(CodexTurnEffect::Fact(PublicWireFact::Event(
+                NormalizedProviderEvent::ChildTerminal { child_id, phase },
+            )));
+        }
+        effects
+    }
+}
+
+fn child_terminal(
+    frame: &Value,
+    children: &BTreeMap<String, String>,
+) -> Option<(String, WorkPhase)> {
+    if frame.get("method").and_then(Value::as_str) != Some("thread/status/changed") {
+        return None;
+    }
+    let child_id = frame.pointer("/params/threadId").and_then(Value::as_str)?;
+    if !children.contains_key(child_id) {
+        return None;
+    }
+    let phase = match frame
+        .pointer("/params/status/type")
+        .and_then(Value::as_str)?
+    {
+        "systemError" => WorkPhase::Failed,
+        "cancelled" | "canceled" | "aborted" | "timedOut" => WorkPhase::Interrupted,
+        // `idle` is availability, not evidence that the child completed its assignment.
+        _ => return None,
+    };
+    Some((child_id.into(), phase))
 }
 
 fn diagnostic(classification: &str) -> Vec<CodexTurnEffect> {

@@ -4,7 +4,7 @@ use gent_drivers::public_protocol::PublicWireFact;
 use gent_types::{
     AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
     AgentChatSelection, GOAL_SCHEMA_VERSION, GoalBinding, GoalProjection, GoalRecord, GoalStatus,
-    NormalizedProviderEvent,
+    NormalizedProviderEvent, WorkPhase,
 };
 use serde_json::{Value, json};
 
@@ -193,4 +193,47 @@ fn fails_closed_for_server_to_client_requests_without_wedging_the_turn() {
     ));
     let next = driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
     assert_eq!(frames(&next)[1]["method"], json!("thread/start"));
+}
+
+#[test]
+fn settles_only_a_known_child_thread_on_explicit_failure_or_cancellation() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    let launch = driver
+        .receive(br#"{"method":"item/completed","params":{"item":{"type":"subAgentActivity","kind":"started","id":"parent-tool-1","agentThreadId":"child-thread-1"}}}"#)
+        .unwrap();
+    assert!(
+        launch.contains(&CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ChildStarted {
+                child_id: "child-thread-1".into(),
+                parent_tool_use_id: "parent-tool-1".into(),
+            }
+        )))
+    );
+
+    let root_idle = driver
+        .receive(br#"{"method":"thread/status/changed","params":{"threadId":"root-thread","status":{"type":"systemError"}}}"#)
+        .unwrap();
+    assert!(root_idle.is_empty());
+
+    let idle = driver
+        .receive(br#"{"method":"thread/status/changed","params":{"threadId":"child-thread-1","status":{"type":"idle"}}}"#)
+        .unwrap();
+    assert!(idle.is_empty());
+
+    let terminal = driver
+        .receive(br#"{"method":"thread/status/changed","params":{"threadId":"child-thread-1","status":{"type":"systemError"}}}"#)
+        .unwrap();
+    assert_eq!(
+        terminal,
+        vec![CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ChildTerminal {
+                child_id: "child-thread-1".into(),
+                phase: WorkPhase::Failed,
+            }
+        ))]
+    );
+    let duplicate = driver
+        .receive(br#"{"method":"thread/status/changed","params":{"threadId":"child-thread-1","status":{"type":"cancelled"}}}"#)
+        .unwrap();
+    assert!(duplicate.is_empty());
 }

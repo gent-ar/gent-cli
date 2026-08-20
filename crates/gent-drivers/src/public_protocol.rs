@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::PublicProvider;
 
+mod claude_protocol;
 mod codex_protocol;
 
 /// A provider-neutral fact extracted without process, ledger, or UI access.
@@ -61,6 +62,15 @@ fn claude(frame: &Value) -> Vec<PublicWireFact> {
         }
         Some("stream_event") => claude_stream_event(frame),
         Some("assistant") => claude_assistant(frame),
+        Some("user") => claude_protocol::user(frame),
+        Some("system")
+            if matches!(
+                string(frame, "subtype"),
+                Some("task_started" | "task_progress")
+            ) =>
+        {
+            claude_protocol::background_activity(frame)
+        }
         Some("result") => claude_result(frame),
         _ => diagnostic("unsupportedClaudeFrame"),
     }
