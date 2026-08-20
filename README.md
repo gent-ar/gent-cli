@@ -1,8 +1,7 @@
 # Gent CLI
 
-`gent-cli` is the open-source Rust host runtime for Gent. It provides the
-versioned local protocol, durable command receipts and ledger used by `gentd`,
-and a thin `gent` command-line client.
+`gent-cli` is the open-source Rust host runtime for Gent. It provides the versioned local protocol,
+durable command receipts and ledger used by `gentd`, and a thin `gent` command-line client.
 
 ## Current milestone
 
@@ -47,26 +46,27 @@ than a second copy of application logic. The implemented vertical slice is:
 
 ### Intended product boundary
 
-Gent owns the agent-chat runtime: durable conversations, sessions, prompts,
-Claude and Codex public-driver orchestration, the private Claurst bridge behind
-its port, MCP, and authorized Git work. A future Flutter integration invokes
-`gent`/`gentd` through this local protocol; it never spawns a provider binary
-directly. A long-lived negotiated `gentd` connection is the future app boundary;
-`gent` may launch or diagnose that host, but it is not a per-prompt process
-substitute for subscriptions, receipt retries, or cursor resumption. `gentd` is
-the only component allowed to compose those capabilities.
+Gent owns the agent-chat runtime: durable conversations, sessions, prompts, Claude and Codex public-driver
+orchestration, the private Claurst bridge behind its port, MCP, and authorized Git work. A future Flutter integration
+invokes `gent`/`gentd` through this local protocol; it never spawns a provider binary directly. A long-lived negotiated
+`gentd` connection is the future app boundary; `gent` may launch or diagnose that host, but it is not a per-prompt
+process substitute for subscriptions, receipt retries, or cursor resumption. `gentd` is the only component allowed to compose those capabilities.
 
-The public protocol reserves strictly typed, capability-gated agent-chat reads
-and intents. By default the daemon refuses mutations. For isolated local
-testing, start `gentd --agent-chat-authority`: it advertises
-`agent-chat-intents-v1` and `orchestration-v1`, and durably accepts create/send/queue and graph-record requests through the same receipt and epoch checks. It still rejects provider lifecycle, transcript streaming, MCP, Git, and private-bridge actions.
+The public protocol reserves strictly typed, capability-gated agent-chat reads and intents. By default the daemon
+refuses mutations. The legacy `gentd --agent-chat-authority` profile is isolated local persistence testing: it
+advertises `agent-chat-intents-v1` and `orchestration-v1`, and durably accepts create/send/queue and graph-record
+requests through the same receipt and epoch checks. It still rejects provider lifecycle, transcript streaming, MCP, Git, and private-bridge actions.
+
+The separately explicit ordinary-authority profile composes the locked, signed Claude/Codex lifecycle authority. To
+start it through `gent`, set `GENT_ORDINARY_AUTHORITY=1`, `GENT_ORDINARY_AUTHORITY_RELEASE` to the signed release
+path, `GENT_ORDINARY_AUTHORITY_KEY` to its trusted `key-id:lowercase-hex` key, and `GENT_NODE_BINARY` to the locked
+Node runtime, then run `gent`. The client selects this profile only with that complete environment; `gentd` independently verifies and binds the release before it opens IPC or starts a provider.
 
 Every new chat conversation supplies a local workspace path (`gent` defaults it to the terminal current directory; `gent chat create --workspace PATH` overrides it). `gentd` canonicalizes that path once, then atomically binds the derived Gent workspace record to the conversation/root run. The accepted prompt path uses only that durable binding; it never treats the daemon cwd as project state. This is a safety foundation, not an advertised provider launcher.
 
 ### Milestone scope contract
 
-- `gent-cli` is the only CLI surface; it is a thin protocol client and must remain
-  a composition boundary, not a hidden authority plane.
+- `gent-cli` is the only CLI surface; it is a thin protocol client and must remain a composition boundary, not a hidden authority plane.
 - `gentd` composes only agent-chat domains. In the current observer milestone it hard-disables
   Git mutation, MCP spawning, and private bridge routing for live provider execution.
 - Modules do not import each other as peers; only `gentd` and `gent` are allowed to

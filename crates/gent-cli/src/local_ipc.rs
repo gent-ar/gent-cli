@@ -1,5 +1,6 @@
 //! Local transport selection; command composition remains in `main`.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -135,14 +136,68 @@ pub(crate) async fn connect_or_start(
         return Err("gentd is unavailable and --no-autostart was requested".into());
     }
     let daemon = std::env::var_os("GENTD_BIN").map_or_else(default_daemon_binary, PathBuf::from);
-    tokio::process::Command::new(daemon)
-        .arg("--data-dir")
-        .arg(data_dir)
+    let mut command = tokio::process::Command::new(daemon);
+    command
+        .args(daemon_arguments(data_dir)?)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
     wait_for_connection(data_dir).await
+}
+
+fn daemon_arguments(data_dir: &Path) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
+    daemon_arguments_from(
+        data_dir,
+        std::env::var_os("GENT_ORDINARY_AUTHORITY"),
+        std::env::var_os("GENT_ORDINARY_AUTHORITY_RELEASE"),
+        std::env::var_os("GENT_ORDINARY_AUTHORITY_KEY"),
+    )
+}
+
+fn daemon_arguments_from(
+    data_dir: &Path,
+    enabled: Option<OsString>,
+    release: Option<OsString>,
+    keys: Option<OsString>,
+) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
+    let mut arguments = vec![OsString::from("--data-dir"), data_dir.as_os_str().into()];
+    if ordinary_authority_requested(enabled, release, keys)? {
+        arguments.push(OsString::from("--ordinary-authority"));
+    }
+    Ok(arguments)
+}
+
+fn ordinary_authority_requested(
+    enabled: Option<OsString>,
+    release: Option<OsString>,
+    keys: Option<OsString>,
+) -> Result<bool, String> {
+    let configured = release.is_some() || keys.is_some();
+    let Some(enabled) = enabled else {
+        return configured
+            .then_some(Err(
+                "ordinary authority settings require GENT_ORDINARY_AUTHORITY=1".into(),
+            ))
+            .unwrap_or(Ok(false));
+    };
+    match enabled.to_string_lossy().as_ref() {
+        "1" | "true" => {
+            if release.is_none() {
+                return Err("ordinary authority requires GENT_ORDINARY_AUTHORITY_RELEASE".into());
+            }
+            if keys.is_none() {
+                return Err("ordinary authority requires GENT_ORDINARY_AUTHORITY_KEY".into());
+            }
+            Ok(true)
+        }
+        "0" | "false" => configured
+            .then_some(Err(
+                "ordinary authority release settings require GENT_ORDINARY_AUTHORITY=1".into(),
+            ))
+            .unwrap_or(Ok(false)),
+        _ => Err("GENT_ORDINARY_AUTHORITY must be 1, 0, true, or false".into()),
+    }
 }
 
 async fn wait_for_connection(data_dir: &Path) -> Result<LocalStream, Box<dyn std::error::Error>> {

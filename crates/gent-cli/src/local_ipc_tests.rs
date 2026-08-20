@@ -3,7 +3,8 @@ use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX};
 use tokio::net::UnixListener;
 
 use super::{
-    client_capabilities, default_daemon_binary, default_data_dir, request, wait_for_connection,
+    client_capabilities, daemon_arguments_from, default_daemon_binary, default_data_dir,
+    ordinary_authority_requested, request, wait_for_connection,
 };
 
 fn status() -> WireFrame {
@@ -154,6 +155,48 @@ fn client_requests_daemon_owned_provider_readiness_and_provisioning() {
             .0
             .contains(&gent_protocol::PROMPT_PROVIDER_PROVISION_CAPABILITY.into())
     );
+}
+
+#[test]
+fn ordinary_authority_requires_an_explicit_complete_environment_profile() {
+    assert!(!ordinary_authority_requested(None, None, None).unwrap());
+    assert!(
+        ordinary_authority_requested(Some("1".into()), None, None)
+            .unwrap_err()
+            .contains("RELEASE")
+    );
+    assert!(
+        ordinary_authority_requested(Some("1".into()), Some("release.json".into()), None)
+            .unwrap_err()
+            .contains("KEY")
+    );
+    assert!(
+        ordinary_authority_requested(None, Some("release.json".into()), None)
+            .unwrap_err()
+            .contains("GENT_ORDINARY_AUTHORITY")
+    );
+    assert!(
+        ordinary_authority_requested(
+            Some("1".into()),
+            Some("release.json".into()),
+            Some("release-key:abcd".into()),
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn daemon_arguments_include_the_selected_ordinary_authority_profile() {
+    let directory = tempfile::tempdir().unwrap();
+    let arguments = daemon_arguments_from(
+        directory.path(),
+        Some("1".into()),
+        Some("release.json".into()),
+        Some("release-key:abcd".into()),
+    )
+    .unwrap();
+    assert_eq!(arguments[0], "--data-dir");
+    assert_eq!(arguments[2], "--ordinary-authority");
 }
 
 #[tokio::test]
