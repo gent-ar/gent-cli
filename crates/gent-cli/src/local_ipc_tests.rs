@@ -199,6 +199,14 @@ fn daemon_arguments_include_the_selected_ordinary_authority_profile() {
     assert_eq!(arguments[2], "--ordinary-authority");
 }
 
+#[test]
+fn daemon_arguments_enable_durable_chat_when_no_provider_authority_is_selected() {
+    let directory = tempfile::tempdir().unwrap();
+    let arguments = daemon_arguments_from(directory.path(), None, None, None).unwrap();
+    assert_eq!(arguments[0], "--data-dir");
+    assert_eq!(arguments[2], "--agent-chat-authority");
+}
+
 #[tokio::test]
 async fn wait_for_connection_retries_until_a_listener_is_ready() {
     let directory = tempfile::tempdir().unwrap();

@@ -3,7 +3,7 @@
 //! The daemon-owned process edge writes only the returned frames and persists only the returned
 //! facts. It never receives raw provider fields, native identities, or unbounded output here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use gent_types::{GoalProjection, NormalizedProviderEvent, WorkPhase};
 use serde_json::Value;
@@ -45,6 +45,8 @@ pub struct CodexTurnDriver {
     /// Child-thread ownership learned only from Codex's explicit launch receipt.
     /// Root thread status frames therefore cannot accidentally settle child work.
     child_parent_by_thread: BTreeMap<String, String>,
+    /// A child terminal is emitted once even when Codex repeats its status evidence.
+    settled_child_threads: BTreeSet<String>,
 }
 
 impl CodexTurnDriver {
@@ -66,6 +68,7 @@ impl CodexTurnDriver {
                 session,
                 prompt: Some(prompt),
                 child_parent_by_thread: BTreeMap::new(),
+                settled_child_threads: BTreeSet::new(),
             },
             vec![CodexTurnEffect::Write(initialize)],
         ))
@@ -157,7 +160,15 @@ fn writes(effects: &mut Vec<CodexTurnEffect>, frames: Vec<Vec<u8>>) {
 
 impl CodexTurnDriver {
     fn facts(&mut self, frame: &Value) -> Vec<CodexTurnEffect> {
-        let facts = normalize_public_frame(PublicProvider::Codex, frame);
+        let terminal = child_terminal(frame, &self.child_parent_by_thread);
+        let mut facts = normalize_public_frame(PublicProvider::Codex, frame);
+        // A child turn completion is not a root turn completion. The public
+        // normalizer is intentionally stateless, so this owner-side correlation
+        // removes the root-only terminal facts once an explicit child mapping
+        // proves the frame belongs to detached work.
+        if terminal.is_some() && method(frame) == Some("turn/completed") {
+            facts.retain(|fact| !root_terminal_fact(fact));
+        }
         for fact in &facts {
             if let PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
                 child_id,
@@ -170,8 +181,9 @@ impl CodexTurnDriver {
             }
         }
         let mut effects: Vec<_> = facts.into_iter().map(CodexTurnEffect::Fact).collect();
-        if let Some((child_id, phase)) = child_terminal(frame, &self.child_parent_by_thread) {
-            self.child_parent_by_thread.remove(&child_id);
+        if let Some((child_id, phase)) = terminal
+            && self.settled_child_threads.insert(child_id.clone())
+        {
             effects.push(CodexTurnEffect::Fact(PublicWireFact::Event(
                 NormalizedProviderEvent::ChildTerminal { child_id, phase },
             )));
@@ -184,23 +196,47 @@ fn child_terminal(
     frame: &Value,
     children: &BTreeMap<String, String>,
 ) -> Option<(String, WorkPhase)> {
-    if frame.get("method").and_then(Value::as_str) != Some("thread/status/changed") {
-        return None;
-    }
+    let method = method(frame)?;
     let child_id = frame.pointer("/params/threadId").and_then(Value::as_str)?;
     if !children.contains_key(child_id) {
         return None;
     }
-    let phase = match frame
-        .pointer("/params/status/type")
-        .and_then(Value::as_str)?
-    {
-        "systemError" => WorkPhase::Failed,
-        "cancelled" | "canceled" | "aborted" | "timedOut" => WorkPhase::Interrupted,
-        // `idle` is availability, not evidence that the child completed its assignment.
+    let phase = match method {
+        "turn/completed" => match frame
+            .pointer("/params/turn/status")
+            .and_then(Value::as_str)?
+        {
+            // Native-driver parity: a child is successfully complete only when
+            // its own correlated turn has this explicit terminal status.
+            "completed" => WorkPhase::Done,
+            "interrupted" => WorkPhase::Interrupted,
+            "failed" => WorkPhase::Failed,
+            _ => return None,
+        },
+        "thread/status/changed" => match frame
+            .pointer("/params/status/type")
+            .and_then(Value::as_str)?
+        {
+            "systemError" => WorkPhase::Failed,
+            "cancelled" | "canceled" | "aborted" | "timedOut" => WorkPhase::Interrupted,
+            // `idle` is availability, not evidence that the child completed its assignment.
+            _ => return None,
+        },
         _ => return None,
     };
     Some((child_id.into(), phase))
+}
+
+fn method(frame: &Value) -> Option<&str> {
+    frame.get("method")?.as_str()
+}
+
+fn root_terminal_fact(fact: &PublicWireFact) -> bool {
+    matches!(
+        fact,
+        PublicWireFact::Event(NormalizedProviderEvent::TurnEnded { .. })
+            | PublicWireFact::Lifecycle(_)
+    )
 }
 
 fn diagnostic(classification: &str) -> Vec<CodexTurnEffect> {

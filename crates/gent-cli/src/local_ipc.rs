@@ -164,6 +164,10 @@ fn daemon_arguments_from(
     let mut arguments = vec![OsString::from("--data-dir"), data_dir.as_os_str().into()];
     if ordinary_authority_requested(enabled, release, keys)? {
         arguments.push(OsString::from("--ordinary-authority"));
+    } else {
+        // A standalone Gent client must at least own its durable conversations. Provider process
+        // authority remains separately composed by gentd's ordinary/local provider profiles.
+        arguments.push(OsString::from("--agent-chat-authority"));
     }
     Ok(arguments)
 }

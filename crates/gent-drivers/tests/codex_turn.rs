@@ -237,3 +237,46 @@ fn settles_only_a_known_child_thread_on_explicit_failure_or_cancellation() {
         .unwrap();
     assert!(duplicate.is_empty());
 }
+
+#[test]
+fn settles_a_known_child_only_when_its_own_turn_explicitly_completes() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    driver
+        .receive(br#"{"method":"item/completed","params":{"item":{"type":"subAgentActivity","kind":"started","id":"parent-tool-1","agentThreadId":"child-thread-1"}}}"#)
+        .unwrap();
+
+    let terminal = driver
+        .receive(br#"{"method":"turn/completed","params":{"threadId":"child-thread-1","turn":{"id":"child-turn-1","status":"completed"}}}"#)
+        .unwrap();
+    assert_eq!(
+        terminal,
+        vec![CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ChildTerminal {
+                child_id: "child-thread-1".into(),
+                phase: WorkPhase::Done,
+            }
+        ))]
+    );
+
+    // Repeated provider terminal evidence cannot create a second settlement.
+    assert!(driver
+        .receive(br#"{"method":"turn/completed","params":{"threadId":"child-thread-1","turn":{"id":"child-turn-1","status":"completed"}}}"#)
+        .unwrap()
+        .is_empty());
+
+    // An uncorrelated root completion remains a root fact, not a child terminal.
+    let root = driver
+        .receive(br#"{"method":"turn/completed","params":{"threadId":"root-thread","turn":{"id":"root-turn-1","status":"completed"}}}"#)
+        .unwrap();
+    assert!(root.contains(&CodexTurnEffect::Fact(PublicWireFact::Event(
+        NormalizedProviderEvent::TurnEnded {
+            turn_id: "root-turn-1".into(),
+        }
+    ))));
+    assert!(!root.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ChildTerminal { .. }
+        ))
+    )));
+}
