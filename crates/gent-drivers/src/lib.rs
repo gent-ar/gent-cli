@@ -1,6 +1,7 @@
 //! Public-driver contracts and pure policies; infrastructure owns provider processes.
 
 pub mod buffering;
+pub mod claude_control;
 pub mod claude_runner;
 pub mod claude_turn_options;
 pub mod codex_bootstrap;
