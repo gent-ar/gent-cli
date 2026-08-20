@@ -43,6 +43,8 @@ mod claude_prompt_lifecycle_failure_tests;
 #[cfg(test)]
 mod claude_prompt_lifecycle_tests;
 #[allow(dead_code)]
+mod claurst_local_runtime;
+#[allow(dead_code)]
 mod codex_authority_composition;
 #[allow(dead_code)]
 mod codex_authority_preflight;
@@ -80,6 +82,8 @@ mod goal_transport;
 mod goal_transport_tests;
 mod host_lock;
 mod local_model_catalog;
+#[allow(dead_code)]
+mod local_model_provisioning;
 mod locked_provider_resolver;
 #[allow(dead_code)]
 mod node_runtime_lock;

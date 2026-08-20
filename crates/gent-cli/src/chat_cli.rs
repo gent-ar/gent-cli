@@ -8,28 +8,29 @@ use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, WireFrame, read_json_frame,
     write_json_frame,
 };
-use gent_types::{
-    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId,
-    AgentChatSelection, ReceiptId,
-};
+use gent_types::{AgentChatConversationId, AgentChatRequestId, AgentChatSelection, ReceiptId};
 use serde_json::Value;
 
 mod arguments;
 pub(crate) mod follow;
 mod prompt;
 mod reads;
+mod resume;
+mod selection;
 pub(crate) mod switch;
 pub(crate) mod turn_follow;
-
 pub(crate) use arguments::{
     ConversationArgs, CreateArgs, DirectPromptArgs, Effort, Mode, PromptArgs, Provider,
     TranscriptArgs,
 };
 pub(crate) use prompt::send;
+pub(crate) use selection::{effort, mode, provider};
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum ChatCommand {
     Create(CreateArgs),
     Send(PromptArgs),
+    Resume(resume::ResumeArgs),
     Queue(PromptArgs),
     Switch(switch::SwitchArgs),
     /// Follow daemon-normalized transcript events, resuming from a durable cursor after reconnect.
@@ -169,6 +170,7 @@ fn frame(action: ChatCommand) -> Result<AgentChatIntentFrame, Box<dyn std::error
             },
         },
         ChatCommand::Send(args) => prompt_frame(args, false),
+        ChatCommand::Resume(args) => resume::frame(args),
         ChatCommand::Queue(args) => prompt_frame(args, true),
         ChatCommand::Switch(args) => switch::frame(args),
         ChatCommand::Follow(_) => unreachable!("long-lived subscriptions bypass one-shot frames"),
@@ -273,27 +275,9 @@ fn request_id(value: Option<String>) -> AgentChatRequestId {
 fn receipt_id(value: Option<String>) -> ReceiptId {
     value.map_or_else(ReceiptId::new, ReceiptId)
 }
-pub(crate) const fn provider(value: Provider) -> AgentChatProvider {
-    match value {
-        Provider::Claude => AgentChatProvider::Claude,
-        Provider::Codex => AgentChatProvider::Codex,
-        Provider::Claurst => AgentChatProvider::Claurst,
-    }
-}
-pub(crate) const fn effort(value: Effort) -> AgentChatEffort {
-    match value {
-        Effort::Low => AgentChatEffort::Low,
-        Effort::Medium => AgentChatEffort::Medium,
-        Effort::High => AgentChatEffort::High,
-    }
-}
-pub(crate) const fn mode(value: Mode) -> AgentChatMode {
-    match value {
-        Mode::Ask => AgentChatMode::Ask,
-        Mode::Plan => AgentChatMode::Plan,
-        Mode::Agent => AgentChatMode::Agent,
-    }
-}
+#[cfg(all(test, unix))]
+#[path = "chat_cli/resume_tests.rs"]
+mod resume_tests;
 #[cfg(all(test, unix))]
 #[path = "chat_cli/tests.rs"]
 mod tests;

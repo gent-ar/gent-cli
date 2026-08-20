@@ -173,3 +173,7 @@ mod tests;
 #[cfg(test)]
 #[path = "command_model_chat_tests.rs"]
 mod chat_tests;
+
+#[cfg(test)]
+#[path = "command_model_resume_tests.rs"]
+mod resume_tests;

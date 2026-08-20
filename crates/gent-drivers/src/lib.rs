@@ -4,6 +4,7 @@ pub mod buffering;
 pub mod claude_control;
 mod claude_permission_relay;
 pub mod claude_runner;
+mod claude_tool_results;
 pub mod claude_turn_options;
 pub mod codex_bootstrap;
 pub mod codex_client_request;

@@ -3,6 +3,7 @@ use crate::PublicProvider;
 use crate::buffering::BufferPolicy;
 use crate::claude_control::{ClaudePermissionBehavior, ClaudePermissionRequest};
 use crate::claude_permission_relay::ClaudePermissionRelay;
+use crate::claude_tool_results;
 use crate::claude_turn_options::ClaudeTurnOptions;
 use crate::goal_projection::project_prompt;
 use crate::interrupt::ProcessTreeSignal;
@@ -12,13 +13,11 @@ use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutput
 use crate::public_protocol::{PublicWireFact, normalize_public_frame};
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use gent_types::{
-    FrozenConversationContext, GoalProjection, NormalizedLifecycleSignal, NormalizedProviderEvent,
-    RunVersionLock, SandboxWorkspaceAccess, ToolActivity, ToolPhase,
+    FrozenConversationContext, GoalProjection, NormalizedProviderEvent, RunVersionLock,
+    SandboxWorkspaceAccess,
 };
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-/// Maximum retained Claude stream-JSON line accepted at this process boundary.
 pub const MAX_CLAUDE_FRAME_BYTES: usize = 64 * 1024;
 
 /// Inputs for a locked Claude process and exactly one daemon-owned user prompt.
@@ -27,11 +26,8 @@ pub struct ClaudeRunStart {
     pub run_id: String,
     pub lock: RunVersionLock,
     pub prompt: String,
-    /// Bounded model and permission fields derived from this run's durable selection.
     pub turn_options: ClaudeTurnOptions,
-    /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
     pub goal: Option<GoalProjection>,
-    /// Gent-owned history used only for a fresh provider-native session.
     pub fresh_context: Option<FrozenConversationContext>,
     pub resume_session_id: Option<String>,
     pub workspace_root: PathBuf,
@@ -42,12 +38,8 @@ pub struct ClaudeRunStart {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClaudeRunnerEffect {
     Fact(PublicWireFact),
-    /// A provider permission relay which contains only the identifiers Gent needs to decide it.
-    /// Provider-native input and permission suggestions remain in the owned process boundary.
     PermissionRequest(ClaudePermissionRequest),
-    Exited {
-        code: Option<i32>,
-    },
+    Exited { code: Option<i32> },
 }
 
 /// Controlled Claude process, framing, launch, or immutable-lock failure.
@@ -86,8 +78,6 @@ struct OwnedRun<P> {
     process: P,
     output: ProviderOutputPump,
     permissions: ClaudePermissionRelay,
-    /// Names are learned only from a preceding Claude tool-use start and remain process-local
-    /// until their matching result is normalized.
     tool_names: BTreeMap<String, String>,
 }
 
@@ -287,81 +277,13 @@ fn normalize<P: ProviderProcess>(run: &mut OwnedRun<P>, raw: &[u8]) -> Vec<Claud
         };
     }
     if frame.get("type").and_then(serde_json::Value::as_str) == Some("user") {
-        return tool_results(run, &frame);
+        let facts = claude_tool_results::results(&mut run.tool_names, &frame)
+            .unwrap_or_else(|| normalize_public_frame(PublicProvider::Claude, &frame));
+        return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
     }
     let facts = normalize_public_frame(PublicProvider::Claude, &frame);
-    remember_tool_names(run, &facts);
+    claude_tool_results::remember(&facts, &mut run.tool_names);
     facts.into_iter().map(ClaudeRunnerEffect::Fact).collect()
-}
-
-fn remember_tool_names<P>(run: &mut OwnedRun<P>, facts: &[PublicWireFact]) {
-    for fact in facts {
-        let PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) = fact
-        else {
-            continue;
-        };
-        if activity.phase == ToolPhase::Started {
-            run.tool_names
-                .entry(activity.tool_use_id.clone())
-                .or_insert_with(|| activity.tool_name.clone());
-        }
-    }
-}
-
-fn tool_results<P: ProviderProcess>(
-    run: &mut OwnedRun<P>,
-    frame: &serde_json::Value,
-) -> Vec<ClaudeRunnerEffect> {
-    let Some(content) = frame
-        .pointer("/message/content")
-        .and_then(serde_json::Value::as_array)
-    else {
-        return normalize_public_frame(PublicProvider::Claude, frame)
-            .into_iter()
-            .map(ClaudeRunnerEffect::Fact)
-            .collect();
-    };
-    content
-        .iter()
-        .filter(|block| {
-            block.get("type").and_then(serde_json::Value::as_str) == Some("tool_result")
-        })
-        .flat_map(|block| tool_result(run, block))
-        .collect()
-}
-
-fn tool_result<P: ProviderProcess>(
-    run: &mut OwnedRun<P>,
-    block: &serde_json::Value,
-) -> Vec<ClaudeRunnerEffect> {
-    let Some(tool_use_id) = block
-        .get("tool_use_id")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.is_empty())
-    else {
-        return diagnostic("malformedClaudeToolResult");
-    };
-    let Some(tool_name) = run.tool_names.remove(tool_use_id) else {
-        return diagnostic("unresolvedClaudeToolResult");
-    };
-    let phase = if block.get("is_error").and_then(serde_json::Value::as_bool) == Some(true) {
-        ToolPhase::Failed
-    } else {
-        ToolPhase::Completed
-    };
-    let output_digest = block
-        .get("content")
-        .map(|value| format!("sha256:{:x}", Sha256::digest(value.to_string().as_bytes())));
-    vec![ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
-        NormalizedLifecycleSignal::ToolActivity {
-            activity: ToolActivity {
-                tool_use_id: tool_use_id.into(),
-                tool_name,
-                phase,
-                output_digest,
-            },
-        },
-    ))]
 }
 
 fn diagnostic(classification: &str) -> Vec<ClaudeRunnerEffect> {
