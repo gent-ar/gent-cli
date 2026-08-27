@@ -16,7 +16,6 @@ import json
 import os
 import platform
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,29 +24,12 @@ from pathlib import Path
 
 from public_driver_capture_stream import capture, capture_interrupt, capture_steer
 from public_driver_resume_capture import capture_codex_resume, normalized_frames as resume_frames
+from public_driver_probes import MARKERS, PROBES, command, executable, executable_digest, version
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_ROOT = ROOT / "fixtures/public-driver-transcripts"
 MAX_CAPTURE_BYTES = 256 * 1024
 CAPTURE_TIMEOUT_SECONDS = 90
 MODEL_PATTERN = re.compile(r"[A-Za-z0-9._-]+$")
-PROBES = {
-    "full_turn": "Reply with the exact text GENT_LIVE_CAPTURE_OK and nothing else.",
-    "thinking": "Reply with the exact text GENT_THINKING_CAPTURE_OK and nothing else.",
-    "tool_use": "Run pwd exactly once. Then reply with the exact text GENT_TOOL_CAPTURE_OK and nothing else.",
-    "tool_error": "Run the command false exactly once. Then reply with the exact text GENT_TOOL_ERROR_CAPTURE_OK and nothing else.",
-    "permission_prompt": "Run `touch /tmp/gent-public-driver-permission-probe` exactly once. If permission is not granted, reply with exact text GENT_PERMISSION_CAPTURE_OK and nothing else.",
-    "resume": "Two fixed safe prompts are used: GENT_RESUME_SEED_OK then GENT_RESUME_OK. Neither provider response nor session identity is retained.",
-    "interrupt": "Run the command sleep 30 exactly once using the available tool. Do not use any other tool. After it completes, reply exactly GENT_STOP_CAPTURE_OK.",
-    "steer": "Run the command sleep 15 exactly once using Bash. Do not use any other tool. Wait for further instructions after it starts.",
-}
-MARKERS = {
-    "full_turn": "GENT_LIVE_CAPTURE_OK",
-    "thinking": "GENT_THINKING_CAPTURE_OK",
-    "tool_use": "GENT_TOOL_CAPTURE_OK",
-    "tool_error": "GENT_TOOL_ERROR_CAPTURE_OK",
-    "permission_prompt": "GENT_PERMISSION_CAPTURE_OK",
-    "steer": "GENT_STEER_CAPTURE_OK",
-}
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("vendor", choices=("claude", "codex"))
@@ -65,34 +47,6 @@ def fixture_path(output: Path) -> Path:
     if path.parent != root or path.suffix != ".jsonl" or path.is_symlink():
         raise ValueError("--output must be a non-symlink .jsonl directly in fixtures/public-driver-transcripts")
     return path
-def executable(vendor: str) -> Path:
-    found = shutil.which(vendor)
-    if found is None:
-        raise ValueError(f"{vendor} is not on PATH")
-    return Path(found).resolve()
-def command(binary: Path, vendor: str, scenario: str, model: str) -> list[str]:
-    prompt = PROBES[scenario]
-    if vendor == "claude":
-        allowed = []
-        if scenario == "tool_use":
-            allowed = ["--tools", "Bash", "--allowedTools", "Bash(pwd)"]
-        if scenario == "tool_error":
-            allowed = ["--tools", "Bash", "--allowedTools", "Bash(false)"]
-        if scenario == "interrupt":
-            allowed = ["--tools", "Bash", "--allowedTools", "Bash(sleep 30)"]
-        if scenario == "steer":
-            allowed = ["--tools", "Bash", "--allowedTools", "Bash(sleep 15)"]
-        permission_mode = "manual" if scenario == "permission_prompt" else "dontAsk"
-        tools = ["--tools", "Bash"] if scenario == "permission_prompt" else []
-        base = [str(binary), "--safe-mode", "--strict-mcp-config", *tools, *allowed,
-                "--permission-mode", permission_mode, "--print", "--model", model,
-                "--max-budget-usd", "0.05", "--no-session-persistence",
-                "--output-format", "stream-json", "--verbose"]
-        if scenario == "steer":
-            return [*base, "--input-format", "stream-json", "--replay-user-messages"]
-        return [*base, prompt]
-    return [str(binary), "exec", "--ephemeral", "--model", model,
-            "--sandbox", "read-only", "--json", "--color", "never", prompt]
 def dry_run_plan(args: argparse.Namespace) -> str:
     if not MODEL_PATTERN.fullmatch(args.model):
         raise ValueError("--model may contain only letters, digits, '.', '_', and '-'")
@@ -102,13 +56,6 @@ def dry_run_plan(args: argparse.Namespace) -> str:
     return json.dumps({"vendor": args.vendor, "scenario": args.scenario, "output": str(output),
                        "command": planned, "rawOutput": "bounded-memory-only",
                        "attestation": "redacted_normalized_fixture_v1"}, separators=(",", ":"))
-def version(binary: Path) -> str:
-    completed = subprocess.run([str(binary), "--version"], check=False, text=True,
-                               capture_output=True, timeout=15)
-    value = completed.stdout.strip()
-    if completed.returncode or not value or len(value) > 256:
-        raise ValueError("could not obtain a bounded provider version; no fixture was written")
-    return value.removeprefix("codex-cli ")
 def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
     if scenario == "resume":
         return resume_frames()
@@ -216,7 +163,7 @@ def metadata(args: argparse.Namespace, binary: Path, transport: str,
         "prompt": PROBES[args.scenario], "repo": "gent-ar/gent-cli",
         "notes": "Generated by the bounded redaction-first capture tool. The attestation hashes only reviewed normalized metadata and frames; raw CLI output is discarded and is not attested.",
         "status": "recorded", "captureOrigin": "live_cli", "executablePath": str(binary),
-        "executableDigest": "sha256:" + hashlib.sha256(binary.read_bytes()).hexdigest(),
+        "executableDigest": executable_digest(binary),
         "platform": f"{platform_name}-{platform.machine()}", "transport": transport,
         "captureRunId": str(uuid.uuid4()), "attestationScope": "redacted_normalized_fixture_v1",
     }

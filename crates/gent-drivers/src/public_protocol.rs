@@ -75,6 +75,9 @@ fn claude(frame: &Value) -> Vec<PublicWireFact> {
                 _ => Vec::new(),
             }
         }
+        Some("system") if string(frame, "subtype") == Some("permission_denied") => {
+            permission_denied(frame)
+        }
         Some("control_response") => claude_protocol::control_response(frame),
         Some("control_cancel_request" | "tool_progress" | "rate_limit_event") => Vec::new(),
         Some("queue-operation")
@@ -252,6 +255,29 @@ fn claude_error(frame: &Value) -> Vec<PublicWireFact> {
             message: claude_protocol::failure_message(frame),
         },
     )]
+}
+
+/// A tool use Claude's own permission policy blocked before it ran. Unlike an ordinary tool
+/// result, this frame carries the tool's identity directly (`tool_use_id`/`tool_name`), so no
+/// runner-owned correlation is needed — it never reaches a matching `user`/`tool_result` frame.
+fn permission_denied(frame: &Value) -> Vec<PublicWireFact> {
+    match (string(frame, "tool_use_id"), string(frame, "tool_name")) {
+        (Some(tool_use_id), Some(tool_name))
+            if !tool_use_id.is_empty() && !tool_name.is_empty() =>
+        {
+            vec![PublicWireFact::Lifecycle(
+                NormalizedLifecycleSignal::ToolActivity {
+                    activity: ToolActivity {
+                        tool_use_id: tool_use_id.into(),
+                        tool_name: tool_name.into(),
+                        phase: ToolPhase::Failed,
+                        output_digest: None,
+                    },
+                },
+            )]
+        }
+        _ => diagnostic("malformedClaudePermissionDenied"),
+    }
 }
 
 fn tool_activity(

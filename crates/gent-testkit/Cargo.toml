@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 async-trait.workspace = true
 clap.workspace = true
+gent-drivers = { path = "../gent-drivers" }
 gent-ports = { path = "../gent-ports" }
 gent-protocol = { path = "../gent-protocol" }
 gent-types = { path = "../gent-types" }
@@ -32,6 +33,10 @@ path = "src/bin/validate-ipc-fixtures.rs"
 [[bin]]
 name = "refresh-ipc-fixture-wires"
 path = "src/bin/refresh-ipc-fixture-wires.rs"
+
+[[bin]]
+name = "replay-live-driver-transcript"
+path = "src/bin/replay-live-driver-transcript.rs"
 
 [lints]
 workspace = true

@@ -688,6 +688,7 @@ version = "0.1.15"
 dependencies = [
  "async-trait",
  "clap",
+ "gent-drivers",
  "gent-ports",
  "gent-protocol",
  "gent-types",

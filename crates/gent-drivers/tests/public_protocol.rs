@@ -136,6 +136,46 @@ fn claude_user_tool_results_need_explicit_identity_and_name() {
 }
 
 #[test]
+fn claude_permission_denial_marks_the_named_tool_failed_without_correlation() {
+    let facts = normalize_public_frame(
+        PublicProvider::Claude,
+        &json!({
+            "type": "system", "subtype": "permission_denied",
+            "tool_name": "Bash", "tool_use_id": "tool-1",
+            "message": "touch was blocked",
+        }),
+    );
+    assert_eq!(
+        facts,
+        vec![PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::ToolActivity {
+                activity: gent_types::ToolActivity {
+                    tool_use_id: "tool-1".into(),
+                    tool_name: "Bash".into(),
+                    phase: ToolPhase::Failed,
+                    output_digest: None,
+                },
+            }
+        )]
+    );
+}
+
+#[test]
+fn claude_permission_denial_without_an_identity_is_a_diagnostic() {
+    assert_eq!(
+        normalize_public_frame(
+            PublicProvider::Claude,
+            &json!({"type": "system", "subtype": "permission_denied", "tool_name": "Bash"}),
+        ),
+        vec![PublicWireFact::Event(
+            NormalizedProviderEvent::TransportDiagnostic {
+                classification: "malformedClaudePermissionDenied".into()
+            }
+        )]
+    );
+}
+
+#[test]
 fn claude_background_launch_receipt_binds_provider_child_to_parent_without_output() {
     let facts = normalize_public_frame(
         PublicProvider::Claude,
