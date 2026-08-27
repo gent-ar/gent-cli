@@ -49,6 +49,27 @@ crashing, not silently no-opping) — e.g. the checkpoint restore option isn't s
 than shown and failing on tap. This mirrors how missing capabilities should already be handled
 elsewhere; do not invent a new error-surfacing convention per capability.
 
+## Testing approach
+
+clouseau-app's own `CLAUDE.md` ("Testing Standards") mandates a spec-driven workflow for this repo,
+and it applies here: `/write-spec <file>` scaffolds a spec from a component's public API, a human
+reviews and approves it, `/test-spec <spec-file>` generates tests from the approved spec, then
+`/test-validate` checks quality and coverage. **Tests are never generated directly from source
+code** — this is a hard rule in this repo, unlike the Rust side of this same body of work, where
+tests were written directly alongside the implementation this session (appropriate there — gent-cli
+has no spec-driven mandate). Do not carry that Rust habit into this repo's cutover work.
+
+Concretely, before writing implementation code for each capability below, run `/write-spec` against
+the files that capability's "Dart work" section lists as edited or deleted (e.g. capability 1 needs
+a spec covering `local_git_service.dart`'s thinned read methods and `GentdWorkspaceGitReport`
+parsing; capability 5 needs one covering `checkpoint_controller.dart`'s new capture/restore calls
+and the `panel_dialogs.dart` confirmation wiring), get it approved, then `/test-spec` it. Tests land
+under the existing `app/test/` convention: `app/test/unit/` for pure `GentdIpcClient` method
+additions and model `fromJson` parsing, `app/test/widget/` for anything touching
+`panel_dialogs.dart`/`panel_models.dart` UI, `app/test/integration/` for a full local-request or
+local/remote-parity round trip. Use the existing `app/test/helpers/` factories, fakes, and
+`buildTestApp()` — do not hand-roll `RefenaScope`/`MaterialApp` boilerplate or duplicate stubs.
+
 ## Build order
 
 Smallest / lowest-risk first, so each capability is independently shippable and testable before the
@@ -92,8 +113,13 @@ protocol").
 
 **Local/remote**: `lib/provider/repo_cache_provider.dart` keeps its refcounted `RepoKey` cache
 structure — that's orthogonal to where the fetch executes — but `createGitService`'s local-vs-remote
-branch and `_findSubReposLocal` get replaced by the capability call (local) / new REST route
-(remote).
+branch and `_findSubReposLocal` get replaced by the capability call (local) / existing REST route
+(remote). **No new route needed**: `lib/provider/network/server/controller/git_controller.dart`
+already exposes `GET /api/mate/v1/git/info`, `/git/remote-status`, `/git/repo-root`, and
+`/git/sub-repos` — these are the current remote-device read surface, backed today by shelling git
+directly. Re-point their handler bodies to call `GentdIpcClient.workspaceGitStatus`/
+`.workspaceGitSubRepos` instead; the route paths, params, and response shapes native already
+consumes remotely do not need to change.
 
 **Push**: out of scope for this plan (matches the Rust side — `workspace-git-v1` is poll-only
 today; a future fs-watch-backed push notification is a separate, not-yet-built piece on both sides).
@@ -147,7 +173,14 @@ manifest `ArgRule` ↔ `systemPrompt`/`appendSystemPrompt` mapping in
 (this fixes the confirmed native bug where Codex silently dropped `systemPrompt` — call this out in
 the PR description when this lands, since it's a real behavior change).
 
-**Local/remote**: same host-serves-a-REST-route pattern as capability 1.
+**Local/remote**: extend the existing `PATCH /api/mate/v1/agent-chat/:id/settings` route
+(`lib/provider/network/server/controller/agent_chat_routes_history.dart`) rather than adding a new
+one — it is already the "adjust this conversation's launch settings" resource (adapter/model/effort
+today). Add the config fields (`systemPrompt`, `appendSystemPrompt`, `maxTurns`,
+`disallowedTools`, `revision`) to its accepted body, backed by `saveConversationConfig` instead of
+local persistence. Verify whether a `GET` counterpart for reading current settings already exists
+before adding one — if the only current read path is embedded in the full conversation-detail
+fetch, a config read may not need its own route at all.
 
 **Acceptance**: setting a system prompt on a Claude conversation changes its next turn's launched
 arguments; the same field on a Codex conversation shows as unsupported in the UI rather than being
@@ -170,7 +203,13 @@ file exists and is the current fork implementation — verified this pass), the 
 and `lib/util/agent_chat_history_injection.dart` entirely (gentd's fresh-context rendering already
 does this same job server-side — the native version becomes dead code, not a fallback to keep).
 
-**Local/remote**: same pattern.
+**Local/remote**: new route, same file and convention as the other conversation-lifecycle actions
+already there (`new`, `rewind`, `rewind-restore`, `checkpoint-restore`):
+`POST /api/mate/v1/agent-chat/:id/fork` in
+`lib/provider/network/server/controller/agent_chat_routes_history.dart`
+(`extension _AgentChatHistoryRoutes on AgentChatController`, registered via
+`router.param(HttpMethod.post, ...)` inside `installHistoryRoutes`) — body carries
+`forkThroughMessageId`, response carries the new `conversationId`/`runId`.
 
 **Acceptance**: forking at message N in a conversation produces a new conversation whose first
 prompt hits a fresh provider session seeded with exactly messages 1..N; forking a Codex-provider
@@ -214,7 +253,17 @@ before removing it, since gentd enforces its own `MAX_CHECKPOINT_SNAPSHOT_BYTES`
 the two should not silently diverge) and retention count (`MAX_RETAINED_CHECKPOINTS`, currently 25
 server-side).
 
-**Local/remote**: same pattern. Restore is the first mutating action in this plan that changes
+**Local/remote**: `lib/provider/network/server/controller/agent_chat_routes_history.dart` **already
+has** `POST /api/mate/v1/agent-chat/:id/checkpoint-restore` — today it restores from
+`checkpoint['fileSnapshots']` stored client-side in `stateJson`. Keep the same route path and
+request shape (`checkpointId`, `restoreCode` → `restoreFiles`), but replace the handler body with a
+call to `GentdIpcClient.restoreCheckpoint(..., restoreFilesConfirmation: ...)`; the client-side
+file-write loop and `persistence.getCheckpointSnapshots` lookup in the current handler become dead
+code. `ListCheckpoints` needs a new route, e.g. `GET /api/mate/v1/agent-chat/:id/checkpoints`, same
+file. `CaptureCheckpoint` likely needs **no remote route at all** — only the device actually running
+the turn ever captures (a remote device only views and restores) — confirm this against how
+`checkpoint_controller.dart`'s capture call site is reached before assuming it, but do not build a
+remote capture route speculatively. Restore is the first mutating action in this plan that changes
 workspace files on the *host* — for a remote device restoring a Mac's checkpoint, the REST route
 must run on the Mac (where the files live), never attempt a remote filesystem write.
 
@@ -264,7 +313,17 @@ other caller depends on them before deleting. Keep the two named constants
 (`sideQuestionMessageLimit`, `sideQuestionCharLimit`) only if a UI surface still needs to *display*
 the bound (e.g. "showing last 8 messages") — otherwise delete the whole file.
 
-**Local/remote**: same REST-route pattern for ask/cancel/list; the push-event path needs the Mac's
+**Local/remote**: three new routes, none of which exist today (verified — the only existing
+side-question surface is `AgentChatController.registerSideQuestionProcessForTest`, the local
+helper-process bookkeeping this plan deletes). Follow the file-per-concern convention the other
+routes use (`agent_chat_routes_history.dart`, `_feed.dart`, `_messaging.dart`, `_connectors.dart`,
+each `part of 'agent_chat_controller.dart'`, each an `extension on AgentChatController` with one
+`installXRoutes(router)` entry point) and add a new
+`lib/provider/network/server/controller/agent_chat_routes_side_question.dart` in the same shape,
+with one new `installSideQuestionRoutes(router)` call added alongside the other `installXRoutes`
+calls in `agent_chat_controller.dart`. Routes: `POST /api/mate/v1/agent-chat/:id/side-questions`
+(ask), `POST /api/mate/v1/agent-chat/:id/side-questions/:sideQuestionId/cancel`,
+`GET /api/mate/v1/agent-chat/:id/side-questions` (list). The push-event path needs the Mac's
 existing mux/event relay to forward `agentChatSideQuestionAnswered` events to a subscribed remote
 device the same way it already relays other event-stream events — do not build a second push
 mechanism for remote.
