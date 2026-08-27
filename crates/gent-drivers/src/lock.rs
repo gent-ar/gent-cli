@@ -31,14 +31,7 @@ pub fn capture(
     Ok(RunVersionLock {
         provider: provider.into(),
         canonical_path: canonical_path.display().to_string(),
-        file_identity: format!(
-            "{}:{}",
-            metadata.len(),
-            metadata
-                .modified()?
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |duration| duration.as_nanos())
-        ),
+        file_identity: file_identity(&metadata)?,
         digest_sha256: hex::encode(Sha256::digest(bytes)),
         version: version.into(),
         compatibility_entry: entry.into(),
@@ -50,8 +43,10 @@ pub fn capture(
 /// # Errors
 /// Returns [`LockError::ProviderChanged`] instead of silently substituting a binary.
 pub fn recheck(lock: &RunVersionLock) -> Result<(), LockError> {
-    let current = rechecked_identity(lock)?;
-    (current.file_identity == lock.file_identity && current.digest_sha256 == lock.digest_sha256)
+    let path = Path::new(&lock.canonical_path);
+    let metadata = fs::metadata(path)?;
+    let current_identity = file_identity(&metadata)?;
+    (current_identity == lock.file_identity)
         .then_some(())
         .ok_or(LockError::ProviderChanged)
 }
@@ -70,6 +65,17 @@ pub fn rechecked_identity(lock: &RunVersionLock) -> Result<RunVersionLock, LockE
         &lock.version,
         &lock.compatibility_entry,
     )
+}
+
+fn file_identity(metadata: &fs::Metadata) -> Result<String, LockError> {
+    Ok(format!(
+        "{}:{}",
+        metadata.len(),
+        metadata
+            .modified()?
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos())
+    ))
 }
 
 #[cfg(test)]
@@ -94,5 +100,14 @@ mod tests {
         fs::write(&executable, "first").unwrap();
         let lock = capture("claude", &executable, "1", "entry").unwrap();
         assert_eq!(rechecked_identity(&lock).unwrap(), lock);
+    }
+
+    #[test]
+    fn pre_spawn_recheck_does_not_read_the_saved_binary_when_metadata_is_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("provider");
+        fs::write(&executable, "first").unwrap();
+        let lock = capture("claude", &executable, "1", "entry").unwrap();
+        recheck(&lock).unwrap();
     }
 }

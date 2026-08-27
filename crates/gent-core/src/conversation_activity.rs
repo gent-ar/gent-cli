@@ -33,9 +33,12 @@ pub fn with_activity_cursor(
 ) -> ConversationActivityFact {
     match &mut fact {
         ConversationActivityFact::TurnStarted { scope }
+        | ConversationActivityFact::ContextUsage { scope, .. }
         | ConversationActivityFact::RootActivity { scope, .. }
         | ConversationActivityFact::RootPhase { scope, .. }
         | ConversationActivityFact::WorkPhase { scope, .. }
+        | ConversationActivityFact::ToolActivity { scope, .. }
+        | ConversationActivityFact::SubagentStarted { scope, .. }
         | ConversationActivityFact::DecisionPending { scope, .. }
         | ConversationActivityFact::DecisionSettled { scope, .. }
         | ConversationActivityFact::InterruptRequested { scope }

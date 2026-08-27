@@ -131,6 +131,10 @@ impl AttachmentBlobStore for FileAttachmentBlobs {
             Err(error) => Err(io_error(error)),
         }
     }
+
+    fn read_attachment_blob(&self, storage_key: &str) -> Result<Vec<u8>, LedgerError> {
+        fs::read(self.final_path(storage_key)?).map_err(io_error)
+    }
 }
 
 fn staging_name(key: &str) -> Result<&str, LedgerError> {

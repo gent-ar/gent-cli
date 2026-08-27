@@ -57,7 +57,7 @@ pub fn validate_public_driver_manifest(path: &Path, require_live: bool) -> Resul
     let contents =
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let manifest: Manifest =
-        serde_yaml::from_str(&contents).map_err(|error| format!("invalid YAML: {error}"))?;
+        serde_yaml_ng::from_str(&contents).map_err(|error| format!("invalid YAML: {error}"))?;
     let mut errors = Vec::new();
     if manifest.schema_version != 1 {
         errors.push("schema_version must be 1".into());

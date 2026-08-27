@@ -15,6 +15,7 @@ struct BridgeState {
     bindings: BTreeMap<ClaurstSourceId, ClaurstSessionBinding>,
     starts: Vec<ClaurstStartRequest>,
     submissions: Vec<ClaurstSubmitRequest>,
+    cancellations: Vec<ClaurstSessionBinding>,
     start_bindings: VecDeque<Result<ClaurstSessionBinding, String>>,
     requests: Vec<ClaurstDrainRequest>,
     batches: VecDeque<Result<ClaurstDrainBatch, String>>,
@@ -84,6 +85,15 @@ impl FakePrivateClaurstBridge {
             .lock()
             .expect("private bridge fake mutex poisoned")
             .submissions
+            .clone()
+    }
+
+    #[must_use]
+    pub fn cancellations(&self) -> Vec<ClaurstSessionBinding> {
+        self.state
+            .lock()
+            .expect("private bridge fake mutex poisoned")
+            .cancellations
             .clone()
     }
 
@@ -159,6 +169,19 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         Ok(())
     }
 
+    async fn cancel(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("private bridge fake mutex poisoned");
+        (state.bindings.get(&binding.source_id) == Some(&binding)
+            && !state.settled.contains(&binding.source_id))
+        .then_some(())
+        .ok_or_else(|| contract_error("cancel source has no active matching session"))?;
+        state.cancellations.push(binding);
+        Ok(())
+    }
+
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
         if !request.is_bounded() {
             return Err(contract_error("drain exceeds bounded contract"));
@@ -184,6 +207,7 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         let Some(batch) = batch else {
             return Ok(ClaurstDrainBatch {
                 facts: Vec::new(),
+                permissions: Vec::new(),
                 checkpoint: None,
                 session_binding: None,
                 terminal: None,

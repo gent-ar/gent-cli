@@ -1,5 +1,6 @@
 //! Process adapter implemented only by the daemon-owned Codex prompt runner.
 
+use gent_drivers::codex_control::CodexControlDecision;
 use gent_drivers::codex_prompt_runner::{CodexPromptRunner, CodexPromptStart};
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::interrupt::ProcessTreeSignal;
@@ -19,16 +20,27 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError>;
     fn has_codex_session(&self, run_id: &str) -> bool;
+    fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
+    fn refresh_codex_mcp_config(&self, run_id: &str) -> Result<bool, PublicProviderRunError>;
     fn submit_codex_prompt(
         &self,
         run_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
+        attachments: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError>;
     fn signal_codex_process(
         &self,
         run_id: &str,
         signal: ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError>;
+    fn interrupt_codex_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
+    fn respond_codex_control(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: CodexControlDecision,
+        answers: Option<serde_json::Value>,
     ) -> Result<(), PublicProviderRunError>;
 }
 
@@ -60,13 +72,22 @@ where
         self.owns(run_id)
     }
 
+    fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        self.release_session(run_id)
+    }
+
+    fn refresh_codex_mcp_config(&self, run_id: &str) -> Result<bool, PublicProviderRunError> {
+        self.refresh_mcp_config(run_id)
+    }
+
     fn submit_codex_prompt(
         &self,
         run_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
+        attachments: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
-        self.submit(run_id, prompt, goal)
+        self.submit(run_id, prompt, goal, attachments)
     }
 
     fn signal_codex_process(
@@ -75,5 +96,19 @@ where
         signal: ProcessTreeSignal,
     ) -> Result<(), PublicProviderRunError> {
         self.signal_process(run_id, signal)
+    }
+
+    fn interrupt_codex_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        self.interrupt_turn(run_id)
+    }
+
+    fn respond_codex_control(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), PublicProviderRunError> {
+        self.respond_control(run_id, request_id, decision, answers)
     }
 }

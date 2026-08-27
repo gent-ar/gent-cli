@@ -1,6 +1,7 @@
 use gent_ports::{
-    AgentChatLedger, ClaurstCheckpoint, ClaurstDrainBatch, ClaurstFactValue, ClaurstNormalizedFact,
-    ClaurstSessionBinding, ClaurstSourceId, Ledger, RunCheckpointLedger, RunLease,
+    AgentChatWorkspaceLedger, ClaurstCheckpoint, ClaurstDrainBatch, ClaurstFactValue,
+    ClaurstNormalizedFact, ClaurstSessionBinding, ClaurstSourceId, Ledger, RunCheckpointLedger,
+    RunLease,
 };
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
@@ -9,6 +10,7 @@ use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet,
     FrozenConversationContext, HostEpoch, NormalizedLifecycleSignal, ReceiptId, RootActivity,
+    WorkspaceRecord,
 };
 
 use crate::private_claurst_ingress::PrivateClaurstIngress;
@@ -69,6 +71,7 @@ async fn drain_persists_normalized_facts_then_a_terminal_checkpoint() {
     let binding = binding();
     bridge.push_batch(ClaurstDrainBatch {
         facts: vec![fact(1)],
+        permissions: vec![],
         checkpoint: Some(checkpoint(1)),
         session_binding: Some(binding.clone()),
         terminal: Some(gent_ports::ClaurstTerminal::Completed),
@@ -88,6 +91,7 @@ async fn drain_persists_normalized_facts_then_a_terminal_checkpoint() {
         crate::private_claurst_ingress::PrivateClaurstDrain {
             facts: 1,
             terminal: true,
+            terminal_phase: Some(gent_types::DurableTurnPhase::Completed),
         }
     );
     assert!(
@@ -114,6 +118,7 @@ async fn rejects_out_of_order_or_rebound_batches_before_any_fact_is_persisted() 
     let binding = binding();
     bridge.push_batch(ClaurstDrainBatch {
         facts: vec![fact(2), fact(1)],
+        permissions: vec![],
         checkpoint: Some(checkpoint(1)),
         session_binding: None,
         terminal: None,
@@ -148,6 +153,7 @@ async fn rejects_session_rebinding_and_unsealed_terminal_batches() {
     let binding = binding();
     bridge.push_batch(ClaurstDrainBatch {
         facts: vec![fact(1)],
+        permissions: vec![],
         checkpoint: Some(checkpoint(1)),
         session_binding: Some(ClaurstSessionBinding {
             opaque_session_id: "changed".into(),
@@ -157,6 +163,7 @@ async fn rejects_session_rebinding_and_unsealed_terminal_batches() {
     });
     bridge.push_batch(ClaurstDrainBatch {
         facts: Vec::new(),
+        permissions: vec![],
         checkpoint: None,
         session_binding: None,
         terminal: Some(gent_ports::ClaurstTerminal::Interrupted),
@@ -182,22 +189,52 @@ async fn rejects_session_rebinding_and_unsealed_terminal_batches() {
     );
 }
 
-fn prepared_ledger() -> SqliteLedger {
+#[tokio::test]
+async fn cancellation_reaches_only_the_exact_active_binding_without_settlement() {
+    let ledger = prepared_ledger();
+    let bridge = FakePrivateClaurstBridge::default();
+    let binding = binding();
+    bridge.push_start_binding(binding.clone());
+    let mut ingress = PrivateClaurstIngress::new(
+        Coordinator::new(ledger.clone(), CapabilitySet::default()),
+        ledger.clone(),
+        bridge.clone(),
+        "daemon-a".into(),
+    );
+    ingress.start(start_request(), HostEpoch(1)).await.unwrap();
+    assert!(ingress.cancel_run("other-run").await.is_err());
+    ingress.cancel_run("run-a").await.unwrap();
+    assert_eq!(bridge.cancellations(), vec![binding]);
+    assert!(ingress.cancel_run("run-a").await.is_err());
+    assert!(ledger
+        .find_event("claurst:0f9f5ce47831e099e77e295ed8bb627f089efa8672ee6fbdc49eac6f0d7f5275:interrupted")
+        .unwrap()
+        .is_none());
+    assert!(ledger.list_run_checkpoints("run-a").unwrap().is_empty());
+}
+
+pub(crate) fn prepared_ledger() -> SqliteLedger {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
-        .create_agent_chat_conversation(&AgentChatConversationCreate {
-            receipt_id: ReceiptId("conversation-receipt".into()),
-            idempotency_key: "conversation-key".into(),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Claurst,
-                model: "claurst-private".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claurst,
+                    model: "claurst-private".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
             },
-        })
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
         .unwrap();
     ledger
         .claim_run_lease(&RunLease {
@@ -209,7 +246,7 @@ fn prepared_ledger() -> SqliteLedger {
     ledger
 }
 
-fn binding() -> ClaurstSessionBinding {
+pub(crate) fn binding() -> ClaurstSessionBinding {
     ClaurstSessionBinding {
         run_id: "run-a".into(),
         source_id: ClaurstSourceId("source-a".into()),
@@ -217,7 +254,7 @@ fn binding() -> ClaurstSessionBinding {
     }
 }
 
-fn start_request() -> gent_ports::ClaurstStartRequest {
+pub(crate) fn start_request() -> gent_ports::ClaurstStartRequest {
     gent_ports::ClaurstStartRequest {
         run_id: "run-a".into(),
         source_id: ClaurstSourceId("source-a".into()),
@@ -226,6 +263,7 @@ fn start_request() -> gent_ports::ClaurstStartRequest {
         context: FrozenConversationContext::cleared(AgentChatConversationId(
             "conversation-a".into(),
         )),
+        attachments: vec![],
         goal: None,
     }
 }
@@ -235,11 +273,12 @@ fn submit_request(binding: ClaurstSessionBinding) -> gent_ports::ClaurstSubmitRe
         binding,
         turn_id: "turn-b".into(),
         prompt: "continue".into(),
+        attachments: vec![],
         goal: None,
     }
 }
 
-fn checkpoint(cursor: u64) -> ClaurstCheckpoint {
+pub(crate) fn checkpoint(cursor: u64) -> ClaurstCheckpoint {
     ClaurstCheckpoint {
         run_id: "run-a".into(),
         source_id: ClaurstSourceId("source-a".into()),

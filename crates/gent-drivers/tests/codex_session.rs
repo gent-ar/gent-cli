@@ -4,12 +4,12 @@ use gent_drivers::codex_session::{
 };
 use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection};
 use serde_json::{Value, json};
-
 fn config(resume_thread_id: Option<&str>) -> CodexSessionConfig {
     CodexSessionConfig {
         working_directory: Some("/work".into()),
         resume_thread_id: resume_thread_id.map(str::to_owned),
         turn_options: options(AgentChatMode::Agent),
+        mcp_servers: None,
     }
 }
 
@@ -39,7 +39,7 @@ fn initialize_then_start_then_turn_uses_only_correlated_responses() {
     let (mut session, initialize) = CodexAppServerSession::start(config(None)).unwrap();
     assert_eq!(
         decode(&initialize),
-        json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"gent","version":env!("CARGO_PKG_VERSION")},"capabilities":{}}})
+        json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"gent","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true,"requestAttestation":false}}})
     );
     let frames = match session.receive(&json!({"id": 1, "result": {}})).unwrap() {
         CodexSessionIngress::Send(frames) => frames,
@@ -61,12 +61,14 @@ fn initialize_then_start_then_turn_uses_only_correlated_responses() {
         session
             .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
             .unwrap(),
-        CodexSessionIngress::Ready
+        CodexSessionIngress::Ready {
+            thread_id: "thread-1".into()
+        }
     );
     let turn = session.start_turn("hello").unwrap();
     assert_eq!(
         decode(&turn),
-        json!({"id":3,"method":"turn/start","params":{"threadId":"thread-1","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
+        json!({"id":3,"method":"turn/start","params":{"threadId":"thread-1","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"on-request","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
     );
 }
 
@@ -136,6 +138,45 @@ fn only_the_matching_terminal_notification_releases_the_next_turn() {
 }
 
 #[test]
+fn empty_terminal_notification_releases_the_owned_turn() {
+    let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
+    let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
+    let _ = session
+        .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
+        .unwrap();
+    let _ = session.start_turn("hello").unwrap();
+    let _ = session
+        .receive(&json!({"id": 3, "result": {"turn": {"id": "turn-1"}}}))
+        .unwrap();
+    assert_eq!(
+        session
+            .receive(&json!({"method": "turn/completed", "params": {}}))
+            .unwrap(),
+        CodexSessionIngress::TurnEnded
+    );
+    assert!(session.is_ready());
+}
+
+#[test]
+fn empty_terminal_notification_can_follow_the_started_notification() {
+    let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
+    let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
+    let _ = session
+        .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
+        .unwrap();
+    let _ = session.start_turn("hello").unwrap();
+    let _ = session
+        .receive(&json!({"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1"}}}))
+        .unwrap();
+    assert_eq!(
+        session
+            .receive(&json!({"method": "turn/completed", "params": {}}))
+            .unwrap(),
+        CodexSessionIngress::TurnEnded
+    );
+}
+
+#[test]
 fn live_turn_interrupt_uses_json_rpc_without_destroying_the_session() {
     let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
     let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
@@ -172,6 +213,7 @@ fn invalid_inputs_and_failed_responses_are_bounded_and_secret_free() {
             working_directory: Some(String::new()),
             resume_thread_id: None,
             turn_options: options(AgentChatMode::Ask),
+            mcp_servers: None,
         }),
         Err(CodexSessionError::InvalidWorkingDirectory)
     );
@@ -233,6 +275,7 @@ fn native_connection_fields_reject_empty_and_unbounded_values() {
                 working_directory: None,
                 resume_thread_id,
                 turn_options: options(AgentChatMode::Ask),
+                mcp_servers: None,
             }),
             Err(CodexSessionError::InvalidThreadId)
         );
@@ -242,6 +285,7 @@ fn native_connection_fields_reject_empty_and_unbounded_values() {
             working_directory: Some("x".repeat(4_097)),
             resume_thread_id: None,
             turn_options: options(AgentChatMode::Ask),
+            mcp_servers: None,
         }),
         Err(CodexSessionError::InvalidWorkingDirectory)
     );
@@ -278,6 +322,7 @@ fn selection_options_reject_other_providers_and_preserve_safe_sandbox_modes() {
             working_directory: None,
             resume_thread_id: None,
             turn_options: options(mode),
+            mcp_servers: None,
         })
         .unwrap();
         let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
@@ -290,3 +335,5 @@ fn selection_options_reject_other_providers_and_preserve_safe_sandbox_modes() {
         );
     }
 }
+#[path = "codex_session/default_model.rs"]
+mod default_model;

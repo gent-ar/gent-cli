@@ -1,105 +1,93 @@
 //! Explicit non-observer facade constructors kept outside the default composition.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
-use gent_runtime::ProviderModeSelectionGate;
+use gent_runtime::{AgentChatSelectionGate, ProviderModeSelectionGate};
 use gent_types::{AgentChatMode, AgentChatProvider};
 
 use super::{DaemonCompositionState, RuntimeFacade};
-use crate::{
-    ordinary_authority_composition::OrdinaryAuthorityRuntime,
-    prompt_provider_provision_boundary::PromptProviderProvisionPort,
-    provider_readiness_boundary::ProviderReadinessPort,
-    runtime_update_config::DaemonRuntimeUpdateChecks,
-};
+use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 
 impl RuntimeFacade {
-    /// Builds the explicitly injected private prompt-provision authority.
-    ///
-    /// Bootstrap never calls this constructor. Its caller must first validate the evidence,
-    /// package policy, locked app Node runtime, and provider compatibility inputs used by the
-    /// supplied daemon-only boundary.
-    ///
-    /// # Errors
-    /// Returns when the typed capability profile or durable attachment store is unavailable.
-    #[allow(dead_code)] // Reserved for a separately approved private authority composition.
-    pub(crate) fn from_state_with_prompt_provider_provision_authority(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_state_with_standalone_authority(
         state: DaemonCompositionState,
         runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-        readiness: Arc<dyn ProviderReadinessPort>,
-        authority: Arc<dyn PromptProviderProvisionPort>,
+        prompt_ingress: crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<
+            gent_store::SqliteLedger,
+        >,
+        local_models: crate::standalone_authority_composition::StandaloneClaurstModels,
+        mcp_server_count: u16,
+        mcp_server_names: Vec<String>,
+        agent_chat_side_question_runners: Option<
+            crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources,
+        >,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        if !state
+        if !state.capability_profile().local_models_enabled() {
+            return Err("standalone local models require their typed capability profile".into());
+        }
+        let permission_port = state
             .capability_profile()
-            .prompt_provider_provision_enabled()
-        {
-            return Err(
-                "prompt provider provision authority requires its typed capability profile".into(),
-            );
-        }
+            .agent_chat_permissions_enabled()
+            .then(|| {
+                std::sync::Arc::new(
+                    crate::agent_chat_permission_api::StandaloneAgentChatPermissionPort::new(
+                        state.ledger().clone(),
+                        prompt_ingress.clone(),
+                    ),
+                )
+                    as std::sync::Arc<dyn crate::agent_chat_permission_api::AgentChatPermissionPort>
+            });
+        let selection_gate = StandaloneSelectionGate::new(local_models.catalogue());
         Self::from_state_inner(
             state,
             runtime_update_checks,
+            Some(prompt_ingress),
             None,
-            Some(readiness),
-            Some(authority),
-            Arc::new(gent_runtime::AllowAnyAgentChatSelection),
-        )
-    }
-
-    /// Builds an explicit future authority seam for exact, read-only turn following.
-    ///
-    /// No shipped bootstrap calls this constructor or advertises the corresponding capability.
-    ///
-    /// # Errors
-    /// Returns an error when the durable attachment store cannot open.
-    #[allow(dead_code)] // Reserved for an explicit future authority composition only.
-    pub(crate) fn from_state_with_turn_follow_authority(
-        state: DaemonCompositionState,
-        runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        if !state.capability_profile().turn_follow_enabled() {
-            return Err("turn-follow authority requires its typed capability profile".into());
-        }
-        Self::from_state_inner(
-            state,
-            runtime_update_checks,
-            None,
-            None,
-            None,
-            Arc::new(gent_runtime::AllowAnyAgentChatSelection),
-        )
-    }
-
-    /// Builds the dormant ordinary terminal seam with its one private lifecycle router.
-    ///
-    /// The caller must have already validated the authority profile, evidence, private prefix,
-    /// and canonical workspace bindings. Ask/Plan accepts current valid model and effort values;
-    /// provider executable compatibility is checked again immediately before launch.
-    ///
-    /// # Errors
-    /// Returns an error when the durable attachment store cannot open.
-    #[allow(dead_code)] // Reserved for the explicit ordinary authority composition.
-    pub(crate) fn from_state_with_ordinary_terminal_authority(
-        state: DaemonCompositionState,
-        runtime_update_checks: Option<DaemonRuntimeUpdateChecks>,
-        authority: &OrdinaryAuthorityRuntime,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        if !state.capability_profile().turn_follow_enabled() {
-            return Err(
-                "ordinary authority requires its typed turn-follow capability profile".into(),
-            );
-        }
-        Self::from_state_inner(
-            state,
-            runtime_update_checks,
-            Some(authority.prompt_ingress()),
-            None,
-            None,
-            Arc::new(ProviderModeSelectionGate::new(
-                [AgentChatProvider::Claude, AgentChatProvider::Codex],
-                [AgentChatMode::Ask, AgentChatMode::Plan],
-            )),
+            Some(local_models),
+            mcp_server_count,
+            mcp_server_names,
+            permission_port,
+            Arc::new(selection_gate),
+            agent_chat_side_question_runners,
         )
     }
 }
+
+#[derive(Debug)]
+struct StandaloneSelectionGate {
+    provider_modes: ProviderModeSelectionGate,
+    claurst_models: BTreeSet<String>,
+}
+
+impl StandaloneSelectionGate {
+    fn new(models: Vec<gent_protocol::LocalModelDescriptor>) -> Self {
+        Self {
+            provider_modes: ProviderModeSelectionGate::new(
+                [
+                    AgentChatProvider::Claude,
+                    AgentChatProvider::Codex,
+                    AgentChatProvider::Claurst,
+                ],
+                [
+                    AgentChatMode::Ask,
+                    AgentChatMode::Plan,
+                    AgentChatMode::Agent,
+                ],
+            ),
+            claurst_models: models.into_iter().map(|model| model.id).collect(),
+        }
+    }
+}
+
+impl AgentChatSelectionGate for StandaloneSelectionGate {
+    fn allows(&self, selection: &gent_types::AgentChatSelection) -> bool {
+        self.provider_modes.allows(selection)
+            && (selection.provider != AgentChatProvider::Claurst
+                || self.claurst_models.contains(&selection.model))
+    }
+}
+
+#[cfg(test)]
+#[path = "runtime_facade_standalone_selection_tests.rs"]
+mod standalone_selection_tests;

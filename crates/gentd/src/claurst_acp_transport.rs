@@ -1,22 +1,20 @@
-//! Bounded JSON-RPC stdio framing for an upstream `claurst acp` process.
-//!
-//! This is deliberately below `PrivateClaurstBridge`: it proves the upstream handshake and
-//! emits only safely-normalized output/thinking/attention facts.  The next composition layer
-//! must own the ACP streams and correlate this transport's session/turn state to bridge cursors.
+use std::{
+    collections::{BTreeMap, VecDeque},
+    path::Path,
+    time::Duration,
+};
 
-use std::{collections::VecDeque, path::Path};
-
-use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent};
+use gent_ports::ClaurstPermissionReply;
+use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, PermissionCategory};
 use serde_json::{Value, json};
 
 const MAX_ACP_FRAME_BYTES: usize = 256 * 1024;
 const MAX_HANDSHAKE_FRAMES: usize = 32;
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const HANDSHAKE_RETRY_DELAY: Duration = Duration::from_millis(5);
 
-/// Nonblocking line-oriented stdio owned by the future ACP process adapter.
 pub(crate) trait ClaurstAcpStdio {
-    /// Writes one complete newline-delimited JSON-RPC frame.
     fn write_frame(&mut self, frame: &[u8]) -> Result<(), String>;
-    /// Returns one already-delimited line, or `None` when no complete frame is presently queued.
     fn try_read_frame(&mut self, maximum_bytes: usize) -> Result<Option<Vec<u8>>, String>;
 }
 
@@ -27,14 +25,21 @@ pub(crate) enum ClaurstAcpTerminal {
     Failed,
 }
 
-/// Bounded result from a single nonblocking ACP drain.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ClaurstAcpDrain {
     pub(crate) facts: Vec<ClaurstAcpFact>,
+    pub(crate) permissions: Vec<ClaurstAcpPermissionRequest>,
     pub(crate) terminal: Option<ClaurstAcpTerminal>,
 }
 
-/// Content-safe projection of only the upstream events Gent can presently normalize.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClaurstAcpPermissionRequest {
+    pub(crate) request_id: String,
+    pub(crate) tool_use_id: String,
+    pub(crate) tool_name: String,
+    pub(crate) category: PermissionCategory,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ClaurstAcpFact {
     Event(NormalizedProviderEvent),
@@ -55,15 +60,28 @@ pub(crate) enum ClaurstAcpTransportError {
     InvalidSession,
     #[error("Claurst ACP I/O failed: {0}")]
     Io(String),
+    #[error("Claurst ACP permission is not pending for this request")]
+    InvalidPermission,
 }
 
-/// One initialized ACP connection. It never accepts provider configuration from a caller.
 pub(crate) struct ClaurstAcpTransport<S> {
     stdio: S,
     next_request_id: u64,
     initialized: bool,
     queued: VecDeque<ClaurstAcpFact>,
+    queued_permissions: VecDeque<ClaurstAcpPermissionRequest>,
+    tool_names: BTreeMap<String, String>,
     pending_prompt_id: Option<u64>,
+    pending_terminal: Option<ClaurstAcpTerminal>,
+    pending_permission: Option<PendingPermission>,
+    assistant_output: String,
+    mcp_servers: Vec<Value>,
+    supports_images: bool,
+}
+
+struct PendingPermission {
+    request_id: String,
+    json_rpc_id: Value,
 }
 
 impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
@@ -74,14 +92,41 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             next_request_id: 1,
             initialized: false,
             queued: VecDeque::new(),
+            queued_permissions: VecDeque::new(),
+            tool_names: BTreeMap::new(),
             pending_prompt_id: None,
+            pending_terminal: None,
+            pending_permission: None,
+            assistant_output: String::new(),
+            mcp_servers: Vec::new(),
+            supports_images: false,
         }
     }
 
-    /// Completes upstream `initialize`, then opens one session rooted at Gent's absolute workspace.
+    pub(crate) fn with_mcp_servers(mut self, mcp_servers: Vec<Value>) -> Self {
+        self.mcp_servers = mcp_servers;
+        self
+    }
+
+    pub(crate) fn supports_images(&self) -> bool {
+        self.supports_images
+    }
+
+    pub(crate) fn is_idle(&self) -> bool {
+        self.pending_prompt_id.is_none()
+    }
+
     pub(crate) fn initialize_session(
         &mut self,
         workspace: &Path,
+    ) -> Result<String, ClaurstAcpTransportError> {
+        self.initialize_session_with_mcp(workspace, self.mcp_servers.clone())
+    }
+
+    pub(crate) fn initialize_session_with_mcp(
+        &mut self,
+        workspace: &Path,
+        mcp_servers: Vec<Value>,
     ) -> Result<String, ClaurstAcpTransportError> {
         if !workspace.is_absolute() {
             return Err(ClaurstAcpTransportError::InvalidSession);
@@ -95,11 +140,17 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                     "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
                 }),
             )?;
-            self.wait_for_response(initialize_id)?;
+            let response = self.wait_for_response(initialize_id)?;
+            self.supports_images = response
+                .pointer("/agentCapabilities/promptCapabilities/image")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             self.initialized = true;
         }
-        let session_id =
-            self.send_request("session/new", json!({"cwd": workspace, "mcpServers": []}))?;
+        let session_id = self.send_request(
+            "session/new",
+            json!({"cwd": workspace, "mcpServers": mcp_servers}),
+        )?;
         let response = self.wait_for_response(session_id)?;
         response
             .get("sessionId")
@@ -109,7 +160,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             .ok_or(ClaurstAcpTransportError::InvalidSession)
     }
 
-    /// Dispatches `session/prompt` without waiting for its terminal response.
     pub(crate) fn prompt(
         &mut self,
         session_id: &str,
@@ -121,164 +171,97 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         if session_id.is_empty() || prompt.trim().is_empty() || self.pending_prompt_id.is_some() {
             return Err(ClaurstAcpTransportError::InvalidSession);
         }
+        self.prompt_content(session_id, vec![json!({"type": "text", "text": prompt})])
+    }
+
+    pub(crate) fn prompt_content(
+        &mut self,
+        session_id: &str,
+        content: Vec<Value>,
+    ) -> Result<(), ClaurstAcpTransportError> {
+        if !self.initialized {
+            return Err(ClaurstAcpTransportError::Uninitialized);
+        }
+        if session_id.is_empty() || content.is_empty() || self.pending_prompt_id.is_some() {
+            return Err(ClaurstAcpTransportError::InvalidSession);
+        }
         let id = self.send_request(
             "session/prompt",
             json!({
                 "sessionId": session_id,
-                "prompt": [{"type": "text", "text": prompt}],
+                "prompt": content,
             }),
         )?;
         self.pending_prompt_id = Some(id);
+        self.assistant_output.clear();
         Ok(())
     }
 
-    /// Reads at most `limit` queued/available frames; it never blocks waiting for provider output.
+    pub(crate) fn cancel(&mut self, session_id: &str) -> Result<(), ClaurstAcpTransportError> {
+        if !self.initialized || session_id.is_empty() {
+            return Err(ClaurstAcpTransportError::InvalidSession);
+        }
+        self.write(json!({
+            "jsonrpc": "2.0",
+            "method": "session/cancel",
+            "params": {"sessionId": session_id},
+        }))
+    }
+
     pub(crate) fn drain(
         &mut self,
         limit: u16,
     ) -> Result<ClaurstAcpDrain, ClaurstAcpTransportError> {
         let limit = usize::from(limit.clamp(1, 64));
         let mut drain = ClaurstAcpDrain::default();
-        while drain.facts.len() < limit {
+        while drain.facts.len() < limit && drain.permissions.is_empty() {
             if let Some(fact) = self.queued.pop_front() {
                 drain.facts.push(fact);
                 continue;
+            }
+            if let Some(permission) = self.queued_permissions.pop_front() {
+                drain.permissions.push(permission);
+                continue;
+            }
+            if let Some(terminal) = self.pending_terminal.take() {
+                drain.terminal = Some(terminal);
+                break;
             }
             let Some(frame) = self.read_frame()? else {
                 break;
             };
             if let Some(terminal) = self.handle_frame(frame)? {
-                drain.terminal = Some(terminal);
-                break;
+                self.pending_terminal = Some(terminal);
             }
         }
         Ok(drain)
     }
 
-    fn send_request(
+    pub(crate) fn respond_permission(
         &mut self,
-        method: &str,
-        params: Value,
-    ) -> Result<u64, ClaurstAcpTransportError> {
-        let id = self.next_request_id;
-        self.next_request_id += 1;
-        self.write(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
-        Ok(id)
-    }
-
-    fn wait_for_response(&mut self, request_id: u64) -> Result<Value, ClaurstAcpTransportError> {
-        for _ in 0..MAX_HANDSHAKE_FRAMES {
-            let frame = self
-                .read_frame()?
-                .ok_or(ClaurstAcpTransportError::HandshakeIncomplete)?;
-            let value = parse_frame(&frame)?;
-            if value.get("id") == Some(&json!(request_id))
-                && (value.get("result").is_some() || value.get("error").is_some())
-            {
-                return value
-                    .get("result")
-                    .cloned()
-                    .ok_or(ClaurstAcpTransportError::HandshakeIncomplete);
+        request_id: &str,
+        reply: ClaurstPermissionReply,
+    ) -> Result<(), ClaurstAcpTransportError> {
+        let pending = self
+            .pending_permission
+            .take()
+            .filter(|pending| pending.request_id == request_id)
+            .ok_or(ClaurstAcpTransportError::InvalidPermission)?;
+        let result = match reply {
+            ClaurstPermissionReply::AllowOnce => {
+                json!({"outcome": {"outcome": "selected", "optionId": "allow_once"}})
             }
-            self.project(value)?;
-        }
-        Err(ClaurstAcpTransportError::HandshakeIncomplete)
-    }
-
-    fn read_frame(&mut self) -> Result<Option<Vec<u8>>, ClaurstAcpTransportError> {
-        let frame = self
-            .stdio
-            .try_read_frame(MAX_ACP_FRAME_BYTES)
-            .map_err(ClaurstAcpTransportError::Io)?;
-        if frame
-            .as_ref()
-            .is_some_and(|value| value.len() > MAX_ACP_FRAME_BYTES)
-        {
-            return Err(ClaurstAcpTransportError::FrameTooLarge);
-        }
-        Ok(frame)
-    }
-
-    fn write(&mut self, value: Value) -> Result<(), ClaurstAcpTransportError> {
-        let mut frame = serde_json::to_vec(&value).expect("JSON-RPC value serializes");
-        frame.push(b'\n');
-        self.stdio
-            .write_frame(&frame)
-            .map_err(ClaurstAcpTransportError::Io)
-    }
-
-    fn handle_frame(
-        &mut self,
-        frame: Vec<u8>,
-    ) -> Result<Option<ClaurstAcpTerminal>, ClaurstAcpTransportError> {
-        let value = parse_frame(&frame)?;
-        if value.get("id").and_then(Value::as_u64) == self.pending_prompt_id
-            && (value.get("result").is_some() || value.get("error").is_some())
-        {
-            self.pending_prompt_id = None;
-            return Ok(Some(
-                value
-                    .get("error")
-                    .is_some()
-                    .then_some(ClaurstAcpTerminal::Failed)
-                    .unwrap_or_else(|| prompt_terminal(&value)),
-            ));
-        }
-        self.project(value)?;
-        Ok(None)
-    }
-
-    fn project(&mut self, value: Value) -> Result<(), ClaurstAcpTransportError> {
-        if value.get("method").and_then(Value::as_str) == Some("session/update") {
-            if let Some(fact) = session_update_fact(value.get("params")) {
-                self.queued.push_back(fact);
-            }
-        } else if value.get("method").and_then(Value::as_str) == Some("session/request_permission")
-        {
-            let id = value
-                .get("id")
-                .cloned()
-                .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
-            // Permission policy composition is not connected yet, so fail closed rather than
-            // letting a local tool run without a Gent decision.
-            self.write(json!({"jsonrpc": "2.0", "id": id, "result": {"outcome": "cancelled"}}))?;
-            self.queued.push_back(ClaurstAcpFact::Lifecycle(
-                NormalizedLifecycleSignal::AttentionRequired,
-            ));
-        }
-        Ok(())
+            ClaurstPermissionReply::Deny => json!({"outcome": {"outcome": "cancelled"}}),
+        };
+        self.write(json!({"jsonrpc": "2.0", "id": pending.json_rpc_id, "result": result}))
     }
 }
 
-fn parse_frame(frame: &[u8]) -> Result<Value, ClaurstAcpTransportError> {
-    serde_json::from_slice::<Value>(frame).map_err(|_| ClaurstAcpTransportError::InvalidFrame)
-}
+#[path = "claurst_acp_transport_io.rs"]
+mod io;
 
-fn session_update_fact(params: Option<&Value>) -> Option<ClaurstAcpFact> {
-    let update = params?.get("update")?;
-    let text = update.get("content")?.get("text")?.as_str()?.to_owned();
-    match update.get("sessionUpdate")?.as_str()? {
-        "agent_message_chunk" => Some(ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
-            text,
-            is_partial: true,
-        })),
-        "agent_thought_chunk" => Some(ClaurstAcpFact::Event(NormalizedProviderEvent::Thinking {
-            text,
-            is_partial: true,
-        })),
-        _ => None,
-    }
-}
-
-fn prompt_terminal(value: &Value) -> ClaurstAcpTerminal {
-    match value.pointer("/result/stopReason").and_then(Value::as_str) {
-        Some("end_turn") | Some("max_tokens") | Some("max_turn_requests") => {
-            ClaurstAcpTerminal::Completed
-        }
-        Some("cancelled") => ClaurstAcpTerminal::Interrupted,
-        _ => ClaurstAcpTerminal::Failed,
-    }
-}
+#[path = "claurst_acp_transport_updates.rs"]
+mod updates;
 
 #[cfg(test)]
 #[path = "claurst_acp_transport_tests.rs"]

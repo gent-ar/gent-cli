@@ -1,20 +1,22 @@
 {
   "models": [
     {
-      "id": "qwen3-4b-q4-k-m",
-      "label": "Qwen3 4B (Q4_K_M)",
-      "huggingface_url": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-GGUF/resolve/cb76885dc66d50759b207c5a48c4e78dfa00c638/Qwen_Qwen3-4B-Q4_K_M.gguf",
-      "local_filename": "qwen3-4b-q4-k-m.gguf",
-      "provider_model_id": "qwen3-4b-q4-k-m",
-      "size_bytes": 2497280960
-    },
-    {
       "id": "qwen3-1-7b-q4-k-m",
       "label": "Qwen3 1.7B (Q4_K_M)",
-      "huggingface_url": "https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/dcb19155b962dbb6389f4691a982043a8e651022/Qwen_Qwen3-1.7B-Q4_K_M.gguf",
+      "huggingface_url": "https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/daeb8e2d528a760970442092f6bf1e55c3b659eb/Qwen3-1.7B-Q4_K_M.gguf",
       "local_filename": "qwen3-1-7b-q4-k-m.gguf",
       "provider_model_id": "qwen3-1-7b-q4-k-m",
-      "size_bytes": 1282439584
+      "size_bytes": 1282439264,
+      "sha256": "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5"
+    },
+    {
+      "id": "qwen3-8b-q4-k-m",
+      "label": "Qwen3 8B (Q4_K_M)",
+      "huggingface_url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf",
+      "local_filename": "qwen3-8b-q4-k-m.gguf",
+      "provider_model_id": "qwen3-8b-q4-k-m",
+      "size_bytes": 5027783488,
+      "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
     }
   ]
 }

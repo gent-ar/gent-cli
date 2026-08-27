@@ -44,6 +44,10 @@ impl ProviderProcess for FakeTree {
         Ok(())
     }
 
+    fn close_stdin(&self) -> Result<(), ProcessTreeError> {
+        Ok(())
+    }
+
     fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
         Ok(self.process.read_stdout())
     }

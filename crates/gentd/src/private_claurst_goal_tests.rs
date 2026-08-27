@@ -109,6 +109,7 @@ fn start() -> ClaurstStartRequest {
         context: FrozenConversationContext::cleared(AgentChatConversationId(
             "conversation-a".into(),
         )),
+        attachments: vec![],
         goal: None,
     }
 }
@@ -126,6 +127,7 @@ fn submit(binding: ClaurstSessionBinding) -> ClaurstSubmitRequest {
         binding,
         turn_id: "turn-b".into(),
         prompt: "continue".into(),
+        attachments: vec![],
         goal: None,
     }
 }

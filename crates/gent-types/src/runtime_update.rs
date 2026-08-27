@@ -189,7 +189,6 @@ pub struct RuntimeUpdateRecord {
     pub revision: u64,
     pub artifact_digest_sha256: String,
     pub status: RuntimeUpdateStatus,
-    #[serde(default)]
     pub handoff: RuntimeUpdateHandoff,
 }
 

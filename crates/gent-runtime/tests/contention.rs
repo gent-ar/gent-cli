@@ -25,7 +25,7 @@ fn concurrent_coordinators_have_one_run_lease_winner() {
         CapabilitySet::default(),
     );
     first
-        .create_run(Run {
+        .create_run(&Run {
             id: "run".into(),
             parent_run_id: None,
             provider: "claude".into(),
@@ -66,7 +66,7 @@ fn concurrent_coordinators_have_one_run_lease_winner() {
 fn concurrent_worktree_claims_have_one_winner() {
     let coordinator = coordinator();
     coordinator
-        .create_run(Run {
+        .create_run(&Run {
             id: "run".into(),
             parent_run_id: None,
             provider: "codex".into(),
@@ -134,7 +134,7 @@ fn run_version_lock_is_immutable_and_durable() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
     coordinator
-        .create_run(Run {
+        .create_run(&Run {
             id: "run".into(),
             parent_run_id: None,
             provider: "claude".into(),

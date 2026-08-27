@@ -1,5 +1,3 @@
-//! Parent-fenced switch request construction for the terminal reducer.
-
 use gent_types::{AgentChatSelection, ContextPolicy};
 
 use super::state::{UiEffect, UiRequest};

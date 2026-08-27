@@ -4,19 +4,37 @@ use crate::compatibility_assessment::CompatibilityAssessment;
 #[cfg(unix)]
 use crate::private_paths;
 use crate::{
-    RuntimeFacade, build_runtime_with_update_checks, host_lock, runtime_update_authority,
-    runtime_update_bootstrap, runtime_update_config, runtime_update_recovery, startup, transport,
+    RuntimeFacade, build_runtime_with_update_checks, host_lock, runtime_update_recovery, startup,
+    transport,
 };
 use gent_runtime::catalog::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
-use {clap::Parser, std::path::PathBuf};
+use {
+    clap::{Parser, ValueEnum},
+    std::path::PathBuf,
+};
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(crate) enum ProviderLogin {
+    Claude,
+    Codex,
+}
+
+#[path = "daemon_bootstrap_updates.rs"]
+mod updates;
 
 #[derive(Debug, Parser)]
 #[command(name = "gentd", about = "Gent's local runtime host", version)]
-#[allow(clippy::struct_excessive_bools)] // Clap flags are independent authority opt-ins.
 pub(crate) struct Args {
     /// Directory containing the local IPC endpoint and durable `SQLite` ledger.
     #[arg(long, env = "GENT_DATA_DIR")]
     pub(crate) data_dir: Option<PathBuf>,
+    /// Print the resolved data directory and exit without binding IPC or acquiring the host lock.
+    ///
+    /// Any host that launches the packaged `gentd` runtime (including a native application)
+    /// should resolve the shared data directory through this flag rather than duplicating the
+    /// `GENT_DATA_DIR` and platform-default resolution rules.
+    #[arg(long)]
+    pub(crate) print_data_dir: bool,
     /// Explicit Unix socket path, primarily for supervised Unix launches and tests.
     #[cfg(unix)]
     #[arg(long)]
@@ -30,15 +48,20 @@ pub(crate) struct Args {
     /// Durable chat persistence only; never providers, MCP, Git, or the private bridge.
     #[arg(long, env = "GENT_AGENT_CHAT_AUTHORITY")]
     pub(crate) agent_chat_authority: bool,
-    /// Enable the signed, locked Claude/Codex ordinary-chat authority profile.
-    #[arg(long, env = "GENT_ORDINARY_AUTHORITY")]
-    pub(crate) ordinary_authority: bool,
-    /// Signed ordinary-authority release required with `--ordinary-authority`.
-    #[arg(long, env = "GENT_ORDINARY_AUTHORITY_RELEASE")]
-    pub(crate) ordinary_authority_release: Option<PathBuf>,
-    /// Trusted authority-release key as `key-id:lowercase-hex`; may be passed more than once.
-    #[arg(long = "ordinary-authority-key", env = "GENT_ORDINARY_AUTHORITY_KEY")]
-    pub(crate) ordinary_authority_keys: Vec<String>,
+    #[arg(long, env = "GENT_STANDALONE_AUTHORITY")]
+    pub(crate) standalone_authority: bool,
+    #[arg(long, env = "GENT_CLAUDE_EXECUTABLE")]
+    pub(crate) standalone_claude_executable: Option<PathBuf>,
+    #[arg(long, env = "GENT_CODEX_EXECUTABLE")]
+    pub(crate) standalone_codex_executable: Option<PathBuf>,
+    #[arg(long, env = "GENT_CLAURST_EXECUTABLE")]
+    pub(crate) standalone_claurst_executable: Option<PathBuf>,
+    #[arg(long, env = "GENT_LLAMA_SERVER_EXECUTABLE")]
+    pub(crate) standalone_llama_server_executable: Option<PathBuf>,
+    #[arg(long, value_enum)]
+    pub(crate) provider_login: Option<ProviderLogin>,
+    #[arg(long, env = "GENT_MCP_CONFIG_PATH")]
+    pub(crate) mcp_config: Option<PathBuf>,
     /// Serve only a locally cached, revalidated signed runtime-release report.
     /// This does not enable downloads, staging, activation, or self-replacement.
     #[arg(long, env = "GENT_RUNTIME_UPDATE_CHECK_AUTHORITY")]
@@ -79,11 +102,30 @@ pub(crate) struct Args {
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    if args.ordinary_authority {
-        return crate::ordinary_authority_bootstrap::run(args).await;
+    if args.data_dir.is_none() {
+        gent_types::migrate_legacy_default_data_dir()
+            .map_err(|error| format!("could not migrate the legacy .gent-cli data directory: {error}"))?;
+    }
+    if args.print_data_dir {
+        let data_dir = args
+            .data_dir
+            .clone()
+            .unwrap_or_else(startup::default_data_dir);
+        println!("{}", data_dir.display());
+        return Ok(());
+    }
+    if let Some(provider) = args.provider_login {
+        let data_dir = args
+            .data_dir
+            .as_deref()
+            .map_or_else(startup::default_data_dir, PathBuf::from);
+        return crate::standalone_provider_setup::login(&data_dir, provider).map_err(Into::into);
+    }
+    if args.standalone_authority {
+        return crate::standalone_authority_bootstrap::run(args).await;
     }
     enforce_hard_observer(&crate::authority_profile::shipped_observer_profile())?;
-    if verify_staged_material(&args)? {
+    if updates::verify_staged_material(&args)? {
         return Ok(());
     }
     let data_dir = args
@@ -95,7 +137,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
-    let update_checks = configure_update_checks(&args)?;
+    let update_checks = updates::configure_update_checks(&args)?;
     let capability_profile = RuntimeCapabilityProfile::new(
         [
             args.agent_chat_authority
@@ -110,7 +152,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .flatten(),
     );
     let observed_capabilities = transport::observed_capabilities(&capability_profile);
-    let recovery = run_update_authorities(&args, &data_dir, &observed_capabilities)?;
+    let recovery = updates::run_update_authorities(&args, &data_dir, &observed_capabilities)?;
     let compatibility = CompatibilityAssessment::load(
         args.compatibility_cache.as_deref(),
         &args.compatibility_keys,
@@ -138,100 +180,6 @@ fn enforce_hard_observer(
         .ok_or_else(|| "gentd bootstrap only supports the hard observer profile".into())
 }
 
-fn verify_staged_material(args: &Args) -> Result<bool, String> {
-    if args.verify_runtime_update_material
-        && (args.agent_chat_authority
-            || args.runtime_update_check_authority
-            || args.runtime_update_plan_authority
-            || args.runtime_update_recover_authority
-            || !args.runtime_release_keys.is_empty())
-    {
-        return Err("runtime update bootstrap cannot enable a daemon authority profile".into());
-    }
-    runtime_update_bootstrap::verify_if_enabled(
-        runtime_update_bootstrap::RuntimeUpdateBootstrapConfig {
-            enabled: args.verify_runtime_update_material,
-            cache_path: args.runtime_release_cache.as_deref(),
-            trust_path: args.runtime_release_trust.as_deref(),
-            release_path: args.runtime_release_manifest.as_deref(),
-            archive_path: args.runtime_release_archive.as_deref(),
-            archive_manifest_path: args.runtime_release_archive_manifest.as_deref(),
-            now_unix_seconds: startup::unix_seconds(),
-        },
-    )
-}
-
-fn configure_update_checks(
-    args: &Args,
-) -> Result<Option<runtime_update_config::DaemonRuntimeUpdateChecks>, String> {
-    if !args.runtime_update_check_authority
-        && !args.runtime_update_plan_authority
-        && !args.runtime_update_recover_authority
-        && (args.runtime_release_cache.is_some()
-            || args.runtime_release_trust.is_some()
-            || !args.runtime_release_keys.is_empty()
-            || args.runtime_release_manifest.is_some()
-            || args.runtime_release_archive.is_some()
-            || args.runtime_release_archive_manifest.is_some())
-    {
-        return Err(
-            "runtime release settings require explicit check, plan, or recovery authority".into(),
-        );
-    }
-    let update_checks = args
-        .runtime_update_check_authority
-        .then(|| {
-            runtime_update_config::load(
-                true,
-                args.runtime_release_cache.as_deref(),
-                args.runtime_release_trust.as_deref(),
-                &args.runtime_release_keys,
-                startup::unix_seconds(),
-            )
-        })
-        .transpose()?
-        .flatten();
-    Ok(update_checks)
-}
-
-fn run_update_authorities(
-    args: &Args,
-    data_dir: &std::path::Path,
-    observed_capabilities: &gent_types::CapabilitySet,
-) -> Result<Option<runtime_update_recovery::ConfirmedRuntimeUpdateRecovery>, String> {
-    if args.runtime_update_plan_authority && args.runtime_update_recover_authority {
-        return Err("runtime update planning and successor recovery are mutually exclusive".into());
-    }
-    if let Some(record) = runtime_update_authority::plan_if_enabled(
-        data_dir,
-        observed_capabilities,
-        runtime_update_authority::RuntimeUpdatePlanConfig {
-            enabled: args.runtime_update_plan_authority,
-            attempt_id: args.runtime_update_attempt_id.as_deref(),
-            cache_path: args.runtime_release_cache.as_deref(),
-            trust_path: args.runtime_release_trust.as_deref(),
-            keys: &args.runtime_release_keys,
-            now_unix_seconds: startup::unix_seconds(),
-        },
-    )? {
-        eprintln!(
-            "planned runtime update {} at {:?}",
-            record.attempt_id, record.status.stage
-        );
-    }
-    runtime_update_recovery::confirm_if_enabled(
-        data_dir,
-        runtime_update_recovery::RuntimeUpdateRecoverConfig {
-            enabled: args.runtime_update_recover_authority,
-            attempt_id: args.runtime_update_attempt_id.as_deref(),
-            cache_path: args.runtime_release_cache.as_deref(),
-            trust_path: args.runtime_release_trust.as_deref(),
-            keys: &args.runtime_release_keys,
-            now_unix_seconds: startup::unix_seconds(),
-        },
-    )
-}
-
 #[cfg(unix)]
 async fn serve_local(
     runtime: RuntimeFacade,
@@ -242,7 +190,7 @@ async fn serve_local(
     let socket = args
         .socket
         .clone()
-        .unwrap_or_else(|| data_dir.join("gentd.sock"));
+        .unwrap_or_else(|| gent_types::local_socket_path(data_dir));
     let listener = private_paths::bind_socket(data_dir, &socket)?;
     if let Some(recovery) = recovery {
         let epoch = runtime_update_recovery::open_confirmed(data_dir, recovery)?;
@@ -276,22 +224,8 @@ async fn serve_local(
             epoch.0
         );
     }
-    crate::transport_windows::serve_named_pipe(&pipe_name(data_dir), runtime).await
-}
-
-#[cfg(windows)]
-fn pipe_name(data_dir: &std::path::Path) -> String {
-    format!(r"\\.\pipe\gentd-{:016x}", endpoint_hash(data_dir))
-}
-
-#[cfg(windows)]
-fn endpoint_hash(data_dir: &std::path::Path) -> u64 {
-    data_dir
-        .to_string_lossy()
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        })
+    crate::transport_windows::serve_named_pipe(&gent_types::windows_pipe_name(data_dir), runtime)
+        .await
 }
 
 #[cfg(test)]

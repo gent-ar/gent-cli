@@ -60,6 +60,7 @@ pub(super) fn summary_payload(summary: Option<&GitStatusSummary>) -> serde_json:
         |summary| {
             serde_json::json!({
                 "entryCount": summary.entry_count,
+                "branchName": summary.branch_name,
                 "outputDigestSha256": summary.output_digest_sha256,
             })
         },

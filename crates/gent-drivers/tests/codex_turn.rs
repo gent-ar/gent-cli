@@ -4,7 +4,7 @@ use gent_drivers::public_protocol::PublicWireFact;
 use gent_types::{
     AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
     AgentChatSelection, GOAL_SCHEMA_VERSION, GoalBinding, GoalProjection, GoalRecord, GoalStatus,
-    NormalizedProviderEvent, WorkPhase,
+    NormalizedLifecycleSignal, NormalizedProviderEvent, WorkPhase,
 };
 use serde_json::{Value, json};
 
@@ -22,6 +22,7 @@ fn config() -> CodexSessionConfig {
             Some("/work"),
         )
         .unwrap(),
+        mcp_servers: None,
     }
 }
 
@@ -35,7 +36,7 @@ fn frames(effects: &[CodexTurnEffect]) -> Vec<Value> {
                 frame.as_object_mut()?.remove("jsonrpc");
                 Some(frame)
             }
-            CodexTurnEffect::Fact(_) => None,
+            CodexTurnEffect::Fact(_) | CodexTurnEffect::ControlRequest(_) => None,
         })
         .collect()
 }
@@ -79,12 +80,102 @@ fn codex_receives_the_same_gent_owned_goal_for_each_turn() {
         .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
         .unwrap();
     let later_goal = goal(4);
-    let later_frames = frames(&driver.submit("continue", Some(&later_goal)).unwrap());
+    let later_frames = frames(&driver.submit("continue", Some(&later_goal), &[]).unwrap());
     let later = later_frames[0]["params"]["input"][0]["text"]
         .as_str()
         .unwrap();
     assert!(later.contains("\"revision\":4"));
     assert!(later.ends_with("User prompt:\ncontinue"));
+}
+
+#[test]
+fn empty_turn_completion_uses_the_owned_live_turn_identity() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    driver
+        .receive(br#"{"id":2,"result":{"thread":{"id":"thread-private"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"method":"turn/started","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"id":3,"result":{"turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    let effects = driver
+        .receive(br#"{"method":"turn/completed","params":{}}"#)
+        .unwrap();
+    assert!(
+        effects.contains(&CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::TurnEnded {
+                turn_id: "turn-1".into(),
+            },
+        )))
+    );
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::TransportDiagnostic { .. }
+        ))
+    )));
+}
+
+#[test]
+fn command_completion_supplies_canonical_output_only_when_no_delta_arrived() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    driver
+        .receive(br#"{"id":2,"result":{"thread":{"id":"thread-private"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"method":"turn/started","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"id":3,"result":{"turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+
+    let fallback = driver
+        .receive(br#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"cmd-1","aggregatedOutput":"canonical output"}}}"#)
+        .unwrap();
+    assert!(fallback.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
+            tool_use_id, text, is_partial
+        })) if tool_use_id == "cmd-1" && text == "canonical output" && !*is_partial
+    )));
+
+    let repeated = driver
+        .receive(br#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"cmd-1","aggregatedOutput":"canonical output"}}}"#)
+        .unwrap();
+    assert!(!repeated.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ToolOutputDelta { .. }
+        ))
+    )));
+
+    let (mut streamed, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    streamed.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    streamed
+        .receive(br#"{"id":2,"result":{"thread":{"id":"thread-private"}}}"#)
+        .unwrap();
+    streamed
+        .receive(br#"{"method":"turn/started","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    streamed
+        .receive(br#"{"id":3,"result":{"turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    streamed
+        .receive(br#"{"method":"item/commandExecution/outputDelta","params":{"itemId":"cmd-2","delta":"streamed"}}"#)
+        .unwrap();
+    let no_duplicate = streamed
+        .receive(br#"{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"cmd-2","aggregatedOutput":"streamed"}}}"#)
+        .unwrap();
+    assert!(!no_duplicate.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ToolOutputDelta { .. }
+        ))
+    )));
 }
 
 #[test]
@@ -105,7 +196,7 @@ fn handshakes_then_starts_the_exact_one_prompt_without_exporting_native_ids() {
     assert_eq!(
         frames(&next),
         vec![
-            json!({"id":3,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
+            json!({"id":3,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"on-request","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
         ]
     );
 }
@@ -156,9 +247,9 @@ fn reuses_the_ready_native_thread_for_a_later_prompt() {
         .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
         .unwrap();
     assert_eq!(
-        frames(&driver.submit("follow-up", None).unwrap()),
+        frames(&driver.submit("follow-up", None, &[]).unwrap()),
         vec![
-            json!({"id":4,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"follow-up"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
+            json!({"id":4,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"follow-up"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"on-request","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
         ]
     );
 }
@@ -279,4 +370,107 @@ fn settles_a_known_child_only_when_its_own_turn_explicitly_completes() {
             NormalizedProviderEvent::ChildTerminal { .. }
         ))
     )));
+}
+
+#[test]
+fn preserves_live_child_statuses_without_settling_the_child() {
+    for (status, phase) in [
+        ("pending", WorkPhase::Pending),
+        ("queued", WorkPhase::Pending),
+        ("working", WorkPhase::Running),
+        ("running", WorkPhase::Running),
+    ] {
+        let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+        driver
+            .receive(br#"{"method":"item/completed","params":{"item":{"type":"subAgentActivity","kind":"started","id":"parent-tool-1","agentThreadId":"child-thread-1"}}}"#)
+            .unwrap();
+        let effects = driver
+            .receive(
+                serde_json::to_string(&json!({
+                    "method": "thread/status/changed",
+                    "params": {"threadId": "child-thread-1", "status": {"type": status}}
+                }))
+                .unwrap()
+                .as_bytes(),
+            )
+            .unwrap();
+        assert!(
+            effects.contains(&CodexTurnEffect::Fact(PublicWireFact::Lifecycle(
+                NormalizedLifecycleSignal::ChildPhase {
+                    child_id: "child-thread-1".into(),
+                    phase,
+                },
+            )))
+        );
+        assert!(!effects.iter().any(|effect| matches!(
+            effect,
+            CodexTurnEffect::Fact(PublicWireFact::Event(
+                NormalizedProviderEvent::ChildTerminal { .. }
+            ))
+        )));
+    }
+}
+
+#[test]
+fn settles_a_known_child_on_failed_or_aborted_turn_notifications() {
+    for (method, phase) in [
+        ("turn/failed", WorkPhase::Failed),
+        ("turn/aborted", WorkPhase::Interrupted),
+    ] {
+        let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+        driver
+            .receive(br#"{"method":"item/completed","params":{"item":{"type":"subAgentActivity","kind":"started","id":"parent-tool-1","agentThreadId":"child-thread-1"}}}"#)
+            .unwrap();
+        let terminal = driver
+            .receive(
+                serde_json::to_string(&json!({
+                    "method": method,
+                    "params": {"threadId": "child-thread-1", "turnId": "child-turn-1"}
+                }))
+                .unwrap()
+                .as_bytes(),
+            )
+            .unwrap();
+        assert_eq!(
+            terminal,
+            vec![CodexTurnEffect::Fact(PublicWireFact::Event(
+                NormalizedProviderEvent::ChildTerminal {
+                    child_id: "child-thread-1".into(),
+                    phase,
+                },
+            ))]
+        );
+    }
+}
+
+#[test]
+fn child_turn_completion_accepts_native_interrupt_status_aliases() {
+    for status in [
+        "cancelled",
+        "canceled",
+        "aborted",
+        "timedOut",
+        "timed_out",
+        "timeout",
+    ] {
+        let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+        driver
+            .receive(br#"{"method":"item/completed","params":{"item":{"type":"subAgentActivity","kind":"started","id":"parent-tool-1","agentThreadId":"child-thread-1"}}}"#)
+            .unwrap();
+        let terminal = driver
+            .receive(
+                serde_json::to_string(&json!({
+                    "method": "turn/completed",
+                    "params": {"threadId": "child-thread-1", "turn": {"id": "child-turn-1", "status": status}}
+                }))
+                .unwrap()
+                .as_bytes(),
+            )
+            .unwrap();
+        assert!(terminal.iter().any(|effect| matches!(
+            effect,
+            CodexTurnEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::ChildTerminal { child_id, phase }))
+                if child_id == "child-thread-1" && *phase == WorkPhase::Interrupted
+        )));
+    }
 }

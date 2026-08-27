@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use gent_types::{GoalProjection, RunVersionLock, SandboxWorkspaceAccess};
 
 use crate::buffering::BufferPolicy;
+use crate::codex_control::{CodexControlDecision, CodexControlRequest, encode};
 use crate::codex_session::CodexSessionConfig;
 use crate::codex_turn::{CodexTurnDriver, CodexTurnEffect, CodexTurnError, MAX_CODEX_FRAME_BYTES};
 use crate::lock::{LockError, recheck};
@@ -17,6 +18,8 @@ use crate::public_protocol::PublicWireFact;
 use crate::supervisor::{
     LaunchIntent, ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError,
 };
+
+mod control;
 
 /// Inputs for one locked Codex process and its first durable prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,12 +32,14 @@ pub struct CodexRunStart {
     pub prompt: String,
     /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
     pub goal: Option<GoalProjection>,
+    pub attachments: Vec<serde_json::Value>,
 }
 
 /// One provider-neutral fact or final process settlement from a Codex process.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CodexRunnerEffect {
     Fact(PublicWireFact),
+    ControlRequest(CodexControlRequest),
     Exited { code: Option<i32> },
 }
 
@@ -45,6 +50,8 @@ pub enum CodexRunnerError {
     AlreadyActive,
     #[error("Codex runner does not own the requested run")]
     NotActive,
+    #[error("Codex control request is not pending for this run")]
+    ControlNotPending,
     #[error("Codex runner accepts only a locked Codex executable")]
     UnsupportedProvider,
     #[error(transparent)]
@@ -64,6 +71,7 @@ struct OwnedRun<P> {
     process: P,
     turn: CodexTurnDriver,
     output: ProviderOutputPump,
+    controls: BTreeMap<String, CodexControlRequest>,
 }
 
 /// One synchronous owner for bounded Codex app-server processes.
@@ -92,7 +100,6 @@ where
     /// Rechecks, launches, and handshakes exactly one locked Codex process for a durable prompt.
     ///
     /// # Errors
-    /// Returns before launch for invalid inputs or a changed binary; no fallback executable exists.
     pub fn start(&mut self, start: CodexRunStart) -> Result<(), CodexRunnerError> {
         if self.runs.contains_key(&start.run_id) {
             return Err(CodexRunnerError::AlreadyActive);
@@ -100,8 +107,12 @@ where
         if start.lock.provider != "codex" {
             return Err(CodexRunnerError::UnsupportedProvider);
         }
-        let (turn, initial) =
-            CodexTurnDriver::start(start.session, &start.prompt, start.goal.as_ref())?;
+        let (turn, initial) = CodexTurnDriver::start_with_attachments(
+            start.session,
+            &start.prompt,
+            start.attachments,
+            start.goal.as_ref(),
+        )?;
         let output =
             ProviderOutputPump::new(MAX_OUTPUT_CHUNK_BYTES, MAX_CODEX_FRAME_BYTES, self.policy)?;
         recheck(&start.lock)?;
@@ -127,6 +138,7 @@ where
                 process,
                 turn,
                 output,
+                controls: BTreeMap::new(),
             },
         );
         Ok(())
@@ -169,12 +181,13 @@ where
         run_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
+        attachments: &[serde_json::Value],
     ) -> Result<(), CodexRunnerError> {
         let run = self
             .runs
             .get_mut(run_id)
             .ok_or(CodexRunnerError::NotActive)?;
-        for effect in run.turn.submit(prompt, goal)? {
+        for effect in run.turn.submit(prompt, goal, attachments)? {
             write(&run.process, effect)?;
         }
         Ok(())
@@ -190,6 +203,26 @@ where
             .get_mut(run_id)
             .ok_or(CodexRunnerError::NotActive)?;
         write(&run.process, run.turn.interrupt()?)
+    }
+
+    pub fn respond_control(
+        &mut self,
+        run_id: &str,
+        request_id: &str,
+        decision: CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), CodexRunnerError> {
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(CodexRunnerError::NotActive)?;
+        let request = run
+            .controls
+            .remove(request_id)
+            .ok_or(CodexRunnerError::ControlNotPending)?;
+        run.process
+            .write_frame(&encode(&request, decision, answers))?;
+        Ok(())
     }
 
     /// Reports whether this process owner still owns the named native session.
@@ -214,6 +247,16 @@ where
             .signal_tree(signal)?;
         Ok(())
     }
+
+    pub fn terminate(&mut self, run_id: &str) -> Result<(), CodexRunnerError> {
+        let run = self
+            .runs
+            .remove(run_id)
+            .ok_or(CodexRunnerError::NotActive)?;
+        run.process
+            .signal_tree(crate::interrupt::ProcessTreeSignal::Terminate)?;
+        Ok(())
+    }
 }
 
 fn drain<P: ProviderProcess>(
@@ -223,10 +266,18 @@ fn drain<P: ProviderProcess>(
     while run.output.queued_frames() > 0 {
         let (frame, _) = run.output.take_frame();
         let Some(frame) = frame else { break };
+        if let Some(request_key) = control::cancelled_control_request_key(&frame) {
+            run.controls.remove(&request_key);
+        }
         for effect in run.turn.receive(&frame)? {
             match effect {
                 CodexTurnEffect::Write(frame) => run.process.write_frame(&frame)?,
                 CodexTurnEffect::Fact(fact) => effects.push(CodexRunnerEffect::Fact(fact)),
+                CodexTurnEffect::ControlRequest(request) => {
+                    run.controls
+                        .insert(request.request_key.clone(), request.clone());
+                    effects.push(CodexRunnerEffect::ControlRequest(request));
+                }
             }
         }
     }
@@ -234,8 +285,9 @@ fn drain<P: ProviderProcess>(
 }
 
 fn write<P: ProviderProcess>(process: &P, effect: CodexTurnEffect) -> Result<(), CodexRunnerError> {
-    if let CodexTurnEffect::Write(frame) = effect {
-        process.write_frame(&frame)?;
+    match effect {
+        CodexTurnEffect::Write(frame) => process.write_frame(&frame)?,
+        CodexTurnEffect::Fact(_) | CodexTurnEffect::ControlRequest(_) => {}
     }
     Ok(())
 }

@@ -47,6 +47,9 @@ pub(super) const fn effort(value: AgentChatEffort) -> &'static str {
         AgentChatEffort::Low => "low",
         AgentChatEffort::Medium => "medium",
         AgentChatEffort::High => "high",
+        AgentChatEffort::XHigh => "xhigh",
+        AgentChatEffort::Max => "max",
+        AgentChatEffort::Ultra => "ultra",
     }
 }
 

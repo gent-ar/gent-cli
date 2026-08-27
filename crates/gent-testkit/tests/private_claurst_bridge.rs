@@ -75,6 +75,7 @@ async fn bridge_drains_ordered_normalized_facts_and_terminal_once() {
                 is_partial: false,
             }),
         }],
+        permissions: vec![],
         checkpoint: Some(ClaurstCheckpoint {
             run_id: "run-a".into(),
             source_id: source(),
@@ -107,6 +108,7 @@ async fn bridge_rejects_unbounded_or_opaque_session_echoes() {
                 is_partial: false,
             }),
         }],
+        permissions: vec![],
         checkpoint: None,
         session_binding: None,
         terminal: None,
@@ -120,6 +122,7 @@ async fn bridge_rejects_non_monotonic_facts_and_stale_checkpoints() {
     bridge.bind_session(binding()).await.unwrap();
     bridge.push_batch(ClaurstDrainBatch {
         facts: vec![fact(2), fact(1)],
+        permissions: vec![],
         checkpoint: None,
         session_binding: None,
         terminal: None,
@@ -130,6 +133,7 @@ async fn bridge_rejects_non_monotonic_facts_and_stale_checkpoints() {
     bridge.bind_session(binding()).await.unwrap();
     bridge.push_batch(ClaurstDrainBatch {
         facts: vec![fact(2)],
+        permissions: vec![],
         checkpoint: Some(ClaurstCheckpoint {
             run_id: "run-a".into(),
             source_id: source(),
@@ -148,6 +152,7 @@ async fn bridge_rejects_private_session_material_in_checkpoint_digest() {
     bridge.bind_session(binding()).await.unwrap();
     bridge.push_batch(ClaurstDrainBatch {
         facts: Vec::new(),
+        permissions: vec![],
         checkpoint: Some(ClaurstCheckpoint {
             run_id: "run-a".into(),
             source_id: source(),
@@ -168,6 +173,7 @@ async fn bridge_rejects_non_sha256_checkpoint_digest() {
     bridge.bind_session(binding()).await.unwrap();
     bridge.push_batch(ClaurstDrainBatch {
         facts: Vec::new(),
+        permissions: vec![],
         checkpoint: Some(ClaurstCheckpoint {
             run_id: "run-a".into(),
             source_id: source(),

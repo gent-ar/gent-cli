@@ -105,7 +105,6 @@ fn rejected_post_install_compatibility_is_ambiguous_and_never_creates_a_lock() {
         Some(Verifier),
         TestAcceptedReceiptReader,
         DeniedCompatibility,
-        None,
     );
 
     let result = provisioner.provision(&request()).unwrap();

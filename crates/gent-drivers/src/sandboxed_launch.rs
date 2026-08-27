@@ -30,7 +30,6 @@ pub enum SandboxedProviderLaunchError {
 ///
 /// Implementations must recheck `request.lock`, apply `request.profile`, and start the exact
 /// `launch` as one trusted platform operation. Returning a process means the launched process is
-/// already contained; implementations must never return an unenforced fallback process.
 pub trait SandboxedProviderLaunch: Send + Sync {
     /// The process tree owned after a successful contained spawn.
     type Process: ProviderProcess + 'static;
@@ -134,6 +133,10 @@ mod tests {
     }
     impl ProviderProcess for Process {
         fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
+            Ok(())
+        }
+
+        fn close_stdin(&self) -> Result<(), ProcessTreeError> {
             Ok(())
         }
     }

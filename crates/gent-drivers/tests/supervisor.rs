@@ -38,6 +38,10 @@ impl ProviderProcess for FakeProcess {
     fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
         Ok(())
     }
+
+    fn close_stdin(&self) -> Result<(), ProcessTreeError> {
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

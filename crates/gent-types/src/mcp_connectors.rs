@@ -29,3 +29,18 @@ pub struct McpConnectorRecord {
     pub tool_source_id: String,
     pub phase: McpConnectorPhase,
 }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgeConnectorRecord {
+    pub connector_id: String,
+    pub workspace_id: String,
+    pub tool_source_id: String,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub phase: McpConnectorPhase,
+    pub declared_tools: Vec<String>,
+    pub discovered_tools: Vec<String>,
+    pub enabled: bool,
+}

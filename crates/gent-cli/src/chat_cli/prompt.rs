@@ -21,15 +21,31 @@ pub(crate) async fn send(
     no_autostart: bool,
     conversation_id: String,
     text: String,
+    attachments: Vec<PathBuf>,
+    tool_source_ids: Vec<String>,
 ) -> Result<PromptAccepted, Box<dyn std::error::Error>> {
+    let attachment_ids =
+        super::attachments::stage(data_dir.clone(), no_autostart, &attachments).await?;
     let response = super::exchange(
         data_dir,
         no_autostart,
-        AgentChatIntentFrame::SendPrompt {
-            request_id: super::request_id(None),
-            receipt_id: super::receipt_id(None),
-            conversation_id: AgentChatConversationId(conversation_id),
-            text,
+        if tool_source_ids.is_empty() {
+            AgentChatIntentFrame::SendPrompt {
+                request_id: super::request_id(None),
+                receipt_id: super::receipt_id(None),
+                conversation_id: AgentChatConversationId(conversation_id),
+                text,
+                attachment_ids,
+            }
+        } else {
+            AgentChatIntentFrame::SendPromptWithTools {
+                request_id: super::request_id(None),
+                receipt_id: super::receipt_id(None),
+                conversation_id: AgentChatConversationId(conversation_id),
+                text,
+                attachment_ids,
+                tool_source_ids,
+            }
         },
     )
     .await?;

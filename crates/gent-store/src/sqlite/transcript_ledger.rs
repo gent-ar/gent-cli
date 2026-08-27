@@ -229,6 +229,7 @@ const fn kind(value: NormalizedTranscriptKind) -> &'static str {
     match value {
         NormalizedTranscriptKind::UserMessage => "userMessage",
         NormalizedTranscriptKind::AssistantMessage => "assistantMessage",
+        NormalizedTranscriptKind::Thinking => "thinking",
         NormalizedTranscriptKind::ToolActivity => "toolActivity",
         NormalizedTranscriptKind::Notice => "notice",
     }
@@ -238,6 +239,7 @@ fn decode_kind(value: &str) -> Result<NormalizedTranscriptKind, LedgerError> {
     match value {
         "userMessage" => Ok(NormalizedTranscriptKind::UserMessage),
         "assistantMessage" => Ok(NormalizedTranscriptKind::AssistantMessage),
+        "thinking" => Ok(NormalizedTranscriptKind::Thinking),
         "toolActivity" => Ok(NormalizedTranscriptKind::ToolActivity),
         "notice" => Ok(NormalizedTranscriptKind::Notice),
         _ => Err(LedgerError::Storage("unknown transcript event kind".into())),

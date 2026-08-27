@@ -93,6 +93,7 @@ pub struct ConversationTimelineRun {
     pub parent_run_id: Option<String>,
     pub provider: String,
     pub turns: Vec<TurnRecord>,
+    pub checkpoints: Vec<crate::RunCheckpointRecord>,
 }
 
 /// Read-only, non-content timeline suitable for conversation and session UIs.

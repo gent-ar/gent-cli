@@ -65,7 +65,8 @@ const fn kind_tag(kind: NormalizedTranscriptKind) -> u8 {
     match kind {
         NormalizedTranscriptKind::UserMessage => 1,
         NormalizedTranscriptKind::AssistantMessage => 2,
-        NormalizedTranscriptKind::ToolActivity => 3,
-        NormalizedTranscriptKind::Notice => 4,
+        NormalizedTranscriptKind::Thinking => 3,
+        NormalizedTranscriptKind::ToolActivity => 4,
+        NormalizedTranscriptKind::Notice => 5,
     }
 }

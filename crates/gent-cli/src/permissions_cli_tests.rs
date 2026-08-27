@@ -94,3 +94,23 @@ fn current_policy_reply_stays_bound_to_the_settings_workspace() {
     };
     assert!(!valid_reply(&request, &response));
 }
+
+#[test]
+fn response_command_accepts_a_provider_neutral_response_document() {
+    let args = Args::try_parse_from([
+        "gent",
+        "permissions",
+        "respond",
+        "--response-json",
+        "{}",
+        "--receipt-id",
+        "receipt-1",
+    ])
+    .unwrap();
+    assert!(matches!(
+        args.command,
+        Some(CommandLine::Permissions {
+            action: PermissionCommand::Respond(_)
+        })
+    ));
+}

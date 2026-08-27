@@ -1,8 +1,8 @@
 //! Durable claim and settlement ownership for provider-bound agent-chat prompts.
 
 use gent_types::{
-    AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, Event, HostEpoch,
-    ProviderPromptReadinessBinding, Receipt,
+    AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, DurableTurnPhase, Event,
+    HostEpoch, ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding, Receipt,
 };
 
 use crate::LedgerError;
@@ -25,6 +25,17 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
     ) -> Result<Receipt, LedgerError> {
         Err(LedgerError::Invariant(
             "verified agent chat prompt readiness release is unavailable".into(),
+        ))
+    }
+
+    fn fail_verified_agent_chat_prompt_after_readiness(
+        &self,
+        _: &Command,
+        _: &Event,
+        _: &ProviderPromptReadinessFailureBinding,
+    ) -> Result<Receipt, LedgerError> {
+        Err(LedgerError::Invariant(
+            "verified agent chat prompt readiness failure is unavailable".into(),
         ))
     }
 
@@ -87,6 +98,18 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
+    fn fail_agent_chat_prompt_prelaunch(
+        &self,
+        _: &str,
+        _: &str,
+        _: HostEpoch,
+        _: &str,
+    ) -> Result<(), LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat prelaunch failure settlement is unavailable".into(),
+        ))
+    }
+
     /// Returns a launch-marked prompt only after a local result proves no runner was invoked.
     /// # Errors
     /// Returns an error when the launch marker or owner fence no longer matches.
@@ -117,6 +140,18 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
+
+    fn settle_agent_chat_prompt_terminal(
+        &self,
+        _: &str,
+        _: &str,
+        _: HostEpoch,
+        _: DurableTurnPhase,
+    ) -> Result<(), LedgerError> {
+        Err(LedgerError::Invariant(
+            "atomic agent chat terminal settlement is unavailable".into(),
+        ))
+    }
 
     /// Recovers pre-launch work after an already-fenced successor opens a new host epoch.
     ///

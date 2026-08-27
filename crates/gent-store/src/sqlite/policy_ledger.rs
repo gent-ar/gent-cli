@@ -6,6 +6,13 @@ use gent_types::{PolicyRecord, PolicyScope};
 use super::{SqliteLedger, policies};
 
 impl PolicyLedger for SqliteLedger {
+    fn ensure_default_provider_permission_policy(
+        &self,
+        workspace_id: &str,
+    ) -> Result<PolicyRecord, LedgerError> {
+        policies::ensure_default_provider_permission_policy(self, workspace_id)
+    }
+
     fn save_policy(&self, policy: &PolicyRecord) -> Result<(), LedgerError> {
         policies::save(self, policy)
     }

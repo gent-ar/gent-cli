@@ -1,15 +1,20 @@
-//! Coordinator orchestration over pure policy and durable ports.
 mod agent_chat_compaction_recovery;
+mod agent_chat_checkpoint;
+mod agent_chat_conversation_config;
 mod agent_chat_conversations;
+mod agent_chat_fork;
 mod agent_chat_dispatch;
 mod agent_chat_prompts;
 mod agent_chat_reads;
 mod agent_chat_run_context;
 mod agent_chat_selection_gate;
 mod agent_chat_selection_switch;
+mod agent_chat_sessions;
+mod agent_chat_side_question;
 mod agent_chat_transcripts;
 mod attachment_receipts;
 mod attachments;
+mod automations;
 pub mod catalog;
 mod command_receipts;
 mod conversation_activity;
@@ -20,24 +25,29 @@ mod conversation_context_pagination_tests;
 #[cfg(test)]
 mod conversation_context_tests;
 mod conversation_prompts;
+pub mod conversation_summary;
+pub mod conversation_summary_scheduler;
+pub mod conversation_summary_service;
 mod conversations;
 mod decisions;
 mod dependency_action_receipts;
 mod dependency_actions;
 mod events;
+mod exports;
+mod forge_connectors;
 mod git_operations;
 mod git_status;
 mod git_status_events;
 #[cfg(test)]
 mod goal_projection_tests;
 mod goals;
-mod legacy_observer;
 mod mcp_connectors;
 mod orchestration;
 #[cfg(test)]
 mod orchestration_service_tests;
 mod policies;
 mod prompt_provider_provision_command;
+mod prompt_templates;
 mod provider_activity;
 mod provider_lifecycle;
 mod provider_mode_selection_gate;
@@ -55,14 +65,6 @@ mod runtime_update_successor;
 mod tool_sources;
 mod turn_follow;
 mod workspaces;
-pub use agent_chat_compaction_recovery::{
-    AgentChatCompactionRecoveryAuthority, AgentChatCompactionRecoveryRequest,
-    AgentChatCompactionRecoveryResult, AgentChatCompactionRecoveryService,
-};
-pub use agent_chat_conversations::{
-    AgentChatConversationAuthority, AgentChatConversationRequest, AgentChatConversationResult,
-    AgentChatConversationService,
-};
 pub use agent_chat_dispatch::{
     AgentChatPromptDispatchAuthority, AgentChatPromptDispatchResult, AgentChatPromptDispatchService,
 };
@@ -78,11 +80,15 @@ pub use agent_chat_selection_switch::{
     AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchRequest,
     AgentChatSelectionSwitchResult, AgentChatSelectionSwitchService,
 };
+pub use agent_chat_sessions::{
+    AgentChatSessionAuthority, AgentChatSessionResult, AgentChatSessionService,
+};
 pub use agent_chat_transcripts::{
     AgentChatTranscriptAppendRequest, AgentChatTranscriptAppendResult,
     AgentChatTranscriptAuthority, AgentChatTranscriptIngress,
 };
 pub use attachments::AttachmentService;
+pub use automations::{AutomationAuthority, AutomationResult, AutomationService};
 pub use command_receipts::{CommandReceiptClaim, CommandReceiptReservation};
 pub use conversation_activity::{
     ConversationActivityAuthority, ConversationActivityRead, ConversationActivityResult,
@@ -94,6 +100,8 @@ pub use dependency_action_receipts::{
     DependencyActionReceiptClaim, DependencyActionReceiptReservation,
 };
 pub use dependency_actions::{DependencyActionService, dependency_action_command};
+pub use exports::*;
+pub use forge_connectors::*;
 use gent_core::{Run, switch_provider};
 use gent_ports::{
     HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,
@@ -107,10 +115,10 @@ pub use git_status::{
     GitStatusAuthority, GitStatusRequest, GitStatusResult, GitStatusService, GitStatusState,
 };
 pub use goals::{GoalAuthority, GoalResult, GoalService};
-pub use legacy_observer::{LegacyObserver, ObserverPoll};
 pub use mcp_connectors::*;
 pub use orchestration::{OrchestrationAuthority, OrchestrationResult, OrchestrationService};
 pub use prompt_provider_provision_command::prompt_provider_provision_command;
+pub use prompt_templates::PromptTemplateService;
 pub use provider_activity::{ProviderActivityFact, ProviderActivityIngress};
 pub use provider_lifecycle::{ProviderLifecycleEffect, ProviderLifecycleIngress};
 pub use provider_mode_selection_gate::ProviderModeSelectionGate;
@@ -159,6 +167,8 @@ pub enum RuntimeError {
     Port(#[from] gent_ports::PortError),
     #[error("agent-chat selection is not allowed by the composed authority")]
     AgentChatSelectionDenied,
+    #[error(transparent)]
+    ConversationSummary(#[from] conversation_summary::ConversationSummaryError),
 }
 impl<L: Ledger> Coordinator<L> {
     #[must_use]
@@ -180,7 +190,6 @@ impl<L: Ledger> Coordinator<L> {
     }
     /// # Errors
     /// Returns an error when the host fence rejects ingress or durable persistence fails.
-    #[allow(clippy::needless_pass_by_value)] // The coordinator owns the wire command boundary.
     pub fn submit(&self, command: &Command) -> Result<Receipt, RuntimeError> {
         let accepted = Event {
             cursor: 0,
@@ -229,9 +238,8 @@ impl<L: Ledger> Coordinator<L> {
     ///
     /// # Errors
     /// Returns an error when the run already exists or persistence fails.
-    #[allow(clippy::needless_pass_by_value)] // The coordinator owns the root-run handoff boundary.
-    pub fn create_run(&self, run: Run) -> Result<(), RuntimeError> {
-        Ok(self.ledger.create_run(&to_record(&run))?)
+    pub fn create_run(&self, run: &Run) -> Result<(), RuntimeError> {
+        Ok(self.ledger.create_run(&to_record(run))?)
     }
     /// Persists the immutable executable identity to be rechecked before run resume.
     ///
@@ -265,12 +273,10 @@ impl<L: Ledger> Coordinator<L> {
     pub fn claim_run_lease(&self, lease: &RunLease) -> Result<RunLeaseClaim, RuntimeError> {
         Ok(self.ledger.claim_run_lease(lease)?)
     }
-
     /// Atomically acquires, reports contention, or recovers a stale worktree lease.
     ///
     /// # Errors
     /// Returns an error when the request has a stale epoch or its run is unknown.
-    #[allow(clippy::needless_pass_by_value)] // The coordinator owns the lease handoff boundary.
     pub fn claim_worktree_lease(&self, lease: &WorktreeLease) -> Result<LeaseClaim, RuntimeError> {
         Ok(self.ledger.claim_worktree_lease(lease)?)
     }

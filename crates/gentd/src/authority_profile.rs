@@ -5,12 +5,6 @@
 //! it contains no resolver, runner, MCP client, Git executor, or automation scheduler. A later
 //! composition must independently verify its evidence and compatibility material before using it.
 
-#[allow(dead_code)] // Deliberately dormant until MCP evidence gates are complete.
-#[path = "mcp_authority.rs"]
-mod mcp_authority;
-#[cfg(test)]
-#[path = "mcp_authority_tests.rs"]
-mod mcp_authority_tests;
 #[cfg(test)]
 #[path = "authority_profile_tests.rs"]
 mod tests;
@@ -20,8 +14,6 @@ mod tests;
 pub(crate) struct AuthorityProfileConfig {
     /// Public Claude/Codex lifecycle authority, if separately approved.
     pub(crate) public_drivers: PublicDriverRequest,
-    /// MCP requires its own evidence-bound registry approval.
-    pub(crate) mcp: McpRequest,
     /// Git mutation is not part of this composition seam.
     pub(crate) git: DeferredSurfaceRequest,
     /// Agent automations are not part of this composition seam.
@@ -35,7 +27,6 @@ pub(crate) enum PublicDriverRequest {
     #[default]
     Disabled,
     /// Preparation requires a stable evidence reference and a pinned compatibility digest.
-    #[allow(dead_code)] // Only a future reviewed composition may construct this request.
     Approved(PublicDriverApproval),
 }
 
@@ -47,24 +38,6 @@ pub(crate) enum PublicDriverRequest {
 pub(crate) struct PublicDriverApproval {
     pub(crate) evidence_reference: String,
     pub(crate) compatibility_manifest_sha256: String,
-}
-
-/// The only MCP request a future composition may prepare.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) enum McpRequest {
-    /// The default: MCP cannot be resolved, connected, spawned, or inspected.
-    #[default]
-    Disabled,
-    /// Preparation binds reviewed evidence to one immutable credential-free registry digest.
-    #[allow(dead_code)] // Only a future reviewed composition may construct this request.
-    Approved(McpApproval),
-}
-
-/// Identifies reviewed MCP evidence and the exact registry it approved.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct McpApproval {
-    pub(crate) evidence_reference: String,
-    pub(crate) registry_sha256: String,
 }
 
 /// A surface that this milestone cannot enable, even when requested explicitly.
@@ -82,10 +55,6 @@ pub(crate) enum AuthorityProfileError {
     MissingEvidenceReference,
     #[error("public-driver approval requires a lowercase SHA-256 compatibility manifest digest")]
     InvalidCompatibilityDigest,
-    #[error("MCP approval requires a non-empty evidence reference")]
-    MissingMcpEvidenceReference,
-    #[error("MCP approval requires a lowercase SHA-256 registry digest")]
-    InvalidMcpRegistryDigest,
     #[error("{surface} authority is not composed in this daemon milestone")]
     DeferredSurfaceRequested { surface: &'static str },
 }
@@ -99,11 +68,6 @@ pub(crate) enum AuthorityProfileError {
 pub(crate) enum ValidatedAuthorityProfile {
     Observer,
     PreparedPublicDrivers(PublicDriverApproval),
-    PreparedMcp(McpApproval),
-    PreparedPublicDriversAndMcp {
-        public_drivers: PublicDriverApproval,
-        mcp: McpApproval,
-    },
 }
 
 impl ValidatedAuthorityProfile {
@@ -132,25 +96,11 @@ impl AuthorityProfileConfig {
                 Some(approval)
             }
         };
-        let mcp = match self.mcp {
-            McpRequest::Disabled => None,
-            McpRequest::Approved(approval) => {
-                validate_mcp_approval(&approval)?;
-                Some(approval)
-            }
-        };
-        match (public_drivers, mcp) {
-            (None, None) => Ok(ValidatedAuthorityProfile::Observer),
-            (Some(public_drivers), None) => Ok(ValidatedAuthorityProfile::PreparedPublicDrivers(
+        match public_drivers {
+            None => Ok(ValidatedAuthorityProfile::Observer),
+            Some(public_drivers) => Ok(ValidatedAuthorityProfile::PreparedPublicDrivers(
                 public_drivers,
             )),
-            (None, Some(mcp)) => Ok(ValidatedAuthorityProfile::PreparedMcp(mcp)),
-            (Some(public_drivers), Some(mcp)) => {
-                Ok(ValidatedAuthorityProfile::PreparedPublicDriversAndMcp {
-                    public_drivers,
-                    mcp,
-                })
-            }
         }
     }
 }
@@ -189,21 +139,4 @@ fn validate_approval(approval: &PublicDriverApproval) -> Result<(), AuthorityPro
         return Err(AuthorityProfileError::InvalidCompatibilityDigest);
     }
     Ok(())
-}
-
-fn validate_mcp_approval(approval: &McpApproval) -> Result<(), AuthorityProfileError> {
-    if approval.evidence_reference.trim().is_empty() {
-        return Err(AuthorityProfileError::MissingMcpEvidenceReference);
-    }
-    valid_sha256(&approval.registry_sha256)
-        .then_some(())
-        .ok_or(AuthorityProfileError::InvalidMcpRegistryDigest)
-}
-
-fn valid_sha256(value: &str) -> bool {
-    let digest = value.as_bytes();
-    digest.len() == 64
-        && digest
-            .iter()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
 }

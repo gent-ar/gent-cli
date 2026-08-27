@@ -4,23 +4,19 @@
 //! returns cursor-sealed normalized facts to `PrivateClaurstIngress`.  It deliberately has no
 //! daemon bootstrap, IPC, model selection, or provider configuration surface.
 
-use std::{collections::BTreeMap, path::PathBuf, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
-use gent_drivers::conversation_context_input::{
-    MAX_FRESH_CONTEXT_INPUT_BYTES, render_fresh_conversation_input,
-};
 use gent_ports::{
-    ClaurstCheckpoint, ClaurstDrainBatch, ClaurstDrainRequest, ClaurstFactValue,
-    ClaurstNormalizedFact, ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest,
-    ClaurstSubmitRequest, ClaurstTerminal, PortError, PrivateClaurstBridge,
+    ClaurstDrainBatch, ClaurstDrainRequest, ClaurstPermissionReply, ClaurstSessionBinding,
+    ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, PortError, PrivateClaurstBridge,
 };
-use sha2::{Digest, Sha256};
 
-use crate::claurst_acp_transport::{
-    ClaurstAcpFact, ClaurstAcpStdio, ClaurstAcpTerminal, ClaurstAcpTransport,
-    ClaurstAcpTransportError,
-};
+use crate::claurst_acp_transport::{ClaurstAcpStdio, ClaurstAcpTransport};
 
 struct SourceState {
     binding: ClaurstSessionBinding,
@@ -36,189 +32,190 @@ struct BridgeState<S> {
 /// A private ACP bridge that keeps upstream session identifiers inside the daemon.
 pub(crate) struct ClaurstAcpBridge<S> {
     workspace: PathBuf,
-    state: Mutex<BridgeState<S>>,
+    state: Arc<Mutex<BridgeState<S>>>,
 }
 
 impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
     /// Creates a bridge rooted in the absolute Gent workspace supplied to ACP `session/new`.
     #[must_use]
-    pub(crate) fn new(workspace: PathBuf, stdio: S) -> Self {
+    pub(crate) fn new(workspace: PathBuf, stdio: S, mcp_servers: Vec<serde_json::Value>) -> Self {
         Self {
             workspace,
-            state: Mutex::new(BridgeState {
-                transport: ClaurstAcpTransport::new(stdio),
+            state: Arc::new(Mutex::new(BridgeState {
+                transport: ClaurstAcpTransport::new(stdio).with_mcp_servers(mcp_servers),
                 sources: BTreeMap::new(),
-            }),
+            })),
         }
+    }
+
+    pub(crate) fn is_idle(&self) -> Result<bool, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "ACP bridge lock is unavailable".to_owned())?;
+        Ok(state.transport.is_idle() && state.sources.values().all(|source| source.terminal))
+    }
+
+    pub(crate) async fn start_summary(
+        &self,
+        request: ClaurstStartRequest,
+    ) -> Result<ClaurstSessionBinding, PortError>
+    where
+        S: ClaurstAcpStdio + Send + 'static,
+    {
+        let state = Arc::clone(&self.state);
+        let workspace = self.workspace.clone();
+        tokio::task::spawn_blocking(move || start_summary_blocking(state, workspace, request))
+            .await
+            .map_err(|_| unavailable("ACP summary worker"))?
     }
 }
 
 #[async_trait]
 impl<S> PrivateClaurstBridge for ClaurstAcpBridge<S>
 where
-    S: ClaurstAcpStdio + Send,
+    S: ClaurstAcpStdio + Send + 'static,
 {
     async fn start(
         &self,
         request: ClaurstStartRequest,
     ) -> Result<ClaurstSessionBinding, PortError> {
-        request.validate().map_err(|_| invalid("start request"))?;
-        let input = render_fresh_conversation_input(
-            &request.context,
-            &request.prompt,
-            MAX_FRESH_CONTEXT_INPUT_BYTES,
-        )
-        .map_err(|_| invalid("frozen conversation context"))?;
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| unavailable("ACP bridge lock"))?;
-        if state.sources.contains_key(&request.source_id) {
-            return Err(invalid("duplicate source"));
-        }
-        let session_id = state
-            .transport
-            .initialize_session(&self.workspace)
-            .map_err(provider)?;
-        state
-            .transport
-            .prompt(&session_id, input.prompt())
-            .map_err(provider)?;
-        let binding = ClaurstSessionBinding {
-            run_id: request.run_id,
-            source_id: request.source_id,
-            opaque_session_id: session_id,
-        };
-        state.sources.insert(
-            binding.source_id.clone(),
-            SourceState {
-                binding: binding.clone(),
-                cursor: 0,
-                terminal: false,
-            },
-        );
-        Ok(binding)
+        let state = Arc::clone(&self.state);
+        let workspace = self.workspace.clone();
+        tokio::task::spawn_blocking(move || start_blocking(state, workspace, request))
+            .await
+            .map_err(|_| unavailable("ACP start worker"))?
     }
 
     async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
-        let state = self
-            .state
-            .lock()
-            .map_err(|_| unavailable("ACP bridge lock"))?;
-        (state
-            .sources
-            .get(&binding.source_id)
-            .is_some_and(|source| source.binding == binding))
-        .then_some(())
-        .ok_or_else(|| invalid("unknown session binding"))
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || bind_blocking(state, binding))
+            .await
+            .map_err(|_| unavailable("ACP bind worker"))?
     }
 
     async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), PortError> {
-        request.validate().map_err(|_| invalid("submit request"))?;
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| unavailable("ACP bridge lock"))?;
-        let source = state
-            .sources
-            .get(&request.binding.source_id)
-            .ok_or_else(|| invalid("unknown source"))?;
-        if source.binding != request.binding || source.terminal {
-            return Err(invalid("inactive session binding"));
-        }
-        state
-            .transport
-            .prompt(&request.binding.opaque_session_id, &request.prompt)
-            .map_err(provider)
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || submit_blocking(state, request))
+            .await
+            .map_err(|_| unavailable("ACP submit worker"))?
+    }
+
+    async fn cancel(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || cancel_blocking(state, binding))
+            .await
+            .map_err(|_| unavailable("ACP cancel worker"))?
     }
 
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
-        if !request.is_bounded() {
-            return Err(invalid("unbounded drain"));
-        }
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| unavailable("ACP bridge lock"))?;
-        let source = state
-            .sources
-            .get(&request.source_id)
-            .ok_or_else(|| invalid("unknown source"))?;
-        if source.binding.run_id != request.run_id
-            || source.cursor != request.after_cursor
-            || source.terminal
-        {
-            return Err(invalid("stale or terminal drain"));
-        }
-        let acp = state.transport.drain(request.limit).map_err(provider)?;
-        let source = state
-            .sources
-            .get_mut(&request.source_id)
-            .expect("source remains while bridge lock is held");
-        let facts = acp
-            .facts
-            .into_iter()
-            .map(|fact| {
-                source.cursor += 1;
-                ClaurstNormalizedFact {
-                    source_id: request.source_id.clone(),
-                    cursor: source.cursor,
-                    value: project(fact),
-                }
-            })
-            .collect();
-        let terminal = acp.terminal.map(project_terminal);
-        source.terminal = terminal.is_some();
-        Ok(ClaurstDrainBatch {
-            facts,
-            checkpoint: Some(checkpoint(&source.binding, source.cursor)),
-            session_binding: Some(source.binding.clone()),
-            terminal,
+        let state = Arc::clone(&self.state);
+        tokio::task::spawn_blocking(move || drain_blocking(state, request))
+            .await
+            .map_err(|_| unavailable("ACP drain worker"))?
+    }
+
+    async fn respond_permission(
+        &self,
+        binding: ClaurstSessionBinding,
+        request_id: &str,
+        reply: ClaurstPermissionReply,
+    ) -> Result<(), PortError> {
+        let state = Arc::clone(&self.state);
+        let request_id = request_id.to_owned();
+        tokio::task::spawn_blocking(move || {
+            respond_permission_blocking(state, binding, &request_id, reply)
         })
+        .await
+        .map_err(|_| unavailable("ACP permission worker"))?
     }
 }
 
-fn project(fact: ClaurstAcpFact) -> ClaurstFactValue {
-    match fact {
-        ClaurstAcpFact::Event(event) => ClaurstFactValue::Event(event),
-        ClaurstAcpFact::Lifecycle(signal) => ClaurstFactValue::Lifecycle(signal),
+pub(crate) struct ClaurstBridgeHandle<S>(Arc<ClaurstAcpBridge<S>>);
+
+impl<S> Clone for ClaurstBridgeHandle<S> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
     }
 }
 
-fn project_terminal(terminal: ClaurstAcpTerminal) -> ClaurstTerminal {
-    match terminal {
-        ClaurstAcpTerminal::Completed => ClaurstTerminal::Completed,
-        ClaurstAcpTerminal::Interrupted => ClaurstTerminal::Interrupted,
-        ClaurstAcpTerminal::Failed => ClaurstTerminal::Failed {
-            classification: gent_ports::ClaurstFailureClassification::Protocol,
-        },
+impl<S> std::fmt::Debug for ClaurstBridgeHandle<S> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ClaurstBridgeHandle(..)")
     }
 }
 
-fn checkpoint(binding: &ClaurstSessionBinding, cursor: u64) -> ClaurstCheckpoint {
-    let digest = format!(
-        "{}\0{}\0{}\0{cursor}",
-        binding.run_id, binding.source_id.0, binding.opaque_session_id
-    );
-    ClaurstCheckpoint {
-        run_id: binding.run_id.clone(),
-        source_id: binding.source_id.clone(),
-        cursor,
-        state_digest_sha256: format!("{:x}", Sha256::digest(digest.as_bytes())),
+impl<S> ClaurstBridgeHandle<S> {
+    #[must_use]
+    pub(crate) fn new(bridge: Arc<ClaurstAcpBridge<S>>) -> Self {
+        Self(bridge)
+    }
+
+    pub(crate) fn is_idle(&self) -> Result<bool, String>
+    where
+        S: ClaurstAcpStdio,
+    {
+        self.0.is_idle()
+    }
+
+    pub(crate) async fn start_summary(
+        &self,
+        request: ClaurstStartRequest,
+    ) -> Result<ClaurstSessionBinding, PortError>
+    where
+        S: ClaurstAcpStdio + Send + 'static,
+    {
+        self.0.start_summary(request).await
     }
 }
 
-fn provider(error: ClaurstAcpTransportError) -> PortError {
-    PortError::Provider(error.to_string())
+#[async_trait]
+impl<S> PrivateClaurstBridge for ClaurstBridgeHandle<S>
+where
+    S: ClaurstAcpStdio + Send + 'static,
+{
+    async fn start(
+        &self,
+        request: ClaurstStartRequest,
+    ) -> Result<ClaurstSessionBinding, PortError> {
+        self.0.start(request).await
+    }
+
+    async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
+        self.0.bind_session(binding).await
+    }
+
+    async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), PortError> {
+        self.0.submit(request).await
+    }
+
+    async fn cancel(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
+        self.0.cancel(binding).await
+    }
+
+    async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
+        self.0.drain(request).await
+    }
+
+    async fn respond_permission(
+        &self,
+        binding: ClaurstSessionBinding,
+        request_id: &str,
+        reply: ClaurstPermissionReply,
+    ) -> Result<(), PortError> {
+        self.0.respond_permission(binding, request_id, reply).await
+    }
 }
 
-fn invalid(what: &str) -> PortError {
-    PortError::Provider(format!("invalid Claurst ACP {what}"))
-}
-
-fn unavailable(what: &str) -> PortError {
-    PortError::Unavailable(what.into())
-}
+#[path = "claurst_acp_bridge_support.rs"]
+mod support;
+use support::unavailable;
+#[path = "claurst_acp_bridge_operations.rs"]
+mod operations;
+use operations::{
+    bind_blocking, cancel_blocking, drain_blocking, respond_permission_blocking, start_blocking,
+    start_summary_blocking, submit_blocking,
+};
 
 #[cfg(test)]
 #[path = "claurst_acp_bridge_tests.rs"]

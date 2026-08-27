@@ -1,24 +1,25 @@
-//! Dormant daemon-owned Codex prompt lifecycle over durable dispatch and normalized facts.
-
-use std::collections::BTreeMap;
-
+use crate::public_driver_runtime::PublicDriversRuntime;
 use gent_drivers::codex_runner::CodexRunnerEffect;
-use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
-    NormalizedSessionBatchLedger, PublicProviderResolver, PublicProviderRunError, TranscriptLedger,
+    NormalizedSessionBatchLedger, PendingPermissionLedger, PolicyLedger, PublicProviderResolver,
+    PublicProviderRunError, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
-use gent_types::{AgentChatPromptSaved, HostEpoch};
-
-use crate::public_driver_runtime::{NormalizedSessionFact, PublicDriverFact, PublicDriversRuntime};
-
+use gent_types::{AgentChatPromptSaved, DurableTurnPhase, HostEpoch};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 mod execution;
+mod interrupt;
+mod permission;
+#[path = "codex_prompt_lifecycle_phase.rs"]
+mod phase;
+mod record;
 mod scheduler;
 mod start;
+mod summary;
 pub(crate) use execution::CodexPromptExecution;
-
-/// Outcome of claiming and attempting one durable Codex prompt.
+pub(crate) use summary::CodexSummaryHook;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodexPromptDispatchOutcome {
     Denied,
@@ -27,7 +28,6 @@ pub(crate) enum CodexPromptDispatchOutcome {
     Started { run_id: String },
     Unprovable { run_id: String },
 }
-/// Bounded result from draining one daemon-owned Codex process.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CodexPromptPoll {
     pub facts: u16,
@@ -38,16 +38,16 @@ pub(super) struct Binding {
     prompt: AgentChatPromptSaved,
     sequence: u64,
     settled: bool,
+    releasing: bool,
 }
-
 #[derive(Debug)]
 pub(crate) struct CodexPromptLifecycle<L, D, R> {
     runtime: PublicDriversRuntime<L, D, R>,
     runner: D,
     coordinator_id: String,
     active: BTreeMap<String, Binding>,
+    summary_hook: Option<Arc<dyn CodexSummaryHook>>,
 }
-
 impl<L, D, R> CodexPromptLifecycle<L, D, R>
 where
     L: Clone
@@ -60,11 +60,15 @@ where
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
         + gent_ports::ConversationContentReader
-        + gent_ports::AgentChatWorkspaceLedger,
+        + gent_ports::AgentChatWorkspaceLedger
+        + PendingPermissionLedger
+        + PolicyLedger
+        + gent_ports::AttachmentLedger
+        + gent_ports::ToolSourceLedger
+        + gent_ports::AgentChatConversationConfigLedger,
     D: CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
-    /// Binds a single coordinator to the same runner clone held by public-run reservation.
     #[must_use]
     pub(crate) fn new(runtime: PublicDriversRuntime<L, D, R>, coordinator_id: String) -> Self {
         let runner = runtime.runner();
@@ -73,10 +77,14 @@ where
             runner,
             coordinator_id,
             active: BTreeMap::new(),
+            summary_hook: None,
         }
     }
 
-    /// Claims and starts one Codex-only prompt after durable launch ambiguity is recorded.
+    pub(crate) fn with_summary_hook(mut self, hook: Arc<dyn CodexSummaryHook>) -> Self {
+        self.summary_hook = Some(hook);
+        self
+    }
     pub(crate) fn dispatch_next(
         &mut self,
         host_epoch: HostEpoch,
@@ -89,21 +97,38 @@ where
             AgentChatPromptDispatchResult::DeniedObserver => Ok(CodexPromptDispatchOutcome::Denied),
             AgentChatPromptDispatchResult::Empty => Ok(CodexPromptDispatchOutcome::Empty),
             AgentChatPromptDispatchResult::Claimed(prompt) => {
+                let refresh = self
+                    .runner
+                    .refresh_codex_mcp_config(&prompt.run_id.0)
+                    .map_err(RuntimeError::from)?;
+                if refresh {
+                    self.active.remove(&prompt.run_id.0);
+                }
                 let active_run = self.active.get(&prompt.run_id.0);
                 let reuses_settled_session = active_run.is_some_and(|binding| binding.settled)
                     && self.runner.has_codex_session(&prompt.run_id.0);
-                let another_session_is_owned = self.active.iter().any(|(run_id, binding)| {
-                    run_id != &prompt.run_id.0
-                        && binding.settled
-                        && self.runner.has_codex_session(run_id)
-                });
-                if (active_run.is_some() && !reuses_settled_session) || another_session_is_owned {
+                let other_settled_runs = self
+                    .active
+                    .iter()
+                    .filter(|(run_id, binding)| {
+                        run_id.as_str() != prompt.run_id.0.as_str()
+                            && binding.settled
+                            && !binding.releasing
+                            && self.runner.has_codex_session(run_id)
+                    })
+                    .map(|(run_id, _)| run_id.clone())
+                    .collect::<Vec<_>>();
+                if active_run.is_some() && !reuses_settled_session {
                     self.runtime.release_prompt_claim(
                         &prompt.message.message_id,
                         &self.coordinator_id,
                         host_epoch,
                     )?;
                     return Ok(CodexPromptDispatchOutcome::Busy);
+                }
+                for run_id in &other_settled_runs {
+                    self.runner.release_codex_session(run_id)?;
+                    self.active.remove(run_id);
                 }
                 start::prompt(
                     &self.runtime,
@@ -112,18 +137,17 @@ where
                     &mut self.active,
                     *prompt,
                     host_epoch,
+                    refresh,
                 )
             }
         }
     }
-
     pub(crate) fn has_settled_session(&self) -> bool {
-        self.active
-            .iter()
-            .any(|(run_id, binding)| binding.settled && self.runner.has_codex_session(run_id))
+        self.active.iter().any(|(run_id, binding)| {
+            binding.settled && !binding.releasing && self.runner.has_codex_session(run_id)
+        })
     }
 
-    /// Persists each normalized fact before it becomes a transcript or activity update.
     pub(crate) fn poll(
         &mut self,
         run_id: &str,
@@ -137,17 +161,23 @@ where
         let Some(effects) = effects else {
             return Ok(None);
         };
-        let mut facts = 0;
-        let mut terminal = false;
+        let mut facts: u16 = 0;
+        let mut terminal = None;
         for effect in effects {
             match effect {
                 CodexRunnerEffect::Fact(fact) => {
-                    terminal |= self.record_wire(run_id, host_epoch, &fact)?;
+                    terminal = terminal.or_else(|| phase::terminal(&fact));
+                    self.record_wire(run_id, host_epoch, &fact)?;
                     facts += 1;
+                }
+                CodexRunnerEffect::ControlRequest(request) => {
+                    facts = facts.saturating_add(
+                        self.record_permission_request(run_id, host_epoch, request)?,
+                    );
                 }
                 CodexRunnerEffect::Exited { code } => {
                     self.record_exit(run_id, host_epoch, code)?;
-                    self.settle_if_open(run_id, host_epoch)?;
+                    self.settle_if_open(run_id, host_epoch, DurableTurnPhase::Failed)?;
                     self.active.remove(run_id);
                     return Ok(Some(CodexPromptPoll {
                         facts,
@@ -156,8 +186,18 @@ where
                 }
             }
         }
-        if terminal {
-            self.settle_if_open(run_id, host_epoch)?;
+        if let Some(phase) = terminal {
+            self.settle_if_open(run_id, host_epoch, phase)?;
+            if phase == DurableTurnPhase::Completed {
+                if let Some(binding) = self.active.get(run_id) {
+                    if let Some(hook) = &self.summary_hook {
+                        let _ = hook.schedule(&binding.prompt.message.conversation_id);
+                    }
+                }
+            }
+            if phase != DurableTurnPhase::Completed {
+                self.release_failed_session(run_id)?;
+            }
         }
         Ok(Some(CodexPromptPoll {
             facts,
@@ -165,95 +205,38 @@ where
         }))
     }
 
-    fn record_wire(
+    fn settle_if_open(
         &mut self,
         run_id: &str,
         host_epoch: HostEpoch,
-        fact: &PublicWireFact,
-    ) -> Result<bool, RuntimeError> {
-        if matches!(fact, PublicWireFact::SessionStarted { .. }) {
-            let event_id = self.next_event_id(run_id, "session")?;
-            self.runtime.record(
-                run_id,
-                &self.coordinator_id,
-                host_epoch,
-                PublicDriverFact::PublicWire {
-                    event_id,
-                    fact: fact.clone(),
-                },
-            )?;
-            return Ok(false);
-        }
-        let binding = self
-            .active
-            .get(run_id)
-            .cloned()
-            .ok_or_else(missing_binding)?;
-        let lifecycle_event_id = self.next_event_id(run_id, "wire")?;
-        let transcript_event_id = self.next_event_id(run_id, "transcript")?;
-        let activity_event_id = self.next_event_id(run_id, "activity")?;
-        let input = NormalizedSessionFact {
-            run_id: run_id.into(),
-            conversation_id: binding.prompt.message.conversation_id,
-            turn_id: binding.prompt.message.turn_id,
-            host_epoch,
-            lifecycle_event_id,
-            transcript_event_id,
-            activity_event_id,
-            fact: fact.clone(),
-        };
-        let record = self
-            .runtime
-            .record_normalized_session(&self.coordinator_id, &input)?;
-        Ok(record.terminal_signal)
-    }
-
-    fn record_exit(
-        &mut self,
-        run_id: &str,
-        host_epoch: HostEpoch,
-        code: Option<i32>,
+        phase: DurableTurnPhase,
     ) -> Result<(), RuntimeError> {
-        let event_id = self.next_event_id(run_id, "exit")?;
-        self.runtime.record(
-            run_id,
-            &self.coordinator_id,
-            host_epoch,
-            PublicDriverFact::SessionEffect {
-                event_id,
-                effect: gent_drivers::SessionEffect::Terminal {
-                    reason: format!(
-                        "providerExited:{}",
-                        code.map_or_else(|| "unknown".into(), |value| value.to_string())
-                    ),
-                },
-            },
-        )?;
-        Ok(())
-    }
-
-    fn settle_if_open(&mut self, run_id: &str, host_epoch: HostEpoch) -> Result<(), RuntimeError> {
         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
         if !binding.settled {
-            self.runtime.settle_prompt(
+            self.runtime.settle_prompt_terminal(
                 &binding.prompt.message.message_id,
                 &self.coordinator_id,
                 host_epoch,
+                phase,
             )?;
             binding.settled = true;
         }
         Ok(())
     }
 
-    fn next_event_id(&mut self, run_id: &str, kind: &str) -> Result<String, RuntimeError> {
+    fn release_failed_session(&mut self, run_id: &str) -> Result<(), RuntimeError> {
         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
-        binding.sequence = binding.sequence.saturating_add(1);
-        Ok(format!("codex:{}:{kind}:{}", run_id, binding.sequence))
+        if binding.releasing {
+            return Ok(());
+        }
+        self.runner.signal_codex_process(
+            run_id,
+            gent_drivers::interrupt::ProcessTreeSignal::Terminate,
+        )?;
+        binding.releasing = true;
+        Ok(())
     }
 }
-
-fn missing_binding() -> RuntimeError {
-    RuntimeError::Ledger(gent_ports::LedgerError::Invariant(
-        "Codex runner has no durable prompt binding".into(),
-    ))
-}
+#[path = "codex_prompt_lifecycle_error.rs"]
+mod error;
+use error::missing_binding;

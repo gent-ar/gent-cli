@@ -141,7 +141,6 @@ fn resume_request() -> PublicRunResumeRequest {
         run_id: "run-a".into(),
         coordinator_id: "daemon-a".into(),
         host_epoch: HostEpoch(1),
-        session_id: "client-hint".into(),
     }
 }
 

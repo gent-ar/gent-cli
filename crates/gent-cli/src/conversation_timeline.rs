@@ -9,7 +9,7 @@ use gent_protocol::{
 use gent_types::{ConversationTimeline, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde_json::Value;
 
-use crate::local_ipc::{client_capabilities, connect_or_start};
+use crate::local_ipc::{client_capabilities, connect_or_start, default_data_dir};
 
 /// Reads durable lineage and lifecycle metadata without creating a receipt or exposing content.
 ///
@@ -20,6 +20,7 @@ pub(crate) async fn request(
     no_autostart: bool,
     conversation_id: String,
 ) -> Result<ConversationTimeline, Box<dyn std::error::Error>> {
+    let expected_conversation_id = conversation_id.clone();
     let data_dir = data_dir.unwrap_or_else(default_data_dir);
     let mut stream = connect_or_start(&data_dir, no_autostart).await?;
     write_frame(
@@ -48,20 +49,15 @@ pub(crate) async fn request(
     )
     .await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(ConversationTimelineFrame::Timeline(timeline)) = serde_json::from_value(raw.clone()) {
+    if let Ok(ConversationTimelineFrame::Timeline(timeline)) = serde_json::from_value(raw.clone())
+        && timeline.conversation_id == expected_conversation_id
+    {
         return Ok(timeline);
     }
     if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
         return Err(message.into());
     }
     Err("daemon did not return conversation timeline".into())
-}
-
-fn default_data_dir() -> PathBuf {
-    directories::BaseDirs::new().map_or_else(
-        || PathBuf::from(".gentd"),
-        |directories| directories.home_dir().join(".gentd"),
-    )
 }
 
 #[cfg(all(test, unix))]
@@ -119,6 +115,45 @@ mod tests {
                 .unwrap()
                 .conversation_id,
             "conversation-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_rejects_timeline_for_another_conversation() {
+        let directory = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let _ = read_frame(&mut stream).await.unwrap();
+            write_frame(
+                &mut stream,
+                &gent_protocol::WireFrame::Negotiated(Negotiated {
+                    protocol: PROTOCOL_MAX,
+                    capabilities: CapabilitySet(vec![CONVERSATION_TIMELINE_CAPABILITY.into()]),
+                }),
+            )
+            .await
+            .unwrap();
+            let _ = read_json_frame::<_, ConversationTimelineFrame>(&mut stream)
+                .await
+                .unwrap();
+            write_json_frame(
+                &mut stream,
+                &ConversationTimelineFrame::Timeline(ConversationTimeline {
+                    conversation_id: "conversation-2".into(),
+                    runs: Vec::new(),
+                    artifacts: Vec::new(),
+                }),
+            )
+            .await
+            .unwrap();
+        });
+        assert!(
+            request(Some(directory.path().into()), true, "conversation-1".into())
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("conversation timeline")
         );
     }
 }

@@ -81,7 +81,7 @@ fn shutdown_signals_the_tree_in_order_then_refuses_to_fake_terminal_settlement()
             ProcessTreeSignal::Kill,
         ]
     );
-    assert!(ledger.find_event("codex:run-a:exit:1").unwrap().is_none());
+    assert!(ledger.find_event("codex:1:run-a:exit:1").unwrap().is_none());
     assert!(!supervisor.shutdown_complete());
 }
 
@@ -114,7 +114,7 @@ fn a_drain_stops_only_after_the_existing_lifecycle_settles_an_exit() {
     ));
     assert_eq!(supervisor.state(), PrivateCodexSupervisorState::Stopped);
     assert!(supervisor.shutdown_complete());
-    assert!(ledger.find_event("codex:run-a:exit:1").unwrap().is_some());
+    assert!(ledger.find_event("codex:1:run-a:exit:1").unwrap().is_some());
 }
 
 #[test]
@@ -205,6 +205,8 @@ fn save(ledger: &SqliteLedger, conversation_id: AgentChatConversationId, id: &st
             host_epoch: HostEpoch(1),
             conversation_id,
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: text.into(),
         })
         .unwrap();

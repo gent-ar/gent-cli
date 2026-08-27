@@ -1,13 +1,13 @@
 //! Standalone Claude lifecycle composition from one explicitly selected local executable.
 //!
 //! This is the public Gent CLI path: it has no release artifact, package discovery, or PATH
-//! fallback.  The caller supplies a concrete Claude executable, which is captured once and
 //! rechecked by the resolver and again by the process runner immediately before launch.
 
 use std::{path::PathBuf, sync::Arc};
 
 use gent_drivers::{PublicProvider, buffering::BufferPolicy, supervisor::ProcessLauncher};
-use gent_runtime::{GoalAuthority, GoalService};
+use gent_ports::PublicProviderResolver;
+use gent_runtime::{Coordinator, GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
 use gent_types::HostEpoch;
 
@@ -21,10 +21,10 @@ use crate::{
         PrivateClaudeEscalation, PrivateClaudeShutdown, PrivateClaudeSupervisor, PrivateClaudeWake,
     },
     claude_prompt_lifecycle::ClaudePromptRunner,
+    claude_summary_runner::{ClaudeSummaryRunner, ClaudeSummarySchedulerHook},
     local_provider_locks::{LocalProviderLockError, LocalProviderLocks},
     private_lifecycle_loop::PrivateLifecycleOwner,
     public_driver_runtime::{PublicDriversRuntime, PublicDriversRuntimeError},
-    runtime_facade::DaemonCompositionState,
 };
 
 const BUFFERED_FRAMES: usize = 16;
@@ -35,9 +35,11 @@ const STANDALONE_EVIDENCE_REFERENCE: &str = "standalone-local-claude-v1";
 /// Explicit local inputs for the standalone Claude provider host.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StandaloneClaudeConfig {
+    pub(crate) data_dir: PathBuf,
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) executable: PathBuf,
+    pub(crate) mcp_config: Option<PathBuf>,
 }
 
 type StandaloneClaudeRunner<L> = ClaudePromptRunner<L, <L as ProcessLauncher>::Process>;
@@ -60,6 +62,17 @@ where
         &mut self,
     ) -> Result<PrivateClaudeShutdown, gent_runtime::RuntimeError> {
         self.supervisor.request_shutdown()
+    }
+
+    pub(crate) fn respond_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+    ) -> Result<(), gent_runtime::RuntimeError> {
+        self.supervisor
+            .respond_permission(run_id, request_id, behavior, persist_suggestions)
     }
 
     pub(crate) fn escalate_shutdown(
@@ -97,6 +110,45 @@ where
     fn shutdown_complete(&self) -> bool {
         self.supervisor.shutdown_complete()
     }
+
+    fn respond_claude_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+    ) -> Result<(), ()> {
+        self.respond_claude_permission_with_input(
+            run_id,
+            request_id,
+            behavior,
+            persist_suggestions,
+            None,
+        )
+    }
+
+    fn respond_claude_permission_with_input(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+        updated_input: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        self.supervisor
+            .respond_permission_with_input(
+                run_id,
+                request_id,
+                behavior,
+                persist_suggestions,
+                updated_input,
+            )
+            .map_err(|_| ())
+    }
+
+    fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
+        self.supervisor.interrupt_run(run_id).map_err(|_| ())
+    }
 }
 
 /// Failure before a standalone Claude lifecycle becomes reachable.
@@ -110,6 +162,8 @@ pub(crate) enum StandaloneClaudeError {
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
+    #[error("Claude summary runner is unavailable: {0}")]
+    Summary(String),
 }
 
 /// Composes the real Claude lifecycle from a selected local executable.
@@ -117,7 +171,8 @@ pub(crate) enum StandaloneClaudeError {
 /// No process is started here.  Recovery and launch remain under the returned owner, so callers
 /// can retain the same durable conversation and provider lifecycle semantics as app integration.
 pub(crate) fn compose_standalone_claude<L>(
-    state: &DaemonCompositionState,
+    ledger: SqliteLedger,
+    coordinator: Coordinator<SqliteLedger>,
     config: &StandaloneClaudeConfig,
     launcher: L,
 ) -> Result<StandaloneClaudeHost<L>, StandaloneClaudeError>
@@ -127,29 +182,40 @@ where
     validate(config)?;
     let resolver =
         LocalProviderLocks::capture([(PublicProvider::Claude, config.executable.clone())])?;
+    let summary_lock = resolver
+        .resolve("claude")
+        .map_err(|error| StandaloneClaudeError::Summary(error.to_string()))?;
+    let summary_hook = Arc::new(ClaudeSummarySchedulerHook::new(
+        ledger.clone(),
+        ClaudeSummaryRunner::new(summary_lock)
+            .map_err(|error| StandaloneClaudeError::Summary(error.to_string()))?,
+    ));
     let runner = ClaudePromptRunner::new(
         launcher,
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed standalone Claude buffer policy is valid"),
+        config.mcp_config.clone(),
     );
-    let goals = Arc::new(GoalService::new(
-        state.ledger().clone(),
-        GoalAuthority::Approved,
-    ));
+    let goals = Arc::new(GoalService::new(ledger.clone(), GoalAuthority::Approved));
     let runtime = PublicDriversRuntime::new_standalone_local(
         profile()?,
-        state.coordinator().clone(),
-        state.ledger().clone(),
+        coordinator,
+        ledger,
         runner,
         resolver,
     )?
-    .with_active_goal_resolver(goals);
+    .with_active_goal_resolver(goals)
+    .with_attachment_roots(
+        config.data_dir.join("attachments"),
+        config.data_dir.join("provider-attachments").join("codex"),
+    );
     Ok(StandaloneClaudeHost {
         supervisor: PrivateClaudeSupervisor::new(ApprovedClaudeHost::new(
             runtime,
             config.coordinator_id.clone(),
             config.host_epoch,
             MAX_ACTIVE_CLAUDE_RUNS,
+            Some(summary_hook),
         )),
     })
 }
@@ -164,9 +230,6 @@ fn profile() -> Result<ValidatedAuthorityProfile, StandaloneClaudeError> {
     AuthorityProfileConfig {
         public_drivers: PublicDriverRequest::Approved(PublicDriverApproval {
             evidence_reference: STANDALONE_EVIDENCE_REFERENCE.into(),
-            // The standalone runtime does not consume a compatibility artifact. The validated
-            // shape still requires a digest-shaped binding; executable identity is enforced by
-            // `LocalProviderLocks` at the launch boundary instead.
             compatibility_manifest_sha256: "0".repeat(64),
         }),
         ..AuthorityProfileConfig::default()

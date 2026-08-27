@@ -115,6 +115,8 @@ fn save(ledger: SqliteLedger, conversation_id: &gent_types::AgentChatConversatio
             conversation_id: conversation_id.clone(),
             disposition: AgentChatPromptDisposition::Send,
             text: id.into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     assert!(matches!(result, AgentChatPromptResult::Saved(_)));

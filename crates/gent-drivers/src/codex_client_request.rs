@@ -53,11 +53,11 @@ pub fn respond_to_codex_client_request(
             }
         }),
         "account/chatgptAuthTokens/refresh" => refusal(
-            id,
+            &id,
             "Gent does not manage Codex ChatGPT auth tokens; use Codex login/config for this account.",
         ),
         "attestation/generate" => refusal(
-            id,
+            &id,
             "Gent did not opt in to Codex client attestation and cannot generate attestation tokens.",
         ),
         "currentTime/read" => json!({
@@ -82,7 +82,7 @@ fn request_id(frame: &Value) -> Option<Value> {
     }
 }
 
-fn refusal(id: Value, message: &str) -> Value {
+fn refusal(id: &Value, message: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": id,

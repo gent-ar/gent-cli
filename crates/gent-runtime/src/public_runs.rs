@@ -24,7 +24,6 @@ pub struct PublicRunService<L, D, A, R> {
     resolver: R,
     authority: ProviderRunAuthority,
 }
-#[allow(clippy::missing_errors_doc)] // Kept compact under the repository's 300-line source cap.
 impl<L, D, A, R> PublicRunService<L, D, A, R>
 where
     L: Ledger,
@@ -104,7 +103,6 @@ where
                 run_id: request.run_id,
                 coordinator_id: request.coordinator_id,
                 host_epoch: request.host_epoch,
-                session_id: String::new(),
             });
         }
         self.start(request)

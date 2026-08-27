@@ -7,7 +7,8 @@
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
-    NormalizedSessionBatchLedger, PublicProviderResolver, TranscriptLedger,
+    NormalizedSessionBatchLedger, PendingPermissionLedger, PolicyLedger, PublicProviderResolver,
+    TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 
@@ -74,10 +75,16 @@ where
         + TranscriptLedger
         + NormalizedSessionBatchLedger
         + AgentChatPromptDispatchLedger
+        + gent_ports::AttachmentLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
         + gent_ports::ConversationContentReader
-        + gent_ports::AgentChatWorkspaceLedger,
+        + gent_ports::AgentChatWorkspaceLedger
+        + PendingPermissionLedger
+        + PolicyLedger
+        + gent_ports::AttachmentLedger
+        + gent_ports::ToolSourceLedger
+        + gent_ports::AgentChatConversationConfigLedger,
     D: crate::codex_prompt_lifecycle::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
@@ -110,6 +117,33 @@ where
     #[must_use]
     pub(crate) fn shutdown_complete(&self) -> bool {
         self.state == PrivateCodexSupervisorState::Stopped
+    }
+
+    pub(crate) fn respond_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), RuntimeError> {
+        if self.state != PrivateCodexSupervisorState::Running {
+            return Err(RuntimeError::ProviderRun(
+                gent_ports::PublicProviderRunError::Failed(
+                    "Codex permission response is unavailable".into(),
+                ),
+            ));
+        }
+        self.host
+            .respond_permission(run_id, request_id, decision, answers)
+    }
+
+    pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), RuntimeError> {
+        if self.state != PrivateCodexSupervisorState::Running {
+            return Err(RuntimeError::ProviderRun(
+                gent_ports::PublicProviderRunError::Failed("Codex interrupt is unavailable".into()),
+            ));
+        }
+        self.host.interrupt(run_id)
     }
 
     /// Recovers once, then executes one bounded host tick for each private wake.

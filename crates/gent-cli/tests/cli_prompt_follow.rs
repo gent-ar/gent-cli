@@ -84,11 +84,13 @@ async fn serve(listener: UnixListener) {
             let AgentChatIntentFrame::SendPrompt {
                 request_id,
                 receipt_id,
+                attachment_ids,
                 ..
             } = read_json_frame(&mut stream).await.unwrap()
             else {
                 panic!("expected prompt");
             };
+            assert!(attachment_ids.is_empty());
             write_json_frame(
                 &mut stream,
                 &AgentChatIntentFrame::Accepted {

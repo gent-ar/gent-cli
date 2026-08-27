@@ -138,6 +138,8 @@ fn save(ledger: &SqliteLedger, conversation_id: &AgentChatConversationId, id: &s
             host_epoch: HostEpoch(1),
             conversation_id: conversation_id.clone(),
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: text.into(),
         })
         .unwrap();

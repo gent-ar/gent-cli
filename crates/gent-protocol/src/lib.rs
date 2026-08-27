@@ -11,8 +11,14 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 mod agent_chat;
+mod agent_chat_checkpoint;
+mod agent_chat_conversation_config;
 mod agent_chat_intent;
+mod agent_chat_permission;
+mod agent_chat_sessions;
+mod agent_chat_side_question;
 mod attachments;
+mod automations;
 mod conversation_activity;
 mod conversation_content;
 mod conversation_index;
@@ -21,11 +27,13 @@ mod conversation_timeline;
 mod decision;
 mod dependencies;
 mod event_stream;
+mod forge;
 mod goal;
 mod local_models;
 mod orchestration;
 mod permission_policy;
 mod prompt_provider_provision;
+mod prompt_templates;
 mod provider_auth;
 mod provider_install_review;
 mod provider_readiness;
@@ -34,15 +42,27 @@ mod runs;
 mod runtime_maintenance;
 mod runtime_update;
 mod turn_follow;
+mod workspace_documents;
+mod workspace_git;
 
 pub use agent_chat::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
     AgentChatConversationFrame, AgentChatTranscriptFrame,
 };
+pub use agent_chat_checkpoint::{AGENT_CHAT_CHECKPOINT_CAPABILITY, AgentChatCheckpointFrame};
+pub use agent_chat_conversation_config::{
+    AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY, AgentChatConversationConfigFrame,
+};
 pub use agent_chat_intent::{
     AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd,
 };
+pub use agent_chat_permission::{AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame};
+pub use agent_chat_sessions::{AGENT_CHAT_SESSIONS_CAPABILITY, AgentChatSessionFrame};
+pub use agent_chat_side_question::{
+    AGENT_CHAT_SIDE_QUESTION_CAPABILITY, AgentChatSideQuestionFrame,
+};
 pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
+pub use automations::{AUTOMATIONS_CAPABILITY, AutomationFrame, AutomationFrameError};
 pub use conversation_activity::{CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame};
 pub use conversation_content::{
     CONVERSATION_CONTENT_CAPABILITY, ContentPageError, ConversationContentFrame,
@@ -59,10 +79,11 @@ pub use dependencies::{
     DependencyPlan, DependencyPlanRequest, DependencyProvider, dependency_plan_digest,
 };
 pub use event_stream::{EVENT_STREAM_CAPABILITY, EventStreamFrame};
+pub use forge::{FORGE_CONNECTORS_CAPABILITY, ForgeConnectorFrame, ForgeConnectorFrameError};
 pub use goal::{GOAL_CAPABILITY, GoalFrame, GoalFrameError, MAX_GOAL_FRAME_BYTES};
 pub use local_models::{
-    LOCAL_MODELS_CAPABILITY, LocalModelDescriptor, LocalModelDownloadFailure, LocalModelFrame,
-    LocalModelFrameError, LocalModelInstallState,
+    DEFAULT_LOCAL_MODEL_ID, LOCAL_MODELS_CAPABILITY, LocalModelDescriptor,
+    LocalModelDownloadFailure, LocalModelFrame, LocalModelFrameError, LocalModelInstallState,
 };
 pub use orchestration::{
     MAX_ORCHESTRATION_FRAME_BYTES, ORCHESTRATION_CAPABILITY, OrchestrationFrame,
@@ -73,6 +94,7 @@ pub use prompt_provider_provision::{
     PROMPT_PROVIDER_PROVISION_CAPABILITY, PromptProviderProvisionFrame,
     PromptProviderProvisionState,
 };
+pub use prompt_templates::{PROMPT_TEMPLATES_CAPABILITY, PromptTemplateFrame};
 pub use provider_auth::{
     MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame,
     ProviderAuthFrameError, read_provider_auth_frame, write_provider_auth_frame,
@@ -94,6 +116,11 @@ pub use runtime_update::{RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFram
 pub use turn_follow::{
     AGENT_CHAT_TURN_FOLLOW_CAPABILITY, AgentChatTurnFollowEnd, AgentChatTurnFollowFrame,
 };
+pub use workspace_documents::{
+    WORKSPACE_DOCUMENTS_CAPABILITY, WorkspaceDocumentGroup, WorkspaceDocumentRecord,
+    WorkspaceDocumentsFrame,
+};
+pub use workspace_git::{WORKSPACE_GIT_CAPABILITY, WorkspaceGitFrame};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,9 +161,6 @@ pub enum WireFrame {
         decision_id: String,
         evidence: DecisionEvidence,
     },
-    /// Compatibility tombstone for provider evidence from older public clients.
-    ///
-    /// The daemon deliberately rejects this frame: provider acknowledgement is lifecycle-owned.
     DecisionRecovery {
         decision_id: String,
         evidence: DecisionRecoveryEvidence,

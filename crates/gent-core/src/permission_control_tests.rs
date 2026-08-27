@@ -47,6 +47,7 @@ fn request() -> PermissionDecisionRequest {
         request: PermissionRequest {
             tool_name: "workspace:edit".into(),
             category: gent_types::PermissionCategory::Edit,
+            input: None,
         },
     }
 }
@@ -63,6 +64,7 @@ fn response_must_match_the_exact_pending_run_and_digest() {
     let mut response = PermissionDecisionResponse {
         binding: request().binding,
         response: PermissionDecisionResponseKind::ApproveOnce,
+        input: None,
     };
     response.binding.run_id = AgentChatRunId("old-run".into());
     let rejected = reduce_permission_control(
@@ -88,6 +90,7 @@ fn approval_effects_are_closed_and_derived_from_the_pending_request() {
     let response = PermissionDecisionResponse {
         binding: request().binding,
         response: PermissionDecisionResponseKind::ApproveCategory,
+        input: None,
     };
     let resolved = reduce_permission_control(
         pending.0,
@@ -176,6 +179,7 @@ fn pending_requests_are_idempotent_and_responses_cannot_target_another_decision(
     let mut response = PermissionDecisionResponse {
         binding: request().binding,
         response: PermissionDecisionResponseKind::Deny,
+        input: None,
     };
     response.binding.decision_id = AgentChatDecisionId("decision-2".into());
     let rejected = reduce_permission_control(
@@ -211,6 +215,7 @@ fn one_pending_request_blocks_competitors_and_response_types_are_closed() {
     let response = PermissionDecisionResponse {
         binding: request().binding,
         response: PermissionDecisionResponseKind::ApproveExactTool,
+        input: None,
     };
     assert_eq!(
         reduce_permission_control(
@@ -255,6 +260,7 @@ fn a_response_without_a_request_and_stale_bindings_fail_closed() {
     let response = PermissionDecisionResponse {
         binding: request().binding,
         response: PermissionDecisionResponseKind::Deny,
+        input: None,
     };
     assert_eq!(
         reduce_permission_control(

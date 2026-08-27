@@ -3,10 +3,7 @@
 use std::path::PathBuf;
 
 pub(super) fn default_data_dir() -> PathBuf {
-    directories::BaseDirs::new().map_or_else(
-        || PathBuf::from(".gentd"),
-        |directories| directories.home_dir().join(".gentd"),
-    )
+    gent_types::default_data_dir()
 }
 
 pub(super) fn unix_seconds() -> u64 {

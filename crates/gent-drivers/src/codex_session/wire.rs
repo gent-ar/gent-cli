@@ -25,6 +25,9 @@ pub(super) fn thread_request(
     let mut params = config
         .working_directory
         .map_or_else(|| json!({}), |cwd| json!({"cwd": cwd}));
+    if let Some(mcp_servers) = config.mcp_servers {
+        params["config"] = json!({"mcp_servers": mcp_servers});
+    }
     let turn_options = config.turn_options;
     match config.resume_thread_id {
         Some(thread_id) => {

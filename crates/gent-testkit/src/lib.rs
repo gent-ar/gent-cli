@@ -4,8 +4,6 @@
 //! provider credentials. Its fixture loader rejects unredacted secrets before a
 //! transcript can become test evidence.
 
-mod evidence_manifest;
-mod fake_legacy_event_tap;
 mod fake_private_claurst_bridge;
 mod fake_process;
 mod ipc_fixture;
@@ -15,8 +13,6 @@ mod transcript_fixture;
 mod transcript_manifest;
 mod transcript_provenance;
 
-pub use evidence_manifest::validate_evidence_manifest;
-pub use fake_legacy_event_tap::FakeLegacyEventTap;
 pub use fake_private_claurst_bridge::FakePrivateClaurstBridge;
 pub use fake_process::{FakeProcess, FakeProcessSignal};
 pub use ipc_fixture::validate_ipc_fixture_manifest;

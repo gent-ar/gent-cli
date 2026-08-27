@@ -54,49 +54,11 @@ function Assert-Signed([string]$Path, [string]$Bundle, [string]$ReleaseVersion) 
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail "signature verification failed for $(Split-Path $Path -Leaf)" }
 }
-function Assert-Archive([string]$Archive, [string]$ManifestPath, [string]$ChecksumPath,
-    [string]$ReleaseVersion) {
-    $manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
-    $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $Archive).Hash.ToLowerInvariant()
-    $expectedName = Split-Path $Archive -Leaf
-    $expectedChecksum = "$digest  $expectedName"
-    if ($manifest.schemaVersion -ne 1 -or $manifest.version -ne $ReleaseVersion -or
-        $manifest.target -ne $Target -or $manifest.archive.name -ne $expectedName -or
-        $manifest.archive.sha256 -ne $digest -or $manifest.archive.size -ne (Get-Item -LiteralPath $Archive).Length -or
-        (Get-Content -Raw -LiteralPath $ChecksumPath).Trim() -ne $expectedChecksum) {
-        Fail "release archive verification failed"
-    }
-    $binaries = @($manifest.binaries | Sort-Object)
-    $expectedBinaries = @("gent.exe", "gentd.exe", "gent-launcher.exe" | Sort-Object)
-    if (($binaries -join ',') -ne ($expectedBinaries -join ',')) { Fail "release manifest has invalid binaries" }
-}
-function Assert-ZipMembers([string]$Archive, [string]$ReleaseVersion) {
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $root = "gent-$ReleaseVersion-$Target"
-    $expected = @("$root/gent.exe", "$root/gentd.exe", "$root/gent-launcher.exe")
-    $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
-    try {
-        $members = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
-        $expectedMembers = @($expected | Sort-Object)
-        if (($members -join ',') -ne ($expectedMembers -join ',')) {
-            Fail "release archive contains unsafe or unexpected paths"
-        }
-        foreach ($entry in $zip.Entries) {
-            if ($entry.FullName.Contains('..') -or $entry.FullName.StartsWith('/') -or
-                $entry.FullName -match '^[A-Za-z]:' -or $entry.Name.Length -eq 0) {
-                Fail "release archive contains an unsafe path"
-            }
-        }
-    }
-    finally { $zip.Dispose() }
-}
-
 function Assert-ReleaseName([string]$Name) {
     if ($Name -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?-x86_64-pc-windows-msvc$') {
         Fail "invalid release identity"
     }
 }
-
 function Assert-PlainFile([string]$Path, [string]$Description) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail "$Description is not a file" }
     $item = Get-Item -LiteralPath $Path -Force
@@ -104,7 +66,6 @@ function Assert-PlainFile([string]$Path, [string]$Description) {
         Fail "$Description cannot be a reparse point"
     }
 }
-
 function Assert-PlainDirectory([string]$Path, [string]$Description) {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { Fail "$Description is not a directory" }
     $item = Get-Item -LiteralPath $Path -Force
@@ -112,7 +73,7 @@ function Assert-PlainDirectory([string]$Path, [string]$Description) {
         Fail "$Description cannot be a reparse point"
     }
 }
-
+. (Join-Path $PSScriptRoot "install_archive_validation.ps1")
 function Move-Atomically([string]$Source, [string]$Destination) {
     if (-not ("GentAtomicMove" -as [type])) { Add-Type -TypeDefinition @'
 using System;
@@ -129,7 +90,6 @@ public static class GentAtomicMove {
     }
     [GentAtomicMove]::Replace($Source, $Destination)
 }
-
 function Write-CurrentPointer([string]$RuntimeRoot, [string]$ReleaseName) {
     Assert-ReleaseName $ReleaseName
     $releasePath = Join-Path (Join-Path $RuntimeRoot "releases") $ReleaseName
@@ -138,6 +98,7 @@ function Write-CurrentPointer([string]$RuntimeRoot, [string]$ReleaseName) {
         $path = Join-Path $releasePath $binary
         Assert-PlainFile $path "selected release $binary"
     }
+    Assert-PackagedRuntime $releasePath
     $pointer = Join-Path $RuntimeRoot "current.json"
     $temporary = Join-Path $RuntimeRoot (".current-" + [Guid]::NewGuid().ToString("N"))
     $json = @{ release = $ReleaseName } | ConvertTo-Json -Compress
@@ -149,7 +110,6 @@ function Write-CurrentPointer([string]$RuntimeRoot, [string]$ReleaseName) {
     }
     else { [System.IO.File]::Move($temporary, $pointer) }
 }
-
 function Write-NativeLaunchers([string]$Root, [string]$ReleasePath) {
     $bin = Join-Path $Root "bin"
     New-Item -ItemType Directory -Force -Path $bin | Out-Null
@@ -168,14 +128,8 @@ function Write-NativeLaunchers([string]$Root, [string]$ReleasePath) {
         }
         if (Test-Path -LiteralPath $destination) { Move-Atomically $temporary $destination }
         else { [IO.File]::Move($temporary, $destination) }
-        $legacy = Join-Path $bin "$binary.cmd"
-        if (Test-Path -LiteralPath $legacy) {
-            Assert-PlainFile $legacy "legacy launcher"
-            Remove-Item -LiteralPath $legacy -Force
-        }
     }
 }
-
 function Assert-IdenticalRelease([string]$Expected, [string]$Installed) {
     Assert-PlainDirectory $Expected "extracted release"
     Assert-PlainDirectory $Installed "existing release"
@@ -188,8 +142,17 @@ function Assert-IdenticalRelease([string]$Expected, [string]$Installed) {
         $installedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installedPath).Hash
         if ($expectedHash -ne $installedHash) { Fail "existing release does not match signed archive" }
     }
+    Assert-PackagedRuntime $Expected
+    Assert-PackagedRuntime $Installed
+    $expectedFiles = @(Get-ChildItem -LiteralPath (Join-Path $Expected "runtime") -File -Recurse | ForEach-Object { $_.FullName.Substring($Expected.Length) } | Sort-Object)
+    $installedFiles = @(Get-ChildItem -LiteralPath (Join-Path $Installed "runtime") -File -Recurse | ForEach-Object { $_.FullName.Substring($Installed.Length) } | Sort-Object)
+    if (($expectedFiles -join ',') -ne ($installedFiles -join ',')) { Fail "existing release runtime does not match signed archive" }
+    foreach ($relative in $expectedFiles) {
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath "$Expected$relative").Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath "$Installed$relative").Hash) {
+            Fail "existing release runtime does not match signed archive"
+        }
+    }
 }
-
 function Use-InstallLock([string]$Root, [scriptblock]$Action) {
     New-Item -ItemType Directory -Force -Path $Root | Out-Null
     $path = Join-Path $Root ".install.lock"
@@ -249,7 +212,6 @@ if (-not $InstallDir) {
     if (-not $env:LOCALAPPDATA) { Fail "LOCALAPPDATA is unavailable; pass --InstallDir" }
     $InstallDir = Join-Path $env:LOCALAPPDATA "Gent"
 }
-
 $archiveName = "gent-$Version-$Target.zip"
 $releaseName = "$Version-$Target"
 $base = Get-AssetBase $Version
@@ -281,6 +243,7 @@ try {
         $stage = Join-Path $releases (".stage-" + [Guid]::NewGuid().ToString("N"))
         [System.IO.Compression.ZipFile]::ExtractToDirectory($archive, $stage)
         $source = Join-Path $stage "gent-$Version-$Target"
+        Assert-PackagedRuntime $source
         if (Test-Path -LiteralPath $release) {
             Assert-IdenticalRelease $source $release
         }

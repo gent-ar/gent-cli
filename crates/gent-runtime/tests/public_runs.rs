@@ -197,7 +197,6 @@ fn resume_and_interrupt_require_authoritative_owned_run() {
                 run_id: "run-a".into(),
                 coordinator_id: "daemon-b".into(),
                 host_epoch: HostEpoch(2),
-                session_id: "client-substitution-attempt".into(),
             })
             .unwrap()
             .outcome,
@@ -213,7 +212,6 @@ fn resume_and_interrupt_require_authoritative_owned_run() {
                 run_id: "run-a".into(),
                 coordinator_id: "other".into(),
                 host_epoch: HostEpoch(2),
-                session_id: "client-substitution-attempt".into(),
             })
             .unwrap()
             .outcome,
@@ -264,7 +262,6 @@ fn resume_reauthorizes_before_reclaiming_the_provider_process() {
                 run_id: "run-a".into(),
                 coordinator_id: "daemon-b".into(),
                 host_epoch: HostEpoch(2),
-                session_id: String::new(),
             })
             .unwrap()
             .outcome,
@@ -293,7 +290,6 @@ fn resume_refuses_runs_without_a_server_owned_session() {
                 run_id: "run-a".into(),
                 coordinator_id: "daemon-a".into(),
                 host_epoch: HostEpoch(1),
-                session_id: "client-substitution-attempt".into(),
             })
             .is_err()
     );

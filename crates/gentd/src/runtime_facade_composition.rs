@@ -23,7 +23,6 @@ pub(crate) struct DaemonCompositionState {
     pub(super) compatibility: CompatibilityAssessment,
 }
 
-#[allow(dead_code)] // Future approved composition reads these state components before facade build.
 impl DaemonCompositionState {
     /// Opens the single Gent ledger and coordinator from one typed authority profile.
     ///
@@ -45,6 +44,13 @@ impl DaemonCompositionState {
             capability_profile: capability_profile.clone(),
             compatibility,
         })
+    }
+
+    pub(crate) fn fence_unclean_predecessor(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let epoch = self.coordinator.status()?.host_epoch;
+        self.coordinator.close_ingress(epoch)?;
+        self.coordinator.fence_and_open(epoch)?;
+        Ok(())
     }
 
     #[must_use]

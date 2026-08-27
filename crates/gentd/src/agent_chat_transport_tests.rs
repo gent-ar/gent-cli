@@ -120,7 +120,7 @@ fn capabilities() -> CapabilitySet {
 }
 
 fn prompt() -> serde_json::Value {
-    json!({ "type": "sendPrompt", "body": { "requestId": "request-1", "receiptId": "receipt-1", "conversationId": "conversation-1", "text": "hello" } })
+    json!({ "type": "sendPrompt", "body": { "requestId": "request-1", "receiptId": "receipt-1", "conversationId": "conversation-1", "text": "hello", "attachmentIds": [] } })
 }
 
 #[tokio::test]

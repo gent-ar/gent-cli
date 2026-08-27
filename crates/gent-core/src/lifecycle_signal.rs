@@ -68,7 +68,7 @@ mod tests {
             },
         )
         .state;
-        assert!(projected_live_status(&waiting).is_processing);
+        assert!(projected_live_status(&waiting).is_processing());
         let command = project_lifecycle_signal(
             waiting,
             2,
@@ -78,7 +78,7 @@ mod tests {
             },
         )
         .state;
-        assert!(projected_live_status(&command).has_live_command_work);
+        assert!(projected_live_status(&command).has_live_command_work());
         let waiting = project_lifecycle_signal(
             command,
             3,
@@ -87,11 +87,11 @@ mod tests {
             },
         )
         .state;
-        assert!(projected_live_status(&waiting).is_waiting_for_command);
+        assert!(projected_live_status(&waiting).is_waiting_for_command());
         let attention =
             project_lifecycle_signal(waiting, 4, &NormalizedLifecycleSignal::AttentionRequired)
                 .state;
-        assert!(projected_live_status(&attention).needs_attention);
+        assert!(projected_live_status(&attention).needs_attention());
     }
 
     #[test]
@@ -125,7 +125,7 @@ mod tests {
         let stale =
             project_lifecycle_signal(command, 4, &NormalizedLifecycleSignal::AttentionRequired);
         assert!(!stale.applied);
-        assert!(!projected_live_status(&stale.state).needs_attention);
+        assert!(!projected_live_status(&stale.state).needs_attention());
     }
 
     #[test]
@@ -144,6 +144,6 @@ mod tests {
         );
         assert!(update.applied);
         assert_eq!(update.state.last_cursor, Some(1));
-        assert!(!projected_live_status(&update.state).is_processing);
+        assert!(!projected_live_status(&update.state).is_processing());
     }
 }

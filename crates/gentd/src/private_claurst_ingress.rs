@@ -1,44 +1,38 @@
-//! Private, credential-free Claurst lifecycle drain, deliberately absent from daemon bootstrap.
-
 use std::collections::BTreeMap;
 
 use gent_ports::{
-    ClaurstCheckpoint, ClaurstDrainRequest, ClaurstFactValue, ClaurstNormalizedFact,
-    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, GoalLedger,
-    Ledger, MAX_PRIVATE_CLAURST_DRAIN_FACTS, PrivateClaurstBridge, RunCheckpointLedger,
-    RunLifecycleFactLedger,
+    ClaurstDrainRequest, ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest,
+    ClaurstSubmitRequest, GoalLedger, Ledger, MAX_PRIVATE_CLAURST_DRAIN_FACTS,
+    NormalizedSessionBatchLedger, PendingPermissionLedger, PolicyLedger, PrivateClaurstBridge,
+    RunCheckpointLedger, RunLifecycleFactLedger, TranscriptLedger,
 };
 use gent_runtime::{
     Coordinator, ProviderLifecycleEffect, ProviderLifecycleIngress, ProviderRunAuthority,
     RuntimeError,
 };
-use gent_types::{AgentChatConversationId, HostEpoch, RunCheckpointRecord};
+use gent_types::{AgentChatConversationId, DurableTurnPhase, HostEpoch};
 
 mod goal;
 mod validation;
-use validation::{
-    checkpoint_id, event_id, invariant, restored, terminal_name, validate_batch, validate_binding,
-};
+use validation::{event_id, invariant, restored, terminal_name, validate_batch, validate_binding};
 
-/// Aggregate result returned only after all accepted facts have durable source records.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PrivateClaurstDrain {
     pub facts: u16,
     pub terminal: bool,
+    pub terminal_phase: Option<DurableTurnPhase>,
 }
 
 #[derive(Clone, Debug)]
 struct BoundSource {
     binding: ClaurstSessionBinding,
     conversation_id: Option<AgentChatConversationId>,
+    turn_id: Option<String>,
     after_cursor: u64,
     terminal: bool,
+    cancellation_requested: bool,
 }
 
-/// Daemon-only lifecycle owner for a bridge source that was reserved elsewhere.
-///
-/// It starts and follows up only through the typed private bridge and exposes no public
-/// transport. Drain results return only after durable lifecycle records and checkpoints exist.
 #[derive(Debug)]
 pub(crate) struct PrivateClaurstIngress<L, B> {
     coordinator: Coordinator<L>,
@@ -51,10 +45,19 @@ pub(crate) struct PrivateClaurstIngress<L, B> {
 
 impl<L, B> PrivateClaurstIngress<L, B>
 where
-    L: Clone + std::fmt::Debug + Ledger + GoalLedger + RunCheckpointLedger + RunLifecycleFactLedger,
+    L: Clone
+        + std::fmt::Debug
+        + Ledger
+        + GoalLedger
+        + RunCheckpointLedger
+        + RunLifecycleFactLedger
+        + NormalizedSessionBatchLedger
+        + TranscriptLedger
+        + PendingPermissionLedger
+        + PolicyLedger
+        + gent_ports::AgentChatWorkspaceLedger,
     B: PrivateClaurstBridge,
 {
-    /// Creates an unadvertised ingress. A separate private composition must explicitly own it.
     #[must_use]
     pub(crate) fn new(
         coordinator: Coordinator<L>,
@@ -75,10 +78,6 @@ where
         }
     }
 
-    /// Starts a fresh private source from daemon-owned normalized input, then persists its bind.
-    ///
-    /// The private bridge receives no app/client-owned provider configuration. A returned session
-    /// must exactly match the requested run and source before its lifecycle is recorded.
     pub(crate) async fn start(
         &mut self,
         mut request: ClaurstStartRequest,
@@ -107,18 +106,19 @@ where
             binding.clone(),
             host_epoch,
             Some(request.context.conversation_id),
+            Some(request.turn_id),
         )
         .await?;
         Ok(binding)
     }
 
-    /// Persists the opaque session binding before the bridge may be drained.
     pub(crate) async fn bind(
         &mut self,
         binding: ClaurstSessionBinding,
         host_epoch: HostEpoch,
     ) -> Result<(), RuntimeError> {
-        self.bind_with_conversation(binding, host_epoch, None).await
+        self.bind_with_conversation(binding, host_epoch, None, None)
+            .await
     }
 
     async fn bind_with_conversation(
@@ -126,6 +126,7 @@ where
         binding: ClaurstSessionBinding,
         host_epoch: HostEpoch,
         conversation_id: Option<AgentChatConversationId>,
+        turn_id: Option<String>,
     ) -> Result<(), RuntimeError> {
         validate_binding(&binding)?;
         if self.sources.contains_key(&binding.source_id) {
@@ -147,14 +148,15 @@ where
             BoundSource {
                 binding,
                 conversation_id,
+                turn_id,
                 after_cursor,
                 terminal,
+                cancellation_requested: false,
             },
         );
         Ok(())
     }
 
-    /// Sends one daemon-owned follow-up only to the exact active private session.
     pub(crate) async fn submit(
         &self,
         mut request: ClaurstSubmitRequest,
@@ -186,7 +188,22 @@ where
         Ok(())
     }
 
-    /// Drains one fixed-size batch and persists every normalized source fact before returning.
+    pub(crate) async fn cancel_run(&mut self, run_id: &str) -> Result<(), RuntimeError> {
+        let state = self
+            .sources
+            .values_mut()
+            .find(|state| state.binding.run_id == run_id && !state.terminal)
+            .ok_or_else(|| invariant("private Claurst run is not active"))?;
+        if state.cancellation_requested {
+            return Err(invariant(
+                "private Claurst run cancellation is already requested",
+            ));
+        }
+        self.bridge.cancel(state.binding.clone()).await?;
+        state.cancellation_requested = true;
+        Ok(())
+    }
+
     pub(crate) async fn drain(
         &mut self,
         source_id: &ClaurstSourceId,
@@ -208,10 +225,18 @@ where
         };
         let batch = self.bridge.drain(request.clone()).await?;
         let checkpoint = validate_batch(&request, &state.binding, &batch)?;
-        for fact in &batch.facts {
-            self.record_fact(&state.binding, fact, host_epoch)?;
+        for permission in &batch.permissions {
+            self.record_permission_request(&state, permission, host_epoch)
+                .await?;
         }
-        let terminal = batch.terminal.is_some();
+        for fact in &batch.facts {
+            self.record_fact(&state, fact, host_epoch)?;
+        }
+        let terminal_phase = batch
+            .terminal
+            .as_ref()
+            .map(|terminal| terminal_phase(*terminal));
+        let terminal = terminal_phase.is_some();
         let terminal_kind = batch.terminal.map(terminal_name);
         if let Some(kind) = terminal_kind {
             self.lifecycle.record(
@@ -237,60 +262,22 @@ where
         Ok(PrivateClaurstDrain {
             facts: u16::try_from(batch.facts.len()).expect("bridge fact bound fits u16"),
             terminal,
-        })
-    }
-
-    fn record_fact(
-        &self,
-        binding: &ClaurstSessionBinding,
-        fact: &ClaurstNormalizedFact,
-        host_epoch: HostEpoch,
-    ) -> Result<(), RuntimeError> {
-        let effect = match &fact.value {
-            ClaurstFactValue::Event(event) => ProviderLifecycleEffect::Normalized(event.clone()),
-            ClaurstFactValue::Lifecycle(signal) => {
-                ProviderLifecycleEffect::Lifecycle(signal.clone())
-            }
-        };
-        self.lifecycle.record(
-            event_id(&binding.source_id, &format!("fact-{}", fact.cursor)),
-            &binding.run_id,
-            &self.coordinator_id,
-            host_epoch,
-            effect,
-        )?;
-        Ok(())
-    }
-
-    fn save_checkpoint(
-        &self,
-        binding: &ClaurstSessionBinding,
-        checkpoint: ClaurstCheckpoint,
-        terminal_kind: Option<&str>,
-    ) -> Result<(), RuntimeError> {
-        let records = self.coordinator.run_checkpoints(&binding.run_id)?;
-        let sequence = u64::try_from(records.len()).expect("checkpoint count fits u64") + 1;
-        let kind =
-            terminal_kind.map_or_else(|| format!("fact-{}", checkpoint.cursor), str::to_owned);
-        let source_event = self
-            .ledger
-            .find_event(&event_id(&binding.source_id, &kind))?;
-        let event_cursor = source_event.map_or(0, |event| event.cursor);
-        if event_cursor == 0 {
-            return Err(invariant(
-                "private Claurst checkpoint has no durable source event",
-            ));
-        }
-        self.coordinator.save_run_checkpoint(&RunCheckpointRecord {
-            checkpoint_id: checkpoint_id(
-                &binding.source_id,
-                checkpoint.cursor,
-                terminal_kind.is_some(),
-            ),
-            run_id: binding.run_id.clone(),
-            sequence,
-            event_cursor,
-            state_digest_sha256: checkpoint.state_digest_sha256,
+            terminal_phase,
         })
     }
 }
+
+const fn terminal_phase(terminal: gent_ports::ClaurstTerminal) -> DurableTurnPhase {
+    match terminal {
+        gent_ports::ClaurstTerminal::Completed => DurableTurnPhase::Completed,
+        gent_ports::ClaurstTerminal::Interrupted => DurableTurnPhase::Interrupted,
+        gent_ports::ClaurstTerminal::Failed { .. } => DurableTurnPhase::Failed,
+    }
+}
+
+#[path = "private_claurst_ingress_checkpoint.rs"]
+mod checkpoint;
+#[path = "private_claurst_ingress_permission.rs"]
+mod permission;
+#[path = "private_claurst_ingress_projection.rs"]
+mod projection;

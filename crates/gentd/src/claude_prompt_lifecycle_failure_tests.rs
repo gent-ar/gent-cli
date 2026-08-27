@@ -43,6 +43,8 @@ fn claude_poll_failure_retains_ownership_without_fabricating_terminal_settlement
             host_epoch: HostEpoch(1),
             conversation_id,
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: "hello".into(),
         })
         .unwrap();
@@ -58,7 +60,7 @@ fn claude_poll_failure_retains_ownership_without_fabricating_terminal_settlement
         crate::claude_prompt_lifecycle_tests::Resolver,
     )
     .unwrap();
-    let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
+    let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1, None);
     host.tick().unwrap();
     runner.0.lock().unwrap().poll_failure = true;
 
@@ -66,7 +68,7 @@ fn claude_poll_failure_retains_ownership_without_fabricating_terminal_settlement
     assert!(error.to_string().contains("provider poll unavailable"));
     assert!(
         ledger
-            .find_event("claude:run-a:terminal:1")
+            .find_event("claude:1:run-a:terminal:1")
             .unwrap()
             .is_none()
     );

@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64.workspace = true
 clap.workspace = true
 crossterm.workspace = true
 directories.workspace = true

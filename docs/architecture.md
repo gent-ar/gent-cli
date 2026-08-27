@@ -43,16 +43,6 @@ older planning material that provisionally grouped pairing and automations with
 daemon-owned domains; it does not change that source material in the Flutter
 application repository.
 
-The zero-user/single-developer standalone path has no legacy app or fleet to
-migrate, so it does not require a deployed fence-aware legacy release. This
-project still does not replace Flutter behavior. Before a future Flutter launch
-uses Gent, it must establish protocol compatibility and exactly one active
-writer/host epoch; no client may bypass that guard.
-
-The current daemon hard-disables public provider lifecycle work in observer
-mode. Existing legacy-tap utilities are compatibility experiments, not an
-authority-transfer claim.
-
 ## Planned multi-agent orchestration boundary
 
 The future multi-agent domain is a Gent-owned typed task graph, not client-side
@@ -83,14 +73,6 @@ cursor mismatch, reload immutable bounded pages (from zero when the cursor is
 not accepted), then replay facts strictly after the accepted cursor. A client
 may show transport staleness, but it must not infer lifecycle from provider
 text or timers.
-
-The existing run-level lifecycle reducers are foundations, not these public
-facts. The default observer daemon offers no authoritative provider
-lifecycle and the terminal client remains content-free with its composer
-disabled. The explicit `--agent-chat-authority` profile is narrower: it writes
-only durable create/send/queue intent records under the usual fences, and never
-composes a provider, MCP, Git, or private bridge. No client can bypass receipts,
-cursor resume, epoch fencing, or capability negotiation.
 
 The observer daemon does not advertise runtime-update work. An explicit
 `--runtime-update-check-authority` profile may advertise only the metadata-only

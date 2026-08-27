@@ -6,14 +6,14 @@ use clap::{Args, ValueEnum};
 use gent_protocol::AgentChatIntentFrame;
 use gent_types::{AgentChatConversationId, AgentChatRunId, AgentChatSelection, ContextPolicy};
 
-use super::{Effort, Mode, Provider};
+use super::{Effort, Mode, Provider, model};
 
 #[derive(Debug, Args)]
 pub(crate) struct SwitchArgs {
     #[arg(long)]
     pub(crate) conversation_id: String,
     #[arg(long)]
-    pub(crate) parent_run_id: String,
+    pub(crate) parent_run_id: Option<String>,
     #[arg(long, value_enum)]
     pub(crate) provider: Provider,
     #[arg(long)]
@@ -37,13 +37,16 @@ pub(crate) enum Context {
     Clear,
 }
 
-pub(crate) fn frame(args: SwitchArgs) -> AgentChatIntentFrame {
-    selection_frame(
+pub(crate) fn frame(args: SwitchArgs) -> Result<AgentChatIntentFrame, &'static str> {
+    let parent_run_id = args
+        .parent_run_id
+        .ok_or("a switch needs a durable current run")?;
+    Ok(selection_frame(
         args.conversation_id,
-        args.parent_run_id,
+        parent_run_id,
         AgentChatSelection {
             provider: super::provider(args.provider),
-            model: args.model,
+            model: model(args.provider, args.model),
             effort: super::effort(args.effort),
             mode: super::mode(args.mode),
         },
@@ -53,7 +56,28 @@ pub(crate) fn frame(args: SwitchArgs) -> AgentChatIntentFrame {
         },
         args.request_id,
         args.receipt_id,
-    )
+    ))
+}
+
+pub(crate) async fn resolve(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    mut args: SwitchArgs,
+) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
+    if args.parent_run_id.is_none() {
+        let detail =
+            super::reads::detail(data_dir, no_autostart, args.conversation_id.clone()).await?;
+        if detail.current_run_id.is_empty()
+            || !detail
+                .runs
+                .iter()
+                .any(|run| run.run_id == detail.current_run_id)
+        {
+            return Err("daemon returned an invalid current run for this conversation".into());
+        }
+        args.parent_run_id = Some(detail.current_run_id);
+    }
+    frame(args).map_err(Into::into)
 }
 
 /// Switches one known terminal parent through the same checked IPC path as `gent chat switch`.

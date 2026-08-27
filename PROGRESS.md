@@ -1,9 +1,9 @@
 # Gent CLI progress
 
 This is a concise, evidence-bound progress record for the current Gent worktree.
-It distinguishes implemented foundations from the still-uncomposed live agent
-authority. For detailed contracts, read `docs/continuation-handoff.md` and
-`docs/realtime-agent-chat-client-plan.md`.
+It distinguishes verified standalone execution from the remaining native cutover
+and provider-specific release gates. For detailed contracts, read
+`docs/continuation-handoff.md` and `docs/realtime-agent-chat-client-plan.md`.
 
 ## Product direction
 
@@ -126,7 +126,7 @@ lifecycle state are prohibited.
   epoch; one immediate SQLite transaction stores that fact, settles its exact
   idempotency receipt, and releases only that held prompt. A changed selection,
   event collision, stale epoch, missing lock, or unreadable provenance exposes
-  no work. This is fresh-schema storage, not a migration or recovery snapshot.
+  no work. This is fresh-schema storage with no recovery snapshot.
 - An explicit post-commit readiness-admission seam checks the durable locked
   Claude/Codex executable, releases only after the preceding transaction, then
   notifies a downstream lifecycle. It launches nothing inline; missing or
@@ -179,16 +179,17 @@ lifecycle state are prohibited.
   provider authority remain distinct data.
 - No public Claurst credential, endpoint, or routing implementation exists.
 
-## Not complete / not advertised
+## Remaining release gates
 
-- Default `gentd` is hard observer. The existing agent-chat authority persists
-  intent only; it cannot launch a provider, and ordinary Claude/Codex authority
-  is still uncomposed.
-- No client currently receives a live Claude, Codex, or Claurst execution path.
-  The private Claurst bridge requires its private implementation and CI evidence.
-- Four strict public evidence cells remain: Claude persistent permission,
-  Claude compaction, Claude malformed tolerance, and Codex malformed tolerance.
-  No recording may be fabricated.
+- Standalone authority launches and follows real Codex and Claude turns. A
+  packaged Claurst runtime is staged and its download/progress path is live;
+  a complete CPU-only local-model turn still needs release hardware evidence.
+- Claude transcript-sidecar subagent correlation is not established and must
+  not be synthesized. Claurst v0.1.7 does not expose addressable child sessions.
+- The native app still needs to retain and filter local-model `requestId` values
+  during event projection before automatic downloads are release-ready.
+- Strict malformed-input and compaction evidence remains incomplete. No
+  recording may be fabricated.
 - A bounded live Codex 0.144.1 plan-mode probe was captured on 2026-08-19 and
   recorded as a reviewed development transcript. It is intentionally not
   admitted as authority evidence or used to replace the manifest's established
@@ -202,14 +203,9 @@ lifecycle state are prohibited.
 
 ## Current implementation path
 
-1. Complete the prompt-scoped provisioning authority: durably settle consent/plan refusal, derive
-   the reviewed package command from the current run, and compose its capability only after
-   strict provider evidence and sandbox proof.
-2. Prove terminal follow, context/provider switching, `/goal`, backpressure,
-   process-tree drain, terminal settlement, and reconnect by durable cursors.
-3. Add the private Claurst bridge under the identical public fact contract and
-   its private CI evidence; then complete native-app IPC parity and remove app
-   drivers in a separately authorized clean cutover.
-
-Nothing in this file claims live provider execution, app cutover, or release
-readiness until those gates have direct evidence.
+1. Finish the Claude child-activity contract and the native `requestId`
+   projection against the already-working Gent protocol.
+2. Run the packaged Claurst runtime with a complete curated local model on
+   release hardware and capture the terminal success path.
+3. Complete native-app IPC acceptance and provider/model switching against the
+   same conversation and session records used by standalone `gent`.

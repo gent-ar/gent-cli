@@ -5,8 +5,10 @@ use gent_protocol::{DependencyAction, DependencyProvider};
 use std::path::PathBuf;
 
 use crate::{
-    chat_cli, decision::DecisionCommandLine, goal_cli, orchestration_cli, permissions_cli,
-    provider_auth_cli, provider_lifecycle_cli, reviewed_plan_cli, update_check::UpdateCommand,
+    chat_cli, decision::DecisionCommandLine, goal_cli, local_models_cli, orchestration_cli,
+    permissions_cli, prompt_templates_cli, provider_auth_cli, provider_lifecycle_cli,
+    reviewed_plan_cli, side_question_cli, update_check::UpdateCommand, workspace_documents_cli,
+    workspace_git_cli,
 };
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
@@ -78,16 +80,59 @@ pub(crate) enum CommandLine {
         #[command(subcommand)]
         action: permissions_cli::PermissionCommand,
     },
-    /// Inspect or request a secret-free Claude or Codex login choice through gentd.
+    /// Start Claude or Codex authentication without storing credentials in Gent.
     Auth {
         #[command(subcommand)]
         action: provider_auth_cli::ProviderAuthCommand,
+    },
+    Forge {
+        #[command(subcommand)]
+        action: ForgeCommand,
+    },
+    Automation {
+        #[command(subcommand)]
+        action: AutomationCommand,
+    },
+    Sessions {
+        #[command(subcommand)]
+        action: SessionCommand,
+    },
+    McpServer,
+    Mcp {
+        domain: Option<String>,
     },
     /// Ask Gentd about one held prompt or consent to its daemon-issued provider install review.
     Provider {
         #[command(subcommand)]
         action: provider_lifecycle_cli::ProviderLifecycleCommand,
     },
+    Models {
+        #[command(subcommand)]
+        action: local_models_cli::LocalModelsCommand,
+    },
+    Templates {
+        #[command(subcommand)]
+        action: prompt_templates_cli::PromptTemplateCommand,
+    },
+    Documents {
+        #[command(subcommand)]
+        action: workspace_documents_cli::WorkspaceDocumentsCommand,
+    },
+    WorkspaceGit {
+        #[command(subcommand)]
+        action: workspace_git_cli::WorkspaceGitCommand,
+    },
+    /// Ask, cancel, or list bounded, provider-neutral side questions through Gent-owned IPC.
+    SideQuestion {
+        #[command(subcommand)]
+        action: side_question_cli::SideQuestionCommand,
+    },
+    /// Print the resolved data directory and exit without contacting or starting a daemon.
+    ///
+    /// Any host that launches the packaged `gentd` runtime (including a native application)
+    /// should resolve the shared data directory through this command rather than duplicating
+    /// the `GENT_DATA_DIR` and platform-default resolution rules.
+    DataDir,
     Status,
     Submit {
         #[arg(long)]
@@ -103,6 +148,69 @@ pub(crate) enum CommandLine {
         /// Keep the local IPC connection open and print cursor-ordered live batches.
         #[arg(long)]
         follow: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ForgeCommand {
+    List {
+        workspace_id: String,
+    },
+    Get {
+        workspace_id: String,
+        connector_id: String,
+    },
+    Create {
+        connector: String,
+    },
+    Enable {
+        workspace_id: String,
+        connector_id: String,
+    },
+    Disable {
+        workspace_id: String,
+        connector_id: String,
+    },
+    Invoke {
+        workspace_id: String,
+        connector_id: String,
+        #[arg(long)]
+        tool_name: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum AutomationCommand {
+    List {
+        workspace_id: String,
+    },
+    Create {
+        definition: String,
+    },
+    Run {
+        automation_id: String,
+    },
+    Runs {
+        automation_id: String,
+        #[arg(long, default_value_t = 20)]
+        limit: u16,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum SessionCommand {
+    List {
+        workspace_id: String,
+    },
+    Create {
+        session: String,
+    },
+    Select {
+        session_id: String,
+    },
+    Attach {
+        session_id: String,
+        conversation_id: String,
     },
 }
 
@@ -166,6 +274,9 @@ pub(crate) enum ConversationCommand {
     },
 }
 
+#[cfg(test)]
+#[path = "command_model_local_models_tests.rs"]
+mod local_models_tests;
 #[cfg(test)]
 #[path = "command_model_tests.rs"]
 mod tests;

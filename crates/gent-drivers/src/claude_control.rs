@@ -2,6 +2,8 @@
 
 use serde_json::{Value, json};
 
+const MAX_UPDATED_INPUT_BYTES: usize = 16 * 1024;
+
 /// The public identifiers needed to classify one Claude permission request.
 ///
 /// Raw tool input and permission suggestions deliberately remain in the process runner. They are
@@ -68,25 +70,57 @@ pub fn encode_permission_response(
     persist_suggestions: bool,
     suggestions: &[Value],
 ) -> Vec<u8> {
+    encode_permission_response_with_input(
+        request_id,
+        behavior,
+        persist_suggestions,
+        suggestions,
+        None,
+    )
+}
+
+pub fn encode_permission_response_with_input(
+    request_id: &str,
+    behavior: ClaudePermissionBehavior,
+    persist_suggestions: bool,
+    suggestions: &[Value],
+    updated_input: Option<&Value>,
+) -> Vec<u8> {
     let mut response = json!({
         "behavior": match behavior {
             ClaudePermissionBehavior::Allow => "allow",
             ClaudePermissionBehavior::Deny => "deny",
         }
     });
+    if behavior == ClaudePermissionBehavior::Deny {
+        response["message"] = "User denied the request".into();
+    }
     if behavior == ClaudePermissionBehavior::Allow && persist_suggestions && !suggestions.is_empty()
     {
         response["updatedPermissions"] = Value::Array(suggestions.to_vec());
     }
-    let mut frame = serde_json::to_vec(&json!({
+    if behavior == ClaudePermissionBehavior::Allow {
+        if let Some(updated_input) =
+            updated_input
+                .filter(|value| value.is_object())
+                .filter(|value| {
+                    serde_json::to_vec(value)
+                        .is_ok_and(|encoded| encoded.len() <= MAX_UPDATED_INPUT_BYTES)
+                })
+        {
+            response["updatedInput"] = updated_input.clone();
+        }
+    }
+    let Ok(mut frame) = serde_json::to_vec(&json!({
         "type": "control_response",
         "response": {
             "subtype": "success",
             "request_id": request_id,
             "response": response,
         }
-    }))
-    .expect("fixed Claude control response is serializable");
+    })) else {
+        return Vec::new();
+    };
     frame.push(b'\n');
     frame
 }
@@ -96,7 +130,7 @@ fn suggestions(value: &Value) -> Result<Vec<Value>, &'static str> {
     values
         .iter()
         .all(Value::is_object)
-        .then(|| values.to_vec())
+        .then(|| values.clone())
         .ok_or("malformedClaudeControlRequest")
 }
 
@@ -108,7 +142,10 @@ fn string<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
 mod tests {
     use serde_json::json;
 
-    use super::{ClaudePermissionBehavior, encode_permission_response, parse_permission_request};
+    use super::{
+        ClaudePermissionBehavior, encode_permission_response,
+        encode_permission_response_with_input, parse_permission_request,
+    };
 
     #[test]
     fn permission_request_retains_only_identifiers_and_private_suggestions() {
@@ -153,6 +190,55 @@ mod tests {
         assert!(
             denied["response"]["response"]
                 .get("updatedPermissions")
+                .is_none()
+        );
+        assert_eq!(
+            denied["response"]["response"]["message"],
+            "User denied the request"
+        );
+    }
+
+    #[test]
+    fn allowed_updated_input_is_relayed_but_denied_input_is_dropped() {
+        let input = json!({"plan":"approved", "scope":"turn"});
+        let allowed: serde_json::Value =
+            serde_json::from_slice(&encode_permission_response_with_input(
+                "request-1",
+                ClaudePermissionBehavior::Allow,
+                false,
+                &[],
+                Some(&input),
+            ))
+            .unwrap();
+        assert_eq!(allowed["response"]["response"]["updatedInput"], input);
+
+        let denied: serde_json::Value =
+            serde_json::from_slice(&encode_permission_response_with_input(
+                "request-1",
+                ClaudePermissionBehavior::Deny,
+                false,
+                &[],
+                Some(&input),
+            ))
+            .unwrap();
+        assert!(denied["response"]["response"].get("updatedInput").is_none());
+    }
+
+    #[test]
+    fn oversized_updated_input_is_not_written() {
+        let input = json!({"value":"x".repeat(17 * 1024)});
+        let encoded: serde_json::Value =
+            serde_json::from_slice(&encode_permission_response_with_input(
+                "request-1",
+                ClaudePermissionBehavior::Allow,
+                false,
+                &[],
+                Some(&input),
+            ))
+            .unwrap();
+        assert!(
+            encoded["response"]["response"]
+                .get("updatedInput")
                 .is_none()
         );
     }

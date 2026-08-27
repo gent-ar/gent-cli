@@ -8,11 +8,14 @@ use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, WireFrame, read_json_frame,
     write_json_frame,
 };
-use gent_types::{AgentChatConversationId, AgentChatRequestId, AgentChatSelection, ReceiptId};
+use gent_types::{AgentChatConversationId, AgentChatSelection};
 use serde_json::Value;
 
 mod arguments;
+mod attachments;
 pub(crate) mod follow;
+mod intent;
+mod interrupt;
 mod prompt;
 mod reads;
 mod resume;
@@ -23,9 +26,10 @@ pub(crate) use arguments::{
     ConversationArgs, CreateArgs, DirectPromptArgs, Effort, Mode, PromptArgs, Provider,
     TranscriptArgs,
 };
+pub(crate) use intent::{frame, prompt_frame, receipt_id, request_id, valid_reply, workspace_path};
 pub(crate) use prompt::send;
-pub(crate) use reads::transcript;
-pub(crate) use selection::{effort, mode, provider};
+pub(crate) use reads::{detail, summary, transcript_all};
+pub(crate) use selection::{effort, mode, model, provider};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ChatCommand {
@@ -33,7 +37,9 @@ pub(crate) enum ChatCommand {
     Send(PromptArgs),
     Resume(resume::ResumeArgs),
     Queue(PromptArgs),
+    Interrupt(interrupt::InterruptArgs),
     Switch(switch::SwitchArgs),
+    Fork(switch::SwitchArgs),
     /// Follow daemon-normalized transcript events, resuming from a durable cursor after reconnect.
     Follow(follow::FollowArgs),
     /// Follow exactly one normalized durable turn through its terminal record.
@@ -98,7 +104,28 @@ pub(crate) async fn execute(
     ) {
         return Err("agent-chat reads and follow bypass one-shot intent frames".into());
     }
-    exchange(data_dir, no_autostart, frame(action)?).await
+    let request = match action {
+        ChatCommand::Switch(args) | ChatCommand::Fork(args) => {
+            switch::resolve(data_dir.clone(), no_autostart, args).await?
+        }
+        ChatCommand::Send(args) => {
+            let attachments =
+                attachments::stage(data_dir.clone(), no_autostart, &args.attachments).await?;
+            prompt_frame(args, false, attachments)
+        }
+        ChatCommand::Queue(args) => {
+            let attachments =
+                attachments::stage(data_dir.clone(), no_autostart, &args.attachments).await?;
+            prompt_frame(args, true, attachments)
+        }
+        ChatCommand::Resume(args) => {
+            let attachments =
+                attachments::stage(data_dir.clone(), no_autostart, &args.attachments).await?;
+            resume::frame(args, attachments)
+        }
+        action => frame(action)?,
+    };
+    exchange(data_dir, no_autostart, request).await
 }
 
 /// Creates a selected conversation for an interactive terminal through the same IPC boundary.
@@ -130,6 +157,30 @@ pub(crate) async fn create(
     Ok((conversation_id, run_id))
 }
 
+pub(crate) async fn interrupt(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    conversation_id: String,
+    run_id: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response = exchange(
+        data_dir,
+        no_autostart,
+        AgentChatIntentFrame::Interrupt {
+            request_id: request_id(None),
+            receipt_id: receipt_id(None),
+            conversation_id: AgentChatConversationId(conversation_id),
+            run_id: gent_types::AgentChatRunId(run_id),
+        },
+    )
+    .await?;
+    if matches!(response, AgentChatIntentFrame::Interrupted { .. }) {
+        Ok(())
+    } else {
+        Err("daemon did not confirm the interrupt".into())
+    }
+}
+
 async fn exchange(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
@@ -157,125 +208,6 @@ async fn exchange(
         })
 }
 
-fn frame(action: ChatCommand) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
-    Ok(match action {
-        ChatCommand::Create(args) => AgentChatIntentFrame::CreateConversation {
-            request_id: request_id(args.request_id),
-            receipt_id: receipt_id(args.receipt_id),
-            workspace_path: workspace_path(args.workspace)?,
-            selection: AgentChatSelection {
-                provider: provider(args.provider),
-                model: args.model,
-                effort: effort(args.effort),
-                mode: mode(args.mode),
-            },
-        },
-        ChatCommand::Send(args) => prompt_frame(args, false),
-        ChatCommand::Resume(args) => resume::frame(args),
-        ChatCommand::Queue(args) => prompt_frame(args, true),
-        ChatCommand::Switch(args) => switch::frame(args),
-        ChatCommand::Follow(_) => unreachable!("long-lived subscriptions bypass one-shot frames"),
-        ChatCommand::FollowTurn(_) => unreachable!("turn follow bypasses one-shot frames"),
-        ChatCommand::Summary(_) | ChatCommand::Detail(_) | ChatCommand::Transcript(_) => {
-            unreachable!("agent-chat reads bypass intent frames")
-        }
-    })
-}
-
-fn workspace_path(value: Option<PathBuf>) -> Result<String, Box<dyn std::error::Error>> {
-    value
-        .unwrap_or(std::env::current_dir()?)
-        .into_os_string()
-        .into_string()
-        .map_err(|_| "workspace path must be valid UTF-8".into())
-}
-
-fn prompt_frame(args: PromptArgs, queued: bool) -> AgentChatIntentFrame {
-    let value = (
-        request_id(args.request_id),
-        receipt_id(args.receipt_id),
-        AgentChatConversationId(args.conversation_id),
-        args.text,
-    );
-    if queued {
-        AgentChatIntentFrame::QueuePrompt {
-            request_id: value.0,
-            receipt_id: value.1,
-            conversation_id: value.2,
-            text: value.3,
-        }
-    } else {
-        AgentChatIntentFrame::SendPrompt {
-            request_id: value.0,
-            receipt_id: value.1,
-            conversation_id: value.2,
-            text: value.3,
-        }
-    }
-}
-
-fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIntentFrame) -> bool {
-    if let Some(valid) = switch::valid_reply(request, response) {
-        return valid;
-    }
-    match (request, response) {
-        (
-            AgentChatIntentFrame::CreateConversation {
-                request_id,
-                receipt_id,
-                ..
-            },
-            AgentChatIntentFrame::Created {
-                request_id: reply,
-                receipt,
-                conversation_id,
-                run_id,
-            },
-        ) => {
-            reply == request_id
-                && receipt.receipt_id == *receipt_id
-                && !conversation_id.0.is_empty()
-                && !run_id.0.is_empty()
-        }
-        (
-            AgentChatIntentFrame::SendPrompt {
-                request_id,
-                receipt_id,
-                conversation_id: expected_conversation_id,
-                ..
-            }
-            | AgentChatIntentFrame::QueuePrompt {
-                request_id,
-                receipt_id,
-                conversation_id: expected_conversation_id,
-                ..
-            },
-            AgentChatIntentFrame::Accepted {
-                request_id: reply,
-                receipt,
-                conversation_id,
-                run_id,
-                turn_id,
-                ..
-            },
-        ) => {
-            reply == request_id
-                && receipt.receipt_id == *receipt_id
-                && conversation_id == expected_conversation_id
-                && !conversation_id.0.is_empty()
-                && !run_id.0.is_empty()
-                && !turn_id.is_empty()
-        }
-        _ => false,
-    }
-}
-
-fn request_id(value: Option<String>) -> AgentChatRequestId {
-    AgentChatRequestId(value.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()))
-}
-fn receipt_id(value: Option<String>) -> ReceiptId {
-    value.map_or_else(ReceiptId::new, ReceiptId)
-}
 #[cfg(all(test, unix))]
 #[path = "chat_cli/resume_tests.rs"]
 mod resume_tests;

@@ -547,7 +547,7 @@ dependencies = [
 
 [[package]]
 name = "gent-adapters"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -563,8 +563,9 @@ dependencies = [
 
 [[package]]
 name = "gent-cli"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
+ "base64",
  "clap",
  "crossterm",
  "directories",
@@ -582,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "gent-core"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -591,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "gent-drivers"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "base64",
  "gent-ports",
@@ -607,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "gent-git"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -619,14 +620,14 @@ dependencies = [
 
 [[package]]
 name = "gent-mcp"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "gent-ports"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "async-trait",
  "gent-types",
@@ -635,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "gent-protocol"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "gent-types",
  "hex",
@@ -648,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "gent-runtime"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "ed25519-dalek",
  "gent-core",
@@ -668,12 +669,13 @@ dependencies = [
 
 [[package]]
 name = "gent-store"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "gent-core",
  "gent-ports",
  "gent-types",
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -682,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "gent-testkit"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "async-trait",
  "clap",
@@ -691,7 +693,7 @@ dependencies = [
  "gent-types",
  "serde",
  "serde_json",
- "serde_yaml",
+ "serde_yaml_ng",
  "tempfile",
  "thiserror",
  "tokio",
@@ -699,19 +701,21 @@ dependencies = [
 
 [[package]]
 name = "gent-types"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "base64",
+ "directories",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror",
  "uuid",
 ]
 
 [[package]]
 name = "gentd"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "async-trait",
  "base64",
@@ -738,6 +742,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1635,10 +1640,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
+name = "serde_yaml_ng"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
 dependencies = [
  "indexmap",
  "itoa",

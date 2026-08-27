@@ -1,9 +1,18 @@
-//! Read-only terminal shell. Rendering and input remain independent of local IPC.
-
-#[allow(dead_code)] // Stream capability is not advertised by the observer daemon yet.
-mod chat_projection;
 mod input;
 mod render;
+mod render_activity;
+mod render_activity_panel;
+mod render_composer;
+mod render_header;
+mod render_help;
+mod render_permission;
+mod render_picker;
+mod render_processes;
+mod render_selection_picker;
+mod render_sidebar;
+mod render_subagents;
+mod render_timeline;
+mod render_tools;
 mod selection;
 mod state;
 mod state_switch;
@@ -13,4 +22,4 @@ mod view;
 
 pub(crate) use state::{UiRequest, UiRequestResult, UiState};
 pub(crate) use terminal_loop::{require_interactive, run};
-pub(crate) use view::ConversationView;
+pub(crate) use view::{ConversationMetadata, ConversationView};

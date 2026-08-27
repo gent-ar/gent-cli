@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::supervisor::ProcessLauncher;
+use gent_ports::PublicProviderResolver;
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
 use gent_types::HostEpoch;
@@ -23,6 +24,7 @@ use crate::claude_authority_supervisor::{
 };
 use crate::claude_private_resolver::ClaudeOnlyResolver;
 use crate::claude_prompt_lifecycle::ClaudePromptRunner;
+use crate::claude_summary_runner::{ClaudeSummaryRunner, ClaudeSummarySchedulerHook};
 use crate::locked_provider_resolver::LockedProviderResolver;
 use crate::private_lifecycle_loop::PrivateLifecycleOwner;
 use crate::public_driver_runtime::{PublicDriversRuntime, PublicDriversRuntimeError};
@@ -118,6 +120,8 @@ pub(crate) enum PrivateClaudeAuthorityError {
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
+    #[error("Claude summary runner is unavailable: {0}")]
+    Summary(String),
 }
 
 /// Composes a mode-gated Claude lifecycle from a release-verified evidence grant.
@@ -146,8 +150,17 @@ where
         launcher,
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Claude authority buffer policy is valid"),
+        None,
     );
     let resolver = ClaudeOnlyResolver::new(LockedProviderResolver::new(state.ledger().clone()));
+    let summary_lock = LockedProviderResolver::new(state.ledger().clone())
+        .resolve("claude")
+        .map_err(|error| PrivateClaudeAuthorityError::Summary(error.to_string()))?;
+    let summary_hook = Arc::new(ClaudeSummarySchedulerHook::new(
+        state.ledger().clone(),
+        ClaudeSummaryRunner::new(summary_lock)
+            .map_err(|error| PrivateClaudeAuthorityError::Summary(error.to_string()))?,
+    ));
     let goals = Arc::new(GoalService::new(
         state.ledger().clone(),
         GoalAuthority::Approved,
@@ -167,6 +180,7 @@ where
             config.coordinator_id.clone(),
             config.host_epoch,
             MAX_ACTIVE_CLAUDE_RUNS,
+            Some(summary_hook),
         )),
     })
 }

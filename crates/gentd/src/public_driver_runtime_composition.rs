@@ -129,12 +129,7 @@ where
         runner: D,
         resolver: R,
     ) -> Result<Self, PublicDriversRuntimeError> {
-        let (ValidatedAuthorityProfile::PreparedPublicDrivers(approval)
-        | ValidatedAuthorityProfile::PreparedPublicDriversAndMcp {
-            public_drivers: approval,
-            ..
-        }) = profile
-        else {
+        let ValidatedAuthorityProfile::PreparedPublicDrivers(approval) = profile else {
             return Err(PublicDriversRuntimeError::ObserverProfile);
         };
         if let Some(compatibility) = compatibility {
@@ -178,6 +173,8 @@ where
             reads: AgentChatReadService::new(ledger.clone()),
             contexts: super::context::RunContextProjection::new(ledger),
             goal_resolver: None,
+            attachment_root: None,
+            codex_attachment_root: None,
         })
     }
 }

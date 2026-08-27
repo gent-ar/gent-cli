@@ -235,10 +235,16 @@ impl<L: Ledger + GitOperationLedger + gent_ports::WorkspaceLedger, E: GitExecuto
             .payload
             .get("outputDigestSha256")
             .and_then(serde_json::Value::as_str);
+        let branch_name = event
+            .payload
+            .get("branchName")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         Ok(entry_count
             .zip(digest)
             .map(|(entry_count, output_digest_sha256)| GitStatusSummary {
                 entry_count: u32::try_from(entry_count).unwrap_or(u32::MAX),
+                branch_name,
                 output_digest_sha256: output_digest_sha256.into(),
             }))
     }

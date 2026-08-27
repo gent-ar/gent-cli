@@ -55,6 +55,10 @@ impl ProviderProcess for Process {
         Ok(())
     }
 
+    fn close_stdin(&self) -> Result<(), ProcessTreeError> {
+        Ok(())
+    }
+
     fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
         Ok(self.0.output.lock().unwrap().pop_front())
     }
@@ -87,11 +91,13 @@ fn start(run_id: &str, root: &Path) -> CodexRunStart {
             working_directory: Some("/work".into()),
             resume_thread_id: None,
             turn_options: options(),
+            mcp_servers: None,
         },
         workspace_root: root.to_path_buf(),
         workspace_access: gent_types::SandboxWorkspaceAccess::ReadWrite,
         prompt: "hello".into(),
         goal: None,
+        attachments: vec![],
     }
 }
 
@@ -199,6 +205,8 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
     let runner = CodexPromptRunner::new(
         Launcher(Arc::clone(&state)),
         BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+        None,
+        None,
     );
     runner
         .prepare(
@@ -211,6 +219,8 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                 goal: None,
                 fresh_context: None,
                 turn_options: options(),
+                attachments: vec![],
+                selected_mcp_source_names: Vec::new(),
             },
         )
         .unwrap();
@@ -226,6 +236,8 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                     goal: None,
                     fresh_context: None,
                     turn_options: options(),
+                    attachments: vec![],
+                    selected_mcp_source_names: Vec::new(),
                 },
             )
             .is_err()
@@ -261,7 +273,7 @@ fn owned_process_reuses_ready_thread_for_later_prompt() {
         state.output.lock().unwrap().push_back(frame.into());
         runner.poll("run-1").unwrap();
     }
-    runner.submit_turn("run-1", "follow-up", None).unwrap();
+    runner.submit_turn("run-1", "follow-up", None, &[]).unwrap();
     let frame = state.writes.lock().unwrap().last().unwrap().clone();
     let value: serde_json::Value = serde_json::from_slice(&frame[..frame.len() - 1]).unwrap();
     assert_eq!(value["method"], "turn/start");

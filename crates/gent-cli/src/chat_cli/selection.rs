@@ -1,5 +1,6 @@
 //! Provider-neutral selection value conversions.
 
+use gent_protocol::DEFAULT_LOCAL_MODEL_ID;
 use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider};
 
 use super::{Effort, Mode, Provider};
@@ -17,6 +18,9 @@ pub(crate) const fn effort(value: Effort) -> AgentChatEffort {
         Effort::Low => AgentChatEffort::Low,
         Effort::Medium => AgentChatEffort::Medium,
         Effort::High => AgentChatEffort::High,
+        Effort::Xhigh => AgentChatEffort::XHigh,
+        Effort::Max => AgentChatEffort::Max,
+        Effort::Ultra => AgentChatEffort::Ultra,
     }
 }
 
@@ -25,5 +29,13 @@ pub(crate) const fn mode(value: Mode) -> AgentChatMode {
         Mode::Ask => AgentChatMode::Ask,
         Mode::Plan => AgentChatMode::Plan,
         Mode::Agent => AgentChatMode::Agent,
+    }
+}
+
+pub(crate) fn model(value: Provider, model: String) -> String {
+    if matches!(value, Provider::Claurst) && model == "default" {
+        DEFAULT_LOCAL_MODEL_ID.into()
+    } else {
+        model
     }
 }

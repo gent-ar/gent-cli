@@ -3,14 +3,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 mod agent_chat;
+mod agent_chat_checkpoint;
 mod agent_chat_compaction;
+mod agent_chat_conversation_config;
+mod agent_chat_fork;
 mod agent_chat_intent;
 mod agent_chat_ledger;
 mod agent_chat_prompt;
 mod agent_chat_run_context;
+mod agent_chat_sessions;
+mod agent_chat_side_question;
 mod agent_chat_switch;
 mod agent_chat_terminal_settlement;
 mod attachments;
+mod automations;
 mod command_fingerprint;
 #[cfg(test)]
 mod command_fingerprint_tests;
@@ -31,14 +37,15 @@ mod lifecycle_signal;
 mod lifecycle_state;
 mod mcp_connectors;
 mod normalized_session;
-mod observer_tap;
 mod onboarding;
 mod orchestration;
 mod orchestration_facts;
 #[cfg(test)]
 mod orchestration_tests;
+mod paths;
 mod permission_control;
 mod policies;
+mod prompt_templates;
 mod provider_auth;
 mod provider_lifecycle_values;
 mod provider_prompt_provision;
@@ -55,6 +62,7 @@ mod sandbox_policy;
 mod tool_activity;
 mod tool_sources;
 mod turn_follow;
+mod workspace_git;
 mod workspaces;
 pub use agent_chat::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
@@ -62,7 +70,15 @@ pub use agent_chat::{
     AgentChatSelectionError, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
     NormalizedTranscriptKind, NormalizedTranscriptPage,
 };
+pub use agent_chat_checkpoint::{
+    AgentChatCheckpointCapture, AgentChatCheckpointRestore, AgentChatCheckpointRestored,
+    AgentChatFileCheckpoint, AgentChatFileCheckpointFile, AgentChatFileSnapshot,
+};
 pub use agent_chat_compaction::{AgentChatCompactionFact, AgentChatCompactionFailure};
+pub use agent_chat_conversation_config::{
+    AgentChatConversationConfigRecord, AgentChatConversationConfigUnsupportedField,
+};
+pub use agent_chat_fork::{AgentChatFork, AgentChatForked};
 pub use agent_chat_intent::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse, AgentChatRequestId,
     AgentChatRunId,
@@ -70,13 +86,23 @@ pub use agent_chat_intent::{
 pub use agent_chat_ledger::{AgentChatConversationCreate, AgentChatConversationCreated};
 pub use agent_chat_prompt::{
     AgentChatPromptCreate, AgentChatPromptDelivery, AgentChatPromptDisposition,
-    AgentChatPromptSaved,
+    AgentChatPromptError, AgentChatPromptSaved, validate_tool_source_ids,
 };
 pub use agent_chat_run_context::{AgentChatRunContext, AgentChatRunContextOrigin};
+pub use agent_chat_sessions::{AgentChatSession, AgentChatSessionId};
+pub use agent_chat_side_question::{
+    AgentChatSideQuestion, AgentChatSideQuestionAsked, AgentChatSideQuestionCancel,
+    AgentChatSideQuestionCancelled, AgentChatSideQuestionOutcome, AgentChatSideQuestionRecord,
+    AgentChatSideQuestionStatus,
+};
 pub use agent_chat_switch::{AgentChatSelectionSwitch, AgentChatSelectionSwitched};
 pub use agent_chat_terminal_settlement::AgentChatTerminalSettlement;
 pub use attachments::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, TurnAttachment,
+};
+pub use automations::{
+    AutomationAction, AutomationDefinition, AutomationId, AutomationNotifications, AutomationRun,
+    AutomationRunId, AutomationRunStatus, AutomationRunSummary, AutomationTrigger,
 };
 pub use conversation_activity::{
     ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivityFact,
@@ -108,19 +134,29 @@ pub use goal::{
     GoalTransition,
 };
 pub use lifecycle_signal::NormalizedLifecycleSignal;
-pub use lifecycle_state::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
-pub use mcp_connectors::{McpConnectorPhase, McpConnectorRecord};
+pub use lifecycle_state::{
+    ConversationAttentionStatus, ConversationErrorStatus, ConversationLiveStatus,
+    ConversationProcessingStatus, ConversationWorkStatus, RootActivity, TurnPhase, WorkPhase,
+};
+pub use mcp_connectors::{ForgeConnectorRecord, McpConnectorPhase, McpConnectorRecord};
 pub use normalized_session::{
     NormalizedSessionBatch, NormalizedSessionBatchResult, NormalizedSessionLifecycle,
 };
-pub use observer_tap::{LegacyLifecycleTap, ObserverDiagnostic, ObserverDiagnosticCode};
 pub use onboarding::{OnboardingBranch, OnboardingProvider, OnboardingReadiness, OnboardingState};
 pub use orchestration::*;
 pub use orchestration_facts::{TaskGraphFact, TaskGraphFactKind, TaskGraphFactPage};
+pub use paths::{
+    default_data_dir, local_socket_path, migrate_legacy_default_data_dir, resolve_sibling_binary,
+    windows_pipe_name,
+};
 pub use permission_control::*;
 pub use policies::{
     PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, PolicyScope,
     SandboxEnforcement,
+};
+pub use prompt_templates::{
+    PROMPT_TEMPLATE_SCHEMA_VERSION, PromptTemplateError, PromptTemplateRecord,
+    PromptTemplateRender, PromptTemplateVariable,
 };
 pub use provider_auth::{
     ProviderAuthBinaryLock, ProviderAuthChallenge, ProviderAuthContractError,
@@ -128,14 +164,17 @@ pub use provider_auth::{
     ProviderAuthStatus,
 };
 pub use provider_lifecycle_values::{
-    NormalizedProviderEvent, ProviderEvent, ProviderInstallProvenance,
-    ProvisionedProviderInstallation, ProvisionedProviderLock, RunVersionLock,
+    NormalizedProviderEvent, ProviderEvent, ProviderFailureClassification,
+    ProviderInstallProvenance, ProvisionedProviderInstallation, ProvisionedProviderLock,
+    RunVersionLock,
 };
 pub use provider_prompt_provision::{
     ProviderPromptProvisionBinding, ProviderPromptProvisionCommandBinding,
     ProviderPromptProvisionPackageBinding,
 };
-pub use provider_prompt_readiness::ProviderPromptReadinessBinding;
+pub use provider_prompt_readiness::{
+    ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding,
+};
 pub use reviewed_plan::{
     ContextPolicy, PlanAction, PlanActionKind, PlanArtifact, PlanDiff, PlanDiffKind,
     PlanPermissionPreview, PlanRevision, PlanRisk, PlanRiskKind, PlanRiskSeverity, PlanStatus,
@@ -161,6 +200,7 @@ pub use sandbox_policy::{SandboxLaunchPolicy, SandboxWorkspaceAccess};
 pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
 pub use turn_follow::TurnTerminal;
+pub use workspace_git::{WorkspaceGitFileStatus, WorkspaceGitReport, WorkspaceGitWorktree};
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;

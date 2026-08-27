@@ -1,40 +1,12 @@
-use clap::Parser;
-use gent_protocol::{DependencyAction, DependencyProvider, WireFrame};
-
-use super::{Args, CommandLine, ConversationCommand, DependencyCommand};
-use crate::command_execution::dependency_plan_frame;
+use super::{Args, CommandLine, ConversationCommand};
 use crate::{
     chat_cli::ChatCommand,
     update_check::{UpdateChannel, UpdateCommand},
 };
+use clap::Parser;
 
-#[test]
-fn dependency_plan_is_read_only() {
-    assert!(matches!(
-        dependency_plan_frame(DependencyProvider::Claude, DependencyAction::Install),
-        WireFrame::DependencyPlanRequest(_)
-    ));
-}
-
-#[test]
-fn dependency_install_parses_a_retry_key() {
-    let args = Args::try_parse_from([
-        "gent",
-        "deps",
-        "install",
-        "codex",
-        "--consent",
-        "--idempotency-key",
-        "retry-1",
-    ])
-    .unwrap();
-    assert!(matches!(
-        args.command,
-        Some(CommandLine::Deps {
-            action: DependencyCommand::Install { idempotency_key: Some(key), .. }
-        }) if key == "retry-1"
-    ));
-}
+#[path = "command_model_dependency_tests.rs"]
+mod dependency_tests;
 
 #[test]
 fn conversation_status_is_a_dedicated_read_only_command() {
@@ -94,11 +66,15 @@ fn positional_prompt_selects_the_typed_prompt_first_flow() {
 }
 
 #[test]
-fn positional_prompt_defaults_to_read_only_ask_mode() {
+fn positional_prompt_defaults_to_local_gent_agent_mode() {
     let args = Args::try_parse_from(["gent", "summarize this project"]).unwrap();
     assert!(matches!(
+        args.direct_prompt.provider,
+        crate::chat_cli::Provider::Claurst
+    ));
+    assert!(matches!(
         args.direct_prompt.mode,
-        crate::chat_cli::Mode::Ask
+        crate::chat_cli::Mode::Agent
     ));
 }
 
@@ -239,11 +215,8 @@ fn chat_transcript_is_a_bounded_read_command() {
     ));
 }
 
-#[test]
-fn decision_acknowledgement_commands_are_not_public_client_actions() {
-    assert!(Args::try_parse_from(["gent", "decision", "ack", "--decision-id", "d1"]).is_err());
-    assert!(Args::try_parse_from(["gent", "decision", "settle", "--decision-id", "d1"]).is_err());
-}
+#[path = "command_model_decision_visibility_tests.rs"]
+mod decision_visibility_tests;
 
 #[test]
 fn update_apply_requires_version_digest_and_explicit_consent() {

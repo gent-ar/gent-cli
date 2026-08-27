@@ -20,15 +20,11 @@ pub struct PublicRunStartRequest {
 
 /// Resumes an existing run using its previously persisted immutable executable lock.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PublicRunResumeRequest {
     pub run_id: String,
     pub coordinator_id: String,
     pub host_epoch: HostEpoch,
-    /// Legacy wire compatibility only. The daemon deliberately ignores this value and resumes
-    /// using its immutable daemon-owned session binding instead.
-    #[serde(default)]
-    pub session_id: String,
 }
 
 /// Requests whole-process-tree interruption for a run owned by this coordinator.

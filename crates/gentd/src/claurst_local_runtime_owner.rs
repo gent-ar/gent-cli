@@ -6,13 +6,22 @@
 use std::{
     fs,
     io::Write,
-    net::{TcpStream, ToSocketAddrs},
     path::Path,
-    process::{Child, Command, Stdio},
-    time::Duration,
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver, TryRecvError},
+    },
 };
 
-use crate::claurst_local_runtime::{ClaurstLocalRuntimePlan, LocalProcessLaunch};
+use crate::{
+    claurst_acp_transport::ClaurstAcpStdio, claurst_local_runtime::LocalProcessLaunch,
+    claurst_standalone_owner::ClaurstStandaloneLauncher,
+};
+
+#[path = "claurst_local_runtime_owner_process_io.rs"]
+mod process_io;
+use process_io::{bounded_frame, relay_acp_frames};
 
 /// The private filesystem effect needed before `claurst acp` starts.
 pub(crate) trait PrivateSettingsStore {
@@ -43,7 +52,7 @@ impl PrivateSettingsStore for SystemPrivateSettingsStore {
             file.write_all(contents.as_bytes())
                 .map_err(|error| error.to_string())?;
             file.sync_all().map_err(|error| error.to_string())?;
-            fs::rename(&temporary, path).map_err(|error| error.to_string())
+            replace_materialized_file(&temporary, path).map_err(|error| error.to_string())
         })();
         if result.is_err() {
             let _ = fs::remove_file(&temporary);
@@ -58,8 +67,19 @@ fn unique_suffix() -> u128 {
         .map_or(0, |duration| duration.as_nanos())
 }
 
+fn replace_materialized_file(temporary: &Path, destination: &Path) -> Result<(), std::io::Error> {
+    #[cfg(windows)]
+    match fs::remove_file(destination) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    fs::rename(temporary, destination)
+}
+
 /// One owned local runtime child. Implementations must make repeated shutdown safe.
 pub(crate) trait LocalRuntimeProcess {
+    fn exited(&mut self) -> Result<Option<String>, String>;
     fn shutdown(&mut self) -> Result<(), String>;
 }
 
@@ -78,6 +98,16 @@ pub(crate) struct SystemLocalRuntimeProcess {
     child: Child,
 }
 
+pub(crate) struct SystemClaurstAcpStdio {
+    child: Child,
+    stdin: ChildStdin,
+    frames: Receiver<Result<Vec<u8>, String>>,
+    stderr: Arc<Mutex<Vec<u8>>>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SystemClaurstStandaloneLauncher;
+
 impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
     type Process = SystemLocalRuntimeProcess;
 
@@ -85,17 +115,16 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
         let mut command = Command::new(&launch.executable);
         command
             .args(&launch.arguments)
-            // ACP needs these streams for the future bridge; its process is never composed until
-            // that owner is present, so no unobserved ACP process can be made reachable today.
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        // A local Claurst runtime must not inherit the old remote bridge configuration.
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         for key in [
             "CLAURST_BRIDGE_URL",
             "CLAURST_BRIDGE_TOKEN",
             "CLAUDE_BRIDGE_OAUTH_TOKEN",
             "CLAURST_REMOTE",
+            "CLAURST_HOME",
+            "USERPROFILE",
         ] {
             command.env_remove(key);
         }
@@ -105,7 +134,132 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
     }
 }
 
+impl ClaurstStandaloneLauncher for SystemClaurstStandaloneLauncher {
+    type Llama = SystemLocalRuntimeProcess;
+    type Acp = SystemClaurstAcpStdio;
+
+    fn launch_llama(&self, launch: &LocalProcessLaunch) -> Result<Self::Llama, String> {
+        SystemLocalRuntimeLauncher.launch(launch)
+    }
+
+    fn launch_acp(&self, launch: &LocalProcessLaunch) -> Result<Self::Acp, String> {
+        let mut command = local_command(launch);
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().map_err(|error| error.to_string())?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Claurst ACP stdin was not piped".to_owned())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Claurst ACP stdout was not piped".to_owned())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Claurst ACP stderr was not piped".to_owned())?;
+        let (sender, frames) = mpsc::sync_channel(64);
+        let stderr_capture = Arc::new(Mutex::new(Vec::new()));
+        std::thread::Builder::new()
+            .name("gent-claurst-acp-reader".into())
+            .spawn(move || relay_acp_frames(stdout, sender))
+            .map_err(|error| error.to_string())?;
+        let stderr_for_reader = Arc::clone(&stderr_capture);
+        std::thread::Builder::new()
+            .name("gent-claurst-acp-stderr".into())
+            .spawn(move || {
+                let mut stderr = stderr;
+                capture_acp_stderr(&mut stderr, stderr_for_reader);
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(SystemClaurstAcpStdio {
+            child,
+            stdin,
+            frames,
+            stderr: stderr_capture,
+        })
+    }
+}
+
+impl ClaurstAcpStdio for SystemClaurstAcpStdio {
+    fn write_frame(&mut self, frame: &[u8]) -> Result<(), String> {
+        self.stdin
+            .write_all(frame)
+            .map_err(|error| error.to_string())?;
+        self.stdin.flush().map_err(|error| error.to_string())
+    }
+
+    fn try_read_frame(&mut self, maximum_bytes: usize) -> Result<Option<Vec<u8>>, String> {
+        match self.frames.try_recv() {
+            Ok(Ok(frame)) => bounded_frame(frame, maximum_bytes).map(Some),
+            Ok(Err(error)) => Err(error),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => match self.child.try_wait() {
+                Ok(Some(status)) => Err(acp_exit_error(status, &self.stderr)),
+                Ok(None) => Err("Claurst ACP reader stopped unexpectedly".into()),
+                Err(error) => Err(error.to_string()),
+            },
+        }
+    }
+}
+
+#[path = "claurst_local_runtime_owner_diagnostics.rs"]
+mod diagnostics;
+use diagnostics::{acp_exit_error, capture_acp_stderr};
+
+impl Drop for SystemClaurstAcpStdio {
+    fn drop(&mut self) {
+        let _ = self.stdin.flush();
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
+    }
+}
+
+fn local_command(launch: &LocalProcessLaunch) -> Command {
+    let mut command = Command::new(&launch.executable);
+    command.args(&launch.arguments);
+    for key in [
+        "CLAURST_BRIDGE_URL",
+        "CLAURST_BRIDGE_TOKEN",
+        "CLAUDE_BRIDGE_OAUTH_TOKEN",
+        "CLAURST_REMOTE",
+        "CLAURST_HOME",
+        "USERPROFILE",
+    ] {
+        command.env_remove(key);
+    }
+    command.envs(&launch.environment);
+    command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PrivateSettingsStore, SystemPrivateSettingsStore};
+
+    #[test]
+    fn materialize_replaces_existing_settings() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("settings.json");
+        let store = SystemPrivateSettingsStore;
+        store.materialize(&path, "first").unwrap();
+        store.materialize(&path, "second").unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "second");
+    }
+}
+
 impl LocalRuntimeProcess for SystemLocalRuntimeProcess {
+    fn exited(&mut self) -> Result<Option<String>, String> {
+        self.child
+            .try_wait()
+            .map_err(|error| error.to_string())
+            .map(|status| status.map(|status| format!("local process exited with {status}")))
+    }
+
     fn shutdown(&mut self) -> Result<(), String> {
         if self
             .child
@@ -122,156 +276,11 @@ impl LocalRuntimeProcess for SystemLocalRuntimeProcess {
     }
 }
 
-/// Readiness boundary between `llama-server` launch and ACP launch.
-pub(crate) trait LlamaServerReadiness {
-    fn wait_ready(&self, server_url: &str) -> Result<(), String>;
-}
+#[path = "claurst_local_runtime_owner_lifecycle.rs"]
+mod lifecycle;
+#[path = "claurst_local_runtime_owner_readiness.rs"]
+mod readiness;
 
-/// Small bounded `/health` probe for the local-only llama.cpp server.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct HttpLlamaServerReadiness {
-    attempts: u8,
-    retry_delay: Duration,
-}
-
-impl HttpLlamaServerReadiness {
-    #[must_use]
-    pub(crate) const fn new(attempts: u8, retry_delay: Duration) -> Self {
-        Self {
-            attempts,
-            retry_delay,
-        }
-    }
-}
-
-impl Default for HttpLlamaServerReadiness {
-    fn default() -> Self {
-        Self::new(30, Duration::from_millis(200))
-    }
-}
-
-impl LlamaServerReadiness for HttpLlamaServerReadiness {
-    fn wait_ready(&self, server_url: &str) -> Result<(), String> {
-        let address = server_url
-            .strip_prefix("http://")
-            .ok_or_else(|| "local llama.cpp server URL must use http".to_owned())?;
-        if address.contains('/') {
-            return Err("local llama.cpp server URL must not include a path".into());
-        }
-        let attempts = self.attempts.max(1);
-        for attempt in 0..attempts {
-            if health_check(address).is_ok() {
-                return Ok(());
-            }
-            if attempt + 1 < attempts {
-                std::thread::sleep(self.retry_delay);
-            }
-        }
-        Err("local llama.cpp server did not become ready".into())
-    }
-}
-
-fn health_check(address: &str) -> Result<(), String> {
-    let socket = address
-        .to_socket_addrs()
-        .map_err(|error| error.to_string())?
-        .next()
-        .ok_or_else(|| "local llama.cpp server address is empty".to_owned())?;
-    let mut stream = TcpStream::connect_timeout(&socket, Duration::from_millis(500))
-        .map_err(|error| error.to_string())?;
-    stream
-        .set_read_timeout(Some(Duration::from_millis(500)))
-        .map_err(|error| error.to_string())?;
-    stream
-        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .map_err(|error| error.to_string())?;
-    let mut response = [0_u8; 64];
-    let count =
-        std::io::Read::read(&mut stream, &mut response).map_err(|error| error.to_string())?;
-    let response = std::str::from_utf8(&response[..count]).map_err(|error| error.to_string())?;
-    response
-        .starts_with("HTTP/1.1 2")
-        .then_some(())
-        .ok_or_else(|| "local llama.cpp health endpoint was not successful".into())
-}
-
-struct ActiveRuntime<P> {
-    llama_server: P,
-    claurst_acp: P,
-}
-
-/// Owns a single local runtime and guarantees ACP is stopped before llama.cpp.
-pub(crate) struct ClaurstLocalRuntimeOwner<S, L: LocalRuntimeLauncher, R> {
-    settings: S,
-    launcher: L,
-    readiness: R,
-    active: Option<ActiveRuntime<L::Process>>,
-}
-
-impl<S, L, R> ClaurstLocalRuntimeOwner<S, L, R>
-where
-    S: PrivateSettingsStore,
-    L: LocalRuntimeLauncher,
-    R: LlamaServerReadiness,
-{
-    #[must_use]
-    pub(crate) fn new(settings: S, launcher: L, readiness: R) -> Self {
-        Self {
-            settings,
-            launcher,
-            readiness,
-            active: None,
-        }
-    }
-
-    /// Materializes private settings, starts llama.cpp, waits for it, then starts ACP.
-    pub(crate) fn start(&mut self, plan: &ClaurstLocalRuntimePlan) -> Result<(), String> {
-        if self.active.is_some() {
-            return Err("a local Claurst runtime is already active".into());
-        }
-        self.settings
-            .materialize(&plan.settings_path, &plan.settings_json)
-            .map_err(|error| format!("could not materialize private Claurst settings: {error}"))?;
-        let mut llama_server = self
-            .launcher
-            .launch(&plan.llama_server)
-            .map_err(|error| format!("could not start llama.cpp server: {error}"))?;
-        if let Err(error) = self.readiness.wait_ready(&plan.server_url) {
-            let _ = llama_server.shutdown();
-            return Err(format!("local llama.cpp server was not ready: {error}"));
-        }
-        let claurst_acp = match self.launcher.launch(&plan.claurst_acp) {
-            Ok(process) => process,
-            Err(error) => {
-                let _ = llama_server.shutdown();
-                return Err(format!("could not start Claurst ACP: {error}"));
-            }
-        };
-        self.active = Some(ActiveRuntime {
-            llama_server,
-            claurst_acp,
-        });
-        Ok(())
-    }
-
-    /// Stops the dependent ACP process first, then its local model server. It is idempotent.
-    pub(crate) fn shutdown(&mut self) -> Result<(), String> {
-        let Some(mut active) = self.active.take() else {
-            return Ok(());
-        };
-        let acp = active.claurst_acp.shutdown();
-        let llama = active.llama_server.shutdown();
-        match (acp, llama) {
-            (Ok(()), Ok(())) => Ok(()),
-            (acp, llama) => {
-                self.active = Some(active);
-                let acp_error = acp.err().unwrap_or_else(|| "ok".to_owned());
-                let llama_error = llama.err().unwrap_or_else(|| "ok".to_owned());
-                Err(format!(
-                    "local Claurst runtime shutdown failed (acp: {}; llama.cpp: {})",
-                    acp_error, llama_error
-                ))
-            }
-        }
-    }
-}
+#[allow(unused_imports)]
+pub(crate) use lifecycle::ClaurstLocalRuntimeOwner;
+pub(crate) use readiness::{HttpLlamaServerReadiness, LlamaServerReadiness};

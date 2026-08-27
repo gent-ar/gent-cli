@@ -106,9 +106,6 @@ impl NodeRuntimeLock {
 
 fn npm_cli_path(node: &Path) -> Result<PathBuf, NodeRuntimeLockError> {
     let bin = node.parent().ok_or(NodeRuntimeLockError::NpmNotSibling)?;
-    #[cfg(windows)]
-    let root = bin;
-    #[cfg(not(windows))]
     let root = bin.parent().ok_or(NodeRuntimeLockError::NpmNotSibling)?;
     Ok(root.join("lib/node_modules/npm/bin/npm-cli.js"))
 }
@@ -147,6 +144,16 @@ const fn npm_name() -> &'static str {
 #[cfg(not(windows))]
 const fn npm_name() -> &'static str {
     "npm"
+}
+
+#[cfg(all(test, windows))]
+const fn node_name() -> &'static str {
+    "node.exe"
+}
+
+#[cfg(all(test, not(windows)))]
+const fn node_name() -> &'static str {
+    "node"
 }
 
 #[cfg(test)]
@@ -210,7 +217,7 @@ mod tests {
     fn write_pair(root: &std::path::Path) -> std::path::PathBuf {
         let bin = root.join("bin");
         fs::create_dir(&bin).unwrap();
-        let node = bin.join("node");
+        let node = bin.join(super::node_name());
         fs::write(&node, "node").unwrap();
         fs::write(bin.join(super::npm_name()), "npm").unwrap();
         let cli = root.join("lib/node_modules/npm/bin");

@@ -21,14 +21,14 @@ pub(crate) struct DirectPromptArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = Provider::Codex,
+        default_value_t = Provider::Claurst,
         requires = "prompt",
         conflicts_with = "conversation_id"
     )]
     pub(crate) provider: Provider,
     #[arg(
         long,
-        default_value = "default",
+        default_value = "qwen3-1-7b-q4-k-m",
         requires = "prompt",
         conflicts_with = "conversation_id"
     )]
@@ -44,11 +44,13 @@ pub(crate) struct DirectPromptArgs {
     #[arg(
         long,
         value_enum,
-        default_value_t = Mode::Ask,
+        default_value_t = Mode::Agent,
         requires = "prompt",
         conflicts_with = "conversation_id"
     )]
     pub(crate) mode: Mode,
+    #[arg(long = "attach", value_name = "PATH")]
+    pub(crate) attachments: Vec<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -56,13 +58,13 @@ pub(crate) struct CreateArgs {
     /// Local workspace for the new conversation. Defaults to the current directory.
     #[arg(long)]
     pub(crate) workspace: Option<PathBuf>,
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, default_value_t = Provider::Claurst)]
     pub(crate) provider: Provider,
-    #[arg(long)]
+    #[arg(long, default_value = "qwen3-1-7b-q4-k-m")]
     pub(crate) model: String,
     #[arg(long, value_enum, default_value_t = Effort::Medium)]
     pub(crate) effort: Effort,
-    #[arg(long, value_enum, default_value_t = Mode::Ask)]
+    #[arg(long, value_enum, default_value_t = Mode::Agent)]
     pub(crate) mode: Mode,
     #[arg(long)]
     pub(crate) request_id: Option<String>,
@@ -80,6 +82,10 @@ pub(crate) struct PromptArgs {
     pub(crate) request_id: Option<String>,
     #[arg(long)]
     pub(crate) receipt_id: Option<String>,
+    #[arg(long = "attach", value_name = "PATH")]
+    pub(crate) attachments: Vec<PathBuf>,
+    #[arg(long = "tool-source", value_name = "ID")]
+    pub(crate) tool_sources: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -112,6 +118,9 @@ pub(crate) enum Effort {
     #[default]
     Medium,
     High,
+    Xhigh,
+    Max,
+    Ultra,
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]

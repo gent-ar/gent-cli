@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use gent_types::{
     FrozenConversationContext, GoalContractError, GoalProjection, GoalRecord,
-    NormalizedLifecycleSignal, NormalizedProviderEvent,
+    NormalizedLifecycleSignal, NormalizedProviderEvent, PermissionCategory,
 };
 
 use crate::PortError;
@@ -40,7 +40,15 @@ pub struct ClaurstStartRequest {
     pub turn_id: String,
     pub prompt: String,
     pub context: FrozenConversationContext,
+    pub attachments: Vec<ClaurstPromptAttachment>,
     pub goal: Option<ClaurstGoalProjection>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaurstPromptAttachment {
+    pub display_name: String,
+    pub media_type: String,
+    pub bytes: Vec<u8>,
 }
 
 impl ClaurstStartRequest {
@@ -75,6 +83,7 @@ pub struct ClaurstSubmitRequest {
     pub binding: ClaurstSessionBinding,
     pub turn_id: String,
     pub prompt: String,
+    pub attachments: Vec<ClaurstPromptAttachment>,
     pub goal: Option<ClaurstGoalProjection>,
 }
 
@@ -158,6 +167,20 @@ pub enum ClaurstFactValue {
     Lifecycle(NormalizedLifecycleSignal),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaurstPermissionRequest {
+    pub request_id: String,
+    pub tool_use_id: String,
+    pub tool_name: String,
+    pub category: PermissionCategory,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClaurstPermissionReply {
+    AllowOnce,
+    Deny,
+}
+
 /// Controlled, content-free terminal settlement for a private source.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClaurstTerminal {
@@ -201,6 +224,7 @@ impl ClaurstDrainRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaurstDrainBatch {
     pub facts: Vec<ClaurstNormalizedFact>,
+    pub permissions: Vec<ClaurstPermissionRequest>,
     pub checkpoint: Option<ClaurstCheckpoint>,
     pub session_binding: Option<ClaurstSessionBinding>,
     pub terminal: Option<ClaurstTerminal>,
@@ -235,6 +259,21 @@ pub trait PrivateClaurstBridge: Send + Sync {
     async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), PortError> {
         let _ = request;
         Err(PortError::Unavailable("private Claurst submit".into()))
+    }
+
+    async fn cancel(&self, _binding: ClaurstSessionBinding) -> Result<(), PortError> {
+        Err(PortError::Unavailable("private Claurst cancel".into()))
+    }
+
+    async fn respond_permission(
+        &self,
+        _binding: ClaurstSessionBinding,
+        _request_id: &str,
+        _reply: ClaurstPermissionReply,
+    ) -> Result<(), PortError> {
+        Err(PortError::Unavailable(
+            "private Claurst permission response".into(),
+        ))
     }
 
     /// Drains one bounded ordered batch from one daemon-owned private source.

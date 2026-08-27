@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{HostEpoch, RootActivity, TurnPhase, WorkPhase};
+use crate::{HostEpoch, RootActivity, ToolActivity, TurnPhase, WorkPhase};
 
 /// Version of the conversation-activity value contract.
 pub const CONVERSATION_ACTIVITY_SCHEMA_VERSION: u16 = 1;
@@ -34,6 +34,12 @@ pub enum ConversationActivityFact {
         #[serde(flatten)]
         scope: ConversationActivityScope,
     },
+    ContextUsage {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        used_tokens: u64,
+        window_tokens: Option<u64>,
+    },
     RootActivity {
         #[serde(flatten)]
         scope: ConversationActivityScope,
@@ -50,6 +56,17 @@ pub enum ConversationActivityFact {
         work_id: String,
         kind: ActivityWorkKind,
         phase: WorkPhase,
+    },
+    ToolActivity {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        activity: ToolActivity,
+    },
+    SubagentStarted {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        child_id: String,
+        parent_tool_use_id: String,
     },
     DecisionPending {
         #[serde(flatten)]
@@ -82,9 +99,12 @@ impl ConversationActivityFact {
     pub fn scope(&self) -> &ConversationActivityScope {
         match self {
             Self::TurnStarted { scope }
+            | Self::ContextUsage { scope, .. }
             | Self::RootActivity { scope, .. }
             | Self::RootPhase { scope, .. }
             | Self::WorkPhase { scope, .. }
+            | Self::ToolActivity { scope, .. }
+            | Self::SubagentStarted { scope, .. }
             | Self::DecisionPending { scope, .. }
             | Self::DecisionSettled { scope, .. }
             | Self::InterruptRequested { scope }

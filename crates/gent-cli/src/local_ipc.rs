@@ -6,18 +6,25 @@ use std::process::Stdio;
 
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
-    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
-    CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_INDEX_CAPABILITY,
-    CONVERSATION_STATUS_CAPABILITY, CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY,
-    GOAL_CAPABILITY, Hello, ORCHESTRATION_CAPABILITY, PERMISSION_POLICY_CAPABILITY,
+    AGENT_CHAT_PERMISSIONS_CAPABILITY, AGENT_CHAT_SESSIONS_CAPABILITY,
+    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
+    CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_CONTENT_CAPABILITY,
+    CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
+    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, GOAL_CAPABILITY, Hello,
+    LOCAL_MODELS_CAPABILITY, ORCHESTRATION_CAPABILITY, PERMISSION_POLICY_CAPABILITY,
     PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_AUTH_CAPABILITY, PROVIDER_READINESS_CAPABILITY,
     REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
     WireFrame, read_frame, write_frame,
 };
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
-
+use gent_types::{default_data_dir as resolve_default_data_dir, resolve_sibling_binary};
 #[cfg(unix)]
-use gent_protocol::CONVERSATION_CONTENT_CAPABILITY;
+use gent_types::local_socket_path;
+#[cfg(windows)]
+use gent_types::windows_pipe_name;
+
+const NEGOTIATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 #[cfg(unix)]
 use tokio::net::UnixStream;
 #[cfg(windows)]
@@ -44,30 +51,36 @@ pub(crate) async fn connect_and_negotiate(
 ) -> Result<(LocalStream, CapabilitySet), Box<dyn std::error::Error>> {
     let data_dir = data_dir.unwrap_or_else(default_data_dir);
     let mut stream = connect_or_start(&data_dir, no_autostart).await?;
-    write_frame(
-        &mut stream,
-        &WireFrame::Hello(Hello {
-            protocol_min: PROTOCOL_MIN,
-            protocol_max: PROTOCOL_MAX,
-            capabilities: client_capabilities(),
-        }),
-    )
-    .await?;
-    match read_frame(&mut stream).await? {
-        WireFrame::Negotiated(answer) => Ok((stream, answer.capabilities)),
-        WireFrame::Error { message, .. } => Err(message.into()),
-        _ => Err("daemon did not negotiate protocol".into()),
-    }
+    tokio::time::timeout(NEGOTIATION_TIMEOUT, async {
+        write_frame(
+            &mut stream,
+            &WireFrame::Hello(Hello {
+                protocol_min: PROTOCOL_MIN,
+                protocol_max: PROTOCOL_MAX,
+                capabilities: client_capabilities(),
+            }),
+        )
+        .await?;
+        match read_frame(&mut stream).await? {
+            WireFrame::Negotiated(answer) => Ok((stream, answer.capabilities)),
+            WireFrame::Error { message, .. } => Err(message.into()),
+            _ => Err("daemon did not negotiate protocol".into()),
+        }
+    })
+    .await
+    .map_err(|_| "gentd did not negotiate within 3 seconds")?
 }
 
 #[must_use]
 pub(crate) fn client_capabilities() -> CapabilitySet {
-    #[cfg(unix)]
     let mut capabilities = vec![
         AGENT_CHAT_INTENTS_CAPABILITY.into(),
+        AGENT_CHAT_PERMISSIONS_CAPABILITY.into(),
         AGENT_CHAT_CONVERSATIONS_CAPABILITY.into(),
         AGENT_CHAT_TRANSCRIPT_CAPABILITY.into(),
         AGENT_CHAT_TURN_FOLLOW_CAPABILITY.into(),
+        AGENT_CHAT_SESSIONS_CAPABILITY.into(),
+        ATTACHMENTS_CAPABILITY.into(),
         CONVERSATION_ACTIVITY_CAPABILITY.into(),
         CONVERSATION_INDEX_CAPABILITY.into(),
         CONVERSATION_STATUS_CAPABILITY.into(),
@@ -83,36 +96,11 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         EVENT_STREAM_CAPABILITY.into(),
         GOAL_CAPABILITY.into(),
         ORCHESTRATION_CAPABILITY.into(),
+        LOCAL_MODELS_CAPABILITY.into(),
         "events".into(),
         "host-epoch".into(),
         "receipts".into(),
     ];
-    #[cfg(not(unix))]
-    let capabilities = vec![
-        AGENT_CHAT_INTENTS_CAPABILITY.into(),
-        AGENT_CHAT_CONVERSATIONS_CAPABILITY.into(),
-        AGENT_CHAT_TRANSCRIPT_CAPABILITY.into(),
-        AGENT_CHAT_TURN_FOLLOW_CAPABILITY.into(),
-        CONVERSATION_ACTIVITY_CAPABILITY.into(),
-        CONVERSATION_INDEX_CAPABILITY.into(),
-        CONVERSATION_STATUS_CAPABILITY.into(),
-        CONVERSATION_TIMELINE_CAPABILITY.into(),
-        RUNTIME_MAINTENANCE_CAPABILITY.into(),
-        RUNTIME_UPDATE_CHECK_CAPABILITY.into(),
-        PERMISSION_POLICY_CAPABILITY.into(),
-        PROVIDER_AUTH_CAPABILITY.into(),
-        PROVIDER_READINESS_CAPABILITY.into(),
-        PROMPT_PROVIDER_PROVISION_CAPABILITY.into(),
-        REVIEWED_PLAN_CAPABILITY.into(),
-        "decisions".into(),
-        EVENT_STREAM_CAPABILITY.into(),
-        GOAL_CAPABILITY.into(),
-        ORCHESTRATION_CAPABILITY.into(),
-        "events".into(),
-        "host-epoch".into(),
-        "receipts".into(),
-    ];
-    #[cfg(unix)]
     capabilities.push(CONVERSATION_CONTENT_CAPABILITY.into());
     CapabilitySet(capabilities)
 }
@@ -129,100 +117,84 @@ pub(crate) async fn connect_or_start(
     match connect(data_dir).await {
         Ok(stream) => return Ok(stream),
         #[cfg(windows)]
-        Err(error) if pipe_is_busy(&error) => return wait_for_connection(data_dir).await,
+        Err(error) if pipe_is_busy(&error) => {
+            return wait_for_connection_until(data_dir, None).await;
+        }
         Err(_) => {}
     }
     if no_autostart {
         return Err("gentd is unavailable and --no-autostart was requested".into());
     }
     let daemon = std::env::var_os("GENTD_BIN").map_or_else(default_daemon_binary, PathBuf::from);
+    let daemon_display = daemon.display().to_string();
     let mut command = tokio::process::Command::new(daemon);
     command
-        .args(daemon_arguments(data_dir)?)
+        .args(daemon_arguments(data_dir))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    wait_for_connection(data_dir).await
+        .stderr(Stdio::null());
+    let mut child = command.spawn().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "gentd was not found at {daemon_display}; build it with `cargo build -p gentd` or set GENTD_BIN to its executable"
+            )
+        } else {
+            format!("could not start gentd at {daemon_display}: {error}")
+        }
+    })?;
+    wait_for_spawned_connection(data_dir, &mut child).await
 }
 
-fn daemon_arguments(data_dir: &Path) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
-    daemon_arguments_from(
-        data_dir,
-        std::env::var_os("GENT_ORDINARY_AUTHORITY"),
-        std::env::var_os("GENT_ORDINARY_AUTHORITY_RELEASE"),
-        std::env::var_os("GENT_ORDINARY_AUTHORITY_KEY"),
-    )
+fn daemon_arguments(data_dir: &Path) -> Vec<OsString> {
+    daemon_arguments_from(data_dir)
 }
 
-fn daemon_arguments_from(
+fn daemon_arguments_from(data_dir: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("--data-dir"),
+        data_dir.as_os_str().into(),
+        OsString::from("--standalone-authority"),
+    ]
+}
+
+async fn wait_for_spawned_connection(
     data_dir: &Path,
-    enabled: Option<OsString>,
-    release: Option<OsString>,
-    keys: Option<OsString>,
-) -> Result<Vec<OsString>, Box<dyn std::error::Error>> {
-    let mut arguments = vec![OsString::from("--data-dir"), data_dir.as_os_str().into()];
-    if ordinary_authority_requested(enabled, release, keys)? {
-        arguments.push(OsString::from("--ordinary-authority"));
-    } else {
-        // A standalone Gent client must at least own its durable conversations. Provider process
-        // authority remains separately composed by gentd's ordinary/local provider profiles.
-        arguments.push(OsString::from("--agent-chat-authority"));
-    }
-    Ok(arguments)
+    child: &mut tokio::process::Child,
+) -> Result<LocalStream, Box<dyn std::error::Error>> {
+    wait_for_connection_until(data_dir, Some(child)).await
 }
 
-fn ordinary_authority_requested(
-    enabled: Option<OsString>,
-    release: Option<OsString>,
-    keys: Option<OsString>,
-) -> Result<bool, String> {
-    let configured = release.is_some() || keys.is_some();
-    let Some(enabled) = enabled else {
-        return configured
-            .then_some(Err(
-                "ordinary authority settings require GENT_ORDINARY_AUTHORITY=1".into(),
-            ))
-            .unwrap_or(Ok(false));
-    };
-    match enabled.to_string_lossy().as_ref() {
-        "1" | "true" => {
-            if release.is_none() {
-                return Err("ordinary authority requires GENT_ORDINARY_AUTHORITY_RELEASE".into());
+async fn wait_for_connection_until(
+    data_dir: &Path,
+    mut child: Option<&mut tokio::process::Child>,
+) -> Result<LocalStream, Box<dyn std::error::Error>> {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        loop {
+            if let Ok(stream) = connect(data_dir).await {
+                return Ok(stream);
             }
-            if keys.is_none() {
-                return Err("ordinary authority requires GENT_ORDINARY_AUTHORITY_KEY".into());
+            if let Some(child) = child.as_deref_mut() {
+                if let Some(status) = child.try_wait()? {
+                    return Err(format!("gentd exited before becoming ready ({status})").into());
+                }
             }
-            Ok(true)
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
-        "0" | "false" => configured
-            .then_some(Err(
-                "ordinary authority release settings require GENT_ORDINARY_AUTHORITY=1".into(),
-            ))
-            .unwrap_or(Ok(false)),
-        _ => Err("GENT_ORDINARY_AUTHORITY must be 1, 0, true, or false".into()),
-    }
-}
-
-async fn wait_for_connection(data_dir: &Path) -> Result<LocalStream, Box<dyn std::error::Error>> {
-    for _ in 0..40 {
-        if let Ok(stream) = connect(data_dir).await {
-            return Ok(stream);
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    Err("gentd did not become ready; set GENTD_BIN to the daemon executable".into())
+    })
+    .await
+    .map_err(|_| -> Box<dyn std::error::Error> {
+        "gentd did not become ready within 60 seconds".into()
+    })?
 }
 
 #[cfg(unix)]
 async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
-    UnixStream::connect(data_dir.join("gentd.sock")).await
+    UnixStream::connect(local_socket_path(data_dir)).await
 }
 
 #[cfg(windows)]
-#[allow(clippy::unused_async)] // Keeps the shared call site transport-agnostic.
 async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
-    ClientOptions::new().open(pipe_name(data_dir))
+    ClientOptions::new().open(windows_pipe_name(data_dir))
 }
 
 #[cfg(windows)]
@@ -231,35 +203,13 @@ fn pipe_is_busy(error: &std::io::Error) -> bool {
     error.raw_os_error() == Some(231)
 }
 
-fn default_daemon_binary() -> PathBuf {
+pub(crate) fn default_daemon_binary() -> PathBuf {
     let name = if cfg!(windows) { "gentd.exe" } else { "gentd" };
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join(name)))
-        .filter(|path| path.exists())
-        .unwrap_or_else(|| PathBuf::from(name))
+    resolve_sibling_binary(name)
 }
 
 pub(crate) fn default_data_dir() -> PathBuf {
-    directories::BaseDirs::new().map_or_else(
-        || PathBuf::from(".gentd"),
-        |directories| directories.home_dir().join(".gentd"),
-    )
-}
-
-#[cfg(windows)]
-fn pipe_name(data_dir: &Path) -> String {
-    format!(r"\\.\pipe\gentd-{:016x}", endpoint_hash(data_dir))
-}
-
-#[cfg(windows)]
-fn endpoint_hash(data_dir: &Path) -> u64 {
-    data_dir
-        .to_string_lossy()
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        })
+    resolve_default_data_dir()
 }
 
 #[cfg(all(test, unix))]

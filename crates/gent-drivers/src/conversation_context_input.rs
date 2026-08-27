@@ -4,8 +4,7 @@
 //! endpoint, or raw provider frame.  Codex, Claude, and the private Claurst bridge can consume
 //! the resulting text only when starting a fresh provider-native session.
 
-use gent_types::{ConversationContentEntry, FrozenConversationContext, NormalizedTranscriptKind};
-use sha2::{Digest, Sha256};
+use gent_types::{FrozenConversationContext, NormalizedTranscriptKind};
 
 /// Maximum initial context input supplied to a provider before the current user prompt is added.
 pub const MAX_FRESH_CONTEXT_INPUT_BYTES: usize = 48 * 1024;
@@ -120,6 +119,7 @@ fn timeline(context: &FrozenConversationContext) -> Vec<HistoryItem<'_>> {
                 .map(|event| HistoryItem {
                     kind: match event.kind {
                         NormalizedTranscriptKind::AssistantMessage => "assistantMessage",
+                        NormalizedTranscriptKind::Thinking => "invalidThinking",
                         NormalizedTranscriptKind::ToolActivity => "toolActivity",
                         NormalizedTranscriptKind::Notice => "notice",
                         NormalizedTranscriptKind::UserMessage => "invalidUserMessage",
@@ -186,26 +186,9 @@ fn validate_context(
     Ok(())
 }
 
-fn digest_matches(text: &str, expected: &str) -> bool {
-    valid_digest(expected) && format!("{:x}", Sha256::digest(text.as_bytes())) == expected
-}
-
-fn valid_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn digest_entries(entries: &[ConversationContentEntry]) -> String {
-    let mut hasher = Sha256::new();
-    for entry in entries {
-        hasher.update(entry.ordinal.to_be_bytes());
-        hasher.update(entry.text_digest_sha256.as_bytes());
-        hasher.update([0]);
-    }
-    format!("{:x}", hasher.finalize())
-}
+#[path = "conversation_context_input_digest.rs"]
+mod digest;
+use digest::{digest_entries, digest_matches, valid_digest};
 #[cfg(test)]
 mod tests {
     use gent_types::{
@@ -252,6 +235,18 @@ mod tests {
         assert_eq!(
             render_fresh_conversation_input(&context(), "continue", 8),
             Err(ConversationContextInputError::TooLarge)
+        );
+    }
+
+    #[test]
+    fn disclosure_thinking_is_never_reused_as_provider_prompt_history() {
+        let mut context = context();
+        context.transcript_events[0].kind = NormalizedTranscriptKind::Thinking;
+        context.transcript_digest_sha256 =
+            FrozenConversationContext::transcript_digest(&context.transcript_events);
+        assert_eq!(
+            render_fresh_conversation_input(&context, "continue", 4_096),
+            Err(ConversationContextInputError::InvalidContext)
         );
     }
 

@@ -63,6 +63,8 @@ fn next_prompt_resumes_the_daemon_owned_codex_session_after_process_loss() {
             host_epoch: HostEpoch(2),
             conversation_id,
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: "resume me".into(),
         })
         .unwrap();

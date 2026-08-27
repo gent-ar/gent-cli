@@ -266,6 +266,7 @@ const fn transcript_kind(kind: gent_types::NormalizedTranscriptKind) -> &'static
     match kind {
         gent_types::NormalizedTranscriptKind::UserMessage => "userMessage",
         gent_types::NormalizedTranscriptKind::AssistantMessage => "assistantMessage",
+        gent_types::NormalizedTranscriptKind::Thinking => "thinking",
         gent_types::NormalizedTranscriptKind::ToolActivity => "toolActivity",
         gent_types::NormalizedTranscriptKind::Notice => "notice",
     }

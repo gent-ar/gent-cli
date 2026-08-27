@@ -10,7 +10,7 @@ use gent_types::{ConversationActivityPage, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::local_ipc::{client_capabilities, connect_or_start};
+use crate::local_ipc::{client_capabilities, connect_or_start, default_data_dir};
 
 /// One verified page of content-free activity facts.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -68,6 +68,34 @@ pub(crate) async fn request(
     Err("daemon did not return conversation activity facts".into())
 }
 
+pub(crate) async fn all(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    conversation_id: String,
+    run_id: String,
+) -> Result<Vec<gent_types::ConversationActivityFact>, Box<dyn std::error::Error>> {
+    let mut after_cursor = 0;
+    let mut facts = Vec::new();
+    loop {
+        let page = request(
+            data_dir.clone(),
+            no_autostart,
+            conversation_id.clone(),
+            run_id.clone(),
+            after_cursor,
+        )
+        .await?
+        .0;
+        if let Some(next) = page.next_after_cursor {
+            after_cursor = next;
+        } else {
+            facts.extend(page.facts);
+            return Ok(facts);
+        }
+        facts.extend(page.facts);
+    }
+}
+
 fn decode(
     frame: ConversationActivityFrame,
     conversation_id: &str,
@@ -107,12 +135,6 @@ fn validate_page(
     Ok(())
 }
 
-fn default_data_dir() -> PathBuf {
-    directories::BaseDirs::new().map_or_else(
-        || PathBuf::from(".gentd"),
-        |directories| directories.home_dir().join(".gentd"),
-    )
-}
 
 #[cfg(all(test, unix))]
 #[path = "conversation_activity_tests.rs"]

@@ -9,6 +9,15 @@ impl<L> Coordinator<L>
 where
     L: gent_ports::Ledger + PolicyLedger,
 {
+    pub fn ensure_default_provider_permission_policy(
+        &self,
+        workspace_id: &str,
+    ) -> Result<PolicyRecord, RuntimeError> {
+        Ok(self
+            .ledger
+            .ensure_default_provider_permission_policy(workspace_id)?)
+    }
+
     /// Persists the next immutable workspace policy revision.
     ///
     /// # Errors

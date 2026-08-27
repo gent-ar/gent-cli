@@ -48,16 +48,15 @@ pub(crate) struct CreateArgs {
 }
 
 #[derive(Debug, Args)]
-#[allow(clippy::struct_field_names)] // These fields are protocol binding identities.
 pub(crate) struct ReadArgs {
-    #[arg(long)]
-    conversation_id: String,
-    #[arg(long)]
-    run_id: String,
-    #[arg(long)]
-    goal_id: String,
-    #[arg(long)]
-    request_id: Option<String>,
+    #[arg(long = "conversation-id")]
+    conversation: String,
+    #[arg(long = "run-id")]
+    run: String,
+    #[arg(long = "goal-id")]
+    goal: String,
+    #[arg(long = "request-id")]
+    request: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -187,8 +186,8 @@ fn frame(command: GoalCommand) -> GoalFrame {
             ),
         },
         GoalCommand::Read(args) => GoalFrame::Read {
-            request_id: request_id(args.request_id),
-            binding: binding(args.conversation_id, args.run_id, args.goal_id),
+            request_id: request_id(args.request),
+            binding: binding(args.conversation, args.run, args.goal),
         },
         GoalCommand::List(args) => GoalFrame::List {
             request_id: request_id(args.request_id),

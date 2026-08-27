@@ -15,6 +15,7 @@ fn request() -> ClaurstStartRequest {
         turn_id: "turn-1".into(),
         prompt: "continue".into(),
         context: FrozenConversationContext::cleared(AgentChatConversationId("chat-1".into())),
+        attachments: vec![],
         goal: None,
     }
 }
@@ -70,6 +71,7 @@ fn follow_up_input_keeps_the_active_goal_on_its_bound_private_source() {
         },
         turn_id: "turn-2".into(),
         prompt: "continue".into(),
+        attachments: vec![],
         goal: Some(
             ClaurstGoalProjection::from_active_goal(ClaurstSourceId("source-1".into()), &record)
                 .unwrap(),

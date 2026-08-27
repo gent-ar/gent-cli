@@ -13,6 +13,7 @@ use crate::public_driver_runtime::PublicDriversRuntime;
 
 #[test]
 fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement() {
+    let directory = tempfile::tempdir().unwrap();
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
@@ -43,6 +44,8 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
             host_epoch: HostEpoch(1),
             conversation_id: AgentChatConversationId("conversation-a".into()),
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: "hello".into(),
         })
         .unwrap();
@@ -57,12 +60,19 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
         runner.clone(),
         Resolver,
     )
-    .unwrap();
+    .unwrap()
+    .with_attachment_roots(
+        directory.path().join("attachments"),
+        directory.path().join("codex-attachments"),
+    );
     let mut host = CodexPromptLifecycle::new(runtime, "daemon-a".into());
     assert!(matches!(
         host.dispatch_next(HostEpoch(1)).unwrap(),
         CodexPromptDispatchOutcome::Started { .. }
     ));
+    host.interrupt("run-a").unwrap();
+    assert_eq!(runner.state.lock().unwrap().turn_interrupts, ["run-a"]);
+    assert!(runner.state.lock().unwrap().signals.is_empty());
     runner.state.lock().unwrap().poll_failure = true;
     let error = host.poll("run-a", HostEpoch(1)).unwrap_err();
     assert!(error.to_string().contains("provider poll unavailable"));

@@ -9,14 +9,18 @@ use gent_types::{
 use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 mod agent_chat_compaction_ledger;
+mod agent_chat_conversation_config;
+mod agent_chat_conversation_config_ledger;
 mod agent_chat_ledger;
 mod agent_chat_read_ledger;
 mod agent_chat_run_context_ledger;
+mod agent_chat_sessions;
 mod agent_chat_terminal_settlement;
 #[cfg(test)]
 mod agent_chat_terminal_settlement_tests;
 mod agent_chat_workspace_ledger;
 mod attachment_ledger;
+mod automation_ledger;
 mod connection;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
@@ -27,6 +31,8 @@ mod conversations;
 mod decisions;
 mod epoch;
 mod event_pages;
+mod forge_connector_ledger;
+mod forge_connectors;
 mod fresh_schema;
 mod git_operation_ledger;
 mod git_operations;
@@ -42,9 +48,11 @@ mod normalized_session_ledger;
 mod normalized_session_ledger_tests;
 mod orchestration_facts;
 mod orchestration_ledger;
+mod pending_permission_ledger;
 mod policies;
 mod policy_ledger;
 mod private_provider_prompt_provision;
+mod prompt_templates;
 mod provision_receipts;
 mod provisioned_provider_locks;
 mod queries;
@@ -64,9 +72,8 @@ mod workspaces;
 use epoch::require_epoch;
 use queries::{
     append_event, encode_status, find_event, find_lease, find_receipt, find_run,
-    find_run_session_binding, find_run_version_lock, host_ingress, insert_lease, insert_receipt,
-    receipt_matches_command, replace_lease, save_run_session_binding, save_run_version_lock,
-    storage_error,
+    find_run_session_binding, find_run_version_lock, host_ingress, insert_receipt,
+    receipt_matches_command, save_run_session_binding, save_run_version_lock, storage_error,
 };
 #[derive(Clone, Debug)]
 pub struct SqliteLedger {
@@ -264,29 +271,7 @@ impl Ledger for SqliteLedger {
         queries::find_run_lease(&connection, run_id)
     }
     fn claim_worktree_lease(&self, requested: &WorktreeLease) -> Result<LeaseClaim, LedgerError> {
-        let mut connection = self.lock()?;
-        let transaction = connection.transaction().map_err(storage_error)?;
-        let active = host_ingress(&transaction)?.epoch;
-        require_epoch(requested.host_epoch, active)?;
-        if find_run(&transaction, &requested.run_id)?.is_none() {
-            return Err(LedgerError::Invariant("lease run does not exist".into()));
-        }
-        let result = match find_lease(&transaction, &requested.worktree_id)? {
-            None => {
-                insert_lease(&transaction, requested)?;
-                LeaseClaim::Acquired(requested.clone())
-            }
-            Some(existing) if existing.host_epoch == active => LeaseClaim::Contended(existing),
-            Some(previous) => {
-                replace_lease(&transaction, requested)?;
-                LeaseClaim::Recovered {
-                    previous,
-                    current: requested.clone(),
-                }
-            }
-        };
-        transaction.commit().map_err(storage_error)?;
-        Ok(result)
+        leases::claim_worktree(self, requested)
     }
     fn find_worktree_lease(&self, id: &str) -> Result<Option<WorktreeLease>, LedgerError> {
         let connection = self.lock()?;

@@ -39,6 +39,13 @@ impl AgentChatReadLedger for Ledger {
         Ok(AgentChatConversationSummary {
             conversation_id: "conversation-1".into(),
             title: None,
+            recap: None,
+            workspace_id: None,
+            workspace_path: None,
+            mcp_server_count: 0,
+            mcp_server_names: Vec::new(),
+            changed_file_count: None,
+            git_branch: None,
             updated_at_unix_ms: 0,
             selection: selection(),
         })
@@ -132,7 +139,7 @@ async fn ready_cadence_closes_admission_before_owner_proven_drain() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let (control, _, cadence) = cadence(Arc::clone(&events));
     let task = tokio::spawn(cadence.run());
-    wait_for(&events, 2).await;
+    wait_for_ready(&control).await;
 
     assert_eq!(control.phase(), OrdinaryLifecyclePhase::Ready);
     control.request_shutdown();
@@ -152,7 +159,7 @@ async fn permit_owns_the_post_commit_wake_before_shutdown_can_drain() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let (control, mut ingress, cadence) = cadence(Arc::clone(&events));
     let task = tokio::spawn(cadence.run());
-    wait_for(&events, 2).await;
+    wait_for_ready(&control).await;
     let permit = ingress.acquire_prompt().unwrap();
     control.request_shutdown();
     ingress.wake_after_prompt_commit(prompt()).unwrap();
@@ -193,14 +200,11 @@ fn cadence(
     pair(Arc::new(Mutex::new(router)))
 }
 
-async fn wait_for(events: &Arc<Mutex<Vec<&'static str>>>, count: usize) {
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while events.lock().unwrap().len() < count {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .unwrap();
+async fn wait_for_ready(control: &crate::ordinary_lifecycle_control::OrdinaryLifecycleControl) {
+    tokio::time::timeout(Duration::from_secs(1), control.wait_until_ready())
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 fn prompt() -> PromptWake {

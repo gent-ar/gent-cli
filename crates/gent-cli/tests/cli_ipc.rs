@@ -134,7 +134,9 @@ fn chat_server(directory: &TempDir) {
                     selection,
                     ..
                 } => {
-                    assert_eq!(selection.provider, gent_types::AgentChatProvider::Codex);
+                    assert_eq!(selection.provider, gent_types::AgentChatProvider::Claurst);
+                    assert_eq!(selection.model, "qwen3-1-7b-q4-k-m");
+                    assert_eq!(selection.mode, gent_types::AgentChatMode::Agent);
                     write_json_frame(
                         &mut stream,
                         &AgentChatIntentFrame::Created {
@@ -157,9 +159,11 @@ fn chat_server(directory: &TempDir) {
                     receipt_id,
                     conversation_id,
                     text,
+                    attachment_ids,
                 } => {
                     assert_eq!(conversation_id.0, "conversation-1");
                     assert_eq!(text, "draft the release notes");
+                    assert!(attachment_ids.is_empty());
                     write_json_frame(
                         &mut stream,
                         &AgentChatIntentFrame::Accepted {
@@ -192,6 +196,21 @@ fn cli_prints_its_package_version_without_contacting_a_daemon() {
         .unwrap();
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("gent "));
+}
+#[test]
+fn cli_prints_its_resolved_data_dir_without_contacting_or_starting_a_daemon() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_gent"))
+        .args(["--data-dir", directory.path().to_str().unwrap(), "data-dir"])
+        .arg("--no-autostart")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        directory.path().to_str().unwrap()
+    );
+    assert!(!directory.path().join("gentd.sock").exists());
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_maps_every_public_command_to_a_negotiated_protocol_frame() {

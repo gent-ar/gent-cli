@@ -52,6 +52,16 @@ fn fixture(root: &std::path::Path) -> Fixture {
             "target": target,
             "archive": {"name": archive_name, "sha256": digest, "size": 22},
             "binaries": ["gent", "gentd"],
+            "capabilities": [
+                "agent-chat-conversations-v1",
+                "agent-chat-intents-v1",
+                "agent-chat-transcript-v1",
+                "agent-chat-turn-follow-v1",
+                "agent-chat-permissions-v1",
+                "attachments-v1",
+                "local-models-v1",
+            ],
+            "runtimes": ["runtime/node", "runtime/claurst"],
         })
         .to_string(),
     )

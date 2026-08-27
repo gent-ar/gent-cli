@@ -52,6 +52,8 @@ fn prompt(conversation_id: AgentChatConversationId) -> AgentChatPromptRequest {
         conversation_id,
         disposition: AgentChatPromptDisposition::Send,
         text: "hello".into(),
+        attachment_ids: vec![],
+        tool_source_ids: vec![],
     }
 }
 

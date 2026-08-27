@@ -93,6 +93,7 @@ fn is_client_request(frame: &AgentChatIntentFrame) -> bool {
             | AgentChatIntentFrame::Interrupt { .. }
             | AgentChatIntentFrame::Decision { .. }
             | AgentChatIntentFrame::Subscribe { .. }
+            | AgentChatIntentFrame::ForkConversation { .. }
     )
 }
 
@@ -146,7 +147,12 @@ fn validate_replies(
             receipt_id,
             ..
         }
-        | AgentChatIntentFrame::Interrupt {
+        | AgentChatIntentFrame::SendPromptWithTools {
+            request_id,
+            receipt_id,
+            ..
+        }
+        | AgentChatIntentFrame::QueuePromptWithTools {
             request_id,
             receipt_id,
             ..
@@ -162,11 +168,32 @@ fn validate_replies(
         )
         .then_some(())
         .ok_or("a chat command requires one matching accepted receipt"),
+        AgentChatIntentFrame::Interrupt { request_id, receipt_id, conversation_id, run_id } => matches!(
+            replies,
+            [AgentChatIntentFrame::Interrupted { request_id: reply_id, receipt, conversation_id: reply_conversation, run_id: reply_run }]
+                if reply_id == request_id && receipt.receipt_id == *receipt_id && reply_conversation == conversation_id && reply_run == run_id
+        ).then_some(()).ok_or("an interrupt requires one matching durable result"),
+        AgentChatIntentFrame::ForkConversation {
+            request_id,
+            receipt_id,
+            source_conversation_id,
+            ..
+        } => matches!(
+            replies,
+            [AgentChatIntentFrame::Forked { request_id: reply_id, receipt, source_conversation_id: reply_source, conversation_id, run_id }]
+                if reply_id == request_id && receipt.receipt_id == *receipt_id
+                    && reply_source == source_conversation_id
+                    && !conversation_id.0.is_empty() && !run_id.0.is_empty()
+        )
+        .then_some(())
+        .ok_or("conversation forking requires one matching durable result"),
         AgentChatIntentFrame::SubscriptionEvent { .. }
         | AgentChatIntentFrame::SubscriptionEnded { .. }
         | AgentChatIntentFrame::Created { .. }
         | AgentChatIntentFrame::Switched { .. }
-        | AgentChatIntentFrame::Accepted { .. } => {
+        | AgentChatIntentFrame::Accepted { .. }
+        | AgentChatIntentFrame::Interrupted { .. }
+        | AgentChatIntentFrame::Forked { .. } => {
             Err("agent chat response frames are server-only")
         }
     }

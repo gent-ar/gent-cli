@@ -9,7 +9,8 @@ use gent_drivers::{
     PublicProvider, buffering::BufferPolicy, codex_prompt_runner::CodexPromptRunner,
     supervisor::ProcessLauncher,
 };
-use gent_runtime::{GoalAuthority, GoalService};
+use gent_ports::PublicProviderResolver;
+use gent_runtime::{Coordinator, GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
 use gent_types::HostEpoch;
 
@@ -22,10 +23,10 @@ use crate::{
     codex_authority_supervisor::{
         PrivateCodexEscalation, PrivateCodexShutdown, PrivateCodexSupervisor, PrivateCodexWake,
     },
+    codex_summary_runner::{CodexSummaryRunner, CodexSummarySchedulerHook},
     local_provider_locks::{LocalProviderLockError, LocalProviderLocks},
     private_lifecycle_loop::PrivateLifecycleOwner,
     public_driver_runtime::{PublicDriversRuntime, PublicDriversRuntimeError},
-    runtime_facade::DaemonCompositionState,
 };
 
 const BUFFERED_FRAMES: usize = 16;
@@ -36,9 +37,12 @@ const STANDALONE_EVIDENCE_REFERENCE: &str = "standalone-local-codex-v1";
 /// Explicit local inputs for the standalone Codex provider host.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StandaloneCodexConfig {
+    pub(crate) data_dir: PathBuf,
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
     pub(crate) executable: PathBuf,
+    pub(crate) mcp_servers: Option<serde_json::Value>,
+    pub(crate) mcp_config: Option<PathBuf>,
 }
 
 type StandaloneCodexRunner<L> = CodexPromptRunner<L, <L as ProcessLauncher>::Process>;
@@ -60,6 +64,17 @@ where
         &mut self,
     ) -> Result<PrivateCodexShutdown, gent_runtime::RuntimeError> {
         self.supervisor.request_shutdown()
+    }
+
+    pub(crate) fn respond_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), gent_runtime::RuntimeError> {
+        self.supervisor
+            .respond_permission(run_id, request_id, decision, answers)
     }
 
     pub(crate) fn escalate_shutdown(
@@ -97,6 +112,21 @@ where
     fn shutdown_complete(&self) -> bool {
         self.supervisor.shutdown_complete()
     }
+
+    fn respond_codex_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        self.respond_permission(run_id, request_id, decision, answers)
+            .map_err(|_| ())
+    }
+
+    fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
+        self.supervisor.interrupt_run(run_id).map_err(|_| ())
+    }
 }
 
 /// Failure before a standalone Codex lifecycle becomes reachable.
@@ -110,6 +140,8 @@ pub(crate) enum StandaloneCodexError {
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
+    #[error("Codex summary runner is unavailable: {0}")]
+    Summary(String),
 }
 
 /// Composes the real Codex lifecycle from a selected local executable without release material.
@@ -117,40 +149,54 @@ pub(crate) enum StandaloneCodexError {
 /// No provider process is started here. The returned owner retains the existing Codex session
 /// resume, durable dispatch, stream normalization, and process-drain lifecycle.
 pub(crate) fn compose_standalone_codex<L>(
-    state: &DaemonCompositionState,
+    ledger: SqliteLedger,
+    coordinator: Coordinator<SqliteLedger>,
     config: &StandaloneCodexConfig,
     launcher: L,
 ) -> Result<StandaloneCodexHost<L>, StandaloneCodexError>
 where
-    L: ProcessLauncher + 'static,
+    L: ProcessLauncher + Clone + std::fmt::Debug + 'static,
 {
     validate(config)?;
     let resolver =
         LocalProviderLocks::capture([(PublicProvider::Codex, config.executable.clone())])?;
+    let summary_lock = resolver
+        .resolve("codex")
+        .map_err(|error| StandaloneCodexError::Summary(error.to_string()))?;
+    let summary_hook = Arc::new(CodexSummarySchedulerHook::new(
+        ledger.clone(),
+        CodexSummaryRunner::new(launcher.clone(), summary_lock, std::env::temp_dir()),
+    ));
     let runner = CodexPromptRunner::new(
         launcher,
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed standalone Codex buffer policy is valid"),
+        config.mcp_servers.clone(),
+        config.mcp_config.clone(),
     );
-    let goals = Arc::new(GoalService::new(
-        state.ledger().clone(),
-        GoalAuthority::Approved,
-    ));
+    let goals = Arc::new(GoalService::new(ledger.clone(), GoalAuthority::Approved));
     let runtime = PublicDriversRuntime::new_standalone_local(
         profile()?,
-        state.coordinator().clone(),
-        state.ledger().clone(),
+        coordinator,
+        ledger,
         runner,
         resolver,
     )?
-    .with_active_goal_resolver(goals);
+    .with_active_goal_resolver(goals)
+    .with_attachment_roots(
+        config.data_dir.join("attachments"),
+        config.data_dir.join("provider-attachments").join("codex"),
+    );
     Ok(StandaloneCodexHost {
-        supervisor: PrivateCodexSupervisor::new(ApprovedCodexHost::new(
-            runtime,
-            config.coordinator_id.clone(),
-            config.host_epoch,
-            MAX_ACTIVE_CODEX_RUNS,
-        )),
+        supervisor: PrivateCodexSupervisor::new(
+            ApprovedCodexHost::new(
+                runtime,
+                config.coordinator_id.clone(),
+                config.host_epoch,
+                MAX_ACTIVE_CODEX_RUNS,
+            )
+            .with_summary_hook(summary_hook),
+        ),
     })
 }
 

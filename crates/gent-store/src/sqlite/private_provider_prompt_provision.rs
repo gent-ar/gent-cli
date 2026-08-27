@@ -251,5 +251,8 @@ mod release_tests;
 #[path = "private_provider_prompt_provision_reservation_tests.rs"]
 mod reservation_tests;
 #[cfg(test)]
+#[path = "private_provider_prompt_provision_test_support.rs"]
+mod test_support;
+#[cfg(test)]
 #[path = "private_provider_prompt_provision_tests.rs"]
 mod tests;

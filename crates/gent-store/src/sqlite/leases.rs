@@ -1,12 +1,44 @@
-use gent_ports::{IngressMode, LedgerError, RunLease, RunLeaseClaim, RunRecord};
+use gent_ports::{
+    IngressMode, LeaseClaim, LedgerError, RunLease, RunLeaseClaim, RunRecord, WorktreeLease,
+};
 use gent_types::RunVersionLock;
 use rusqlite::TransactionBehavior;
 
+use super::queries::{find_lease, insert_lease, replace_lease};
 use super::queries::{
     find_run, find_run_lease, find_run_version_lock, insert_run_lease, replace_run_lease,
     save_run_version_lock, storage_error,
 };
 use super::{SqliteLedger, epoch::require_epoch, host_ingress};
+
+pub(super) fn claim_worktree(
+    ledger: &SqliteLedger,
+    requested: &WorktreeLease,
+) -> Result<LeaseClaim, LedgerError> {
+    let mut connection = ledger.lock()?;
+    let transaction = connection.transaction().map_err(storage_error)?;
+    let active = host_ingress(&transaction)?.epoch;
+    require_epoch(requested.host_epoch, active)?;
+    if find_run(&transaction, &requested.run_id)?.is_none() {
+        return Err(LedgerError::Invariant("lease run does not exist".into()));
+    }
+    let result = match find_lease(&transaction, &requested.worktree_id)? {
+        None => {
+            insert_lease(&transaction, requested)?;
+            LeaseClaim::Acquired(requested.clone())
+        }
+        Some(existing) if existing.host_epoch == active => LeaseClaim::Contended(existing),
+        Some(previous) => {
+            replace_lease(&transaction, requested)?;
+            LeaseClaim::Recovered {
+                previous,
+                current: requested.clone(),
+            }
+        }
+    };
+    transaction.commit().map_err(storage_error)?;
+    Ok(result)
+}
 
 /// Claims one durable run for a coordinator transactionally.
 pub(super) fn claim_run(

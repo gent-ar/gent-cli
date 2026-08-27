@@ -39,6 +39,8 @@ pub struct AgentChatPromptCreate {
     pub conversation_id: AgentChatConversationId,
     pub disposition: AgentChatPromptDisposition,
     pub text: String,
+    pub attachment_ids: Vec<String>,
+    pub tool_source_ids: Vec<String>,
 }
 
 /// One settled receipt and immutable user message assigned to the resolved current run.
@@ -49,6 +51,28 @@ pub struct AgentChatPromptSaved {
     pub message: ConversationMessage,
     pub disposition: AgentChatPromptDisposition,
     pub delivery: AgentChatPromptDelivery,
+    pub tool_source_ids: Vec<String>,
+}
+
+pub const MAX_PROMPT_TOOL_SOURCES: usize = 64;
+pub const MAX_PROMPT_TOOL_SOURCE_ID_BYTES: usize = 256;
+
+pub fn validate_tool_source_ids(ids: &[String]) -> Result<(), AgentChatPromptError> {
+    if ids.len() > MAX_PROMPT_TOOL_SOURCES
+        || ids.iter().any(|id| {
+            id.is_empty() || id.len() > MAX_PROMPT_TOOL_SOURCE_ID_BYTES || id.contains('\0')
+        })
+        || ids.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err(AgentChatPromptError::InvalidToolSourceIds);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum AgentChatPromptError {
+    #[error("the prompt tool-source selection is invalid")]
+    InvalidToolSourceIds,
 }
 
 impl AgentChatPromptDisposition {

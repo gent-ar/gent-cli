@@ -6,6 +6,7 @@
 use serde_json::{Value, json};
 
 mod interrupt;
+mod notifications;
 mod phase;
 mod types;
 mod wire;
@@ -16,7 +17,7 @@ pub use types::{
 
 use phase::{CodexSessionPhase, matches_response};
 use types::turn_parameters;
-use wire::{encode, nested_id, response_id_at, thread_request, validate_config};
+use wire::{encode, response_id_at, thread_request, validate_config};
 const MAX_NATIVE_ID_BYTES: usize = 512;
 const MAX_WORKING_DIRECTORY_BYTES: usize = 4_096;
 const MAX_PROMPT_BYTES: usize = 65_536;
@@ -44,16 +45,25 @@ impl CodexAppServerSession {
                 "method": "initialize",
                 "params": {
                     "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
-                    "capabilities": {}
+                    "capabilities": {"experimentalApi": true, "requestAttestation": false}
                 }
             }))?,
         ))
     }
+
     /// Encodes a user turn only after an exact thread response established the native thread.
     ///
     /// # Errors
     /// Rejects an out-of-order turn, a concurrent turn, an empty prompt, or request-ID exhaustion.
     pub fn start_turn(&mut self, prompt: &str) -> Result<Vec<u8>, CodexSessionError> {
+        self.start_turn_with_attachments(prompt, &[])
+    }
+
+    pub fn start_turn_with_attachments(
+        &mut self,
+        prompt: &str,
+        attachments: &[Value],
+    ) -> Result<Vec<u8>, CodexSessionError> {
         Self::validate_prompt(prompt)?;
         let (thread_id, turn_options) = match &self.phase {
             CodexSessionPhase::Ready {
@@ -78,7 +88,7 @@ impl CodexAppServerSession {
         encode(&json!({
             "id": request_id,
             "method": "turn/start",
-            "params": turn_parameters(&turn_options, &thread_id, prompt)
+            "params": turn_parameters(&turn_options, &thread_id, prompt, attachments)
         }))
     }
     /// Reduces one parsed app-server frame, accepting responses only for the outstanding request.
@@ -107,6 +117,20 @@ impl CodexAppServerSession {
                 ..
             }
         )
+    }
+
+    pub(crate) fn active_turn_id(&self) -> Option<&str> {
+        match &self.phase {
+            CodexSessionPhase::Ready {
+                turn_id: Some(turn_id),
+                ..
+            }
+            | CodexSessionPhase::AwaitTurn {
+                announced_turn_id: Some(turn_id),
+                ..
+            } => Some(turn_id),
+            _ => None,
+        }
     }
     /// Validates a prompt before a daemon-owned process is launched.
     ///
@@ -170,12 +194,12 @@ impl CodexAppServerSession {
                     return Err(CodexSessionError::ResumedThreadMismatch);
                 }
                 self.phase = CodexSessionPhase::Ready {
-                    thread_id,
+                    thread_id: thread_id.clone(),
                     turn_id: None,
                     interrupt_request_id: None,
                     turn_options,
                 };
-                Ok(CodexSessionIngress::Ready)
+                Ok(CodexSessionIngress::Ready { thread_id })
             }
             CodexSessionPhase::AwaitTurn {
                 thread_id,
@@ -222,50 +246,7 @@ impl CodexAppServerSession {
         method: &str,
         params: Option<&Value>,
     ) -> Result<CodexSessionIngress, CodexSessionError> {
-        let Some(params) = params else {
-            return Ok(CodexSessionIngress::Ignored);
-        };
-        let phase = self.phase.clone();
-        match (method, phase) {
-            (
-                "turn/started",
-                CodexSessionPhase::AwaitTurn {
-                    request_id,
-                    thread_id,
-                    turn_options,
-                    ..
-                },
-            ) if params.get("threadId").and_then(Value::as_str) == Some(thread_id.as_str()) => {
-                let turn_id = nested_id(params, "turn")?;
-                self.phase = CodexSessionPhase::AwaitTurn {
-                    request_id,
-                    thread_id,
-                    announced_turn_id: Some(turn_id),
-                    turn_options,
-                };
-                Ok(CodexSessionIngress::Ignored)
-            }
-            (
-                "turn/completed",
-                CodexSessionPhase::Ready {
-                    thread_id,
-                    turn_id: Some(turn_id),
-                    interrupt_request_id,
-                    turn_options,
-                },
-            ) if params.get("threadId").and_then(Value::as_str) == Some(thread_id.as_str())
-                && nested_id(params, "turn")? == turn_id =>
-            {
-                self.phase = CodexSessionPhase::Ready {
-                    thread_id,
-                    turn_id: None,
-                    interrupt_request_id,
-                    turn_options,
-                };
-                Ok(CodexSessionIngress::TurnEnded)
-            }
-            _ => Ok(CodexSessionIngress::Ignored),
-        }
+        notifications::reduce(&mut self.phase, method, params)
     }
 
     fn take_request_id(&mut self) -> Result<u64, CodexSessionError> {

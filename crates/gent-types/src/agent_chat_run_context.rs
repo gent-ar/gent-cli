@@ -14,6 +14,10 @@ pub enum AgentChatRunContextOrigin {
     SelectionSwitch,
     /// An immutable implementation child approved from a reviewed plan.
     ReviewedPlan,
+    /// The root run of a new conversation seeded from another conversation's prior messages.
+    Forked,
+    /// An immutable child run whose context resumes at an earlier durable checkpoint.
+    CheckpointRestore,
 }
 
 /// Context policy and frozen history ordinal fixed when one run was durably created.

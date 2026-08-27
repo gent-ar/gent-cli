@@ -3,8 +3,9 @@ use std::cell::Cell;
 use gent_ports::AgentChatPromptDispatchLedger;
 use gent_protocol::AgentChatIntentFrame;
 use gent_runtime::{
-    AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
-    AgentChatPromptService, AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchService,
+    AgentChatConversationAuthority, AgentChatConversationService, AgentChatForkAuthority,
+    AgentChatForkService, AgentChatPromptAuthority, AgentChatPromptService,
+    AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchService,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -42,11 +43,12 @@ impl PromptCommitWake for Wake {
 
 #[test]
 fn generic_prompt_persistence_holds_send_without_notifying_lifecycle() {
-    let (_, conversations, prompts, switches) = services();
+    let (_, conversations, prompts, switches, forks) = services();
     let created = exchange(
         &conversations,
         &prompts,
         &switches,
+        &forks,
         gent_types::HostEpoch(1),
         create(),
     )
@@ -64,12 +66,14 @@ fn generic_prompt_persistence_holds_send_without_notifying_lifecycle() {
         &conversations,
         &prompts,
         &switches,
+        &forks,
         gent_types::HostEpoch(1),
         AgentChatIntentFrame::SendPrompt {
             request_id: AgentChatRequestId("prompt-request".into()),
             receipt_id: ReceiptId("prompt-receipt".into()),
             conversation_id: conversation_id.clone(),
             text: "continue".into(),
+            attachment_ids: vec![],
         },
         &mut wake,
     )
@@ -85,11 +89,12 @@ fn generic_prompt_persistence_holds_send_without_notifying_lifecycle() {
 
 #[test]
 fn unavailable_generic_wake_cannot_make_a_held_prompt_claimable() {
-    let (ledger, conversations, prompts, switches) = services();
+    let (ledger, conversations, prompts, switches, forks) = services();
     let created = exchange(
         &conversations,
         &prompts,
         &switches,
+        &forks,
         gent_types::HostEpoch(1),
         create(),
     )
@@ -109,12 +114,14 @@ fn unavailable_generic_wake_cannot_make_a_held_prompt_claimable() {
         &conversations,
         &prompts,
         &switches,
+        &forks,
         gent_types::HostEpoch(1),
         AgentChatIntentFrame::SendPrompt {
             request_id: AgentChatRequestId("prompt-request".into()),
             receipt_id: ReceiptId("prompt-receipt".into()),
             conversation_id,
             text: "continue".into(),
+            attachment_ids: vec![],
         },
         &mut wake,
     )
@@ -141,13 +148,15 @@ fn services() -> (
     AgentChatConversationService<SqliteLedger>,
     AgentChatPromptService<SqliteLedger>,
     AgentChatSelectionSwitchService<SqliteLedger>,
+    AgentChatForkService<SqliteLedger>,
 ) {
     let ledger = SqliteLedger::in_memory().unwrap();
     (
         ledger.clone(),
         AgentChatConversationService::new(ledger.clone(), AgentChatConversationAuthority::Approved),
         AgentChatPromptService::new(ledger.clone(), AgentChatPromptAuthority::Approved),
-        AgentChatSelectionSwitchService::new(ledger, AgentChatSelectionSwitchAuthority::Approved),
+        AgentChatSelectionSwitchService::new(ledger.clone(), AgentChatSelectionSwitchAuthority::Approved),
+        AgentChatForkService::new(ledger, AgentChatForkAuthority::Approved),
     )
 }
 

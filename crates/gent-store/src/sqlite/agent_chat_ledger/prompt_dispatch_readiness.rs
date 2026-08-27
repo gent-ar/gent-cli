@@ -3,7 +3,7 @@
 use gent_ports::LedgerError;
 use gent_types::{
     AgentChatProvider, AgentChatRunId, Command, Event, HostEpoch, ProviderPromptReadinessBinding,
-    Receipt, ReceiptStatus,
+    ProviderPromptReadinessFailureBinding, Receipt, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -83,6 +83,58 @@ pub(super) fn release_verified(
     Ok(receipt)
 }
 
+pub(super) fn fail_verified(
+    ledger: &SqliteLedger,
+    command: &Command,
+    terminal: &Event,
+    binding: &ProviderPromptReadinessFailureBinding,
+) -> Result<Receipt, LedgerError> {
+    validate_failure(command, terminal, binding)?;
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    require_open(&transaction, command.host_epoch)?;
+    if let Some(receipt) = find_receipt(&transaction, &command.idempotency_key)? {
+        return existing_failure(&transaction, command, terminal, receipt);
+    }
+    receipt_id_is_free(&transaction, command)?;
+    let (message_id, turn_id) = held_message_and_turn(&transaction, binding)?;
+    let receipt = Receipt {
+        receipt_id: command.receipt_id.clone(),
+        idempotency_key: command.idempotency_key.clone(),
+        status: ReceiptStatus::Settled,
+        host_epoch: command.host_epoch,
+    };
+    insert_receipt(&transaction, &receipt, command)?;
+    append_event(&transaction, terminal)?;
+    let changed = transaction
+        .execute(
+            "UPDATE agent_chat_prompt_dispatches SET state = 'settled' WHERE message_id = ?1 AND state = 'awaiting_readiness'",
+            [&message_id],
+        )
+        .map_err(storage_error)?;
+    if changed != 1 {
+        return Err(LedgerError::Invariant(
+            "verified provider readiness failure changed before prompt settlement".into(),
+        ));
+    }
+    let changed = transaction
+        .execute(
+            "UPDATE turns SET phase = 'failed' WHERE turn_id = ?1 AND phase = 'active'",
+            [&turn_id],
+        )
+        .map_err(storage_error)?;
+    if changed != 1 {
+        return Err(LedgerError::Invariant(
+            "verified provider readiness failure turn is not active".into(),
+        ));
+    }
+    append_failure_notice(&transaction, binding, &turn_id)?;
+    transaction.commit().map_err(storage_error)?;
+    Ok(receipt)
+}
+
 fn validate(
     command: &Command,
     terminal: &Event,
@@ -103,6 +155,26 @@ fn validate(
     .ok_or_else(|| LedgerError::Invariant("invalid verified provider readiness release".into()))
 }
 
+fn validate_failure(
+    command: &Command,
+    terminal: &Event,
+    binding: &ProviderPromptReadinessFailureBinding,
+) -> Result<(), LedgerError> {
+    let payload = serde_json::to_value(binding).map_err(storage_error)?;
+    (binding.is_valid()
+        && command.kind == "agentChatProviderReadinessFailure"
+        && !command.receipt_id.0.trim().is_empty()
+        && !command.idempotency_key.trim().is_empty()
+        && command.payload == payload
+        && terminal.receipt_id == command.receipt_id
+        && terminal.host_epoch == command.host_epoch
+        && terminal.kind == "agentChatProviderReadinessFailed"
+        && terminal.payload == payload
+        && !terminal.event_id.trim().is_empty())
+    .then_some(())
+    .ok_or_else(|| LedgerError::Invariant("invalid verified provider readiness failure".into()))
+}
+
 fn existing(
     transaction: &Transaction<'_>,
     command: &Command,
@@ -120,6 +192,25 @@ fn existing(
         && exact_event)
         .then_some(receipt)
         .ok_or_else(|| LedgerError::Invariant("provider readiness receipt is already bound".into()))
+}
+
+fn existing_failure(
+    transaction: &Transaction<'_>,
+    command: &Command,
+    terminal: &Event,
+    receipt: Receipt,
+) -> Result<Receipt, LedgerError> {
+    let exact_event = find_event(transaction, &terminal.event_id)?.is_some_and(|event| {
+        event.receipt_id == terminal.receipt_id
+            && event.host_epoch == terminal.host_epoch
+            && event.kind == terminal.kind
+            && event.payload == terminal.payload
+    });
+    (receipt.status == ReceiptStatus::Settled
+        && receipt_matches_command(transaction, command)?
+        && exact_event)
+        .then_some(receipt)
+        .ok_or_else(|| LedgerError::Invariant("provider readiness failure is already bound".into()))
 }
 
 fn receipt_id_is_free(transaction: &Transaction<'_>, command: &Command) -> Result<(), LedgerError> {
@@ -152,6 +243,46 @@ fn held_message(
         .optional()
         .map_err(storage_error)?
         .ok_or_else(|| LedgerError::Invariant("verified readiness does not own the current held prompt".into()))
+}
+
+fn held_message_and_turn(
+    transaction: &Transaction<'_>,
+    binding: &ProviderPromptReadinessFailureBinding,
+) -> Result<(String, String), LedgerError> {
+    transaction
+        .query_row(
+            "SELECT p.message_id, p.turn_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND prompt_receipt.status = 'settled' AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition = 'send' AND selected.provider = ?4 AND d.state = 'awaiting_readiness' AND p.run_id = (SELECT current.run_id FROM runs current WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
+            params![binding.prompt_receipt_id.0, binding.conversation_id.0, binding.run_id.0, provider_name(binding.provider)],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(storage_error)?
+        .ok_or_else(|| {
+            LedgerError::Invariant("verified readiness failure does not own the current held prompt".into())
+        })
+}
+
+fn append_failure_notice(
+    transaction: &Transaction<'_>,
+    binding: &ProviderPromptReadinessFailureBinding,
+    turn_id: &str,
+) -> Result<(), LedgerError> {
+    let cursor: u64 = transaction
+        .query_row(
+            "SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1",
+            [&binding.conversation_id.0],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    let event_id = format!("provider-readiness-failed:{}", binding.prompt_receipt_id.0);
+    let text = format!("provider readiness failed: {}", binding.reason);
+    transaction
+        .execute(
+            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, 'notice', ?6, 0)",
+            params![binding.conversation_id.0, cursor, event_id, turn_id, binding.run_id.0, text],
+        )
+        .map_err(storage_error)?;
+    Ok(())
 }
 
 const fn provider_name(provider: AgentChatProvider) -> &'static str {

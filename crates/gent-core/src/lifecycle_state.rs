@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use gent_types::{ConversationLiveStatus, RootActivity, TurnPhase, WorkPhase};
+use gent_types::{
+    ConversationAttentionStatus, ConversationErrorStatus, ConversationLiveStatus,
+    ConversationProcessingStatus, ConversationWorkStatus, RootActivity, TurnPhase, WorkPhase,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LifecycleState {
@@ -67,11 +70,11 @@ pub fn reduce_lifecycle(mut state: LifecycleState, event: LifecycleEvent) -> Lif
 
 #[must_use]
 pub fn live_status(state: &LifecycleState, cursor: u64) -> ConversationLiveStatus {
-    let has_live_subagent_work = state.children.values().any(WorkPhase::is_live);
-    let has_live_command_work = state.commands.values().any(WorkPhase::is_live);
+    let subagent_work = work_status(state.children.values(), state.root_activity);
+    let command_work = work_status(state.commands.values(), state.root_activity);
     // Adapters may report a generation fact before the corresponding turn-phase update arrives.
     // Keep a loading indicator truthful during that ordered, durable transition.
-    let is_processing = state.root_activity.is_generating()
+    let processing = state.root_activity.is_generating()
         || matches!(
             state.root_phase,
             TurnPhase::Processing
@@ -81,14 +84,37 @@ pub fn live_status(state: &LifecycleState, cursor: u64) -> ConversationLiveStatu
         );
     ConversationLiveStatus {
         cursor,
-        is_processing,
-        is_waiting_for_subagents: !state.root_activity.is_generating() && has_live_subagent_work,
-        has_live_subagent_work,
-        is_waiting_for_command: !state.root_activity.is_generating() && has_live_command_work,
-        has_live_command_work,
-        needs_attention: state.needs_attention,
-        has_error: state.has_error
-            || matches!(state.root_phase, TurnPhase::Dead | TurnPhase::Failed),
+        processing: if processing {
+            ConversationProcessingStatus::Processing
+        } else {
+            ConversationProcessingStatus::default()
+        },
+        subagent_work,
+        command_work,
+        attention: if state.needs_attention {
+            ConversationAttentionStatus::Required
+        } else {
+            ConversationAttentionStatus::default()
+        },
+        error: if state.has_error || matches!(state.root_phase, TurnPhase::Dead | TurnPhase::Failed)
+        {
+            ConversationErrorStatus::Error
+        } else {
+            ConversationErrorStatus::default()
+        },
+    }
+}
+
+fn work_status<'a>(
+    mut phases: impl Iterator<Item = &'a WorkPhase>,
+    root_activity: RootActivity,
+) -> ConversationWorkStatus {
+    if !phases.any(WorkPhase::is_live) {
+        ConversationWorkStatus::None
+    } else if root_activity.is_generating() {
+        ConversationWorkStatus::Active
+    } else {
+        ConversationWorkStatus::Waiting
     }
 }
 
@@ -122,17 +148,17 @@ mod tests {
             state.clone(),
             LifecycleEvent::RootActivity(RootActivity::Waiting),
         );
-        assert!(live_status(&waiting, 1).is_processing);
-        assert!(live_status(&waiting, 1).is_waiting_for_subagents);
-        assert!(live_status(&waiting, 1).is_waiting_for_command);
+        assert!(live_status(&waiting, 1).is_processing());
+        assert!(live_status(&waiting, 1).is_waiting_for_subagents());
+        assert!(live_status(&waiting, 1).is_waiting_for_command());
 
         let generating = reduce_lifecycle(
             state,
             LifecycleEvent::RootActivity(RootActivity::Generating),
         );
-        assert!(live_status(&generating, 1).is_processing);
-        assert!(!live_status(&generating, 1).is_waiting_for_subagents);
-        assert!(!live_status(&generating, 1).is_waiting_for_command);
+        assert!(live_status(&generating, 1).is_processing());
+        assert!(!live_status(&generating, 1).is_waiting_for_subagents());
+        assert!(!live_status(&generating, 1).is_waiting_for_command());
     }
 
     #[test]
@@ -144,7 +170,7 @@ mod tests {
                 phase: WorkPhase::Running,
             },
         );
-        assert!(live_status(&state, 1).is_waiting_for_command);
+        assert!(live_status(&state, 1).is_waiting_for_command());
     }
 
     #[test]
@@ -154,8 +180,8 @@ mod tests {
             LifecycleEvent::RootActivity(RootActivity::Generating),
         );
         let status = live_status(&state, 1);
-        assert!(status.is_processing);
-        assert!(!status.is_waiting_for_subagents);
-        assert!(!status.is_waiting_for_command);
+        assert!(status.is_processing());
+        assert!(!status.is_waiting_for_subagents());
+        assert!(!status.is_waiting_for_command());
     }
 }

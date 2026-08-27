@@ -11,6 +11,10 @@ use std::path::PathBuf;
 
 use crate::local_ipc::connect_and_negotiate;
 
+pub(crate) mod agent_chat;
+mod mode;
+pub(crate) use mode::set_mode;
+
 /// The daemon-owned local settings namespace; it is not a Git workspace selector.
 const SETTINGS_WORKSPACE_ID: &str = "gent-local-settings";
 
@@ -20,6 +24,7 @@ pub(crate) enum PermissionCommand {
     Show,
     /// Append a new permission-policy revision. Existing approvals are replaced deliberately.
     Set(PermissionSetArgs),
+    Respond(PermissionRespondArgs),
 }
 
 #[derive(Debug, Args)]
@@ -36,6 +41,14 @@ pub(crate) struct PermissionSetArgs {
     /// A persisted bypass policy applies to later normal `gent` and app connections.
     #[arg(long)]
     pub(crate) consent_bypass: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PermissionRespondArgs {
+    #[arg(long)]
+    pub(crate) response_json: String,
+    #[arg(long)]
+    pub(crate) receipt_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -61,10 +74,18 @@ pub(crate) async fn execute(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     command: PermissionCommand,
-) -> Result<Option<PolicyRecord>, Box<dyn std::error::Error>> {
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     match command {
-        PermissionCommand::Show => current(data_dir, no_autostart).await,
-        PermissionCommand::Set(args) => save(data_dir, no_autostart, args).await.map(Some),
+        PermissionCommand::Show => Ok(serde_json::to_value(
+            current(data_dir, no_autostart).await?,
+        )?),
+        PermissionCommand::Set(args) => Ok(serde_json::to_value(
+            save(data_dir, no_autostart, args).await?,
+        )?),
+        PermissionCommand::Respond(args) => {
+            agent_chat::respond_json(data_dir, no_autostart, args.response_json, args.receipt_id)
+                .await
+        }
     }
 }
 
@@ -89,15 +110,13 @@ async fn save(
         .collect();
     allowed_categories.sort();
     allowed_categories.dedup();
-    let policy = PolicyRecord {
-        policy_id: format!("permission-policy-{}", uuid::Uuid::new_v4()),
-        workspace_id: SETTINGS_WORKSPACE_ID.into(),
-        scope: PolicyScope::ProviderPermissions,
+    let policy = policy(
+        SETTINGS_WORKSPACE_ID,
         revision,
         mode,
         allowed_tools,
         allowed_categories,
-    };
+    );
     exchange(
         data_dir,
         no_autostart,
@@ -118,12 +137,20 @@ async fn current(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
 ) -> Result<Option<PolicyRecord>, Box<dyn std::error::Error>> {
+    current_for(data_dir, no_autostart, SETTINGS_WORKSPACE_ID.into()).await
+}
+
+pub(crate) async fn current_for(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    workspace_id: String,
+) -> Result<Option<PolicyRecord>, Box<dyn std::error::Error>> {
     exchange(
         data_dir,
         no_autostart,
         PermissionPolicyFrame::Current {
             request_id: uuid::Uuid::new_v4().to_string(),
-            workspace_id: SETTINGS_WORKSPACE_ID.into(),
+            workspace_id,
         },
     )
     .await
@@ -133,7 +160,25 @@ async fn current(
     })
 }
 
-async fn exchange(
+pub(super) fn policy(
+    workspace_id: &str,
+    revision: u64,
+    mode: PermissionMode,
+    allowed_tools: Vec<String>,
+    allowed_categories: Vec<PermissionCategory>,
+) -> PolicyRecord {
+    PolicyRecord {
+        policy_id: format!("permission-policy-{}", uuid::Uuid::new_v4()),
+        workspace_id: workspace_id.into(),
+        scope: PolicyScope::ProviderPermissions,
+        revision,
+        mode,
+        allowed_tools,
+        allowed_categories,
+    }
+}
+
+pub(super) async fn exchange(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     request: PermissionPolicyFrame,

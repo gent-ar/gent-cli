@@ -69,12 +69,19 @@ where
             ProviderLifecycleEffect::SessionStarted {
                 provider_session_id,
             } => {
-                self.coordinator
-                    .ledger
-                    .save_run_session_binding(&RunSessionBinding {
-                        run_id: run_id.to_string(),
-                        provider_session_id,
-                    })?;
+                let binding = RunSessionBinding {
+                    run_id: run_id.to_string(),
+                    provider_session_id,
+                };
+                if !matches!(self.authority, ProviderRunAuthority::PrivateClaurstBridge)
+                    || self
+                        .coordinator
+                        .ledger
+                        .find_run_session_binding(run_id)?
+                        .is_none()
+                {
+                    self.coordinator.ledger.save_run_session_binding(&binding)?;
+                }
                 Ok(None)
             }
             ProviderLifecycleEffect::Normalized(event) => {

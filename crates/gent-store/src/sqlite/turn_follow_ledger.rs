@@ -109,6 +109,7 @@ fn decode_kind(value: &str) -> rusqlite::Result<NormalizedTranscriptKind> {
     match value {
         "userMessage" => Ok(NormalizedTranscriptKind::UserMessage),
         "assistantMessage" => Ok(NormalizedTranscriptKind::AssistantMessage),
+        "thinking" => Ok(NormalizedTranscriptKind::Thinking),
         "toolActivity" => Ok(NormalizedTranscriptKind::ToolActivity),
         "notice" => Ok(NormalizedTranscriptKind::Notice),
         _ => Err(rusqlite::Error::InvalidQuery),

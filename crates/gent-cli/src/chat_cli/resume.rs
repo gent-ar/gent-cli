@@ -2,6 +2,7 @@
 
 use clap::Args;
 use gent_protocol::AgentChatIntentFrame;
+use std::path::PathBuf;
 
 use super::PromptArgs;
 
@@ -16,16 +17,21 @@ pub(crate) struct ResumeArgs {
     pub(crate) request_id: Option<String>,
     #[arg(long)]
     pub(crate) receipt_id: Option<String>,
+    #[arg(long = "attach", value_name = "PATH")]
+    pub(crate) attachments: Vec<PathBuf>,
 }
 
-pub(crate) fn frame(args: ResumeArgs) -> AgentChatIntentFrame {
+pub(crate) fn frame(args: ResumeArgs, attachment_ids: Vec<String>) -> AgentChatIntentFrame {
     super::prompt_frame(
         PromptArgs {
             conversation_id: args.conversation_id,
             text: args.text,
             request_id: args.request_id,
             receipt_id: args.receipt_id,
+            attachments: Vec::new(),
+            tool_sources: Vec::new(),
         },
         false,
+        attachment_ids,
     )
 }

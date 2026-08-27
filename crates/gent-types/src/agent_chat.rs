@@ -61,6 +61,9 @@ pub enum AgentChatEffort {
     Low,
     Medium,
     High,
+    XHigh,
+    Max,
+    Ultra,
 }
 
 /// The bounded interaction modes which a compatible agent-chat client may render.
@@ -78,6 +81,20 @@ pub enum AgentChatMode {
 pub struct AgentChatConversationSummary {
     pub conversation_id: String,
     pub title: Option<String>,
+    #[serde(default)]
+    pub recap: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub workspace_path: Option<String>,
+    #[serde(default)]
+    pub mcp_server_count: u16,
+    #[serde(default)]
+    pub mcp_server_names: Vec<String>,
+    #[serde(default)]
+    pub changed_file_count: Option<u32>,
+    #[serde(default)]
+    pub git_branch: Option<String>,
     pub updated_at_unix_ms: u64,
     pub selection: AgentChatSelection,
 }
@@ -120,6 +137,7 @@ pub struct AgentChatConversationDetail {
 pub enum NormalizedTranscriptKind {
     UserMessage,
     AssistantMessage,
+    Thinking,
     ToolActivity,
     Notice,
 }
@@ -244,6 +262,18 @@ mod tests {
             )
             .unwrap(),
             event
+        );
+    }
+
+    #[test]
+    fn thinking_transcript_kind_has_a_stable_public_wire_name() {
+        assert_eq!(
+            serde_json::to_value(NormalizedTranscriptKind::Thinking).unwrap(),
+            json!("thinking")
+        );
+        assert_eq!(
+            serde_json::from_value::<NormalizedTranscriptKind>(json!("thinking")).unwrap(),
+            NormalizedTranscriptKind::Thinking
         );
     }
 

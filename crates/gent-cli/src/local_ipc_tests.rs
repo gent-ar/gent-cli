@@ -3,8 +3,8 @@ use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX};
 use tokio::net::UnixListener;
 
 use super::{
-    client_capabilities, daemon_arguments_from, default_daemon_binary, default_data_dir,
-    ordinary_authority_requested, request, wait_for_connection,
+    client_capabilities, connect_and_negotiate, daemon_arguments_from, default_daemon_binary,
+    default_data_dir, request, wait_for_connection_until,
 };
 
 fn status() -> WireFrame {
@@ -90,6 +90,24 @@ async fn request_rejects_handshake_and_command_errors_without_autostarting() {
 }
 
 #[tokio::test]
+async fn negotiation_is_bounded_when_a_listener_never_replies() {
+    let directory = tempfile::tempdir().unwrap();
+    let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+    tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    });
+    let error = tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        connect_and_negotiate(Some(directory.path().into()), true),
+    )
+    .await
+    .expect("negotiation must be bounded")
+    .unwrap_err();
+    assert!(error.to_string().contains("did not negotiate"));
+}
+
+#[tokio::test]
 async fn request_rejects_unexpected_negotiation_and_command_responses() {
     let directory = tempfile::tempdir().unwrap();
     server(&directory, status(), None);
@@ -129,7 +147,10 @@ async fn request_rejects_unexpected_negotiation_and_command_responses() {
 #[test]
 fn defaults_resolve_to_non_empty_local_paths() {
     assert!(default_daemon_binary().file_name().is_some());
-    assert!(!default_data_dir().as_os_str().is_empty());
+    assert_eq!(
+        default_data_dir().file_name(),
+        Some(std::ffi::OsStr::new(".gentd"))
+    );
 }
 
 #[test]
@@ -158,53 +179,21 @@ fn client_requests_daemon_owned_provider_readiness_and_provisioning() {
 }
 
 #[test]
-fn ordinary_authority_requires_an_explicit_complete_environment_profile() {
-    assert!(!ordinary_authority_requested(None, None, None).unwrap());
+fn client_requests_private_conversation_content_on_every_platform() {
     assert!(
-        ordinary_authority_requested(Some("1".into()), None, None)
-            .unwrap_err()
-            .contains("RELEASE")
-    );
-    assert!(
-        ordinary_authority_requested(Some("1".into()), Some("release.json".into()), None)
-            .unwrap_err()
-            .contains("KEY")
-    );
-    assert!(
-        ordinary_authority_requested(None, Some("release.json".into()), None)
-            .unwrap_err()
-            .contains("GENT_ORDINARY_AUTHORITY")
-    );
-    assert!(
-        ordinary_authority_requested(
-            Some("1".into()),
-            Some("release.json".into()),
-            Some("release-key:abcd".into()),
-        )
-        .unwrap()
+        client_capabilities()
+            .0
+            .contains(&gent_protocol::CONVERSATION_CONTENT_CAPABILITY.into())
     );
 }
 
 #[test]
-fn daemon_arguments_include_the_selected_ordinary_authority_profile() {
+fn daemon_arguments_always_select_standalone_authority() {
     let directory = tempfile::tempdir().unwrap();
-    let arguments = daemon_arguments_from(
-        directory.path(),
-        Some("1".into()),
-        Some("release.json".into()),
-        Some("release-key:abcd".into()),
-    )
-    .unwrap();
+    let arguments = daemon_arguments_from(directory.path());
     assert_eq!(arguments[0], "--data-dir");
-    assert_eq!(arguments[2], "--ordinary-authority");
-}
-
-#[test]
-fn daemon_arguments_enable_durable_chat_when_no_provider_authority_is_selected() {
-    let directory = tempfile::tempdir().unwrap();
-    let arguments = daemon_arguments_from(directory.path(), None, None, None).unwrap();
-    assert_eq!(arguments[0], "--data-dir");
-    assert_eq!(arguments[2], "--agent-chat-authority");
+    assert_eq!(arguments[2], "--standalone-authority");
+    assert_eq!(arguments.len(), 3);
 }
 
 #[tokio::test]
@@ -216,6 +205,23 @@ async fn wait_for_connection_retries_until_a_listener_is_ready() {
         let _listener = UnixListener::bind(socket).unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(75)).await;
     });
-    assert!(wait_for_connection(directory.path()).await.is_ok());
+    assert!(
+        wait_for_connection_until(directory.path(), None)
+            .await
+            .is_ok()
+    );
     listener.await.unwrap();
+}
+
+#[tokio::test]
+async fn spawned_daemon_failure_is_reported_without_waiting_for_the_timeout() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut child = tokio::process::Command::new("sh")
+        .args(["-c", "exit 17"])
+        .spawn()
+        .unwrap();
+    let error = super::wait_for_spawned_connection(directory.path(), &mut child)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("exited before becoming ready"));
 }

@@ -19,6 +19,9 @@ pub(crate) struct LocalModelRecord {
     pub(crate) local_filename: String,
     pub(crate) provider_model_id: String,
     pub(crate) size_bytes: u64,
+    pub(crate) sha256: String,
+    #[serde(default)]
+    pub(crate) chat_template_file: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -85,14 +88,29 @@ fn validate(model: &LocalModelRecord) -> Result<(), LocalModelCatalogError> {
         || model.label.trim().is_empty()
         || model.label.len() > 160
         || model.size_bytes == 0
-        || !model.local_filename.ends_with(".gguf")
+        || !sha256(&model.sha256)
+        || std::path::Path::new(&model.local_filename)
+            .extension()
+            .is_none_or(|extension| extension != "gguf")
         || model.local_filename.len() > 160
         || model.local_filename.contains(['/', '\\'])
+        || model.chat_template_file.as_deref().is_some_and(|file| {
+            file.is_empty()
+                || file.len() > 160
+                || file.contains(['/', '\\'])
+                || !std::path::Path::new(file)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("jinja"))
+        })
         || !is_pinned_huggingface_gguf(&model.huggingface_url)
     {
         return Err(LocalModelCatalogError::InvalidRecord(model.id.clone()));
     }
     Ok(())
+}
+
+fn sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn is_pinned_huggingface_gguf(url: &str) -> bool {
@@ -108,7 +126,9 @@ fn is_pinned_huggingface_gguf(url: &str) -> bool {
     !repository.is_empty()
         && revision.len() == 40
         && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
-        && filename.ends_with(".gguf")
+        && std::path::Path::new(filename)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("gguf"))
         && !filename.contains(['/', '?', '#'])
 }
 
@@ -120,15 +140,24 @@ mod tests {
     fn shipped_catalogue_is_strict_and_queryable() {
         let catalogue = LocalModelCatalog::shipped().unwrap();
         assert_eq!(catalogue.models().len(), 2);
+        assert!(
+            catalogue
+                .model(gent_protocol::DEFAULT_LOCAL_MODEL_ID)
+                .is_some()
+        );
         assert_eq!(
-            catalogue.model("qwen3-4b-q4-k-m").unwrap().size_bytes,
-            2_497_280_960
+            catalogue.model("qwen3-8b-q4-k-m").unwrap().size_bytes,
+            5_027_783_488
+        );
+        assert_eq!(
+            catalogue.model("qwen3-1-7b-q4-k-m").unwrap().size_bytes,
+            1_282_439_264
         );
     }
 
     #[test]
     fn rejects_unknown_fields_and_unsafe_downloads() {
-        let unknown = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1,"extra":true}]}"#;
+        let unknown = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","extra":true}]}"#;
         assert_eq!(
             LocalModelCatalog::from_json(unknown),
             Err(LocalModelCatalogError::Malformed)
@@ -144,7 +173,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_ids_and_unsafe_filenames() {
-        let duplicate = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1},{"id":"model","label":"Model Two","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/b.gguf","local_filename":"b.gguf","provider_model_id":"model-two","size_bytes":1}]}"#;
+        let duplicate = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"id":"model","label":"Model Two","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/b.gguf","local_filename":"b.gguf","provider_model_id":"model-two","size_bytes":1,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}"#;
         assert_eq!(
             LocalModelCatalog::from_json(duplicate),
             Err(LocalModelCatalogError::Duplicate("model".into()))

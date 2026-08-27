@@ -56,9 +56,21 @@ def public_key(output: str) -> str:
 
 def release(directory: Path, target: str, version: str) -> None:
     command("cargo", "build", "--quiet", "-p", "gent-cli", "-p", "gentd", "--bins")
+    node = Path(shutil.which("node") or "")
+    if not node.is_file():
+        raise ValueError("Node is required for release packaging test")
+    node_runtime = node.parent.parent
+    claurst_runtime = directory / "claurst"
+    claurst_runtime.mkdir()
+    (claurst_runtime / "llama").mkdir()
+    for name in ("claurst", "llama/llama-server", "llama/libllama.dylib"):
+        path = claurst_runtime / name
+        path.write_text("runtime", encoding="utf-8")
+        path.chmod(0o755)
     command(
         sys.executable, ROOT / "tools/package-release.py", "--target-dir", ROOT / "target/debug",
         "--out-dir", directory, "--version", version, "--target", target, "--format", "tar.gz",
+        "--node-runtime-dir", node_runtime, "--claurst-runtime-dir", claurst_runtime,
     )
     key = directory / "release-private.pem"
     generated = subprocess.run(

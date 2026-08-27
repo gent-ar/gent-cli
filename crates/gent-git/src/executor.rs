@@ -6,7 +6,10 @@ use std::{
     process::{Command, Stdio},
 };
 
-use gent_ports::{GitExecutor, GitExecutorError, GitStatusOperation, GitStatusSummary};
+use gent_ports::{
+    GitExecutor, GitExecutorError, GitReport, GitStatusOperation, GitStatusSummary,
+};
+use gent_types::{WorkspaceGitFileStatus, WorkspaceGitWorktree};
 use sha2::{Digest, Sha256};
 
 use crate::parse_porcelain_v1_z;
@@ -22,7 +25,7 @@ impl GitExecutor for SystemGitExecutor {
         let worktree = canonical_worktree(&operation.canonical_worktree_path)?;
         let mut child = Command::new("git")
             .args(["status", "--porcelain=v1", "-z"])
-            .current_dir(worktree)
+            .current_dir(&worktree)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -42,9 +45,232 @@ impl GitExecutor for SystemGitExecutor {
         let entries = parse_porcelain_v1_z(&output).map_err(|_| GitExecutorError::InvalidOutput)?;
         Ok(GitStatusSummary {
             entry_count: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+            branch_name: branch_name(&worktree)?,
             output_digest_sha256: hex::encode(Sha256::digest(output)),
         })
     }
+
+    fn repository_root(&self, canonical_path: &str) -> Result<String, GitExecutorError> {
+        let directory = canonical_worktree(canonical_path)?;
+        let mut child = Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .current_dir(&directory)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| GitExecutorError::SpawnFailed)?;
+        let output = read_bounded(
+            child.stdout.take().ok_or(GitExecutorError::SpawnFailed)?,
+            &mut child,
+        )?;
+        if !child
+            .wait()
+            .map_err(|_| GitExecutorError::StatusFailed)?
+            .success()
+        {
+            return Err(GitExecutorError::StatusFailed);
+        }
+        let root = String::from_utf8(output).map_err(|_| GitExecutorError::InvalidOutput)?;
+        let root = root.trim();
+        if root.is_empty() || root.len() > 4096 || root.contains('\0') {
+            return Err(GitExecutorError::InvalidOutput);
+        }
+        Path::new(root)
+            .canonicalize()
+            .map_err(|_| GitExecutorError::InvalidWorktree)
+            .map(|path| path.display().to_string())
+    }
+
+    fn report(&self, canonical_repository_root: &str) -> Result<GitReport, GitExecutorError> {
+        let root = canonical_worktree(canonical_repository_root)?;
+        let mut child = Command::new("git")
+            .args(["status", "--porcelain=v1", "-z"])
+            .current_dir(&root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| GitExecutorError::SpawnFailed)?;
+        let output = read_bounded(
+            child.stdout.take().ok_or(GitExecutorError::SpawnFailed)?,
+            &mut child,
+        )?;
+        if !child
+            .wait()
+            .map_err(|_| GitExecutorError::StatusFailed)?
+            .success()
+        {
+            return Err(GitExecutorError::StatusFailed);
+        }
+        let entries = parse_porcelain_v1_z(&output).map_err(|_| GitExecutorError::InvalidOutput)?;
+        let files = entries
+            .into_iter()
+            .map(|entry| WorkspaceGitFileStatus {
+                index_status: entry.index_status,
+                worktree_status: entry.worktree_status,
+                path: entry.path,
+                original_path: entry.original_path,
+            })
+            .collect();
+        Ok(GitReport {
+            branch: branch_name(&root)?,
+            files,
+            worktrees: list_worktrees(&root)?,
+        })
+    }
+
+    fn checkout_paths(
+        &self,
+        canonical_repository_root: &str,
+        paths: &[String],
+    ) -> Result<(), GitExecutorError> {
+        let root = canonical_worktree(canonical_repository_root)?;
+        if paths.is_empty() || paths.iter().any(|path| path.contains('\0')) {
+            return Err(GitExecutorError::InvalidOutput);
+        }
+        let mut command = Command::new("git");
+        command
+            .arg("checkout")
+            .arg("--")
+            .args(paths)
+            .current_dir(&root)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let status = command.status().map_err(|_| GitExecutorError::SpawnFailed)?;
+        status
+            .success()
+            .then_some(())
+            .ok_or(GitExecutorError::StatusFailed)
+    }
+}
+
+fn list_worktrees(root: &Path) -> Result<Vec<WorkspaceGitWorktree>, GitExecutorError> {
+    let mut child = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| GitExecutorError::SpawnFailed)?;
+    let output = read_bounded(
+        child.stdout.take().ok_or(GitExecutorError::SpawnFailed)?,
+        &mut child,
+    )?;
+    if !child
+        .wait()
+        .map_err(|_| GitExecutorError::StatusFailed)?
+        .success()
+    {
+        return Err(GitExecutorError::StatusFailed);
+    }
+    let text = String::from_utf8(output).map_err(|_| GitExecutorError::InvalidOutput)?;
+    parse_worktree_list(&text)
+}
+
+fn parse_worktree_list(text: &str) -> Result<Vec<WorkspaceGitWorktree>, GitExecutorError> {
+    let mut worktrees = Vec::new();
+    let mut canonical_path: Option<String> = None;
+    let mut head: Option<String> = None;
+    let mut branch: Option<String> = None;
+    let mut is_detached = false;
+    let mut is_locked = false;
+    let flush = |worktrees: &mut Vec<WorkspaceGitWorktree>,
+                 canonical_path: &mut Option<String>,
+                 head: &mut Option<String>,
+                 branch: &mut Option<String>,
+                 is_detached: &mut bool,
+                 is_locked: &mut bool| {
+        if let Some(canonical_path) = canonical_path.take() {
+            worktrees.push(WorkspaceGitWorktree {
+                canonical_path,
+                branch: branch.take(),
+                head: head.take(),
+                is_detached: *is_detached,
+                is_locked: *is_locked,
+            });
+        }
+        *is_detached = false;
+        *is_locked = false;
+    };
+    for line in text.lines() {
+        if line.is_empty() {
+            flush(
+                &mut worktrees,
+                &mut canonical_path,
+                &mut head,
+                &mut branch,
+                &mut is_detached,
+                &mut is_locked,
+            );
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("worktree ") {
+            flush(
+                &mut worktrees,
+                &mut canonical_path,
+                &mut head,
+                &mut branch,
+                &mut is_detached,
+                &mut is_locked,
+            );
+            canonical_path = Some(value.to_owned());
+        } else if let Some(value) = line.strip_prefix("HEAD ") {
+            head = Some(value.to_owned());
+        } else if let Some(value) = line.strip_prefix("branch ") {
+            branch = Some(
+                value
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(value)
+                    .to_owned(),
+            );
+        } else if line == "detached" {
+            is_detached = true;
+        } else if line.starts_with("locked") {
+            is_locked = true;
+        }
+    }
+    flush(
+        &mut worktrees,
+        &mut canonical_path,
+        &mut head,
+        &mut branch,
+        &mut is_detached,
+        &mut is_locked,
+    );
+    Ok(worktrees)
+}
+
+fn branch_name(worktree: &Path) -> Result<Option<String>, GitExecutorError> {
+    let mut child = Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(worktree)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| GitExecutorError::SpawnFailed)?;
+    let output = read_bounded(
+        child.stdout.take().ok_or(GitExecutorError::SpawnFailed)?,
+        &mut child,
+    )?;
+    if !child
+        .wait()
+        .map_err(|_| GitExecutorError::StatusFailed)?
+        .success()
+    {
+        return Err(GitExecutorError::StatusFailed);
+    }
+    let branch = String::from_utf8(output).map_err(|_| GitExecutorError::InvalidOutput)?;
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Ok(None);
+    }
+    (branch.len() <= 256 && !branch.contains('\0'))
+        .then(|| Some(branch.to_owned()))
+        .ok_or(GitExecutorError::InvalidOutput)
 }
 
 fn canonical_worktree(value: &str) -> Result<std::path::PathBuf, GitExecutorError> {
@@ -114,6 +340,7 @@ mod tests {
         };
         let summary = SystemGitExecutor.status(&operation).unwrap();
         assert_eq!(summary.entry_count, 1);
+        assert!(summary.branch_name.is_some());
         assert_eq!(summary.output_digest_sha256.len(), 64);
     }
 
@@ -124,6 +351,61 @@ mod tests {
                 canonical_worktree_path: "/definitely/not/a/gent/worktree".into(),
             }),
             Err(GitExecutorError::InvalidWorktree)
+        );
+    }
+
+    #[test]
+    fn repository_root_resolves_from_a_subdirectory() {
+        let directory = tempfile::tempdir().unwrap();
+        git(directory.path(), &["init", "--quiet"]);
+        let canonical_root = directory.path().canonicalize().unwrap();
+        let subdirectory = canonical_root.join("nested");
+        fs::create_dir(&subdirectory).unwrap();
+        let root = SystemGitExecutor
+            .repository_root(&subdirectory.display().to_string())
+            .unwrap();
+        assert_eq!(std::path::Path::new(&root), canonical_root);
+    }
+
+    #[test]
+    fn report_wires_a_pending_rename_through_to_the_client() {
+        let directory = tempfile::tempdir().unwrap();
+        git(directory.path(), &["init", "--quiet"]);
+        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(directory.path(), &["config", "user.name", "Test"]);
+        fs::write(directory.path().join("a.txt"), "content").unwrap();
+        git(directory.path(), &["add", "a.txt"]);
+        git(directory.path(), &["commit", "--quiet", "-m", "add a"]);
+        git(directory.path(), &["mv", "a.txt", "b.txt"]);
+        let root = directory.path().canonicalize().unwrap().display().to_string();
+        let report = SystemGitExecutor.report(&root).unwrap();
+        assert!(report.branch.is_some());
+        assert_eq!(report.files.len(), 1);
+        assert_eq!(report.files[0].path, "b.txt");
+        assert_eq!(report.files[0].original_path.as_deref(), Some("a.txt"));
+        assert!(report.worktrees.iter().any(|worktree| {
+            std::path::Path::new(&worktree.canonical_path)
+                == directory.path().canonicalize().unwrap()
+        }));
+    }
+
+    #[test]
+    fn checkout_paths_restores_tracked_content() {
+        let directory = tempfile::tempdir().unwrap();
+        git(directory.path(), &["init", "--quiet"]);
+        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(directory.path(), &["config", "user.name", "Test"]);
+        fs::write(directory.path().join("a.txt"), "original").unwrap();
+        git(directory.path(), &["add", "a.txt"]);
+        git(directory.path(), &["commit", "--quiet", "-m", "add a"]);
+        fs::write(directory.path().join("a.txt"), "modified").unwrap();
+        let root = directory.path().canonicalize().unwrap().display().to_string();
+        SystemGitExecutor
+            .checkout_paths(&root, &["a.txt".to_owned()])
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(directory.path().join("a.txt")).unwrap(),
+            "original"
         );
     }
 }

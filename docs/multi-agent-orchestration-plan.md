@@ -128,7 +128,7 @@ native app render the identical graph and review frames.
 
 Add fresh `.gentd` schema tables only: graph/node/dependency/attempt, immutable
 input/result artifact references, review request/finding/disposition, and
-worktree lease bindings. There is no deployed migration or legacy behavior.
+worktree lease bindings. The deployed authority has one provider route.
 `gent-types` owns DTOs, `gent-core` owns pure graph/review reducers,
 `gent-ports` owns ledger/profile/worktree/runner ports, `gent-store` implements
 atomic SQLite operations, `gent-runtime` coordinates them, and only `gentd`

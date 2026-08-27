@@ -66,9 +66,9 @@ async fn observer_refuses_before_an_orchestration_frame_is_sent() {
         Some(directory.path().into()),
         true,
         OrchestrationCommand::Read(ReadArgs {
-            conversation_id: "conversation-1".into(),
-            graph_id: "graph-1".into(),
-            request_id: Some("read-1".into()),
+            conversation: "conversation-1".into(),
+            graph: "graph-1".into(),
+            request: Some("read-1".into()),
         }),
     )
     .await

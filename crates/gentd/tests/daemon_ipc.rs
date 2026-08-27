@@ -32,6 +32,23 @@ fn daemon_prints_its_package_version_without_opening_ipc() {
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("gentd "));
 }
 
+#[test]
+fn daemon_prints_its_resolved_data_dir_without_binding_ipc_or_the_host_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_gentd"))
+        .args(["--print-data-dir", "--data-dir"])
+        .arg(directory.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        directory.path().to_str().unwrap()
+    );
+    assert!(!directory.path().join("gentd.sock").exists());
+    assert!(!directory.path().join("gentd.lock").exists());
+}
+
 impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();

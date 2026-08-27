@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::claude_control::{
-    ClaudePermissionBehavior, ClaudePermissionRequest, encode_permission_response,
+    ClaudePermissionBehavior, ClaudePermissionRequest, encode_permission_response_with_input,
     parse_permission_request,
 };
 
@@ -30,23 +30,35 @@ impl ClaudePermissionRelay {
     }
 
     /// Encodes a decision while keeping provider-native suggestions private.
-    pub(crate) fn response(
+    pub(crate) fn response_with_input(
         &self,
         request_id: &str,
         behavior: ClaudePermissionBehavior,
         persist_suggestions: bool,
+        updated_input: Option<&Value>,
     ) -> Option<Vec<u8>> {
         let suggestions = self.pending.get(request_id)?;
-        Some(encode_permission_response(
+        Some(encode_permission_response_with_input(
             request_id,
             behavior,
             persist_suggestions,
             suggestions,
+            updated_input,
         ))
     }
 
     /// Drops private suggestions only after the response reached the owned process.
     pub(crate) fn settle(&mut self, request_id: &str) {
         self.pending.remove(request_id);
+    }
+
+    pub(crate) fn cancel(&mut self, frame: &Value) -> bool {
+        let request_id = frame
+            .get("request_id")
+            .or_else(|| frame.get("requestId"))
+            .or_else(|| frame.pointer("/params/request_id"))
+            .or_else(|| frame.pointer("/params/requestId"))
+            .and_then(Value::as_str);
+        request_id.is_some_and(|request_id| self.pending.remove(request_id).is_some())
     }
 }

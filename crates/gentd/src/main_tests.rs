@@ -128,7 +128,6 @@ fn assert_observer_operations(runtime: &RuntimeFacade, epoch: HostEpoch) {
                 run_id: "missing-run".into(),
                 coordinator_id: "test".into(),
                 host_epoch: epoch,
-                session_id: "ignored".into(),
             })
             .unwrap()
             .outcome,
@@ -222,6 +221,7 @@ fn approved_agent_chat_profile_persists_create_and_prompt_without_a_provider() {
             receipt_id: ReceiptId("receipt-prompt".into()),
             conversation_id: conversation_id.clone(),
             text: "hello".into(),
+            attachment_ids: vec![],
         })
         .unwrap();
     assert!(matches!(

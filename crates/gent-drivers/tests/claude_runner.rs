@@ -12,7 +12,8 @@ use gent_drivers::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess,
 use gent_types::{
     AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
     AgentChatSelection, FrozenConversationContext, GOAL_SCHEMA_VERSION, GoalBinding,
-    GoalProjection, GoalRecord, GoalStatus, NormalizedProviderEvent,
+    GoalProjection, GoalRecord, GoalStatus, NormalizedLifecycleSignal, NormalizedProviderEvent,
+    ToolPhase,
 };
 
 #[derive(Default)]
@@ -37,6 +38,10 @@ impl ProcessTreeControl for Process {
 impl ProviderProcess for Process {
     fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError> {
         self.0.writes.lock().unwrap().push(frame.into());
+        Ok(())
+    }
+
+    fn close_stdin(&self) -> Result<(), ProcessTreeError> {
         Ok(())
     }
 
@@ -74,6 +79,7 @@ fn start(run_id: &str, root: &Path, session: Option<&str>) -> ClaudeRunStart {
         run_id: run_id.into(),
         lock: capture("claude", &executable, "2.1.0", "entry").unwrap(),
         prompt: "hello".into(),
+        content: Vec::new(),
         turn_options: ClaudeTurnOptions::from_selection(&AgentChatSelection {
             provider: AgentChatProvider::Claude,
             model: "claude-haiku".into(),
@@ -86,6 +92,8 @@ fn start(run_id: &str, root: &Path, session: Option<&str>) -> ClaudeRunStart {
         resume_session_id: session.map(Into::into),
         workspace_root: root.to_path_buf(),
         workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
+        mcp_config: None,
+        selected_mcp_source_names: Vec::new(),
     }
 }
 
@@ -154,6 +162,69 @@ fn locked_claude_runner_writes_one_documented_prompt_and_normalizes_stdout() {
 }
 
 #[test]
+fn claude_background_completion_uses_the_explicit_task_notification_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = ClaudeStreamRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(4, 128 * 1024, 0, 0).unwrap(),
+    );
+    runner
+        .start(start("run-1", directory.path(), None))
+        .unwrap();
+    state.output.lock().unwrap().push_back(
+        br#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"task-1","name":"Task"}]}}
+{"type":"system","subtype":"task_started","tool_use_id":"task-1","tool_name":"Task"}
+{"type":"queue-operation","operation":"enqueue","content":"<task-notification><tool-use-id>task-1</tool-use-id><status>completed</status></task-notification>"}
+"#
+        .to_vec(),
+    );
+    let effects = runner.poll("run-1").unwrap().unwrap();
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::ToolActivity { activity }
+        )) if activity.tool_use_id == "task-1"
+            && activity.tool_name == "Task"
+            && activity.phase == ToolPhase::Completed
+    )));
+}
+
+#[test]
+fn claude_background_progress_reuses_the_known_tool_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = ClaudeStreamRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(4, 128 * 1024, 0, 0).unwrap(),
+    );
+    runner
+        .start(start("run-1", directory.path(), None))
+        .unwrap();
+    state.output.lock().unwrap().push_back(
+        br#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"task-1","name":"Task"}]}}
+{"type":"system","subtype":"task_progress","tool_use_id":"task-1"}
+"#
+        .to_vec(),
+    );
+    let effects = runner.poll("run-1").unwrap().unwrap();
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::ToolActivity { activity }
+        )) if activity.tool_use_id == "task-1"
+            && activity.tool_name == "Task"
+            && activity.phase == ToolPhase::Started
+    )));
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::TransportDiagnostic { classification }
+        )) if classification == "unresolvedClaudeBackgroundTask"
+    )));
+}
+
+#[test]
 fn locked_claude_runner_launches_only_the_durable_model_and_bounded_plan_mode() {
     let directory = tempfile::tempdir().unwrap();
     let state = Arc::new(State::default());
@@ -190,6 +261,27 @@ fn locked_claude_runner_launches_only_the_durable_model_and_bounded_plan_mode() 
         !arguments
             .iter()
             .any(|value| value == "auto" || value == "bypassPermissions")
+    );
+}
+
+#[test]
+fn locked_claude_runner_injects_the_authoritative_mcp_config() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = ClaudeStreamRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+    );
+    let config = directory.path().join("mcp.json");
+    std::fs::write(&config, "{}").unwrap();
+    let mut request = start("run-1", directory.path(), None);
+    request.mcp_config = Some(config.clone());
+    runner.start(request).unwrap();
+    assert!(
+        state.launches.lock().unwrap()[0]
+            .arguments
+            .windows(2)
+            .any(|pair| pair == ["--mcp-config", config.to_string_lossy().as_ref()])
     );
 }
 

@@ -4,7 +4,10 @@
 //! [`LocalModelDownloadPlan`] and report bytes written through [`ModelInstallState`]
 //! without gaining authority to choose a model, URL, or destination.
 
-use crate::local_model_catalog::{LocalModelCatalog, LocalModelRecord};
+use crate::{
+    local_model_catalog::{LocalModelCatalog, LocalModelRecord},
+    local_model_integrity::matches_sha256,
+};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -19,6 +22,7 @@ pub(crate) struct LocalModelDownloadPlan {
     pub(crate) model_id: String,
     pub(crate) source_url: String,
     pub(crate) expected_bytes: u64,
+    pub(crate) expected_sha256: String,
     pub(crate) destination: PathBuf,
     pub(crate) partial_destination: PathBuf,
 }
@@ -44,6 +48,8 @@ pub(crate) enum LocalModelProvisioningError {
         actual_bytes: u64,
         expected_bytes: u64,
     },
+    #[error("local model file `{path}` does not match the curated SHA-256")]
+    UnexpectedFileDigest { path: PathBuf },
     #[error("could not inspect local model storage: {0}")]
     Io(String),
 }
@@ -75,6 +81,7 @@ impl LocalModelProvisioner {
             model_id: model.id.clone(),
             source_url: model.huggingface_url.clone(),
             expected_bytes: model.size_bytes,
+            expected_sha256: model.sha256.clone(),
             destination,
             partial_destination,
         })
@@ -87,7 +94,7 @@ impl LocalModelProvisioner {
     ) -> Result<(), LocalModelProvisioningError> {
         let model = self.model_for_plan(plan)?;
         let directory = self.model_directory(model)?;
-        fs::create_dir_all(directory).map_err(io_error)
+        fs::create_dir_all(directory).map_err(|error| io_error(&error))
     }
 
     pub(crate) fn state(
@@ -97,6 +104,13 @@ impl LocalModelProvisioner {
         let plan = self.plan(model_id)?;
         if let Some(size) = regular_file_size(&plan.destination)? {
             if size == plan.expected_bytes {
+                if !matches_sha256(&plan.destination, &plan.expected_sha256)
+                    .map_err(|error| io_error(&error))?
+                {
+                    return Err(LocalModelProvisioningError::UnexpectedFileDigest {
+                        path: plan.destination,
+                    });
+                }
                 return Ok(ModelInstallState::Ready {
                     path: plan.destination,
                 });
@@ -118,6 +132,20 @@ impl LocalModelProvisioner {
             }),
             None => Ok(ModelInstallState::NotInstalled),
         }
+    }
+
+    pub(crate) fn model(
+        &self,
+        model_id: &str,
+    ) -> Result<&LocalModelRecord, LocalModelProvisioningError> {
+        self.catalog
+            .model(model_id)
+            .ok_or_else(|| LocalModelProvisioningError::UnknownModel(model_id.to_owned()))
+    }
+
+    #[must_use]
+    pub(crate) fn catalogue(&self) -> &LocalModelCatalog {
+        &self.catalog
     }
 
     fn model_for_plan(
@@ -177,102 +205,14 @@ fn regular_file_size(path: &Path) -> Result<Option<u64>, LocalModelProvisioningE
         ),
         Ok(metadata) => Ok(Some(metadata.len())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(io_error(error)),
+        Err(error) => Err(io_error(&error)),
     }
 }
 
-fn io_error(error: std::io::Error) -> LocalModelProvisioningError {
+fn io_error(error: &std::io::Error) -> LocalModelProvisioningError {
     LocalModelProvisioningError::Io(error.to_string())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{LocalModelProvisioner, ModelInstallState};
-    use crate::local_model_catalog::LocalModelCatalog;
-    use std::fs;
-    use tempfile::tempdir;
-
-    fn provisioner() -> (tempfile::TempDir, LocalModelProvisioner) {
-        let directory = tempdir().unwrap();
-        let provisioner =
-            LocalModelProvisioner::new(directory.path(), LocalModelCatalog::shipped().unwrap());
-        (directory, provisioner)
-    }
-
-    #[test]
-    fn catalog_model_gets_a_deterministic_gent_owned_download_plan() {
-        let (directory, provisioner) = provisioner();
-        let plan = provisioner.plan("qwen3-1-7b-q4-k-m").unwrap();
-        assert_eq!(
-            plan.destination,
-            directory
-                .path()
-                .join("models/qwen3-1-7b-q4-k-m/qwen3-1-7b-q4-k-m.gguf")
-        );
-        assert_eq!(
-            plan.partial_destination,
-            directory
-                .path()
-                .join("models/qwen3-1-7b-q4-k-m/qwen3-1-7b-q4-k-m.gguf.part")
-        );
-        assert!(plan.source_url.starts_with("https://huggingface.co/"));
-        assert_eq!(
-            provisioner.state(&plan.model_id).unwrap(),
-            ModelInstallState::NotInstalled
-        );
-    }
-
-    #[test]
-    fn state_reports_resumable_partial_and_exact_completed_file() {
-        let (_directory, provisioner) = provisioner();
-        let plan = provisioner.plan("qwen3-1-7b-q4-k-m").unwrap();
-        provisioner.ensure_storage(&plan).unwrap();
-        fs::write(&plan.partial_destination, vec![0_u8; 7]).unwrap();
-        assert_eq!(
-            provisioner.state(&plan.model_id).unwrap(),
-            ModelInstallState::Downloading {
-                downloaded_bytes: 7
-            }
-        );
-        fs::remove_file(&plan.partial_destination).unwrap();
-        fs::File::create(&plan.destination)
-            .unwrap()
-            .set_len(plan.expected_bytes)
-            .unwrap();
-        assert_eq!(
-            provisioner.state(&plan.model_id).unwrap(),
-            ModelInstallState::Ready {
-                path: plan.destination
-            }
-        );
-    }
-
-    #[test]
-    fn refuses_unknown_and_tampered_download_plans() {
-        let (_directory, provisioner) = provisioner();
-        assert!(provisioner.plan("../../outside").is_err());
-        let mut plan = provisioner.plan("qwen3-1-7b-q4-k-m").unwrap();
-        plan.destination = std::path::PathBuf::from("/tmp/outside.gguf");
-        assert!(provisioner.ensure_storage(&plan).is_err());
-    }
-
-    #[test]
-    fn rejects_incomplete_final_files() {
-        let (_directory, provisioner) = provisioner();
-        let plan = provisioner.plan("qwen3-1-7b-q4-k-m").unwrap();
-        provisioner.ensure_storage(&plan).unwrap();
-        fs::write(&plan.destination, [1_u8]).unwrap();
-        assert!(provisioner.state(&plan.model_id).is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn rejects_symlinked_model_files() {
-        let (_directory, provisioner) = provisioner();
-        let plan = provisioner.plan("qwen3-1-7b-q4-k-m").unwrap();
-        provisioner.ensure_storage(&plan).unwrap();
-        let outside = tempfile::NamedTempFile::new().unwrap();
-        std::os::unix::fs::symlink(outside.path(), &plan.destination).unwrap();
-        assert!(provisioner.state(&plan.model_id).is_err());
-    }
-}
+#[path = "local_model_provisioning_tests.rs"]
+mod tests;

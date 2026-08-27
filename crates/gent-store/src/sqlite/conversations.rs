@@ -55,7 +55,7 @@ pub(super) fn list_conversations(
 ) -> Result<Vec<ConversationListItem>, LedgerError> {
     let connection = ledger.lock()?;
     let mut statement = connection.prepare(
-        "SELECT c.conversation_id, COUNT(r.run_id) FROM conversations c LEFT JOIN runs r ON r.conversation_id = c.conversation_id GROUP BY c.conversation_id ORDER BY c.rowid DESC, c.conversation_id",
+        "SELECT c.conversation_id, COUNT(DISTINCT r.run_id) FROM conversations c LEFT JOIN runs r ON r.conversation_id = c.conversation_id LEFT JOIN turns t ON t.run_id = r.run_id GROUP BY c.conversation_id ORDER BY MAX(t.rowid) DESC, c.rowid DESC, c.conversation_id",
     ).map_err(storage_error)?;
     statement
         .query_map([], |row| {

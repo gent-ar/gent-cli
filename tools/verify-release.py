@@ -11,11 +11,21 @@ import stat
 import tarfile
 import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 SAFE_COMPONENT = re.compile(r"[A-Za-z0-9._+-]+\Z")
+REQUIRED_CAPABILITIES = {
+    "agent-chat-conversations-v1",
+    "agent-chat-intents-v1",
+    "agent-chat-transcript-v1",
+    "agent-chat-turn-follow-v1",
+    "agent-chat-permissions-v1",
+    "attachments-v1",
+    "local-models-v1",
+}
 
 
 def fail(message: str) -> None:
@@ -50,12 +60,57 @@ def expected_binaries(archive: Path) -> list[str]:
     fail("archive format must be .tar.gz or .zip")
 
 
+def expected_runtime(archive: Path) -> list[str]:
+    if archive.name.endswith(".tar.gz"):
+        return [
+            "runtime/node/bin/node",
+            "runtime/node/bin/npm",
+            "runtime/node/lib/node_modules/npm/bin/npm-cli.js",
+        ]
+    if archive.suffix == ".zip":
+        return [
+            "runtime/node/bin/node.exe",
+            "runtime/node/bin/npm.cmd",
+            "runtime/node/lib/node_modules/npm/bin/npm-cli.js",
+        ]
+    fail("archive format must be .tar.gz or .zip")
+
+
+def expected_claurst_runtime(archive: Path) -> list[str]:
+    suffix = ".exe" if archive.suffix == ".zip" else ""
+    return [f"runtime/claurst/claurst{suffix}", f"runtime/claurst/llama/llama-server{suffix}"]
+
+
+def expected_executables(archive: Path) -> set[str]:
+    if archive.suffix == ".zip":
+        return set()
+    return {
+        "gent",
+        "gentd",
+        "runtime/node/bin/node",
+        "runtime/node/bin/npm",
+        "runtime/claurst/claurst",
+        "runtime/claurst/llama/llama-server",
+    }
+
+
+def safe_member_name(name: str, root: str) -> None:
+    if not name or name.startswith("/") or "\\" in name:
+        fail("archive contains an unsafe member path")
+    parts = name.split("/")
+    if any(not part or part in {".", ".."} for part in parts):
+        fail("archive contains an unsafe member path")
+    path = PurePosixPath(name)
+    if not path.parts or path.parts[0] != root:
+        fail("archive member is outside the release root")
+
+
 def read_manifest(path: Path, archive: Path) -> tuple[str, str, str, int, list[str]]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("manifest is not valid UTF-8 JSON") from error
-    if not isinstance(value, dict) or set(value) != {"schemaVersion", "version", "target", "archive", "binaries"}:
+    if not isinstance(value, dict) or set(value) != {"schemaVersion", "version", "target", "archive", "binaries", "capabilities", "runtimes"}:
         fail("manifest has an unexpected schema")
     if value["schemaVersion"] != 1 or isinstance(value["schemaVersion"], bool):
         fail("manifest schemaVersion must be 1")
@@ -74,20 +129,36 @@ def read_manifest(path: Path, archive: Path) -> tuple[str, str, str, int, list[s
     binaries = value["binaries"]
     if binaries != expected_binaries(archive):
         fail("manifest binaries do not match archive format")
+    capabilities = value["capabilities"]
+    if (not isinstance(capabilities, list) or any(not isinstance(capability, str) for capability in capabilities)
+            or len(set(capabilities)) != len(capabilities) or not REQUIRED_CAPABILITIES.issubset(capabilities)):
+        fail("manifest capabilities are incomplete or invalid")
+    if value["runtimes"] != ["runtime/node", "runtime/claurst"]:
+        fail("manifest runtimes do not match archive format")
     return version, target, digest, size, binaries
 
 
 def verify_tar(archive: Path, root: str, binaries: list[str]) -> None:
-    expected = [f"{root}/{binary}" for binary in binaries]
+    required = [f"{root}/{name}" for name in [*binaries, *expected_runtime(archive), *expected_claurst_runtime(archive)]]
+    executable_members = {f"{root}/{name}" for name in expected_executables(archive)}
     try:
         with tarfile.open(archive, "r:gz") as bundle:
             members = bundle.getmembers()
             names = [member.name for member in members]
-            if names != expected or len(set(names)) != len(names):
+            for name in names:
+                safe_member_name(name, root)
+            if len(set(names)) != len(names) or any(
+                name not in required
+                and not name.startswith(f"{root}/runtime/node/")
+                and not name.startswith(f"{root}/runtime/claurst/llama/")
+                for name in names
+            ) or any(name not in names for name in required):
                 fail("tar archive has unexpected or duplicate members")
             for member in members:
                 if not member.isfile() or member.linkname:
                     fail("tar archive contains a non-regular member")
+                if member.name in executable_members and not member.mode & 0o111:
+                    fail("tar archive contains a non-executable runtime binary")
                 source = bundle.extractfile(member)
                 if source is None:
                     fail("tar archive member cannot be read")
@@ -98,12 +169,19 @@ def verify_tar(archive: Path, root: str, binaries: list[str]) -> None:
 
 
 def verify_zip(archive: Path, root: str, binaries: list[str]) -> None:
-    expected = [f"{root}/{binary}" for binary in binaries]
+    required = [f"{root}/{name}" for name in [*binaries, *expected_runtime(archive), *expected_claurst_runtime(archive)]]
     try:
         with zipfile.ZipFile(archive) as bundle:
             entries = bundle.infolist()
             names = [entry.filename for entry in entries]
-            if names != expected or len(set(names)) != len(names):
+            for name in names:
+                safe_member_name(name, root)
+            if len(set(names)) != len(names) or any(
+                name not in required
+                and not name.startswith(f"{root}/runtime/node/")
+                and not name.startswith(f"{root}/runtime/claurst/llama/")
+                for name in names
+            ) or any(name not in names for name in required):
                 fail("zip archive has unexpected or duplicate members")
             for entry in entries:
                 kind = stat.S_IFMT(entry.external_attr >> 16)

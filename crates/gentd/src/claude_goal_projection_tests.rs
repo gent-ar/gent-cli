@@ -66,6 +66,8 @@ fn claude_prepares_the_exact_gent_resolved_revisioned_goal() {
             host_epoch: HostEpoch(1),
             conversation_id,
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: "continue".into(),
         })
         .unwrap();
@@ -83,7 +85,7 @@ fn claude_prepares_the_exact_gent_resolved_revisioned_goal() {
     )
     .unwrap()
     .with_active_goal_resolver(Arc::new(Goal(goal.clone())));
-    let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
+    let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1, None);
     host.tick().unwrap();
     assert_eq!(runner.0.lock().unwrap().prepared_goals, [Some(goal)]);
 }

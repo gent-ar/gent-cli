@@ -1,20 +1,19 @@
-//! CLI composition root: maps parsed commands to the protocol-only local IPC boundary.
-
-use gent_protocol::{
-    DependencyAction, DependencyActionRequest, DependencyPlanRequest, DependencyProvider, WireFrame,
-};
-use gent_types::{Command, ReceiptId};
-use serde_json::Value;
-
 use crate::decision::decision_frame;
-use crate::local_ipc::request;
+use crate::local_ipc::{default_data_dir, request};
 use crate::{
     Args, CommandLine, ConversationCommand, DependencyCommand, conversation_activity,
     conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, orchestration_cli, permissions_cli, provider_auth_cli, provider_lifecycle_cli,
-    reviewed_plan_cli, terminal_browser,
+    event_stream, local_models_cli, orchestration_cli, permissions_cli, prompt_templates_cli,
+    provider_auth_cli, provider_lifecycle_cli, reviewed_plan_cli, side_question_cli,
+    terminal_browser, workspace_documents_cli, workspace_git_cli,
 };
-
+use gent_protocol::{DependencyAction, WireFrame};
+use gent_types::{Command, ReceiptId};
+use serde_json::Value;
+#[path = "dependency_actions.rs"]
+mod dependency_actions;
+use dependency_actions::dependency_action;
+pub(crate) use dependency_actions::dependency_plan_frame;
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let Args {
         data_dir,
@@ -77,11 +76,45 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Permissions { action } => {
             print(permissions_cli::execute(data_dir, no_autostart, action).await?)?;
         }
-        CommandLine::Auth { action } => {
-            print(provider_auth_cli::execute(data_dir, no_autostart, action).await?)?;
+        CommandLine::Auth {
+            action: provider_auth_cli::ProviderAuthCommand::Login { provider },
+        } => println!(
+            "{}",
+            provider_auth_cli::login_interactive(data_dir, provider)?
+        ),
+        CommandLine::Forge { action } => {
+            print(crate::forge_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
+        CommandLine::Automation { action } => {
+            crate::automation_cli::execute(data_dir, no_autostart, action).await?;
+        }
+        CommandLine::Sessions { action } => {
+            crate::session_cli::execute(data_dir, no_autostart, action).await?;
+        }
+        CommandLine::McpServer => {
+            crate::mcp_server::run(data_dir, no_autostart, None).await?;
+        }
+        CommandLine::Mcp { domain } => {
+            crate::mcp_server::run(data_dir, no_autostart, domain).await?;
         }
         CommandLine::Provider { action } => {
             print(provider_lifecycle_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
+        CommandLine::Models { action } => models(data_dir, no_autostart, action).await?,
+        CommandLine::Templates { action } => {
+            print(prompt_templates_cli::execute(data_dir, no_autostart, action).await?)?
+        }
+        CommandLine::Documents { action } => {
+            print(workspace_documents_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
+        CommandLine::WorkspaceGit { action } => {
+            print(workspace_git_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
+        CommandLine::SideQuestion { action } => {
+            print(side_question_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
+        CommandLine::DataDir => {
+            println!("{}", data_dir.unwrap_or_else(default_data_dir).display());
         }
         CommandLine::Status => {
             print(request(data_dir, no_autostart, WireFrame::StatusRequest).await?)?;
@@ -108,7 +141,18 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
     }
     Ok(())
 }
-
+async fn models(
+    data_dir: Option<std::path::PathBuf>,
+    no_autostart: bool,
+    action: local_models_cli::LocalModelsCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        local_models_cli::LocalModelsCommand::Download { model_id } => {
+            local_models_cli::download_to_stdout(data_dir, no_autostart, model_id).await
+        }
+        action => print(local_models_cli::execute(data_dir, no_autostart, action).await?),
+    }
+}
 async fn conversation(
     data_dir: Option<std::path::PathBuf>,
     no_autostart: bool,
@@ -159,7 +203,6 @@ async fn conversation(
     }
     Ok(())
 }
-
 async fn submit(
     data_dir: Option<std::path::PathBuf>,
     no_autostart: bool,
@@ -180,12 +223,13 @@ async fn submit(
     };
     print(request(data_dir, no_autostart, WireFrame::Command(command)).await?)
 }
-
 pub(crate) fn print(value: impl serde::Serialize) -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", serde_json::to_string_pretty(&value)?);
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{}", serde_json::to_string_pretty(&value)?)?;
+    stdout.flush()?;
     Ok(())
 }
-
 async fn dependency(
     data_dir: Option<std::path::PathBuf>,
     no_autostart: bool,
@@ -231,51 +275,4 @@ async fn dependency(
             .await
         }
     }
-}
-
-pub(crate) fn dependency_plan_frame(
-    provider: DependencyProvider,
-    action: DependencyAction,
-) -> WireFrame {
-    WireFrame::DependencyPlanRequest(DependencyPlanRequest { provider, action })
-}
-
-async fn dependency_action(
-    data_dir: Option<std::path::PathBuf>,
-    no_autostart: bool,
-    provider: DependencyProvider,
-    action: DependencyAction,
-    consent_granted: bool,
-    idempotency_key: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let plan = request(
-        data_dir.clone(),
-        no_autostart,
-        dependency_plan_frame(provider, action),
-    )
-    .await?;
-    let WireFrame::DependencyPlan(plan) = plan else {
-        return Err("daemon did not return a dependency plan".into());
-    };
-    let status = request(data_dir.clone(), no_autostart, WireFrame::StatusRequest).await?;
-    let WireFrame::Status(status) = status else {
-        return Err("daemon did not return host status".into());
-    };
-    let action = DependencyActionRequest {
-        provider,
-        action,
-        consent_granted,
-        receipt_id: ReceiptId::new(),
-        idempotency_key: idempotency_key.unwrap_or_else(|| ReceiptId::new().0),
-        host_epoch: status.host_epoch,
-        reviewed_plan_digest: plan.reviewed_plan_digest,
-    };
-    print(
-        request(
-            data_dir,
-            no_autostart,
-            WireFrame::DependencyActionRequest(action),
-        )
-        .await?,
-    )
 }

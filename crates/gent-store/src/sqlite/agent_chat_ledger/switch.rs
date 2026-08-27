@@ -72,6 +72,26 @@ fn persist(
     Ok(result(receipt, switch, context_through_ordinal))
 }
 
+fn reject_provisioning_parent(
+    transaction: &Transaction<'_>,
+    switch: &AgentChatSelectionSwitch,
+) -> Result<(), LedgerError> {
+    let provisioning = transaction
+        .query_row(
+            "SELECT 1 FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.run_id = ?1 AND d.state = 'provisioning' LIMIT 1",
+            [&switch.parent_run_id.0],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    provisioning.is_none().then_some(()).ok_or_else(|| {
+        LedgerError::Invariant(
+            "agent chat selection cannot change while provider prompt provisioning is reserved"
+                .into(),
+        )
+    })
+}
+
 fn validate(switch: &AgentChatSelectionSwitch) -> Result<(), LedgerError> {
     if [
         &switch.receipt_id.0,
@@ -182,26 +202,6 @@ fn require_current_parent(
         .ok_or_else(|| {
             LedgerError::Invariant("agent chat switch parent is not the durable current run".into())
         })
-}
-
-fn reject_provisioning_parent(
-    transaction: &Transaction<'_>,
-    switch: &AgentChatSelectionSwitch,
-) -> Result<(), LedgerError> {
-    let provisioning = transaction
-        .query_row(
-            "SELECT 1 FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.run_id = ?1 AND d.state = 'provisioning' LIMIT 1",
-            [&switch.parent_run_id.0],
-            |_| Ok(()),
-        )
-        .optional()
-        .map_err(storage_error)?;
-    provisioning.is_none().then_some(()).ok_or_else(|| {
-        LedgerError::Invariant(
-            "agent chat selection cannot change while provider prompt provisioning is reserved"
-                .into(),
-        )
-    })
 }
 
 fn context_boundary(

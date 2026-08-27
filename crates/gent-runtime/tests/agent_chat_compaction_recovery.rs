@@ -58,6 +58,8 @@ fn save(ledger: SqliteLedger, conversation_id: AgentChatConversationId) {
             conversation_id,
             disposition: AgentChatPromptDisposition::Send,
             text: "retain this context".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     assert!(matches!(saved, AgentChatPromptResult::Saved(_)));

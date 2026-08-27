@@ -27,6 +27,15 @@ impl<L> RunContextProjection<L>
 where
     L: AgentChatRunContextReader + ConversationContentReader + TranscriptLedger,
 {
+    pub(crate) fn fresh_context_before_message(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+    ) -> Result<FrozenConversationContext, RuntimeError> {
+        self.artifacts
+            .project_before_message(AgentChatConversationId(conversation_id.into()), message_id)
+    }
+
     /// Returns fresh input only for durable children; roots may resume only themselves.
     pub(crate) fn fresh_context_for_child(
         &self,

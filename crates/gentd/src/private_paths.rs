@@ -35,7 +35,14 @@ pub(super) fn prepare_data_dir(path: &Path) -> std::io::Result<()> {
 /// Binds a user-only socket inside the already-private daemon directory.
 pub(super) fn bind_socket(data_dir: &Path, socket: &Path) -> std::io::Result<UnixListener> {
     let socket = resolved_socket_path(data_dir, socket)?;
-    let listener = UnixListener::bind(&socket)?;
+    let listener = match UnixListener::bind(&socket) {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == ErrorKind::AddrInUse && stale_socket(&socket) => {
+            fs::remove_file(&socket)?;
+            UnixListener::bind(&socket)?
+        }
+        Err(error) => return Err(error),
+    };
     if let Err(error) = fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))
         .and_then(|()| private(&socket, "gent socket"))
     {
@@ -44,6 +51,15 @@ pub(super) fn bind_socket(data_dir: &Path, socket: &Path) -> std::io::Result<Uni
         return Err(error);
     }
     Ok(listener)
+}
+
+fn stale_socket(socket: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(socket).is_err_and(|error| {
+        matches!(
+            error.kind(),
+            ErrorKind::ConnectionRefused | ErrorKind::NotFound
+        )
+    })
 }
 
 fn resolved_socket_path(data_dir: &Path, socket: &Path) -> std::io::Result<PathBuf> {
@@ -129,5 +145,15 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn stale_socket_is_replaced_after_its_owner_stops() {
+        let directory = tempfile::tempdir().unwrap();
+        prepare_data_dir(directory.path()).unwrap();
+        let socket = directory.path().join("gentd.sock");
+        let listener = bind_socket(directory.path(), &socket).unwrap();
+        drop(listener);
+        assert!(bind_socket(directory.path(), &socket).is_ok());
     }
 }

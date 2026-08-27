@@ -3,12 +3,16 @@
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
-    NormalizedSessionBatchLedger, PublicProviderResolver, TranscriptLedger,
+    NormalizedSessionBatchLedger, PendingPermissionLedger, PolicyLedger, PublicProviderResolver,
+    TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 use gent_types::HostEpoch;
+use std::sync::Arc;
 
-use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptLifecycle};
+use crate::codex_prompt_lifecycle::{
+    CodexPromptDispatchOutcome, CodexPromptLifecycle, CodexSummaryHook,
+};
 use crate::public_driver_runtime::PublicDriversRuntime;
 
 /// Summary of one bounded approved-host scheduler pass.
@@ -48,7 +52,12 @@ where
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
         + gent_ports::ConversationContentReader
-        + gent_ports::AgentChatWorkspaceLedger,
+        + gent_ports::AgentChatWorkspaceLedger
+        + PendingPermissionLedger
+        + PolicyLedger
+        + gent_ports::AttachmentLedger
+        + gent_ports::ToolSourceLedger
+        + gent_ports::AgentChatConversationConfigLedger,
     D: crate::codex_prompt_lifecycle::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
@@ -64,6 +73,11 @@ where
             host_epoch,
             max_active: max_active.max(1),
         }
+    }
+
+    pub(crate) fn with_summary_hook(mut self, hook: Arc<dyn CodexSummaryHook>) -> Self {
+        self.lifecycle = self.lifecycle.with_summary_hook(hook);
+        self
     }
 
     /// Reconciles only old pre-launch durable dispatch claims before the first scheduler tick.
@@ -89,6 +103,21 @@ where
     /// Returns an error when an owned process rejects the daemon-selected signal.
     pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
         self.lifecycle.signal_active(signal)
+    }
+
+    pub(crate) fn interrupt(&self, run_id: &str) -> Result<(), RuntimeError> {
+        self.lifecycle.interrupt(run_id)
+    }
+
+    pub(crate) fn respond_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), RuntimeError> {
+        self.lifecycle
+            .respond_permission(run_id, request_id, decision, answers)
     }
 
     /// Drains at most the host active bound without accepting another prompt.

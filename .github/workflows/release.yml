@@ -70,11 +70,10 @@ jobs:
       - run: python tools/test-capture-claude-mcp-transcript.py
       - run: python tools/test-release-tools.py
       - run: python tools/test-generate-runtime-release-key.py
-      - run: cargo run --quiet -p gent-testkit --bin validate-coverage-manifest -- fixtures/coverage-manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace --all-features
+      - run: cargo test --workspace --all-features --no-fail-fast
       - run: bash tools/smoke-local-ipc.sh
 
   package:
@@ -94,6 +93,8 @@ jobs:
             suffix: ""
             target_dir: target/release
             build_target: ""
+            node_arch: x64
+            node_windows: ""
           # macos-13 Intel runners are no longer reliably available. macOS's
           # linker can emit this target from the hosted ARM runner, and the
           # cross build is exercised before its archive is published.
@@ -103,24 +104,39 @@ jobs:
             suffix: ""
             target_dir: target/x86_64-apple-darwin/release
             build_target: x86_64-apple-darwin
+            node_arch: x64
+            node_windows: ""
           - os: macos-14
             target: aarch64-apple-darwin
             archive: tar.gz
             suffix: ""
             target_dir: target/release
             build_target: ""
+            node_arch: arm64
+            node_windows: ""
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: zip
             suffix: .exe
             target_dir: target/release
             build_target: ""
+            node_arch: x64
+            node_windows: --windows
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.17.0"
+          architecture: ${{ matrix.node_arch }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Kuberwastaken/claurst
+          ref: 00db2b6
+          path: claurst-upstream
       - name: Derive deterministic package timestamp
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
@@ -138,11 +154,18 @@ jobs:
       - if: runner.os == 'Windows'
         name: Verify Windows installer activation
         run: powershell -ExecutionPolicy Bypass -File tools/test-install-windows.ps1
+      - name: Stage bundled runtimes
+        shell: bash
+        run: |
+          python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node ${{ matrix.node_windows }}
+          python tools/stage-claurst-runtime.py --target "${{ matrix.target }}" --out-dir dist-runtime/claurst --profile release --claurst-source-dir claurst-upstream
+          python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst
       - name: Package binaries
         run: >-
           python tools/package-release.py --target-dir "${{ matrix.target_dir }}" --out-dir dist
           --version "${{ github.ref_name }}" --target "${{ matrix.target }}"
           --format "${{ matrix.archive }}" --suffix "${{ matrix.suffix }}"
+          --node-runtime-dir dist-runtime/node --claurst-runtime-dir dist-runtime/claurst
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Keylessly sign every published artifact
         shell: bash

@@ -28,6 +28,9 @@ struct Process {
     events: Events,
 }
 impl LocalRuntimeProcess for Process {
+    fn exited(&mut self) -> Result<Option<String>, String> {
+        Ok(None)
+    }
     fn shutdown(&mut self) -> Result<(), String> {
         self.events
             .0
@@ -59,7 +62,11 @@ struct Ready {
     outcome: Result<(), String>,
 }
 impl LlamaServerReadiness for Ready {
-    fn wait_ready(&self, server_url: &str) -> Result<(), String> {
+    fn wait_ready<P: LocalRuntimeProcess>(
+        &self,
+        server_url: &str,
+        _: &mut P,
+    ) -> Result<(), String> {
         self.events
             .0
             .borrow_mut()
@@ -75,9 +82,13 @@ fn plan() -> ClaurstLocalRuntimePlan {
             llama_server_executable: PathBuf::from("/opt/gent/bin/llama-server"),
             model_path: PathBuf::from("/opt/gent/models/model.gguf"),
             claurst_home: PathBuf::from("/opt/gent/claurst"),
-            port: 18_080,
+            effort: gent_types::AgentChatEffort::Medium,
+            mode: gent_types::AgentChatMode::Agent,
+            permission_mode: gent_types::PermissionMode::Default,
+            mcp_servers: Vec::new(),
         },
         catalog.models().first().unwrap(),
+        18_080,
     )
     .unwrap()
 }
@@ -112,11 +123,11 @@ fn materializes_then_starts_llama_waits_and_starts_acp_before_orderly_shutdown()
     owner.shutdown().unwrap();
     owner.shutdown().unwrap();
     let events = events.0.borrow();
-    assert!(events[0].starts_with("settings:/opt/gent/claurst/settings.json:"));
+    assert!(events[0].starts_with("settings:/opt/gent/claurst/.claurst/settings.json:"));
     assert_eq!(
         &events[1..],
         [
-            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 32768 --parallel 1",
+            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 8192 --parallel 1",
             "ready:http://127.0.0.1:18080",
             "launch:acp",
             "stop:acp",
@@ -132,7 +143,7 @@ fn readiness_failure_stops_llama_and_never_starts_acp() {
     assert_eq!(
         events.0.borrow()[1..],
         [
-            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 32768 --parallel 1",
+            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 8192 --parallel 1",
             "ready:http://127.0.0.1:18080",
             "stop:llama",
         ]

@@ -29,6 +29,12 @@ pub fn arguments(provider: &str, intent: &LaunchIntent) -> Result<Vec<String>, L
     }
 }
 
+pub fn append_claude_mcp_config(arguments: &mut Vec<String>, path: Option<&std::path::Path>) {
+    if let Some(path) = path {
+        arguments.extend(["--mcp-config".into(), path.display().to_string()]);
+    }
+}
+
 fn claude_stream_arguments() -> Vec<String> {
     [
         "--input-format",

@@ -1,5 +1,3 @@
-//! Regression coverage for extension frames which share the legacy `request` tag.
-
 use gent_protocol::{
     CONVERSATION_CONTENT_CAPABILITY, CONVERSATION_INDEX_CAPABILITY, ConversationContentFrame,
     DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,

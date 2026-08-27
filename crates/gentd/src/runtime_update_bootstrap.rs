@@ -9,6 +9,16 @@ use sha2::{Digest, Sha256};
 
 use crate::runtime_update_config;
 
+const REQUIRED_CAPABILITIES: [&str; 7] = [
+    "agent-chat-conversations-v1",
+    "agent-chat-intents-v1",
+    "agent-chat-transcript-v1",
+    "agent-chat-turn-follow-v1",
+    "agent-chat-permissions-v1",
+    "attachments-v1",
+    "local-models-v1",
+];
+
 /// Exact filesystem inputs accepted only by the staged runtime bootstrap mode.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RuntimeUpdateBootstrapConfig<'a> {
@@ -103,6 +113,13 @@ fn validate_archive(
         || manifest.archive.sha256 != digest
         || manifest.archive.size != size
         || manifest.binaries != vec!["gent".to_owned(), "gentd".to_owned()]
+        || manifest.runtimes != vec!["runtime/node".to_owned(), "runtime/claurst".to_owned()]
+        || REQUIRED_CAPABILITIES.iter().any(|capability| {
+            !manifest
+                .capabilities
+                .iter()
+                .any(|value| value == capability)
+        })
     {
         return Err("archive manifest does not bind the staged archive".into());
     }
@@ -117,6 +134,8 @@ struct ArchiveManifest {
     target: String,
     archive: ArchiveIdentity,
     binaries: Vec<String>,
+    capabilities: Vec<String>,
+    runtimes: Vec<String>,
 }
 
 #[derive(Deserialize)]

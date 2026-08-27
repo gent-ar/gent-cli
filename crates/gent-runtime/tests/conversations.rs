@@ -1,11 +1,11 @@
 use gent_core::Run;
-use gent_ports::{Ledger, RunLifecycleFactLedger, TurnPhaseUpdate};
+use gent_ports::{Ledger, RunCheckpointLedger, RunLifecycleFactLedger, TurnPhaseUpdate};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
     CapabilitySet, ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
     ConversationRecord, DurableTurnPhase, Event, HostEpoch, NormalizedProviderEvent,
-    NormalizedSessionLifecycle, ReceiptId, RunLifecycleFact, TurnRecord,
+    NormalizedSessionLifecycle, ReceiptId, RunCheckpointRecord, RunLifecycleFact, TurnRecord,
 };
 
 fn coordinator() -> Coordinator<SqliteLedger> {
@@ -223,7 +223,8 @@ fn status_never_exposes_provider_sessions_and_keeps_projection_identity() {
 
 #[test]
 fn timeline_preserves_ordered_lifecycle_and_never_serializes_artifact_text() {
-    let coordinator = coordinator();
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
     let root = Run {
         id: "run-root".into(),
         parent_run_id: None,
@@ -283,9 +284,19 @@ fn timeline_preserves_ordered_lifecycle_and_never_serializes_artifact_text() {
             supersedes_artifact_id: Some("recap-1".into()),
         })
         .unwrap();
+    ledger
+        .save_run_checkpoint(&RunCheckpointRecord {
+            checkpoint_id: "checkpoint-1".into(),
+            run_id: "run-root".into(),
+            sequence: 1,
+            event_cursor: 3,
+            state_digest_sha256: "a".repeat(64),
+        })
+        .unwrap();
     let timeline = coordinator.conversation_timeline("conversation-a").unwrap();
     assert_eq!(timeline.runs.len(), 2);
     assert_eq!(timeline.runs[0].turns.len(), 2);
+    assert_eq!(timeline.runs[0].checkpoints.len(), 1);
     assert_eq!(timeline.runs[1].parent_run_id.as_deref(), Some("run-root"));
     assert_eq!(
         timeline.artifacts[1].supersedes_artifact_id.as_deref(),

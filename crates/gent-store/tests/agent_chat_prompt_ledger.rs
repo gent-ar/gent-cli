@@ -33,6 +33,8 @@ fn prompt(request_id: &str, text: &str) -> AgentChatPromptCreate {
         conversation_id: AgentChatConversationId("conversation-1".into()),
         disposition: AgentChatPromptDisposition::Send,
         text: text.into(),
+        attachment_ids: vec![],
+        tool_source_ids: vec![],
     }
 }
 

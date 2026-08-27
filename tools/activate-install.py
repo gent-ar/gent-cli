@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """Atomically install and select one verified, paired Gent runtime release."""
-
 from __future__ import annotations
-
 import argparse
 import fcntl
 import os
@@ -11,15 +9,11 @@ import stat
 import sys
 import tempfile
 from pathlib import Path
-
-
 LAUNCHER = """#!/usr/bin/env sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../lib/gent" && pwd)
 exec "$root/current/$(basename -- "$0")" "$@"
 """
-
-
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runtime_root", type=Path)
@@ -54,6 +48,27 @@ def require_regular_file(path: Path) -> None:
     details = lstat(path)
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
         fail(f"{path} must be a real file")
+def require_node_runtime(release: Path) -> None:
+    runtime = release / "runtime" / "node"
+    require_directory(runtime)
+    for path in (
+        runtime / "bin" / "node",
+        runtime / "bin" / "npm",
+        runtime / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js",
+    ):
+        require_regular_file(path)
+    for path in runtime.rglob("*"):
+        details = lstat(path)
+        if stat.S_ISLNK(details.st_mode) or not (stat.S_ISREG(details.st_mode) or stat.S_ISDIR(details.st_mode)):
+            fail(f"{path} must be a real file or directory")
+    claurst = runtime.parent / "claurst"
+    require_directory(claurst)
+    require_regular_file(claurst / "claurst")
+    require_regular_file(claurst / "llama" / "llama-server")
+    for path in claurst.rglob("*"):
+        details = lstat(path)
+        if stat.S_ISLNK(details.st_mode) or not (stat.S_ISREG(details.st_mode) or stat.S_ISDIR(details.st_mode)):
+            fail(f"{path} must be a real file or directory")
 def fsync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY)
     try:
@@ -76,8 +91,6 @@ def release_path(runtime_root: Path, release_name: str) -> Path:
     require_executable(release / "gent")
     require_executable(release / "gentd")
     return release
-
-
 def validate_current(runtime_root: Path) -> None:
     current = runtime_root / "current"
     try:
@@ -89,8 +102,6 @@ def validate_current(runtime_root: Path) -> None:
     target = os.readlink(current)
     if Path(target).parent != Path("releases") or Path(target).name in {"", ".", ".."}:
         fail("current does not point to a managed release")
-
-
 def activate(runtime_root: Path, release_name: str) -> Path:
     require_directory(runtime_root)
     release = release_path(runtime_root, release_name)
@@ -105,8 +116,6 @@ def activate(runtime_root: Path, release_name: str) -> Path:
     os.replace(temporary, current)
     fsync_directory(runtime_root)
     return release
-
-
 def identical(left: Path, right: Path) -> bool:
     if left.stat().st_size != right.stat().st_size:
         return False
@@ -115,8 +124,14 @@ def identical(left: Path, right: Path) -> bool:
             if block != right_file.read(len(block)):
                 return False
     return True
-
-
+def identical_tree(left: Path, right: Path) -> bool:
+    if not left.is_dir() or not right.is_dir():
+        return False
+    left_paths = sorted(path.relative_to(left) for path in left.rglob("*") if path.is_file())
+    right_paths = sorted(path.relative_to(right) for path in right.rglob("*") if path.is_file())
+    return left_paths == right_paths and all(
+        identical(left / path, right / path) for path in left_paths
+    )
 def copy_update_material(stage: Path, source: Path | None) -> None:
     if source is None:
         return
@@ -127,12 +142,13 @@ def copy_update_material(stage: Path, source: Path | None) -> None:
         shutil.copyfile(input_path, output)
         output.chmod(0o600)
         fsync_file(output)
-
-
 def prepare_release(runtime_root: Path, release_name: str, source: Path, supervisor: Path | None, auto_updater: Path | None, update_material: Path | None) -> Path:
     require_directory(source)
     for name in ("gent", "gentd"):
         require_executable(source / name)
+    has_runtime = (source / "runtime").exists()
+    if has_runtime:
+        require_node_runtime(source)
     if supervisor is not None:
         require_regular_file(supervisor)
     if auto_updater is not None:
@@ -146,7 +162,8 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
             names.extend(("supervise-runtime-activation.py", "activate-install.py"))
         if auto_updater is not None:
             names.append("gent-auto-update.py")
-        if all(identical(source / name, release / name) for name in ("gent", "gentd")) and (
+        runtime_matches = identical_tree(source / "runtime", release / "runtime") if has_runtime else not (release / "runtime").exists()
+        if all(identical(source / name, release / name) for name in ("gent", "gentd")) and runtime_matches and (
             supervisor is None
             or all((release / name).is_file() for name in names[2:])
             and identical(supervisor, release / "supervise-runtime-activation.py")
@@ -170,6 +187,8 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
             shutil.copyfile(source / name, output)
             output.chmod(0o755)
             fsync_file(output)
+        if has_runtime:
+            shutil.copytree(source / "runtime", stage / "runtime", copy_function=shutil.copy2)
         if supervisor is not None:
             output = stage / "supervise-runtime-activation.py"
             shutil.copyfile(supervisor, output)
@@ -192,8 +211,6 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
         shutil.rmtree(stage, ignore_errors=True)
         raise
     return release_path(runtime_root, release_name)
-
-
 def publish_launchers(bin_dir: Path) -> None:
     bin_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     require_directory(bin_dir)
@@ -213,8 +230,6 @@ def publish_launchers(bin_dir: Path) -> None:
             except FileNotFoundError:
                 pass
     fsync_directory(bin_dir)
-
-
 def lock_install(runtime_root: Path):
     runtime_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     require_directory(runtime_root)
@@ -228,8 +243,6 @@ def lock_install(runtime_root: Path):
             fail("install lock must be a real file")
     descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     return os.fdopen(descriptor, "a+b")
-
-
 def activate_while_idle(runtime_root: Path, release_name: str, data_dir: Path | None) -> Path:
     if data_dir is None:
         return activate(runtime_root, release_name)
@@ -246,8 +259,6 @@ def activate_while_idle(runtime_root: Path, release_name: str, data_dir: Path | 
             return activate(runtime_root, release_name)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-
-
 def install(args: argparse.Namespace) -> Path:
     if args.source_release is None or args.bin_dir is None:
         fail("source release and bin directory are required for installation")
@@ -272,16 +283,12 @@ def install(args: argparse.Namespace) -> Path:
             return activate_while_idle(args.runtime_root, args.release_name, args.idle_data_dir)
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-
-
 def main() -> None:
     args = arguments()
     release = install(args) if args.source_release else activate_while_idle(
         args.runtime_root, args.release_name, args.idle_data_dir
     )
     print(f"{'staged' if args.stage_only else 'activated'} {release.name}")
-
-
 if __name__ == "__main__":
     try:
         main()

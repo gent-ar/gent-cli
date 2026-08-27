@@ -2,8 +2,8 @@
 
 use gent_core::permits_turn_transition;
 use gent_ports::{
-    ConversationArtifactLedger, ConversationLedger, Ledger, LedgerError, RunLifecycleFactLedger,
-    RunRecord, TurnPhaseUpdate,
+    ConversationArtifactLedger, ConversationLedger, Ledger, LedgerError, RunCheckpointLedger,
+    RunLifecycleFactLedger, RunRecord, TurnPhaseUpdate,
 };
 use gent_types::{
     ConversationArtifact, ConversationArtifactSummary, ConversationListItem, ConversationRecord,
@@ -110,7 +110,7 @@ where
 
 impl<L> Coordinator<L>
 where
-    L: Ledger + ConversationLedger + ConversationArtifactLedger,
+    L: Ledger + ConversationLedger + ConversationArtifactLedger + RunCheckpointLedger,
 {
     /// Reads one durable conversation without exposing transcript content or provider sessions.
     ///
@@ -127,6 +127,7 @@ where
             .map(|run| {
                 Ok(ConversationTimelineRun {
                     turns: self.ledger.list_run_turns(&run.run_id)?,
+                    checkpoints: self.ledger.list_run_checkpoints(&run.run_id)?,
                     run_id: run.run_id,
                     parent_run_id: run.parent_run_id,
                     provider: run.provider,

@@ -66,6 +66,8 @@ pub struct PermissionRequest {
     /// Stable public tool name, never a provider-native process argument or credential.
     pub tool_name: String,
     pub category: PermissionCategory,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<serde_json::Value>,
 }
 
 /// One immutable revision of a workspace policy.

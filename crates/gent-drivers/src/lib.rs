@@ -8,6 +8,7 @@ mod claude_tool_results;
 pub mod claude_turn_options;
 pub mod codex_bootstrap;
 pub mod codex_client_request;
+pub mod codex_control;
 pub mod codex_prompt_runner;
 pub mod codex_runner;
 pub mod codex_session;

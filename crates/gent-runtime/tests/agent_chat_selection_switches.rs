@@ -59,6 +59,8 @@ fn save(
             conversation_id,
             disposition: AgentChatPromptDisposition::Send,
             text: format!("prompt {request_id}"),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     let AgentChatPromptResult::Saved(saved) = result else {

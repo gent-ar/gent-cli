@@ -1,10 +1,14 @@
 //! Resumable HTTP download execution for a previously approved local-model plan.
 
-use crate::local_model_provisioning::LocalModelDownloadPlan;
+use crate::{
+    local_model_integrity::matches_sha256, local_model_provisioning::LocalModelDownloadPlan,
+};
 use async_trait::async_trait;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+const PROGRESS_INCREMENT_BYTES: u64 = 1_048_576;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DownloadRequest {
@@ -50,6 +54,8 @@ pub(crate) enum ModelDownloadError {
         actual_bytes: u64,
         expected_bytes: u64,
     },
+    #[error("download does not match the curated SHA-256")]
+    DigestMismatch,
     #[error("download transport failed: {0}")]
     Transport(String),
     #[error("local model download I/O failed: {0}")]
@@ -145,6 +151,18 @@ pub(crate) async fn download_model(
         .parent()
         .ok_or_else(|| ModelDownloadError::Io("partial destination has no parent".into()))?;
     fs::create_dir_all(parent).map_err(io_error)?;
+    if resumed_bytes == plan.expected_bytes {
+        if !matches_sha256(&plan.partial_destination, &plan.expected_sha256).map_err(io_error)? {
+            remove_partial(&plan.partial_destination)?;
+            return Err(ModelDownloadError::DigestMismatch);
+        }
+        fs::rename(&plan.partial_destination, &plan.destination).map_err(io_error)?;
+        report(ModelDownloadProgress::Complete {
+            path: plan.destination.clone(),
+            total_bytes: plan.expected_bytes,
+        });
+        return Ok(plan.destination.clone());
+    }
     let mut response = transport
         .get(DownloadRequest {
             url: plan.source_url.clone(),
@@ -162,6 +180,7 @@ pub(crate) async fn download_model(
         .open(&plan.partial_destination)
         .map_err(io_error)?;
     let mut downloaded_bytes = resumed_bytes;
+    let mut last_reported_bytes = resumed_bytes;
     while let Some(chunk) = response.next_chunk().await? {
         downloaded_bytes = downloaded_bytes.checked_add(chunk.len() as u64).ok_or(
             ModelDownloadError::ExceededApprovedSize {
@@ -174,10 +193,15 @@ pub(crate) async fn download_model(
             });
         }
         output.write_all(&chunk).map_err(io_error)?;
-        report(ModelDownloadProgress::Advanced {
-            downloaded_bytes,
-            total_bytes: plan.expected_bytes,
-        });
+        if downloaded_bytes == plan.expected_bytes
+            || downloaded_bytes.saturating_sub(last_reported_bytes) >= PROGRESS_INCREMENT_BYTES
+        {
+            report(ModelDownloadProgress::Advanced {
+                downloaded_bytes,
+                total_bytes: plan.expected_bytes,
+            });
+            last_reported_bytes = downloaded_bytes;
+        }
     }
     output.sync_all().map_err(io_error)?;
     if downloaded_bytes != plan.expected_bytes {
@@ -185,6 +209,10 @@ pub(crate) async fn download_model(
             actual_bytes: downloaded_bytes,
             expected_bytes: plan.expected_bytes,
         });
+    }
+    if !matches_sha256(&plan.partial_destination, &plan.expected_sha256).map_err(io_error)? {
+        remove_partial(&plan.partial_destination)?;
+        return Err(ModelDownloadError::DigestMismatch);
     }
     fs::rename(&plan.partial_destination, &plan.destination).map_err(io_error)?;
     report(ModelDownloadProgress::Complete {
@@ -218,6 +246,10 @@ fn partial_size(path: &Path) -> Result<u64, ModelDownloadError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
         Err(error) => Err(io_error(error)),
     }
+}
+
+fn remove_partial(path: &Path) -> Result<(), ModelDownloadError> {
+    fs::remove_file(path).map_err(io_error)
 }
 
 fn io_error(error: std::io::Error) -> ModelDownloadError {

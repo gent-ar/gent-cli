@@ -26,7 +26,7 @@ pub(crate) struct AppNodeRuntimeLock {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AppNodeRuntimeLockError {
-    #[error("bundled Node runtime is unavailable; set GENT_NODE_BINARY")]
+    #[error("Node runtime is unavailable; set GENT_NODE_BINARY or install Gent's packaged runtime")]
     MissingNode,
     #[error(transparent)]
     Runtime(#[from] NodeRuntimeLockError),
@@ -41,6 +41,12 @@ impl AppNodeRuntimeLock {
         Self::capture(env::var_os(NODE_BINARY_ENV), data_dir)
     }
 
+    pub(crate) fn from_standalone_environment(
+        data_dir: &Path,
+    ) -> Result<Self, AppNodeRuntimeLockError> {
+        Self::capture_standalone(env::var_os(NODE_BINARY_ENV), data_dir)
+    }
+
     /// Captures a caller-supplied app runtime for a private, uncomposed authority seam.
     ///
     /// # Errors
@@ -52,6 +58,17 @@ impl AppNodeRuntimeLock {
         let node = node.ok_or(AppNodeRuntimeLockError::MissingNode)?;
         Ok(Self {
             lock: NodeRuntimeLock::capture(Path::new(&node))?,
+            private_prefix: data_dir.join("providers").join("npm-global"),
+        })
+    }
+
+    pub(crate) fn capture_standalone(
+        node: Option<OsString>,
+        data_dir: &Path,
+    ) -> Result<Self, AppNodeRuntimeLockError> {
+        let node = node.map_or_else(|| packaged_node(data_dir), PathBuf::from);
+        Ok(Self {
+            lock: NodeRuntimeLock::capture(&node)?,
             private_prefix: data_dir.join("providers").join("npm-global"),
         })
     }
@@ -93,6 +110,37 @@ impl AppNodeRuntimeLock {
             output_limit,
         ))
     }
+}
+
+fn packaged_node(data_dir: &Path) -> PathBuf {
+    let release = std::env::current_exe()
+        .ok()
+        .map(|executable| packaged_node_from_executable(&executable));
+    release.filter(|node| node.is_file()).unwrap_or_else(|| {
+        data_dir
+            .join("runtime")
+            .join("node")
+            .join("bin")
+            .join(node_name())
+    })
+}
+
+fn packaged_node_from_executable(executable: &Path) -> PathBuf {
+    executable
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join("runtime/node/bin")
+        .join(node_name())
+}
+
+#[cfg(windows)]
+const fn node_name() -> &'static str {
+    "node.exe"
+}
+
+#[cfg(not(windows))]
+const fn node_name() -> &'static str {
+    "node"
 }
 
 #[cfg(test)]
@@ -146,10 +194,59 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn standalone_runtime_prefers_the_explicit_binary() {
+        let root = tempfile::tempdir().unwrap();
+        let explicit = write_pair(&root.path().join("explicit"));
+        let packaged = write_pair(&root.path().join("gentd").join("runtime").join("node"));
+        let runtime = AppNodeRuntimeLock::capture_standalone(
+            Some(explicit.clone().into_os_string()),
+            &root.path().join("gentd"),
+        )
+        .unwrap();
+        fs::write(explicit, "replacement").unwrap();
+        assert!(matches!(
+            runtime.recheck(),
+            Err(AppNodeRuntimeLockError::Runtime(_))
+        ));
+        assert!(packaged.exists());
+    }
+
+    #[test]
+    fn standalone_runtime_uses_the_packaged_binary_without_path_lookup() {
+        let root = tempfile::tempdir().unwrap();
+        let data_dir = root.path().join("gentd");
+        let node = write_pair(&data_dir.join("runtime").join("node"));
+        let runtime = AppNodeRuntimeLock::capture_standalone(None, &data_dir).unwrap();
+        fs::write(node, "replacement").unwrap();
+        assert!(matches!(
+            runtime.recheck(),
+            Err(AppNodeRuntimeLockError::Runtime(_))
+        ));
+    }
+
+    #[test]
+    fn standalone_runtime_prefers_the_installed_release_runtime() {
+        let root = tempfile::tempdir().unwrap();
+        let release = root.path().join("release");
+        let node = write_pair(&release.join("runtime").join("node"));
+        let resolved = super::packaged_node_from_executable(&release.join("gentd"));
+        assert_eq!(resolved, node);
+    }
+
+    #[test]
+    fn standalone_runtime_requires_an_explicit_or_packaged_binary() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            AppNodeRuntimeLock::capture_standalone(None, root.path()),
+            Err(AppNodeRuntimeLockError::Runtime(_))
+        ));
+    }
+
     fn write_pair(root: &std::path::Path) -> std::path::PathBuf {
         let bin = root.join("bin");
-        fs::create_dir(&bin).unwrap();
-        let node = bin.join("node");
+        fs::create_dir_all(&bin).unwrap();
+        let node = bin.join(super::node_name());
         fs::write(&node, "node").unwrap();
         fs::write(bin.join(npm_name()), "npm").unwrap();
         let cli = root.join("lib/node_modules/npm/bin");

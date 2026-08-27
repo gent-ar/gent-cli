@@ -65,6 +65,8 @@ fn seeded() -> (SqliteLedger, PlanArtifact, StartImplementationRequest) {
             conversation_id: AgentChatConversationId("conversation-1".into()),
             disposition: AgentChatPromptDisposition::Send,
             text: "Make the change".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     let plan = PlanArtifact {

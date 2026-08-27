@@ -117,4 +117,38 @@ mod tests {
             } if policy.mode == PermissionMode::Bypass
         ));
     }
+
+    #[test]
+    fn conservative_default_is_idempotent_and_an_explicit_revision_remains_authoritative() {
+        let coordinator =
+            Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
+        coordinator
+            .create_workspace(&WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
+            })
+            .unwrap();
+        let first = coordinator
+            .ensure_default_provider_permission_policy("workspace-1")
+            .unwrap();
+        let retry = coordinator
+            .ensure_default_provider_permission_policy("workspace-1")
+            .unwrap();
+        assert_eq!(first, retry);
+        assert_eq!(first.mode, PermissionMode::Default);
+        assert!(first.allowed_tools.is_empty() && first.allowed_categories.is_empty());
+        let revised = PolicyRecord {
+            revision: 2,
+            policy_id: "policy-2".into(),
+            mode: PermissionMode::Plan,
+            ..first
+        };
+        coordinator.save_policy(&revised).unwrap();
+        assert_eq!(
+            coordinator
+                .ensure_default_provider_permission_policy("workspace-1")
+                .unwrap(),
+            revised
+        );
+    }
 }

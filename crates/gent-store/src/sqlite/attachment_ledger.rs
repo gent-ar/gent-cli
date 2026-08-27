@@ -106,6 +106,28 @@ impl AttachmentLedger for SqliteLedger {
             .map(|_| ())
             .map_err(storage_error)
     }
+
+    fn turn_attachments(
+        &self,
+        turn_id: &str,
+    ) -> Result<Vec<gent_types::AttachmentMetadata>, LedgerError> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare("SELECT a.attachment_id, a.display_name, a.media_type, a.byte_len, a.digest_sha256, a.storage_key FROM turn_attachments t JOIN attachments a ON a.attachment_id = t.attachment_id WHERE t.turn_id = ?1 AND a.state = 'available' ORDER BY a.attachment_id").map_err(storage_error)?;
+        statement
+            .query_map([turn_id], |row| {
+                Ok(gent_types::AttachmentMetadata {
+                    attachment_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    media_type: row.get(2)?,
+                    byte_len: row.get(3)?,
+                    digest_sha256: row.get(4)?,
+                    storage_key: row.get(5)?,
+                })
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)
+    }
 }
 
 fn find(

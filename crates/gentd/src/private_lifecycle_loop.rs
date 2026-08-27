@@ -65,6 +65,42 @@ pub(crate) trait PrivateLifecycleOwner {
     fn shutdown_complete(&self) -> bool {
         false
     }
+
+    fn respond_claude_permission(
+        &self,
+        _run_id: &str,
+        _request_id: &str,
+        _behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        _persist_suggestions: bool,
+    ) -> Result<(), ()> {
+        Err(())
+    }
+
+    fn respond_claude_permission_with_input(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+        updated_input: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        let _ = updated_input;
+        self.respond_claude_permission(run_id, request_id, behavior, persist_suggestions)
+    }
+
+    fn respond_codex_permission(
+        &self,
+        _run_id: &str,
+        _request_id: &str,
+        _decision: gent_drivers::codex_control::CodexControlDecision,
+        _answers: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        Err(())
+    }
+
+    fn interrupt_run(&mut self, _: &str) -> Result<(), ()> {
+        Err(())
+    }
 }
 
 type PrivateLifecycleTickResult<O> = Result<
@@ -116,6 +152,54 @@ where
     #[must_use]
     pub(crate) fn owner_shutdown_complete(&self) -> bool {
         self.owner.shutdown_complete()
+    }
+
+    pub(crate) fn respond_claude_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+    ) -> Result<(), ()> {
+        self.respond_claude_permission_with_input(
+            run_id,
+            request_id,
+            behavior,
+            persist_suggestions,
+            None,
+        )
+    }
+
+    pub(crate) fn respond_claude_permission_with_input(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+        updated_input: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        self.owner.respond_claude_permission_with_input(
+            run_id,
+            request_id,
+            behavior,
+            persist_suggestions,
+            updated_input,
+        )
+    }
+
+    pub(crate) fn respond_codex_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        self.owner
+            .respond_codex_permission(run_id, request_id, decision, answers)
+    }
+
+    pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
+        self.owner.interrupt_run(run_id)
     }
 
     /// Queues one caller-selected operation without executing it.

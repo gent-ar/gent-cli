@@ -1,14 +1,13 @@
 //! Pure, documented Claude stream-JSON and Codex app-server frame normalization.
 
+use crate::PublicProvider;
 use gent_types::{
     AgentChatCompactionFailure, NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity,
     ToolActivity, ToolPhase, TurnPhase,
 };
 use serde_json::Value;
 
-use crate::PublicProvider;
-
-mod claude_protocol;
+pub(crate) mod claude_protocol;
 mod codex_protocol;
 
 /// A provider-neutral fact extracted without process, ledger, or UI access.
@@ -66,11 +65,24 @@ fn claude(frame: &Value) -> Vec<PublicWireFact> {
         Some("system")
             if matches!(
                 string(frame, "subtype"),
-                Some("task_started" | "task_progress")
+                Some("task_started" | "task_progress" | "thinking_tokens" | "status")
             ) =>
         {
-            claude_protocol::background_activity(frame)
+            match string(frame, "subtype") {
+                Some("task_started" | "task_progress") => {
+                    claude_protocol::background_activity(frame)
+                }
+                _ => Vec::new(),
+            }
         }
+        Some("control_response") => claude_protocol::control_response(frame),
+        Some("control_cancel_request" | "tool_progress" | "rate_limit_event") => Vec::new(),
+        Some("queue-operation")
+            if !claude_protocol::background_terminal_tool_use_ids(frame).is_empty() =>
+        {
+            Vec::new()
+        }
+        Some("error") => claude_error(frame),
         Some("result") => claude_result(frame),
         _ => diagnostic("unsupportedClaudeFrame"),
     }
@@ -85,17 +97,23 @@ fn claude_stream_event(frame: &Value) -> Vec<PublicWireFact> {
         return diagnostic("malformedClaudeStreamEvent");
     };
     match string(event, "type") {
-        Some("message_start") => vec![PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::RootActivity {
-                activity: RootActivity::Generating,
-            },
-        )],
+        Some("message_start") => {
+            let mut facts = vec![PublicWireFact::Lifecycle(
+                NormalizedLifecycleSignal::RootActivity {
+                    activity: RootActivity::Generating,
+                },
+            )];
+            if let Some(usage) = claude_protocol::context_usage(event) {
+                facts.push(PublicWireFact::Event(usage));
+            }
+            facts
+        }
         Some("content_block_start") => claude_stream_block_start(event),
         Some("content_block_delta") => claude_stream_delta(event),
-        Some("content_block_stop")
-        | Some("message_stop")
-        | Some("message_delta")
-        | Some("ping") => Vec::new(),
+        Some(
+            "content_block_stop" | "message_stop" | "message_delta" | "ping" | "signature_delta",
+        ) => Vec::new(),
+        Some("error") => claude_error(event),
         Some(_) => diagnostic("unsupportedClaudeStreamEvent"),
         None => diagnostic("malformedClaudeStreamEvent"),
     }
@@ -109,7 +127,7 @@ fn claude_stream_block_start(event: &Value) -> Vec<PublicWireFact> {
         Some("tool_use") => {
             tool_activity(block, ToolPhase::Started, "malformedClaudeToolUse", false)
         }
-        Some("text") | Some("thinking") => Vec::new(),
+        Some("text" | "thinking") => Vec::new(),
         Some(_) => diagnostic("unsupportedClaudeContentBlock"),
         None => diagnostic("malformedClaudeContentBlockStart"),
     }
@@ -120,32 +138,27 @@ fn claude_stream_delta(event: &Value) -> Vec<PublicWireFact> {
         return diagnostic("malformedClaudeContentBlockDelta");
     };
     match string(delta, "type") {
-        Some("text_delta") => partial_text(delta, "text", false),
-        Some("thinking_delta") => partial_text(delta, "thinking", true),
-        // Claude supplies only a content-block index here. Associating it with a tool ID needs
-        // runner-owned block state, so a frame-local reducer must not guess.
-        Some("input_json_delta") => Vec::new(),
+        Some("text_delta") => claude_protocol::partial_text(delta, "text", false),
+        Some("thinking_delta") => claude_protocol::partial_text(delta, "thinking", true),
+        Some("input_json_delta") => {
+            let Some(partial_json) =
+                string(delta, "partial_json").filter(|value| !value.is_empty())
+            else {
+                return diagnostic("malformedClaudeContentBlockDelta");
+            };
+            let Some(block_index) = event.get("index").and_then(Value::as_u64) else {
+                return diagnostic("malformedClaudeContentBlockDelta");
+            };
+            vec![PublicWireFact::Event(
+                NormalizedProviderEvent::ToolInputDelta {
+                    block_index,
+                    partial_json: partial_json.into(),
+                },
+            )]
+        }
         Some(_) => diagnostic("unsupportedClaudeContentBlockDelta"),
         None => diagnostic("malformedClaudeContentBlockDelta"),
     }
-}
-
-fn partial_text(delta: &Value, field: &str, thinking: bool) -> Vec<PublicWireFact> {
-    let Some(text) = string(delta, field).filter(|text| !text.is_empty()) else {
-        return diagnostic("malformedClaudeContentBlockDelta");
-    };
-    let event = if thinking {
-        NormalizedProviderEvent::Thinking {
-            text: text.into(),
-            is_partial: true,
-        }
-    } else {
-        NormalizedProviderEvent::Output {
-            text: text.into(),
-            is_partial: true,
-        }
-    };
-    vec![PublicWireFact::Event(event)]
 }
 
 fn session(frame: &Value, field: &str, invalid: &str) -> Vec<PublicWireFact> {
@@ -186,6 +199,17 @@ fn claude_content(block: &Value) -> Vec<PublicWireFact> {
                     })]
                 },
             ),
+        Some("thinking") => string(block, "thinking")
+            .filter(|text| !text.is_empty())
+            .map_or_else(
+                || diagnostic("malformedClaudeThinking"),
+                |text| {
+                    vec![PublicWireFact::Event(NormalizedProviderEvent::Thinking {
+                        text: text.into(),
+                        is_partial: false,
+                    })]
+                },
+            ),
         Some("tool_use") => {
             tool_activity(block, ToolPhase::Started, "malformedClaudeToolUse", false)
         }
@@ -203,12 +227,31 @@ fn claude_result(frame: &Value) -> Vec<PublicWireFact> {
     } else {
         TurnPhase::Ready
     };
-    vec![
+    let mut facts = Vec::new();
+    if failed {
+        facts.push(PublicWireFact::Event(
+            NormalizedProviderEvent::ProviderFailure {
+                classification: claude_protocol::failure_classification(frame),
+                message: claude_protocol::failure_message(frame),
+            },
+        ));
+    }
+    facts.extend([
         PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {
             activity: RootActivity::Idle,
         }),
         PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase { phase }),
-    ]
+    ]);
+    facts
+}
+
+fn claude_error(frame: &Value) -> Vec<PublicWireFact> {
+    vec![PublicWireFact::Event(
+        NormalizedProviderEvent::ProviderFailure {
+            classification: claude_protocol::failure_classification(frame),
+            message: claude_protocol::failure_message(frame),
+        },
+    )]
 }
 
 fn tool_activity(

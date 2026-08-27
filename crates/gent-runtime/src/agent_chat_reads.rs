@@ -106,13 +106,12 @@ fn validate_page(
         }
         previous = event.cursor;
     }
-    if page
-        .next_after_cursor
-        .is_some_and(|cursor| cursor <= previous)
-    {
-        return Err(invariant(
-            "agent-chat transcript continuation does not advance",
-        ));
+    if let Some(cursor) = page.next_after_cursor {
+        if page.events.is_empty() || cursor != previous || cursor <= after_cursor.unwrap_or(0) {
+            return Err(invariant(
+                "agent-chat transcript continuation does not advance",
+            ));
+        }
     }
     Ok(())
 }
@@ -175,8 +174,8 @@ mod tests {
     }
 
     #[test]
-    fn transcript_clamps_limit_and_accepts_an_ascending_page() {
-        let page = page(vec![event(2), event(3)], Some(4));
+    fn transcript_accepts_the_final_event_cursor_as_the_resume_token() {
+        let page = page(vec![event(2), event(3)], Some(3));
         assert_eq!(
             AgentChatReadService::new(Ledger { page, runs: vec![] })
                 .transcript("conversation", Some(1), 500)
@@ -184,6 +183,16 @@ mod tests {
                 .events
                 .len(),
             2
+        );
+    }
+
+    #[test]
+    fn transcript_rejects_a_continuation_that_skips_past_the_final_event() {
+        let page = page(vec![event(2), event(3)], Some(4));
+        assert!(
+            AgentChatReadService::new(Ledger { page, runs: vec![] })
+                .transcript("conversation", Some(1), 20)
+                .is_err()
         );
     }
 
@@ -204,6 +213,13 @@ mod tests {
         AgentChatConversationSummary {
             conversation_id: "conversation".into(),
             title: None,
+            recap: None,
+            workspace_id: None,
+            workspace_path: None,
+            mcp_server_count: 0,
+            mcp_server_names: Vec::new(),
+            changed_file_count: None,
+            git_branch: None,
             updated_at_unix_ms: 1,
             selection: AgentChatSelection {
                 provider: AgentChatProvider::Codex,

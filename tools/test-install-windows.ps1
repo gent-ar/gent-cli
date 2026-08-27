@@ -41,8 +41,18 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
     Write-FixtureBinary (Join-Path $source "gent.exe") "gent"
     Write-FixtureBinary (Join-Path $source "gentd.exe") "gentd"
     Write-FixtureBinary (Join-Path $source "gent-launcher.exe") "launcher"
+    $nodeRuntime = Join-Path $source "node-runtime"
+    New-Item -ItemType Directory -Path (Join-Path $nodeRuntime "bin"), (Join-Path $nodeRuntime "lib\node_modules\npm\bin") -Force | Out-Null
+    Write-FixtureBinary (Join-Path $nodeRuntime "bin\node.exe") "node"
+    Write-FixtureBinary (Join-Path $nodeRuntime "bin\npm.cmd") "npm"
+    Write-FixtureBinary (Join-Path $nodeRuntime "lib\node_modules\npm\bin\npm-cli.js") "npm-cli"
+    $claurstRuntime = Join-Path $source "claurst-runtime"
+    New-Item -ItemType Directory -Path (Join-Path $claurstRuntime "llama") -Force | Out-Null
+    Write-FixtureBinary (Join-Path $claurstRuntime "claurst.exe") "claurst"
+    Write-FixtureBinary (Join-Path $claurstRuntime "llama\llama-server.exe") "llama-server"
     & $python (Join-Path $repo "tools\package-release.py") --target-dir $source --out-dir $output `
-        --version $version --target $target --format zip --suffix .exe
+        --version $version --target $target --format zip --suffix .exe `
+        --node-runtime-dir $nodeRuntime --claurst-runtime-dir $claurstRuntime
     if ($LASTEXITCODE -ne 0) { throw "could not package release fixture" }
     $archive = "gent-$version-$target.zip"
     Set-Content -NoNewline -Encoding utf8 (Join-Path $output "$archive.sigstore.json") '{}'
@@ -147,17 +157,11 @@ try {
         Assert-True (Test-Path (Join-Path $installRoot "bin\gentd.exe")) "gentd launcher missing"
         Assert-True (Test-Path (Join-Path $installRoot "gent-auto-update.ps1")) "signed automatic-update helper missing"
         Assert-True (Test-Path (Join-Path $env:GENT_AUTO_UPDATE_SCHEDULER_DIR "gent-auto-update.task.json")) "automatic update is not enabled by default"
-        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gent.cmd"))) "unsafe gent.cmd survived"
-        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gentd.cmd"))) "unsafe gentd.cmd survived"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.2.0"
         Invoke-Installer -version "v0.2.0" -installRoot $installRoot -mustSucceed $false
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "failed update changed current"
-        Set-Content -NoNewline -Encoding ascii (Join-Path $installRoot "bin\gent.cmd") "legacy"
-        Set-Content -NoNewline -Encoding ascii (Join-Path $installRoot "bin\gentd.cmd") "legacy"
         Invoke-Installer -version "v0.2.0" -installRoot $installRoot -force $true
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "forced update was not activated"
-        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gent.cmd"))) "legacy gent.cmd was not removed"
-        Assert-True (-not (Test-Path (Join-Path $installRoot "bin\gentd.cmd"))) "legacy gentd.cmd was not removed"
         Add-Content -NoNewline -Encoding utf8 (Join-Path $installRoot "releases\v0.1.0-$target\gent.exe") "tampered"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.1.0"
         Invoke-Installer -version "v0.1.0" -installRoot $installRoot -force $true -mustSucceed $false

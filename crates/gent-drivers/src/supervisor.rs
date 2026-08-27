@@ -33,6 +33,7 @@ pub trait ProviderProcess: ProcessTreeControl {
     /// Returns an error when the owned process cannot accept the frame.
     fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError>;
 
+    fn close_stdin(&self) -> Result<(), ProcessTreeError>;
     /// Returns one bounded stdout chunk without blocking when no process output is available.
     ///
     /// Implementations that cannot provide live output return `Ok(None)`.

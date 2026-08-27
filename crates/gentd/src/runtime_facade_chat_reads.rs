@@ -15,16 +15,36 @@ pub(super) fn conversation(
     match frame {
         AgentChatConversationFrame::SummaryRequest { conversation_id } => reads
             .summary(&conversation_id)
-            .map(AgentChatConversationFrame::Summary)
+            .map(|summary| AgentChatConversationFrame::Summary(summary_with_mcp(facade, summary)))
             .map_err(|error| error.to_string()),
         AgentChatConversationFrame::DetailRequest { conversation_id } => reads
             .detail(&conversation_id)
-            .map(AgentChatConversationFrame::Detail)
+            .map(|mut detail| {
+                detail.summary = summary_with_mcp(facade, detail.summary);
+                AgentChatConversationFrame::Detail(detail)
+            })
             .map_err(|error| error.to_string()),
         AgentChatConversationFrame::Summary(_) | AgentChatConversationFrame::Detail(_) => {
             Err("agent-chat conversation response frames are server-only".into())
         }
     }
+}
+
+fn summary_with_mcp(
+    facade: &RuntimeFacade,
+    mut summary: gent_types::AgentChatConversationSummary,
+) -> gent_types::AgentChatConversationSummary {
+    summary.mcp_server_count = facade.mcp_server_count;
+    summary.mcp_server_names = facade.mcp_server_names.clone();
+    let git = summary
+        .workspace_path
+        .as_deref()
+        .and_then(crate::workspace_git_api::status);
+    summary.changed_file_count = git
+        .as_ref()
+        .map(|report| u32::try_from(report.files.len()).unwrap_or(u32::MAX));
+    summary.git_branch = git.and_then(|report| report.branch);
+    summary
 }
 
 pub(super) fn transcript(

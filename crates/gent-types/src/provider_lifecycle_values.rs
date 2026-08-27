@@ -62,11 +62,24 @@ pub enum NormalizedProviderEvent {
         text: String,
         is_partial: bool,
     },
+    ToolInputDelta {
+        block_index: u64,
+        partial_json: String,
+    },
+    ToolOutputDelta {
+        tool_use_id: String,
+        text: String,
+        is_partial: bool,
+    },
     TurnStarted {
         turn_id: String,
     },
     TurnEnded {
         turn_id: String,
+    },
+    ContextUsage {
+        used_tokens: u64,
+        window_tokens: Option<u64>,
     },
     RootActivity {
         activity: RootActivity,
@@ -86,9 +99,22 @@ pub enum NormalizedProviderEvent {
     DecisionSettled {
         decision_id: String,
     },
+    ProviderFailure {
+        classification: ProviderFailureClassification,
+        message: String,
+    },
     TransportDiagnostic {
         classification: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderFailureClassification {
+    Authentication,
+    RateLimited,
+    ContextLimit,
+    Provider,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

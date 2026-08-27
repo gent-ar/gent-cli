@@ -1,16 +1,14 @@
-//! Bounded daemon-owned Claude stream-JSON process runner.
 use crate::PublicProvider;
 use crate::buffering::BufferPolicy;
 use crate::claude_control::{ClaudePermissionBehavior, ClaudePermissionRequest};
 use crate::claude_permission_relay::ClaudePermissionRelay;
 use crate::claude_tool_results;
 use crate::claude_turn_options::ClaudeTurnOptions;
-use crate::goal_projection::project_prompt;
 use crate::interrupt::ProcessTreeSignal;
-use crate::launch_spec::{LaunchIntent, arguments};
+use crate::launch_spec::{LaunchIntent, append_claude_mcp_config, arguments};
 use crate::lock::{LockError, recheck};
 use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
-use crate::public_protocol::{PublicWireFact, normalize_public_frame};
+use crate::public_protocol::{PublicWireFact, claude_protocol, normalize_public_frame};
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use gent_types::{
     FrozenConversationContext, GoalProjection, NormalizedProviderEvent, RunVersionLock,
@@ -20,21 +18,22 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 pub const MAX_CLAUDE_FRAME_BYTES: usize = 64 * 1024;
 
-/// Inputs for a locked Claude process and exactly one daemon-owned user prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaudeRunStart {
     pub run_id: String,
     pub lock: RunVersionLock,
     pub prompt: String,
+    pub content: Vec<serde_json::Value>,
     pub turn_options: ClaudeTurnOptions,
     pub goal: Option<GoalProjection>,
     pub fresh_context: Option<FrozenConversationContext>,
     pub resume_session_id: Option<String>,
     pub workspace_root: PathBuf,
     pub workspace_access: SandboxWorkspaceAccess,
+    pub mcp_config: Option<PathBuf>,
+    pub selected_mcp_source_names: Vec<String>,
 }
 
-/// One normalized Claude fact or terminal process settlement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClaudeRunnerEffect {
     Fact(PublicWireFact),
@@ -42,7 +41,6 @@ pub enum ClaudeRunnerEffect {
     Exited { code: Option<i32> },
 }
 
-/// Controlled Claude process, framing, launch, or immutable-lock failure.
 #[derive(Debug, thiserror::Error)]
 pub enum ClaudeRunnerError {
     #[error("Claude runner already owns the run")]
@@ -65,7 +63,6 @@ pub enum ClaudeRunnerError {
     Process(#[from] crate::interrupt::ProcessTreeError),
 }
 
-/// One synchronous owner for bounded Claude stream-JSON processes.
 #[derive(Debug)]
 pub struct ClaudeStreamRunner<L, P> {
     launcher: L,
@@ -79,6 +76,7 @@ struct OwnedRun<P> {
     output: ProviderOutputPump,
     permissions: ClaudePermissionRelay,
     tool_names: BTreeMap<String, String>,
+    child_ids: BTreeMap<String, String>,
 }
 
 impl<L, P> ClaudeStreamRunner<L, P>
@@ -120,6 +118,7 @@ where
         let mut arguments = arguments("claude", &intent)
             .map_err(|error| SupervisorError::Launch(error.to_string()))?;
         start.turn_options.append_arguments(&mut arguments);
+        append_claude_mcp_config(&mut arguments, start.mcp_config.as_deref());
         let launch = ProviderLaunch {
             lock: start.lock.clone(),
             provider: "claude".into(),
@@ -141,6 +140,7 @@ where
                 output,
                 permissions: ClaudePermissionRelay::default(),
                 tool_names: BTreeMap::new(),
+                child_ids: BTreeMap::new(),
             },
         );
         Ok(())
@@ -200,59 +200,34 @@ where
         behavior: ClaudePermissionBehavior,
         persist_suggestions: bool,
     ) -> Result<(), ClaudeRunnerError> {
+        self.respond_permission_with_input(run_id, request_id, behavior, persist_suggestions, None)
+    }
+
+    pub fn respond_permission_with_input(
+        &mut self,
+        run_id: &str,
+        request_id: &str,
+        behavior: ClaudePermissionBehavior,
+        persist_suggestions: bool,
+        updated_input: Option<serde_json::Value>,
+    ) -> Result<(), ClaudeRunnerError> {
         let run = self
             .runs
             .get_mut(run_id)
             .ok_or(ClaudeRunnerError::NotActive)?;
         let response = run
             .permissions
-            .response(request_id, behavior, persist_suggestions)
+            .response_with_input(
+                request_id,
+                behavior,
+                persist_suggestions,
+                updated_input.as_ref(),
+            )
             .ok_or(ClaudeRunnerError::PermissionRequestNotPending)?;
         run.process.write_frame(&response)?;
         run.permissions.settle(request_id);
         Ok(())
     }
-}
-
-fn input_frame(start: &ClaudeRunStart) -> Result<Vec<u8>, ClaudeRunnerError> {
-    if start.run_id.trim().is_empty()
-        || start.prompt.trim().is_empty()
-        || start.prompt.len() > MAX_CLAUDE_FRAME_BYTES
-    {
-        return Err(ClaudeRunnerError::InvalidPrompt);
-    }
-    if start.fresh_context.is_some() && start.resume_session_id.is_some() {
-        return Err(ClaudeRunnerError::InvalidPrompt);
-    }
-    let prompt = match &start.fresh_context {
-        Some(context) => crate::conversation_context_input::render_fresh_conversation_input(
-            context,
-            &start.prompt,
-            MAX_CLAUDE_FRAME_BYTES,
-        )
-        .map_err(|_| ClaudeRunnerError::InvalidPrompt)?
-        .prompt()
-        .to_owned(),
-        None => project_prompt(&start.prompt, start.goal.as_ref(), MAX_CLAUDE_FRAME_BYTES)
-            .map_err(|_| ClaudeRunnerError::InvalidPrompt)?,
-    };
-    let prompt = if start.fresh_context.is_some() {
-        project_prompt(&prompt, start.goal.as_ref(), MAX_CLAUDE_FRAME_BYTES)
-            .map_err(|_| ClaudeRunnerError::InvalidPrompt)?
-    } else {
-        prompt
-    };
-    let mut value = serde_json::json!({
-        "type": "user",
-        "message": { "role": "user", "content": [{ "type": "text", "text": prompt }] },
-        "parent_tool_use_id": null,
-    });
-    if let Some(session_id) = &start.resume_session_id {
-        value["session_id"] = serde_json::Value::String(session_id.clone());
-    }
-    let mut frame = serde_json::to_vec(&value).map_err(|_| ClaudeRunnerError::InvalidPrompt)?;
-    frame.push(b'\n');
-    Ok(frame)
 }
 
 fn drain<P: ProviderProcess>(run: &mut OwnedRun<P>) -> Option<Vec<ClaudeRunnerEffect>> {
@@ -276,16 +251,25 @@ fn normalize<P: ProviderProcess>(run: &mut OwnedRun<P>, raw: &[u8]) -> Vec<Claud
             Err(classification) => diagnostic(classification),
         };
     }
+    if frame.get("type").and_then(serde_json::Value::as_str) == Some("control_cancel_request") {
+        run.permissions.cancel(&frame);
+        return Vec::new();
+    }
     if frame.get("type").and_then(serde_json::Value::as_str) == Some("user") {
-        let facts = claude_tool_results::results(&mut run.tool_names, &frame)
+        let mut facts = claude_tool_results::results(&mut run.tool_names, &frame)
             .unwrap_or_else(|| normalize_public_frame(PublicProvider::Claude, &frame));
+        background::remember_launches(run, &frame, &mut facts);
+        background::append_terminals(run, &frame, &mut facts);
         return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
     }
-    let facts = normalize_public_frame(PublicProvider::Claude, &frame);
+    if let Some(facts) = claude_protocol::correlated_background_activity(&run.tool_names, &frame) {
+        return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
+    }
+    let mut facts = normalize_public_frame(PublicProvider::Claude, &frame);
     claude_tool_results::remember(&facts, &mut run.tool_names);
+    background::append_terminals(run, &frame, &mut facts);
     facts.into_iter().map(ClaudeRunnerEffect::Fact).collect()
 }
-
 fn diagnostic(classification: &str) -> Vec<ClaudeRunnerEffect> {
     vec![ClaudeRunnerEffect::Fact(PublicWireFact::Event(
         NormalizedProviderEvent::TransportDiagnostic {
@@ -293,7 +277,11 @@ fn diagnostic(classification: &str) -> Vec<ClaudeRunnerEffect> {
         },
     ))]
 }
-
+#[path = "claude_runner_background.rs"]
+mod background;
+#[path = "claude_runner_input.rs"]
+mod input;
+use input::input_frame;
 #[cfg(test)]
 #[path = "claude_runner_tests.rs"]
 mod tests;

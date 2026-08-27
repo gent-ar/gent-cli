@@ -47,6 +47,20 @@ def create_release(root: Path, version: str, runtime_target: str, include_superv
         encoding="utf-8",
     )
     gentd.chmod(0o755)
+    node_runtime = source / "node-runtime"
+    (node_runtime / "bin").mkdir(parents=True)
+    (node_runtime / "lib/node_modules/npm/bin").mkdir(parents=True)
+    for name in ("node", "npm"):
+        path = node_runtime / "bin" / name
+        path.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+    (node_runtime / "lib/node_modules/npm/bin/npm-cli.js").write_text("", encoding="utf-8")
+    claurst_runtime = source / "claurst-runtime"
+    (claurst_runtime / "llama").mkdir(parents=True)
+    for name in ("claurst", "llama/llama-server"):
+        path = claurst_runtime / name
+        path.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
     subprocess.run(
         [
             sys.executable,
@@ -61,6 +75,10 @@ def create_release(root: Path, version: str, runtime_target: str, include_superv
             runtime_target,
             "--format",
             "tar.gz",
+            "--node-runtime-dir",
+            str(node_runtime),
+            "--claurst-runtime-dir",
+            str(claurst_runtime),
         ],
         check=True,
     )

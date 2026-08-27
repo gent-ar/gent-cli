@@ -1,6 +1,6 @@
 use super::{
-    AuthorityProfileConfig, AuthorityProfileError, DeferredSurfaceRequest, McpApproval, McpRequest,
-    PublicDriverApproval, PublicDriverRequest, ValidatedAuthorityProfile,
+    AuthorityProfileConfig, AuthorityProfileError, DeferredSurfaceRequest, PublicDriverApproval,
+    PublicDriverRequest, ValidatedAuthorityProfile,
 };
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
@@ -96,29 +96,4 @@ fn unsupported_surfaces_are_rejected_before_any_future_provider_composition() {
         profile.validate(),
         Err(AuthorityProfileError::DeferredSurfaceRequested { surface: "Git" })
     );
-}
-
-#[test]
-fn mcp_requires_evidence_and_a_pinned_registry_digest() {
-    let incomplete = AuthorityProfileConfig {
-        mcp: McpRequest::Approved(McpApproval {
-            evidence_reference: " ".into(),
-            registry_sha256: "a".repeat(64),
-        }),
-        ..AuthorityProfileConfig::default()
-    };
-    assert_eq!(
-        incomplete.validate(),
-        Err(AuthorityProfileError::MissingMcpEvidenceReference)
-    );
-    let profile = AuthorityProfileConfig {
-        mcp: McpRequest::Approved(McpApproval {
-            evidence_reference: "mcp-evidence".into(),
-            registry_sha256: "a".repeat(64),
-        }),
-        ..AuthorityProfileConfig::default()
-    }
-    .validate()
-    .unwrap();
-    assert!(matches!(profile, ValidatedAuthorityProfile::PreparedMcp(_)));
 }

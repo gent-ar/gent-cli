@@ -175,6 +175,8 @@ fn reserved_prompt() -> (
             conversation_id: conversation.clone(),
             disposition: AgentChatPromptDisposition::Send,
             text: "continue".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     let binding = ProviderPromptProvisionCommandBinding {

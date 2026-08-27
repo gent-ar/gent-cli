@@ -2,7 +2,16 @@ use crate::authority_profile::{
     AuthorityProfileConfig, PublicDriverApproval, PublicDriverRequest, ValidatedAuthorityProfile,
 };
 
-use super::enforce_hard_observer;
+use clap::Parser;
+
+use super::{Args, ProviderLogin, enforce_hard_observer};
+
+#[test]
+fn provider_login_is_a_direct_one_off_command() {
+    let args = Args::try_parse_from(["gentd", "--provider-login", "codex"]).unwrap();
+    assert!(matches!(args.provider_login, Some(ProviderLogin::Codex)));
+    assert!(!args.standalone_authority);
+}
 
 #[test]
 fn shipped_profile_passes_the_bootstrap_observer_fence() {

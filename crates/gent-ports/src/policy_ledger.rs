@@ -6,6 +6,16 @@ use crate::LedgerError;
 
 /// Persistence boundary for versioned, secret-free policy records.
 pub trait PolicyLedger: Send + Sync {
+    fn ensure_default_provider_permission_policy(
+        &self,
+        workspace_id: &str,
+    ) -> Result<PolicyRecord, LedgerError> {
+        let _ = workspace_id;
+        Err(LedgerError::Invariant(
+            "default provider permission policy is unavailable".into(),
+        ))
+    }
+
     /// Saves an immutable policy revision under an existing workspace.
     ///
     /// # Errors

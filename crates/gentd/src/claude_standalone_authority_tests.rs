@@ -20,11 +20,14 @@ fn captures_an_explicit_claude_binary_without_release_material() {
     .unwrap();
 
     let mut host = compose_standalone_claude(
-        &state,
+        state.ledger().clone(),
+        state.coordinator().clone(),
         &StandaloneClaudeConfig {
+            data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
             executable,
+            mcp_config: None,
         },
         SystemLauncher::new(64 * 1024),
     )
@@ -44,11 +47,14 @@ fn rejects_missing_local_executable_before_host_composition() {
     )
     .unwrap();
     let result = compose_standalone_claude(
-        &state,
+        state.ledger().clone(),
+        state.coordinator().clone(),
         &StandaloneClaudeConfig {
+            data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
             executable: directory.path().join("missing-claude"),
+            mcp_config: None,
         },
         SystemLauncher::new(64 * 1024),
     );

@@ -14,16 +14,12 @@ gent-protocol = { path = "../gent-protocol" }
 gent-types = { path = "../gent-types" }
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
+serde_yaml_ng.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 tokio.workspace = true
-
-[[bin]]
-name = "validate-coverage-manifest"
-path = "src/bin/validate-coverage-manifest.rs"
 
 [[bin]]
 name = "validate-public-driver-manifest"

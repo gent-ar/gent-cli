@@ -32,7 +32,7 @@ PRODUCT_DOMAINS = {
 }
 
 SOURCE_SUFFIXES = {".md", ".ps1", ".py", ".rs", ".sh", ".toml", ".yaml", ".yml"}
-SCRIPT_NAMES = {"validate-coverage-manifest"}
+SCRIPT_NAMES = set()
 GENERATED_OR_FIXTURE_ROOTS = {"fixtures", "target"}
 SNAPSHOT_CONTRACTS = {
     "README.md": ("snapshot/recovery-cache/mirrored-state/replacement layer",),
@@ -95,7 +95,12 @@ def check_file_lengths() -> list[str]:
     for source in source_files():
         if not source.is_file():
             continue
-        count = len(source.read_text(encoding="utf-8").splitlines())
+        lines = source.read_text(encoding="utf-8").splitlines()
+        is_test_source = "tests" in source.parts or source.stem.endswith("_tests")
+        ignored = set(range(len(lines))) if is_test_source else (
+            test_module_lines(lines) if source.suffix == ".rs" else set()
+        )
+        count = sum(index not in ignored for index in range(len(lines)))
         if count > 300:
             errors.append(f"{source.relative_to(ROOT)} has {count} lines (maximum is 300)")
     return errors

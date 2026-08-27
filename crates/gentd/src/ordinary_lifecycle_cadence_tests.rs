@@ -11,9 +11,12 @@ use gent_types::{
 };
 
 use crate::agent_chat_api::{PromptCommitWake, PromptWake};
-use crate::ordinary_lifecycle_cadence::{OrdinaryLifecycleCadence, OrdinaryPromptIngress, pair};
+use crate::ordinary_lifecycle_cadence::{
+    AsyncOrdinaryLifecycleHost, OrdinaryLifecycleCadence, OrdinaryPromptIngress, pair,
+};
 use crate::ordinary_lifecycle_control::{OrdinaryLifecycleControl, OrdinaryLifecyclePhase};
 use crate::ordinary_lifecycle_router::{OrdinaryLifecycleHost, OrdinaryPublicLifecycleRouter};
+use async_trait::async_trait;
 
 #[derive(Clone)]
 struct Ledger(AgentChatProvider);
@@ -65,6 +68,43 @@ struct Host {
     max_in_flight: Arc<AtomicUsize>,
 }
 
+#[derive(Debug)]
+struct AsyncHost {
+    events: Arc<Mutex<Vec<&'static str>>>,
+    interrupts: Arc<Mutex<Vec<String>>>,
+    active: bool,
+    stopping: bool,
+}
+
+#[async_trait]
+impl AsyncOrdinaryLifecycleHost for AsyncHost {
+    async fn activate_recovery(&mut self) -> Result<(), String> {
+        self.events.lock().unwrap().push("recovery");
+        Ok(())
+    }
+
+    async fn drive_once(&mut self) -> Result<bool, String> {
+        self.events.lock().unwrap().push("drive");
+        let active = self.active;
+        self.active = false;
+        Ok(active)
+    }
+
+    async fn begin_shutdown_after_recovery(&mut self) -> Result<(), String> {
+        self.stopping = true;
+        Ok(())
+    }
+
+    async fn interrupt_claurst_run(&mut self, run_id: &str) -> Result<(), String> {
+        self.interrupts.lock().unwrap().push(run_id.into());
+        Ok(())
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        self.stopping && !self.active
+    }
+}
+
 impl OrdinaryLifecycleHost for Host {
     fn provider(&self) -> AgentChatProvider {
         self.provider
@@ -99,46 +139,8 @@ impl OrdinaryLifecycleHost for Host {
     }
 }
 
-#[tokio::test]
-async fn recovery_drives_once_then_waits_without_idle_polling() {
-    let (control, cadence, _, events, _, _, _) =
-        cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
-    let task = tokio::spawn(cadence.run());
-
-    wait_for(&events, 2).await;
-    tokio::time::sleep(Duration::from_millis(120)).await;
-    assert_eq!(&*events.lock().unwrap(), &["recovery", "drive"]);
-    drop(control.acquire_prompt().unwrap());
-    task.abort();
-}
-
-#[tokio::test]
-async fn committed_prompt_notifies_and_drives_only_its_selected_provider() {
-    let (control, cadence, mut wake, events, other_events, _, _) =
-        cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
-    let task = tokio::spawn(cadence.run());
-    wait_for(&events, 2).await;
-    wait_for_ready(&control).await;
-    events.lock().unwrap().clear();
-    other_events.lock().unwrap().clear();
-
-    wake.wake_after_prompt_commit(prompt()).unwrap();
-    wait_for(&events, 2).await;
-    assert_eq!(&*events.lock().unwrap(), &["wake", "drive"]);
-    assert!(other_events.lock().unwrap().is_empty());
-    task.abort();
-}
-
-#[tokio::test]
-async fn active_host_repeats_until_it_settles_then_stops() {
-    let (_, cadence, _, events, _, _, _) = cadence(AgentChatProvider::Codex, 1, Duration::ZERO);
-    let task = tokio::spawn(cadence.run());
-
-    wait_for(&events, 3).await;
-    tokio::time::sleep(Duration::from_millis(120)).await;
-    assert_eq!(&*events.lock().unwrap(), &["recovery", "drive", "drive"]);
-    task.abort();
-}
+#[path = "ordinary_lifecycle_cadence_recovery_tests.rs"]
+mod recovery_tests;
 
 #[tokio::test]
 async fn repeated_wakes_never_drive_a_host_concurrently() {
@@ -266,6 +268,13 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
     AgentChatConversationSummary {
         conversation_id: "conversation-1".into(),
         title: None,
+        recap: None,
+        workspace_id: None,
+        workspace_path: None,
+        mcp_server_count: 0,
+        mcp_server_names: Vec::new(),
+        changed_file_count: None,
+        git_branch: None,
         updated_at_unix_ms: 0,
         selection: selection(provider),
     }

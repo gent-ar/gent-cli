@@ -2,8 +2,8 @@
 
 use gent_ports::{AgentChatPromptDispatchLedger, IngressMode, LedgerError};
 use gent_types::{
-    AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command,
-    Event, HostEpoch, ProviderPromptReadinessBinding, Receipt, ReceiptId, ReceiptStatus,
+    AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, DurableTurnPhase, Event,
+    HostEpoch, ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding, Receipt,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -38,6 +38,15 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         binding: &ProviderPromptReadinessBinding,
     ) -> Result<Receipt, LedgerError> {
         prompt_dispatch_readiness::release_verified(self, command, terminal, binding)
+    }
+
+    fn fail_verified_agent_chat_prompt_after_readiness(
+        &self,
+        command: &Command,
+        terminal: &Event,
+        binding: &ProviderPromptReadinessFailureBinding,
+    ) -> Result<Receipt, LedgerError> {
+        prompt_dispatch_readiness::fail_verified(self, command, terminal, binding)
     }
 
     fn begin_agent_chat_prompt_launch(
@@ -91,6 +100,16 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         )
     }
 
+    fn fail_agent_chat_prompt_prelaunch(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        error: &str,
+    ) -> Result<(), LedgerError> {
+        helpers::fail_prelaunch(self, message_id, coordinator_id, host_epoch, error)
+    }
+
     fn release_agent_chat_prompt_unstarted_launch(
         &self,
         message_id: &str,
@@ -142,6 +161,16 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         )
     }
 
+    fn settle_agent_chat_prompt_terminal(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        phase: DurableTurnPhase,
+    ) -> Result<(), LedgerError> {
+        terminal::settle(self, message_id, coordinator_id, host_epoch, phase)
+    }
+
     fn recover_agent_chat_prompt_dispatches(
         &self,
         host_epoch: HostEpoch,
@@ -156,7 +185,7 @@ fn claim(
     host_epoch: HostEpoch,
     provider: AgentChatProvider,
 ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
-    valid_owner(coordinator_id)?;
+    helpers::valid_owner(coordinator_id)?;
     let mut connection = ledger.lock()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -177,7 +206,7 @@ fn claim(
         "UPDATE agent_chat_prompt_dispatches SET state = 'claimed', coordinator_id = ?1, host_epoch = ?2 WHERE message_id = ?3 AND state = 'pending'",
         params![coordinator_id, host_epoch.0, message_id],
     ).map_err(storage_error)?;
-    let saved = saved(&transaction, &message_id)?;
+    let saved = helpers::saved(&transaction, &message_id)?;
     transaction.commit().map_err(storage_error)?;
     Ok(Some(saved))
 }
@@ -199,7 +228,7 @@ fn transition(
     state: &str,
     retain_owner: bool,
 ) -> Result<(), LedgerError> {
-    valid_owner(coordinator_id)?;
+    helpers::valid_owner(coordinator_id)?;
     if message_id.trim().is_empty() {
         return Err(LedgerError::Invariant(
             "agent chat dispatch message is invalid".into(),
@@ -246,6 +275,12 @@ fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<(), LedgerErr
     transaction.commit().map_err(storage_error)
 }
 
+#[path = "prompt_dispatch_helpers.rs"]
+mod helpers;
+
+#[path = "prompt_dispatch_terminal.rs"]
+mod terminal;
+
 pub(super) fn require_open(
     transaction: &Transaction<'_>,
     host_epoch: HostEpoch,
@@ -258,27 +293,4 @@ pub(super) fn require_open(
         });
     }
     Ok(())
-}
-
-fn valid_owner(coordinator_id: &str) -> Result<(), LedgerError> {
-    (!coordinator_id.trim().is_empty() && coordinator_id.len() <= 512)
-        .then_some(())
-        .ok_or_else(|| LedgerError::Invariant("agent chat dispatch coordinator is invalid".into()))
-}
-
-fn saved(
-    transaction: &Transaction<'_>,
-    message_id: &str,
-) -> Result<AgentChatPromptSaved, LedgerError> {
-    transaction.query_row(
-        "SELECT r.receipt_id, r.idempotency_key, r.host_epoch, p.run_id, m.message_id, m.turn_id, m.conversation_id, t.sequence, m.text, m.text_digest_sha256 FROM agent_chat_prompt_receipts p JOIN receipts r ON r.idempotency_key = p.idempotency_key JOIN conversation_messages m ON m.message_id = p.message_id JOIN turns t ON t.turn_id = p.turn_id WHERE p.message_id = ?1",
-        [message_id],
-        |row| Ok(AgentChatPromptSaved {
-            receipt: Receipt { receipt_id: ReceiptId(row.get(0)?), idempotency_key: row.get(1)?, status: ReceiptStatus::Settled, host_epoch: HostEpoch(row.get(2)?) },
-            run_id: AgentChatRunId(row.get(3)?),
-            message: gent_types::ConversationMessage { message_id: row.get(4)?, turn_id: row.get(5)?, conversation_id: row.get(6)?, run_id: row.get(3)?, sequence: row.get(7)?, text: row.get(8)?, text_digest_sha256: row.get(9)? },
-            disposition: AgentChatPromptDisposition::Send,
-            delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider,
-        }),
-    ).map_err(storage_error)
 }

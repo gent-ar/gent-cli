@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 
 use super::queries::storage_error;
 
-const SCHEMA_ID: &str = "gent-fresh-schema-v10";
+const SCHEMA_ID: &str = "gent-fresh-schema-v15";
 const SCHEMA: &str = concat!(
     include_str!("fresh_schema.sql"),
     include_str!("fresh_schema_agent_chat.sql")
@@ -13,7 +13,6 @@ const SCHEMA: &str = concat!(
 
 /// Opens an empty database with Gent's complete current schema.
 ///
-/// Existing pre-release ledgers are deliberately refused rather than upgraded.
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -25,8 +24,7 @@ pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
     }
     if has_user_tables(&transaction)? {
         return Err(LedgerError::Invariant(
-            "existing Gent ledger requires reset; this pre-release build does not migrate data"
-                .into(),
+            "existing Gent ledger requires reset; this build accepts only an empty database".into(),
         ));
     }
     transaction.execute_batch(SCHEMA).map_err(storage_error)?;
@@ -75,7 +73,7 @@ mod tests {
     use super::apply;
 
     #[test]
-    fn rejects_an_existing_ledger_without_attempting_an_upgrade() {
+    fn rejects_an_existing_ledger_without_altering_data() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .execute_batch("CREATE TABLE old_gent_ledger (identity TEXT PRIMARY KEY);")

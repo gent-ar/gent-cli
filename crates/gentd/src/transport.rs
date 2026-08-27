@@ -180,6 +180,15 @@ where
     if crate::agent_chat_read_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::automation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::agent_chat_sessions_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::forge_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if crate::provider_readiness_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
@@ -191,7 +200,22 @@ where
     if crate::agent_chat_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::agent_chat_permission_transport::dispatch(stream, runtime, &extensions.0, raw).await?
+    {
+        return Ok(true);
+    }
     if crate::permission_policy_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::agent_chat_conversation_config_transport::dispatch(stream, runtime, &extensions.0, raw)
+        .await?
+    {
+        return Ok(true);
+    }
+    if crate::agent_chat_checkpoint_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::agent_chat_side_question_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
     if crate::provider_auth_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
@@ -206,6 +230,15 @@ where
     if crate::goal_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
+    if crate::prompt_template_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::workspace_documents_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::workspace_git_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
     if crate::conversation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
@@ -216,6 +249,9 @@ where
         return Ok(true);
     }
     if crate::runtime_maintenance_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+        return Ok(true);
+    }
+    if crate::local_model_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
     if extensions.supports(ATTACHMENTS_CAPABILITY) {

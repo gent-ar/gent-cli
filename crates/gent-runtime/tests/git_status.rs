@@ -30,8 +30,25 @@ impl GitExecutor for FakeGit {
             .push(operation.canonical_worktree_path.clone());
         Ok(GitStatusSummary {
             entry_count: 2,
+            branch_name: Some("main".into()),
             output_digest_sha256: "a".repeat(64),
         })
+    }
+
+    fn repository_root(&self, canonical_path: &str) -> Result<String, GitExecutorError> {
+        Ok(canonical_path.to_owned())
+    }
+
+    fn report(&self, _: &str) -> Result<gent_ports::GitReport, GitExecutorError> {
+        Ok(gent_ports::GitReport {
+            branch: Some("main".into()),
+            files: Vec::new(),
+            worktrees: Vec::new(),
+        })
+    }
+
+    fn checkout_paths(&self, _: &str, _: &[String]) -> Result<(), GitExecutorError> {
+        Ok(())
     }
 }
 

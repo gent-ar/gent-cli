@@ -85,9 +85,9 @@ async fn observer_mode_rejects_before_any_plan_frame_is_sent() {
         Some(directory.path().into()),
         true,
         ReviewedPlanCommand::Review(super::ReviewArgs {
-            conversation_id: "conversation-1".into(),
-            plan_id: "plan-1".into(),
-            request_id: Some("review-1".into()),
+            conversation: "conversation-1".into(),
+            plan: "plan-1".into(),
+            request: Some("review-1".into()),
         }),
     )
     .await

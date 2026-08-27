@@ -45,7 +45,39 @@ fn summary(
     conversation_id: &str,
 ) -> Result<AgentChatConversationSummary, LedgerError> {
     let connection = ledger.lock()?;
-    connection.query_row("SELECT provider, model, effort, mode FROM agent_chat_conversations WHERE conversation_id = ?1", [conversation_id], selection).optional().map_err(storage_error)?.map(|selection| AgentChatConversationSummary { conversation_id: conversation_id.into(), title: None, updated_at_unix_ms: 0, selection }).ok_or_else(|| LedgerError::Invariant("agent chat conversation does not exist".into()))
+    let selection = connection.query_row("SELECT s.provider, s.model, s.effort, s.mode FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id WHERE r.conversation_id = ?1 ORDER BY r.rowid DESC LIMIT 1", [conversation_id], selection).optional().map_err(storage_error)?.ok_or_else(|| LedgerError::Invariant("agent chat conversation does not exist".into()))?;
+    let title = metadata(&connection, conversation_id, "title")?;
+    let recap = metadata(&connection, conversation_id, "recap")?;
+    let (workspace_id, workspace_path) = connection
+        .query_row(
+            "SELECT c.workspace_id, w.canonical_path FROM agent_chat_conversations c LEFT JOIN workspaces w ON w.workspace_id = c.workspace_id WHERE c.conversation_id = ?1",
+            [conversation_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(storage_error)?
+        .unwrap_or((None, None));
+    Ok(AgentChatConversationSummary {
+        conversation_id: conversation_id.into(),
+        title,
+        recap,
+        workspace_id,
+        workspace_path,
+        mcp_server_count: 0,
+        mcp_server_names: Vec::new(),
+        changed_file_count: None,
+        git_branch: None,
+        updated_at_unix_ms: 0,
+        selection,
+    })
+}
+
+fn metadata(
+    connection: &rusqlite::Connection,
+    conversation_id: &str,
+    kind: &str,
+) -> Result<Option<String>, LedgerError> {
+    connection.query_row("SELECT text FROM conversation_artifacts WHERE conversation_id = ?1 AND kind = ?2 AND status = 'completed' AND text IS NOT NULL ORDER BY rowid DESC LIMIT 1", [conversation_id, kind], |row| row.get(0)).optional().map_err(storage_error)
 }
 
 fn detail(
@@ -104,6 +136,9 @@ fn effort(value: &str) -> Result<AgentChatEffort, LedgerError> {
         "low" => Ok(AgentChatEffort::Low),
         "medium" => Ok(AgentChatEffort::Medium),
         "high" => Ok(AgentChatEffort::High),
+        "xhigh" => Ok(AgentChatEffort::XHigh),
+        "max" => Ok(AgentChatEffort::Max),
+        "ultra" => Ok(AgentChatEffort::Ultra),
         _ => Err(LedgerError::Storage("unknown agent chat effort".into())),
     }
 }

@@ -1,6 +1,6 @@
 //! Protocol-only client request for content-free conversation discovery.
 
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 use gent_protocol::{
     CONVERSATION_INDEX_CAPABILITY, ConversationIndexFrame, WireFrame, read_json_frame,
@@ -30,7 +30,20 @@ pub(crate) async fn request(
     write_json_frame(&mut stream, &ConversationIndexFrame::Request).await?;
     let raw: Value = read_json_frame(&mut stream).await?;
     if let Ok(ConversationIndexFrame::Index(index)) = serde_json::from_value(raw.clone()) {
-        return Ok(index);
+        if index
+            .iter()
+            .all(|item| !item.conversation_id.trim().is_empty())
+        {
+            let mut identities = HashSet::with_capacity(index.len());
+            if index
+                .iter()
+                .all(|item| identities.insert(&item.conversation_id))
+            {
+                return Ok(index);
+            }
+            return Err("daemon returned duplicate conversation identities".into());
+        }
+        return Err("daemon returned a conversation index with an empty identity".into());
     }
     if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
         return Err(message.into());
@@ -117,6 +130,88 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("upgrade gentd")
+        );
+    }
+
+    #[tokio::test]
+    async fn request_rejects_an_empty_conversation_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let _ = read_frame(&mut stream).await.unwrap();
+            write_frame(
+                &mut stream,
+                &WireFrame::Negotiated(Negotiated {
+                    protocol: PROTOCOL_MAX,
+                    capabilities: CapabilitySet(vec![CONVERSATION_INDEX_CAPABILITY.into()]),
+                }),
+            )
+            .await
+            .unwrap();
+            let _ = read_json_frame::<_, ConversationIndexFrame>(&mut stream)
+                .await
+                .unwrap();
+            write_json_frame(
+                &mut stream,
+                &ConversationIndexFrame::Index(vec![ConversationListItem {
+                    conversation_id: " ".into(),
+                    run_count: 0,
+                }]),
+            )
+            .await
+            .unwrap();
+        });
+        assert!(
+            request(Some(directory.path().into()), true)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("empty identity")
+        );
+    }
+
+    #[tokio::test]
+    async fn request_rejects_duplicate_conversation_identities() {
+        let directory = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let _ = read_frame(&mut stream).await.unwrap();
+            write_frame(
+                &mut stream,
+                &WireFrame::Negotiated(Negotiated {
+                    protocol: PROTOCOL_MAX,
+                    capabilities: CapabilitySet(vec![CONVERSATION_INDEX_CAPABILITY.into()]),
+                }),
+            )
+            .await
+            .unwrap();
+            let _ = read_json_frame::<_, ConversationIndexFrame>(&mut stream)
+                .await
+                .unwrap();
+            write_json_frame(
+                &mut stream,
+                &ConversationIndexFrame::Index(vec![
+                    ConversationListItem {
+                        conversation_id: "conversation-1".into(),
+                        run_count: 1,
+                    },
+                    ConversationListItem {
+                        conversation_id: "conversation-1".into(),
+                        run_count: 2,
+                    },
+                ]),
+            )
+            .await
+            .unwrap();
+        });
+        assert!(
+            request(Some(directory.path().into()), true)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate conversation identities")
         );
     }
 }

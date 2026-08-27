@@ -31,7 +31,11 @@ where
         + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader
         + ConversationContentReader
-        + gent_ports::AgentChatWorkspaceLedger,
+        + gent_ports::AgentChatWorkspaceLedger
+        + gent_ports::PolicyLedger
+        + gent_ports::ToolSourceLedger
+        + gent_ports::AttachmentLedger
+        + gent_ports::AgentChatConversationConfigLedger,
     D: ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {
@@ -42,19 +46,80 @@ where
         .contexts
         .fresh_context_for_child(&prompt.message.conversation_id, &run_id)?;
     let selection = runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?;
+    let selected_sources = runtime.validate_tool_sources_for_run(
+        &prompt.message.conversation_id,
+        &run_id,
+        &prompt.tool_source_ids,
+    )?;
+    let mut selected_mcp_source_names = selected_sources
+        .iter()
+        .map(|source| source.source_name.clone())
+        .collect::<Vec<_>>();
+    if !selected_mcp_source_names.is_empty() {
+        selected_mcp_source_names.extend(["gent-automations".into(), "gent-forge".into()]);
+    }
+    let permission =
+        crate::permission_workspace::policy_for(&runtime.ledger(), &workspace.workspace_id)?;
+    let conversation_config = runtime
+        .ledger()
+        .current_conversation_config(&prompt.message.conversation_id)
+        .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?;
     let turn_options =
-        gent_drivers::claude_turn_options::ClaudeTurnOptions::from_selection(&selection)
-            .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?;
+        gent_drivers::claude_turn_options::ClaudeTurnOptions::from_selection_with_permissions(
+            &selection,
+            permission.mode,
+        )
+        .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?
+        .with_conversation_config(
+            conversation_config
+                .as_ref()
+                .and_then(|config| config.system_prompt.clone()),
+            conversation_config
+                .as_ref()
+                .is_some_and(|config| config.append_system_prompt),
+            conversation_config.as_ref().and_then(|config| config.max_turns),
+            conversation_config
+                .map(|config| config.disallowed_tools)
+                .unwrap_or_default(),
+        );
     let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
+    let attachment_metadata = runtime
+        .ledger()
+        .turn_attachments(&prompt.message.turn_id)
+        .map_err(|error| {
+            gent_ports::PublicProviderRunError::Failed(format!(
+                "turn attachments are unavailable: {error}"
+            ))
+        })?;
+    let attachments = if attachment_metadata.is_empty() {
+        Vec::new()
+    } else {
+        let (attachment_root, _) = runtime.attachment_roots()?;
+        crate::provider_attachments::resolve(
+            &runtime.ledger(),
+            &gent_store::FileAttachmentBlobs::open(attachment_root).map_err(|_| {
+                gent_ports::PublicProviderRunError::Failed(
+                    "provider attachment storage is unavailable".into(),
+                )
+            })?,
+            &prompt.message.turn_id,
+        )
+        .map_err(gent_ports::PublicProviderRunError::Failed)?
+    };
     if let Err(error) = runner.prepare_claude_prompt(
         run_id.clone(),
         ClaudePromptStart {
             workspace_root: workspace.canonical_path.into(),
             workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(selection.mode),
-            prompt: prompt.message.text.clone(),
+            prompt: crate::provider_attachments::prompt_with_files(
+                &prompt.message.text,
+                &attachments,
+            ),
             turn_options,
             goal,
             fresh_context: fresh_context.clone(),
+            content: crate::provider_attachments::claude_content(&attachments),
+            selected_mcp_source_names,
         },
     ) {
         runtime.release_prompt_claim(&message_id, coordinator_id, host_epoch)?;

@@ -30,6 +30,8 @@ pub struct AgentChatPromptRequest {
     pub conversation_id: AgentChatConversationId,
     pub disposition: AgentChatPromptDisposition,
     pub text: String,
+    pub attachment_ids: Vec<String>,
+    pub tool_source_ids: Vec<String>,
 }
 
 /// A no-write observer denial or the settled prompt receipt, message, and resolved run.
@@ -63,6 +65,8 @@ impl<L: AgentChatPromptLedger> AgentChatPromptService<L> {
         &self,
         request: &AgentChatPromptRequest,
     ) -> Result<AgentChatPromptResult, RuntimeError> {
+        gent_types::validate_tool_source_ids(&request.tool_source_ids)
+            .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
         if self.authority != AgentChatPromptAuthority::Approved {
             return Ok(AgentChatPromptResult::DeniedObserver);
         }
@@ -84,6 +88,8 @@ impl<L: AgentChatPromptLedger> AgentChatPromptService<L> {
         request: &AgentChatPromptRequest,
         expected_run_id: &AgentChatRunId,
     ) -> Result<AgentChatPromptResult, RuntimeError> {
+        gent_types::validate_tool_source_ids(&request.tool_source_ids)
+            .map_err(|error| gent_ports::LedgerError::Invariant(error.to_string()))?;
         if self.authority != AgentChatPromptAuthority::Approved {
             return Ok(AgentChatPromptResult::DeniedObserver);
         }
@@ -102,5 +108,7 @@ fn to_create(request: &AgentChatPromptRequest) -> AgentChatPromptCreate {
         conversation_id: request.conversation_id.clone(),
         disposition: request.disposition,
         text: request.text.clone(),
+        attachment_ids: request.attachment_ids.clone(),
+        tool_source_ids: request.tool_source_ids.clone(),
     }
 }

@@ -30,12 +30,14 @@ async fn resume_submits_to_the_existing_gent_conversation() {
             receipt_id,
             conversation_id,
             text,
+            attachment_ids,
         } = read_json_frame(&mut stream).await.unwrap()
         else {
             panic!("expected resumed prompt");
         };
         assert_eq!(conversation_id.0, "conversation-1");
         assert_eq!(text, "continue from the selected run");
+        assert!(attachment_ids.is_empty());
         write_json_frame(
             &mut stream,
             &AgentChatIntentFrame::Accepted {
@@ -63,6 +65,7 @@ async fn resume_submits_to_the_existing_gent_conversation() {
             text: "continue from the selected run".into(),
             request_id: Some("request-1".into()),
             receipt_id: Some("receipt-1".into()),
+            attachments: Vec::new(),
         }),
     )
     .await

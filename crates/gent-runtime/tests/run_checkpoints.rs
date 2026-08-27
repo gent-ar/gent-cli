@@ -7,7 +7,7 @@ fn coordinator_records_checkpoint_metadata_without_a_provider() {
     let coordinator =
         Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
     coordinator
-        .create_run(gent_core::Run {
+        .create_run(&gent_core::Run {
             id: "run-a".into(),
             parent_run_id: None,
             provider: "claude".into(),

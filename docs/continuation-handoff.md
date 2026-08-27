@@ -1,300 +1,69 @@
-# Gent CLI continuation handoff
+# Gent continuation handoff
 
-Use this document with the implementation plan and repository state when
-resuming work in a new conversation. Facts are current through 2026-08-19; this
-does not claim observer-mode `gentd` has live provider authority.
+## Objective
 
-## Repository and safety
+Make `gent-cli`/Gentd the single Agent Chat product authority. The standalone `gent` terminal and the Gent native Flutter app must use the same daemon, durable conversations, sessions, provider lifecycle, tool/activity timeline, permissions, MCP, local models and workspace state. Native integration is deferred until standalone Gent is complete and verified; the current work was an integration-readiness audit and plan, not Flutter implementation.
 
-- Repository: `/Users/ivanmatiasfort/Clouseau/gent-cli`, branch `main`, remote
-  `git@github.com:gent-ar/gent-cli.git`.
-- Inspect the Gent worktree before editing. Preserve any staged user work; do
-  not reset or checkout. Commits and pushes require the user's explicit approval.
-- Do not modify `/Users/ivanmatiasfort/Clouseau/clouseau-app` during standalone
-  Gent work. Its unrelated dirty files include Mermaid assets, Mux provider,
-  agent-chat widgets/tests, and Excalidraw Mermaid.
-- Use `apply_patch` for edits. Every hand-authored source/config/document/script
-  is at most 300 lines; run `python3 tools/check-architecture.py`.
-- For the unchanged 90% coverage gate on a space-constrained machine, use the
-  isolated target workflow in [coverage workflow](coverage-workflow.md); never
-  delete normal `target/` artifacts merely to make an instrumented build fit.
+## State at handoff
 
-## Non-negotiable architecture
+The integration plan was expanded and corrected under `PLANS/INTEGRATE_GENT_CLI_TO_NATIVE_APP/`. Read its `README.md` first. No application code was changed in this planning pass and nothing was committed or pushed.
 
-- `gentd` is the only composition root and future ledger writer.
-- `gent` is protocol-only and depends only on `gent-protocol` and `gent-types`.
-  It must not import the store, drivers, network listeners, or provider spawners.
-- `gent-core` stays pure: no database, process, HTTP, or CLI imports. Domains
-  use typed ports/reducers; composition roots wire them.
-- Public Gent never contains Claurst credentials, endpoints, or routing. The
-  private bridge implementation belongs in app-owned private code behind a port.
-- Default `gentd` is hard observer: it must not start providers, MCP, Git
-  mutation, automations, watchers, schedulers, or a private bridge.
+The repositories are already heavily dirty. Treat existing changes as user work; do not reset, discard, reformat broadly, commit or push without explicit approval.
 
-## Product contract: one shared harness
+## Decisions
 
-`gent` terminal and the closed native app are equal first-class clients of the
-same daemon-owned Gent harness. Both must support conversations, sessions,
-browsing, create/prompt/follow-up, provider/model/effort/mode, live response
-and tool state, plans, clear context, permissions, login, reconnect, and cursor
-resume. The native app adds only private product features: local/LAN/relay, IDE,
-system UI, voice, pairing, and app automations.
+- Gentd is the only durable and provider-facing authority. `gent` and Flutter are presentation clients, never provider adapters or parallel chat stores.
+- Flutter must be generic and descriptor-driven. It renders Gentd catalogs/projections/actions with stable IDs; it must not hard-code provider/model/effort/mode/permission/tool vocabularies. New Gent catalog entries must appear without a Flutter release.
+- The native app must remove `default`, `autonomous`, `auto-accept edits`, and `bypass permissions` as mode choices. Gent mode is initially `Ask`, `Plan`, `Agent`; permissions are independent and Gent-owned. The terminal/core currently still exposes the old permission posture vocabulary, so fix Gent first, then have Flutter render its catalog.
+- Recommended permission domain: a separately versioned, workspace-scoped category policy with expected-revision conflict handling. It is not part of `AgentChatSelection`, which remains provider/model/effort/mode.
+- Use one platform-standard shared Gent data directory from a Rust resolver, not Flutter `~/.gentd` versus CLI `~/.gent-cli` defaults. `GENT_DATA_DIR` is only an explicit override for development/testing.
+- Native packages must consume one verified Gent release archive intact (`gent`, `gentd`, Node/npm, Claurst, llama.cpp), rather than independently choosing runtime versions in the native repo. The app-bundled runtime is app-updater-owned; terminal self-update must not mutate a signed app bundle.
+- Claurst and llama.cpp are bundled but model weights are not. A missing curated ungated model downloads only after an accepted durable prompt. Claude/Codex install only after an accepted prompt selects that provider, not merely on selection. Authentication retains that prompt and releases it once after verified readiness.
+- Canvas, STT, draft/focus/scroll and picker transients may remain native-local. They can only produce normal Gentd intents/artifacts; no alternate agent path.
+- Companion mobile clients cannot access desktop IPC directly. The desktop host must proxy typed Gentd snapshot/deltas/intents through the authenticated remote transport.
 
-Neither client parses provider stdout, owns a lifecycle reducer, starts a
-provider, or writes the Gent ledger. Providers provide raw facts; `gentd`
-normalizes, persists, cursor-orders, and streams the client-visible truth.
+## Important discoveries and gotchas
 
-## Current implemented batch
+- The native bridge already exists but is not the target: `clouseau-app/app/lib/provider/agent_chat/agent_chat_gentd.dart` reconstructs Flutter `ChatMessage` objects, injects a synthetic history envelope on first conversion, polls permissions/activity separately, and filters model downloads by model ID. Delete this authority during cutover; it is not safe to extend.
+- Native `GentdAppRuntime` currently defaults to `~/.gentd`, while CLI/Gentd default to `~/.gent-cli`; they do not share state by default. It also spawns before connecting, so it mishandles a daemon already owned by `gent`.
+- Current public transcript/activity facts are not sufficient for the native timeline: they lack complete tool input/output/content-block/diff and child task/output detail. Add typed work-item records with stable IDs and bounded output paging before Flutter refactoring.
+- `agent-chat-projection-v1` is still prose. Existing Flutter IPC client exposes separate conversations/transcript/turn/activity/permission/attachment/model calls. Define snapshot/delta ordering, cursors, resync, paging, receipts, capabilities and unknown descriptor rendering.
+- Provider auth is not yet a real Gentd lifecycle. `/login` currently runs a separate one-off Gentd command; `provider-auth-v1` is not composed by `RuntimeFacade`. Native needs a generic external-auth descriptor for URL/device-code/provider-terminal handoff.
+- Local-model download cancellation is subtle: one underlying model download can serve multiple prompt admissions. Cancel must detach one prompt receipt, not stop work for another waiter. Request ID plus model ID is mandatory.
+- Gent release archives already contain `gent`, `gentd`, `runtime/node`, and `runtime/claurst`; native packaging currently stages runtime parts independently and omits `gent`. Internal MCP bootstrap may resolve `gent`, so this is functional as well as distribution work.
+- Current release matrix lacks Windows ARM64 Claurst/llama runtime. v1 plan requires macOS x64/ARM64, Linux x64/ARM64 and Windows x64/ARM64.
+- Fork/resume/checkpoint, general MCP live config/health, session metadata, title/recap streaming, provider readiness/install, and remote proxying lack complete public contracts even where partial internal types exist.
+- Do not reimplement provider behavior in Flutter. Claude/Codex/Claurst remain third-party runtimes; verify Gent-owned admission, context-switch, durable-state and projection behavior.
 
-- Default signed automatic update machinery, Windows installer/runtime bootstrap
-  support, CI gates, and release documentation.
-- Durable permission modes: Default, Plan, Auto-Accept Edits, Autonomous, and
-  one-time-consented persistent Bypass. Plan remains Plan after approvals;
-  broad modes fail closed without verified sandbox containment.
-- Secret-free provider-auth discovery/login contract, pure reducer, `gent auth
-  status|login`, daemon adapter boundary, and observer-safe refusal. No live
-  provider login is composed.
-- Reviewed-plan authority foundation: immutable trusted artifacts, pure reducer,
-  strict protocol frames, a `ReviewedPlanLedger`, fresh-schema storage, and atomic child
-  reservation. Approval rechecks exact plan/digest, parent, epoch, policy,
-  receipt/idempotency; clear context records ordinal zero and no native session.
-  Observer `gentd` still does not advertise or compose this authority.
-- Durable, provider-neutral conversation goals: a fresh-schema `GoalLedger`,
-  pure revision/epoch reducer, capability-gated IPC, and `gent goal
-  create|read|list|transition`. Positional `/goal <summary>` requires an exact
-  existing conversation/run binding and cannot reach a provider in observer mode.
-- The dormant approved public-driver seam can inject a fresh active-goal resolver
-  per Claude/Codex turn; terminal, stale, malformed, ambiguous, or mismatched
-  goals are omitted/rejected before a runner. Bootstrap still injects no resolver.
-- A committed prompt response now carries the ledger-assigned conversation, run,
-  and turn identities. `gent <prompt>` defaults its new selection to Ask and
-  returns those identities without guessing a later lifecycle or keeping a
-  terminal-owned correlation map.
-- A sealed dormant ordinary authority accepts Claude/Codex grants only from one
-  signed release artifact after nested evidence and compatibility verification.
-  It derives its owner/epoch from active daemon state and accepts only Claude/Codex
-  Ask or Plan selections. Its shared lifecycle router resolves durable provider
-  selection and arms only the matching bounded host; a paired Notify cadence
-  replays ledger recovery then polls only active work. Bootstrap constructs neither.
-- A private provision settlement transaction records only a verified install and its
-  package-policy/Node/receipt provenance with its terminal receipt. Ambiguous effects
-  become unprovable; the dormant Claude/Codex resolvers read and recheck this lock
-  directly, with no prefix or `PATH` discovery.
-- Dependency receipt reservation is now an effect-free shared runtime rule. The
-  obsolete generic provisioning owner was removed; only the prompt-scoped path
-  may later settle denial/mismatch without npm, atomically write a verified lock,
-  and turn any recovered accepted receipt unprovable without replay. Observer
-  bootstrap and capabilities still construct neither an installer nor authority.
-- Post-install provider locks begin explicitly unbound. A narrow compatibility
-  port revalidates the signed manifest at the provisioning operation's current
-  time, binds only its exact provider/version/digest entry, and otherwise makes
-  the effect unprovable with no runnable lock. This avoids treating daemon-start
-  time or a caller-supplied compatibility label as authority.
-- The dormant Claude/Codex composition uses a fresh daemon clock to
-  reauthorize a durable lock immediately before each provider effect, including
-  session resume. It refuses a now-expired or revoked entry before launch and
-  remains absent from observer composition; no snapshot or second state store
-  is introduced.
-- A distinct, read-only private readiness decision checks only durable
-  Claude/Codex locks. Missing or changed locks produce a Gent-generated install
-  review; unreadable provenance fails closed, and Claurst never enters this npm
-  path. It has no IPC frame, bootstrap composition, prompt hook, or installer.
-- The prompt ledger exposes a private exact-run admission method. It confirms
-  the expected reviewed run inside the prompt write transaction and rejects a
-  concurrent selection change without saving a message. New send prompts are
-  held as `awaiting_readiness`, never claimable by a lifecycle runner, until an
-  internal epoch/current-run-fenced authority releases that exact prompt.
-- The client-visible delivery value is `awaitingReadiness`. Generic chat
-  persistence does not wake an ordinary lifecycle for a held prompt; the future
-  readiness authority must release the exact durable prompt before it wakes it.
-- provider-readiness-v2 is a separately negotiated, exact conversation/run
-  read surface in an explicit private-authority profile only. Its public review
-  digest binds the provider, action, instruction, consent requirement, package
-  name/version/integrity, and signed-policy digest. A profile cannot advertise
-  readiness without that exact-review authority; observer and chat-only profiles
-  preserve capability absence. It does not authorize a provider launch.
-- prompt-provider-provision-v1 has a strict, uncomposed confirmation DTO. A client may echo
-  only its provision receipt, exact held prompt/conversation/run, consent, epoch, and the
-  daemon-issued review digest; provider/action/package/path/plan/policy are absent. A new
-  SQLite port atomically claims the accepted receipt and changes that exact `awaiting_readiness`
-  send to `provisioning`, which blocks a competing selection switch, then atomically persists a
-  verified public-provider lock,
-  terminal provision receipt, and its release. Its private command additionally binds the
-  daemon-selected package name/version/integrity/policy digest; Gent rechecks all coordinates
-  immediately before npm and requires the persisted installation provenance to match. Ambiguous/
-  recovered effects settle that exact reservation `unprovable` without release or replay.
-  Consent refusal and stale review digest settle rejected, retryable no-effect receipts. A
-  daemon-only boundary derives current selection, policy package, and review before atomically
-  admitting the effect; its strict capability-gated IPC transport validates every correlation.
-  Only an explicit injected private-authority `RuntimeFacade` constructor exposes it. Shipped
-  bootstrap remains observer-only and cannot advertise the capability.
-- Agent-chat detail now includes the durable `currentRunId`, calculated by the
-  same selected-run ordering as prompt ownership. Clients must carry that
-  identity into future readiness and prompt-fence requests rather than infer it.
-- The obsolete ordinary-authority path/key bootstrap parser was removed. A future
-  explicit authority bootstrap must verify one signed release artifact against the
-  locked Node runtime and compose only its in-memory grants; it accepts no client
-  evidence, provider keys, coordinator, or epoch.
-- Private ordinary lifecycle hosts reject shutdown before recovery and let
-  recovered idle hosts drain without manufacturing a prompt wake. The router
-  aggregates explicit shutdown/escalation/completion; Unix IPC has a transient,
-  cancellation-aware listener/connection drain seam with no task abort or
-  durable lifecycle side effect. Neither is composed by the observer daemon.
-- The ordinary cadence now starts closed, opens only after ledger recovery
-  reaches idle, and refuses an earlier shutdown without a recovery wake. Its
-  sealed facade ingress holds a transient admission permit before prompt
-  persistence through the post-commit wake; shutdown closes admission then
-  waits for existing permits before draining. This is process-local control,
-  not a snapshot, ledger record, or observer capability.
-- Committed, redacted development driver corpus plus public normalized live
-  full-turn captures for Codex, Claude Haiku, and Claude Sonnet. Capture stays
-  opt-in; corpus records are not lifecycle authority or evidence-gate substitutes.
-- Clear context creates a child boundary with history ordinal zero; it does not
-  delete history or reuse a provider session. Provider switches create child runs.
-- Public driver/process/backpressure/binary-lock/session-normalization seams are
-  implemented but dormant. They are not live daemon authority.
-- Reviewed-plan, Flutter handoff, realtime client lifecycle, and terminal/native
-  parity documents are added and linked from implementation status.
-- A Gent-native multi-agent orchestration contract is planned: typed task graphs,
-  isolated worktree leases, `/fanout`, `/cross-review`, cross-vendor findings,
-  cursor-resumable state, and custom harness profiles. It is not composed or
-  advertised; see `docs/multi-agent-orchestration-plan.md`.
+## Plan documents
 
-## Required realtime experience
+- `PLANS/INTEGRATE_GENT_CLI_TO_NATIVE_APP/README.md`: reading order and native-integration entry gate.
+- `gentd-source-of-truth-contract.md`: generic native client rule.
+- `integration-gap-review.md`: audited blockers and exact evidence.
+- `implementation-backlog.md`: priority-ordered work packages and acceptance gates.
+- `native-surface-disposition.md`: every native Agent Chat control and its final owner.
+- `native-agent-chat-cutover-map.md`: Flutter cutover/deletion boundary.
+- `onboarding-and-provider-readiness-contract.md`: runtime packaging, prompt admission, install/login and cancellation semantics.
 
-1. One private `.gentd` profile owns one demand-started, multiplexed `gentd` and
-   one ledger. The app starts/locates it once and uses long-lived local IPC;
-   `gent` terminal uses the same protocol. It is not a permanent background
-   service and it is never one `gent` or provider process per prompt/conversation.
-   The daemon stays up for active work, pending decisions, or connected clients,
-   then may obey an explicit idle policy.
-2. Clients negotiate, read conversation index/content pages, and attach
-   cursor-resumable event/activity subscriptions for the selected run.
-3. Create/prompt/follow-up/selection/plan/permission/login are typed commands
-   with receipts, idempotency, epoch fences, and terminal outcomes.
-4. Daemon checks authority, policy, sandbox, binary lock, and evidence before
-   spawn/resume. Provider facts persist before publication; failures are durable.
-   It alone applies shared resource budgets, queues excess durable prompts, and
-   drains owned provider process trees. A conversation/run has a canonical
-   ledger workspace binding; daemon or client cwd is never authoritative.
-5. On disconnect or epoch change, clients re-read bounded durable pages and resume
-   from their last acknowledged cursor: no duplicate output or invented loading state.
-   Snapshot state, recovery caches, mirrored state, and replacement layers are
-   prohibited. Derived views are disposable/non-authoritative: never serialize,
-   transmit, or recover from them. Clients and daemon reread bounded immutable
-   pages (from cursor zero when needed), then replay normalized facts after an
-   accepted cursor.
+## Remaining work, in priority order
 
-## Next implementation order
+1. Implement shared Gent path resolution and safe connect-first multi-client daemon supervision.
+2. Finalize Gent-owned independent permission policy/catalog and update standalone terminal/core away from old permission-mode vocabulary.
+3. Build `agent-chat-projection-v1`: descriptor catalogs, complete typed work items, snapshots/deltas, cursors, output paging, receipts and capability/version negotiation.
+4. Implement provider/local-model admission lifecycle: request-scoped download/install/auth progress, cancellation and exactly-once held-prompt release.
+5. Complete authority APIs for sessions, titles/recaps, templates/docs, MCP, Git, automations, forks/resume/checkpoints and remote desktop proxy.
+6. Package one full Gent release runtime in each native desktop bundle and installer shim, including the Windows ARM64 target.
+7. Only then replace Flutter Agent Chat authority with the generic Gentd client and delete existing mirror/adapter state.
+8. Run real cross-client user flows, focusing on Gent-owned behavior and reconnects rather than duplicating upstream provider tests.
 
-1. **Done (`83d3495`):** bind the signed release's artifact digest through
-   `ProviderPromptProvisionCommandBinding`/`ProviderInstallProvenance`, add a receipt fingerprint,
-   and re-verify the same signed release immediately before npm. See "Latest continuation state"
-   below for the exact files. `daemon_bootstrap.rs` has a zero-line diff throughout.
-2. **Done (`975c096`):** proved that profile end-to-end — persist-before-broadcast, cursor
-   reread/reconnect, exact-retry idempotency, terminal settlement — via
-   `crates/gentd/src/prompt_provider_provision_profile_tests.rs`, a real `RuntimeFacade` driven
-   over the real wire codec. Backpressure/process-tree drain, turn follow, provider/context
-   switch, and `/goal` projection belong to item 4, not this npm-install profile — deferred there.
-3. Add reviewed-plan authority composition only after the lifecycle and evidence
-   gates; clients never inject provider plans and observer remains absent.
-4. Compose task-graph scheduling only after public-driver authority: each node
-   gets a leased isolated worktree, fresh goal projection, durable settle, and
-   an independently locked profile. Claurst stays a private bridge port.
-5. Compose terminal browser parity over the same frames; terminal UI has no
-   independent plan, permission, or lifecycle logic.
-6. Provider-auth authority: typed `askTool`, locks, sandboxed edge, live proof.
-   Login route selection is public; credential values never cross public IPC.
-7. Private app-owned Claurst bridge plus private CI evidence; then live MCP/Git
-   behind ports and receipts. Gent-canvas/forge are later; pairing/app
-   automations stay app-only.
-8. Capture strict real evidence, then seek explicit release authorization and
-   only later begin separately authorized Flutter wiring.
+## Working rules
 
-## Evidence status
+- Prefer reuse/porting of proven native behavior, but move durable ownership into Gentd instead of copying Flutter code.
+- Fixes must simplify the system; prefer removal/consolidation over flags, layers or special cases.
+- Do not add comments, docblocks, TODO/FIXME notes, lint/type suppressions, or commented-out code. Use names, structure and tests; rationale belongs in commits/PRs. Shebangs are allowed.
+- Do not introduce legacy routes, compatibility branches, migrations, direct-provider fallbacks or dual durable writers.
+- Do not commit or push without the user's explicit approval.
 
-- Claude persistent-permission is now RECORDED live (2026-08-19,
-  `claude-permission-persistent-haiku-20260819.jsonl`). Three strict cells remain missing: Claude
-  compaction, Claude malformed-tolerance, Codex malformed-tolerance. Claurst needs private
-  bridge/CI evidence. Never fabricate recordings.
-- `--permission-prompt-tool` is undocumented (absent from `claude --help` on 2.1.235) but real and
-  functional, verified live — matches the native app's own Claude adapter. **Verified live
-  mechanism (important, non-obvious): the CLI relays every `can_use_tool` decision through this
-  channel EVERY time, even for an identical repeated command in the same turn, and even in a
-  fresh process that already has the grant written to `.claude/settings.local.json`. Persistence
-  is NOT CLI-side — it's the CLIENT's job to remember an already-granted `updatedPermissions` rule
-  and auto-respond to a later identical request without involving a human again.** Also found and
-  fixed two capture-tool bugs blocking this: premature `stdin.close()` breaks the relay
-  mid-exchange, and `stream.read(8192)` blocks indefinitely when Claude goes silent waiting
-  synchronously for a response — must use `readline()` for this bidirectional case, not chunked
-  reads (see `tools/public_driver_capture_permission.py`). Compaction/malformed-tolerance capture
-  (both vendors, `0.144.1` observed for Codex) still has no documented bounded signal to capture.
-- Use `python3 tools/update-public-driver-transcripts.py`; keep captures redacted
-  and admitted only through the transcript manifest.
-- The `drivers_transcript/` corpus is a committed, sanitized development asset.
-  Normal Gent sessions never write it; validate it with
-  `python3 tools/validate-driver-transcript-corpus.py`.
-- Windows scheduled-task execution needs Windows CI; not run locally on macOS.
+Resume here: Read `PLANS/INTEGRATE_GENT_CLI_TO_NATIVE_APP/shared-data-dir-and-daemon-ownership.md` first — it records what backlog item 1 has completed (a single `gent_types::paths` resolver used by `gent-cli` and `gentd`; the `gent data-dir` / `gentd --print-data-dir` offline bridge; owner-naming on `gentd.lock` conflicts) and what remains: the deferred `Negotiated`/`HostStatus` handshake extension (blocked on inspecting `gentd_ipc_client.dart`'s frame decoder first) and the three specific Flutter-side defects it found but did not fix (`GentdAppRuntime.dataDirectory()` defaulting to `~/.gentd` instead of the shared resolver; `_launch` always spawning instead of connect-first; `app/rust/src/api/gentd_ipc.rs`'s untested Windows pipe-name test). Start the next unit of work by inspecting `gentd_ipc_client.dart`'s JSON decoder to decide whether the handshake extension is safe, or — if ready to begin the Flutter cutover for item 1 specifically — fix `GentdAppRuntime` per that document. Do not touch other Flutter Agent Chat surfaces; that is backlog item 7, gated on items 2-6.
 
-## Verification passed after this batch
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-python3 tools/test-gent-auto-update.py
-python3 tools/test-installer-runtime-bootstrap.py
-python3 tools/check-architecture.py
-git diff --check
-git diff --cached --check
-```
-
-The full workspace suite passed, including CLI reviewed-plan socket tests and
-the daemon facade observer test. Re-run all of it after nontrivial changes.
-
-## Primary documents
-
-- `README.md`: repository contract and user-facing milestone.
-- `docs/implementation-status.md`: implemented inventory and live-backend gates.
-- `docs/realtime-agent-chat-client-plan.md`: explicit realtime and parity flow.
-- `docs/flutter-handoff-v1.md`: native IPC boundary.
-- `docs/agent-chat-execution-plan.md`: review/start/clear-context contract.
-- `docs/provider-auth-plan.md`: login contract and authority gate.
-- `docs/architecture.md`: crate dependency/composition law.
-- `docs/multi-agent-orchestration-plan.md`: planned daemon-owned fanout and
-  cross-vendor review contract.
-- `docs/claude-codex-authority-port-plan.md`: file-by-file map from the native app's proven
-  Claude/Codex drivers into gent-cli's dormant Rust authority composition (item 4).
-
-Before major scope decisions, read the original app planning source only:
-`/Users/ivanmatiasfort/Clouseau/clouseau-app/GENT-CLI/README.md`, then
-`00-PLATFORM-CONTRACT.md` through `10-LIVE-LIFECYCLE-AND-SELF-UPDATE.md`.
-
-## Latest continuation state (2026-08-19, revised again)
-
-- `main` is at `24ecee9` (items 1-3 all committed: `83d3495`, `975c096`, `c340500`, `24ecee9` — see
-  commit messages, not repeated here). Working tree clean. `clouseau-app` is read-only reference.
-- Item 3 evidence-tooling mechanism finding and bug fixes: see "Evidence status" above.
-- `/Users/ivanmatiasfort/Clouseau/gent-cli/CLAUDE.md` exists: durable rule to always check
-  `clouseau-app`'s drivers before designing/debugging provider protocol behavior.
-- **New this pass: `docs/claude-codex-authority-port-plan.md`, written from direct code reading of
-  both sides.** Headline finding: item 4 is not a from-scratch build. A real Claude/Codex spawn-
-  and-normalize pipeline already exists in Rust and is fully wired to itself — spawn, frame
-  normalization, lifecycle dispatch/poll, lifecycle state machines, composition functions, signed
-  evidence gate, runtime wiring surface — just never composed by `daemon_bootstrap.rs` (`grep`:
-  zero references). The real gap is content: the Claude frame normalizer handles only top-level
-  `system`/`assistant`/`result`, missing the `stream_event` wrapper, `thinking` blocks,
-  `control_request`/`control_response` (the relay item 3's evidence just proved live), sub-agent
-  correlation, and tool-call deltas — confirmed against `claude_driver.dart`. Codex is closer to
-  parity, mainly needs wiring, modulo `codex_turn.rs` (unread this pass). Read the port-plan doc
-  before writing any item-4 Rust.
-- Verification passed for all committed items. Standing decisions unchanged: reuse the Ed25519
-  trust root; no `Sha256Digest` newtype; mine the app's protocol knowledge but never embed/depend
-  on its code; reject independent evidence/key paths, snapshots, fake containment, public Claurst.
-
-Resume here: start item 4 by reading `codex_turn.rs` (only file in the port-plan's inventory not
-yet read) to confirm how much of the Codex gap list it already closes, then follow the port plan's
-suggested order — `gent-types` vocabulary additions (thinking event, `AgentControlRequest`) first,
-since the normalizer content work depends on them existing before any match arm can produce them.
-Compaction/malformed-tolerance capture (both vendors) still has no documented bounded signal —
-lower priority than item 4. Terminal parity (item 5) is independently tractable meanwhile.
+Also noted, unrelated to this item and not fixed: three pre-existing failing tests in the user's uncommitted WIP, unrelated to any change made in this pass — `gent-types::prompt_templates::tests::{rejects_missing_and_repeated_variables,renders_bounded_named_variables}`, `gent-store::sqlite::normalized_session_ledger_tests::{batch_commits_all_projections_with_exact_retry_cursors,batch_collision_rolls_back_every_prior_projection}`, and `gent-testkit`'s `tests/ipc_fixture_manifest.rs` (`repository_ipc_fixture_contract_is_valid`, `agent_chat_contract_cannot_be_declared_composed`). None of the files involved were touched in this pass; confirmed pre-existing before this session started.

@@ -1,8 +1,11 @@
 //! Atomic `SQLite` ownership for an agent-chat conversation and its root run.
+mod checkpoint;
+mod fork;
 mod prompt;
 mod prompt_dispatch;
 mod prompt_dispatch_readiness;
 mod receipt;
+mod side_question;
 mod switch;
 use super::SqliteLedger;
 use super::epoch::require_epoch;
@@ -283,6 +286,9 @@ const fn effort(value: AgentChatEffort) -> &'static str {
         AgentChatEffort::Low => "low",
         AgentChatEffort::Medium => "medium",
         AgentChatEffort::High => "high",
+        AgentChatEffort::XHigh => "xhigh",
+        AgentChatEffort::Max => "max",
+        AgentChatEffort::Ultra => "ultra",
     }
 }
 

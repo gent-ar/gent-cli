@@ -103,6 +103,54 @@ where
         self.shutdown_requested && self.lifecycle.owner_shutdown_complete()
     }
 
+    pub(crate) fn respond_claude_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+    ) -> Result<(), ()> {
+        self.respond_claude_permission_with_input(
+            run_id,
+            request_id,
+            behavior,
+            persist_suggestions,
+            None,
+        )
+    }
+
+    pub(crate) fn respond_claude_permission_with_input(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+        updated_input: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        self.lifecycle.respond_claude_permission_with_input(
+            run_id,
+            request_id,
+            behavior,
+            persist_suggestions,
+            updated_input,
+        )
+    }
+
+    pub(crate) fn respond_codex_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        self.lifecycle
+            .respond_codex_permission(run_id, request_id, decision, answers)
+    }
+
+    pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
+        self.lifecycle.interrupt_run(run_id)
+    }
+
     /// Arms the owner for its one durable startup recovery pass.
     ///
     /// This does not inspect or launch a provider. A daemon-owned cadence must later call

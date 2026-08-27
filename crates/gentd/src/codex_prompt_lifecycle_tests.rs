@@ -32,6 +32,8 @@ pub(crate) struct State {
     pub(crate) submitted_goals: Vec<Option<gent_types::GoalProjection>>,
     pub(crate) resumes: usize,
     pub(crate) signals: Vec<ProcessTreeSignal>,
+    pub(crate) turn_interrupts: Vec<String>,
+    pub(crate) releases: Vec<String>,
 }
 impl PublicProviderRunner for Runner {
     fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
@@ -100,11 +102,23 @@ impl CodexPromptExecution for Runner {
         self.state.lock().unwrap().session_active
     }
 
+    fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        let mut state = self.state.lock().unwrap();
+        state.session_active = false;
+        state.releases.push(run_id.into());
+        Ok(())
+    }
+
+    fn refresh_codex_mcp_config(&self, _: &str) -> Result<bool, PublicProviderRunError> {
+        Ok(false)
+    }
+
     fn submit_codex_prompt(
         &self,
         _: &str,
         prompt: &str,
         goal: Option<&gent_types::GoalProjection>,
+        _: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
         state.submitted.push(prompt.into());
@@ -118,6 +132,25 @@ impl CodexPromptExecution for Runner {
         signal: ProcessTreeSignal,
     ) -> Result<(), PublicProviderRunError> {
         self.state.lock().unwrap().signals.push(signal);
+        Ok(())
+    }
+
+    fn interrupt_codex_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        self.state
+            .lock()
+            .unwrap()
+            .turn_interrupts
+            .push(run_id.into());
+        Ok(())
+    }
+
+    fn respond_codex_control(
+        &self,
+        _: &str,
+        _: &str,
+        _: gent_drivers::codex_control::CodexControlDecision,
+        _: Option<serde_json::Value>,
+    ) -> Result<(), PublicProviderRunError> {
         Ok(())
     }
 }
@@ -192,10 +225,26 @@ pub(crate) fn selection() -> AgentChatSelection {
 }
 
 pub(crate) fn assert_prepared_options(runner: &Runner) {
-    let expected = CodexTurnOptions::from_selection(&selection(), Some("/workspace-a")).unwrap();
+    let expected = CodexTurnOptions::from_selection_with_permissions(
+        &selection(),
+        Some("/workspace-a"),
+        gent_types::PermissionMode::Default,
+    )
+    .unwrap();
     let state = runner.state.lock().unwrap();
     assert_eq!(
         state.pending.as_ref().map(|entry| &entry.1.turn_options),
         Some(&expected)
+    );
+    assert_eq!(
+        state.pending.as_ref().map(|entry| {
+            entry
+                .1
+                .selected_mcp_source_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        }),
+        Some(Vec::new())
     );
 }

@@ -127,6 +127,23 @@ impl OrdinaryLifecycleControl {
         }
     }
 
+    pub(crate) async fn wait_until_ready(&self) -> Result<(), OrdinaryPromptAdmissionError> {
+        let mut receiver = self.phase.subscribe();
+        loop {
+            match *receiver.borrow() {
+                OrdinaryLifecyclePhase::Ready => return Ok(()),
+                OrdinaryLifecyclePhase::Draining => {
+                    return Err(OrdinaryPromptAdmissionError::ShuttingDown);
+                }
+                OrdinaryLifecyclePhase::Recovering => {}
+            }
+            receiver
+                .changed()
+                .await
+                .map_err(|_| OrdinaryPromptAdmissionError::RecoveryInProgress)?;
+        }
+    }
+
     /// Waits until all permits that began before shutdown have completed their typed exchange.
     pub(crate) async fn wait_for_permits(&self) {
         let mut receiver = self.permits.subscribe();

@@ -56,6 +56,8 @@ fn save(ledger: &SqliteLedger, request: &str, text: &str) {
             host_epoch: HostEpoch(1),
             conversation_id: AgentChatConversationId("conversation-a".into()),
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: text.into(),
         })
         .unwrap();

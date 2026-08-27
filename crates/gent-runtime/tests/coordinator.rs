@@ -69,7 +69,7 @@ fn provider_switches_and_stale_leases_are_durable() {
         parent_run_id: None,
         provider: "claude".into(),
     };
-    coordinator.create_run(root.clone()).unwrap();
+    coordinator.create_run(&root).unwrap();
     let child = coordinator
         .switch_provider(&root, "child".into(), "codex".into())
         .unwrap();

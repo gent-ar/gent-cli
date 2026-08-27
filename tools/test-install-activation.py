@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Offline tests for paired Gent runtime activation."""
 
 from __future__ import annotations
 
@@ -10,12 +9,14 @@ import tempfile
 import fcntl
 from pathlib import Path
 
+from install_activation_installer_tests import (
+    test_installer_allows_an_omitted_optional_digest_before_download,
+    test_installer_rejects_malformed_versions_before_download,
+)
+
 
 ROOT = Path(__file__).resolve().parent.parent
 ACTIVATOR = ROOT / "tools" / "activate-install.py"
-INSTALLER = ROOT / "tools" / "install.sh"
-
-
 def release(root: Path, name: str, *, gentd: bool = True) -> Path:
     directory = root / "releases" / name
     directory.mkdir(parents=True)
@@ -160,6 +161,32 @@ def test_install_publishes_launchers_before_idle_pointer_activation() -> None:
         assert not list((root / "releases").glob(".gent-stage-*"))
 
 
+def test_install_preserves_the_packaged_claurst_runtime_tree() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root, bin_dir = Path(temporary) / "gent", Path(temporary) / "bin"
+        source = release(Path(temporary) / "source", "v1-target")
+        llama = source / "runtime" / "claurst" / "llama"
+        llama.mkdir(parents=True)
+        for path in (
+            source / "runtime" / "node" / "bin" / "node",
+            source / "runtime" / "node" / "bin" / "npm",
+            source / "runtime" / "node" / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js",
+            source / "runtime" / "claurst" / "claurst",
+            llama / "llama-server",
+            llama / "libllama.so",
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("runtime", encoding="utf-8")
+            path.chmod(0o755)
+        assert install(root, "v1-target", source, bin_dir).returncode == 0
+        installed = root / "releases" / "v1-target" / "runtime" / "claurst"
+        assert (installed / "claurst").is_file()
+        assert (installed / "llama" / "llama-server").is_file()
+        assert (installed / "llama" / "libllama.so").is_file()
+        assert (installed / "claurst").stat().st_mode & 0o111
+        assert (installed / "llama" / "llama-server").stat().st_mode & 0o111
+
+
 def test_stage_only_preserves_the_current_pair_for_later_health_checks() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root, bin_dir = Path(temporary) / "gent", Path(temporary) / "bin"
@@ -213,48 +240,6 @@ def test_install_rejects_dangling_lock_symlink() -> None:
         result = install(root, "v1-target", source, bin_dir)
         assert result.returncode != 0
         assert "install lock must be a real file" in result.stderr
-
-
-def test_installer_rejects_malformed_versions_before_download() -> None:
-    with tempfile.TemporaryDirectory() as temporary:
-        fake = Path(temporary) / "fake"
-        fake.mkdir()
-        marker = Path(temporary) / "downloaded"
-        for name in ("curl", "cosign"):
-            binary = fake / name
-            binary.write_text(f"#!/usr/bin/env sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
-            binary.chmod(0o755)
-        for version in ("v1.2.3.*", "v1.2.3/escape", "v1.2.3 extra"):
-            result = subprocess.run(
-                ["sh", str(INSTALLER), "--version", version],
-                env=os.environ | {"PATH": f"{fake}:{os.environ['PATH']}"},
-                capture_output=True,
-                text=True,
-            )
-            assert result.returncode != 0
-            assert "invalid release version" in result.stderr
-        assert not marker.exists()
-
-
-def test_installer_allows_an_omitted_optional_digest_before_download() -> None:
-    with tempfile.TemporaryDirectory() as temporary:
-        fake, marker = Path(temporary) / "fake", Path(temporary) / "downloaded"
-        fake.mkdir()
-        curl = fake / "curl"
-        curl.write_text(f"#!/usr/bin/env sh\ntouch {marker}\nexit 99\n", encoding="utf-8")
-        curl.chmod(0o755)
-        cosign = fake / "cosign"
-        cosign.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
-        cosign.chmod(0o755)
-        result = subprocess.run(
-            ["sh", str(INSTALLER), "--version", "v1.2.3"],
-            env=os.environ | {"PATH": f"{fake}:{os.environ['PATH']}"},
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode != 0
-        assert marker.exists()
-        assert "expected digest" not in result.stderr
 
 
 def main() -> None:

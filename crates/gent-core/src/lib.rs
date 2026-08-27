@@ -15,7 +15,6 @@ mod goal_tests;
 mod lifecycle_projection;
 mod lifecycle_signal;
 mod lifecycle_state;
-mod observer_comparison;
 mod orchestration;
 #[cfg(test)]
 mod orchestration_tests;
@@ -52,7 +51,6 @@ pub use lifecycle_projection::{
 };
 pub use lifecycle_signal::project_lifecycle_signal;
 pub use lifecycle_state::{LifecycleEvent, LifecycleState, live_status, reduce_lifecycle};
-pub use observer_comparison::{ObserverComparison, ObserverProjection, compare_legacy_tap};
 pub use orchestration::*;
 pub use permission_control::{
     PermissionControlContext, PermissionControlEffect, PermissionControlEvent,

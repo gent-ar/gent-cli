@@ -71,20 +71,14 @@ launcher, publishes the launchers before atomically replacing a validated
 `current.json` pointer, and never uses a `.cmd` argument-forwarding wrapper.
 It does not use a symlink or replace a running binary.
 
-1. Run `gent doctor`. It starts the local daemon if needed and reports Claude,
-   Codex, Node.js, MCP observer state, private-bridge availability, executable
-   identity, and remediation as JSON.
-2. Review an explicit dependency action with `gent deps plan install claude`
-   or `gent deps plan install codex`.
-3. Set `GENT_NODE_BINARY` to the app-bundled Node executable only when composing
-   an approved provider host. `gent deps install <provider> --consent` remains
-   observer-disabled today. The future host must re-fetch the reviewed plan and
-   active epoch, select an exact signed package/version/integrity entry, use only
-   sibling `npm` with a private `.gentd/providers/npm-global` prefix, and mark an
-   ambiguous accepted effect `unprovable`, never rerun.
-4. Keep provider execution disabled until an unexpired signed compatibility
-   entry and the required redacted live evidence exist. A discovered executable
-   is not approval to launch it.
+1. Run `gent doctor` to inspect the installed pair and local dependencies.
+2. Start the standalone profile for chat with `gentd --standalone-authority`.
+   Gentd owns Claude, Codex, Claurst, MCP, and the durable conversation state.
+3. Supply exact provider paths when packaging does not already provide them.
+   Claude and Codex use their Gentd-managed standalone setup. Claurst uses the
+   packaged Claurst plus llama.cpp runtime and a selected curated local model.
+4. Let Gentd download a required curated model and report its progress. Do not
+   configure a hosted Claurst endpoint or launch a provider from the app.
 
 To assess an already-verified offline manifest, start `gentd` with
 `--compatibility-cache <path>` and one or more
@@ -120,21 +114,17 @@ can read that attempt's durable stage, revision, failure, host epoch, and
 ingress state through the local protocol. It cannot fetch, schedule, stage, or
 activate an update.
 
-`gent doctor` is read-only discovery. It reports private Claurst integration as
-`notConfigured` in this public repository; it never accepts Claurst endpoint,
-credential, billing, or routing configuration.
+`gent doctor` is read-only discovery. It does not accept a Claurst endpoint,
+credential, billing, or hosted routing configuration.
 
 ## Current authority boundary
 
-The shipped standalone daemon remains in observer mode. It has no live provider
-spawn/lifecycle ingress, MCP process, Git mutation, automation engine, pairing
-transport, or network-listener authority. The local IPC socket exists only for
-the versioned `gent` ↔ `gentd` protocol.
+The standalone authority owns local provider lifecycle and the versioned
+`gent` ↔ `gentd` protocol. The app and terminal are clients of that one writer.
+It does not authorize an app-side provider fallback, hosted Claurst route, or a
+second ledger writer.
 
-Four Claude/Codex evidence cells remain capture-required: Claude
-persistent-permission, compaction, malformed-tolerance; and Codex
-malformed-tolerance. Claurst requires an authenticated app-private
-bridge and private CI. A future Flutter launch must enforce one active
-writer/host epoch and protocol compatibility; a single-user standalone install
-does not require an upgrade path or deployed fence-aware app release. These
-gates are described in [implementation status](implementation-status.md).
+Current readiness gaps are provider-neutral attachment projection, exact-run
+interrupt routing, remaining Claude/Codex malformed and compaction evidence,
+and Claurst local-runtime coverage on macOS, Windows, and Linux. These are
+tracked in [implementation status](implementation-status.md).

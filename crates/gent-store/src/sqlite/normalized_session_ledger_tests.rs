@@ -43,6 +43,8 @@ fn prepared() -> (SqliteLedger, String) {
             conversation_id: AgentChatConversationId("conversation-a".into()),
             disposition: AgentChatPromptDisposition::Send,
             text: "hello".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     ledger

@@ -48,14 +48,13 @@ pub(crate) struct CrossReviewArgs {
 }
 
 #[derive(Debug, Args)]
-#[allow(clippy::struct_field_names)] // These fields are protocol binding identities.
 pub(crate) struct ReadArgs {
-    #[arg(long)]
-    conversation_id: String,
-    #[arg(long)]
-    graph_id: String,
-    #[arg(long)]
-    request_id: Option<String>,
+    #[arg(long = "conversation-id")]
+    conversation: String,
+    #[arg(long = "graph-id")]
+    graph: String,
+    #[arg(long = "request-id")]
+    request: Option<String>,
 }
 
 /// Exchanges one finite graph request after the daemon explicitly exposes its authority.
@@ -92,9 +91,9 @@ fn frame(command: OrchestrationCommand) -> Result<OrchestrationFrame, Box<dyn st
             cross_review_frame(&args.request_json, args.request_id)
         }
         OrchestrationCommand::Read(args) => Ok(OrchestrationFrame::GraphRead {
-            request_id: request_id(args.request_id),
-            conversation_id: AgentChatConversationId(args.conversation_id),
-            graph_id: args.graph_id,
+            request_id: request_id(args.request),
+            conversation_id: AgentChatConversationId(args.conversation),
+            graph_id: args.graph,
         }),
     }
 }

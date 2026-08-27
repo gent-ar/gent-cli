@@ -34,4 +34,6 @@ pub trait AttachmentBlobStore: Send + Sync {
         staging_key: &str,
         storage_key: &str,
     ) -> Result<(), LedgerError>;
+
+    fn read_attachment_blob(&self, storage_key: &str) -> Result<Vec<u8>, LedgerError>;
 }

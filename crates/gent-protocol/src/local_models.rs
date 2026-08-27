@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 /// Required before a client may browse or provision curated local models.
 pub const LOCAL_MODELS_CAPABILITY: &str = "local-models-v1";
 
+pub const DEFAULT_LOCAL_MODEL_ID: &str = "qwen3-1-7b-q4-k-m";
+
 /// Public metadata for one model selected by Gent's curated catalogue.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -40,6 +42,7 @@ pub enum LocalModelDownloadFailure {
     StorageUnavailable,
     TransportFailed,
     VerificationFailed,
+    Cancelled,
 }
 
 /// Request/reply frames for the local model catalogue and a single download stream.
@@ -221,7 +224,7 @@ mod tests {
     fn download_progress_is_typed_and_correlated() {
         let frame = LocalModelFrame::DownloadProgress {
             request_id: "download-1".into(),
-            model_id: "qwen3-4b-q4-k-m".into(),
+            model_id: "qwen2-5-coder-7b-instruct-q4-k-m".into(),
             downloaded_bytes: 10,
             total_bytes: 20,
         };
@@ -229,8 +232,49 @@ mod tests {
         assert_eq!(LOCAL_MODELS_CAPABILITY, "local-models-v1");
         assert_eq!(
             serde_json::to_value(frame).unwrap(),
-            json!({"type":"downloadProgress","body":{"requestId":"download-1","modelId":"qwen3-4b-q4-k-m","downloadedBytes":10,"totalBytes":20}})
+            json!({"type":"downloadProgress","body":{"requestId":"download-1","modelId":"qwen2-5-coder-7b-instruct-q4-k-m","downloadedBytes":10,"totalBytes":20}})
         );
+    }
+
+    #[test]
+    fn repeated_model_downloads_keep_distinct_request_ids_on_wire() {
+        let model_id = "qwen2-5-coder-7b-instruct-q4-k-m";
+        let frames = [
+            LocalModelFrame::DownloadComplete {
+                request_id: "prompt-a".into(),
+                model_id: model_id.into(),
+                size_bytes: 20,
+            },
+            LocalModelFrame::DownloadAccepted {
+                request_id: "prompt-b".into(),
+                model_id: model_id.into(),
+                state: LocalModelInstallState::Downloading {
+                    downloaded_bytes: 0,
+                    total_bytes: 20,
+                },
+            },
+            LocalModelFrame::DownloadProgress {
+                request_id: "prompt-b".into(),
+                model_id: model_id.into(),
+                downloaded_bytes: 10,
+                total_bytes: 20,
+            },
+            LocalModelFrame::DownloadComplete {
+                request_id: "prompt-b".into(),
+                model_id: model_id.into(),
+                size_bytes: 20,
+            },
+        ];
+        let wire_frames = frames
+            .iter()
+            .map(|frame| serde_json::to_value(frame).unwrap())
+            .collect::<Vec<_>>();
+        let decoded = wire_frames
+            .into_iter()
+            .map(|value| serde_json::from_value::<LocalModelFrame>(value).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(decoded, frames);
+        assert!(decoded.iter().all(|frame| frame.validate().is_ok()));
     }
 
     #[test]

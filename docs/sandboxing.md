@@ -51,7 +51,7 @@ attestation produces a terminal sandbox failure with zero provider spawn.
 | Platform | Future supported path | Current broad-mode result |
 | --- | --- | --- |
 | Linux | Landlock filesystem policy plus a separately enforced network/process boundary | Denied until implemented and preflighted |
-| macOS standalone CLI | A Gent-owned, Developer-ID-signed helper bundle with App Sandbox and hardened-runtime proof | Denied; deprecated `sandbox-exec` is not an acceptable security claim |
+| macOS standalone CLI | A Gent-owned, Developer-ID-signed helper bundle with App Sandbox and hardened-runtime proof | Denied; `sandbox-exec` is not an acceptable security claim |
 | Windows | AppContainer/restricted token plus a Job Object for the full process tree | Denied until implemented and preflighted |
 
 The application may later provide a platform-specific signed helper, but that
@@ -112,5 +112,5 @@ be enabled:
    invalid signature.
 
 Until all four proofs exist, the macOS sandbox-preflight port remains
-unavailable. This is deliberately stricter than invoking the deprecated
+unavailable. This is deliberately stricter than invoking
 `sandbox-exec` or trusting a provider CLI's advertised sandbox mode.

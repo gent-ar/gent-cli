@@ -7,8 +7,8 @@
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
-    ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PublicProviderResolver,
-    TranscriptLedger,
+    ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PendingPermissionLedger,
+    PolicyLedger, PublicProviderResolver, TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 
@@ -76,10 +76,16 @@ where
         + TranscriptLedger
         + NormalizedSessionBatchLedger
         + AgentChatPromptDispatchLedger
+        + gent_ports::AttachmentLedger
         + gent_ports::AgentChatReadLedger
         + AgentChatRunContextReader
         + ConversationContentReader
-        + gent_ports::AgentChatWorkspaceLedger,
+        + gent_ports::AgentChatWorkspaceLedger
+        + PendingPermissionLedger
+        + PolicyLedger
+        + gent_ports::AttachmentLedger
+        + gent_ports::ToolSourceLedger
+        + gent_ports::AgentChatConversationConfigLedger,
     D: crate::claude_prompt_lifecycle::ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {
@@ -135,6 +141,51 @@ where
             PrivateClaudeSupervisorState::Running => {}
         }
         Ok(PrivateClaudeWake::Tick(self.host.tick()?))
+    }
+
+    pub(crate) fn respond_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+    ) -> Result<(), RuntimeError> {
+        self.respond_permission_with_input(run_id, request_id, behavior, persist_suggestions, None)
+    }
+
+    pub(crate) fn respond_permission_with_input(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+        updated_input: Option<serde_json::Value>,
+    ) -> Result<(), RuntimeError> {
+        if self.state != PrivateClaudeSupervisorState::Running {
+            return Err(RuntimeError::ProviderRun(
+                gent_ports::PublicProviderRunError::Failed(
+                    "Claude permission response is unavailable".into(),
+                ),
+            ));
+        }
+        self.host.respond_permission_with_input(
+            run_id,
+            request_id,
+            behavior,
+            persist_suggestions,
+            updated_input,
+        )
+    }
+
+    pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), RuntimeError> {
+        if self.state != PrivateClaudeSupervisorState::Running {
+            return Err(RuntimeError::ProviderRun(
+                gent_ports::PublicProviderRunError::Failed(
+                    "Claude interrupt is unavailable".into(),
+                ),
+            ));
+        }
+        self.host.interrupt(run_id)
     }
 
     /// Begins shutdown by interrupting every owned process tree exactly once.

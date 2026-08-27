@@ -10,12 +10,13 @@ use gent_protocol::{
     write_json_frame,
 };
 use gent_types::{
-    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, ContextPolicy, PlanRevision, ReceiptId, ReviewedPlanId,
-    StartImplementationRequest,
+    AgentChatConversationId, AgentChatRequestId, AgentChatRunId, AgentChatSelection, PlanRevision,
+    ReceiptId, ReviewedPlanId, StartImplementationRequest,
 };
 use serde_json::Value;
 use std::path::PathBuf;
+#[path = "reviewed_plan_cli_conversions.rs"]
+mod conversions;
 /// The terminal-facing reviewed-plan actions also used by native-host clients.
 #[derive(Debug, Subcommand)]
 pub(crate) enum ReviewedPlanCommand {
@@ -27,14 +28,13 @@ pub(crate) enum ReviewedPlanCommand {
     Reject(RejectArgs),
 }
 #[derive(Debug, Args)]
-#[allow(clippy::struct_field_names)] // These exact public CLI flags name distinct protocol identities.
 pub(crate) struct ReviewArgs {
-    #[arg(long)]
-    conversation_id: String,
-    #[arg(long)]
-    plan_id: String,
-    #[arg(long)]
-    request_id: Option<String>,
+    #[arg(long = "conversation-id")]
+    conversation: String,
+    #[arg(long = "plan-id")]
+    plan: String,
+    #[arg(long = "request-id")]
+    request: Option<String>,
 }
 #[derive(Debug, Args)]
 pub(crate) struct StartArgs {
@@ -91,6 +91,9 @@ pub(crate) enum EffortArgument {
     #[default]
     Medium,
     High,
+    Xhigh,
+    Max,
+    Ultra,
 }
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
 pub(crate) enum ModeArgument {
@@ -183,9 +186,9 @@ fn require_capability(
 fn frame(command: ReviewedPlanCommand) -> ReviewedPlanFrame {
     match command {
         ReviewedPlanCommand::Review(args) => ReviewedPlanFrame::ReviewRead {
-            request_id: request_id(args.request_id),
-            conversation_id: AgentChatConversationId(args.conversation_id),
-            plan_id: ReviewedPlanId(args.plan_id),
+            request_id: request_id(args.request),
+            conversation_id: AgentChatConversationId(args.conversation),
+            plan_id: ReviewedPlanId(args.plan),
         },
         ReviewedPlanCommand::Reject(args) => ReviewedPlanFrame::Reject {
             request_id: request_id(args.request_id),
@@ -252,45 +255,6 @@ fn valid_reply(request: &ReviewedPlanFrame, response: &ReviewedPlanFrame) -> boo
             },
         ) => reply == request_id && rejected == plan_id && revision == plan_revision,
         _ => false,
-    }
-}
-
-impl From<ProviderArgument> for AgentChatProvider {
-    fn from(value: ProviderArgument) -> Self {
-        match value {
-            ProviderArgument::Claude => Self::Claude,
-            ProviderArgument::Codex => Self::Codex,
-            ProviderArgument::Claurst => Self::Claurst,
-        }
-    }
-}
-
-impl From<EffortArgument> for AgentChatEffort {
-    fn from(value: EffortArgument) -> Self {
-        match value {
-            EffortArgument::Low => Self::Low,
-            EffortArgument::Medium => Self::Medium,
-            EffortArgument::High => Self::High,
-        }
-    }
-}
-
-impl From<ModeArgument> for AgentChatMode {
-    fn from(value: ModeArgument) -> Self {
-        match value {
-            ModeArgument::Ask => Self::Ask,
-            ModeArgument::Plan => Self::Plan,
-            ModeArgument::Agent => Self::Agent,
-        }
-    }
-}
-
-impl From<ContextArgument> for ContextPolicy {
-    fn from(value: ContextArgument) -> Self {
-        match value {
-            ContextArgument::Preserve => Self::Preserve,
-            ContextArgument::Clear => Self::Clear,
-        }
     }
 }
 

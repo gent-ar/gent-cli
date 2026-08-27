@@ -9,8 +9,7 @@ use gent_runtime::RuntimeError;
 use gent_types::{
     ActivityWorkKind, ConversationActivityFact, ConversationActivityScope, HostEpoch,
     NormalizedLifecycleSignal, NormalizedProviderEvent, NormalizedSessionBatch,
-    NormalizedSessionLifecycle, NormalizedTranscriptAppend, NormalizedTranscriptKind, ToolPhase,
-    TurnPhase, WorkPhase,
+    NormalizedSessionLifecycle, NormalizedTranscriptAppend, NormalizedTranscriptKind, TurnPhase,
 };
 
 use super::PublicDriversRuntime;
@@ -76,6 +75,20 @@ fn batch(
     input: &NormalizedSessionFact,
 ) -> Result<NormalizedSessionBatch, RuntimeError> {
     let lifecycle = match &input.fact {
+        PublicWireFact::Event(NormalizedProviderEvent::TurnStarted { .. }) => {
+            NormalizedSessionLifecycle::Event {
+                event: NormalizedProviderEvent::TurnStarted {
+                    turn_id: input.turn_id.clone(),
+                },
+            }
+        }
+        PublicWireFact::Event(NormalizedProviderEvent::TurnEnded { .. }) => {
+            NormalizedSessionLifecycle::Event {
+                event: NormalizedProviderEvent::TurnEnded {
+                    turn_id: input.turn_id.clone(),
+                },
+            }
+        }
         PublicWireFact::Event(event) => NormalizedSessionLifecycle::Event {
             event: event.clone(),
         },
@@ -93,13 +106,15 @@ fn batch(
             ));
         }
     };
-    let transcript = output(&input.fact).map(|(text, is_partial)| NormalizedTranscriptAppend {
-        event_id: input.transcript_event_id.clone(),
-        run_id: input.run_id.clone(),
-        turn_id: input.turn_id.clone(),
-        kind: NormalizedTranscriptKind::AssistantMessage,
-        text,
-        is_partial,
+    let transcript = transcript_content(&input.fact).map(|(kind, text, is_partial)| {
+        NormalizedTranscriptAppend {
+            event_id: input.transcript_event_id.clone(),
+            run_id: input.run_id.clone(),
+            turn_id: input.turn_id.clone(),
+            kind,
+            text,
+            is_partial,
+        }
     });
     let activity = activity(input);
     Ok(NormalizedSessionBatch {
@@ -140,27 +155,95 @@ fn validate(input: &NormalizedSessionFact) -> Result<(), RuntimeError> {
     Ok(())
 }
 
-fn output(fact: &PublicWireFact) -> Option<(String, bool)> {
+fn transcript_content(fact: &PublicWireFact) -> Option<(NormalizedTranscriptKind, String, bool)> {
     match fact {
-        PublicWireFact::Event(NormalizedProviderEvent::Output { text, is_partial }) => {
-            Some((text.clone(), *is_partial))
+        PublicWireFact::Event(NormalizedProviderEvent::Output { text, is_partial }) => Some((
+            NormalizedTranscriptKind::AssistantMessage,
+            text.clone(),
+            *is_partial,
+        )),
+        PublicWireFact::Event(NormalizedProviderEvent::Thinking { text, is_partial }) => Some((
+            NormalizedTranscriptKind::Thinking,
+            text.clone(),
+            *is_partial,
+        )),
+        PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
+            text,
+            is_partial,
+            ..
+        }) => Some((
+            NormalizedTranscriptKind::ToolActivity,
+            text.clone(),
+            *is_partial,
+        )),
+        PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure { message, .. }) => {
+            Some((NormalizedTranscriptKind::Notice, message.clone(), false))
         }
         _ => None,
     }
 }
 
 fn activity(input: &NormalizedSessionFact) -> Option<ConversationActivityFact> {
+    activity_for_fact(
+        &input.conversation_id,
+        &input.run_id,
+        &input.turn_id,
+        input.host_epoch,
+        &input.fact,
+    )
+}
+
+pub(crate) fn activity_for_lifecycle(
+    conversation_id: &str,
+    run_id: &str,
+    turn_id: &str,
+    host_epoch: HostEpoch,
+    lifecycle: &NormalizedSessionLifecycle,
+) -> Option<ConversationActivityFact> {
+    match lifecycle {
+        NormalizedSessionLifecycle::Event { event } => activity_for_fact(
+            conversation_id,
+            run_id,
+            turn_id,
+            host_epoch,
+            &PublicWireFact::Event(event.clone()),
+        ),
+        NormalizedSessionLifecycle::Signal { signal } => activity_for_fact(
+            conversation_id,
+            run_id,
+            turn_id,
+            host_epoch,
+            &PublicWireFact::Lifecycle(signal.clone()),
+        ),
+    }
+}
+
+fn activity_for_fact(
+    conversation_id: &str,
+    run_id: &str,
+    turn_id: &str,
+    host_epoch: HostEpoch,
+    fact: &PublicWireFact,
+) -> Option<ConversationActivityFact> {
     let scope = || ConversationActivityScope {
-        conversation_id: input.conversation_id.clone(),
-        run_id: input.run_id.clone(),
-        turn_id: input.turn_id.clone(),
-        host_epoch: input.host_epoch,
+        conversation_id: conversation_id.into(),
+        run_id: run_id.into(),
+        turn_id: turn_id.into(),
+        host_epoch,
         cursor: 0,
     };
-    match &input.fact {
+    match fact {
         PublicWireFact::Event(NormalizedProviderEvent::TurnStarted { .. }) => {
             Some(ConversationActivityFact::TurnStarted { scope: scope() })
         }
+        PublicWireFact::Event(NormalizedProviderEvent::ContextUsage {
+            used_tokens,
+            window_tokens,
+        }) => Some(ConversationActivityFact::ContextUsage {
+            scope: scope(),
+            used_tokens: *used_tokens,
+            window_tokens: *window_tokens,
+        }),
         PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity { activity }) => {
             Some(ConversationActivityFact::RootActivity {
                 scope: scope(),
@@ -185,23 +268,45 @@ fn activity(input: &NormalizedSessionFact) -> Option<ConversationActivityFact> {
             })
         }
         PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) => {
+            Some(ConversationActivityFact::ToolActivity {
+                scope: scope(),
+                activity: activity.clone(),
+            })
+        }
+        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
+            child_id,
+            parent_tool_use_id,
+        }) => Some(ConversationActivityFact::SubagentStarted {
+            scope: scope(),
+            child_id: child_id.clone(),
+            parent_tool_use_id: parent_tool_use_id.clone(),
+        }),
+        PublicWireFact::Event(NormalizedProviderEvent::ChildTerminal { child_id, phase })
+        | PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ChildPhase { child_id, phase }) => {
             Some(ConversationActivityFact::WorkPhase {
                 scope: scope(),
-                work_id: activity.tool_use_id.clone(),
-                kind: ActivityWorkKind::Command,
-                phase: work_phase(&activity.phase),
+                work_id: child_id.clone(),
+                kind: ActivityWorkKind::Subagent,
+                phase: phase.clone(),
+            })
+        }
+        PublicWireFact::Event(NormalizedProviderEvent::CommandTerminal { command_id, phase })
+        | PublicWireFact::Lifecycle(NormalizedLifecycleSignal::CommandPhase {
+            command_id,
+            phase,
+        }) => Some(ConversationActivityFact::WorkPhase {
+            scope: scope(),
+            work_id: command_id.clone(),
+            kind: ActivityWorkKind::Command,
+            phase: phase.clone(),
+        }),
+        PublicWireFact::Event(NormalizedProviderEvent::DecisionSettled { decision_id }) => {
+            Some(ConversationActivityFact::DecisionSettled {
+                scope: scope(),
+                decision_id: decision_id.clone(),
             })
         }
         _ => None,
-    }
-}
-
-const fn work_phase(phase: &ToolPhase) -> WorkPhase {
-    match phase {
-        ToolPhase::Started => WorkPhase::Running,
-        ToolPhase::WaitingPermission => WorkPhase::WaitingPermission,
-        ToolPhase::Completed => WorkPhase::Done,
-        ToolPhase::Failed => WorkPhase::Failed,
     }
 }
 

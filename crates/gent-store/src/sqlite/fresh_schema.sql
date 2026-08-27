@@ -2,7 +2,7 @@ CREATE TABLE gent_schema (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     identity TEXT NOT NULL
 );
-INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v10');
+INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v15');
 CREATE TABLE host_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     epoch INTEGER NOT NULL,
@@ -33,6 +33,7 @@ CREATE TABLE events (
 CREATE INDEX events_compaction_run_cursor
 ON events(kind, json_extract(payload, '$.runId'), cursor);
 CREATE TABLE conversations (conversation_id TEXT PRIMARY KEY NOT NULL);
+CREATE TABLE prompt_templates (creation_order INTEGER PRIMARY KEY AUTOINCREMENT, template_id TEXT NOT NULL UNIQUE, schema_version INTEGER NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL);
 CREATE TABLE runs (
     run_id TEXT PRIMARY KEY NOT NULL,
     parent_run_id TEXT REFERENCES runs(run_id),
@@ -136,6 +137,11 @@ CREATE TABLE policies (
     allowed_categories TEXT NOT NULL DEFAULT '[]',
     UNIQUE (workspace_id, scope, revision)
 );
+CREATE TABLE pending_provider_permissions (
+    decision_id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    run_id TEXT NOT NULL REFERENCES runs(run_id), binding_json TEXT NOT NULL, request_json TEXT NOT NULL,
+    UNIQUE(conversation_id, run_id)
+);
 CREATE TABLE git_operations (
     operation_id TEXT PRIMARY KEY NOT NULL,
     worktree_id TEXT NOT NULL REFERENCES worktrees(worktree_id),
@@ -189,6 +195,18 @@ CREATE TABLE mcp_connector_leases (
     tool_source_id TEXT PRIMARY KEY NOT NULL REFERENCES tool_sources(tool_source_id),
     lease_token TEXT NOT NULL UNIQUE,
     host_epoch INTEGER NOT NULL
+);
+CREATE TABLE forge_connectors (
+    connector_id TEXT PRIMARY KEY NOT NULL REFERENCES mcp_connectors(connector_id),
+    workspace_id TEXT NOT NULL REFERENCES workspaces(workspace_id),
+    tool_source_id TEXT NOT NULL REFERENCES tool_sources(tool_source_id),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    declared_tools TEXT NOT NULL,
+    discovered_tools TEXT NOT NULL,
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
 );
 CREATE TABLE conversation_messages (
     message_id TEXT PRIMARY KEY NOT NULL,

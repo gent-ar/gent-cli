@@ -3,6 +3,7 @@
 use gent_ports::LedgerError;
 use gent_types::{PermissionMode, PolicyRecord, PolicyScope};
 use rusqlite::{OptionalExtension, params};
+use sha2::{Digest, Sha256};
 
 use super::SqliteLedger;
 use super::queries::storage_error;
@@ -50,6 +51,43 @@ pub(super) fn current_policy(
 ) -> Result<Option<PolicyRecord>, LedgerError> {
     let connection = ledger.lock()?;
     current(&connection, workspace_id, scope)
+}
+
+pub(super) fn ensure_default_provider_permission_policy(
+    ledger: &SqliteLedger,
+    workspace_id: &str,
+) -> Result<PolicyRecord, LedgerError> {
+    if workspace_id.trim().is_empty() || workspace_id.contains('\0') {
+        return Err(LedgerError::Invariant(
+            "workspace identity is invalid".into(),
+        ));
+    }
+    let mut connection = ledger.lock()?;
+    let transaction = connection.transaction().map_err(storage_error)?;
+    if let Some(policy) = current(&transaction, workspace_id, PolicyScope::ProviderPermissions)? {
+        transaction.commit().map_err(storage_error)?;
+        return Ok(policy);
+    }
+    let policy = PolicyRecord {
+        policy_id: default_policy_id(workspace_id),
+        workspace_id: workspace_id.into(),
+        scope: PolicyScope::ProviderPermissions,
+        revision: 1,
+        mode: PermissionMode::Default,
+        allowed_tools: Vec::new(),
+        allowed_categories: Vec::new(),
+    };
+    transaction.execute(
+        "INSERT INTO policies (policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![policy.policy_id, policy.workspace_id, encode_scope(policy.scope), policy.revision, "[]", encode_mode(policy.mode), "[]"],
+    ).map_err(storage_error)?;
+    transaction.commit().map_err(storage_error)?;
+    Ok(policy)
+}
+
+fn default_policy_id(workspace_id: &str) -> String {
+    let digest = Sha256::digest(workspace_id.as_bytes());
+    format!("provider-permissions-default-v1-{digest:x}")
 }
 
 fn current(

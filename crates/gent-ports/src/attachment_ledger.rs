@@ -1,6 +1,6 @@
 //! Durable metadata and turn-association boundary for staged attachments.
 
-use gent_types::{AttachmentTransfer, TurnAttachment};
+use gent_types::{AttachmentMetadata, AttachmentTransfer, TurnAttachment};
 
 use crate::LedgerError;
 
@@ -46,4 +46,6 @@ pub trait AttachmentLedger: Send + Sync {
     /// # Errors
     /// Returns an error when either identity is unknown or the association already conflicts.
     fn attach_to_turn(&self, association: &TurnAttachment) -> Result<(), LedgerError>;
+
+    fn turn_attachments(&self, turn_id: &str) -> Result<Vec<AttachmentMetadata>, LedgerError>;
 }

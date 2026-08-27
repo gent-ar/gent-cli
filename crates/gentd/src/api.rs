@@ -1,12 +1,14 @@
 //! Daemon-facing runtime port. Transport adapters depend only on this boundary.
 
 use gent_protocol::{
-    AgentChatConversationFrame, AgentChatIntentFrame, AgentChatTranscriptFrame, AttachmentFrame,
-    DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
-    DependencyPlan, DependencyPlanRequest, GoalFrame, OrchestrationFrame, PermissionPolicyFrame,
-    PromptProviderProvisionFrame, ProviderAuthFrame, ProviderReadinessFrame,
-    PublicRunInterruptRequest, PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest,
-    ReviewedPlanFrame,
+    AgentChatCheckpointFrame, AgentChatConversationConfigFrame, AgentChatConversationFrame,
+    AgentChatIntentFrame, AgentChatSideQuestionFrame, AgentChatTranscriptFrame, AttachmentFrame,
+    AutomationFrame, DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest,
+    DependencyActionResult, DependencyPlan, DependencyPlanRequest, ForgeConnectorFrame, GoalFrame,
+    LocalModelFrame, OrchestrationFrame, PermissionPolicyFrame, PromptProviderProvisionFrame,
+    PromptTemplateFrame, ProviderAuthFrame, ProviderReadinessFrame, PublicRunInterruptRequest,
+    PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
+    WorkspaceDocumentsFrame, WorkspaceGitFrame,
 };
 use gent_runtime::{ConversationActivityRead, TurnFollowRead, TurnFollowRequest};
 use gent_types::{
@@ -18,6 +20,11 @@ use gent_types::{
 };
 
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
+    fn agent_chat_permission_port(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::agent_chat_permission_api::AgentChatPermissionPort>> {
+        None
+    }
     fn capabilities(&self) -> Result<CapabilitySet, String>;
     fn status(&self) -> Result<HostStatus, String>;
     fn submit(&self, command: Command) -> Result<Receipt, String>;
@@ -34,6 +41,43 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     /// Handles a capability-gated attachment transfer frame.
     fn attachment(&self, _: AttachmentFrame) -> Result<AttachmentFrame, String> {
         Err("attachments are unavailable for this runtime".into())
+    }
+    fn local_models(&self, _: LocalModelFrame) -> Result<LocalModelFrame, String> {
+        Err("local models are unavailable for this runtime".into())
+    }
+    fn automations(&self, _: AutomationFrame) -> Result<AutomationFrame, String> {
+        Err("automations are unavailable while gentd is observer-disabled".into())
+    }
+    fn agent_chat_sessions(
+        &self,
+        _: gent_protocol::AgentChatSessionFrame,
+    ) -> Result<gent_protocol::AgentChatSessionFrame, String> {
+        Err("agent chat sessions are unavailable while gentd is observer-disabled".into())
+    }
+    fn prompt_templates(&self, _: PromptTemplateFrame) -> Result<PromptTemplateFrame, String> {
+        Err("prompt templates are unavailable for this runtime".into())
+    }
+    fn workspace_documents(
+        &self,
+        _: WorkspaceDocumentsFrame,
+    ) -> Result<WorkspaceDocumentsFrame, String> {
+        Err("workspace documents are unavailable for this runtime".into())
+    }
+    fn workspace_git(&self, _: WorkspaceGitFrame) -> Result<WorkspaceGitFrame, String> {
+        Err("workspace git is unavailable for this runtime".into())
+    }
+    fn forge_connectors(&self, _: ForgeConnectorFrame) -> Result<ForgeConnectorFrame, String> {
+        Err("Forge connectors are unavailable while gentd is observer-disabled".into())
+    }
+    fn begin_local_model_download(
+        &self,
+        _: &str,
+    ) -> Result<crate::standalone_authority_composition::LocalModelDownloadStart, String> {
+        Err("local-model downloads are unavailable for this runtime".into())
+    }
+    fn finish_local_model_download(&self, _: &str) {}
+    fn publish_local_model_frame(&self, _: LocalModelFrame) -> Result<(), String> {
+        Ok(())
     }
     /// Reads a separately configured, signed cached release report.
     fn runtime_update_check(
@@ -118,6 +162,27 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     /// Reads or appends one local, provider-neutral permission-policy revision.
     fn permission_policy(&self, _: PermissionPolicyFrame) -> Result<PermissionPolicyFrame, String> {
         Err("permission policy is unavailable for this runtime".into())
+    }
+    /// Reads or appends one durable per-conversation advanced-launch-configuration revision.
+    fn agent_chat_conversation_config(
+        &self,
+        _: AgentChatConversationConfigFrame,
+    ) -> Result<AgentChatConversationConfigFrame, String> {
+        Err("agent-chat conversation config is unavailable for this runtime".into())
+    }
+    /// Captures, lists, or restores a durable per-turn file checkpoint.
+    fn agent_chat_checkpoint(
+        &self,
+        _: AgentChatCheckpointFrame,
+    ) -> Result<AgentChatCheckpointFrame, String> {
+        Err("agent-chat checkpoint is unavailable for this runtime".into())
+    }
+    /// Asks, cancels, or lists bounded, provider-neutral side questions.
+    fn agent_chat_side_question(
+        &self,
+        _: AgentChatSideQuestionFrame,
+    ) -> Result<AgentChatSideQuestionFrame, String> {
+        Err("agent-chat side question is unavailable for this runtime".into())
     }
     /// Handles a secret-free provider-auth frame only in a future authority composition.
     ///

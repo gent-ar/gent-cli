@@ -128,7 +128,7 @@ as one reviewed cutover:
    provider stdout parsing, or Gent-ledger writes; a disconnected Gent host is
    visibly unavailable rather than silently falling back to an app driver.
 
-This clean removal is not a data migration or legacy bridge. The installed Gent
+The installed Gent
 pair remains independently updateable, so provider and harness fixes land in
 Gent without a native-app provider-driver release. The app may bundle Node only;
 on a consented first prompt Gent alone may provision policy-approved Claude

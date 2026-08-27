@@ -4,9 +4,8 @@
 //! evidence-approved host supplies a durable accepted receipt and explicit consent after a prompt
 //! identifies a missing public provider. Claurst never enters this public npm path.
 
-use std::{collections::BTreeMap, path::Path, path::PathBuf};
+use std::path::Path;
 
-use ed25519_dalek::VerifyingKey;
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
@@ -20,14 +19,6 @@ use crate::{
     node_runtime_lock::AppNodeRuntimeLock,
     private_provider_compatibility::ProvisionedProviderCompatibility,
 };
-
-/// Where and how to re-verify the signed ordinary-authority release immediately before an npm
-/// effect. Absent by default; only a future explicit composition supplies this.
-#[derive(Clone, Debug)]
-pub(crate) struct ReleaseAuthorityConfig {
-    pub(crate) path: PathBuf,
-    pub(crate) root_keys: BTreeMap<String, VerifyingKey>,
-}
 
 mod effect;
 
@@ -88,7 +79,6 @@ pub(crate) struct PrivateProviderProvisioner<I, P, V, R, B> {
     verifier: Option<V>,
     receipts: R,
     compatibility: B,
-    release_authority: Option<ReleaseAuthorityConfig>,
 }
 
 impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
@@ -100,7 +90,6 @@ impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
         verifier: Option<V>,
         receipts: R,
         compatibility: B,
-        release_authority: Option<ReleaseAuthorityConfig>,
     ) -> Self {
         Self {
             runtime,
@@ -109,7 +98,6 @@ impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
             verifier,
             receipts,
             compatibility,
-            release_authority,
         }
     }
 }
@@ -138,26 +126,6 @@ impl<I, P, V, R>
             verifier,
             receipts,
             crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
-            None,
-        )
-    }
-
-    pub(crate) fn with_release_authority(
-        runtime: AppNodeRuntimeLock,
-        installer: I,
-        policy: P,
-        verifier: Option<V>,
-        receipts: R,
-        release_authority: ReleaseAuthorityConfig,
-    ) -> Self {
-        Self::with_compatibility(
-            runtime,
-            installer,
-            policy,
-            verifier,
-            receipts,
-            crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
-            Some(release_authority),
         )
     }
 }
@@ -181,7 +149,6 @@ impl<
         verifier: Option<V>,
         receipts: R,
         compatibility: B,
-        release_authority: Option<ReleaseAuthorityConfig>,
     ) -> Result<Self, PrivateProvisionError> {
         Ok(Self::with_compatibility(
             AppNodeRuntimeLock::from_environment(data_dir)?,
@@ -190,7 +157,6 @@ impl<
             verifier,
             receipts,
             compatibility,
-            release_authority,
         ))
     }
 
@@ -273,10 +239,6 @@ mod error_tests;
 #[cfg(test)]
 #[path = "private_provider_provisioning_receipt_tests.rs"]
 mod receipt_tests;
-
-#[cfg(test)]
-#[path = "private_provider_provisioning_release_tests.rs"]
-mod release_tests;
 
 #[cfg(test)]
 #[path = "private_provider_provisioning_compatibility_tests.rs"]

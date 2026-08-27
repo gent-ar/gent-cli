@@ -63,6 +63,23 @@ impl NpmGlobalPrefix {
         }
     }
 
+    #[must_use]
+    pub fn install_package(&self, package: &str) -> InstallerInvocation {
+        InstallerInvocation {
+            executable: self.runtime.node_path().to_string_lossy().into_owned(),
+            arguments: vec![
+                self.runtime.npm_cli_path().to_string_lossy().into_owned(),
+                "install".into(),
+                "--global".into(),
+                "--prefix".into(),
+                self.prefix.to_string_lossy().into_owned(),
+                "--no-audit".into(),
+                "--no-fund".into(),
+                package.into(),
+            ],
+        }
+    }
+
     /// Returns the daemon-owned package prefix, used to make private staging directories.
     #[must_use]
     pub fn prefix(&self) -> &Path {
@@ -189,6 +206,12 @@ mod tests {
         );
         assert_eq!(installed.arguments[6], "/private/staging/codex.tgz");
         assert_eq!(installed.arguments[2], "--ignore-scripts");
+        let package = npm.install_package("@openai/codex");
+        assert_eq!(package.arguments[1], "install");
+        assert_eq!(package.arguments[2], "--global");
+        assert_eq!(package.arguments[3], "--prefix");
+        assert_eq!(package.arguments[4], "/private/gentd/providers/npm-global");
+        assert_eq!(package.arguments[7], "@openai/codex");
     }
 
     #[test]

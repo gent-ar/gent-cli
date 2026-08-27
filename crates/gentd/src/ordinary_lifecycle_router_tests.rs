@@ -85,6 +85,17 @@ impl OrdinaryLifecycleHost for Host {
     fn needs_drive(&self) -> bool {
         self.armed
     }
+
+    fn respond_claude_permission(
+        &self,
+        _: &str,
+        _: &str,
+        _: gent_drivers::claude_control::ClaudePermissionBehavior,
+        _: bool,
+    ) -> Result<(), ()> {
+        self.calls.lock().unwrap().push("permission");
+        Ok(())
+    }
 }
 
 #[test]
@@ -100,6 +111,29 @@ fn committed_prompt_routes_only_from_its_durable_run_selection() {
     router.wake_after_prompt_commit(wake()).unwrap();
     assert!(claude_calls.lock().unwrap().is_empty());
     assert_eq!(&*codex_calls.lock().unwrap(), &["wake"]);
+}
+
+#[test]
+fn claude_permission_response_reaches_only_the_claude_owner() {
+    let claude_calls = Arc::new(Mutex::new(Vec::new()));
+    let codex_calls = Arc::new(Mutex::new(Vec::new()));
+    let router = router(
+        AgentChatProvider::Codex,
+        host(AgentChatProvider::Claude, Arc::clone(&claude_calls)),
+        host(AgentChatProvider::Codex, Arc::clone(&codex_calls)),
+    );
+
+    router
+        .respond_claude_permission(
+            "run-1",
+            "request-1",
+            gent_drivers::claude_control::ClaudePermissionBehavior::Allow,
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(&*claude_calls.lock().unwrap(), &["permission"]);
+    assert!(codex_calls.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -239,6 +273,13 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
     AgentChatConversationSummary {
         conversation_id: "conversation-1".into(),
         title: None,
+        recap: None,
+        workspace_id: None,
+        workspace_path: None,
+        mcp_server_count: 0,
+        mcp_server_names: Vec::new(),
+        changed_file_count: None,
+        git_branch: None,
         updated_at_unix_ms: 0,
         selection: selection(provider),
     }

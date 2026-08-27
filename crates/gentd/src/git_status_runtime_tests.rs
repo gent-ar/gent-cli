@@ -13,6 +13,18 @@ impl GitExecutor for NeverGit {
     fn status(&self, _: &GitStatusOperation) -> Result<GitStatusSummary, GitExecutorError> {
         panic!("construction must not invoke Git")
     }
+
+    fn repository_root(&self, _: &str) -> Result<String, GitExecutorError> {
+        panic!("construction must not invoke Git")
+    }
+
+    fn report(&self, _: &str) -> Result<gent_ports::GitReport, GitExecutorError> {
+        panic!("construction must not invoke Git")
+    }
+
+    fn checkout_paths(&self, _: &str, _: &[String]) -> Result<(), GitExecutorError> {
+        panic!("construction must not invoke Git")
+    }
 }
 
 #[test]

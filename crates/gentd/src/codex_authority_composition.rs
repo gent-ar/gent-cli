@@ -107,6 +107,18 @@ where
     fn shutdown_complete(&self) -> bool {
         self.supervisor.shutdown_complete()
     }
+
+    fn respond_codex_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
+        answers: Option<serde_json::Value>,
+    ) -> Result<(), ()> {
+        self.supervisor
+            .respond_permission(run_id, request_id, decision, answers)
+            .map_err(|_| ())
+    }
 }
 
 /// Failure before a private Codex authority host becomes reachable.
@@ -147,6 +159,8 @@ where
         launcher,
         BufferPolicy::new(BUFFERED_FRAMES, BUFFERED_BYTES, 0, 0)
             .expect("fixed Codex authority buffer policy is valid"),
+        None,
+        None,
     );
     let resolver = CodexOnlyResolver::new(LockedProviderResolver::new(state.ledger().clone()));
     let goals = Arc::new(GoalService::new(

@@ -69,7 +69,7 @@ fn shutdown_signals_in_order_and_refuses_to_fake_terminal_settlement() {
     );
     assert!(
         ledger
-            .find_event("claude:run-a:terminal:1")
+            .find_event("claude:1:run-a:terminal:1")
             .unwrap()
             .is_none()
     );
@@ -99,7 +99,7 @@ fn drain_only_stops_after_process_exit_is_persisted() {
     assert!(supervisor.shutdown_complete());
     assert!(
         ledger
-            .find_event("claude:run-a:terminal:1")
+            .find_event("claude:1:run-a:terminal:1")
             .unwrap()
             .is_some()
     );
@@ -130,7 +130,7 @@ fn host(
         Resolver,
     )
     .unwrap();
-    ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1)
+    ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1, None)
 }
 
 fn conversation(ledger: &SqliteLedger) -> AgentChatConversationId {

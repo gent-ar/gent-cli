@@ -2,8 +2,8 @@ use serde_json::json;
 
 use super::{
     RuntimeReleaseChannel, RuntimeUpdateCandidate, RuntimeUpdateCheckReport,
-    RuntimeUpdateCheckState, RuntimeUpdateFailure, RuntimeUpdateHandoff, RuntimeUpdateRecord,
-    RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion,
+    RuntimeUpdateCheckState, RuntimeUpdateFailure, RuntimeUpdateStage, RuntimeUpdateStatus,
+    RuntimeVersion,
 };
 
 #[test]
@@ -27,19 +27,6 @@ fn status_uses_a_stable_content_free_camel_case_contract() {
             "failure": null,
         })
     );
-}
-
-#[test]
-fn legacy_update_record_decodes_without_inventing_handoff_facts() {
-    let record: RuntimeUpdateRecord = serde_json::from_value(json!({
-        "attemptId": "attempt-1",
-        "revision": 2,
-        "artifactDigestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "status": { "stage": "idle", "releaseVersion": null, "forwardOnlySchema": false, "failure": null }
-    }))
-    .unwrap();
-    assert_eq!(record.revision, 2);
-    assert_eq!(record.handoff, RuntimeUpdateHandoff::default());
 }
 
 #[test]

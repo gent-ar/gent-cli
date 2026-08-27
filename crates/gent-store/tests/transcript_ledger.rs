@@ -1,12 +1,13 @@
 use gent_ports::{
-    AgentChatPromptLedger, AgentChatReadLedger, AgentChatWorkspaceLedger, TranscriptLedger,
+    AgentChatPromptLedger, AgentChatReadLedger, AgentChatSelectionLedger, AgentChatWorkspaceLedger,
+    TranscriptLedger,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, HostEpoch, NormalizedTranscriptAppend,
-    NormalizedTranscriptKind, ReceiptId, WorkspaceRecord,
+    AgentChatRunId, AgentChatSelection, AgentChatSelectionSwitch, ContextPolicy, HostEpoch,
+    NormalizedTranscriptAppend, NormalizedTranscriptKind, ReceiptId, WorkspaceRecord,
 };
 
 fn ledger() -> (SqliteLedger, AgentChatConversationId, String, String) {
@@ -41,6 +42,8 @@ fn ledger() -> (SqliteLedger, AgentChatConversationId, String, String) {
             conversation_id: conversation_id.clone(),
             disposition: AgentChatPromptDisposition::Send,
             text: "hello".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     (
@@ -145,4 +148,30 @@ fn read_port_derives_public_selection_and_run_hierarchy_without_provider_session
     assert_eq!(detail.runs.len(), 1);
     assert_eq!(detail.runs[0].run_id, "run-1");
     assert!(ledger.read_agent_chat_summary("missing").is_err());
+}
+
+#[test]
+fn summary_tracks_the_current_provider_after_a_selection_switch() {
+    let (ledger, conversation_id, _, run_id) = ledger();
+    ledger
+        .switch_agent_chat_selection(&AgentChatSelectionSwitch {
+            receipt_id: ReceiptId("receipt-switch".into()),
+            idempotency_key: "switch-key".into(),
+            host_epoch: HostEpoch(1),
+            conversation_id: conversation_id.clone(),
+            parent_run_id: AgentChatRunId(run_id),
+            run_id: AgentChatRunId("run-2".into()),
+            selection: AgentChatSelection {
+                provider: AgentChatProvider::Claude,
+                model: "claude-sonnet".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Ask,
+            },
+            context_policy: ContextPolicy::Preserve,
+        })
+        .unwrap();
+
+    let summary = ledger.read_agent_chat_summary(&conversation_id.0).unwrap();
+    assert_eq!(summary.selection.provider, AgentChatProvider::Claude);
+    assert_eq!(summary.selection.model, "claude-sonnet");
 }

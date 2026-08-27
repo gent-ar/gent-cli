@@ -33,6 +33,8 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             host_epoch: HostEpoch(1),
             conversation_id: conversation_id.clone(),
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: "hello".into(),
         })
         .unwrap();
@@ -79,8 +81,12 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let transcript = ledger
         .normalized_transcript_page(&conversation_id, 0, 10)
         .unwrap();
-    assert_eq!(transcript.events.len(), 1);
-    assert_eq!(transcript.events[0].text, "hello back");
+    assert!(
+        transcript
+            .events
+            .iter()
+            .any(|event| event.text == "hello back")
+    );
     let follow_up = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("prompt-b".into()),
@@ -88,6 +94,8 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             host_epoch: HostEpoch(1),
             conversation_id,
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: "follow up".into(),
         })
         .unwrap();
@@ -99,6 +107,32 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let state = runner.state.lock().unwrap();
     assert_eq!(state.starts, 1);
     assert_eq!(state.submitted, ["follow up"]);
+    drop(state);
+    runner.state.lock().unwrap().effects.push_back(vec![
+        CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: "follow up back".into(),
+            is_partial: false,
+        })),
+        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        )),
+    ]);
+    let second_poll = host.tick().unwrap();
+    assert_eq!(second_poll.polled_runs, 1);
+    assert_eq!(second_poll.facts, 2);
+    let transcript = ledger
+        .normalized_transcript_page(&AgentChatConversationId("conversation-a".into()), 0, 10)
+        .unwrap();
+    assert_eq!(
+        transcript
+            .events
+            .iter()
+            .map(|event| event.text.as_str())
+            .collect::<Vec<_>>(),
+        ["hello", "hello back", "follow up", "follow up back"]
+    );
     assert!(
         ledger
             .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)

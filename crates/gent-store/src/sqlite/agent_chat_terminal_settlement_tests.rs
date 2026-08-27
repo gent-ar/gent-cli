@@ -46,6 +46,8 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
             conversation_id: AgentChatConversationId("conversation-a".into()),
             disposition: AgentChatPromptDisposition::Send,
             text: "continue".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
         })
         .unwrap();
     assert!(settlement(&ledger, &saved.message.turn_id).is_none());

@@ -20,11 +20,15 @@ fn captures_an_explicit_codex_binary_without_release_material() {
     .unwrap();
 
     let mut host = compose_standalone_codex(
-        &state,
+        state.ledger().clone(),
+        state.coordinator().clone(),
         &StandaloneCodexConfig {
+            data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
             executable,
+            mcp_servers: None,
+            mcp_config: None,
         },
         SystemLauncher::new(64 * 1024),
     )
@@ -43,11 +47,15 @@ fn rejects_missing_local_executable_before_host_composition() {
     )
     .unwrap();
     let result = compose_standalone_codex(
-        &state,
+        state.ledger().clone(),
+        state.coordinator().clone(),
         &StandaloneCodexConfig {
+            data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
             executable: directory.path().join("missing-codex"),
+            mcp_servers: None,
+            mcp_config: None,
         },
         SystemLauncher::new(64 * 1024),
     );

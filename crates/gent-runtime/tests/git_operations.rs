@@ -32,7 +32,7 @@ fn prepare(coordinator: &Coordinator<SqliteLedger>) {
         })
         .unwrap();
     coordinator
-        .create_run(gent_core::Run {
+        .create_run(&gent_core::Run {
             id: "run".into(),
             parent_run_id: None,
             provider: "claude".into(),

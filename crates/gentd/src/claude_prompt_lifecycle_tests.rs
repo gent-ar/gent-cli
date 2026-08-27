@@ -1,16 +1,11 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use ed25519_dalek::{Signer, SigningKey};
-use gent_adapters::compatibility::{
-    CompatibilityEntry, CompatibilityManifest, SignedCompatibilityManifest, TrustedKeySet,
-};
-use gent_adapters::compatibility_cache::CachedCompatibilityManifest;
 use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
-    AgentChatPromptLedger, AgentChatWorkspaceLedger, PublicProviderResolver,
-    PublicProviderRunError, PublicProviderRunner,
+    AgentChatPromptLedger, AgentChatReadLedger, AgentChatWorkspaceLedger, Ledger,
+    PendingPermissionLedger, PublicProviderResolver, PublicProviderRunError, PublicProviderRunner,
 };
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
@@ -38,6 +33,12 @@ pub(crate) struct State {
     pub(crate) effects: VecDeque<Vec<ClaudeRunnerEffect>>,
     pub(crate) poll_failure: bool,
     pub(crate) signals: Vec<gent_drivers::interrupt::ProcessTreeSignal>,
+    pub(crate) permission_responses: Vec<(
+        String,
+        String,
+        gent_drivers::claude_control::ClaudePermissionBehavior,
+        bool,
+    )>,
 }
 
 impl PublicProviderRunner for Runner {
@@ -95,6 +96,21 @@ impl ClaudePromptExecution for Runner {
         self.0.lock().unwrap().signals.push(signal);
         Ok(())
     }
+    fn respond_claude_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
+        persist_suggestions: bool,
+    ) -> Result<(), PublicProviderRunError> {
+        self.0.lock().unwrap().permission_responses.push((
+            run_id.into(),
+            request_id.into(),
+            behavior,
+            persist_suggestions,
+        ));
+        Ok(())
+    }
 }
 
 pub(crate) struct Resolver;
@@ -106,43 +122,9 @@ impl PublicProviderResolver for Resolver {
     }
 }
 
-fn lock() -> RunVersionLock {
-    RunVersionLock {
-        provider: "claude".into(),
-        canonical_path: "/verified/claude".into(),
-        file_identity: "1:2".into(),
-        digest_sha256: "b".repeat(64),
-        version: "2.1.0".into(),
-        compatibility_entry: "claude-2.1.0".into(),
-    }
-}
-
-pub(crate) fn compatibility() -> CompatibilityAssessment {
-    let key = SigningKey::from_bytes(&[8; 32]);
-    let payload = CompatibilityManifest {
-        manifest_version: 1,
-        expires_at_unix_seconds: 20,
-        entries: vec![CompatibilityEntry {
-            id: "claude-2.1.0".into(),
-            provider: "claude".into(),
-            version: "2.1.0".into(),
-            digest_sha256: "b".repeat(64),
-            revoked: false,
-        }],
-    };
-    let manifest = SignedCompatibilityManifest {
-        key_id: "test".into(),
-        signature_hex: hex::encode(key.sign(&serde_json::to_vec(&payload).unwrap()).to_bytes()),
-        payload,
-    };
-    let mut keys = TrustedKeySet::default();
-    keys.trust("test", key.verifying_key());
-    CompatibilityAssessment::configured(
-        keys.clone(),
-        CachedCompatibilityManifest::verify(manifest, &keys, 1).unwrap(),
-        10,
-    )
-}
+#[path = "claude_prompt_lifecycle_test_support.rs"]
+mod support;
+pub(crate) use support::{compatibility, lock};
 
 pub(crate) fn profile(
     compatibility: &CompatibilityAssessment,
@@ -158,7 +140,11 @@ pub(crate) fn profile(
     .unwrap()
 }
 
-pub(crate) fn prompt(ledger: &SqliteLedger, conversation_id: &AgentChatConversationId, key: &str) {
+pub(crate) fn prompt(
+    ledger: &SqliteLedger,
+    conversation_id: &AgentChatConversationId,
+    key: &str,
+) -> gent_types::AgentChatPromptSaved {
     let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId(format!("request-{key}")),
@@ -166,14 +152,17 @@ pub(crate) fn prompt(ledger: &SqliteLedger, conversation_id: &AgentChatConversat
             host_epoch: HostEpoch(1),
             conversation_id: conversation_id.clone(),
             disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
             text: format!("message-{key}"),
         })
         .unwrap();
     crate::readiness_test_support::release(ledger, &saved);
+    saved
 }
 
 #[test]
-fn ready_settles_but_keeps_one_shot_claude_binding_until_exit_then_resumes() {
+fn standalone_claude_resumes_one_durable_conversation_and_relays_permission_to_owned_process() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
@@ -197,12 +186,21 @@ fn ready_settles_but_keeps_one_shot_claude_binding_until_exit_then_resumes() {
             },
         )
         .unwrap();
-    prompt(&ledger, &conversation_id, "a");
+    let saved = prompt(&ledger, &conversation_id, "a");
     let runner = Runner::default();
     runner.0.lock().unwrap().effects.push_back(vec![
         ClaudeRunnerEffect::Fact(PublicWireFact::SessionStarted {
             provider_session_id: "private-session".into(),
         }),
+        ClaudeRunnerEffect::PermissionRequest(
+            gent_drivers::claude_control::ClaudePermissionRequest {
+                request_id: "permission-a".into(),
+                tool_use_id: "tool-a".into(),
+                tool_name: "write_file".into(),
+            },
+        ),
+    ]);
+    runner.0.lock().unwrap().effects.push_back(vec![
         ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
             text: "done".into(),
             is_partial: false,
@@ -223,14 +221,55 @@ fn ready_settles_but_keeps_one_shot_claude_binding_until_exit_then_resumes() {
         Resolver,
     )
     .unwrap();
-    let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
+    let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1, None);
     let resumed = host.tick().unwrap();
     assert!(matches!(
         resumed.dispatch,
         Some(crate::claude_prompt_lifecycle::ClaudePromptDispatchOutcome::Started { .. })
     ));
+    let waiting = host.tick().unwrap();
+    assert_eq!(waiting.batch.facts, 3);
+    let pending = ledger
+        .pending_permission(&conversation_id, &AgentChatRunId("run-a".into()))
+        .unwrap()
+        .expect("permission is durable before the waiting lifecycle facts are exposed");
+    assert_eq!(pending.binding.decision_id.0, "permission-a");
+    assert_eq!(pending.binding.turn_id, saved.message.turn_id);
+    host.respond_permission(
+        "run-a",
+        "permission-a",
+        gent_drivers::claude_control::ClaudePermissionBehavior::Allow,
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        runner.0.lock().unwrap().permission_responses,
+        [(
+            "run-a".into(),
+            "permission-a".into(),
+            gent_drivers::claude_control::ClaudePermissionBehavior::Allow,
+            true,
+        )]
+    );
     let ready = host.tick().unwrap();
-    assert_eq!(ready.batch.facts, 3);
+    assert_eq!(ready.batch.facts, 2);
+    assert!(
+        host.needs_drive(),
+        "a settled Claude prompt still owns a one-shot process until its exit is drained"
+    );
+    assert_eq!(
+        ledger.find_run_session_binding("run-a").unwrap(),
+        Some(gent_ports::RunSessionBinding {
+            run_id: "run-a".into(),
+            provider_session_id: "private-session".into(),
+        }),
+        "the daemon, rather than the CLI request, owns the resume identity"
+    );
+    let transcript = ledger
+        .read_agent_chat_transcript(&conversation_id.0, None, 10)
+        .unwrap();
+    assert_eq!(transcript.conversation_id, conversation_id.0);
+    assert!(transcript.events.iter().any(|event| event.text == "done"));
     prompt(&ledger, &conversation_id, "b");
     assert_eq!(
         host.tick().unwrap().dispatch,

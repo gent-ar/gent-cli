@@ -7,7 +7,7 @@ use gent_types::{AgentChatConversationId, AgentChatSelection, GoalRecord};
 use serde::Serialize;
 
 use crate::{
-    chat_cli::{self, DirectPromptArgs, effort, mode, provider},
+    chat_cli::{self, DirectPromptArgs, effort, mode, model, provider},
     goal_cli,
 };
 
@@ -86,7 +86,7 @@ pub(crate) async fn execute(
     } else {
         let selection = AgentChatSelection {
             provider: provider(args.provider),
-            model: args.model,
+            model: model(args.provider, args.model),
             effort: effort(args.effort),
             mode: mode(args.mode),
         };
@@ -94,7 +94,15 @@ pub(crate) async fn execute(
             chat_cli::create(data_dir.clone(), no_autostart, selection, args.workspace).await?;
         conversation_id
     };
-    let accepted = chat_cli::send(data_dir, no_autostart, conversation_id.0, text).await?;
+    let accepted = chat_cli::send(
+        data_dir,
+        no_autostart,
+        conversation_id.0,
+        text,
+        args.attachments,
+        Vec::new(),
+    )
+    .await?;
     Ok(Some(DirectPromptResult::Prompt {
         conversation_id: accepted.conversation_id.0,
         run_id: accepted.run_id.0,
@@ -242,6 +250,7 @@ mod tests {
                 model: "unused".into(),
                 effort: Effort::Medium,
                 mode: Mode::Agent,
+                attachments: Vec::new(),
             },
         )
         .await

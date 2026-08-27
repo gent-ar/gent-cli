@@ -95,6 +95,7 @@ mod tests {
         PermissionRequest {
             tool_name: tool_name.into(),
             category,
+            input: None,
         }
     }
 

@@ -69,6 +69,23 @@ fn fresh_context_keeps_the_gent_owned_active_goal() {
     assert!(value.get("session_id").is_none());
 }
 
+#[test]
+fn claude_input_keeps_image_blocks_after_the_text_prompt() {
+    let start = ClaudeRunStart {
+        content: vec![
+            serde_json::json!({"type":"image","source":{"type":"base64","media_type":"image/png","data":"YWJj"}}),
+        ],
+        ..start()
+    };
+    let value: serde_json::Value = serde_json::from_slice(&input_frame(&start).unwrap()).unwrap();
+    assert_eq!(value["message"]["content"][0]["type"], "text");
+    assert_eq!(value["message"]["content"][1]["type"], "image");
+    assert_eq!(
+        value["message"]["content"][1]["source"],
+        serde_json::json!({"type":"base64","media_type":"image/png","data":"YWJj"})
+    );
+}
+
 fn start() -> ClaudeRunStart {
     ClaudeRunStart {
         run_id: "run".into(),
@@ -81,6 +98,7 @@ fn start() -> ClaudeRunStart {
             compatibility_entry: "entry".into(),
         },
         prompt: "prompt".into(),
+        content: Vec::new(),
         turn_options: ClaudeTurnOptions::from_selection(&AgentChatSelection {
             provider: AgentChatProvider::Claude,
             model: "claude-sonnet".into(),
@@ -93,5 +111,7 @@ fn start() -> ClaudeRunStart {
         resume_session_id: None,
         workspace_root: "/workspace".into(),
         workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
+        mcp_config: None,
+        selected_mcp_source_names: Vec::new(),
     }
 }

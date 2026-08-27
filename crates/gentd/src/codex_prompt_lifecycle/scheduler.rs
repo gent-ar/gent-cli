@@ -3,7 +3,8 @@
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
-    NormalizedSessionBatchLedger, PublicProviderResolver, TranscriptLedger,
+    NormalizedSessionBatchLedger, PendingPermissionLedger, PolicyLedger, PublicProviderResolver,
+    TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
 use gent_types::HostEpoch;
@@ -38,10 +39,16 @@ where
         + TranscriptLedger
         + NormalizedSessionBatchLedger
         + AgentChatPromptDispatchLedger
+        + gent_ports::AttachmentLedger
         + gent_ports::AgentChatReadLedger
         + gent_ports::AgentChatRunContextReader
         + gent_ports::ConversationContentReader
-        + gent_ports::AgentChatWorkspaceLedger,
+        + gent_ports::AgentChatWorkspaceLedger
+        + PendingPermissionLedger
+        + PolicyLedger
+        + gent_ports::AttachmentLedger
+        + gent_ports::ToolSourceLedger
+        + gent_ports::AgentChatConversationConfigLedger,
     D: super::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
@@ -58,7 +65,9 @@ where
     /// Returns whether any owned run still needs stdout/exit polling.
     #[must_use]
     pub(crate) fn needs_poll(&self) -> bool {
-        self.active.values().any(|binding| !binding.settled)
+        self.active
+            .values()
+            .any(|binding| !binding.settled || binding.releasing)
     }
 
     pub(crate) fn poll_active(

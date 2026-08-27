@@ -3,8 +3,8 @@ use super::{
     declared_capabilities_with_profiles, reconcile, validate_observed_capabilities,
 };
 use gent_protocol::{
-    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, PROMPT_PROVIDER_PROVISION_CAPABILITY,
-    PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, CONVERSATION_ACTIVITY_CAPABILITY,
+    PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
 };
 use gent_types::CapabilitySet;
 
@@ -16,6 +16,25 @@ fn declared_capability_drift_fails_the_build_gate() {
             &CapabilitySet::default()
         ),
         Err(CatalogError::DeclaredButUnavailable("events".into()))
+    );
+}
+
+#[test]
+fn conversation_activity_requires_its_typed_chat_profile_feature() {
+    let absent = RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]);
+    assert!(
+        !declared_capabilities_with_profiles(&absent)
+            .0
+            .contains(&CONVERSATION_ACTIVITY_CAPABILITY.into())
+    );
+    let enabled = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ConversationActivity,
+    ]);
+    assert!(
+        declared_capabilities_with_profiles(&enabled)
+            .0
+            .contains(&CONVERSATION_ACTIVITY_CAPABILITY.into())
     );
 }
 

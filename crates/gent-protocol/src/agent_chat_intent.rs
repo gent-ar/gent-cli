@@ -38,12 +38,30 @@ pub enum AgentChatIntentFrame {
         receipt_id: gent_types::ReceiptId,
         conversation_id: AgentChatConversationId,
         text: String,
+        attachment_ids: Vec<String>,
     },
     QueuePrompt {
         request_id: AgentChatRequestId,
         receipt_id: gent_types::ReceiptId,
         conversation_id: AgentChatConversationId,
         text: String,
+        attachment_ids: Vec<String>,
+    },
+    SendPromptWithTools {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        conversation_id: AgentChatConversationId,
+        text: String,
+        attachment_ids: Vec<String>,
+        tool_source_ids: Vec<String>,
+    },
+    QueuePromptWithTools {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        conversation_id: AgentChatConversationId,
+        text: String,
+        attachment_ids: Vec<String>,
+        tool_source_ids: Vec<String>,
     },
     SwitchSelection {
         request_id: AgentChatRequestId,
@@ -109,6 +127,26 @@ pub enum AgentChatIntentFrame {
         turn_id: String,
         /// Durable local delivery state; this never attests that a provider was launched.
         delivery: AgentChatPromptDelivery,
+    },
+    Interrupted {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
+    },
+    ForkConversation {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        source_conversation_id: AgentChatConversationId,
+        fork_through_message_id: String,
+    },
+    /// Durable result of forking a conversation's prior messages into a new one.
+    Forked {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        source_conversation_id: AgentChatConversationId,
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
     },
 }
 
@@ -249,6 +287,26 @@ mod tests {
             serde_json::to_value(frame).unwrap()["body"]
                 .get("parentRunId")
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn fork_conversation_round_trips_the_source_boundary() {
+        let frame = AgentChatIntentFrame::ForkConversation {
+            request_id: AgentChatRequestId("request-1".into()),
+            receipt_id: gent_types::ReceiptId("receipt-1".into()),
+            source_conversation_id: AgentChatConversationId("conversation-1".into()),
+            fork_through_message_id: "message-1".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&frame).unwrap(),
+            json!({
+                "type": "forkConversation",
+                "body": {
+                    "requestId": "request-1", "receiptId": "receipt-1",
+                    "sourceConversationId": "conversation-1", "forkThroughMessageId": "message-1"
+                }
+            })
         );
     }
 

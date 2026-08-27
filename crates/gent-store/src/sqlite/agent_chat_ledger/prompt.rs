@@ -14,6 +14,9 @@ use super::super::epoch::require_epoch;
 use super::super::queries::{
     find_receipt, host_ingress, insert_receipt, receipt_matches_command, storage_error,
 };
+#[path = "prompt_attachments.rs"]
+mod prompt_attachments;
+use prompt_attachments::attach_available;
 
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 
@@ -74,6 +77,8 @@ fn save(
         ));
     }
     let message = insert_prompt(&transaction, prompt, &run_id)?;
+    attach_available(&transaction, &message.turn_id, &prompt.attachment_ids)?;
+    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'userMessage', ?5, 0)", params![message.conversation_id, format!("user:{}", message.message_id), message.turn_id, message.run_id, message.text]).map_err(storage_error)?;
     let receipt = Receipt {
         receipt_id: prompt.receipt_id.clone(),
         idempotency_key: key,
@@ -81,7 +86,7 @@ fn save(
         host_epoch: prompt.host_epoch,
     };
     insert_receipt(&transaction, &receipt, &command)?;
-    transaction.execute("INSERT INTO agent_chat_prompt_receipts (request_id, idempotency_key, conversation_id, run_id, turn_id, message_id, disposition) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![prompt.request_id.0, receipt.idempotency_key, prompt.conversation_id.0, run_id, message.turn_id, message.message_id, disposition(prompt.disposition)]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_chat_prompt_receipts (request_id, idempotency_key, conversation_id, run_id, turn_id, message_id, disposition, tool_source_ids_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![prompt.request_id.0, receipt.idempotency_key, prompt.conversation_id.0, run_id, message.turn_id, message.message_id, disposition(prompt.disposition), serde_json::to_string(&prompt.tool_source_ids).map_err(storage_error)?]).map_err(storage_error)?;
     if prompt.disposition == AgentChatPromptDisposition::Send {
         transaction.execute("INSERT INTO agent_chat_prompt_dispatches (message_id, state, coordinator_id, host_epoch, created_rowid) VALUES (?1, 'awaiting_readiness', NULL, NULL, (SELECT COALESCE(MAX(created_rowid), 0) + 1 FROM agent_chat_prompt_dispatches))", params![message.message_id]).map_err(storage_error)?;
     }
@@ -92,10 +97,13 @@ fn save(
         message,
         disposition: prompt.disposition,
         delivery: prompt.disposition.delivery(),
+        tool_source_ids: prompt.tool_source_ids.clone(),
     })
 }
 
 fn validate(prompt: &AgentChatPromptCreate) -> Result<(), LedgerError> {
+    gent_types::validate_tool_source_ids(&prompt.tool_source_ids)
+        .map_err(|error| LedgerError::Invariant(error.to_string()))?;
     if [
         &prompt.request_id.0,
         &prompt.receipt_id.0,
@@ -103,9 +111,18 @@ fn validate(prompt: &AgentChatPromptCreate) -> Result<(), LedgerError> {
     ]
     .into_iter()
     .any(|value| value.trim().is_empty())
-        || prompt.text.is_empty()
+        || (prompt.text.is_empty() && prompt.attachment_ids.is_empty())
         || prompt.text.len() > MAX_PROMPT_BYTES
         || prompt.text.contains('\0')
+        || prompt
+            .attachment_ids
+            .iter()
+            .any(|id| id.is_empty() || id.len() > 128 || id.chars().any(char::is_control))
+        || {
+            let mut ids = prompt.attachment_ids.clone();
+            ids.sort_unstable();
+            ids.windows(2).any(|pair| pair[0] == pair[1])
+        }
     {
         return Err(LedgerError::Invariant(
             "agent chat prompt identity or text is invalid".into(),
@@ -118,7 +135,7 @@ fn existing(
     transaction: &Transaction<'_>,
     prompt: &AgentChatPromptCreate,
 ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
-    let row = transaction.query_row("SELECT r.receipt_id, r.status, r.host_epoch, p.conversation_id, p.run_id, p.disposition, m.message_id, m.turn_id, t.sequence, m.text, m.text_digest_sha256 FROM agent_chat_prompt_receipts p JOIN receipts r ON r.idempotency_key = p.idempotency_key JOIN conversation_messages m ON m.message_id = p.message_id JOIN turns t ON t.turn_id = p.turn_id WHERE p.request_id = ?1", [&prompt.request_id.0], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u64>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, u64>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?))).optional().map_err(storage_error)?;
+    let row = transaction.query_row("SELECT r.receipt_id, r.status, r.host_epoch, p.conversation_id, p.run_id, p.disposition, p.tool_source_ids_json, m.message_id, m.turn_id, t.sequence, m.text, m.text_digest_sha256 FROM agent_chat_prompt_receipts p JOIN receipts r ON r.idempotency_key = p.idempotency_key JOIN conversation_messages m ON m.message_id = p.message_id JOIN turns t ON t.turn_id = p.turn_id WHERE p.request_id = ?1", [&prompt.request_id.0], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u64>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, u64>(9)?, row.get::<_, String>(10)?, row.get::<_, String>(11)?))).optional().map_err(storage_error)?;
     let Some((
         receipt_id,
         status,
@@ -126,6 +143,7 @@ fn existing(
         conversation_id,
         run_id,
         saved_disposition,
+        tool_source_ids_json,
         message_id,
         turn_id,
         sequence,
@@ -135,6 +153,8 @@ fn existing(
     else {
         return Ok(None);
     };
+    let tool_source_ids = serde_json::from_str(&tool_source_ids_json)
+        .map_err(|_| LedgerError::Invariant("stored tool-source selection is invalid".into()))?;
     if receipt_id != prompt.receipt_id.0
         || conversation_id != prompt.conversation_id.0
         || saved_disposition != disposition(prompt.disposition)
@@ -168,6 +188,7 @@ fn existing(
         },
         disposition: prompt.disposition,
         delivery: prompt.disposition.delivery(),
+        tool_source_ids,
     }))
 }
 
@@ -234,7 +255,7 @@ fn command_for(prompt: &AgentChatPromptCreate) -> Command {
         idempotency_key: idempotency_key(prompt),
         host_epoch: prompt.host_epoch,
         kind: "agentChatPrompt".into(),
-        payload: json!({ "requestId": prompt.request_id, "conversationId": prompt.conversation_id, "disposition": prompt.disposition, "textDigestSha256": digest(&prompt.text), "textByteLen": prompt.text.len() }),
+        payload: json!({ "requestId": prompt.request_id, "conversationId": prompt.conversation_id, "disposition": prompt.disposition, "textDigestSha256": digest(&prompt.text), "textByteLen": prompt.text.len(), "attachmentIds": prompt.attachment_ids }),
     }
 }
 

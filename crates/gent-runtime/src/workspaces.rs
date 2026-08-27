@@ -9,6 +9,9 @@ impl<L> Coordinator<L>
 where
     L: gent_ports::Ledger + WorkspaceLedger,
 {
+    pub fn workspace(&self, workspace_id: &str) -> Result<Option<WorkspaceRecord>, RuntimeError> {
+        Ok(self.ledger.find_workspace(workspace_id)?)
+    }
     /// Persists a user-selected workspace identity.
     ///
     /// # Errors

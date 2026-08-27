@@ -137,12 +137,27 @@ if (manifest.get('schemaVersion') != 1 or manifest.get('version') != version
         or manifest.get('archive', {}).get('size') != archive.stat().st_size
         or checksum_path.read_text(encoding='utf-8').strip() != line):
     raise SystemExit('release archive verification failed')
-if sorted(manifest.get('binaries', [])) != ['gent', 'gentd']:
+required_capabilities = {
+    'agent-chat-conversations-v1', 'agent-chat-intents-v1', 'agent-chat-transcript-v1',
+    'agent-chat-turn-follow-v1', 'agent-chat-permissions-v1', 'attachments-v1', 'local-models-v1',
+}
+capabilities = manifest.get('capabilities', [])
+if (sorted(manifest.get('binaries', [])) != ['gent', 'gentd']
+        or manifest.get('runtimes') != ['runtime/node', 'runtime/claurst']
+        or not isinstance(capabilities, list) or not required_capabilities.issubset(capabilities)):
     raise SystemExit('release manifest does not contain gent and gentd')
 root = f'gent-{version}-{target}'
 with tarfile.open(archive, 'r:gz') as bundle:
     names = sorted(member.name for member in bundle.getmembers())
-    if names != [f'{root}/gent', f'{root}/gentd'] or any(not member.isfile() for member in bundle.getmembers()):
+    required = [
+        f'{root}/gent', f'{root}/gentd', f'{root}/runtime/node/bin/node',
+        f'{root}/runtime/node/bin/npm',
+        f'{root}/runtime/node/lib/node_modules/npm/bin/npm-cli.js',
+        f'{root}/runtime/claurst/claurst', f'{root}/runtime/claurst/llama/llama-server',
+    ]
+    if (any(not member.isfile() for member in bundle.getmembers()) or
+            any(name not in required and not name.startswith(f'{root}/runtime/node/') and not name.startswith(f'{root}/runtime/claurst/llama/') for name in names) or
+            any(name not in names for name in required)):
         raise SystemExit('release archive contains unsafe or unexpected paths')
 PY
 
@@ -157,7 +172,7 @@ fi
 
 tar -xzf "$temp/$name" -C "$temp"
 release_dir="$temp/gent-$version-$target"
-[ -x "$release_dir/gent" ] && [ -x "$release_dir/gentd" ] || { printf '%s\n' 'release archive has invalid binaries' >&2; exit 1; }
+[ -x "$release_dir/gent" ] && [ -x "$release_dir/gentd" ] && [ -f "$release_dir/runtime/node/bin/node" ] && [ -f "$release_dir/runtime/node/bin/npm" ] && [ -f "$release_dir/runtime/node/lib/node_modules/npm/bin/npm-cli.js" ] && [ -x "$release_dir/runtime/claurst/claurst" ] && [ -x "$release_dir/runtime/claurst/llama/llama-server" ] || { printf '%s\n' 'release archive has invalid runtime files' >&2; exit 1; }
 if [ "$has_update_material" -eq 1 ]; then
   "$release_dir/gentd" --verify-runtime-update-material \
     --runtime-release-cache "$temp/update-material/runtime-release-cache.json" \

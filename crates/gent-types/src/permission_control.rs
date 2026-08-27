@@ -51,6 +51,8 @@ pub enum PermissionDecisionResponseKind {
 pub struct PermissionDecisionResponse {
     pub binding: PermissionDecisionBinding,
     pub response: PermissionDecisionResponseKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
-use crate::lock::recheck;
+use crate::lock::rechecked_identity;
 use crate::process_streams::ProcessStreams;
 pub use crate::process_streams::{CapturedStream, ProcessOutput};
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
@@ -47,7 +47,11 @@ impl ProcessLauncher for SystemLauncher {
 
     fn launch(&self, launch: &ProviderLaunch) -> Result<SystemProcess, SupervisorError> {
         validate_public_provider(&launch.provider)?;
-        recheck(&launch.lock)?;
+        (rechecked_identity(&launch.lock)? == launch.lock)
+            .then_some(())
+            .ok_or(SupervisorError::Lock(
+                crate::lock::LockError::ProviderChanged,
+            ))?;
         (launch.executable.to_string_lossy() == launch.lock.canonical_path
             && launch.provider == launch.lock.provider)
             .then_some(())
@@ -139,7 +143,7 @@ fn locked_node_path(node_bin: &std::path::Path) -> Result<std::ffi::OsString, Su
 #[derive(Debug)]
 pub struct SystemProcess {
     child: Mutex<Child>,
-    stdin: Mutex<ChildStdin>,
+    stdin: Mutex<Option<ChildStdin>>,
     streams: ProcessStreams,
     drained_stdout: Mutex<VecDeque<Vec<u8>>>,
 }
@@ -154,7 +158,7 @@ impl SystemProcess {
     ) -> Self {
         Self {
             child: Mutex::new(child),
-            stdin: Mutex::new(stdin),
+            stdin: Mutex::new(Some(stdin)),
             streams: ProcessStreams::new(stdout, stderr, output_limit),
             drained_stdout: Mutex::new(VecDeque::new()),
         }
@@ -197,10 +201,18 @@ impl ProcessTreeControl for SystemProcess {
 impl ProviderProcess for SystemProcess {
     fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError> {
         let mut stdin = recover_lock(&self.stdin);
-        stdin
+        let input = stdin
+            .as_mut()
+            .ok_or_else(|| ProcessTreeError::Failed("provider input is closed".into()))?;
+        input
             .write_all(frame)
-            .and_then(|()| stdin.flush())
+            .and_then(|()| input.flush())
             .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+    }
+
+    fn close_stdin(&self) -> Result<(), ProcessTreeError> {
+        recover_lock(&self.stdin).take();
+        Ok(())
     }
 
     fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {

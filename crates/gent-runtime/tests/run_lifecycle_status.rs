@@ -73,8 +73,8 @@ fn status_replays_lifecycle_facts_after_restart_without_a_projection() {
         .live_status("run-a")
         .unwrap()
         .unwrap();
-    assert!(status.status.is_processing);
-    assert!(status.status.has_live_subagent_work);
+    assert!(status.status.is_processing());
+    assert!(status.status.has_live_subagent_work());
     assert_eq!(status.status.cursor, 2);
 }
 
@@ -99,6 +99,6 @@ fn status_reduces_signals_in_cursor_order() {
         },
     );
     let status = service(ledger).live_status("run-a").unwrap().unwrap();
-    assert!(status.status.is_processing);
-    assert!(status.status.needs_attention);
+    assert!(status.status.is_processing());
+    assert!(status.status.needs_attention());
 }

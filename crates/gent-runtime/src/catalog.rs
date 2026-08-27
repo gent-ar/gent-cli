@@ -1,17 +1,19 @@
 //! Capability reconciliation is pure: live declarations must match observed behavior.
 
 use gent_protocol::{
+    AGENT_CHAT_CHECKPOINT_CAPABILITY, AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY,
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
-    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
+    AGENT_CHAT_SESSIONS_CAPABILITY, AGENT_CHAT_SIDE_QUESTION_CAPABILITY,
+    AGENT_CHAT_TRANSCRIPT_CAPABILITY,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY, AUTOMATIONS_CAPABILITY,
+    CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_CONTENT_CAPABILITY,
     CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
-    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, GOAL_CAPABILITY,
-    ORCHESTRATION_CAPABILITY, PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_READINESS_CAPABILITY,
-    REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
+    CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, FORGE_CONNECTORS_CAPABILITY,
+    GOAL_CAPABILITY, LOCAL_MODELS_CAPABILITY, ORCHESTRATION_CAPABILITY,
+    PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
+    RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
 use gent_types::CapabilitySet;
-
-#[cfg(unix)]
-use gent_protocol::CONVERSATION_CONTENT_CAPABILITY;
 
 /// A capability the runtime may advertise after its transport proves a handler exists.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,12 +57,18 @@ const DECLARED: [RuntimeCapability; 7] = [
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeCapabilityFeature {
     AgentChat,
+    ConversationActivity,
+    AgentChatPermissions,
     TurnFollow,
     ReviewedPlans,
     ProviderReadiness,
     PromptProviderProvision,
     RuntimeUpdateCheck,
     RuntimeMaintenance,
+    LocalModels,
+    PromptTemplates,
+    WorkspaceDocuments,
+    WorkspaceGit,
 }
 
 /// Concrete runtime handlers eligible for one authority profile's wire advertisement.
@@ -86,47 +94,59 @@ impl RuntimeCapabilityProfile {
         self.features.contains(&feature)
     }
 
-    /// Whether durable agent-chat handlers are composed.
     #[must_use]
     pub fn agent_chat_enabled(&self) -> bool {
         self.has(RuntimeCapabilityFeature::AgentChat)
     }
 
-    /// Whether durable turn following is composed with durable agent-chat handlers.
+    #[must_use]
+    pub fn agent_chat_permissions_enabled(&self) -> bool {
+        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::AgentChatPermissions)
+    }
+
+    #[must_use]
+    pub fn conversation_activity_enabled(&self) -> bool {
+        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ConversationActivity)
+    }
+
     #[must_use]
     pub fn turn_follow_enabled(&self) -> bool {
         self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::TurnFollow)
     }
 
-    /// Whether a trusted daemon-owned reviewed-plan lifecycle is composed.
     #[must_use]
     pub fn reviewed_plans_enabled(&self) -> bool {
         self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ReviewedPlans)
     }
 
-    /// Whether exact-run provider readiness handlers are composed.
     #[must_use]
     pub fn provider_readiness_enabled(&self) -> bool {
         self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ProviderReadiness)
     }
 
-    /// Whether prompt-scoped provider provisioning is composed over exact-run readiness.
     #[must_use]
     pub fn prompt_provider_provision_enabled(&self) -> bool {
         self.provider_readiness_enabled()
             && self.has(RuntimeCapabilityFeature::PromptProviderProvision)
     }
 
-    /// Whether a verified update-check handler is composed.
     #[must_use]
     pub fn runtime_update_check_enabled(&self) -> bool {
         self.has(RuntimeCapabilityFeature::RuntimeUpdateCheck)
     }
 
-    /// Whether runtime-maintenance handlers are composed.
     #[must_use]
     pub fn runtime_maintenance_enabled(&self) -> bool {
         self.has(RuntimeCapabilityFeature::RuntimeMaintenance)
+    }
+
+    #[must_use]
+    pub fn local_models_enabled(&self) -> bool {
+        self.has(RuntimeCapabilityFeature::LocalModels)
+    }
+
+    pub fn prompt_templates_enabled(&self) -> bool {
+        self.has(RuntimeCapabilityFeature::PromptTemplates)
     }
 }
 
@@ -185,12 +205,49 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
         capabilities
             .0
             .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
+        capabilities
+            .0
+            .push(AGENT_CHAT_SESSIONS_CAPABILITY.to_owned());
         capabilities.0.push(GOAL_CAPABILITY.to_owned());
         capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
+        capabilities.0.push(AUTOMATIONS_CAPABILITY.to_owned());
+        capabilities.0.push(FORGE_CONNECTORS_CAPABILITY.to_owned());
+        capabilities
+            .0
+            .push(AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY.to_owned());
+        capabilities.0.push(AGENT_CHAT_CHECKPOINT_CAPABILITY.to_owned());
+        capabilities
+            .0
+            .push(AGENT_CHAT_SIDE_QUESTION_CAPABILITY.to_owned());
+        if profile.prompt_templates_enabled() {
+            capabilities
+                .0
+                .push(gent_protocol::PROMPT_TEMPLATES_CAPABILITY.to_owned());
+        }
+        if profile.has(RuntimeCapabilityFeature::WorkspaceDocuments) {
+            capabilities
+                .0
+                .push(gent_protocol::WORKSPACE_DOCUMENTS_CAPABILITY.to_owned());
+        }
+        if profile.has(RuntimeCapabilityFeature::WorkspaceGit) {
+            capabilities
+                .0
+                .push(gent_protocol::WORKSPACE_GIT_CAPABILITY.to_owned());
+        }
         if profile.turn_follow_enabled() {
             capabilities
                 .0
                 .push(AGENT_CHAT_TURN_FOLLOW_CAPABILITY.to_owned());
+        }
+        if profile.agent_chat_permissions_enabled() {
+            capabilities
+                .0
+                .push(gent_protocol::AGENT_CHAT_PERMISSIONS_CAPABILITY.to_owned());
+        }
+        if profile.conversation_activity_enabled() {
+            capabilities
+                .0
+                .push(CONVERSATION_ACTIVITY_CAPABILITY.to_owned());
         }
     }
     if profile.reviewed_plans_enabled() {
@@ -216,6 +273,9 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
             .0
             .push(RUNTIME_MAINTENANCE_CAPABILITY.to_owned());
     }
+    if profile.local_models_enabled() {
+        capabilities.0.push(LOCAL_MODELS_CAPABILITY.to_owned());
+    }
     capabilities
         .0
         .push(CONVERSATION_STATUS_CAPABILITY.to_owned());
@@ -225,7 +285,6 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
     capabilities
         .0
         .push(CONVERSATION_TIMELINE_CAPABILITY.to_owned());
-    #[cfg(unix)]
     capabilities
         .0
         .push(CONVERSATION_CONTENT_CAPABILITY.to_owned());
@@ -242,54 +301,9 @@ pub fn capability_set(observed: impl IntoIterator<Item = RuntimeCapability>) -> 
             .collect(),
     )
 }
-
-/// Rejects a transport whose observed handlers drift from the runtime catalog.
-///
-/// # Errors
-/// Returns the mismatch before any status or handshake can advertise capabilities.
-pub fn validate_observed_capabilities(
-    observed: &CapabilitySet,
-) -> Result<CapabilitySet, CatalogError> {
-    let profile = RuntimeCapabilityProfile::new(
-        [
-            AGENT_CHAT_INTENTS_CAPABILITY,
-            AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
-            REVIEWED_PLAN_CAPABILITY,
-            PROVIDER_READINESS_CAPABILITY,
-            PROMPT_PROVIDER_PROVISION_CAPABILITY,
-            RUNTIME_UPDATE_CHECK_CAPABILITY,
-            RUNTIME_MAINTENANCE_CAPABILITY,
-        ]
-        .into_iter()
-        .filter_map(|capability| feature_from_observed(capability, observed)),
-    );
-    let declared = declared_capabilities_with_profiles(&profile);
-    reconcile(&declared, observed)?;
-    Ok(declared)
-}
-
-fn feature_from_observed(
-    capability: &str,
-    observed: &CapabilitySet,
-) -> Option<RuntimeCapabilityFeature> {
-    observed
-        .0
-        .iter()
-        .any(|actual| actual == capability)
-        .then(|| match capability {
-            AGENT_CHAT_INTENTS_CAPABILITY => RuntimeCapabilityFeature::AgentChat,
-            AGENT_CHAT_TURN_FOLLOW_CAPABILITY => RuntimeCapabilityFeature::TurnFollow,
-            REVIEWED_PLAN_CAPABILITY => RuntimeCapabilityFeature::ReviewedPlans,
-            PROVIDER_READINESS_CAPABILITY => RuntimeCapabilityFeature::ProviderReadiness,
-            PROMPT_PROVIDER_PROVISION_CAPABILITY => {
-                RuntimeCapabilityFeature::PromptProviderProvision
-            }
-            RUNTIME_UPDATE_CHECK_CAPABILITY => RuntimeCapabilityFeature::RuntimeUpdateCheck,
-            RUNTIME_MAINTENANCE_CAPABILITY => RuntimeCapabilityFeature::RuntimeMaintenance,
-            _ => unreachable!("only known capability names are passed"),
-        })
-}
-
+#[path = "catalog_reconciliation.rs"]
+mod reconciliation;
+pub use reconciliation::validate_observed_capabilities;
 #[cfg(test)]
 #[path = "catalog_tests.rs"]
 mod tests;

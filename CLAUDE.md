@@ -45,6 +45,24 @@ This is a reference-and-verify relationship, not a dependency. gent-cli:
   persistent permission is represented, how compaction is signaled) into gent-cli's own Rust
   types and reducers — never ports Dart code or architecture wholesale.
 
+## Verification scope
+
+Treat Claude Code, Codex, and Claurst as provider implementations whose own MCP, tool, permission,
+and agent behavior is supplied by the dependency. Gent's verification target is the layer we own:
+durable conversations and sessions, transcript streaming and resumption, permissions and plans
+crossing the IPC boundary, subagent activity routing, MCP configuration pass-through, provider and
+model switches, and inherited conversation context.
+
+Prefer focused user-flow smoke tests over exhaustive re-testing of provider functionality. Every
+adapter and model selection must preserve the same Gent-owned behavior. A mid-conversation provider
+or model switch must create the expected Gent run and retain enough conversation history for the
+new selection to continue coherently. Verify the flows users perform in Gent, not functionality
+already guaranteed by the provider itself.
+
+Tests are evidence, not coverage theater. Prefer real Gentd IPC, durable SQLite, launched
+executables, and terminal input where the user flow crosses those boundaries. Fakes may isolate
+malformed-provider-frame handling, but never stand in as the only evidence for a user flow.
+
 ## Non-negotiable architecture
 
 See `docs/continuation-handoff.md`'s "Non-negotiable architecture" section — `gentd` is the only
@@ -53,3 +71,14 @@ Gent never contains Claurst credentials/endpoints/routing; default `gentd` is ha
 Every hand-authored source/config/document/script is at most 300 lines
 (`python3 tools/check-architecture.py`). Commits/pushes require the user's explicit approval.
 Never touch `/Users/ivanmatiasfort/Clouseau/clouseau-app` during gent-cli work.
+
+## Simplicity and comments
+
+Fixes should make the system simpler, not more complex. Prefer removing or consolidating code over
+adding a new layer, flag, or special case. If a fix grows the system's surface area, look for the
+version that shrinks it.
+
+Never leave comments in the repo. The standard is zero comments: no explanatory comments or
+docblocks, TODO/FIXME notes, lint/type suppression directives, or commented-out code. Express
+intent through names, structure, and tests; put rationale in commit messages or PR descriptions.
+Interpreter shebangs are executable directives, not comments.
