@@ -131,7 +131,7 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then node_args+=(--windows); fi
           python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node "${node_args[@]}"
           python tools/stage-claurst-runtime.py --target "$RELEASE_TARGET" --out-dir dist-runtime/claurst --profile release
-          python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst
+          python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst --target "$RELEASE_TARGET"
           python tools/package-release.py --target-dir target/release --out-dir dist \
             --version v0.0.0-ci --target "$RELEASE_TARGET" --format "$RELEASE_ARCHIVE" \
             --suffix "$RELEASE_SUFFIX" --node-runtime-dir dist-runtime/node \

@@ -158,7 +158,7 @@ jobs:
         run: |
           python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node ${{ matrix.node_windows }}
           python tools/stage-claurst-runtime.py --target "${{ matrix.target }}" --out-dir dist-runtime/claurst --profile release
-          python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst
+          python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst --target "${{ matrix.target }}"
       - name: Package binaries
         run: >-
           python tools/package-release.py --target-dir "${{ matrix.target_dir }}" --out-dir dist

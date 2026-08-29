@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import platform
 import subprocess
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from pathlib import Path
 def arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runtime-dir", type=Path, required=True)
+    parser.add_argument("--target", required=True)
     return parser.parse_args()
 
 
@@ -37,6 +39,9 @@ def main():
     suffix = ".exe" if os.name == "nt" else ""
     claurst = executable(args.runtime_dir / f"claurst{suffix}")
     llama = executable(args.runtime_dir / "llama" / f"llama-server{suffix}")
+    if args.target == "x86_64-apple-darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
+        print("Staged Intel macOS Claurst and llama.cpp runtime files are structurally valid")
+        return
     run(claurst, "--help")
     run(llama, "--version")
     print("Staged Claurst and llama.cpp runtime startup checks passed")

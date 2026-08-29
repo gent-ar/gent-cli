@@ -84,10 +84,8 @@ fn runtime_root_from_executable(executable: &Path) -> Option<PathBuf> {
     {
         let root = executable.parent()?.parent()?;
         let release = std::fs::read_to_string(root.join("current.json")).ok()?;
-        let release = serde_json::from_str::<serde_json::Value>(&release)
-            .ok()?
-            .get("release")?
-            .as_str()?;
+        let metadata = serde_json::from_str::<serde_json::Value>(&release).ok()?;
+        let release = metadata.get("release")?.as_str()?;
         let expected = root.join("releases").join(release).join("gent.exe");
         return (executable
             .file_name()
