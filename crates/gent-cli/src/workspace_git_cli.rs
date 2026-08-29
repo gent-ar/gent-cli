@@ -32,7 +32,11 @@ pub(crate) async fn execute(
         },
     };
     let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
-    if !capabilities.0.iter().any(|value| value == WORKSPACE_GIT_CAPABILITY) {
+    if !capabilities
+        .0
+        .iter()
+        .any(|value| value == WORKSPACE_GIT_CAPABILITY)
+    {
         return Err("workspace git capability is unavailable".into());
     }
     gent_protocol::write_json_frame(&mut stream, &frame).await?;

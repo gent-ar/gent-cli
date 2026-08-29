@@ -141,7 +141,10 @@ mod tests {
         let current = home.path().join(".gentd");
         assert!(current.is_dir());
         assert!(!legacy.exists());
-        assert_eq!(std::fs::read(current.join("ledger.sqlite")).unwrap(), b"data");
+        assert_eq!(
+            std::fs::read(current.join("ledger.sqlite")).unwrap(),
+            b"data"
+        );
     }
 
     #[test]

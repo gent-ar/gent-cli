@@ -26,6 +26,42 @@ pub struct WorkspaceGitWorktree {
     pub is_locked: bool,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitCommit {
+    pub hash: String,
+    pub message: String,
+    pub author: String,
+    pub date: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitBranch {
+    pub name: String,
+    pub is_current: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracking_remote: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitStashEntry {
+    pub index: u32,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitRemoteStatus {
+    pub ahead: u32,
+    pub behind: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracking_branch: Option<String>,
+}
+
 /// A workspace's full git report, or absent when the workspace is not inside a git repository.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,4 +71,8 @@ pub struct WorkspaceGitReport {
     pub branch: Option<String>,
     pub files: Vec<WorkspaceGitFileStatus>,
     pub worktrees: Vec<WorkspaceGitWorktree>,
+    pub recent_commits: Vec<WorkspaceGitCommit>,
+    pub branches: Vec<WorkspaceGitBranch>,
+    pub stashes: Vec<WorkspaceGitStashEntry>,
+    pub remote_status: WorkspaceGitRemoteStatus,
 }

@@ -83,7 +83,7 @@ fn lifecycle_events(
             LifecycleEvent::RootActivity(RootActivity::Generating),
             LifecycleEvent::RootPhase(TurnPhase::Processing),
         ],
-        NormalizedProviderEvent::TurnEnded { turn_id } if active_turn_id.is_none() => {
+        NormalizedProviderEvent::TurnEnded { turn_id: _ } if active_turn_id.is_none() => {
             vec![
                 LifecycleEvent::RootActivity(RootActivity::Idle),
                 LifecycleEvent::RootPhase(TurnPhase::Ready),

@@ -9,9 +9,8 @@ use gent_testkit::FakePrivateClaurstBridge;
 use gent_types::{
     AgentChatConversationConfigRecord, AgentChatConversationCreate, AgentChatConversationId,
     AgentChatEffort, AgentChatMode, AgentChatPromptCreate, AgentChatPromptDisposition,
-    AgentChatProvider, AgentChatRequestId, AgentChatRunId, AgentChatSelection,
-    AttachmentMetadata, AttachmentState, AttachmentTransfer, DurableTurnPhase, HostEpoch,
-    ReceiptId, WorkspaceRecord,
+    AgentChatProvider, AgentChatRequestId, AgentChatRunId, AgentChatSelection, AttachmentMetadata,
+    AttachmentState, AttachmentTransfer, DurableTurnPhase, HostEpoch, ReceiptId, WorkspaceRecord,
 };
 use sha2::{Digest, Sha256};
 
@@ -129,8 +128,12 @@ async fn appended_conversation_config_prefixes_the_prompt_sent_to_claurst() {
     crate::readiness_test_support::release(&ledger, &saved);
     let bridge = FakePrivateClaurstBridge::default();
     bridge.push_start_binding(binding(&saved));
-    let mut lifecycle =
-        ClaurstPromptLifecycle::new(ledger.clone(), bridge.clone(), "gentd-1".into(), HostEpoch(1));
+    let mut lifecycle = ClaurstPromptLifecycle::new(
+        ledger.clone(),
+        bridge.clone(),
+        "gentd-1".into(),
+        HostEpoch(1),
+    );
     lifecycle.activate_recovery().await.unwrap();
     lifecycle.drive_once().await.unwrap();
     let starts = bridge.starts();

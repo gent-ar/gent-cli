@@ -24,7 +24,14 @@ impl AgentChatCheckpointLedger for SqliteLedger {
         files: &[AgentChatFileCheckpointFile],
         max_retained: usize,
     ) -> Result<AgentChatFileCheckpoint, LedgerError> {
-        save(self, capture, checkpoint_id, idempotency_key, files, max_retained)
+        save(
+            self,
+            capture,
+            checkpoint_id,
+            idempotency_key,
+            files,
+            max_retained,
+        )
     }
 
     fn list_file_checkpoints(
@@ -73,7 +80,8 @@ fn save(
             epoch: ingress.epoch,
         });
     }
-    if let Some(existing) = existing_capture(&transaction, idempotency_key, capture, checkpoint_id)? {
+    if let Some(existing) = existing_capture(&transaction, idempotency_key, capture, checkpoint_id)?
+    {
         if !receipt_matches_command(&transaction, &command)? {
             return Err(capture_conflict());
         }
@@ -124,7 +132,10 @@ fn save(
     })
 }
 
-fn validate_capture(capture: &AgentChatCheckpointCapture, checkpoint_id: &str) -> Result<(), LedgerError> {
+fn validate_capture(
+    capture: &AgentChatCheckpointCapture,
+    checkpoint_id: &str,
+) -> Result<(), LedgerError> {
     if checkpoint_id.trim().is_empty()
         || capture.receipt_id.0.trim().is_empty()
         || capture.request_id.0.trim().is_empty()
@@ -139,7 +150,9 @@ fn validate_capture(capture: &AgentChatCheckpointCapture, checkpoint_id: &str) -
 }
 
 fn capture_conflict() -> LedgerError {
-    LedgerError::Invariant("agent chat checkpoint capture retry conflicts with durable ownership".into())
+    LedgerError::Invariant(
+        "agent chat checkpoint capture retry conflicts with durable ownership".into(),
+    )
 }
 
 fn existing_capture(
@@ -208,8 +221,8 @@ fn evict_oldest(
     conversation_id: &str,
     max_retained: usize,
 ) -> Result<(), LedgerError> {
-    let max_retained =
-        i64::try_from(max_retained).map_err(|_| LedgerError::Invariant("checkpoint retention limit overflow".into()))?;
+    let max_retained = i64::try_from(max_retained)
+        .map_err(|_| LedgerError::Invariant("checkpoint retention limit overflow".into()))?;
     let stale: Vec<String> = {
         let mut statement = transaction
             .prepare(
@@ -419,7 +432,9 @@ fn validate_restore(restore: &AgentChatCheckpointRestore) -> Result<(), LedgerEr
 }
 
 fn conflict() -> LedgerError {
-    LedgerError::Invariant("agent chat checkpoint restore retry conflicts with durable ownership".into())
+    LedgerError::Invariant(
+        "agent chat checkpoint restore retry conflicts with durable ownership".into(),
+    )
 }
 
 fn existing_restore(

@@ -5,6 +5,7 @@ use gent_ports::{GitExecutor, Ledger, WorkspaceLedger};
 use gent_protocol::WorkspaceGitFrame;
 use gent_runtime::Coordinator;
 use gent_types::WorkspaceGitReport;
+use std::path::Path;
 
 pub(crate) fn exchange<L>(
     coordinator: &Coordinator<L>,
@@ -40,7 +41,33 @@ where
                 canonical_paths,
             })
         }
-        WorkspaceGitFrame::Status { .. } | WorkspaceGitFrame::SubRepos { .. } => {
+        WorkspaceGitFrame::ResolveRequest {
+            request_id,
+            workspace_path,
+        } => {
+            let workspace = crate::workspace_identity::CanonicalWorkspace::from_path(Path::new(
+                &workspace_path,
+            ))
+            .map_err(|error| format!("workspace path is unavailable: {error:?}"))?;
+            let record = workspace.record().clone();
+            if coordinator
+                .workspace(&record.workspace_id)
+                .map_err(|error| error.to_string())?
+                .is_none()
+            {
+                coordinator
+                    .create_workspace(&record)
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(WorkspaceGitFrame::Resolved {
+                request_id,
+                workspace_id: record.workspace_id,
+                canonical_path: record.canonical_path,
+            })
+        }
+        WorkspaceGitFrame::Status { .. }
+        | WorkspaceGitFrame::SubRepos { .. }
+        | WorkspaceGitFrame::Resolved { .. } => {
             Err("workspace git response frames are server-only".into())
         }
     }
@@ -69,5 +96,9 @@ pub(crate) fn status(workspace_canonical_path: &str) -> Option<WorkspaceGitRepor
         branch: report.branch,
         files: report.files,
         worktrees: report.worktrees,
+        recent_commits: report.recent_commits,
+        branches: report.branches,
+        stashes: report.stashes,
+        remote_status: report.remote_status,
     })
 }

@@ -50,11 +50,7 @@ fn current_owner() -> LockOwner {
     }
 }
 
-fn describe_conflict(
-    data_dir: &Path,
-    error: &std::io::Error,
-    owner: Option<LockOwner>,
-) -> String {
+fn describe_conflict(data_dir: &Path, error: &std::io::Error, owner: Option<LockOwner>) -> String {
     let directory = data_dir.display();
     owner.map_or_else(
         || format!("another gentd instance owns {directory}: {error}"),

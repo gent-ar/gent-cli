@@ -65,7 +65,11 @@ fn persist(
         &fork.source_conversation_id.0,
         &fork.fork_through_message_id,
     )?;
-    let messages = source_messages(&transaction, &fork.source_conversation_id.0, boundary_ordinal)?;
+    let messages = source_messages(
+        &transaction,
+        &fork.source_conversation_id.0,
+        boundary_ordinal,
+    )?;
     insert_conversation(
         &transaction,
         conversation_id,

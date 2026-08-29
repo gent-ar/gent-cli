@@ -41,6 +41,9 @@ pub enum WorkspaceDocumentsFrame {
 }
 
 impl WorkspaceDocumentsFrame {
+    /// # Errors
+    ///
+    /// Returns an error when the frame's request or workspace data is invalid.
     pub fn validate(&self) -> Result<(), &'static str> {
         let (request_id, workspace_id) = match self {
             Self::List {

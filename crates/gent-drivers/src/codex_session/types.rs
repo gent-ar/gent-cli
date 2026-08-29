@@ -134,8 +134,7 @@ impl CodexTurnOptions {
         system_prompt: Option<String>,
         append_system_prompt: bool,
     ) -> Self {
-        self.configured_append_system_prompt =
-            system_prompt.filter(|_| append_system_prompt);
+        self.configured_append_system_prompt = system_prompt.filter(|_| append_system_prompt);
         self
     }
 
@@ -184,7 +183,10 @@ pub(crate) fn turn_parameters(
         }),
         CodexSandboxPolicy::DangerFullAccess => json!({"type": "dangerFullAccess"}),
     };
-    let instruction = match (options.instruction, options.configured_append_system_prompt.as_deref()) {
+    let instruction = match (
+        options.instruction,
+        options.configured_append_system_prompt.as_deref(),
+    ) {
         (Some(mode_text), Some(configured)) => Some(format!("{mode_text}\n\n{configured}")),
         (Some(text), None) => Some(text.to_owned()),
         (None, Some(text)) => Some(text.to_owned()),
@@ -288,12 +290,9 @@ mod tests {
 
     #[test]
     fn configured_append_system_prompt_composes_with_the_plan_mode_instruction() {
-        let options = CodexTurnOptions::from_selection(
-            &selection(AgentChatMode::Plan),
-            None,
-        )
-        .unwrap()
-        .with_conversation_config(Some("Prefer terse replies.".into()), true);
+        let options = CodexTurnOptions::from_selection(&selection(AgentChatMode::Plan), None)
+            .unwrap()
+            .with_conversation_config(Some("Prefer terse replies.".into()), true);
         let parameters = turn_parameters(&options, "thread", "do the thing", &[]);
         let text = parameters["input"][0]["text"].as_str().unwrap();
         assert!(text.contains("Plan Mode"));

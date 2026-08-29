@@ -1,8 +1,8 @@
 //! Atomic `SQLite` persistence for asking, completing, cancelling, and reading side questions.
 
 use gent_ports::{
-    AgentChatSideQuestionLedger, IngressMode, LedgerError, MAX_LIVE_SIDE_QUESTIONS_PER_CONVERSATION,
-    MAX_LIVE_SIDE_QUESTIONS_TOTAL,
+    AgentChatSideQuestionLedger, IngressMode, LedgerError,
+    MAX_LIVE_SIDE_QUESTIONS_PER_CONVERSATION, MAX_LIVE_SIDE_QUESTIONS_TOTAL,
 };
 use gent_types::{
     AgentChatConversationId, AgentChatSideQuestion, AgentChatSideQuestionAsked,
@@ -77,7 +77,8 @@ fn persist_ask(
     side_question_id: &str,
 ) -> Result<AgentChatSideQuestionAsked, LedgerError> {
     validate_ask(ask, side_question_id)?;
-    let idempotency_key = idempotency_key("gent-agent-chat-side-question-ask-v1", &ask.request_id.0);
+    let idempotency_key =
+        idempotency_key("gent-agent-chat-side-question-ask-v1", &ask.request_id.0);
     let command = ask_command(ask, side_question_id, &idempotency_key);
     let mut connection = ledger.lock()?;
     let transaction = connection
@@ -155,7 +156,10 @@ fn validate_ask(ask: &AgentChatSideQuestion, side_question_id: &str) -> Result<(
     Ok(())
 }
 
-fn conversation_exists(transaction: &Transaction<'_>, conversation_id: &str) -> Result<bool, LedgerError> {
+fn conversation_exists(
+    transaction: &Transaction<'_>,
+    conversation_id: &str,
+) -> Result<bool, LedgerError> {
     transaction
         .query_row(
             "SELECT 1 FROM agent_chat_conversations WHERE conversation_id = ?1",
@@ -167,7 +171,10 @@ fn conversation_exists(transaction: &Transaction<'_>, conversation_id: &str) -> 
         .map(|row| row.is_some())
 }
 
-fn enforce_live_bounds(transaction: &Transaction<'_>, conversation_id: &str) -> Result<(), LedgerError> {
+fn enforce_live_bounds(
+    transaction: &Transaction<'_>,
+    conversation_id: &str,
+) -> Result<(), LedgerError> {
     let per_conversation: u32 = transaction
         .query_row(
             "SELECT COUNT(*) FROM agent_chat_side_questions WHERE conversation_id = ?1 AND status = 'pending'",
@@ -264,7 +271,11 @@ fn existing_ask(
     }))
 }
 
-fn ask_command(ask: &AgentChatSideQuestion, side_question_id: &str, idempotency_key: &str) -> Command {
+fn ask_command(
+    ask: &AgentChatSideQuestion,
+    side_question_id: &str,
+    idempotency_key: &str,
+) -> Command {
     Command {
         receipt_id: ask.receipt_id.clone(),
         idempotency_key: idempotency_key.to_owned(),
@@ -302,9 +313,8 @@ fn persist_completion(
             params![side_question_id, status, answer, failure_reason],
         )
         .map_err(storage_error)?;
-    let record = find(&transaction, side_question_id)?.ok_or_else(|| {
-        LedgerError::Invariant("agent chat side question is unknown".into())
-    })?;
+    let record = find(&transaction, side_question_id)?
+        .ok_or_else(|| LedgerError::Invariant("agent chat side question is unknown".into()))?;
     transaction.commit().map_err(storage_error)?;
     Ok(record)
 }
@@ -354,9 +364,8 @@ fn persist_cancel(
             [&cancel.side_question_id],
         )
         .map_err(storage_error)?;
-    let record = find(&transaction, &cancel.side_question_id)?.ok_or_else(|| {
-        LedgerError::Invariant("agent chat side question is unknown".into())
-    })?;
+    let record = find(&transaction, &cancel.side_question_id)?
+        .ok_or_else(|| LedgerError::Invariant("agent chat side question is unknown".into()))?;
     let receipt = Receipt {
         receipt_id: cancel.receipt_id.clone(),
         idempotency_key: idempotency_key.clone(),
@@ -397,13 +406,14 @@ fn existing_cancel(
     let Some((receipt_id, status, epoch, side_question_id)) = row else {
         return Ok(None);
     };
-    if receipt_id != cancel.receipt_id.0 || side_question_id != cancel.side_question_id || status != "settled"
+    if receipt_id != cancel.receipt_id.0
+        || side_question_id != cancel.side_question_id
+        || status != "settled"
     {
         return Err(conflict("cancel"));
     }
-    let record = find(transaction, &side_question_id)?.ok_or_else(|| {
-        LedgerError::Invariant("agent chat side question is unknown".into())
-    })?;
+    let record = find(transaction, &side_question_id)?
+        .ok_or_else(|| LedgerError::Invariant("agent chat side question is unknown".into()))?;
     Ok(Some(AgentChatSideQuestionCancelled {
         receipt: Receipt {
             receipt_id: cancel.receipt_id.clone(),
@@ -446,7 +456,9 @@ fn find(
         .transpose()
 }
 
-fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<AgentChatSideQuestionRecord, LedgerError>> {
+fn row_to_record(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<Result<AgentChatSideQuestionRecord, LedgerError>> {
     let side_question_id: String = row.get(0)?;
     let conversation_id: String = row.get(1)?;
     let question: String = row.get(2)?;
@@ -454,15 +466,17 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<AgentChatSi
     let answer: Option<String> = row.get(4)?;
     let failure_reason: Option<String> = row.get(5)?;
     let created_at_unix_ms: u64 = row.get(6)?;
-    Ok(parse_status(&status).map(|status| AgentChatSideQuestionRecord {
-        side_question_id,
-        conversation_id: AgentChatConversationId(conversation_id),
-        question,
-        status,
-        answer,
-        failure_reason,
-        created_at_unix_ms,
-    }))
+    Ok(
+        parse_status(&status).map(|status| AgentChatSideQuestionRecord {
+            side_question_id,
+            conversation_id: AgentChatConversationId(conversation_id),
+            question,
+            status,
+            answer,
+            failure_reason,
+            created_at_unix_ms,
+        }),
+    )
 }
 
 fn parse_status(status: &str) -> Result<AgentChatSideQuestionStatus, LedgerError> {

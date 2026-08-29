@@ -44,6 +44,14 @@ impl GitExecutor for FakeGit {
             branch: Some("main".into()),
             files: Vec::new(),
             worktrees: Vec::new(),
+            recent_commits: Vec::new(),
+            branches: Vec::new(),
+            stashes: Vec::new(),
+            remote_status: gent_types::WorkspaceGitRemoteStatus {
+                ahead: 0,
+                behind: 0,
+                tracking_branch: None,
+            },
         })
     }
 

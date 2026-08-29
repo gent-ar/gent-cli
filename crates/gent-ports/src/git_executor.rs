@@ -1,6 +1,9 @@
 //! Narrow, typed boundary for daemon-owned Git status execution.
 
-use gent_types::{WorkspaceGitFileStatus, WorkspaceGitWorktree};
+use gent_types::{
+    WorkspaceGitBranch, WorkspaceGitCommit, WorkspaceGitFileStatus, WorkspaceGitRemoteStatus,
+    WorkspaceGitStashEntry, WorkspaceGitWorktree,
+};
 
 /// A status operation whose worktree path was selected by the daemon, never a client argv string.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -14,6 +17,10 @@ pub struct GitReport {
     pub branch: Option<String>,
     pub files: Vec<WorkspaceGitFileStatus>,
     pub worktrees: Vec<WorkspaceGitWorktree>,
+    pub recent_commits: Vec<WorkspaceGitCommit>,
+    pub branches: Vec<WorkspaceGitBranch>,
+    pub stashes: Vec<WorkspaceGitStashEntry>,
+    pub remote_status: WorkspaceGitRemoteStatus,
 }
 
 /// Content-safe result from a bounded `git status --porcelain=v1 -z` invocation.

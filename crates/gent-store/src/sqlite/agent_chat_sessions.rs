@@ -18,10 +18,15 @@ impl AgentChatSessionLedger for SqliteLedger {
             )
             .map_err(storage_error)?;
         for (ordinal, conversation_id) in session.conversation_ids.iter().enumerate() {
+            let ordinal = i64::try_from(ordinal).map_err(|_| {
+                LedgerError::Invariant(
+                    "session conversation count exceeds SQLite ordinal range".into(),
+                )
+            })?;
             transaction
                 .execute(
                     "INSERT INTO agent_chat_session_conversations (session_id, conversation_id, ordinal) VALUES (?1, ?2, ?3)",
-                    params![session.session_id.0, conversation_id, ordinal as i64],
+                    params![session.session_id.0, conversation_id, ordinal],
                 )
                 .map_err(storage_error)?;
         }

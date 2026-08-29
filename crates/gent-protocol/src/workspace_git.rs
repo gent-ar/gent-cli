@@ -35,6 +35,15 @@ pub enum WorkspaceGitFrame {
         workspace_id: String,
         canonical_paths: Vec<String>,
     },
+    ResolveRequest {
+        request_id: String,
+        workspace_path: String,
+    },
+    Resolved {
+        request_id: String,
+        workspace_id: String,
+        canonical_path: String,
+    },
 }
 
 #[cfg(test)]

@@ -63,12 +63,13 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     authority
         .attach_lazy_claurst_runtime(claurst_runtime_config(&args, &data_dir, mcp_config)?)
         .await?;
-    let side_question_runners = crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources {
-        data_dir: data_dir.clone(),
-        claude_executable: args.standalone_claude_executable.clone(),
-        codex_executable: args.standalone_codex_executable.clone(),
-        claurst_bridge: authority.claurst_side_question_bridge(),
-    };
+    let side_question_runners =
+        crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources {
+            data_dir: data_dir.clone(),
+            claude_executable: args.standalone_claude_executable.clone(),
+            codex_executable: args.standalone_codex_executable.clone(),
+            claurst_bridge: authority.claurst_side_question_bridge(),
+        };
     let runtime = RuntimeFacade::from_state_with_standalone_authority(
         state,
         None,

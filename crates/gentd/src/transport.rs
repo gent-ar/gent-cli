@@ -207,15 +207,23 @@ where
     if crate::permission_policy_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
         return Ok(true);
     }
-    if crate::agent_chat_conversation_config_transport::dispatch(stream, runtime, &extensions.0, raw)
-        .await?
+    if crate::agent_chat_conversation_config_transport::dispatch(
+        stream,
+        runtime,
+        &extensions.0,
+        raw,
+    )
+    .await?
     {
         return Ok(true);
     }
-    if crate::agent_chat_checkpoint_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+    if crate::agent_chat_checkpoint_transport::dispatch(stream, runtime, &extensions.0, raw).await?
+    {
         return Ok(true);
     }
-    if crate::agent_chat_side_question_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
+    if crate::agent_chat_side_question_transport::dispatch(stream, runtime, &extensions.0, raw)
+        .await?
+    {
         return Ok(true);
     }
     if crate::provider_auth_transport::dispatch(stream, runtime, &extensions.0, raw).await? {

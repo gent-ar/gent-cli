@@ -1,8 +1,6 @@
 //! Bounded, provider-neutral side questions: durable accept/cancel/read plus background answer.
 
-use gent_ports::{
-    AgentChatReadLedger, AgentChatSideQuestionLedger, ConversationSummaryRunner,
-};
+use gent_ports::{AgentChatReadLedger, AgentChatSideQuestionLedger, ConversationSummaryRunner};
 use gent_types::{
     AgentChatConversationId, AgentChatProvider, AgentChatSideQuestion, AgentChatSideQuestionAsked,
     AgentChatSideQuestionCancel, AgentChatSideQuestionCancelled, AgentChatSideQuestionOutcome,
@@ -64,13 +62,17 @@ impl<L: AgentChatSideQuestionLedger> AgentChatSideQuestionService<L> {
     /// # Errors
     /// Returns an error when the conversation is unknown, a live-question bound would be
     /// exceeded, or the durable write cannot persist.
-    pub fn ask(&self, ask: &AgentChatSideQuestion) -> Result<AgentChatSideQuestionAskResult, RuntimeError> {
+    pub fn ask(
+        &self,
+        ask: &AgentChatSideQuestion,
+    ) -> Result<AgentChatSideQuestionAskResult, RuntimeError> {
         if self.authority != AgentChatSideQuestionAuthority::Approved {
             return Ok(AgentChatSideQuestionAskResult::DeniedObserver);
         }
         let side_question_id = stable_identity("side-question", &ask.request_id.0);
         Ok(AgentChatSideQuestionAskResult::Asked(
-            self.ledger.ask_agent_chat_side_question(ask, &side_question_id)?,
+            self.ledger
+                .ask_agent_chat_side_question(ask, &side_question_id)?,
         ))
     }
 
@@ -110,7 +112,9 @@ impl<L: AgentChatSideQuestionLedger> AgentChatSideQuestionService<L> {
         &self,
         conversation_id: &AgentChatConversationId,
     ) -> Result<Vec<AgentChatSideQuestionRecord>, RuntimeError> {
-        Ok(self.ledger.list_agent_chat_side_questions(conversation_id)?)
+        Ok(self
+            .ledger
+            .list_agent_chat_side_questions(conversation_id)?)
     }
 }
 
@@ -133,7 +137,10 @@ impl<L: Clone + AgentChatReadLedger + AgentChatSideQuestionLedger> AgentChatSide
         resolve_runner: F,
     ) -> Result<AgentChatSideQuestionRecord, RuntimeError>
     where
-        F: FnOnce(AgentChatProvider, Option<&str>) -> Result<Box<dyn ConversationSummaryRunner>, gent_ports::PortError>,
+        F: FnOnce(
+            AgentChatProvider,
+            Option<&str>,
+        ) -> Result<Box<dyn ConversationSummaryRunner>, gent_ports::PortError>,
     {
         let outcome = match self.run(conversation_id, question, resolve_runner) {
             Ok(text) => AgentChatSideQuestionOutcome::Answered { text },
@@ -146,9 +153,17 @@ impl<L: Clone + AgentChatReadLedger + AgentChatSideQuestionLedger> AgentChatSide
             .complete_agent_chat_side_question(side_question_id, &outcome)?)
     }
 
-    fn run<F>(&self, conversation_id: &str, question: &str, resolve_runner: F) -> Result<String, RuntimeError>
+    fn run<F>(
+        &self,
+        conversation_id: &str,
+        question: &str,
+        resolve_runner: F,
+    ) -> Result<String, RuntimeError>
     where
-        F: FnOnce(AgentChatProvider, Option<&str>) -> Result<Box<dyn ConversationSummaryRunner>, gent_ports::PortError>,
+        F: FnOnce(
+            AgentChatProvider,
+            Option<&str>,
+        ) -> Result<Box<dyn ConversationSummaryRunner>, gent_ports::PortError>,
     {
         let reads = AgentChatReadService::new(self.ledger.clone());
         let detail = reads.detail(conversation_id)?;
@@ -156,7 +171,11 @@ impl<L: Clone + AgentChatReadLedger + AgentChatSideQuestionLedger> AgentChatSide
         let prompt = render_prompt(&bounded_excerpt(&events), question);
         let provider = detail.summary.selection.provider;
         let runner = resolve_runner(provider, detail.summary.workspace_path.as_deref())?;
-        Ok(runner.run_summary(provider_name(provider), &detail.summary.selection.model, &prompt)?)
+        Ok(runner.run_summary(
+            provider_name(provider),
+            &detail.summary.selection.model,
+            &prompt,
+        )?)
     }
 }
 

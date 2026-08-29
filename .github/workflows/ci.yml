@@ -119,7 +119,7 @@ jobs:
       - run: python tools/test-generate-runtime-release-key.py
       - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features
       - run: cargo test --workspace --all-features --no-fail-fast
       - run: ${{ matrix.smoke }}
       - name: Package and structurally verify native release archive

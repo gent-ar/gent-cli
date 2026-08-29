@@ -6,10 +6,11 @@ use std::{
     process::{Command, Stdio},
 };
 
-use gent_ports::{
-    GitExecutor, GitExecutorError, GitReport, GitStatusOperation, GitStatusSummary,
+use gent_ports::{GitExecutor, GitExecutorError, GitReport, GitStatusOperation, GitStatusSummary};
+use gent_types::{
+    WorkspaceGitBranch, WorkspaceGitCommit, WorkspaceGitFileStatus, WorkspaceGitRemoteStatus,
+    WorkspaceGitStashEntry, WorkspaceGitWorktree,
 };
-use gent_types::{WorkspaceGitFileStatus, WorkspaceGitWorktree};
 use sha2::{Digest, Sha256};
 
 use crate::parse_porcelain_v1_z;
@@ -113,10 +114,15 @@ impl GitExecutor for SystemGitExecutor {
                 original_path: entry.original_path,
             })
             .collect();
+        let branches = branches(&root)?;
         Ok(GitReport {
             branch: branch_name(&root)?,
             files,
             worktrees: list_worktrees(&root)?,
+            recent_commits: recent_commits(&root)?,
+            remote_status: remote_status(&branches),
+            branches,
+            stashes: stashes(&root)?,
         })
     }
 
@@ -138,12 +144,134 @@ impl GitExecutor for SystemGitExecutor {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        let status = command.status().map_err(|_| GitExecutorError::SpawnFailed)?;
+        let status = command
+            .status()
+            .map_err(|_| GitExecutorError::SpawnFailed)?;
         status
             .success()
             .then_some(())
             .ok_or(GitExecutorError::StatusFailed)
     }
+}
+
+fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, GitExecutorError> {
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| GitExecutorError::SpawnFailed)?;
+    let output = read_bounded(
+        child.stdout.take().ok_or(GitExecutorError::SpawnFailed)?,
+        &mut child,
+    )?;
+    child
+        .wait()
+        .map_err(|_| GitExecutorError::StatusFailed)?
+        .success()
+        .then_some(output)
+        .ok_or(GitExecutorError::StatusFailed)
+}
+
+fn git_text(root: &Path, args: &[&str]) -> Result<String, GitExecutorError> {
+    String::from_utf8(git_output(root, args)?).map_err(|_| GitExecutorError::InvalidOutput)
+}
+
+fn recent_commits(root: &Path) -> Result<Vec<WorkspaceGitCommit>, GitExecutorError> {
+    let records = match git_text(root, &["log", "--format=%H%x00%s%x00%an%x00%ai", "-20"]) {
+        Ok(records) => records,
+        Err(GitExecutorError::StatusFailed) => return Ok(vec![]),
+        Err(error) => return Err(error),
+    };
+    records
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let fields = line.split('\0').collect::<Vec<_>>();
+            (fields.len() == 4)
+                .then(|| WorkspaceGitCommit {
+                    hash: fields[0].to_owned(),
+                    message: fields[1].to_owned(),
+                    author: fields[2].to_owned(),
+                    date: fields[3].to_owned(),
+                })
+                .ok_or(GitExecutorError::InvalidOutput)
+        })
+        .collect()
+}
+
+fn branches(root: &Path) -> Result<Vec<WorkspaceGitBranch>, GitExecutorError> {
+    let records = git_text(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)%09%(HEAD)%09%(upstream:short)%09%(upstream:track)",
+            "refs/heads/",
+        ],
+    )?;
+    records
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            (fields.len() == 4)
+                .then(|| WorkspaceGitBranch {
+                    name: fields[0].to_owned(),
+                    is_current: fields[1].trim() == "*",
+                    tracking_remote: (!fields[2].is_empty()).then(|| fields[2].to_owned()),
+                    ahead: tracking_count(fields[3], "ahead"),
+                    behind: tracking_count(fields[3], "behind"),
+                })
+                .ok_or(GitExecutorError::InvalidOutput)
+        })
+        .collect()
+}
+
+fn stashes(root: &Path) -> Result<Vec<WorkspaceGitStashEntry>, GitExecutorError> {
+    let records = git_text(root, &["stash", "list", "--format=%gd%x00%gs"])?;
+    records
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let fields = line.split('\0').collect::<Vec<_>>();
+            if fields.len() != 2 {
+                return Err(GitExecutorError::InvalidOutput);
+            }
+            let index = fields[0]
+                .strip_prefix("stash@{")
+                .and_then(|value| value.strip_suffix('}'))
+                .and_then(|value| value.parse().ok())
+                .ok_or(GitExecutorError::InvalidOutput)?;
+            Ok(WorkspaceGitStashEntry {
+                index,
+                message: fields[1].to_owned(),
+            })
+        })
+        .collect()
+}
+
+fn remote_status(branches: &[WorkspaceGitBranch]) -> WorkspaceGitRemoteStatus {
+    let branch = branches.iter().find(|branch| branch.is_current);
+    WorkspaceGitRemoteStatus {
+        ahead: branch.as_ref().map_or(0, |branch| branch.ahead),
+        behind: branch.as_ref().map_or(0, |branch| branch.behind),
+        tracking_branch: branch.and_then(|branch| branch.tracking_remote.clone()),
+    }
+}
+
+fn tracking_count(value: &str, label: &str) -> u32 {
+    value
+        .split(['[', ']', ',', ' '])
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find_map(|fields| {
+            (fields[0] == label)
+                .then(|| fields[1].parse().ok())
+                .flatten()
+        })
+        .unwrap_or(0)
 }
 
 fn list_worktrees(root: &Path) -> Result<Vec<WorkspaceGitWorktree>, GitExecutorError> {
@@ -371,13 +499,21 @@ mod tests {
     fn report_wires_a_pending_rename_through_to_the_client() {
         let directory = tempfile::tempdir().unwrap();
         git(directory.path(), &["init", "--quiet"]);
-        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(
+            directory.path(),
+            &["config", "user.email", "test@example.com"],
+        );
         git(directory.path(), &["config", "user.name", "Test"]);
         fs::write(directory.path().join("a.txt"), "content").unwrap();
         git(directory.path(), &["add", "a.txt"]);
         git(directory.path(), &["commit", "--quiet", "-m", "add a"]);
         git(directory.path(), &["mv", "a.txt", "b.txt"]);
-        let root = directory.path().canonicalize().unwrap().display().to_string();
+        let root = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
         let report = SystemGitExecutor.report(&root).unwrap();
         assert!(report.branch.is_some());
         assert_eq!(report.files.len(), 1);
@@ -390,16 +526,64 @@ mod tests {
     }
 
     #[test]
+    fn report_includes_commit_branch_stash_and_tracking_state() {
+        let directory = tempfile::tempdir().unwrap();
+        git(directory.path(), &["init", "--quiet"]);
+        git(
+            directory.path(),
+            &["config", "user.email", "test@example.com"],
+        );
+        git(directory.path(), &["config", "user.name", "Test"]);
+        fs::write(directory.path().join("a.txt"), "content").unwrap();
+        git(directory.path(), &["add", "a.txt"]);
+        git(directory.path(), &["commit", "--quiet", "-m", "add a"]);
+        git(directory.path(), &["branch", "feature/search"]);
+        fs::write(directory.path().join("a.txt"), "changed").unwrap();
+        git(
+            directory.path(),
+            &["stash", "push", "--quiet", "-m", "save search"],
+        );
+        let root = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
+        let report = SystemGitExecutor.report(&root).unwrap();
+        assert_eq!(report.recent_commits.len(), 1);
+        assert_eq!(report.recent_commits[0].message, "add a");
+        assert!(
+            report
+                .branches
+                .iter()
+                .any(|branch| branch.name == "feature/search")
+        );
+        assert_eq!(report.stashes.len(), 1);
+        assert_eq!(report.stashes[0].message, "On master: save search");
+        assert_eq!(report.remote_status.ahead, 0);
+        assert_eq!(report.remote_status.behind, 0);
+        assert!(report.remote_status.tracking_branch.is_none());
+    }
+
+    #[test]
     fn checkout_paths_restores_tracked_content() {
         let directory = tempfile::tempdir().unwrap();
         git(directory.path(), &["init", "--quiet"]);
-        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(
+            directory.path(),
+            &["config", "user.email", "test@example.com"],
+        );
         git(directory.path(), &["config", "user.name", "Test"]);
         fs::write(directory.path().join("a.txt"), "original").unwrap();
         git(directory.path(), &["add", "a.txt"]);
         git(directory.path(), &["commit", "--quiet", "-m", "add a"]);
         fs::write(directory.path().join("a.txt"), "modified").unwrap();
-        let root = directory.path().canonicalize().unwrap().display().to_string();
+        let root = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string();
         SystemGitExecutor
             .checkout_paths(&root, &["a.txt".to_owned()])
             .unwrap();

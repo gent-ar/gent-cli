@@ -91,10 +91,7 @@ fn validate(config: &AgentChatConversationConfigRecord) -> Result<(), LedgerErro
             "conversation config identity and non-zero revision are required".into(),
         ));
     }
-    if config
-        .disallowed_tools
-        .iter()
-        .any(|tool| tool.is_empty())
+    if config.disallowed_tools.iter().any(|tool| tool.is_empty())
         || config
             .disallowed_tools
             .windows(2)

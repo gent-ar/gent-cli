@@ -155,7 +155,10 @@ fn services() -> (
         ledger.clone(),
         AgentChatConversationService::new(ledger.clone(), AgentChatConversationAuthority::Approved),
         AgentChatPromptService::new(ledger.clone(), AgentChatPromptAuthority::Approved),
-        AgentChatSelectionSwitchService::new(ledger.clone(), AgentChatSelectionSwitchAuthority::Approved),
+        AgentChatSelectionSwitchService::new(
+            ledger.clone(),
+            AgentChatSelectionSwitchAuthority::Approved,
+        ),
         AgentChatForkService::new(ledger, AgentChatForkAuthority::Approved),
     )
 }

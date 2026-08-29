@@ -3,7 +3,10 @@
 use gent_ports::{AgentChatConversationConfigLedger, AgentChatReadLedger, Ledger};
 use gent_protocol::AgentChatConversationConfigFrame;
 use gent_runtime::{AgentChatReadService, Coordinator};
-use gent_types::{AgentChatConversationConfigRecord, AgentChatConversationConfigUnsupportedField, AgentChatProvider};
+use gent_types::{
+    AgentChatConversationConfigRecord, AgentChatConversationConfigUnsupportedField,
+    AgentChatProvider,
+};
 
 /// Handles one local conversation-config exchange without provider or process dependencies.
 pub(crate) fn exchange<L>(
@@ -72,8 +75,7 @@ fn unsupported_for_provider(
         AgentChatProvider::Codex | AgentChatProvider::Claurst => {
             let mut unsupported = Vec::new();
             if config.system_prompt.is_some() && !config.append_system_prompt {
-                unsupported
-                    .push(AgentChatConversationConfigUnsupportedField::SystemPromptOverride);
+                unsupported.push(AgentChatConversationConfigUnsupportedField::SystemPromptOverride);
             }
             if config.max_turns.is_some() {
                 unsupported.push(AgentChatConversationConfigUnsupportedField::MaxTurns);

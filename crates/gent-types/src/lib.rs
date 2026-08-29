@@ -200,7 +200,10 @@ pub use sandbox_policy::{SandboxLaunchPolicy, SandboxWorkspaceAccess};
 pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
 pub use turn_follow::TurnTerminal;
-pub use workspace_git::{WorkspaceGitFileStatus, WorkspaceGitReport, WorkspaceGitWorktree};
+pub use workspace_git::{
+    WorkspaceGitBranch, WorkspaceGitCommit, WorkspaceGitFileStatus, WorkspaceGitRemoteStatus,
+    WorkspaceGitReport, WorkspaceGitStashEntry, WorkspaceGitWorktree,
+};
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 pub const PROTOCOL_MIN: u16 = 1;
 pub const PROTOCOL_MAX: u16 = 1;

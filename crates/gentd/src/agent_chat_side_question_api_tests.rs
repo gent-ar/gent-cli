@@ -1,6 +1,6 @@
 use crate::agent_chat_side_question_api::exchange;
-use gent_protocol::AgentChatSideQuestionFrame;
 use gent_ports::AgentChatWorkspaceLedger;
+use gent_protocol::AgentChatSideQuestionFrame;
 use gent_runtime::AgentChatSideQuestionService;
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -36,7 +36,10 @@ fn conversation(ledger: &SqliteLedger, conversation_id: &str) {
 fn asking_a_side_question_returns_it_pending() {
     let ledger = SqliteLedger::in_memory().unwrap();
     conversation(&ledger, "conversation-1");
-    let service = AgentChatSideQuestionService::new(ledger, gent_runtime::AgentChatSideQuestionAuthority::Approved);
+    let service = AgentChatSideQuestionService::new(
+        ledger,
+        gent_runtime::AgentChatSideQuestionAuthority::Approved,
+    );
     let response = exchange(
         &service,
         HostEpoch(1),
@@ -51,7 +54,10 @@ fn asking_a_side_question_returns_it_pending() {
     let AgentChatSideQuestionFrame::Asked { record, .. } = response else {
         unreachable!()
     };
-    assert_eq!(record.status, gent_types::AgentChatSideQuestionStatus::Pending);
+    assert_eq!(
+        record.status,
+        gent_types::AgentChatSideQuestionStatus::Pending
+    );
     assert_eq!(record.conversation_id.0, "conversation-1");
 }
 
@@ -59,7 +65,10 @@ fn asking_a_side_question_returns_it_pending() {
 fn listing_side_questions_reads_every_asked_question() {
     let ledger = SqliteLedger::in_memory().unwrap();
     conversation(&ledger, "conversation-1");
-    let service = AgentChatSideQuestionService::new(ledger, gent_runtime::AgentChatSideQuestionAuthority::Approved);
+    let service = AgentChatSideQuestionService::new(
+        ledger,
+        gent_runtime::AgentChatSideQuestionAuthority::Approved,
+    );
     exchange(
         &service,
         HostEpoch(1),
@@ -90,7 +99,10 @@ fn listing_side_questions_reads_every_asked_question() {
 fn cancelling_a_side_question_marks_it_cancelled() {
     let ledger = SqliteLedger::in_memory().unwrap();
     conversation(&ledger, "conversation-1");
-    let service = AgentChatSideQuestionService::new(ledger, gent_runtime::AgentChatSideQuestionAuthority::Approved);
+    let service = AgentChatSideQuestionService::new(
+        ledger,
+        gent_runtime::AgentChatSideQuestionAuthority::Approved,
+    );
     let asked = exchange(
         &service,
         HostEpoch(1),
@@ -118,13 +130,19 @@ fn cancelling_a_side_question_marks_it_cancelled() {
     let AgentChatSideQuestionFrame::Cancelled { record, .. } = cancelled else {
         unreachable!()
     };
-    assert_eq!(record.status, gent_types::AgentChatSideQuestionStatus::Cancelled);
+    assert_eq!(
+        record.status,
+        gent_types::AgentChatSideQuestionStatus::Cancelled
+    );
 }
 
 #[test]
 fn server_only_response_frames_are_rejected_as_requests() {
     let ledger = SqliteLedger::in_memory().unwrap();
-    let service = AgentChatSideQuestionService::new(ledger, gent_runtime::AgentChatSideQuestionAuthority::Approved);
+    let service = AgentChatSideQuestionService::new(
+        ledger,
+        gent_runtime::AgentChatSideQuestionAuthority::Approved,
+    );
     let result = exchange(
         &service,
         HostEpoch(1),

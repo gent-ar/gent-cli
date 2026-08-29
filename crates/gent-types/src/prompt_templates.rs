@@ -37,6 +37,9 @@ pub enum PromptTemplateError {
 }
 
 impl PromptTemplateRecord {
+    /// # Errors
+    ///
+    /// Returns an error when the template's metadata or placeholders are invalid.
     pub fn validate(&self) -> Result<(), PromptTemplateError> {
         if self.schema_version != PROMPT_TEMPLATE_SCHEMA_VERSION
             || !identifier(&self.template_id)
@@ -55,6 +58,9 @@ impl PromptTemplateRecord {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the template or supplied variables are invalid or incomplete.
     pub fn render(
         &self,
         variables: &[PromptTemplateVariable],

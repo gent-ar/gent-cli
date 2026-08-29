@@ -16,6 +16,9 @@ pub struct AgentChatSession {
 }
 
 impl AgentChatSession {
+    /// # Errors
+    ///
+    /// Returns an error when the session identity, metadata, or conversation references are invalid.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !valid_id(&self.session_id.0)
             || !valid_id(&self.workspace_id)

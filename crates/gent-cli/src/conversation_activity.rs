@@ -135,7 +135,6 @@ fn validate_page(
     Ok(())
 }
 
-
 #[cfg(all(test, unix))]
 #[path = "conversation_activity_tests.rs"]
 mod tests;

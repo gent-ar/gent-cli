@@ -77,7 +77,10 @@ mod tests {
             serde_json::from_value::<AgentChatSideQuestionFrame>(value).unwrap(),
             frame
         );
-        assert_eq!(AGENT_CHAT_SIDE_QUESTION_CAPABILITY, "agent-chat-side-question-v1");
+        assert_eq!(
+            AGENT_CHAT_SIDE_QUESTION_CAPABILITY,
+            "agent-chat-side-question-v1"
+        );
     }
 
     #[test]

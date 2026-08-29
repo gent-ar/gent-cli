@@ -55,14 +55,22 @@ fn ask(conversation_id: &str, request_id: &str, question: &str) -> AgentChatSide
     }
 }
 
-fn asked(service: &AgentChatSideQuestionService<SqliteLedger>, ask: &AgentChatSideQuestion) -> AgentChatSideQuestionAsked {
+fn asked(
+    service: &AgentChatSideQuestionService<SqliteLedger>,
+    ask: &AgentChatSideQuestion,
+) -> AgentChatSideQuestionAsked {
     let AgentChatSideQuestionAskResult::Asked(asked) = service.ask(ask).unwrap() else {
         unreachable!()
     };
     asked
 }
 
-fn message(kind: NormalizedTranscriptKind, text: &str, cursor: u64, is_partial: bool) -> NormalizedTranscriptEvent {
+fn message(
+    kind: NormalizedTranscriptKind,
+    text: &str,
+    cursor: u64,
+    is_partial: bool,
+) -> NormalizedTranscriptEvent {
     NormalizedTranscriptEvent {
         cursor,
         event_id: format!("event-{cursor}"),
@@ -79,7 +87,12 @@ struct FakeRunner {
 }
 
 impl ConversationSummaryRunner for FakeRunner {
-    fn run_summary(&self, _provider: &str, _model_version: &str, _prompt: &str) -> Result<String, PortError> {
+    fn run_summary(
+        &self,
+        _provider: &str,
+        _model_version: &str,
+        _prompt: &str,
+    ) -> Result<String, PortError> {
         self.answer
             .clone()
             .ok_or_else(|| PortError::Unavailable("fake runner failure".into()))
@@ -89,7 +102,14 @@ impl ConversationSummaryRunner for FakeRunner {
 #[test]
 fn bounded_excerpt_keeps_only_the_newest_messages_in_order() {
     let events: Vec<NormalizedTranscriptEvent> = (0..20)
-        .map(|index| message(NormalizedTranscriptKind::UserMessage, &format!("m{index}"), index, false))
+        .map(|index| {
+            message(
+                NormalizedTranscriptKind::UserMessage,
+                &format!("m{index}"),
+                index,
+                false,
+            )
+        })
         .collect();
     let excerpt = bounded_excerpt(&events);
     assert!(excerpt.contains("m19"));
@@ -101,9 +121,19 @@ fn bounded_excerpt_keeps_only_the_newest_messages_in_order() {
 #[test]
 fn bounded_excerpt_excludes_partial_and_non_message_events() {
     let events = vec![
-        message(NormalizedTranscriptKind::ToolActivity, "tool noise", 0, false),
+        message(
+            NormalizedTranscriptKind::ToolActivity,
+            "tool noise",
+            0,
+            false,
+        ),
         message(NormalizedTranscriptKind::UserMessage, "streaming", 1, true),
-        message(NormalizedTranscriptKind::AssistantMessage, "final answer", 2, false),
+        message(
+            NormalizedTranscriptKind::AssistantMessage,
+            "final answer",
+            2,
+            false,
+        ),
     ];
     let excerpt = bounded_excerpt(&events);
     assert_eq!(excerpt, "Assistant: final answer");
@@ -112,7 +142,12 @@ fn bounded_excerpt_excludes_partial_and_non_message_events() {
 #[test]
 fn bounded_excerpt_clips_to_its_byte_bound_keeping_the_tail() {
     let long = "x".repeat(20_000);
-    let events = vec![message(NormalizedTranscriptKind::UserMessage, &long, 0, false)];
+    let events = vec![message(
+        NormalizedTranscriptKind::UserMessage,
+        &long,
+        0,
+        false,
+    )];
     let excerpt = bounded_excerpt(&events);
     assert!(excerpt.len() <= 12_000);
     assert!(long.ends_with(&excerpt));
@@ -122,8 +157,11 @@ fn bounded_excerpt_clips_to_its_byte_bound_keeping_the_tail() {
 fn observer_authority_denies_every_ask() {
     let ledger = SqliteLedger::in_memory().unwrap();
     conversation(&ledger, "conversation-1");
-    let service = AgentChatSideQuestionService::new(ledger, AgentChatSideQuestionAuthority::Observer);
-    let result = service.ask(&ask("conversation-1", "request-1", "why?")).unwrap();
+    let service =
+        AgentChatSideQuestionService::new(ledger, AgentChatSideQuestionAuthority::Observer);
+    let result = service
+        .ask(&ask("conversation-1", "request-1", "why?"))
+        .unwrap();
     assert_eq!(result, AgentChatSideQuestionAskResult::DeniedObserver);
 }
 
@@ -141,7 +179,10 @@ fn asking_enforces_the_per_conversation_live_bound() {
     conversation(&ledger, "conversation-1");
     let service = approved(ledger);
     for index in 0..3 {
-        asked(&service, &ask("conversation-1", &format!("request-{index}"), "why?"));
+        asked(
+            &service,
+            &ask("conversation-1", &format!("request-{index}"), "why?"),
+        );
     }
     let result = service.ask(&ask("conversation-1", "request-overflow", "why?"));
     assert!(result.is_err());
@@ -154,7 +195,10 @@ fn asking_the_same_request_twice_returns_the_same_side_question() {
     let service = approved(ledger);
     let first = asked(&service, &ask("conversation-1", "request-1", "why?"));
     let second = asked(&service, &ask("conversation-1", "request-1", "why?"));
-    assert_eq!(first.record.side_question_id, second.record.side_question_id);
+    assert_eq!(
+        first.record.side_question_id,
+        second.record.side_question_id
+    );
 }
 
 #[test]
@@ -216,7 +260,10 @@ fn cancel_transitions_a_pending_side_question_and_completion_no_longer_overwrite
     let super::AgentChatSideQuestionCancelResult::Cancelled(cancelled) = cancelled else {
         unreachable!()
     };
-    assert_eq!(cancelled.record.status, AgentChatSideQuestionStatus::Cancelled);
+    assert_eq!(
+        cancelled.record.status,
+        AgentChatSideQuestionStatus::Cancelled
+    );
     let settled = service
         .run_and_complete(
             &record.record.side_question_id,

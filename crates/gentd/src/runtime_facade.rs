@@ -66,7 +66,8 @@ pub(crate) struct RuntimeFacade {
     orchestration: OrchestrationService<SqliteLedger>,
     runtime_maintenance: RuntimeMaintenanceService<SqliteLedger>,
     attachments: AttachmentService<SqliteLedger, FileAttachmentBlobs>,
-    agent_chat_checkpoints: gent_runtime::AgentChatCheckpointService<SqliteLedger, FileAttachmentBlobs>,
+    agent_chat_checkpoints:
+        gent_runtime::AgentChatCheckpointService<SqliteLedger, FileAttachmentBlobs>,
     agent_chat_side_questions: gent_runtime::AgentChatSideQuestionService<SqliteLedger>,
     agent_chat_side_question_runners:
         Option<crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources>,

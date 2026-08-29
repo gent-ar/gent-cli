@@ -48,11 +48,10 @@ impl<L: AgentChatForkLedger> AgentChatForkService<L> {
         }
         let conversation_id = AgentChatConversationId(stable_identity("conversation", fork));
         let run_id = AgentChatRunId(stable_identity("run", fork));
-        Ok(AgentChatForkResult::Forked(self.ledger.fork_agent_chat_conversation(
-            fork,
-            &conversation_id,
-            &run_id,
-        )?))
+        Ok(AgentChatForkResult::Forked(
+            self.ledger
+                .fork_agent_chat_conversation(fork, &conversation_id, &run_id)?,
+        ))
     }
 }
 

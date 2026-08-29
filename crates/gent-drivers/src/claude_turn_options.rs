@@ -139,10 +139,7 @@ impl ClaudeTurnOptions {
             arguments.extend(["--max-turns".into(), max_turns.to_string()]);
         }
         if !self.disallowed_tools.is_empty() {
-            arguments.extend([
-                "--disallowedTools".into(),
-                self.disallowed_tools.join(","),
-            ]);
+            arguments.extend(["--disallowedTools".into(), self.disallowed_tools.join(",")]);
         }
     }
 }
@@ -322,7 +319,12 @@ mod tests {
             PermissionMode::Default,
         )
         .unwrap()
-        .with_conversation_config(Some("You are a terse reviewer.".into()), false, None, Vec::new())
+        .with_conversation_config(
+            Some("You are a terse reviewer.".into()),
+            false,
+            None,
+            Vec::new(),
+        )
         .append_arguments(&mut arguments);
         assert!(arguments.windows(2).any(|entry| {
             entry[0] == "--append-system-prompt" && entry[1].contains("Plan Mode")
@@ -352,9 +354,11 @@ mod tests {
                 .windows(2)
                 .any(|entry| entry[0] == "--max-turns" && entry[1] == "7")
         );
-        assert!(arguments.windows(2).any(|entry| {
-            entry[0] == "--disallowedTools" && entry[1] == "shell:rm,web:fetch"
-        }));
+        assert!(
+            arguments.windows(2).any(|entry| {
+                entry[0] == "--disallowedTools" && entry[1] == "shell:rm,web:fetch"
+            })
+        );
     }
 
     #[test]

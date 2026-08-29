@@ -54,6 +54,9 @@ pub enum PromptTemplateFrame {
 }
 
 impl PromptTemplateFrame {
+    /// # Errors
+    ///
+    /// Returns an error when the frame's request or template data is invalid.
     pub fn validate(&self) -> Result<(), &'static str> {
         let request_id = match self {
             Self::Create { request_id, .. }
@@ -77,7 +80,7 @@ impl PromptTemplateFrame {
             Self::Create { template, .. } | Self::Created { template, .. } => {
                 template
                     .validate()
-                    .map_err(|_| "prompt template is invalid")?
+                    .map_err(|_| "prompt template is invalid")?;
             }
             Self::Render { render, .. } => {
                 if render.template_id.is_empty() || render.variables.len() > 32 {

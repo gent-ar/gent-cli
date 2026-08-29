@@ -21,8 +21,14 @@ fn git(directory: &std::path::Path, args: &[&str]) {
 fn status_reads_a_registered_workspaces_repository() {
     let directory = tempfile::tempdir().unwrap();
     git(directory.path(), &["init", "--quiet"]);
-    let canonical_path = directory.path().canonicalize().unwrap().display().to_string();
-    let coordinator = Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
+    let canonical_path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .display()
+        .to_string();
+    let coordinator =
+        Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
     coordinator
         .create_workspace(&WorkspaceRecord {
             workspace_id: "workspace-1".into(),
@@ -46,8 +52,14 @@ fn status_reads_a_registered_workspaces_repository() {
 #[test]
 fn status_omits_the_report_when_the_workspace_is_not_a_git_repository() {
     let directory = tempfile::tempdir().unwrap();
-    let canonical_path = directory.path().canonicalize().unwrap().display().to_string();
-    let coordinator = Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
+    let canonical_path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .display()
+        .to_string();
+    let coordinator =
+        Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
     coordinator
         .create_workspace(&WorkspaceRecord {
             workspace_id: "workspace-1".into(),
@@ -73,8 +85,14 @@ fn sub_repos_lists_nested_repositories() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir(directory.path().join("repo-a")).unwrap();
     git(&directory.path().join("repo-a"), &["init", "--quiet"]);
-    let canonical_path = directory.path().canonicalize().unwrap().display().to_string();
-    let coordinator = Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
+    let canonical_path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .display()
+        .to_string();
+    let coordinator =
+        Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
     coordinator
         .create_workspace(&WorkspaceRecord {
             workspace_id: "workspace-1".into(),
@@ -89,7 +107,10 @@ fn sub_repos_lists_nested_repositories() {
         },
     )
     .unwrap();
-    let WorkspaceGitFrame::SubRepos { canonical_paths, .. } = reply else {
+    let WorkspaceGitFrame::SubRepos {
+        canonical_paths, ..
+    } = reply
+    else {
         unreachable!()
     };
     assert_eq!(canonical_paths.len(), 1);
@@ -98,7 +119,8 @@ fn sub_repos_lists_nested_repositories() {
 
 #[test]
 fn status_rejects_an_unknown_workspace() {
-    let coordinator = Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
+    let coordinator =
+        Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
     let result = exchange(
         &coordinator,
         WorkspaceGitFrame::StatusRequest {

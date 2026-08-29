@@ -77,7 +77,9 @@ where
             conversation_config
                 .as_ref()
                 .is_some_and(|config| config.append_system_prompt),
-            conversation_config.as_ref().and_then(|config| config.max_turns),
+            conversation_config
+                .as_ref()
+                .and_then(|config| config.max_turns),
             conversation_config
                 .map(|config| config.disallowed_tools)
                 .unwrap_or_default(),

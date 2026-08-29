@@ -55,7 +55,8 @@ impl AgentChatSideQuestionRunnerSources {
     }
 
     fn claude_runner(&self) -> Result<Box<dyn ConversationSummaryRunner>, PortError> {
-        let executable = self.resolved_executable(AgentChatProvider::Claude, self.claude_executable.clone())?;
+        let executable =
+            self.resolved_executable(AgentChatProvider::Claude, self.claude_executable.clone())?;
         let lock = LocalProviderLocks::capture([(PublicProvider::Claude, executable)])
             .map_err(|error| PortError::Unavailable(error.to_string()))?
             .resolve("claude")
@@ -63,8 +64,12 @@ impl AgentChatSideQuestionRunnerSources {
         Ok(Box::new(ClaudeSummaryRunner::new(lock)?))
     }
 
-    fn codex_runner(&self, workspace_path: Option<&str>) -> Result<Box<dyn ConversationSummaryRunner>, PortError> {
-        let executable = self.resolved_executable(AgentChatProvider::Codex, self.codex_executable.clone())?;
+    fn codex_runner(
+        &self,
+        workspace_path: Option<&str>,
+    ) -> Result<Box<dyn ConversationSummaryRunner>, PortError> {
+        let executable =
+            self.resolved_executable(AgentChatProvider::Codex, self.codex_executable.clone())?;
         let lock = LocalProviderLocks::capture([(PublicProvider::Codex, executable)])
             .map_err(|error| PortError::Unavailable(error.to_string()))?
             .resolve("codex")

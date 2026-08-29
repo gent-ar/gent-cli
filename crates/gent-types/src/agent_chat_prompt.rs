@@ -57,6 +57,9 @@ pub struct AgentChatPromptSaved {
 pub const MAX_PROMPT_TOOL_SOURCES: usize = 64;
 pub const MAX_PROMPT_TOOL_SOURCE_ID_BYTES: usize = 256;
 
+/// # Errors
+///
+/// Returns an error when the identifiers are not bounded, valid, and strictly ordered.
 pub fn validate_tool_source_ids(ids: &[String]) -> Result<(), AgentChatPromptError> {
     if ids.len() > MAX_PROMPT_TOOL_SOURCES
         || ids.iter().any(|id| {

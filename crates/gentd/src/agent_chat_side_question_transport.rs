@@ -1,6 +1,8 @@
 //! Capability-gated local transport for asking, cancelling, and reading side questions.
 
-use gent_protocol::{AGENT_CHAT_SIDE_QUESTION_CAPABILITY, AgentChatSideQuestionFrame, write_json_frame};
+use gent_protocol::{
+    AGENT_CHAT_SIDE_QUESTION_CAPABILITY, AgentChatSideQuestionFrame, write_json_frame,
+};
 use gent_types::CapabilitySet;
 use serde_json::Value;
 use tokio::io::AsyncWrite;

@@ -55,6 +55,9 @@ pub enum AutomationFrame {
 }
 
 impl AutomationFrame {
+    /// # Errors
+    ///
+    /// Returns an error when the frame's identifiers or automation data are invalid.
     pub fn validate(&self) -> Result<(), AutomationFrameError> {
         match self {
             Self::ListRequest {

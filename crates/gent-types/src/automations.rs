@@ -96,6 +96,9 @@ pub struct AutomationRunSummary {
 }
 
 impl AutomationDefinition {
+    /// # Errors
+    ///
+    /// Returns an error when the definition's identity, selection, trigger, or action is invalid.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !valid_id(&self.automation_id.0)
             || !valid_id(&self.workspace_id)
@@ -127,6 +130,9 @@ impl AutomationDefinition {
 }
 
 impl AutomationRun {
+    /// # Errors
+    ///
+    /// Returns an error when the run identity or timestamps are invalid.
     pub fn validate(&self) -> Result<(), &'static str> {
         if !valid_id(&self.run_id.0)
             || !valid_id(&self.automation_id.0)

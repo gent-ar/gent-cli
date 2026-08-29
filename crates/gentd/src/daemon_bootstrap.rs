@@ -103,8 +103,9 @@ pub(crate) struct Args {
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     if args.data_dir.is_none() {
-        gent_types::migrate_legacy_default_data_dir()
-            .map_err(|error| format!("could not migrate the legacy .gent-cli data directory: {error}"))?;
+        gent_types::migrate_legacy_default_data_dir().map_err(|error| {
+            format!("could not migrate the legacy .gent-cli data directory: {error}")
+        })?;
     }
     if args.print_data_dir {
         let data_dir = args

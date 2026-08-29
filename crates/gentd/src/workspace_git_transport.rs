@@ -14,7 +14,11 @@ where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    if !capabilities.0.iter().any(|item| item == WORKSPACE_GIT_CAPABILITY) {
+    if !capabilities
+        .0
+        .iter()
+        .any(|item| item == WORKSPACE_GIT_CAPABILITY)
+    {
         return Ok(false);
     }
     let Ok(frame) = serde_json::from_value::<WorkspaceGitFrame>(raw.clone()) else {
@@ -22,7 +26,9 @@ where
     };
     if !matches!(
         frame,
-        WorkspaceGitFrame::StatusRequest { .. } | WorkspaceGitFrame::SubReposRequest { .. }
+        WorkspaceGitFrame::StatusRequest { .. }
+            | WorkspaceGitFrame::SubReposRequest { .. }
+            | WorkspaceGitFrame::ResolveRequest { .. }
     ) {
         write_error(
             stream,

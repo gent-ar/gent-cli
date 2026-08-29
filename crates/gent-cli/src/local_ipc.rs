@@ -16,12 +16,12 @@ use gent_protocol::{
     REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
     WireFrame, read_frame, write_frame,
 };
-use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
-use gent_types::{default_data_dir as resolve_default_data_dir, resolve_sibling_binary};
 #[cfg(unix)]
 use gent_types::local_socket_path;
 #[cfg(windows)]
 use gent_types::windows_pipe_name;
+use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
+use gent_types::{default_data_dir as resolve_default_data_dir, resolve_sibling_binary};
 
 const NEGOTIATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 

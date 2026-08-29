@@ -66,6 +66,9 @@ pub enum ForgeConnectorFrame {
 }
 
 impl ForgeConnectorFrame {
+    /// # Errors
+    ///
+    /// Returns an error when a frame has invalid identifiers or connector data.
     pub fn validate(&self) -> Result<(), ForgeConnectorFrameError> {
         match self {
             Self::ListRequest {
@@ -88,6 +91,12 @@ impl ForgeConnectorFrame {
                 request_id,
                 workspace_id,
                 connector_id,
+            }
+            | Self::SetEnabledRequest {
+                request_id,
+                workspace_id,
+                connector_id,
+                ..
             } => {
                 valid_id(request_id)?;
                 valid_id(workspace_id)?;
@@ -107,28 +116,12 @@ impl ForgeConnectorFrame {
             Self::CreateRequest {
                 request_id,
                 connector,
-            } => {
-                valid_id(request_id)?;
-                validate_connector(connector)?;
             }
-            Self::Created {
+            | Self::Created {
                 request_id,
                 connector,
-            } => {
-                valid_id(request_id)?;
-                validate_connector(connector)?;
             }
-            Self::SetEnabledRequest {
-                request_id,
-                workspace_id,
-                connector_id,
-                ..
-            } => {
-                valid_id(request_id)?;
-                valid_id(workspace_id)?;
-                valid_id(connector_id)?;
-            }
-            Self::SetEnabled {
+            | Self::SetEnabled {
                 request_id,
                 connector,
             } => {

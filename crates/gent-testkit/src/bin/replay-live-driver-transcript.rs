@@ -71,7 +71,9 @@ fn main() -> Result<(), String> {
     let frames: Vec<Value> = raw
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| serde_json::from_str(line).map_err(|error| format!("invalid JSON line: {error}")))
+        .map(|line| {
+            serde_json::from_str(line).map_err(|error| format!("invalid JSON line: {error}"))
+        })
         .collect::<Result<_, _>>()?;
     if frames.is_empty() {
         return Err("stdin contained no JSON lines to replay".into());
@@ -86,9 +88,9 @@ fn main() -> Result<(), String> {
     let diagnostics: Vec<&str> = facts
         .iter()
         .filter_map(|fact| match fact {
-            PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { classification }) => {
-                Some(classification.as_str())
-            }
+            PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic {
+                classification,
+            }) => Some(classification.as_str()),
             _ => None,
         })
         .collect();
@@ -132,7 +134,10 @@ fn replay_claude(frames: &[Value]) -> Vec<PublicWireFact> {
     facts
 }
 
-fn claude_user_frame(frame: &Value, tool_names: &mut BTreeMap<String, String>) -> Vec<PublicWireFact> {
+fn claude_user_frame(
+    frame: &Value,
+    tool_names: &mut BTreeMap<String, String>,
+) -> Vec<PublicWireFact> {
     let Some(content) = frame.pointer("/message/content").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -176,7 +181,9 @@ fn claude_tool_result(block: &Value, tool_names: &mut BTreeMap<String, String>) 
 
 fn remember_tool_names(facts: &[PublicWireFact], tool_names: &mut BTreeMap<String, String>) {
     for fact in facts {
-        if let PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) = fact {
+        if let PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) =
+            fact
+        {
             if activity.phase == ToolPhase::Started {
                 tool_names
                     .entry(activity.tool_use_id.clone())
