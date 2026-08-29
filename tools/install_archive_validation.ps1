@@ -16,7 +16,9 @@ function Assert-ZipMembers([string]$Archive, [string]$ReleaseVersion) {
     $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
     try {
         $members = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
-        if (($members | Where-Object { $_ -notin $required -and -not $_.StartsWith("$root/runtime/node/") -and -not $_.StartsWith("$root/runtime/claurst/llama/") }).Count -ne 0 -or ($required | Where-Object { $_ -notin $members }).Count -ne 0) { Fail "release archive contains unsafe or unexpected paths" }
+        $unexpected = @($members | Where-Object { $_ -notin $required -and -not $_.StartsWith("$root/runtime/node/") -and -not $_.StartsWith("$root/runtime/claurst/llama/") })
+        $missing = @($required | Where-Object { $_ -notin $members })
+        if ($unexpected.Count -ne 0 -or $missing.Count -ne 0) { Fail "release archive contains unsafe or unexpected paths" }
         foreach ($entry in $zip.Entries) {
             if ($entry.FullName.Contains('..') -or $entry.FullName.StartsWith('/') -or $entry.FullName -match '^[A-Za-z]:' -or $entry.Name.Length -eq 0) { Fail "release archive contains an unsafe path" }
         }
