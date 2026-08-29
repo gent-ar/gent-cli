@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn shipped_catalogue_is_strict_and_queryable() {
         let catalogue = LocalModelCatalog::shipped().unwrap();
-        assert_eq!(catalogue.models().len(), 2);
+        assert_eq!(catalogue.models().len(), 3);
         assert!(
             catalogue
                 .model(gent_protocol::DEFAULT_LOCAL_MODEL_ID)
@@ -152,6 +152,13 @@ mod tests {
         assert_eq!(
             catalogue.model("qwen3-1-7b-q4-k-m").unwrap().size_bytes,
             1_282_439_264
+        );
+        assert_eq!(
+            catalogue
+                .model("hermes-3-llama-3-1-8b-q4-k-m")
+                .unwrap()
+                .size_bytes,
+            4_920_733_824
         );
     }
 

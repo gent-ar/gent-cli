@@ -17,6 +17,15 @@
       "provider_model_id": "qwen3-8b-q4-k-m",
       "size_bytes": 5027783488,
       "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
+    },
+    {
+      "id": "hermes-3-llama-3-1-8b-q4-k-m",
+      "label": "Hermes 3 Llama 3.1 8B (Q4_K_M)",
+      "huggingface_url": "https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B-GGUF/resolve/ad1d6b27c4ebc45cdb43e10871324742d771e1c4/Hermes-3-Llama-3.1-8B.Q4_K_M.gguf",
+      "local_filename": "hermes-3-llama-3-1-8b-q4-k-m.gguf",
+      "provider_model_id": "hermes-3-llama-3-1-8b-q4-k-m",
+      "size_bytes": 4920733824,
+      "sha256": "d4403ce5a6e930f4c2509456388c20d633a15ff08dd52ef3b142ff1810ec3553"
     }
   ]
 }
