@@ -101,7 +101,12 @@ function Update-Once {
     }
     Save-State $next; return $next
 }
-function Task-Name { "Gent Automatic Update " + ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($RuntimeRoot))).Substring(0, 12)) }
+function Task-Name {
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { $digest = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($RuntimeRoot)) }
+    finally { $hash.Dispose() }
+    return "Gent Automatic Update " + ([BitConverter]::ToString($digest).Replace("-", "").Substring(0, 12))
+}
 function Scheduled-Arguments { "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$PSCommandPath`" run -RuntimeRoot `"$RuntimeRoot`" -DataDir `"$DataDir`" -TimeoutSeconds $TimeoutSeconds" }
 function Schedule-Paths { $dir = if ($SchedulerDir) { $SchedulerDir } else { $null }; if ($null -eq $dir) { return $null }; New-Item -ItemType Directory -Force -Path $dir | Out-Null; return @((Join-Path $dir "gent-auto-update.task.ps1"), (Join-Path $dir "gent-auto-update.task.json")) }
 function Enable-Update {
