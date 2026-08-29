@@ -56,10 +56,8 @@ def public_key(output: str) -> str:
 
 def release(directory: Path, target: str, version: str) -> None:
     command("cargo", "build", "--quiet", "-p", "gent-cli", "-p", "gentd", "--bins")
-    node = Path(shutil.which("node") or "")
-    if not node.is_file():
-        raise ValueError("Node is required for release packaging test")
-    node_runtime = node.parent.parent
+    node_runtime = directory / "node"
+    command(sys.executable, ROOT / "tools/stage-node-runtime.py", "--node", "node", "--out-dir", node_runtime)
     claurst_runtime = directory / "claurst"
     claurst_runtime.mkdir()
     (claurst_runtime / "llama").mkdir()
