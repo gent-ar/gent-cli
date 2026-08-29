@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Kuberwastaken/claurst
-          ref: 00db2b6
+          ref: 00db2b642469189bca46318cbf4efd1d216ad0cd
           path: claurst-upstream
       - run: cargo fmt --check
       - continue-on-error: true
