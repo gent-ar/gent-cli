@@ -65,6 +65,18 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         provider: AgentChatProvider,
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError>;
 
+    /// Reports whether the current selection for `provider` has durable
+    /// pre-launch work waiting in the outbox. This does not claim work or
+    /// start a provider.
+    fn has_pending_agent_chat_prompt_dispatch(
+        &self,
+        _: AgentChatProvider,
+    ) -> Result<bool, LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat pending-dispatch inspection is unavailable".into(),
+        ))
+    }
+
     /// Records the durable point after which a provider invocation may be ambiguous.
     ///
     /// Once this succeeds, crash recovery must never replay the prompt automatically.

@@ -5,6 +5,7 @@ use std::{
 };
 
 use gent_drivers::process::SystemLauncher;
+use gent_ports::AgentChatPromptDispatchLedger;
 use gent_protocol::{LocalModelDescriptor, LocalModelInstallState};
 use gent_runtime::{AgentChatReadService, Coordinator};
 use gent_store::SqliteLedger;
@@ -144,7 +145,19 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
     }
 
     fn arm_authority_recovery(&mut self) -> Result<(), ()> {
-        self.start_existing()?;
+        // A restart must not strand a prompt that was already accepted. Only
+        // durable pending work may cause this lazy host to provision a
+        // provider; an idle startup remains side-effect free.
+        if self.host.is_none()
+            && self
+                .ledger
+                .has_pending_agent_chat_prompt_dispatch(self.provider)
+                .map_err(|_| ())?
+        {
+            self.start()?;
+        } else {
+            self.start_existing()?;
+        }
         self.host
             .as_mut()
             .map_or(Ok(()), |host| host.arm_authority_recovery())

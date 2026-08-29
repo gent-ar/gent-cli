@@ -103,6 +103,69 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
     ));
 }
 
+#[test]
+fn pending_dispatch_inspection_is_provider_scoped_and_does_not_claim_work() {
+    let directory = tempfile::tempdir().unwrap();
+    let ledger = SqliteLedger::open(&directory.path().join("gent.db")).unwrap();
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "sonnet".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
+        .unwrap();
+    let saved = ledger
+        .save_agent_chat_prompt(&AgentChatPromptCreate {
+            request_id: AgentChatRequestId("prompt-1".into()),
+            receipt_id: ReceiptId("prompt-receipt".into()),
+            host_epoch: HostEpoch(1),
+            conversation_id: AgentChatConversationId("conversation-a".into()),
+            disposition: AgentChatPromptDisposition::Send,
+            text: "continue".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
+        })
+        .unwrap();
+    ledger
+        .release_agent_chat_prompt_after_readiness(
+            &saved.message.message_id,
+            &saved.run_id,
+            HostEpoch(1),
+        )
+        .unwrap();
+
+    assert!(
+        ledger
+            .has_pending_agent_chat_prompt_dispatch(AgentChatProvider::Claude)
+            .unwrap()
+    );
+    assert!(
+        !ledger
+            .has_pending_agent_chat_prompt_dispatch(AgentChatProvider::Codex)
+            .unwrap()
+    );
+    assert!(
+        ledger
+            .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Claude)
+            .unwrap()
+            .is_some()
+    );
+}
+
 fn settlement(
     ledger: &SqliteLedger,
     turn_id: &str,

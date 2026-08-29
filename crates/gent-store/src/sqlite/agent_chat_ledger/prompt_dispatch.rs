@@ -22,6 +22,13 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         claim(self, coordinator_id, host_epoch, provider)
     }
 
+    fn has_pending_agent_chat_prompt_dispatch(
+        &self,
+        provider: AgentChatProvider,
+    ) -> Result<bool, LedgerError> {
+        has_pending(self, provider)
+    }
+
     fn release_agent_chat_prompt_after_readiness(
         &self,
         message_id: &str,
@@ -209,6 +216,17 @@ fn claim(
     let saved = helpers::saved(&transaction, &message_id)?;
     transaction.commit().map_err(storage_error)?;
     Ok(Some(saved))
+}
+
+fn has_pending(ledger: &SqliteLedger, provider: AgentChatProvider) -> Result<bool, LedgerError> {
+    let connection = ledger.lock()?;
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1))",
+            params![provider_name(provider)],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(storage_error)
 }
 
 const fn provider_name(provider: AgentChatProvider) -> &'static str {
