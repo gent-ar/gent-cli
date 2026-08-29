@@ -25,6 +25,11 @@ REQUIRED_CAPABILITIES = {
     "agent-chat-permissions-v1",
     "attachments-v1",
     "local-models-v1",
+    "workspace-git-v1",
+    "agent-chat-conversation-config-v1",
+    "agent-chat-checkpoint-v1",
+    "agent-chat-side-question-v1",
+    "prompt-provider-provision-v1",
 }
 
 

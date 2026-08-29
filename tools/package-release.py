@@ -141,6 +141,11 @@ def write_metadata(out_dir: Path, name: str, version: str, target: str, files: l
             "agent-chat-permissions-v1",
             "attachments-v1",
             "local-models-v1",
+            "workspace-git-v1",
+            "agent-chat-conversation-config-v1",
+            "agent-chat-checkpoint-v1",
+            "agent-chat-side-question-v1",
+            "prompt-provider-provision-v1",
         ],
         "runtimes": ["runtime/node", "runtime/claurst"],
     }

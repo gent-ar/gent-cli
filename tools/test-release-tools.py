@@ -134,6 +134,11 @@ def main() -> None:
         manifest = json.loads(Path(f"{first}.manifest.json").read_text())
         assert manifest["binaries"] == ["gent", "gentd"]
         assert "local-models-v1" in manifest["capabilities"]
+        assert "workspace-git-v1" in manifest["capabilities"]
+        assert "agent-chat-conversation-config-v1" in manifest["capabilities"]
+        assert "agent-chat-checkpoint-v1" in manifest["capabilities"]
+        assert "agent-chat-side-question-v1" in manifest["capabilities"]
+        assert "prompt-provider-provision-v1" in manifest["capabilities"]
         assert manifest["runtimes"] == ["runtime/node", "runtime/claurst"]
         rejects(first, "--version", "0.2.0")
         second.write_bytes(second.read_bytes() + b"tampered")
