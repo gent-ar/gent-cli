@@ -140,6 +140,8 @@ if (manifest.get('schemaVersion') != 1 or manifest.get('version') != version
 required_capabilities = {
     'agent-chat-conversations-v1', 'agent-chat-intents-v1', 'agent-chat-transcript-v1',
     'agent-chat-turn-follow-v1', 'agent-chat-permissions-v1', 'attachments-v1', 'local-models-v1',
+    'workspace-git-v1', 'agent-chat-conversation-config-v1', 'agent-chat-checkpoint-v1',
+    'agent-chat-side-question-v1', 'permission-policy-v1',
 }
 capabilities = manifest.get('capabilities', [])
 if (sorted(manifest.get('binaries', [])) != ['gent', 'gentd']

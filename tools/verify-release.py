@@ -29,6 +29,7 @@ REQUIRED_CAPABILITIES = {
     "agent-chat-conversation-config-v1",
     "agent-chat-checkpoint-v1",
     "agent-chat-side-question-v1",
+    "permission-policy-v1",
     "prompt-provider-provision-v1",
 }
 

@@ -138,6 +138,7 @@ def main() -> None:
         assert "agent-chat-conversation-config-v1" in manifest["capabilities"]
         assert "agent-chat-checkpoint-v1" in manifest["capabilities"]
         assert "agent-chat-side-question-v1" in manifest["capabilities"]
+        assert "permission-policy-v1" in manifest["capabilities"]
         assert "prompt-provider-provision-v1" in manifest["capabilities"]
         assert manifest["runtimes"] == ["runtime/node", "runtime/claurst"]
         rejects(first, "--version", "0.2.0")
