@@ -5,7 +5,9 @@ use gent_types::{
     AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, DurableTurnPhase, Event,
     HostEpoch, ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding, Receipt,
 };
-use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{
+    OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
+};
 
 use super::super::SqliteLedger;
 use super::super::epoch::require_epoch;
@@ -20,6 +22,16 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         provider: AgentChatProvider,
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
         claim(self, coordinator_id, host_epoch, provider)
+    }
+
+    fn claim_agent_chat_prompt_dispatch_excluding_runs(
+        &self,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        provider: AgentChatProvider,
+        excluded_run_ids: &[AgentChatRunId],
+    ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
+        claim_excluding_runs(self, coordinator_id, host_epoch, provider, excluded_run_ids)
     }
 
     fn has_pending_agent_chat_prompt_dispatch(
@@ -192,18 +204,45 @@ fn claim(
     host_epoch: HostEpoch,
     provider: AgentChatProvider,
 ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
+    claim_excluding_runs(ledger, coordinator_id, host_epoch, provider, &[])
+}
+
+fn claim_excluding_runs(
+    ledger: &SqliteLedger,
+    coordinator_id: &str,
+    host_epoch: HostEpoch,
+    provider: AgentChatProvider,
+    excluded_run_ids: &[AgentChatRunId],
+) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
     helpers::valid_owner(coordinator_id)?;
     let mut connection = ledger.lock()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
     require_open(&transaction, host_epoch)?;
-    let message_id = transaction
-        .query_row(
-            "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1) ORDER BY d.created_rowid LIMIT 1",
-            params![provider_name(provider)],
-            |row| row.get::<_, String>(0),
+    let excluded = (!excluded_run_ids.is_empty()).then(|| {
+        format!(
+            " AND m.run_id NOT IN ({})",
+            std::iter::repeat_n("?", excluded_run_ids.len())
+                .collect::<Vec<_>>()
+                .join(", ")
         )
+    });
+    let query = format!(
+        "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1){} ORDER BY d.created_rowid LIMIT 1",
+        excluded.unwrap_or_default(),
+    );
+    let provider = provider_name(provider);
+    let mut parameters: Vec<&dyn ToSql> = vec![&provider];
+    parameters.extend(
+        excluded_run_ids
+            .iter()
+            .map(|run_id| &run_id.0 as &dyn ToSql),
+    );
+    let message_id = transaction
+        .query_row(&query, params_from_iter(parameters), |row| {
+            row.get::<_, String>(0)
+        })
         .optional()
         .map_err(storage_error)?;
     let Some(message_id) = message_id else {

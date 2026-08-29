@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use crate::{
     chat_cli, decision::DecisionCommandLine, goal_cli, local_models_cli, orchestration_cli,
     permissions_cli, prompt_templates_cli, provider_auth_cli, provider_lifecycle_cli,
-    reviewed_plan_cli, side_question_cli, update_check::UpdateCommand, workspace_documents_cli,
-    workspace_git_cli,
+    reviewed_plan_cli, runtime_activation::RuntimeCommand, side_question_cli,
+    update_check::UpdateCommand, workspace_documents_cli, workspace_git_cli,
 };
 #[derive(Debug, Parser)]
 #[command(name = "gent", about = "Protocol-only client for a local gentd")]
@@ -49,6 +49,10 @@ pub(crate) enum CommandLine {
     Update {
         #[command(subcommand)]
         action: UpdateCommand,
+    },
+    Runtime {
+        #[command(subcommand)]
+        action: RuntimeCommand,
     },
     /// Read durable conversation, run, and active-turn status.
     Conversation {

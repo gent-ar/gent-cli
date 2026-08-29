@@ -1,7 +1,7 @@
 //! Pure authority-gated access to the durable agent-chat provider-dispatch outbox.
 
 use gent_ports::AgentChatPromptDispatchLedger;
-use gent_types::{AgentChatPromptSaved, AgentChatProvider, HostEpoch};
+use gent_types::{AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, HostEpoch};
 
 use crate::RuntimeError;
 
@@ -52,6 +52,29 @@ impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
         Ok(self
             .ledger
             .claim_agent_chat_prompt_dispatch(coordinator_id, host_epoch, provider)?
+            .map_or(AgentChatPromptDispatchResult::Empty, |saved| {
+                AgentChatPromptDispatchResult::Claimed(Box::new(saved))
+            }))
+    }
+
+    pub fn claim_excluding_runs(
+        &self,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        provider: AgentChatProvider,
+        excluded_run_ids: &[AgentChatRunId],
+    ) -> Result<AgentChatPromptDispatchResult, RuntimeError> {
+        if self.authority != AgentChatPromptDispatchAuthority::Approved {
+            return Ok(AgentChatPromptDispatchResult::DeniedObserver);
+        }
+        Ok(self
+            .ledger
+            .claim_agent_chat_prompt_dispatch_excluding_runs(
+                coordinator_id,
+                host_epoch,
+                provider,
+                excluded_run_ids,
+            )?
             .map_or(AgentChatPromptDispatchResult::Empty, |saved| {
                 AgentChatPromptDispatchResult::Claimed(Box::new(saved))
             }))

@@ -9,7 +9,9 @@ use gent_runtime::{
     AgentChatPromptDispatchResult, AgentChatPromptDispatchService, AgentChatReadService,
     AgentChatTranscriptIngress, ProviderActivityIngress, PublicRunService, RuntimeError,
 };
-use gent_types::{AgentChatProvider, AgentChatSelection, GoalProjection, HostEpoch};
+use gent_types::{
+    AgentChatProvider, AgentChatRunId, AgentChatSelection, GoalProjection, HostEpoch,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -144,6 +146,17 @@ where
         provider: AgentChatProvider,
     ) -> Result<AgentChatPromptDispatchResult, RuntimeError> {
         self.dispatches.claim(coordinator_id, host_epoch, provider)
+    }
+
+    pub(crate) fn claim_prompt_excluding_runs(
+        &self,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        provider: AgentChatProvider,
+        excluded_run_ids: &[AgentChatRunId],
+    ) -> Result<AgentChatPromptDispatchResult, RuntimeError> {
+        self.dispatches
+            .claim_excluding_runs(coordinator_id, host_epoch, provider, excluded_run_ids)
     }
 
     /// Marks the durable boundary before a provider process may be launched.

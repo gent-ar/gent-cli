@@ -106,6 +106,57 @@ fn only_send_prompts_enter_a_single_owner_durable_outbox() {
 }
 
 #[test]
+fn claim_excluding_active_runs_advances_to_another_conversation() {
+    let (ledger, first_conversation) = ledger();
+    let second_conversation = AgentChatConversationId("conversation-2".into());
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("create-receipt-2".into()),
+                idempotency_key: "create-key-2".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: second_conversation.clone(),
+                run_id: AgentChatRunId("run-2".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Codex,
+                    model: "gpt-5.6".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
+            },
+        )
+        .unwrap();
+    let blocked = prompt(
+        &ledger,
+        &first_conversation,
+        "blocked",
+        AgentChatPromptDisposition::Send,
+    );
+    let available = prompt(
+        &ledger,
+        &second_conversation,
+        "available",
+        AgentChatPromptDisposition::Send,
+    );
+
+    let claimed = ledger
+        .claim_agent_chat_prompt_dispatch_excluding_runs(
+            "daemon-a",
+            HostEpoch(1),
+            AgentChatProvider::Codex,
+            &[blocked.run_id],
+        )
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(claimed.message, available.message);
+}
+
+#[test]
 fn settlement_and_epoch_fences_prevent_duplicate_or_stale_provider_delivery() {
     let (ledger, conversation_id) = ledger();
     let send = prompt(

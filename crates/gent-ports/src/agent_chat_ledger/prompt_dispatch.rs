@@ -65,6 +65,21 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         provider: AgentChatProvider,
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError>;
 
+    fn claim_agent_chat_prompt_dispatch_excluding_runs(
+        &self,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        provider: AgentChatProvider,
+        excluded_run_ids: &[AgentChatRunId],
+    ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
+        if excluded_run_ids.is_empty() {
+            return self.claim_agent_chat_prompt_dispatch(coordinator_id, host_epoch, provider);
+        }
+        Err(LedgerError::Invariant(
+            "agent chat excluded-run prompt claim is unavailable".into(),
+        ))
+    }
+
     /// Reports whether the current selection for `provider` has durable
     /// pre-launch work waiting in the outbox. This does not claim work or
     /// start a provider.

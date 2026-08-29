@@ -89,10 +89,22 @@ where
         &mut self,
         host_epoch: HostEpoch,
     ) -> Result<CodexPromptDispatchOutcome, RuntimeError> {
-        match self.runtime.claim_prompt(
+        let excluded_run_ids = self
+            .active
+            .keys()
+            .filter(|run_id| {
+                self.active
+                    .get(*run_id)
+                    .is_some_and(|binding| !binding.settled || binding.releasing)
+            })
+            .cloned()
+            .map(gent_types::AgentChatRunId)
+            .collect::<Vec<_>>();
+        match self.runtime.claim_prompt_excluding_runs(
             &self.coordinator_id,
             host_epoch,
             gent_types::AgentChatProvider::Codex,
+            &excluded_run_ids,
         )? {
             AgentChatPromptDispatchResult::DeniedObserver => Ok(CodexPromptDispatchOutcome::Denied),
             AgentChatPromptDispatchResult::Empty => Ok(CodexPromptDispatchOutcome::Empty),

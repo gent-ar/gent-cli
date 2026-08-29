@@ -1,4 +1,5 @@
-use gent_types::{PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord};
+use gent_core::{PermissionDecision, evaluate_permission_with_sandbox};
+use gent_types::{PermissionRequest, PolicyRecord, SandboxEnforcement};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PermissionPreflight {
@@ -8,36 +9,12 @@ pub(crate) enum PermissionPreflight {
 }
 
 pub(crate) fn evaluate(policy: &PolicyRecord, request: &PermissionRequest) -> PermissionPreflight {
-    if policy.mode == PermissionMode::Plan {
-        return if request.category == PermissionCategory::Read {
-            PermissionPreflight::Allow
-        } else {
-            PermissionPreflight::Deny
-        };
-    }
-    if matches!(
-        policy.mode,
-        PermissionMode::Autonomous | PermissionMode::Bypass
-    ) {
-        return PermissionPreflight::Allow;
-    }
-    if policy.mode == PermissionMode::AutoAcceptEdits
-        && request.category == PermissionCategory::Edit
-    {
-        return PermissionPreflight::Allow;
-    }
-    if policy
-        .allowed_tools
-        .binary_search(&request.tool_name)
-        .is_ok()
-        || policy
-            .allowed_categories
-            .binary_search(&request.category)
-            .is_ok()
-    {
-        PermissionPreflight::Allow
-    } else {
-        PermissionPreflight::Ask
+    match evaluate_permission_with_sandbox(policy, request, SandboxEnforcement::Unavailable) {
+        PermissionDecision::Allow => PermissionPreflight::Allow,
+        PermissionDecision::Deny => PermissionPreflight::Deny,
+        PermissionDecision::Prompt | PermissionDecision::SandboxRequired => {
+            PermissionPreflight::Ask
+        }
     }
 }
 
@@ -117,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn autonomous_and_bypass_allow_each_category() {
+    fn autonomous_and_bypass_require_a_user_decision_without_sandbox_enforcement() {
         for mode in [PermissionMode::Autonomous, PermissionMode::Bypass] {
             for category in [
                 PermissionCategory::Read,
@@ -128,7 +105,7 @@ mod tests {
             ] {
                 assert_eq!(
                     evaluate(&policy(mode), &request("tool", category)),
-                    PermissionPreflight::Allow
+                    PermissionPreflight::Ask
                 );
             }
         }

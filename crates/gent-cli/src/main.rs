@@ -26,6 +26,7 @@ mod prompt_templates_cli;
 mod provider_auth_cli;
 mod provider_lifecycle_cli;
 mod reviewed_plan_cli;
+mod runtime_activation;
 mod runtime_maintenance;
 mod runtime_update_check;
 mod session_cli;
@@ -43,6 +44,7 @@ pub(crate) use command_model::{
     Args, AutomationCommand, CommandLine, ConversationCommand, DependencyCommand, ForgeCommand,
     SessionCommand,
 };
+pub(crate) use runtime_activation::RuntimeCommand;
 
 use clap::Parser;
 

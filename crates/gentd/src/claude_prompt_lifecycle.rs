@@ -83,33 +83,30 @@ where
         &mut self,
         host_epoch: HostEpoch,
     ) -> Result<ClaudePromptDispatchOutcome, RuntimeError> {
-        match self.runtime.claim_prompt(
+        let excluded_run_ids = self
+            .active
+            .keys()
+            .cloned()
+            .map(gent_types::AgentChatRunId)
+            .collect::<Vec<_>>();
+        match self.runtime.claim_prompt_excluding_runs(
             &self.coordinator_id,
             host_epoch,
             gent_types::AgentChatProvider::Claude,
+            &excluded_run_ids,
         )? {
             AgentChatPromptDispatchResult::DeniedObserver => {
                 Ok(ClaudePromptDispatchOutcome::Denied)
             }
             AgentChatPromptDispatchResult::Empty => Ok(ClaudePromptDispatchOutcome::Empty),
-            AgentChatPromptDispatchResult::Claimed(prompt) => {
-                if self.active.contains_key(&prompt.run_id.0) {
-                    self.runtime.release_prompt_claim(
-                        &prompt.message.message_id,
-                        &self.coordinator_id,
-                        host_epoch,
-                    )?;
-                    return Ok(ClaudePromptDispatchOutcome::Busy);
-                }
-                start::prompt(
-                    &self.runtime,
-                    &self.runner,
-                    &self.coordinator_id,
-                    &mut self.active,
-                    *prompt,
-                    host_epoch,
-                )
-            }
+            AgentChatPromptDispatchResult::Claimed(prompt) => start::prompt(
+                &self.runtime,
+                &self.runner,
+                &self.coordinator_id,
+                &mut self.active,
+                *prompt,
+                host_epoch,
+            ),
         }
     }
 

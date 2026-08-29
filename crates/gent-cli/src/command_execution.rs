@@ -1,11 +1,11 @@
 use crate::decision::decision_frame;
 use crate::local_ipc::{default_data_dir, request};
 use crate::{
-    Args, CommandLine, ConversationCommand, DependencyCommand, conversation_activity,
-    conversation_content, conversation_index, conversation_status, conversation_timeline,
-    event_stream, local_models_cli, orchestration_cli, permissions_cli, prompt_templates_cli,
-    provider_auth_cli, provider_lifecycle_cli, reviewed_plan_cli, side_question_cli,
-    terminal_browser, workspace_documents_cli, workspace_git_cli,
+    Args, CommandLine, ConversationCommand, DependencyCommand, RuntimeCommand,
+    conversation_activity, conversation_content, conversation_index, conversation_status,
+    conversation_timeline, event_stream, local_models_cli, orchestration_cli, permissions_cli,
+    prompt_templates_cli, provider_auth_cli, provider_lifecycle_cli, reviewed_plan_cli,
+    side_question_cli, terminal_browser, workspace_documents_cli, workspace_git_cli,
 };
 use gent_protocol::{DependencyAction, WireFrame};
 use gent_types::{Command, ReceiptId};
@@ -53,6 +53,23 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
             {
                 print(reply)?;
             }
+        }
+        CommandLine::Runtime {
+            action:
+                RuntimeCommand::Activate {
+                    bootstrap_dir,
+                    runtime_root,
+                },
+        } => {
+            println!(
+                "{}",
+                crate::runtime_activation::activate(
+                    bootstrap_dir,
+                    runtime_root,
+                    data_dir.unwrap_or_else(default_data_dir)
+                )?
+                .display()
+            );
         }
         CommandLine::Conversation { action } => {
             conversation(data_dir, no_autostart, action).await?;
