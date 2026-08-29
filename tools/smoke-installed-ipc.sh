@@ -40,7 +40,7 @@ import sys
 
 status = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert status["schemaVersion"] == 1
-assert status["enabled"] is False
+assert status["enabled"] is True
 PY
 
 "$bin_dir/gentd" --data-dir "$data_dir" >"$data_dir/gentd.log" 2>&1 &
