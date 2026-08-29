@@ -50,7 +50,7 @@ def digest(path):
 
 
 def member_name(archive, name):
-    if archive.suffix == ".zip":
+    if zipfile.is_zipfile(archive):
         with zipfile.ZipFile(archive) as bundle:
             names = [entry.filename for entry in bundle.infolist() if not entry.is_dir() and Path(entry.filename).name == name]
             if len(names) != 1:
@@ -65,7 +65,7 @@ def member_name(archive, name):
 
 def extract(archive, name, destination):
     member = member_name(archive, name)
-    if archive.suffix == ".zip":
+    if zipfile.is_zipfile(archive):
         with zipfile.ZipFile(archive) as bundle:
             with bundle.open(member) as source, destination.open("wb") as output:
                 shutil.copyfileobj(source, output)
@@ -79,7 +79,7 @@ def extract(archive, name, destination):
 
 
 def llama_members(archive):
-    if archive.suffix == ".zip":
+    if zipfile.is_zipfile(archive):
         with zipfile.ZipFile(archive) as bundle:
             members = [entry.filename for entry in bundle.infolist() if not entry.is_dir()]
     else:
@@ -94,7 +94,7 @@ def llama_members(archive):
 def extract_llama_runtime(archive, destination):
     destination.mkdir(parents=True, exist_ok=True)
     members = llama_members(archive)
-    if archive.suffix == ".zip":
+    if zipfile.is_zipfile(archive):
         with zipfile.ZipFile(archive) as bundle:
             for member in members:
                 with bundle.open(member) as source, (destination / Path(member).name).open("wb") as output:
