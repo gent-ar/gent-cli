@@ -67,11 +67,6 @@ jobs:
         with:
           node-version: '22.17.0'
           architecture: ${{ matrix.node_arch }}
-      - uses: actions/checkout@v4
-        with:
-          repository: Kuberwastaken/claurst
-          ref: 00db2b642469189bca46318cbf4efd1d216ad0cd
-          path: claurst-upstream
       - run: cargo fmt --check
       - continue-on-error: true
         run: python tools/check-architecture.py
@@ -135,7 +130,7 @@ jobs:
           node_args=()
           if [ "$RUNNER_OS" = "Windows" ]; then node_args+=(--windows); fi
           python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node "${node_args[@]}"
-          python tools/stage-claurst-runtime.py --target "$RELEASE_TARGET" --out-dir dist-runtime/claurst --profile release --claurst-source-dir claurst-upstream
+          python tools/stage-claurst-runtime.py --target "$RELEASE_TARGET" --out-dir dist-runtime/claurst --profile release
           python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst
           python tools/package-release.py --target-dir target/release --out-dir dist \
             --version v0.0.0-ci --target "$RELEASE_TARGET" --format "$RELEASE_ARCHIVE" \
