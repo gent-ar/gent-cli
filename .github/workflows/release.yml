@@ -268,7 +268,11 @@ jobs:
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0 | sort -z)
           test "${#artifacts[@]}" -gt 0
-          gh release create "$RELEASE_TAG" "${artifacts[@]}" --generate-notes
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${artifacts[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${artifacts[@]}" --generate-notes
+          fi
 
   install-smoke:
     name: published install smoke
