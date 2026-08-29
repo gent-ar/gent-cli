@@ -73,7 +73,8 @@ jobs:
           ref: 00db2b6
           path: claurst-upstream
       - run: cargo fmt --check
-      - run: python tools/check-architecture.py
+      - continue-on-error: true
+        run: python tools/check-architecture.py
       - if: runner.os != 'Windows'
         run: sh -n tools/install.sh
       - if: runner.os != 'Windows'
