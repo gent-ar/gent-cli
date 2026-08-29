@@ -188,6 +188,15 @@ fn client_requests_private_conversation_content_on_every_platform() {
 }
 
 #[test]
+fn client_requests_workspace_git() {
+    assert!(
+        client_capabilities()
+            .0
+            .contains(&gent_protocol::WORKSPACE_GIT_CAPABILITY.into())
+    );
+}
+
+#[test]
 fn daemon_arguments_always_select_standalone_authority() {
     let directory = tempfile::tempdir().unwrap();
     let arguments = daemon_arguments_from(directory.path());

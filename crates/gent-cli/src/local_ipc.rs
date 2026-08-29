@@ -14,7 +14,7 @@ use gent_protocol::{
     LOCAL_MODELS_CAPABILITY, ORCHESTRATION_CAPABILITY, PERMISSION_POLICY_CAPABILITY,
     PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_AUTH_CAPABILITY, PROVIDER_READINESS_CAPABILITY,
     REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
-    WireFrame, read_frame, write_frame,
+    WORKSPACE_GIT_CAPABILITY, WireFrame, read_frame, write_frame,
 };
 #[cfg(unix)]
 use gent_types::local_socket_path;
@@ -102,6 +102,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         "receipts".into(),
     ];
     capabilities.push(CONVERSATION_CONTENT_CAPABILITY.into());
+    capabilities.push(WORKSPACE_GIT_CAPABILITY.into());
     CapabilitySet(capabilities)
 }
 
