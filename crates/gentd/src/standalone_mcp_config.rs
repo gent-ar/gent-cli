@@ -266,11 +266,21 @@ fn selected_server_names(sources: &[ToolSourceRecord]) -> Vec<String> {
 fn gent_cli_executable() -> Result<String, String> {
     let current = std::env::current_exe().map_err(|_| "Gent executable is unavailable")?;
     let directory = current.parent().ok_or("Gent executable is unavailable")?;
-    let name = if cfg!(windows) { "gent.exe" } else { "gent" };
     for directory in [Some(directory), directory.parent()].into_iter().flatten() {
-        let sibling = directory.join(name);
-        if sibling.is_file() {
-            return Ok(sibling.to_string_lossy().into_owned());
+        let names = if cfg!(windows) {
+            ["gent.exe", "gent-cli.exe"]
+        } else {
+            // macOS app bundles cannot place a lowercase `gent` next to the
+            // uppercase app executable `Gent` on their usual
+            // case-insensitive filesystems. Native packaging therefore uses
+            // this unambiguous sibling name.
+            ["gent", "gent-cli"]
+        };
+        for name in names {
+            let sibling = directory.join(name);
+            if sibling.is_file() {
+                return Ok(sibling.to_string_lossy().into_owned());
+            }
         }
     }
     Err("Gent CLI executable is unavailable".into())
