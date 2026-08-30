@@ -30,6 +30,8 @@ pub(crate) struct State {
     pub(crate) prepared_goals: Vec<Option<gent_types::GoalProjection>>,
     starts: usize,
     resumes: usize,
+    submits: usize,
+    active: bool,
     pub(crate) effects: VecDeque<Vec<ClaudeRunnerEffect>>,
     pub(crate) poll_failure: bool,
     pub(crate) signals: Vec<gent_drivers::interrupt::ProcessTreeSignal>,
@@ -47,6 +49,7 @@ impl PublicProviderRunner for Runner {
         let mut state = self.0.lock().unwrap();
         assert!(state.pending.take().is_some());
         state.starts += 1;
+        state.active = true;
         Ok(())
     }
 
@@ -54,6 +57,7 @@ impl PublicProviderRunner for Runner {
         let mut state = self.0.lock().unwrap();
         assert!(state.pending.take().is_some());
         state.resumes += 1;
+        state.active = true;
         Ok(())
     }
 
@@ -87,6 +91,23 @@ impl ClaudePromptExecution for Runner {
             ));
         }
         Ok(state.effects.pop_front())
+    }
+    fn has_claude_session(&self, _: &str) -> bool {
+        self.0.lock().unwrap().active
+    }
+    fn release_claude_session(&self, _: &str) -> Result<(), PublicProviderRunError> {
+        self.0.lock().unwrap().active = false;
+        Ok(())
+    }
+    fn submit_claude_prompt(
+        &self,
+        _: &str,
+        _: &str,
+        _: Option<&gent_types::GoalProjection>,
+        _: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError> {
+        self.0.lock().unwrap().submits += 1;
+        Ok(())
     }
     fn signal_claude_process(
         &self,
@@ -162,7 +183,7 @@ pub(crate) fn prompt(
 }
 
 #[test]
-fn standalone_claude_resumes_one_durable_conversation_and_relays_permission_to_owned_process() {
+fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permission() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
@@ -255,7 +276,7 @@ fn standalone_claude_resumes_one_durable_conversation_and_relays_permission_to_o
     assert_eq!(ready.batch.facts, 2);
     assert!(
         host.needs_drive(),
-        "a settled Claude prompt still owns a one-shot process until its exit is drained"
+        "a settled Claude prompt keeps its live stream available for the next turn"
     );
     assert_eq!(
         ledger.find_run_session_binding("run-a").unwrap(),
@@ -271,22 +292,11 @@ fn standalone_claude_resumes_one_durable_conversation_and_relays_permission_to_o
     assert_eq!(transcript.conversation_id, conversation_id.0);
     assert!(transcript.events.iter().any(|event| event.text == "done"));
     prompt(&ledger, &conversation_id, "b");
-    assert_eq!(
-        host.tick().unwrap().dispatch,
-        None,
-        "ready process must remain bound until exit"
-    );
-    runner
-        .0
-        .lock()
-        .unwrap()
-        .effects
-        .push_back(vec![ClaudeRunnerEffect::Exited { code: Some(0) }]);
     let resumed = host.tick().unwrap();
     assert!(matches!(
         resumed.dispatch,
         Some(crate::claude_prompt_lifecycle::ClaudePromptDispatchOutcome::Started { .. })
     ));
     let state = runner.0.lock().unwrap();
-    assert_eq!((state.starts, state.resumes), (1, 1));
+    assert_eq!((state.starts, state.resumes, state.submits), (1, 0, 1));
 }

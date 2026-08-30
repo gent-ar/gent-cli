@@ -39,3 +39,25 @@ pub(super) fn input_frame(start: &ClaudeRunStart) -> Result<Vec<u8>, ClaudeRunne
     frame.push(b'\n');
     Ok(frame)
 }
+
+/// Encodes a later user turn for an already-live Claude stream-json session.
+pub fn follow_up_input_frame(
+    prompt: &str,
+    goal: Option<&gent_types::GoalProjection>,
+    content: &[serde_json::Value],
+) -> Result<Vec<u8>, ClaudeRunnerError> {
+    if prompt.trim().is_empty() || prompt.len() > MAX_CLAUDE_FRAME_BYTES {
+        return Err(ClaudeRunnerError::InvalidPrompt);
+    }
+    let prompt = project_prompt(prompt, goal, MAX_CLAUDE_FRAME_BYTES)
+        .map_err(|_| ClaudeRunnerError::InvalidPrompt)?;
+    let content = std::iter::once(serde_json::json!({"type":"text","text":prompt}))
+        .chain(content.iter().cloned())
+        .collect::<Vec<_>>();
+    let mut frame = serde_json::to_vec(
+        &serde_json::json!({"type":"user","message":{"role":"user","content":content},"parent_tool_use_id":null}),
+    )
+    .map_err(|_| ClaudeRunnerError::InvalidPrompt)?;
+    frame.push(b'\n');
+    Ok(frame)
+}

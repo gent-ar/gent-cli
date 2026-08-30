@@ -86,6 +86,11 @@ where
         let excluded_run_ids = self
             .active
             .keys()
+            .filter(|run_id| {
+                self.active
+                    .get(*run_id)
+                    .is_some_and(|binding| !binding.settled)
+            })
             .cloned()
             .map(gent_types::AgentChatRunId)
             .collect::<Vec<_>>();
@@ -99,14 +104,33 @@ where
                 Ok(ClaudePromptDispatchOutcome::Denied)
             }
             AgentChatPromptDispatchResult::Empty => Ok(ClaudePromptDispatchOutcome::Empty),
-            AgentChatPromptDispatchResult::Claimed(prompt) => start::prompt(
-                &self.runtime,
-                &self.runner,
-                &self.coordinator_id,
-                &mut self.active,
-                *prompt,
-                host_epoch,
-            ),
+            AgentChatPromptDispatchResult::Claimed(prompt) => {
+                // Retain the claimed conversation's live session.  Other idle
+                // sessions are explicitly released before a different run can
+                // consume the bounded process capacity.
+                let other_settled = self
+                    .active
+                    .iter()
+                    .filter(|(run_id, binding)| {
+                        run_id.as_str() != prompt.run_id.0.as_str()
+                            && binding.settled
+                            && self.runner.has_claude_session(run_id)
+                    })
+                    .map(|(run_id, _)| run_id.clone())
+                    .collect::<Vec<_>>();
+                for run_id in other_settled {
+                    self.runner.release_claude_session(&run_id)?;
+                    self.active.remove(&run_id);
+                }
+                start::prompt(
+                    &self.runtime,
+                    &self.runner,
+                    &self.coordinator_id,
+                    &mut self.active,
+                    *prompt,
+                    host_epoch,
+                )
+            }
         }
     }
 

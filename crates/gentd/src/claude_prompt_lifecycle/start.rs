@@ -108,6 +108,25 @@ where
         )
         .map_err(gent_ports::PublicProviderRunError::Failed)?
     };
+    // The CLI stream owns the live provider conversation.  A settled binding
+    // must receive its next JSONL user frame on that stream, not a new process
+    // (or a `--resume` recovery process) for each user turn.
+    if runner.has_claude_session(&run_id) {
+        let prompt_text =
+            crate::provider_attachments::prompt_with_files(&prompt.message.text, &attachments);
+        let content = crate::provider_attachments::claude_content(&attachments);
+        return submit(
+            runtime,
+            runner,
+            coordinator_id,
+            active,
+            prompt,
+            host_epoch,
+            prompt_text,
+            goal,
+            content,
+        );
+    }
     if let Err(error) = runner.prepare_claude_prompt(
         run_id.clone(),
         ClaudePromptStart {
@@ -171,6 +190,54 @@ where
             }
         },
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn submit<L, D, R>(
+    runtime: &PublicDriversRuntime<L, D, R>,
+    runner: &D,
+    coordinator_id: &str,
+    active: &mut BTreeMap<String, Binding>,
+    prompt: AgentChatPromptSaved,
+    host_epoch: HostEpoch,
+    prompt_text: String,
+    goal: Option<gent_types::GoalProjection>,
+    content: Vec<serde_json::Value>,
+) -> Result<ClaudePromptDispatchOutcome, RuntimeError>
+where
+    L: Clone
+        + Ledger
+        + gent_ports::RunLifecycleFactLedger
+        + ConversationActivityLedger
+        + TranscriptLedger
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger
+        + gent_ports::AttachmentLedger,
+    D: ClaudePromptExecution + Clone,
+    R: PublicProviderResolver,
+{
+    let run_id = prompt.run_id.0.clone();
+    let message_id = prompt.message.message_id.clone();
+    runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch)?;
+    if let Err(error) = runner.submit_claude_prompt(&run_id, &prompt_text, goal.as_ref(), &content)
+    {
+        runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+        return Err(error.into());
+    }
+    if let Err(error) = runtime.confirm_prompt_started(&message_id, coordinator_id, host_epoch) {
+        let _ = runner.interrupt(&run_id);
+        runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+        return Err(error);
+    }
+    active.insert(
+        run_id.clone(),
+        Binding {
+            prompt,
+            sequence: 0,
+            settled: false,
+        },
+    );
+    Ok(ClaudePromptDispatchOutcome::Started { run_id })
 }
 
 fn request(run_id: &str, coordinator_id: &str, host_epoch: HostEpoch) -> PublicRunStartRequest {

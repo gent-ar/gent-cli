@@ -115,6 +115,28 @@ where
         Ok(effects)
     }
 
+    pub(crate) fn owns(&self, run_id: &str) -> bool {
+        lock(&self.runner).owns(run_id)
+    }
+
+    pub(crate) fn submit(
+        &self,
+        run_id: &str,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
+        content: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError> {
+        lock(&self.runner)
+            .submit(run_id, prompt, goal, content)
+            .map_err(map_error)
+    }
+
+    pub(crate) fn release(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        lock(&self.runner).release(run_id).map_err(map_error)?;
+        self.cleanup_config(run_id);
+        Ok(())
+    }
+
     pub(crate) fn respond_permission(
         &self,
         run_id: &str,
@@ -231,6 +253,15 @@ pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
         &self,
         run_id: &str,
     ) -> Result<Option<Vec<ClaudeRunnerEffect>>, PublicProviderRunError>;
+    fn has_claude_session(&self, run_id: &str) -> bool;
+    fn release_claude_session(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
+    fn submit_claude_prompt(
+        &self,
+        run_id: &str,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
+        content: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError>;
     fn signal_claude_process(
         &self,
         run_id: &str,

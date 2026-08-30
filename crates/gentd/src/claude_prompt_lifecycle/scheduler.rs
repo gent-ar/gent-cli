@@ -88,9 +88,12 @@ where
         maximum: usize,
     ) -> Result<ClaudeLifecycleTick, RuntimeError> {
         let batch = self.poll_active(host_epoch, maximum)?;
-        let dispatch = (self.active_len() < maximum)
-            .then(|| self.dispatch_next(host_epoch))
-            .transpose()?;
+        // A settled stream consumes no turn slot. It must be offered its next
+        // queued prompt even when this daemon has reached its process bound.
+        let dispatch = (self.active_len() < maximum
+            || self.active.values().any(|binding| binding.settled))
+        .then(|| self.dispatch_next(host_epoch))
+        .transpose()?;
         Ok(ClaudeLifecycleTick { dispatch, batch })
     }
 }

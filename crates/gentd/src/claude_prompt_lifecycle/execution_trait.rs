@@ -27,6 +27,21 @@ where
     ) -> Result<Option<Vec<ClaudeRunnerEffect>>, PublicProviderRunError> {
         self.poll(run_id)
     }
+    fn has_claude_session(&self, run_id: &str) -> bool {
+        self.owns(run_id)
+    }
+    fn release_claude_session(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        self.release(run_id)
+    }
+    fn submit_claude_prompt(
+        &self,
+        run_id: &str,
+        prompt: &str,
+        goal: Option<&gent_types::GoalProjection>,
+        content: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError> {
+        self.submit(run_id, prompt, goal, content)
+    }
     fn signal_claude_process(
         &self,
         run_id: &str,

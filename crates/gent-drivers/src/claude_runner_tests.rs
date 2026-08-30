@@ -4,7 +4,7 @@ use gent_types::{
     GoalProjection, GoalRecord, GoalStatus, RunVersionLock,
 };
 
-use super::{ClaudeRunStart, ClaudeRunnerError, input_frame};
+use super::{ClaudeRunStart, ClaudeRunnerError, input::follow_up_input_frame, input_frame};
 use crate::claude_turn_options::ClaudeTurnOptions;
 
 #[test]
@@ -84,6 +84,22 @@ fn claude_input_keeps_image_blocks_after_the_text_prompt() {
         value["message"]["content"][1]["source"],
         serde_json::json!({"type":"base64","media_type":"image/png","data":"YWJj"})
     );
+}
+
+#[test]
+fn follow_up_input_is_a_new_user_frame_without_a_resume_session() {
+    let frame = follow_up_input_frame(
+        "next prompt",
+        None,
+        &[serde_json::json!({"type":"image","source":{"type":"base64","media_type":"image/png","data":"YWJj"}})],
+    )
+    .unwrap();
+    assert!(frame.ends_with(b"\n"));
+    let value: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+    assert_eq!(value["type"], "user");
+    assert!(value.get("session_id").is_none());
+    assert_eq!(value["message"]["content"][0]["type"], "text");
+    assert_eq!(value["message"]["content"][1]["type"], "image");
 }
 
 fn start() -> ClaudeRunStart {

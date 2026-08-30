@@ -146,6 +146,37 @@ where
         Ok(())
     }
 
+    /// Sends a later user turn to the process that already owns this conversation.
+    pub fn submit(
+        &mut self,
+        run_id: &str,
+        prompt: &str,
+        goal: Option<&GoalProjection>,
+        content: &[serde_json::Value],
+    ) -> Result<(), ClaudeRunnerError> {
+        let input = input::follow_up_input_frame(prompt, goal, content)?;
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(ClaudeRunnerError::NotActive)?;
+        run.process.write_frame(&input)?;
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn owns(&self, run_id: &str) -> bool {
+        self.runs.contains_key(run_id)
+    }
+
+    /// Terminates and forgets an idle session so another conversation can use
+    /// the bounded provider-process capacity.
+    pub fn release(&mut self, run_id: &str) -> Result<(), ClaudeRunnerError> {
+        let run = self.runs.get(run_id).ok_or(ClaudeRunnerError::NotActive)?;
+        run.process.signal_tree(ProcessTreeSignal::Terminate)?;
+        self.runs.remove(run_id);
+        Ok(())
+    }
+
     /// Drains one process chunk or a fully drained terminal exit into normalized public facts.
     ///
     /// # Errors
