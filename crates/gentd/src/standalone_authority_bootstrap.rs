@@ -89,7 +89,25 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         }
         result = readiness_authority.wait_until_ready() => result?,
     }
-    daemon_bootstrap::serve_ordinary(runtime, &args, &data_dir).await
+    // The cadence owns the only path that advances a committed provider prompt.
+    // It must remain supervised for the daemon's whole lifetime: letting it end
+    // after readiness leaves the IPC server healthy while every later prompt is
+    // permanently queued.  Terminating the daemon is deliberate here.  The
+    // durable recovery fence can then settle an ambiguous active turn and
+    // resume safely replayable queued work under a fresh owner epoch.
+    let serve = daemon_bootstrap::serve_ordinary(runtime, &args, &data_dir);
+    tokio::pin!(serve);
+    tokio::select! {
+        result = &mut cadence => {
+            let result = result.map_err(|_| "standalone provider lifecycle task failed")?;
+            result?;
+            Err("standalone provider lifecycle stopped unexpectedly".into())
+        }
+        result = &mut serve => {
+            cadence.abort();
+            result
+        }
+    }
 }
 
 fn standalone_capability_profile() -> RuntimeCapabilityProfile {
