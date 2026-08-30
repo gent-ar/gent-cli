@@ -297,6 +297,27 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
         resumed.dispatch,
         Some(crate::claude_prompt_lifecycle::ClaudePromptDispatchOutcome::Started { .. })
     ));
+    runner.0.lock().unwrap().effects.push_back(vec![
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: "again".into(),
+            is_partial: false,
+        })),
+        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        )),
+    ]);
+    let second_ready = host.tick().unwrap();
+    assert_eq!(second_ready.batch.facts, 2);
+    assert!(
+        ledger
+            .read_agent_chat_transcript(&conversation_id.0, None, 10)
+            .unwrap()
+            .events
+            .iter()
+            .any(|event| event.text == "again")
+    );
     let state = runner.0.lock().unwrap();
     assert_eq!((state.starts, state.resumes, state.submits), (1, 0, 1));
 }

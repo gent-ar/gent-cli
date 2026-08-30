@@ -229,14 +229,9 @@ where
         runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
         return Err(error);
     }
-    active.insert(
-        run_id.clone(),
-        Binding {
-            prompt,
-            sequence: 0,
-            settled: false,
-        },
-    );
+    let binding = active.get_mut(&run_id).ok_or_else(super::missing_binding)?;
+    binding.prompt = prompt;
+    binding.settled = false;
     Ok(ClaudePromptDispatchOutcome::Started { run_id })
 }
 
