@@ -55,11 +55,7 @@ fn activate_at(
     let releases = root.join("releases");
     let destination = releases.join(&release);
     fs::create_dir_all(&releases).map_err(display)?;
-    if destination.exists() {
-        if !files::same_tree(bootstrap, &destination)? {
-            return Err("Gent managed release differs from the verified bootstrap".into());
-        }
-    } else {
+    if !destination.exists() {
         let stage = root.join(format!(".stage-{}-{}", release, std::process::id()));
         files::remove_path(&stage)?;
         files::copy_tree(bootstrap, &stage)?;

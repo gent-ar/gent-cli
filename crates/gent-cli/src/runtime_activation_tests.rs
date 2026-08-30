@@ -84,3 +84,32 @@ fn activation_keeps_the_runtime_available_when_scheduler_refresh_fails() {
         .is_ok()
     );
 }
+
+#[cfg(not(windows))]
+#[test]
+fn activation_reuses_a_signed_release_with_the_same_verified_identity() {
+    let temporary = tempfile::tempdir().unwrap();
+    let bootstrap = temporary.path().join("bootstrap");
+    fs::create_dir_all(&bootstrap).unwrap();
+    for name in required_files() {
+        fs::write(bootstrap.join(name), name).unwrap();
+    }
+    fs::write(
+        bootstrap.join("bootstrap.json"),
+        format!(r#"{{"version":"v0.1.25","target":"{TARGET}"}}"#),
+    )
+    .unwrap();
+    let root = temporary.path().join("runtime");
+    activate_at(&bootstrap, &root, temporary.path(), verify_scheduler).unwrap();
+    fs::write(
+        bootstrap.join("gent"),
+        "macOS code signature changes executable bytes",
+    )
+    .unwrap();
+    activate_at(&bootstrap, &root, temporary.path(), verify_scheduler).unwrap();
+    let expected = format!("v0.1.25-{TARGET}");
+    assert_eq!(
+        selected_release(&root).unwrap().as_deref(),
+        Some(expected.as_str())
+    );
+}
