@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsString,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -109,12 +110,12 @@ fn selected_release(root: &Path) -> Result<Option<String>, String> {
             return Ok(None);
         }
         let target = fs::read_link(pointer).map_err(display)?;
-        return target
+        target
             .file_name()
             .and_then(|value| value.to_str())
             .map(str::to_owned)
             .ok_or_else(|| "Gent current runtime pointer is invalid".into())
-            .map(Some);
+            .map(Some)
     }
 }
 
@@ -172,8 +173,7 @@ fn active_daemon(root: &Path) -> PathBuf {
 fn enable_updates(root: &Path, data_dir: &Path) -> Result<(), String> {
     let executable = active_cli(root);
     let status = Command::new(executable)
-        .args(["update", "auto", "enable", "--data-dir"])
-        .arg(data_dir)
+        .args(enable_update_arguments(data_dir))
         .status()
         .map_err(display)?;
     if status.success() {
@@ -181,6 +181,16 @@ fn enable_updates(root: &Path, data_dir: &Path) -> Result<(), String> {
     } else {
         Err("Gent automatic updates could not be enabled".into())
     }
+}
+
+fn enable_update_arguments(data_dir: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("--data-dir"),
+        data_dir.as_os_str().to_os_string(),
+        OsString::from("update"),
+        OsString::from("auto"),
+        OsString::from("enable"),
+    ]
 }
 
 fn active_cli(root: &Path) -> PathBuf {

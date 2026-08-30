@@ -1,4 +1,5 @@
 use super::*;
+use std::ffi::OsString;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const TARGET: &str = "aarch64-apple-darwin";
@@ -44,4 +45,19 @@ fn verify_scheduler(root: &Path, data_dir: &Path) -> Result<(), String> {
     } else {
         Err("wrong active runtime".into())
     }
+}
+
+#[test]
+fn activation_passes_data_directory_before_the_update_subcommand() {
+    let data_dir = Path::new("/tmp/gent-data");
+    assert_eq!(
+        enable_update_arguments(data_dir),
+        vec![
+            OsString::from("--data-dir"),
+            OsString::from("/tmp/gent-data"),
+            OsString::from("update"),
+            OsString::from("auto"),
+            OsString::from("enable"),
+        ]
+    );
 }

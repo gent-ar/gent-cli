@@ -211,6 +211,7 @@ def enable(values: argparse.Namespace) -> None:
         arguments = "".join(f"<string>{escape(part)}</string>" for part in command)
         first.write_text("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>Label</key><string>ar.gent.auto-update</string><key>ProgramArguments</key><array>" + arguments + f"</array><key>StartInterval</key><integer>{values.interval_seconds}</integer></dict></plist>\n", encoding="utf-8")
         if values.scheduler_dir is None:
+            subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/ar.gent.auto-update"], timeout=10, check=False)
             subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(first)], check=True, timeout=10)
     else:
         first.write_text("[Unit]\nDescription=Gent automatic paired runtime update\n[Service]\nType=oneshot\nExecStart=" + " ".join(map(systemd_argument, command)) + "\n", encoding="utf-8")

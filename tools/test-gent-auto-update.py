@@ -55,6 +55,21 @@ def test_scheduler_files(runtime: Path, root: Path, environment: dict[str, str])
     assert result.returncode == 0 and not list(scheduler.glob("gent-auto-update.*"))
 
 
+def test_macos_scheduler_replaces_existing_job(runtime: Path, root: Path, environment: dict[str, str]) -> None:
+    if platform.system() != "Darwin":
+        return
+    record = root / "launchctl-record"
+    launchctl = root / "fake" / "launchctl"
+    launchctl.write_text("#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> \"$GENT_TEST_RECORD\"\n", encoding="utf-8")
+    launchctl.chmod(0o755)
+    result = run("enable", "--runtime-root", runtime, "--data-dir", root / "data", environment=environment | {"HOME": str(root / "home"), "GENT_TEST_RECORD": str(record)})
+    assert result.returncode == 0, result.stderr
+    assert record.read_text(encoding="utf-8").splitlines() == [
+        f"bootout gui/{os.getuid()}/ar.gent.auto-update",
+        f"bootstrap gui/{os.getuid()} {root / 'home/Library/LaunchAgents/ar.gent.auto-update.plist'}",
+    ]
+
+
 def test_tag_is_untrusted_but_installer_is_tag_bound(runtime: Path, root: Path, environment: dict[str, str]) -> None:
     files, record = root / "files", root / "record"
     (files / "v1.2.4").mkdir(parents=True)
@@ -88,6 +103,7 @@ def main() -> None:
         environment = os.environ | {"PATH": f"{fake}:{os.environ['PATH']}"}
         runtime = installed(root)
         test_scheduler_files(runtime, root, environment)
+        test_macos_scheduler_replaces_existing_job(runtime, root, environment)
         test_tag_is_untrusted_but_installer_is_tag_bound(runtime, root, environment)
         test_concurrent_run_is_refused(runtime, root, environment)
     print("automatic runtime update checks passed")
