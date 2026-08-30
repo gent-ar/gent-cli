@@ -325,6 +325,10 @@ fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<(), LedgerErr
         "UPDATE agent_chat_prompt_dispatches SET state = 'unprovable' WHERE state IN ('launching', 'started') AND host_epoch < ?1",
         [host_epoch.0],
     ).map_err(storage_error)?;
+    transaction.execute(
+        "UPDATE turns SET phase = 'failed' WHERE turn_id IN (SELECT m.turn_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE d.state = 'unprovable') AND phase IN ('active', 'waitingPermission', 'waitingQuestion')",
+        [],
+    ).map_err(storage_error)?;
     transaction.commit().map_err(storage_error)
 }
 
