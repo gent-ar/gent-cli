@@ -138,20 +138,16 @@ fn owned_process_handshake_is_bounded_and_yields_only_normalized_facts() {
     );
 
     state.output.lock().unwrap().push_back(
-        br#"{"method":"thread/started","params":{"thread":{"id":"private-thread"}}}
+        br#"{"id":2,"result":{"thread":{"id":"private-thread"}}}
 "#
         .to_vec(),
     );
     assert!(matches!(
         runner.poll("run-1").unwrap(),
-        Some(effects) if matches!(effects.as_slice(), [CodexRunnerEffect::Fact(PublicWireFact::SessionStarted { .. })])
+        Some(effects) if effects.contains(&CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
+            provider_session_id: "private-thread".into(),
+        }))
     ));
-    state.output.lock().unwrap().push_back(
-        br#"{"id":2,"result":{"thread":{"id":"private-thread"}}}
-"#
-        .to_vec(),
-    );
-    assert_eq!(runner.poll("run-1").unwrap(), None);
     assert_eq!(
         method(state.writes.lock().unwrap().last().unwrap()),
         "turn/start"

@@ -124,7 +124,13 @@ impl CodexTurnDriver {
         };
         match self.session.receive(&frame) {
             Ok(CodexSessionIngress::Send(frames)) => writes(&mut effects, frames),
-            Ok(CodexSessionIngress::Ready { .. }) => {
+            Ok(CodexSessionIngress::Ready { thread_id }) => {
+                // The correlated response is the sole authoritative thread identity.
+                // `thread/started` is an asynchronous notification and may arrive
+                // before or after this response while reconnecting.
+                effects.push(CodexTurnEffect::Fact(PublicWireFact::SessionStarted {
+                    provider_session_id: thread_id,
+                }));
                 let prompt = self
                     .prompt
                     .take()
@@ -206,6 +212,7 @@ impl CodexTurnDriver {
         } else {
             normalize_public_frame(PublicProvider::Codex, frame)
         };
+        facts.retain(|fact| !matches!(fact, PublicWireFact::SessionStarted { .. }));
         // A child turn completion is not a root turn completion. The public
         // normalizer is intentionally stateless, so this owner-side correlation
         // removes the root-only terminal facts once an explicit child mapping

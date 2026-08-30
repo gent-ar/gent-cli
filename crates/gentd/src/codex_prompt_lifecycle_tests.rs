@@ -96,7 +96,16 @@ impl CodexPromptExecution for Runner {
                 "private runner detail".into(),
             ));
         }
-        Ok(state.effects.pop_front())
+        let effects = state.effects.pop_front();
+        if effects.as_ref().is_some_and(|effects| {
+            effects
+                .iter()
+                .any(|effect| matches!(effect, CodexRunnerEffect::Exited { .. }))
+        }) {
+            state.session_active = false;
+            state.pending = None;
+        }
+        Ok(effects)
     }
     fn has_codex_session(&self, _: &str) -> bool {
         self.state.lock().unwrap().session_active

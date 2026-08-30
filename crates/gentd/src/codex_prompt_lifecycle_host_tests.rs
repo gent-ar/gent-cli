@@ -139,6 +139,52 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             .unwrap()
             .is_none()
     );
+    runner
+        .state
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![CodexRunnerEffect::Exited { code: Some(0) }]);
+    assert_eq!(host.tick().unwrap().polled_runs, 1);
+    let resumed = ledger
+        .save_agent_chat_prompt(&AgentChatPromptCreate {
+            request_id: AgentChatRequestId("prompt-c".into()),
+            receipt_id: ReceiptId("prompt-receipt-c".into()),
+            host_epoch: HostEpoch(1),
+            conversation_id: AgentChatConversationId("conversation-a".into()),
+            disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
+            text: "after process loss".into(),
+        })
+        .unwrap();
+    crate::readiness_test_support::release(&ledger, &resumed);
+    assert!(matches!(
+        host.tick().unwrap().dispatch,
+        Some(CodexPromptDispatchOutcome::Started { .. })
+    ));
+    assert_eq!(runner.state.lock().unwrap().resumes, 1);
+    runner.state.lock().unwrap().effects.push_back(vec![
+        CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: "after process loss back".into(),
+            is_partial: false,
+        })),
+        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        )),
+    ]);
+    assert_eq!(host.tick().unwrap().facts, 2);
+    let transcript = ledger
+        .normalized_transcript_page(&AgentChatConversationId("conversation-a".into()), 0, 10)
+        .unwrap();
+    assert!(
+        transcript
+            .events
+            .iter()
+            .any(|event| event.text == "after process loss back")
+    );
     assert_eq!(prompt.message.text, "hello");
 }
 

@@ -108,8 +108,8 @@ where
             .ok_or_else(super::missing_binding)?;
         binding.sequence = binding.sequence.saturating_add(1);
         Ok(format!(
-            "codex:{}:{run_id}:{kind}:{}",
-            host_epoch.0, binding.sequence
+            "codex:{}:{run_id}:{}:{kind}:{}",
+            host_epoch.0, binding.prompt.message.turn_id, binding.sequence
         ))
     }
 }

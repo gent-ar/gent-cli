@@ -193,11 +193,49 @@ fn handshakes_then_starts_the_exact_one_prompt_without_exporting_native_ids() {
     let next = driver
         .receive(br#"{"id":2,"result":{"thread":{"id":"thread-private"}}}"#)
         .unwrap();
+    assert!(
+        next.contains(&CodexTurnEffect::Fact(PublicWireFact::SessionStarted {
+            provider_session_id: "thread-private".into(),
+        }))
+    );
     assert_eq!(
         frames(&next),
         vec![
             json!({"id":3,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"on-request","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
         ]
+    );
+}
+
+#[test]
+fn records_only_the_correlated_thread_identity_when_thread_started_arrives_early() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    let notification = driver
+        .receive(
+            br#"{"method":"thread/started","params":{"thread":{"id":"untrusted-notification"}}}"#,
+        )
+        .unwrap();
+    assert!(!notification.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::SessionStarted { .. })
+    )));
+    let response = driver
+        .receive(br#"{"id":2,"result":{"thread":{"id":"thread-private"}}}"#)
+        .unwrap();
+    assert_eq!(
+        response
+            .iter()
+            .filter(|effect| matches!(
+                effect,
+                CodexTurnEffect::Fact(PublicWireFact::SessionStarted { .. })
+            ))
+            .count(),
+        1
+    );
+    assert!(
+        response.contains(&CodexTurnEffect::Fact(PublicWireFact::SessionStarted {
+            provider_session_id: "thread-private".into(),
+        }))
     );
 }
 
