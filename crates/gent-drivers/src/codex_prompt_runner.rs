@@ -215,8 +215,13 @@ where
             },
         )?;
         let mcp = self.selected_mcp_servers(&prompt.selected_mcp_source_names)?;
-        if let Some((_, digest)) = &mcp {
-            lock(&self.mcp_digests).insert(run_id.into(), digest.clone());
+        // `selected_mcp_servers` fingerprints the per-turn subset, whereas refresh
+        // observes the complete config file.  Persist the latter here so an
+        // unchanged file keeps the owned native session alive for the next turn.
+        // Comparing different representations made every follow-up look like a
+        // configuration change and replaced its immutable provider session.
+        if let Some((_, digest)) = self.current_mcp_servers()? {
+            lock(&self.mcp_digests).insert(run_id.into(), digest);
         }
         lock(&self.runner)
             .start(CodexRunStart {

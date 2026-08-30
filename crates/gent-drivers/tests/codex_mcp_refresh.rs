@@ -99,6 +99,9 @@ fn changed_mcp_config_terminates_the_old_process_and_fresh_start_uses_new_server
         .prepare("run".into(), prompt(directory.path().into()))
         .unwrap();
     PublicProviderRunner::start(&runner, "run", &lock).unwrap();
+    // The runner records the same complete config representation that refresh
+    // observes, so a normal follow-up must reuse its live native session.
+    assert!(!runner.refresh_mcp_config("run").unwrap());
     std::fs::write(&config, r#"{"mcpServers":{"new":{"command":"new"}}}"#).unwrap();
     assert!(runner.refresh_mcp_config("run").unwrap());
     assert_eq!(
