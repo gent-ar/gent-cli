@@ -152,15 +152,7 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError> {
-        transition(
-            self,
-            message_id,
-            coordinator_id,
-            host_epoch,
-            "launching",
-            "unprovable",
-            true,
-        )
+        abandon_unprovable(self, message_id, coordinator_id, host_epoch)
     }
 
     fn settle_agent_chat_prompt_dispatch(
@@ -326,9 +318,50 @@ fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<(), LedgerErr
         [host_epoch.0],
     ).map_err(storage_error)?;
     transaction.execute(
+        "UPDATE turns SET phase = 'failed' WHERE turn_id IN (SELECT m.turn_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE d.state IN ('launching', 'started') AND d.host_epoch < ?1) AND phase IN ('active', 'waitingPermission', 'waitingQuestion')",
+        [host_epoch.0],
+    ).map_err(storage_error)?;
+    transaction.execute(
         "UPDATE agent_chat_prompt_dispatches SET state = 'unprovable' WHERE state IN ('launching', 'started') AND host_epoch < ?1",
         [host_epoch.0],
     ).map_err(storage_error)?;
+    transaction.commit().map_err(storage_error)
+}
+
+fn abandon_unprovable(
+    ledger: &SqliteLedger,
+    message_id: &str,
+    coordinator_id: &str,
+    host_epoch: HostEpoch,
+) -> Result<(), LedgerError> {
+    helpers::valid_owner(coordinator_id)?;
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    require_open(&transaction, host_epoch)?;
+    let changed = transaction
+        .execute(
+            "UPDATE agent_chat_prompt_dispatches SET state = 'unprovable' WHERE message_id = ?1 AND state = 'launching' AND coordinator_id = ?2 AND host_epoch = ?3",
+            params![message_id, coordinator_id, host_epoch.0],
+        )
+        .map_err(storage_error)?;
+    if changed != 1 {
+        return Err(LedgerError::Invariant(
+            "agent chat dispatch is not owned by this coordinator".into(),
+        ));
+    }
+    let changed = transaction
+        .execute(
+            "UPDATE turns SET phase = 'failed' WHERE turn_id = (SELECT turn_id FROM conversation_messages WHERE message_id = ?1) AND phase IN ('active', 'waitingPermission', 'waitingQuestion')",
+            params![message_id],
+        )
+        .map_err(storage_error)?;
+    if changed != 1 {
+        return Err(LedgerError::Invariant(
+            "agent chat unprovable turn is not active".into(),
+        ));
+    }
     transaction.commit().map_err(storage_error)
 }
 

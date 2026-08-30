@@ -1,5 +1,6 @@
 use gent_ports::{
-    AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatWorkspaceLedger, Ledger,
+    AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatWorkspaceLedger,
+    ConversationLedger, Ledger,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -243,6 +244,14 @@ fn successor_never_replays_an_ambiguous_launch() {
             .unwrap()
             .is_none()
     );
+    assert_eq!(
+        ledger
+            .find_turn(&send.message.turn_id)
+            .unwrap()
+            .unwrap()
+            .phase,
+        gent_types::DurableTurnPhase::Failed
+    );
 }
 
 #[test]
@@ -268,6 +277,14 @@ fn daemon_marks_an_ambiguous_launch_unprovable_before_restart() {
             .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
             .unwrap()
             .is_none()
+    );
+    assert_eq!(
+        ledger
+            .find_turn(&send.message.turn_id)
+            .unwrap()
+            .unwrap()
+            .phase,
+        gent_types::DurableTurnPhase::Failed
     );
 }
 
