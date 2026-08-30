@@ -68,10 +68,29 @@ fn activate_at(
     {
         select_release(root, &release)?;
     }
+    refresh_auto_update_helper(root)?;
     if let Err(error) = enable_scheduler(root, data_dir) {
         eprintln!("Gent automatic-update scheduling was not refreshed: {error}");
     }
     Ok(active_daemon(root))
+}
+
+fn refresh_auto_update_helper(root: &Path) -> Result<(), String> {
+    let source = root.join("current").join(auto_update_helper_name());
+    let metadata = fs::symlink_metadata(&source).map_err(display)?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("Gent automatic-update helper is invalid".into());
+    }
+    let destination = root.join(auto_update_helper_name());
+    let temporary = root.join(format!(".gent-auto-update-{}", std::process::id()));
+    files::remove_path(&temporary)?;
+    fs::write(&temporary, fs::read(source).map_err(display)?).map_err(display)?;
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o700)).map_err(display)?;
+    }
+    fs::rename(temporary, destination).map_err(display)
 }
 
 fn verify_bootstrap(root: &Path) -> Result<(), String> {
@@ -216,6 +235,16 @@ fn required_files() -> &'static [&'static str] {
     {
         &["gent", "gentd", "gent-auto-update.py"]
     }
+}
+
+#[cfg(windows)]
+const fn auto_update_helper_name() -> &'static str {
+    "gent-auto-update.ps1"
+}
+
+#[cfg(not(windows))]
+const fn auto_update_helper_name() -> &'static str {
+    "gent-auto-update.py"
 }
 
 fn default_root() -> PathBuf {
