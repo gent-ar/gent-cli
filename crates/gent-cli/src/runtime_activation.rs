@@ -72,7 +72,9 @@ fn activate_at(
     {
         select_release(root, &release)?;
     }
-    enable_scheduler(root, data_dir)?;
+    if let Err(error) = enable_scheduler(root, data_dir) {
+        eprintln!("Gent automatic-update scheduling was not refreshed: {error}");
+    }
     Ok(active_daemon(root))
 }
 

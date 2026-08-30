@@ -61,3 +61,26 @@ fn activation_passes_data_directory_before_the_update_subcommand() {
         ]
     );
 }
+
+#[cfg(not(windows))]
+#[test]
+fn activation_keeps_the_runtime_available_when_scheduler_refresh_fails() {
+    let temporary = tempfile::tempdir().unwrap();
+    let bootstrap = temporary.path().join("bootstrap");
+    fs::create_dir_all(&bootstrap).unwrap();
+    for name in required_files() {
+        fs::write(bootstrap.join(name), name).unwrap();
+    }
+    fs::write(
+        bootstrap.join("bootstrap.json"),
+        format!(r#"{{"version":"v0.1.23","target":"{TARGET}"}}"#),
+    )
+    .unwrap();
+    let root = temporary.path().join("runtime");
+    assert!(
+        activate_at(&bootstrap, &root, temporary.path(), |_, _| Err(
+            "scheduler unavailable".into()
+        ))
+        .is_ok()
+    );
+}
