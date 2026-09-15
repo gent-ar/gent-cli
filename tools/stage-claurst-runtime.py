@@ -11,28 +11,25 @@ import zipfile
 from pathlib import Path
 
 
-ARTIFACTS = {
-    "aarch64-apple-darwin": {
-        "claurst": ("https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-macos-aarch64.tar.gz", "ae0ca9c49321f3ff10db03083899d2b2427896eb9b7f4f8b024c02c3c5f7f97b", "claurst"),
-        "llama": ("https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-macos-arm64.tar.gz", "c94b6cf341c23e2aff57cc0539aa9e32966d59f0ae2f723636e9e4379804c25a", "llama-server"),
-    },
-    "x86_64-apple-darwin": {
-        "claurst": ("https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-macos-x86_64.tar.gz", "bf3bd32b8b34a3f53e092657deffec78041c8b3e300e2fd2f7328ba4687ff969", "claurst"),
-        "llama": ("https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-macos-x64.tar.gz", "0fa8f0d038f3084ccea60b6541139350f5bbfdc4d2f14ee708398baf169a32f0", "llama-server"),
-    },
-    "x86_64-unknown-linux-gnu": {
-        "claurst": ("https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-linux-x86_64.tar.gz", "0f7decc0e151ee4023c3bda26f14e564e1b3685fdbc892d623d01c508fa71f22", "claurst"),
-        "llama": ("https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-ubuntu-x64.tar.gz", "bc128b83e13e9dac47ebc4b6a2030ba2ff7629bd08a12cb0a680a2f0eb0093fc", "llama-server"),
-    },
-    "aarch64-unknown-linux-gnu": {
-        "claurst": ("https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-linux-aarch64.tar.gz", "365205ab3e92758a97be291965732faa7c8f3b114b20d9bbc9be1769c338e86d", "claurst"),
-        "llama": ("https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-ubuntu-arm64.tar.gz", "63a3b27c3d677134bd09ab5fd992a80e141574903c932cae4159bfb3b5d7aece", "llama-server"),
-    },
-    "x86_64-pc-windows-msvc": {
-        "claurst": ("https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-windows-x86_64.zip", "1de3b45200a35b42ef0e8712340942d54d05c8f1a5d6f709e733b46097af3f45", "claurst.exe"),
-        "llama": ("https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-win-cpu-x64.zip", "475e2720a6dec6e0e10c58b37461c140cf9523f4efb373cb5b65ae7e4ff6b4cf", "llama-server.exe"),
-    },
-}
+PINS = Path(__file__).resolve().parents[1] / "fixtures" / "provider-contracts" / "pins.json"
+
+
+def pinned_artifacts(path=PINS):
+    pins = json.loads(path.read_text(encoding="utf-8"))
+    claurst = pins["providers"]["claurst"]["artifacts"]
+    llama = pins["runtimes"]["llama_cpp"]["artifacts"]
+    if set(claurst) != set(llama):
+        raise ValueError("Claurst and llama.cpp pins must cover the same targets")
+    return {
+        target: {
+            "claurst": (claurst[target]["url"], claurst[target]["sha256"], claurst[target]["binary"]),
+            "llama": (llama[target]["url"], llama[target]["sha256"], llama[target]["binary"]),
+        }
+        for target in claurst
+    }
+
+
+ARTIFACTS = pinned_artifacts()
 
 
 def arguments():

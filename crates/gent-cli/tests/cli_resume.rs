@@ -46,6 +46,7 @@ async fn cli_resume_submits_to_the_existing_gent_conversation_without_native_ses
                 conversation_id: AgentChatConversationId("conversation-1".into()),
                 run_id: AgentChatRunId("run-1".into()),
                 turn_id: "turn-2".into(),
+                message_id: "message-2".into(),
                 delivery: AgentChatPromptDelivery::AwaitingProvider,
             },
         )
@@ -93,6 +94,7 @@ async fn cli_resume_submits_to_the_existing_gent_conversation_without_native_ses
             "resume",
             "conversation-1",
             "continue after the first Codex turn",
+            "--json",
         ])
         .output()
         .unwrap();

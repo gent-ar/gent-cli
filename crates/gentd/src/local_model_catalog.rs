@@ -20,8 +20,18 @@ pub(crate) struct LocalModelRecord {
     pub(crate) provider_model_id: String,
     pub(crate) size_bytes: u64,
     pub(crate) sha256: String,
+    pub(crate) context_tokens: u32,
+    pub(crate) runtime_memory_bytes: u64,
+    pub(crate) agent_profile: LocalAgentProfile,
     #[serde(default)]
     pub(crate) chat_template_file: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum LocalAgentProfile {
+    Compact,
+    Full,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -88,6 +98,8 @@ fn validate(model: &LocalModelRecord) -> Result<(), LocalModelCatalogError> {
         || model.label.trim().is_empty()
         || model.label.len() > 160
         || model.size_bytes == 0
+        || !(4_096..=131_072).contains(&model.context_tokens)
+        || model.runtime_memory_bytes <= model.size_bytes
         || !sha256(&model.sha256)
         || std::path::Path::new(&model.local_filename)
             .extension()
@@ -140,6 +152,22 @@ mod tests {
     fn shipped_catalogue_is_strict_and_queryable() {
         let catalogue = LocalModelCatalog::shipped().unwrap();
         assert_eq!(catalogue.models().len(), 3);
+        assert_eq!(
+            catalogue
+                .models()
+                .iter()
+                .map(|model| (
+                    model.id.as_str(),
+                    model.context_tokens,
+                    model.runtime_memory_bytes
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("qwen3-1-7b-q4-k-m", 32_768, 3_388_964_864),
+                ("qwen3-8b-q4-k-m", 32_768, 7_704_734_432),
+                ("hermes-3-llama-3-1-8b-q4-k-m", 32_768, 7_312_472_096),
+            ]
+        );
         assert!(
             catalogue
                 .model(gent_protocol::DEFAULT_LOCAL_MODEL_ID)
@@ -164,7 +192,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_fields_and_unsafe_downloads() {
-        let unknown = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","extra":true}]}"#;
+        let unknown = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","context_tokens":8192,"runtime_memory_bytes":4096,"agent_profile":"full","extra":true}]}"#;
         assert_eq!(
             LocalModelCatalog::from_json(unknown),
             Err(LocalModelCatalogError::Malformed)
@@ -180,7 +208,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_ids_and_unsafe_filenames() {
-        let duplicate = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"id":"model","label":"Model Two","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/b.gguf","local_filename":"b.gguf","provider_model_id":"model-two","size_bytes":1,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]}"#;
+        let duplicate = r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/a.gguf","local_filename":"a.gguf","provider_model_id":"model","size_bytes":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","context_tokens":8192,"runtime_memory_bytes":4096,"agent_profile":"full"},{"id":"model","label":"Model Two","huggingface_url":"https://huggingface.co/a/b/resolve/0123456789abcdef0123456789abcdef01234567/b.gguf","local_filename":"b.gguf","provider_model_id":"model-two","size_bytes":1,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","context_tokens":8192,"runtime_memory_bytes":4096,"agent_profile":"full"}]}"#;
         assert_eq!(
             LocalModelCatalog::from_json(duplicate),
             Err(LocalModelCatalogError::Duplicate("model".into()))

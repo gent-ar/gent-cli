@@ -24,8 +24,8 @@ pub(crate) async fn follow(
     write_json_frame(&mut stream, &EventStreamFrame::Attach { after_cursor }).await?;
     loop {
         let frame = read_json_frame::<_, EventStreamFrame>(&mut stream).await?;
-        if let EventStreamFrame::Error { message, .. } = frame {
-            return Err(message.into());
+        if let EventStreamFrame::Error { code, message } = frame {
+            return Err(crate::cli_error::CliError::daemon(code, message).into());
         }
         let acknowledgement = print_frame(&frame)?;
         if let Some(cursor) = acknowledgement {

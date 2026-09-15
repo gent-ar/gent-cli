@@ -547,7 +547,7 @@ dependencies = [
 
 [[package]]
 name = "gent-adapters"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -563,12 +563,13 @@ dependencies = [
 
 [[package]]
 name = "gent-cli"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "base64",
  "clap",
  "crossterm",
  "directories",
+ "gent-core",
  "gent-protocol",
  "gent-types",
  "ratatui",
@@ -583,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "gent-core"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -592,9 +593,11 @@ dependencies = [
 
 [[package]]
 name = "gent-drivers"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "base64",
+ "clap",
+ "gent-core",
  "gent-ports",
  "gent-testkit",
  "gent-types",
@@ -608,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "gent-git"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -620,23 +623,24 @@ dependencies = [
 
 [[package]]
 name = "gent-mcp"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "gent-ports"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "gent-types",
+ "serde_json",
  "thiserror",
 ]
 
 [[package]]
 name = "gent-protocol"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "gent-types",
  "hex",
@@ -649,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "gent-runtime"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "gent-core",
@@ -669,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "gent-store"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "gent-core",
  "gent-ports",
@@ -684,11 +688,10 @@ dependencies = [
 
 [[package]]
 name = "gent-testkit"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "clap",
- "gent-drivers",
  "gent-ports",
  "gent-protocol",
  "gent-types",
@@ -702,7 +705,7 @@ dependencies = [
 
 [[package]]
 name = "gent-types"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "base64",
  "directories",
@@ -716,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "gentd"
-version = "0.1.33"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64",

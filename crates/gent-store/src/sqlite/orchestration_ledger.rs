@@ -195,7 +195,7 @@ fn fences(tx: &Transaction<'_>, graph: &TaskGraph) -> Result<(), LedgerError> {
     if run.as_deref() != Some(&graph.binding.conversation_id.0) {
         return Err(invalid("root run"));
     }
-    let goal = tx.query_row("SELECT 1 FROM conversation_goals WHERE goal_id = ?1 AND conversation_id = ?2 AND run_id = ?3 AND revision = ?4 AND status = 'active'", params![graph.binding.goal_id, graph.binding.conversation_id.0, graph.binding.root_run_id.0, graph.binding.goal_revision], |_| Ok(())).optional().map_err(storage_error)?;
+    let goal = tx.query_row("SELECT 1 FROM conversation_goals WHERE goal_id = ?1 AND conversation_id = ?2 AND revision = ?3 AND status = 'active'", params![graph.binding.goal_id, graph.binding.conversation_id.0, graph.binding.goal_revision], |_| Ok(())).optional().map_err(storage_error)?;
     if goal.is_none() {
         return Err(invalid("active goal revision"));
     }

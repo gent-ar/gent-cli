@@ -15,7 +15,7 @@ fn policy(revision: u64, tools: &[&str]) -> PolicyRecord {
         workspace_id: "workspace-a".into(),
         scope: PolicyScope::ProviderPermissions,
         revision,
-        mode: PermissionMode::Default,
+        mode: PermissionMode::AskEveryTime,
         allowed_tools: tools.iter().map(ToString::to_string).collect(),
         allowed_categories: Vec::new(),
     }

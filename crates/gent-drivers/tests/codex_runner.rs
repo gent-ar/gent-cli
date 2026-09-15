@@ -75,7 +75,10 @@ impl ProcessLauncher for Launcher {
 
     fn launch(&self, launch: &ProviderLaunch) -> Result<Process, SupervisorError> {
         assert_eq!(launch.provider, "codex");
-        assert_eq!(launch.arguments, ["app-server"]);
+        assert_eq!(
+            launch.arguments,
+            ["app-server", "-c", "check_for_update_on_startup=false"]
+        );
         self.0.launches.lock().unwrap().push(launch.clone());
         Ok(Process(Arc::clone(&self.0)))
     }
@@ -98,6 +101,7 @@ fn start(run_id: &str, root: &Path) -> CodexRunStart {
         prompt: "hello".into(),
         goal: None,
         attachments: vec![],
+        interrupted_reply: None,
     }
 }
 
@@ -114,7 +118,7 @@ fn owned_process_handshake_is_bounded_and_yields_only_normalized_facts() {
     let state = Arc::new(State::default());
     let mut runner = CodexAppServerRunner::new(
         Launcher(Arc::clone(&state)),
-        BufferPolicy::new(4, 128 * 1024, 0, 0).unwrap(),
+        BufferPolicy::new(4, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
     );
     runner.start(start("run-1", directory.path())).unwrap();
     assert_eq!(
@@ -166,7 +170,7 @@ fn tree_signals_stay_owned_by_the_runner() {
     let state = Arc::new(State::default());
     let mut runner = CodexAppServerRunner::new(
         Launcher(Arc::clone(&state)),
-        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+        BufferPolicy::new(1, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
     );
     runner.start(start("run-1", directory.path())).unwrap();
     runner
@@ -185,7 +189,7 @@ fn failed_initial_write_terminates_the_new_process_tree() {
     *state.write_fails.lock().unwrap() = true;
     let mut runner = CodexAppServerRunner::new(
         Launcher(Arc::clone(&state)),
-        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+        BufferPolicy::new(1, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
     );
     assert!(runner.start(start("run-1", directory.path())).is_err());
     assert_eq!(
@@ -200,7 +204,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
     let state = Arc::new(State::default());
     let runner = CodexPromptRunner::new(
         Launcher(Arc::clone(&state)),
-        BufferPolicy::new(1, 64 * 1024, 0, 0).unwrap(),
+        BufferPolicy::new(1, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
         None,
         None,
     );
@@ -217,6 +221,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                 turn_options: options(),
                 attachments: vec![],
                 selected_mcp_source_names: Vec::new(),
+                interrupted_reply: None,
             },
         )
         .unwrap();
@@ -234,6 +239,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                     turn_options: options(),
                     attachments: vec![],
                     selected_mcp_source_names: Vec::new(),
+                    interrupted_reply: None,
                 },
             )
             .is_err()
@@ -249,7 +255,7 @@ fn owned_process_reuses_ready_thread_for_later_prompt() {
     let state = Arc::new(State::default());
     let mut runner = CodexAppServerRunner::new(
         Launcher(Arc::clone(&state)),
-        BufferPolicy::new(4, 128 * 1024, 0, 0).unwrap(),
+        BufferPolicy::new(4, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
     );
     runner.start(start("run-1", directory.path())).unwrap();
     for frame in [
@@ -269,10 +275,48 @@ fn owned_process_reuses_ready_thread_for_later_prompt() {
         state.output.lock().unwrap().push_back(frame.into());
         runner.poll("run-1").unwrap();
     }
-    runner.submit_turn("run-1", "follow-up", None, &[]).unwrap();
+    runner
+        .submit_turn("run-1", "follow-up", None, &[], None)
+        .unwrap();
     let frame = state.writes.lock().unwrap().last().unwrap().clone();
     let value: serde_json::Value = serde_json::from_slice(&frame[..frame.len() - 1]).unwrap();
     assert_eq!(value["method"], "turn/start");
     assert_eq!(value["params"]["threadId"], "private-thread");
     assert_eq!(value["params"]["input"][0]["text"], "follow-up");
+}
+
+#[test]
+fn an_over_ceiling_frame_is_skipped_with_a_typed_diagnostic_and_the_turn_continues() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = CodexAppServerRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(4, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
+    );
+    runner.start(start("run-1", directory.path())).unwrap();
+    {
+        let mut output = state.output.lock().unwrap();
+        for _ in 0..=gent_drivers::MAX_PROVIDER_FRAME_BYTES / 4096 {
+            output.push_back(vec![b'x'; 4096]);
+        }
+        output.push_back(b"\n{\"id\":1,\"result\":{}}\n".to_vec());
+    }
+    let mut effects = Vec::new();
+    while !state.output.lock().unwrap().is_empty() {
+        effects.extend(runner.poll("run-1").unwrap().unwrap_or_default());
+    }
+    assert!(
+        effects.contains(&CodexRunnerEffect::Fact(PublicWireFact::Event(
+            gent_types::NormalizedProviderEvent::TransportDiagnostic {
+                classification: gent_types::OVERSIZED_PROVIDER_FRAME_DIAGNOSTIC.into(),
+            }
+        )))
+    );
+    assert_eq!(
+        state.writes.lock().unwrap()[1..]
+            .iter()
+            .map(|frame| method(frame))
+            .collect::<Vec<_>>(),
+        ["initialized", "thread/start"]
+    );
 }

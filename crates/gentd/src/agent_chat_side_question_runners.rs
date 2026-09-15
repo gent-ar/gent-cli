@@ -9,15 +9,13 @@
 
 use std::path::PathBuf;
 
-use gent_drivers::{PublicProvider, process::SystemLauncher};
-use gent_ports::{ConversationSummaryRunner, PortError, PublicProviderResolver};
+use gent_ports::{ConversationSummaryRunner, PortError};
 use gent_types::AgentChatProvider;
 
 use crate::{
     claude_summary_runner::ClaudeSummaryRunner, codex_summary_runner::CodexSummaryRunner,
-    local_provider_locks::LocalProviderLocks,
+    provider_executables::ProviderExecutables,
     standalone_claurst_runtime_factory::StandaloneClaurstBridge,
-    standalone_provider_setup::installed_provider_executable,
 };
 
 const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
@@ -27,8 +25,7 @@ const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
 #[derive(Clone, Debug)]
 pub(crate) struct AgentChatSideQuestionRunnerSources {
     pub(crate) data_dir: PathBuf,
-    pub(crate) claude_executable: Option<PathBuf>,
-    pub(crate) codex_executable: Option<PathBuf>,
+    pub(crate) executables: ProviderExecutables,
     pub(crate) claurst_bridge: Option<StandaloneClaurstBridge>,
 }
 
@@ -55,40 +52,32 @@ impl AgentChatSideQuestionRunnerSources {
     }
 
     fn claude_runner(&self) -> Result<Box<dyn ConversationSummaryRunner>, PortError> {
-        let executable =
-            self.resolved_executable(AgentChatProvider::Claude, self.claude_executable.clone())?;
-        let lock = LocalProviderLocks::capture([(PublicProvider::Claude, executable)])
-            .map_err(|error| PortError::Unavailable(error.to_string()))?
-            .resolve("claude")
+        let resolver = self
+            .executables
+            .locks(AgentChatProvider::Claude)
             .map_err(|error| PortError::Unavailable(error.to_string()))?;
-        Ok(Box::new(ClaudeSummaryRunner::new(lock)?))
+        Ok(Box::new(ClaudeSummaryRunner::new(std::sync::Arc::new(
+            resolver,
+        ))))
     }
 
     fn codex_runner(
         &self,
         workspace_path: Option<&str>,
     ) -> Result<Box<dyn ConversationSummaryRunner>, PortError> {
-        let executable =
-            self.resolved_executable(AgentChatProvider::Codex, self.codex_executable.clone())?;
-        let lock = LocalProviderLocks::capture([(PublicProvider::Codex, executable)])
-            .map_err(|error| PortError::Unavailable(error.to_string()))?
-            .resolve("codex")
+        let resolver = self
+            .executables
+            .locks(AgentChatProvider::Codex)
             .map_err(|error| PortError::Unavailable(error.to_string()))?;
         let workspace_root = workspace_path.map_or_else(|| self.data_dir.clone(), PathBuf::from);
         Ok(Box::new(CodexSummaryRunner::new(
-            SystemLauncher::new(STREAM_CAPTURE_BYTES),
-            lock,
+            crate::node_runtime_lock::standalone_provider_launcher(STREAM_CAPTURE_BYTES),
+            std::sync::Arc::new(resolver),
             workspace_root,
         )))
     }
-
-    fn resolved_executable(
-        &self,
-        provider: AgentChatProvider,
-        explicit: Option<PathBuf>,
-    ) -> Result<PathBuf, PortError> {
-        explicit
-            .or_else(|| installed_provider_executable(&self.data_dir, provider))
-            .ok_or_else(|| PortError::Unavailable(format!("{provider:?} is not installed")))
-    }
 }
+
+#[cfg(test)]
+#[path = "agent_chat_side_question_runners_tests.rs"]
+mod tests;

@@ -1,6 +1,8 @@
 //! Bounded Claude launch fields derived from a durable Gent run selection.
 
-use gent_types::{AgentChatMode, AgentChatProvider, AgentChatSelection, PermissionMode};
+use gent_types::{
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, PermissionMode,
+};
 
 /// Claude launch fields derived only from an immutable Gent run selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,15 +18,15 @@ pub struct ClaudeTurnOptions {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ClaudeTurnMode {
-    Chat(ClaudePermissionMode),
+    Chat(ClaudePermissionMode, AgentChatEffort),
     Summary,
 }
 
 /// The complete set of Claude permission modes Gent may request for a chat turn.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClaudePermissionMode {
-    Default,
     Plan,
+    Manual,
     AcceptEdits,
     Auto,
     Bypass,
@@ -32,12 +34,7 @@ pub enum ClaudePermissionMode {
 
 impl ClaudeTurnOptions {
     pub fn from_selection(selection: &AgentChatSelection) -> Result<Self, ClaudeTurnOptionsError> {
-        let permission_mode = match selection.mode {
-            AgentChatMode::Ask => PermissionMode::Default,
-            AgentChatMode::Plan => PermissionMode::Plan,
-            AgentChatMode::Agent => PermissionMode::AutoAcceptEdits,
-        };
-        Self::from_selection_with_permissions(selection, permission_mode)
+        Self::from_selection_with_permissions(selection, PermissionMode::AskEveryTime)
     }
 
     pub fn from_selection_with_permissions(
@@ -50,16 +47,28 @@ impl ClaudeTurnOptions {
         if selection.validate().is_err() {
             return Err(ClaudeTurnOptionsError::InvalidModel);
         }
-        let permission_mode = effective_permission(selection.mode, permission_mode);
+        let permission_mode = if selection.mode == AgentChatMode::Plan {
+            ClaudePermissionMode::Plan
+        } else {
+            ClaudePermissionMode::from(permission_mode)
+        };
         Ok(Self {
             model: selection.model.clone(),
-            mode: ClaudeTurnMode::Chat(ClaudePermissionMode::from(permission_mode)),
+            mode: ClaudeTurnMode::Chat(permission_mode, selection.effort),
             instruction: mode_instruction(selection.mode),
             system_prompt: None,
             append_system_prompt: false,
             max_turns: None,
             disallowed_tools: Vec::new(),
         })
+    }
+
+    #[must_use]
+    pub const fn plans_for_review(&self) -> bool {
+        matches!(
+            self.mode,
+            ClaudeTurnMode::Chat(ClaudePermissionMode::Plan, _)
+        )
     }
 
     pub fn summary(model: impl Into<String>) -> Result<Self, ClaudeTurnOptionsError> {
@@ -102,9 +111,14 @@ impl ClaudeTurnOptions {
     pub fn append_arguments(&self, arguments: &mut Vec<String>) {
         arguments.extend(["--model".into(), self.model.clone()]);
         match self.mode {
-            ClaudeTurnMode::Chat(permission_mode) => {
-                arguments.extend(["--permission-mode".into(), permission_mode.as_str().into()])
-            }
+            ClaudeTurnMode::Chat(permission_mode, effort) => arguments.extend([
+                "--effort".into(),
+                claude_effort(effort).into(),
+                "--permission-prompt-tool".into(),
+                "stdio".into(),
+                "--permission-mode".into(),
+                permission_mode.as_str().into(),
+            ]),
             ClaudeTurnMode::Summary => arguments.extend([
                 "--safe-mode".into(),
                 "--permission-mode".into(),
@@ -144,11 +158,13 @@ impl ClaudeTurnOptions {
     }
 }
 
-fn effective_permission(mode: AgentChatMode, permission: PermissionMode) -> PermissionMode {
-    if mode == AgentChatMode::Plan {
-        PermissionMode::Plan
-    } else {
-        permission
+const fn claude_effort(effort: AgentChatEffort) -> &'static str {
+    match effort {
+        AgentChatEffort::Low => "low",
+        AgentChatEffort::Medium => "medium",
+        AgentChatEffort::High => "high",
+        AgentChatEffort::XHigh => "xhigh",
+        AgentChatEffort::Max | AgentChatEffort::Ultra => "max",
     }
 }
 
@@ -157,18 +173,14 @@ fn mode_instruction(mode: AgentChatMode) -> Option<&'static str> {
         AgentChatMode::Ask => Some(
             "Answer and explain. Do not invoke tools or make changes unless the user explicitly asks you to.",
         ),
-        AgentChatMode::Plan => Some(
-            "You are in Plan Mode. Inspect only as needed, then provide a complete actionable plan. Do not make changes, run write commands, or apply patches; wait for user approval before implementation.",
-        ),
-        AgentChatMode::Agent => None,
+        AgentChatMode::Plan | AgentChatMode::Agent => None,
     }
 }
 
 impl From<PermissionMode> for ClaudePermissionMode {
     fn from(mode: PermissionMode) -> Self {
         match mode {
-            PermissionMode::Default => Self::Default,
-            PermissionMode::Plan => Self::Plan,
+            PermissionMode::AskEveryTime => Self::Manual,
             PermissionMode::AutoAcceptEdits => Self::AcceptEdits,
             PermissionMode::Autonomous => Self::Auto,
             PermissionMode::Bypass => Self::Bypass,
@@ -179,8 +191,8 @@ impl From<PermissionMode> for ClaudePermissionMode {
 impl ClaudePermissionMode {
     const fn as_str(self) -> &'static str {
         match self {
-            Self::Default => "default",
             Self::Plan => "plan",
+            Self::Manual => "manual",
             Self::AcceptEdits => "acceptEdits",
             Self::Auto => "auto",
             Self::Bypass => "bypassPermissions",
@@ -208,8 +220,7 @@ mod tests {
     #[test]
     fn workspace_permissions_map_to_claude_permission_arguments() {
         for (permission, permission_mode) in [
-            (PermissionMode::Default, "default"),
-            (PermissionMode::Plan, "plan"),
+            (PermissionMode::AskEveryTime, "manual"),
             (PermissionMode::AutoAcceptEdits, "acceptEdits"),
             (PermissionMode::Autonomous, "auto"),
             (PermissionMode::Bypass, "bypassPermissions"),
@@ -226,6 +237,10 @@ mod tests {
                 [
                     "--model",
                     "claude-sonnet",
+                    "--effort",
+                    "high",
+                    "--permission-prompt-tool",
+                    "stdio",
                     "--permission-mode",
                     permission_mode
                 ]
@@ -234,38 +249,46 @@ mod tests {
     }
 
     #[test]
-    fn chat_mode_instruction_is_independent_from_permission_posture() {
-        let mut arguments = Vec::new();
-        ClaudeTurnOptions::from_selection_with_permissions(
-            &selection(AgentChatMode::Plan),
-            PermissionMode::AutoAcceptEdits,
-        )
-        .unwrap()
-        .append_arguments(&mut arguments);
-        assert!(
-            arguments
-                .windows(2)
-                .any(|entry| { entry[0] == "--permission-mode" && entry[1] == "plan" })
-        );
-        assert!(arguments.windows(2).any(|entry| {
-            entry[0] == "--append-system-prompt" && entry[1].contains("Plan Mode")
-        }));
+    fn every_selected_effort_reaches_claude() {
+        for (effort, expected) in [
+            (AgentChatEffort::Low, "low"),
+            (AgentChatEffort::Medium, "medium"),
+            (AgentChatEffort::High, "high"),
+            (AgentChatEffort::XHigh, "xhigh"),
+            (AgentChatEffort::Max, "max"),
+            (AgentChatEffort::Ultra, "max"),
+        ] {
+            let mut selection = selection(AgentChatMode::Agent);
+            selection.effort = effort;
+            let mut arguments = Vec::new();
+            ClaudeTurnOptions::from_selection(&selection)
+                .unwrap()
+                .append_arguments(&mut arguments);
+            assert!(
+                arguments
+                    .windows(2)
+                    .any(|entry| entry[0] == "--effort" && entry[1] == expected)
+            );
+        }
     }
 
     #[test]
-    fn plan_mode_is_a_non_writing_safety_cap() {
-        let mut arguments = Vec::new();
-        ClaudeTurnOptions::from_selection_with_permissions(
-            &selection(AgentChatMode::Plan),
-            PermissionMode::Bypass,
-        )
-        .unwrap()
-        .append_arguments(&mut arguments);
-        assert!(
-            arguments
-                .windows(2)
-                .any(|entry| entry[0] == "--permission-mode" && entry[1] == "plan")
-        );
+    fn plan_mode_uses_claude_native_plan_permission_mode_for_every_posture() {
+        for permission in [PermissionMode::AutoAcceptEdits, PermissionMode::Bypass] {
+            let mut arguments = Vec::new();
+            ClaudeTurnOptions::from_selection_with_permissions(
+                &selection(AgentChatMode::Plan),
+                permission,
+            )
+            .unwrap()
+            .append_arguments(&mut arguments);
+            assert!(
+                arguments
+                    .windows(2)
+                    .any(|entry| entry[0] == "--permission-mode" && entry[1] == "plan")
+            );
+            assert!(!arguments.contains(&"--append-system-prompt".to_string()));
+        }
     }
 
     #[test]
@@ -273,13 +296,19 @@ mod tests {
         let mut other = selection(AgentChatMode::Ask);
         other.provider = AgentChatProvider::Codex;
         assert_eq!(
-            ClaudeTurnOptions::from_selection_with_permissions(&other, PermissionMode::Default),
+            ClaudeTurnOptions::from_selection_with_permissions(
+                &other,
+                PermissionMode::AskEveryTime
+            ),
             Err(ClaudeTurnOptionsError::UnsupportedSelection)
         );
         let mut malformed = selection(AgentChatMode::Ask);
         malformed.model = "\0".into();
         assert_eq!(
-            ClaudeTurnOptions::from_selection_with_permissions(&malformed, PermissionMode::Default),
+            ClaudeTurnOptions::from_selection_with_permissions(
+                &malformed,
+                PermissionMode::AskEveryTime
+            ),
             Err(ClaudeTurnOptionsError::InvalidModel)
         );
     }
@@ -288,8 +317,8 @@ mod tests {
     fn appended_conversation_config_composes_with_the_mode_instruction() {
         let mut arguments = Vec::new();
         ClaudeTurnOptions::from_selection_with_permissions(
-            &selection(AgentChatMode::Plan),
-            PermissionMode::Default,
+            &selection(AgentChatMode::Ask),
+            PermissionMode::AskEveryTime,
         )
         .unwrap()
         .with_conversation_config(Some("Prefer terse replies.".into()), true, None, Vec::new())
@@ -299,7 +328,7 @@ mod tests {
             .position(|argument| argument == "--append-system-prompt")
             .unwrap();
         let appended = &arguments[append_index + 1];
-        assert!(appended.contains("Plan Mode"));
+        assert!(appended.contains("Answer and explain"));
         assert!(appended.contains("Prefer terse replies."));
         assert_eq!(
             arguments
@@ -315,8 +344,8 @@ mod tests {
     fn full_override_replaces_the_default_prompt_but_keeps_the_mode_instruction_appended() {
         let mut arguments = Vec::new();
         ClaudeTurnOptions::from_selection_with_permissions(
-            &selection(AgentChatMode::Plan),
-            PermissionMode::Default,
+            &selection(AgentChatMode::Ask),
+            PermissionMode::AskEveryTime,
         )
         .unwrap()
         .with_conversation_config(
@@ -327,7 +356,7 @@ mod tests {
         )
         .append_arguments(&mut arguments);
         assert!(arguments.windows(2).any(|entry| {
-            entry[0] == "--append-system-prompt" && entry[1].contains("Plan Mode")
+            entry[0] == "--append-system-prompt" && entry[1].contains("Answer and explain")
         }));
         assert!(arguments.windows(2).any(|entry| {
             entry[0] == "--system-prompt" && entry[1] == "You are a terse reviewer."
@@ -339,7 +368,7 @@ mod tests {
         let mut arguments = Vec::new();
         ClaudeTurnOptions::from_selection_with_permissions(
             &selection(AgentChatMode::Agent),
-            PermissionMode::Default,
+            PermissionMode::AskEveryTime,
         )
         .unwrap()
         .with_conversation_config(

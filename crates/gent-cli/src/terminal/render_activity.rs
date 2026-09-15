@@ -77,6 +77,9 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
             ),
             Color::DarkGray,
         ),
+        ConversationActivityFact::TokenUsage { usage, .. } => {
+            (format!("Tokens · {} used", usage.total()), Color::DarkGray)
+        }
         ConversationActivityFact::RootActivity { activity, .. } => {
             (format!("Gent · {activity:?}"), Color::Cyan)
         }
@@ -112,13 +115,44 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
             format!("Permission · {} · settled", clip(decision_id)),
             Color::Green,
         ),
+        ConversationActivityFact::PromptQueued { .. } => ("Prompt queued".into(), Color::DarkGray),
+        ConversationActivityFact::PromptHeld { reason, .. } => (
+            format!("Prompt held · {}", hold_reason_name(*reason)),
+            Color::Yellow,
+        ),
+        ConversationActivityFact::PromptReleased { .. } => ("Prompt released".into(), Color::Cyan),
+        ConversationActivityFact::PromptCanceled { .. } => {
+            ("Prompt canceled".into(), Color::DarkGray)
+        }
+        ConversationActivityFact::PromptSteered { .. } => {
+            ("Prompt steered into the running turn".into(), Color::Cyan)
+        }
         ConversationActivityFact::InterruptRequested { .. } => {
             ("Interrupt requested".into(), Color::Yellow)
         }
         ConversationActivityFact::Recovered { .. } => ("Recovered".into(), Color::Cyan),
+        ConversationActivityFact::Terminal {
+            cause: Some(gent_types::TurnTerminalCause::Steered),
+            ..
+        } => ("Turn ended · Steered".into(), Color::Cyan),
+        ConversationActivityFact::Terminal {
+            cause: Some(gent_types::TurnTerminalCause::ProviderSessionUnavailable),
+            ..
+        } => (
+            "Turn failed · provider session lost · /continue resends it from saved history".into(),
+            Color::Red,
+        ),
         ConversationActivityFact::Terminal { phase, .. } => {
             (format!("Turn ended · {phase:?}"), turn_color(phase))
         }
+        ConversationActivityFact::GoalUpdated { goal, .. } => (
+            format!("Goal · {:?} · {}", goal.status, clip(&goal.objective)),
+            Color::Magenta,
+        ),
+        ConversationActivityFact::PlanUpdated { plan, .. } => (
+            format!("Plan · revision {} · {:?}", plan.revision.0, plan.status),
+            Color::Magenta,
+        ),
     };
     Line::styled(format!("#{cursor}  {text}"), Style::default().fg(color))
 }
@@ -157,14 +191,21 @@ fn work_color(phase: &gent_types::WorkPhase) -> Color {
     }
 }
 
+const fn hold_reason_name(reason: gent_types::PromptHoldReason) -> &'static str {
+    match reason {
+        gent_types::PromptHoldReason::ModelDownload => "downloading model",
+        gent_types::PromptHoldReason::ProviderInstall => "provider install required",
+    }
+}
+
 fn turn_color(phase: &gent_types::TurnPhase) -> Color {
     match phase {
         gent_types::TurnPhase::Processing
         | gent_types::TurnPhase::Compacting
         | gent_types::TurnPhase::Ready => Color::Cyan,
-        gent_types::TurnPhase::WaitingPermission | gent_types::TurnPhase::WaitingQuestion => {
-            Color::Yellow
-        }
+        gent_types::TurnPhase::WaitingPermission
+        | gent_types::TurnPhase::WaitingQuestion
+        | gent_types::TurnPhase::Cancelled => Color::Yellow,
         gent_types::TurnPhase::Interrupted
         | gent_types::TurnPhase::Dead
         | gent_types::TurnPhase::Failed => Color::Red,

@@ -30,11 +30,16 @@ compaction, tool events, error classification — read the relevant file(s) abov
 code is battle-tested against real, current CLI versions in a shipping product. Do not guess CLI
 behavior, do not design an evidence-capture scenario from first principles, and do not assume a
 capability is missing (e.g. an undocumented flag) without checking whether the app already uses
-it successfully. Concrete precedent: gent-cli's own docs incorrectly claimed Claude Code lacked
-`--permission-prompt-tool`, based on the flag being absent from `--help` output — checking
-`claude_driver.dart` (which uses it unconditionally, in production) and then verifying live
-(`claude --permission-prompt-tool stdio --version` exits 0) immediately disproved it. See
-`docs/continuation-handoff.md`'s "Evidence status" section and the `c340500` commit.
+it successfully. Absence from `--help` is not evidence either: Claude Code hides flags the drivers
+rely on (`--max-turns`).
+
+Flag evidence means running the driver's real argv, not a synthetic command. Launch the provider
+with the exact arguments a Gent driver builds, send only the protocol handshake (Claude
+`control_request initialize`, Codex/Claurst `initialize`), and require a correlated handshake
+response with empty stderr. `<cli> --flag value --version` proves nothing: Claude Code 2.1.270
+exits 0 for `--bogus-flag --version` and only warns on stderr for `--effort bogus`.
+`tools/provider-contract-snapshot.py` records exactly this as `launch-probe.json` for each pinned
+version (see `docs/provider-commands-and-updates.md`).
 
 This is a reference-and-verify relationship, not a dependency. gent-cli:
 - Never embeds, imports, or shells out to the Flutter app's code at runtime.

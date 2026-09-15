@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::compatibility::{CompatibilityError, TrustedKeySet};
+use crate::provider_platform::{host_platform, known_package};
 
 const POLICY_VERSION: u32 = 1;
 const MAX_ENTRIES: usize = 16;
@@ -123,6 +124,9 @@ impl PackageInstallPolicy for VerifiedPackagePolicy {
             entry.provider == provider
                 && entry.node_runtime_digest_sha256 == self.node_runtime_digest_sha256
                 && !entry.revoked
+                && host_platform().is_some_and(|platform| {
+                    platform.accepts(provider, &entry.package_name, &entry.version)
+                })
         });
         entry
             .map(|entry| ApprovedPackageInstall {
@@ -182,19 +186,11 @@ fn bind_node(
 }
 
 fn valid_entry(entry: &PackagePolicyEntry) -> bool {
-    expected_package(&entry.provider) == Some(entry.package_name.as_str())
+    known_package(&entry.provider, &entry.package_name, &entry.version)
         && valid_version(&entry.version)
         && valid_sri(&entry.integrity)
         && valid_sha256(&entry.node_runtime_digest_sha256)
         && valid_text(&entry.terms_version)
-}
-
-fn expected_package(provider: &str) -> Option<&'static str> {
-    match provider {
-        "claude" => Some("@anthropic-ai/claude-code"),
-        "codex" => Some("@openai/codex"),
-        _ => None,
-    }
 }
 
 fn valid_version(value: &str) -> bool {

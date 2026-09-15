@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
 use gent_drivers::supervisor::ProcessLauncher;
-use gent_ports::PublicProviderResolver;
 use gent_runtime::{GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
 use gent_types::HostEpoch;
@@ -32,7 +31,7 @@ use crate::runtime_facade::DaemonCompositionState;
 
 const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
 const BUFFERED_FRAMES: usize = 16;
-const BUFFERED_BYTES: usize = 256 * 1024;
+const BUFFERED_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 const MAX_ACTIVE_CLAUDE_RUNS: usize = 4;
 const EVIDENCE_REFERENCE: &str = "private-claude-authority-v1";
 
@@ -120,8 +119,6 @@ pub(crate) enum PrivateClaudeAuthorityError {
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
-    #[error("Claude summary runner is unavailable: {0}")]
-    Summary(String),
 }
 
 /// Composes a mode-gated Claude lifecycle from a release-verified evidence grant.
@@ -153,13 +150,11 @@ where
         None,
     );
     let resolver = ClaudeOnlyResolver::new(LockedProviderResolver::new(state.ledger().clone()));
-    let summary_lock = LockedProviderResolver::new(state.ledger().clone())
-        .resolve("claude")
-        .map_err(|error| PrivateClaudeAuthorityError::Summary(error.to_string()))?;
     let summary_hook = Arc::new(ClaudeSummarySchedulerHook::new(
         state.ledger().clone(),
-        ClaudeSummaryRunner::new(summary_lock)
-            .map_err(|error| PrivateClaudeAuthorityError::Summary(error.to_string()))?,
+        ClaudeSummaryRunner::new(Arc::new(ClaudeOnlyResolver::new(
+            LockedProviderResolver::new(state.ledger().clone()),
+        ))),
     ));
     let goals = Arc::new(GoalService::new(
         state.ledger().clone(),

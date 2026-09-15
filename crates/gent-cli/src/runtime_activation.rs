@@ -10,13 +10,26 @@ use serde::Deserialize;
 
 #[path = "runtime_activation_files.rs"]
 mod files;
+use files::required_files;
+#[path = "runtime_activation_stage.rs"]
+mod stage;
+#[path = "runtime_activation_version.rs"]
+mod version;
+use version::{valid_version, version_of};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum RuntimeCommand {
+    #[command(about = "Stage the release in a bootstrap directory and make it the current runtime")]
     Activate {
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Directory holding bootstrap.json and the release binaries"
+        )]
         bootstrap_dir: PathBuf,
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Runtime installation root [default: the installed runtime root]"
+        )]
         runtime_root: Option<PathBuf>,
     },
 }
@@ -32,8 +45,19 @@ pub(crate) fn activate(
     root: Option<PathBuf>,
     data_dir: PathBuf,
 ) -> Result<PathBuf, String> {
-    let root = root.unwrap_or_else(default_root);
-    activate_at(&bootstrap, &root, &data_dir, enable_updates)
+    match root {
+        Some(isolated) => activate_at(
+            &bootstrap,
+            &isolated,
+            &data_dir,
+            leave_scheduling_to_installed_runtime,
+        ),
+        None => activate_at(&bootstrap, &default_root(), &data_dir, enable_updates),
+    }
+}
+
+fn leave_scheduling_to_installed_runtime(_: &Path, _: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn activate_at(
@@ -55,12 +79,7 @@ fn activate_at(
     let releases = root.join("releases");
     let destination = releases.join(&release);
     fs::create_dir_all(&releases).map_err(display)?;
-    if !destination.exists() {
-        let stage = root.join(format!(".stage-{}-{}", release, std::process::id()));
-        files::remove_path(&stage)?;
-        files::copy_tree(bootstrap, &stage)?;
-        fs::rename(&stage, &destination).map_err(display)?;
-    }
+    stage::ensure_release(bootstrap, root, &destination, &release, required_files())?;
     let current = selected_release(root)?;
     if current
         .as_ref()
@@ -95,9 +114,12 @@ fn refresh_auto_update_helper(root: &Path) -> Result<(), String> {
 
 fn verify_bootstrap(root: &Path) -> Result<(), String> {
     for name in required_files() {
-        let metadata = fs::symlink_metadata(root.join(name)).map_err(display)?;
-        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-            return Err("Gent bootstrap runtime is incomplete".into());
+        if !fs::symlink_metadata(root.join(name))
+            .is_ok_and(|metadata| metadata.file_type().is_file())
+        {
+            return Err(format!(
+                "Gent bootstrap runtime is incomplete: {name} is missing"
+            ));
         }
     }
     Ok(())
@@ -221,22 +243,6 @@ fn active_cli(root: &Path) -> PathBuf {
     }
 }
 
-fn required_files() -> &'static [&'static str] {
-    #[cfg(windows)]
-    {
-        &[
-            "gent.exe",
-            "gentd.exe",
-            "gent-launcher.exe",
-            "gent-auto-update.ps1",
-        ]
-    }
-    #[cfg(not(windows))]
-    {
-        &["gent", "gentd", "gent-auto-update.py"]
-    }
-}
-
 #[cfg(windows)]
 const fn auto_update_helper_name() -> &'static str {
     "gent-auto-update.ps1"
@@ -273,24 +279,6 @@ fn expected_target() -> Result<String, String> {
     }
 }
 
-fn valid_version(value: &str) -> bool {
-    value.strip_prefix('v').is_some_and(|value| {
-        value.split('.').count() == 3
-            && value
-                .split('.')
-                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
-    })
-}
-fn version_of(value: &str) -> Vec<u32> {
-    value
-        .trim_start_matches('v')
-        .split('-')
-        .next()
-        .unwrap_or_default()
-        .split('.')
-        .filter_map(|part| part.parse().ok())
-        .collect()
-}
 fn display(error: impl std::fmt::Display) -> String {
     error.to_string()
 }

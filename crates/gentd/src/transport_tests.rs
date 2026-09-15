@@ -33,6 +33,7 @@ impl RuntimeApi for FakeRuntime {
             protocol_min: PROTOCOL_MIN,
             protocol_max: PROTOCOL_MAX,
             capabilities: self.capabilities()?,
+            executable_digest_sha256: None,
         })
     }
     fn submit(&self, _: gent_types::Command) -> Result<gent_types::Receipt, String> {
@@ -154,7 +155,7 @@ impl RuntimeApi for FakeRuntime {
         })
     }
     fn agent_chat_turn_follow(&self, _: TurnFollowRequest) -> Result<TurnFollowRead, String> {
-        Ok(crate::transport_turn_follow_tests::read())
+        Ok(super::turn_follow_tests::read())
     }
 }
 
@@ -172,6 +173,28 @@ fn conversation_hello() -> WireFrame {
         protocol_max: PROTOCOL_MAX,
         capabilities: CapabilitySet(vec![CONVERSATION_STATUS_CAPABILITY.into()]),
     })
+}
+
+#[tokio::test]
+async fn closing_before_hello_is_a_normal_connection_end() {
+    let (client, server) = duplex(1024);
+    let task = tokio::spawn(serve_connection(server, FakeRuntime));
+    drop(client);
+    assert!(task.await.unwrap().is_ok());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_peer_close_before_hello_is_a_normal_connection_end() {
+    let directory = tempfile::tempdir().unwrap();
+    let socket = directory.path().join("gentd.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let client = tokio::net::UnixStream::connect(&socket).await.unwrap();
+    let (server, _) = listener.accept().await.unwrap();
+    let task = tokio::spawn(serve_connection(server, FakeRuntime));
+    drop(client);
+    let result = task.await.unwrap();
+    assert!(result.is_ok(), "{result:?}");
 }
 
 #[tokio::test]
@@ -214,7 +237,7 @@ async fn conversation_status_uses_the_negotiated_extension_without_a_receipt() {
         ConversationStatusFrame::Status(status) if status.conversation_id == "conversation-1"
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }
 
 #[tokio::test]
@@ -236,7 +259,7 @@ async fn conversation_status_is_rejected_without_its_negotiated_capability() {
         WireFrame::Error { code, .. } if code == "invalidCommand"
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }
 
 #[tokio::test]
@@ -266,7 +289,7 @@ async fn typed_dependency_requests_need_consent_and_never_start_an_installer() {
         matches!(read_frame(&mut client).await.unwrap(), WireFrame::DependencyActionResult(result) if result.state == DependencyActionState::ConsentRequired)
     );
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }
 
 #[tokio::test]
@@ -285,5 +308,5 @@ async fn onboarding_is_read_only_and_returns_the_closed_provider_model() {
                 && state.branches[0].provider == gent_types::OnboardingProvider::Gent
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }

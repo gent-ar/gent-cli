@@ -195,12 +195,12 @@ fn approved_agent_chat_profile_persists_create_and_prompt_without_a_provider() {
             request_id: AgentChatRequestId("create-1".into()),
             receipt_id: ReceiptId("receipt-create".into()),
             workspace_path: ".".into(),
-            selection: AgentChatSelection {
+            selection: Some(AgentChatSelection {
                 provider: AgentChatProvider::Claude,
                 model: "haiku".into(),
                 effort: AgentChatEffort::Low,
                 mode: AgentChatMode::Ask,
-            },
+            }),
         })
         .unwrap();
     let [

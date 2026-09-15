@@ -60,6 +60,7 @@ impl DeclarativeAdapterManifest {
                     tool_name: non_empty(frame, "tool_name")?,
                     phase: tool_phase(&string(frame, "phase"))?,
                     output_digest: non_empty(frame, "output_digest"),
+                    parent_tool_use_id: None,
                 },
             }),
             "attentionRequired" => Some(NormalizedLifecycleSignal::AttentionRequired),

@@ -12,6 +12,7 @@ pub enum TurnPhase {
     Compacting,
     Ready,
     Interrupted,
+    Cancelled,
     Dead,
     Failed,
 }

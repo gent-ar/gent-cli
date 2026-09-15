@@ -8,7 +8,12 @@ pub const ATTACHMENTS_CAPABILITY: &str = "attachments-v1";
 
 /// Additive attachment transfer frames used after the regular hello negotiation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "type", content = "body", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    content = "body",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum AttachmentFrame {
     Begin {
         transfer: AttachmentTransfer,
@@ -54,6 +59,7 @@ mod tests {
         let value = serde_json::to_value(&frame).unwrap();
         assert_eq!(value["type"], "chunk");
         assert!(value["body"].get("path").is_none());
+        assert_eq!(value["body"]["dataBase64"], "aGVsbG8=");
         assert_eq!(
             value["body"]["operation"]["transferReceiptId"],
             "begin-receipt-1"

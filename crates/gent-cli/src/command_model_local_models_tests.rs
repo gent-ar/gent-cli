@@ -9,7 +9,14 @@ fn local_models_parse_catalogue_status_and_consented_download_commands() {
     assert!(matches!(
         list.command,
         Some(CommandLine::Models {
-            action: LocalModelsCommand::List
+            action: LocalModelsCommand::List { json: false }
+        })
+    ));
+    let json = Args::try_parse_from(["gent", "models", "list", "--json"]).unwrap();
+    assert!(matches!(
+        json.command,
+        Some(CommandLine::Models {
+            action: LocalModelsCommand::List { json: true }
         })
     ));
     let model = "qwen2-5-coder-7b-instruct-q4-k-m";

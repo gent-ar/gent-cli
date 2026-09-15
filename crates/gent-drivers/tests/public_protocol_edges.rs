@@ -78,18 +78,17 @@ fn codex_covers_terminal_statuses_tools_and_unknown_frames() {
             ))
         );
     }
-    for (method, phase) in [
-        ("turn/aborted", TurnPhase::Interrupted),
-        ("turn/failed", TurnPhase::Failed),
-    ] {
-        assert!(
+    for method in ["turn/aborted", "turn/failed"] {
+        assert_eq!(
             facts(
                 PublicProvider::Codex,
                 &json!({"method":method,"params":{"turnId":"turn"}}),
-            )
-            .contains(&PublicWireFact::Lifecycle(
-                NormalizedLifecycleSignal::RootPhase { phase }
-            ))
+            ),
+            vec![PublicWireFact::Event(
+                NormalizedProviderEvent::TransportDiagnostic {
+                    classification: "unsupportedCodexNotification".into()
+                }
+            )]
         );
     }
     for kind in ["fileChange", "mcpToolCall"] {
@@ -160,7 +159,7 @@ fn codex_terminal_failure_persists_only_a_redacted_classification_and_message() 
         &json!({
             "method":"turn/completed",
             "params":{"turn":{"id":"turn", "status":"failed", "error":{
-                "code":"unauthorized", "message":"Bearer sk-secret and /private/path"
+                "codexErrorInfo":"unauthorized", "message":"Bearer sk-secret and /private/path", "additionalDetails":null
             }}}
         }),
     );
@@ -328,7 +327,6 @@ fn codex_known_transport_notifications_reduce_to_no_public_fact() {
         "thread/realtime/started",
         "thread/realtime/closed",
         "thread/realtime/error",
-        "thread/realtime/transcript",
         "thread/realtime/sdp",
         "app/list/updated",
         "fs/changed",
@@ -342,4 +340,31 @@ fn codex_known_transport_notifications_reduce_to_no_public_fact() {
             "{method}"
         );
     }
+}
+
+#[test]
+fn claude_manual_compaction_frames_from_2_1_270_become_compaction_observations() {
+    use gent_drivers::public_protocol::PublicCompactionObservation;
+    let frames = [
+        json!({"type":"system","subtype":"status","status":"compacting","session_id":"secret"}),
+        json!({"type":"system","subtype":"status","status":null,"compact_result":"success","session_id":"secret"}),
+        json!({"type":"system","subtype":"compact_boundary","session_id":"secret","compact_metadata":{"trigger":"manual","pre_tokens":23667,"post_tokens":1579}}),
+        json!({"type":"user","message":{"role":"user","content":"This session is being continued from a previous conversation."},"isSynthetic":true}),
+        json!({"type":"system","subtype":"status","status":null,"compact_result":"failed","session_id":"secret"}),
+        json!({"type":"system","subtype":"status","status":null,"session_id":"secret"}),
+    ];
+    let facts: Vec<_> = frames
+        .iter()
+        .flat_map(|frame| normalize_public_frame(PublicProvider::Claude, frame))
+        .collect();
+    assert_eq!(
+        facts,
+        [
+            PublicWireFact::Compaction(PublicCompactionObservation::Started),
+            PublicWireFact::Compaction(PublicCompactionObservation::Completed),
+            PublicWireFact::Compaction(PublicCompactionObservation::Failed {
+                failure: gent_types::AgentChatCompactionFailure::ProviderFailed,
+            }),
+        ]
+    );
 }

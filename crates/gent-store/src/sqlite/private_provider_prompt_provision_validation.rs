@@ -107,7 +107,7 @@ pub(super) fn prompt_message(
 ) -> Result<String, LedgerError> {
     let message_id = transaction
         .query_row(
-            "SELECT p.message_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition = 'send' AND selected.provider = ?4 AND d.state = ?5 AND p.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections current_selected ON current_selected.run_id = current.run_id WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
+            "SELECT p.message_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition IN ('send', 'queue') AND selected.provider = ?4 AND d.state = ?5 AND p.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections current_selected ON current_selected.run_id = current.run_id WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
             params![binding.prompt.prompt_receipt_id.0, binding.prompt.conversation_id.0, binding.prompt.run_id.0, binding.prompt.provider, state],
             |row| row.get(0),
         )

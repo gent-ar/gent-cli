@@ -2,21 +2,21 @@
 mod checkpoint;
 mod fork;
 mod prompt;
+pub(super) mod prompt_admission_hold;
 mod prompt_dispatch;
 mod prompt_dispatch_readiness;
 mod receipt;
 mod side_question;
 mod switch;
 use super::SqliteLedger;
-use super::epoch::require_epoch;
-use super::queries::{
-    find_receipt, host_ingress, insert_receipt, receipt_matches_command, storage_error,
-};
-use gent_ports::{AgentChatLedger, IngressMode, LedgerError};
+use super::queries::{find_receipt, insert_receipt, receipt_matches_command, storage_error};
+use super::reviewed_plan_values::{effort, mode, provider};
+use gent_ports::{AgentChatLedger, LedgerError};
 use gent_types::{
-    AgentChatConversationCreate, AgentChatConversationCreated, AgentChatEffort, AgentChatMode,
-    AgentChatProvider, Command, Receipt, ReceiptStatus, WorkspaceRecord,
+    AgentChatConversationCreate, AgentChatConversationCreated, Command, Receipt, ReceiptStatus,
+    WorkspaceRecord,
 };
+use prompt_dispatch::require_open;
 use receipt::decode_create_receipt_status;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::json;
@@ -42,13 +42,7 @@ pub(super) fn create_conversation(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
-    let ingress = host_ingress(&transaction)?;
-    require_epoch(create.host_epoch, ingress.epoch)?;
-    if ingress.mode == IngressMode::Closed {
-        return Err(LedgerError::IngressClosed {
-            epoch: ingress.epoch,
-        });
-    }
+    require_open(&transaction, create.host_epoch)?;
     if let Some(result) = existing(&transaction, create, workspace)? {
         if !receipt_matches_command(&transaction, &command)? {
             return Err(LedgerError::Invariant(
@@ -271,31 +265,4 @@ fn selection_matches(
         && model == create.selection.model
         && stored_effort == effort(create.selection.effort)
         && stored_mode == mode(create.selection.mode)
-}
-
-const fn provider(value: AgentChatProvider) -> &'static str {
-    match value {
-        AgentChatProvider::Claude => "claude",
-        AgentChatProvider::Codex => "codex",
-        AgentChatProvider::Claurst => "claurst",
-    }
-}
-
-const fn effort(value: AgentChatEffort) -> &'static str {
-    match value {
-        AgentChatEffort::Low => "low",
-        AgentChatEffort::Medium => "medium",
-        AgentChatEffort::High => "high",
-        AgentChatEffort::XHigh => "xhigh",
-        AgentChatEffort::Max => "max",
-        AgentChatEffort::Ultra => "ultra",
-    }
-}
-
-const fn mode(value: AgentChatMode) -> &'static str {
-    match value {
-        AgentChatMode::Ask => "ask",
-        AgentChatMode::Plan => "plan",
-        AgentChatMode::Agent => "agent",
-    }
 }

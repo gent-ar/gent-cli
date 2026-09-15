@@ -3,15 +3,16 @@ use std::{collections::BTreeMap, path::PathBuf};
 use gent_types::{AgentChatEffort, AgentChatMode, PermissionMode};
 use serde_json::json;
 
-use crate::local_model_catalog::LocalModelRecord;
+use crate::{claurst_runtime_factory::LlamaSummaryEndpoint, local_model_catalog::LocalModelRecord};
 
 const LLAMA_CPP_PROVIDER: &str = "llama-cpp";
-const DEFAULT_CONTEXT_SIZE: u32 = 8_192;
+const KV_CACHE_TYPE: &str = "q8_0";
 
 fn chat_template_contents(file: &str) -> Option<&'static str> {
     match file {
         "qwen2.5-tool-use.jinja" => Some(include_str!("../templates/qwen2.5-tool-use.jinja")),
         "hermes-3-tool-use.jinja" => Some(include_str!("../templates/hermes-3-tool-use.jinja")),
+        "qwen3-tool-use.jinja" => Some(include_str!("../templates/qwen3-tool-use.jinja")),
         _ => None,
     }
 }
@@ -33,6 +34,7 @@ pub(crate) struct LocalProcessLaunch {
     pub(crate) executable: PathBuf,
     pub(crate) arguments: Vec<String>,
     pub(crate) environment: BTreeMap<String, String>,
+    pub(crate) working_directory: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,6 +47,8 @@ pub(crate) struct ClaurstLocalRuntimePlan {
     pub(crate) chat_template_contents: Option<String>,
     pub(crate) llama_server: LocalProcessLaunch,
     pub(crate) claurst_acp: LocalProcessLaunch,
+    pub(crate) history_input_bytes: usize,
+    pub(crate) summary_endpoint: LlamaSummaryEndpoint,
 }
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
@@ -76,6 +80,7 @@ impl ClaurstLocalRuntimePlan {
         }
 
         let model_path = request.model_path;
+        let effort = request.effort;
         let server_url = format!("http://127.0.0.1:{port}");
         let settings_path = request.claurst_home.join(".claurst/settings.json");
         let chat_template_path = model
@@ -89,8 +94,7 @@ impl ClaurstLocalRuntimePlan {
             .map(str::to_owned);
         let settings_json = serde_json::to_string_pretty(&local_settings(
             model,
-            request.effort,
-            request.mode,
+            effort,
             request.permission_mode,
             request.mcp_servers,
         ))
@@ -107,19 +111,32 @@ impl ClaurstLocalRuntimePlan {
                 port.to_string(),
                 "--jinja".into(),
                 "--ctx-size".into(),
-                DEFAULT_CONTEXT_SIZE.to_string(),
+                model.context_tokens.to_string(),
+                "--cache-type-k".into(),
+                KV_CACHE_TYPE.into(),
+                "--cache-type-v".into(),
+                KV_CACHE_TYPE.into(),
                 "--parallel".into(),
                 "1".into(),
             ]
             .into_iter()
+            .chain(profile::qwen3_reasoning_arguments(model, effort))
             .chain(
                 chat_template_path
                     .as_ref()
-                    .map(|path| vec!["--chat-template-file".into(), path.display().to_string()])
+                    .map(|path| {
+                        vec![
+                            "--chat-template-file".into(),
+                            path.display().to_string(),
+                            "--chat-template-kwargs".into(),
+                            profile::template_kwargs(model, effort, request.mode),
+                        ]
+                    })
                     .unwrap_or_default(),
             )
             .collect(),
             environment: BTreeMap::new(),
+            working_directory: None,
         };
         let claurst_acp = LocalProcessLaunch {
             executable: request.claurst_executable,
@@ -132,9 +149,12 @@ impl ClaurstLocalRuntimePlan {
                 ),
                 ("LLAMA_CPP_HOST".into(), server_url.clone()),
             ]),
+            working_directory: None,
         };
 
+        let history_input_bytes = profile::history_input_bytes(model, effort);
         Ok(Self {
+            summary_endpoint: summary_endpoint(model, &server_url, history_input_bytes),
             model_path,
             server_url,
             settings_path,
@@ -143,14 +163,27 @@ impl ClaurstLocalRuntimePlan {
             chat_template_contents,
             llama_server,
             claurst_acp,
+            history_input_bytes,
         })
+    }
+}
+
+fn summary_endpoint(
+    model: &LocalModelRecord,
+    server_url: &str,
+    history_input_bytes: usize,
+) -> LlamaSummaryEndpoint {
+    LlamaSummaryEndpoint {
+        server_url: server_url.to_owned(),
+        model: model.provider_model_id.clone(),
+        context_tokens: model.context_tokens,
+        history_input_bytes,
     }
 }
 
 fn local_settings(
     model: &LocalModelRecord,
     effort: AgentChatEffort,
-    mode: AgentChatMode,
     permission_mode: PermissionMode,
     mcp_servers: Vec<serde_json::Value>,
 ) -> serde_json::Value {
@@ -161,7 +194,7 @@ fn local_settings(
         "config": {
             "api_key": null,
             "model": provider_model,
-            "max_tokens": local_max_tokens(effort),
+            "max_tokens": profile::local_max_tokens(effort),
             "permission_mode": claurst_permission_mode(permission_mode),
             "theme": "default",
             "output_style": null,
@@ -175,7 +208,7 @@ fn local_settings(
             "disallowed_tools": [],
             "env": {},
             "enable_all_mcp_servers": false,
-            "custom_system_prompt": system_instruction(model, effort, mode),
+            "custom_system_prompt": null,
             "append_system_prompt": null,
             "disable_claude_mds": false,
             "project_dir": null,
@@ -217,64 +250,14 @@ fn local_settings(
 
 fn claurst_permission_mode(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::Default => "default",
-        PermissionMode::Plan => "plan",
-        PermissionMode::AutoAcceptEdits | PermissionMode::Autonomous => "accept-edits",
-        PermissionMode::Bypass => "bypass-permissions",
+        PermissionMode::AskEveryTime => "default",
+        PermissionMode::AutoAcceptEdits | PermissionMode::Autonomous => "acceptEdits",
+        PermissionMode::Bypass => "bypassPermissions",
     }
 }
 
-fn system_instruction(
-    model: &LocalModelRecord,
-    effort: AgentChatEffort,
-    mode: AgentChatMode,
-) -> String {
-    format!(
-        "{}{}",
-        mode_instruction(mode),
-        qwen3_effort_instruction(model, effort)
-    )
-}
-
-fn mode_instruction(mode: AgentChatMode) -> &'static str {
-    match mode {
-        AgentChatMode::Ask => "Answer and explain. Do not invoke tools or change files.",
-        AgentChatMode::Plan => {
-            "Inspect only as needed, then provide a concrete plan. Do not change files or invoke destructive tools."
-        }
-        AgentChatMode::Agent => {
-            "You are Gent, a local coding agent. Answer directly. Use available tools when needed. Request permission before actions that require it. Respect the workspace and MCP tools supplied for this session."
-        }
-    }
-}
-
-fn qwen3_effort_instruction(model: &LocalModelRecord, effort: AgentChatEffort) -> &'static str {
-    if !model.id.starts_with("qwen3-") {
-        return "";
-    }
-    match effort {
-        AgentChatEffort::Low | AgentChatEffort::Medium => {
-            "\n\n/no_think\nUse the non-thinking posture for this turn."
-        }
-        AgentChatEffort::High
-        | AgentChatEffort::XHigh
-        | AgentChatEffort::Max
-        | AgentChatEffort::Ultra => {
-            "\n\n/think\nUse the thinking posture for this turn, then act or answer."
-        }
-    }
-}
-
-fn local_max_tokens(effort: AgentChatEffort) -> u32 {
-    match effort {
-        AgentChatEffort::Low => 2_048,
-        AgentChatEffort::Medium => 4_096,
-        AgentChatEffort::High => 8_192,
-        AgentChatEffort::XHigh => 12_288,
-        AgentChatEffort::Max => 16_384,
-        AgentChatEffort::Ultra => 24_576,
-    }
-}
+#[path = "claurst_local_profile.rs"]
+mod profile;
 
 #[cfg(test)]
 #[path = "claurst_local_runtime_tests.rs"]

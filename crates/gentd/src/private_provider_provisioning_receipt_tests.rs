@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use ed25519_dalek::SigningKey;
 use gent_drivers::installer::{DependencyInstaller, InstallerError, NpmGlobalPrefix};
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
 use gent_protocol::{DependencyAction, DependencyProvider};
@@ -16,8 +17,12 @@ use serde_json::json;
 use super::{
     PrivateProviderProvisioner, PrivateProvisionError, PrivateProvisionRequest,
     ProvisionReceiptReader, ProvisionedProviderLock, ProvisionedProviderVerifier,
+    ReleaseAuthorityConfig,
 };
-use crate::node_runtime_lock::AppNodeRuntimeLock;
+use crate::{
+    node_runtime_lock::AppNodeRuntimeLock,
+    ordinary_authority_release::{SignedOrdinaryAuthorityRelease, fixture},
+};
 
 #[derive(Clone, Default)]
 struct Installer(Arc<Mutex<u8>>);
@@ -156,6 +161,48 @@ fn changed_policy_package_refuses_before_npm() {
     assert!(matches!(
         provisioner.provision_prompt_with_command(&request(), &command, &binding),
         Err(PrivateProvisionError::PromptPackageMismatch)
+    ));
+    assert_eq!(*installer.0.lock().unwrap(), 0);
+}
+
+#[test]
+fn revoked_release_is_reauthorized_before_npm() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime_at(root.path());
+    let signer = SigningKey::from_bytes(&[11; 32]);
+    let release = fixture::release(&signer, runtime.node_digest_sha256());
+    let path = root.path().join("authority.json");
+    fs::write(&path, serde_json::to_vec(&release).unwrap()).unwrap();
+    let root_keys = fixture::root_keys(&signer);
+    let digest = SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys, &runtime, 1)
+        .unwrap()
+        .artifact_digest_sha256()
+        .to_owned();
+    let installer = Installer::default();
+    let provisioner = PrivateProviderProvisioner::with_release_authority(
+        runtime,
+        installer.clone(),
+        Policy,
+        Some(Verifier),
+        ReceiptReader::Accepted,
+        ReleaseAuthorityConfig {
+            path: path.clone(),
+            root_keys,
+        },
+    );
+    let binding = prompt_binding_with_release_digest("1.0.0", &digest);
+    let command = gent_runtime::prompt_provider_provision_command(
+        ReceiptId("receipt".into()),
+        "key".into(),
+        HostEpoch(4),
+        &binding,
+    );
+    let revoked = fixture::revoked_release(&signer, provisioner.runtime.node_digest_sha256());
+    fs::write(path, serde_json::to_vec(&revoked).unwrap()).unwrap();
+
+    assert!(matches!(
+        provisioner.provision_prompt_with_command(&request(), &command, &binding),
+        Err(PrivateProvisionError::ReleaseReauthorizationFailed(_))
     ));
     assert_eq!(*installer.0.lock().unwrap(), 0);
 }

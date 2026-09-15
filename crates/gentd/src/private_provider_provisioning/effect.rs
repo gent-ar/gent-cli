@@ -14,6 +14,7 @@ use super::{
     ProvisionedProviderVerifier,
 };
 use crate::{
+    ordinary_authority_release::SignedOrdinaryAuthorityRelease,
     private_provider_compatibility::ProvisionedProviderCompatibility,
     private_provider_lock_validation::{valid_digest, valid_lock},
 };
@@ -110,6 +111,7 @@ where
             return Err(PrivateProvisionError::PromptPackageMismatch);
         }
     }
+    let release_artifact_digest_sha256 = reauthorize_release(provisioner, binding, request)?;
     provisioner
         .installer
         .install(&npm, &package)
@@ -138,13 +140,47 @@ where
                     package_integrity: package.integrity,
                     package_policy_digest_sha256: package.package_policy_digest_sha256,
                     node_runtime_digest_sha256: provisioner.runtime.node_digest_sha256().into(),
-                    release_artifact_digest_sha256: String::new(),
+                    release_artifact_digest_sha256: release_artifact_digest_sha256
+                        .unwrap_or_default(),
                     receipt_fingerprint_sha256: command.receipt_fingerprint_sha256(),
                 },
             },
         ))),
         Err(_) => Ok(PrivateProvisionResult::Ambiguous),
     }
+}
+
+fn reauthorize_release<I, P, V, R, B>(
+    provisioner: &PrivateProviderProvisioner<I, P, V, R, B>,
+    binding: Option<&ProviderPromptProvisionCommandBinding>,
+    request: &PrivateProvisionRequest,
+) -> Result<Option<String>, PrivateProvisionError>
+where
+    I: DependencyInstaller,
+    P: PackageInstallPolicy,
+    V: ProvisionedProviderVerifier,
+    R: ProvisionReceiptReader,
+    B: ProvisionedProviderCompatibility,
+{
+    let Some(authority) = provisioner.release_authority.as_ref() else {
+        return match binding {
+            Some(_) => Err(PrivateProvisionError::ReleaseAuthorityUnavailable),
+            None => Ok(None),
+        };
+    };
+    let release = SignedOrdinaryAuthorityRelease::load_bound(
+        &authority.path,
+        &authority.root_keys,
+        &provisioner.runtime,
+        request.now_unix_seconds,
+    )
+    .map_err(|error| PrivateProvisionError::ReleaseReauthorizationFailed(error.to_string()))?;
+    if let Some(binding) = binding
+        && release.artifact_digest_sha256() != binding.release_artifact_digest_sha256
+    {
+        return Err(PrivateProvisionError::ReleaseDigestMismatch);
+    }
+    Ok(Some(release.artifact_digest_sha256().to_string()))
 }
 
 fn prompt_binding_matches(

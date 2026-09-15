@@ -30,6 +30,13 @@ pub enum AgentChatPromptDelivery {
     AwaitingProvider,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum PromptHoldReason {
+    ModelDownload,
+    ProviderInstall,
+}
+
 /// Durable input for one user prompt whose identities are derived from request correlation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AgentChatPromptCreate {

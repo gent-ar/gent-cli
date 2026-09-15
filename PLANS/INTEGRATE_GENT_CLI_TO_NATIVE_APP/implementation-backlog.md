@@ -181,7 +181,7 @@ Acceptance:
 4. Define smart-metadata provenance and revision. The native app requests a title after the first
    assistant completion and a recap at completions 6, 12, 18…; Gentd must own that schedule for all
    three providers.
-5. Add `agent-chat-side-question-v1` (decided: `/btw` survives — see `integration-gap-review.md` for
+5. Add `agent-chat-side-question-v1` (decided: `/btw` survives — see `integration-gap-review-p1.md` for
    the full spec). Port the bounded-excerpt rule from
    `native:app/lib/util/side_question_context.dart` (8 messages, 12000 chars) into a shared Rust
    helper. Add a streaming, cancelable `ConversationSideQuestionRunner`, reusing

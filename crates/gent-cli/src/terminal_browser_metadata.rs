@@ -41,8 +41,10 @@ pub(super) async fn initial_metadata(
                 .await
                 .ok()
                 .flatten()
-                .map_or(gent_types::PermissionMode::Default, |policy| policy.mode),
-                None => gent_types::PermissionMode::Default,
+                .map_or(gent_types::PermissionMode::AskEveryTime, |policy| {
+                    policy.mode
+                }),
+                None => gent_types::PermissionMode::AskEveryTime,
             };
             let preview = if capabilities
                 .iter()

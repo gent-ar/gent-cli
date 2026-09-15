@@ -11,11 +11,16 @@ use gent_types::{AgentChatConversationId, FrozenConversationContext, NormalizedP
 use sha2::{Digest, Sha256};
 
 use crate::standalone_claurst_runtime_factory::StandaloneClaurstBridge;
+use crate::{
+    claurst_acp_bridge::ClaurstBridgeHandle, claurst_local_runtime_owner::SystemClaurstAcpStdio,
+};
 
 const DRAIN_LIMIT: u16 = 64;
 const MAX_DRAINS: usize = 3_000;
 const DRAIN_INTERVAL: Duration = Duration::from_millis(20);
 const MAX_OUTPUT_BYTES: usize = 16 * 1024;
+
+type SystemBridge = ClaurstBridgeHandle<SystemClaurstAcpStdio>;
 
 impl ConversationSummaryRunner for StandaloneClaurstBridge {
     fn run_summary(
@@ -24,11 +29,7 @@ impl ConversationSummaryRunner for StandaloneClaurstBridge {
         model_version: &str,
         prompt: &str,
     ) -> Result<String, PortError> {
-        if provider != "claurst" || model_version.trim().is_empty() || prompt.trim().is_empty() {
-            return Err(PortError::Unavailable(
-                "Claurst summary requires the selected local model".into(),
-            ));
-        }
+        validate(provider, model_version, prompt)?;
         let runner = self.clone();
         let model = model_version.to_owned();
         let prompt = prompt.to_owned();
@@ -45,12 +46,25 @@ impl ConversationSummaryRunner for StandaloneClaurstBridge {
     }
 }
 
+fn validate(provider: &str, model_version: &str, prompt: &str) -> Result<(), PortError> {
+    if provider != "claurst" || model_version.trim().is_empty() || prompt.trim().is_empty() {
+        return Err(PortError::Unavailable(
+            "Claurst summary requires the selected local model".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn run_isolated(
     runner: &StandaloneClaurstBridge,
     model: &str,
     prompt: &str,
 ) -> Result<String, PortError> {
     let bridge = runner.summary_bridge(model).await?;
+    run_isolated_on_bridge(&bridge, prompt).await
+}
+
+async fn run_isolated_on_bridge(bridge: &SystemBridge, prompt: &str) -> Result<String, PortError> {
     let mut digest = Sha256::new();
     digest.update(prompt.as_bytes());
     let digest = format!("{digest:x}", digest = digest.finalize());
@@ -72,7 +86,7 @@ async fn run_isolated(
             goal: None,
         })
         .await?;
-    drain_summary(&bridge, binding, source_id, prompt).await
+    drain_summary(bridge, binding, source_id, prompt).await
 }
 
 async fn drain_summary<B: PrivateClaurstBridge>(

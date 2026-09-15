@@ -21,8 +21,22 @@ impl UiState {
         self
     }
     #[must_use]
-    pub(crate) fn with_local_model_ids(mut self, local_model_ids: Vec<String>) -> Self {
-        self.local_model_ids = local_model_ids;
+    pub(crate) fn with_model_catalog(
+        mut self,
+        catalog: Option<gent_protocol::model_catalog::ModelCatalog>,
+    ) -> Self {
+        if let Some(catalog) = &catalog {
+            self.selection = crate::terminal::selection::default_selection(catalog);
+        }
+        self.model_catalog = catalog;
+        self
+    }
+    #[must_use]
+    pub(crate) fn with_command_catalog(
+        mut self,
+        catalog: Option<gent_protocol::agent_chat_commands::CommandCatalog>,
+    ) -> Self {
+        self.commands.home = catalog;
         self
     }
     #[must_use]
@@ -33,7 +47,8 @@ impl UiState {
             selected,
             chat_enabled: false,
             input: String::new(),
-            scroll_offset: 0,
+            scroll: super::TranscriptScroll::Follow,
+            scroll_limit: std::cell::Cell::new(0),
             attachments: Vec::new(),
             metadata: BTreeMap::new(),
             sessions: Vec::new(),
@@ -61,11 +76,13 @@ impl UiState {
             automation_cursor: 0,
             selection_picker: None,
             selection_picker_index: 0,
-            local_model_ids: Vec::new(),
+            model_catalog: None,
+            new_conversation_selection: None,
             show_thinking: std::env::var("GENT_SHOW_THINKING")
                 .is_ok_and(|value| matches!(value.as_str(), "1" | "true")),
             awaiting_turn: false,
             conversation_filter: String::new(),
+            commands: super::super::commands::CommandState::default(),
         }
     }
 }

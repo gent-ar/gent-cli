@@ -22,31 +22,26 @@ pub(crate) async fn send(
     conversation_id: String,
     text: String,
     attachments: Vec<PathBuf>,
-    tool_source_ids: Vec<String>,
+    queued: bool,
 ) -> Result<PromptAccepted, Box<dyn std::error::Error>> {
     let attachment_ids =
         super::attachments::stage(data_dir.clone(), no_autostart, &attachments).await?;
     let response = super::exchange(
         data_dir,
         no_autostart,
-        if tool_source_ids.is_empty() {
-            AgentChatIntentFrame::SendPrompt {
-                request_id: super::request_id(None),
-                receipt_id: super::receipt_id(None),
-                conversation_id: AgentChatConversationId(conversation_id),
+        super::prompt_frame(
+            super::PromptArgs {
+                conversation_id,
                 text,
-                attachment_ids,
-            }
-        } else {
-            AgentChatIntentFrame::SendPromptWithTools {
-                request_id: super::request_id(None),
-                receipt_id: super::receipt_id(None),
-                conversation_id: AgentChatConversationId(conversation_id),
-                text,
-                attachment_ids,
-                tool_source_ids,
-            }
-        },
+                request_id: None,
+                receipt_id: None,
+                attachments: Vec::new(),
+                tool_sources: Vec::new(),
+                json: false,
+            },
+            queued,
+            attachment_ids,
+        ),
     )
     .await?;
     let AgentChatIntentFrame::Accepted {

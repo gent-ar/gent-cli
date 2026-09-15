@@ -84,7 +84,7 @@ additive and safe. The deferral no longer applies; the work is backlog item 1.5.
    once, caches the result, and computes nothing itself.
 
 2. **`GentdAppRuntime._launch()`** used to always spawn and never try connecting first, causing a
-   respawn every `client()` call once a daemon was externally owned (see `integration-gap-review.md`
+   respawn every `client()` call once a daemon was externally owned (see `integration-gap-review-p1.md`
    for the full trace). FIXED: `client()` now calls `_ensureAvailable`, which tries a connection
    before ever spawning, mirroring `crates/gent-cli/src/local_ipc.rs:113 connect_or_start`. Covered
    by `native:app/test/unit/gentd_app_runtime_test.dart`.

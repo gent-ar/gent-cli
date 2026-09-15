@@ -116,6 +116,8 @@ fn lifecycle_events(
         NormalizedProviderEvent::ProviderFailure { .. } => vec![LifecycleEvent::ErrorRaised],
         NormalizedProviderEvent::TurnEnded { .. }
         | NormalizedProviderEvent::ContextUsage { .. }
+        | NormalizedProviderEvent::TokenUsage { .. }
+        | NormalizedProviderEvent::PlanProposed { .. }
         | NormalizedProviderEvent::Output { .. }
         | NormalizedProviderEvent::Thinking { .. }
         | NormalizedProviderEvent::ToolInputDelta { .. }

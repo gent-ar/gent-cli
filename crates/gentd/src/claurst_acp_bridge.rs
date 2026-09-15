@@ -24,9 +24,16 @@ struct SourceState {
     terminal: bool,
 }
 
+struct RunSession {
+    session_id: String,
+    summary_coverage: Option<u64>,
+}
+
 struct BridgeState<S> {
     transport: ClaurstAcpTransport<S>,
     sources: BTreeMap<ClaurstSourceId, SourceState>,
+    run_sessions: BTreeMap<String, RunSession>,
+    history_input_bytes: usize,
 }
 
 /// A private ACP bridge that keeps upstream session identifiers inside the daemon.
@@ -44,8 +51,19 @@ impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
             state: Arc::new(Mutex::new(BridgeState {
                 transport: ClaurstAcpTransport::new(stdio).with_mcp_servers(mcp_servers),
                 sources: BTreeMap::new(),
+                run_sessions: BTreeMap::new(),
+                history_input_bytes:
+                    gent_drivers::conversation_context_input::MAX_FRESH_CONTEXT_INPUT_BYTES,
             })),
         }
+    }
+
+    #[must_use]
+    pub(crate) fn with_history_input_bytes(self, history_input_bytes: usize) -> Self {
+        if let Ok(mut state) = self.state.lock() {
+            state.history_input_bytes = history_input_bytes;
+        }
+        self
     }
 
     pub(crate) fn is_idle(&self) -> Result<bool, String> {
@@ -54,6 +72,14 @@ impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
             .lock()
             .map_err(|_| "ACP bridge lock is unavailable".to_owned())?;
         Ok(state.transport.is_idle() && state.sources.values().all(|source| source.terminal))
+    }
+
+    pub(crate) fn exited(&self) -> Result<Option<String>, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "ACP bridge lock is unavailable".to_owned())?;
+        state.transport.exited()
     }
 
     pub(crate) async fn start_summary(
@@ -158,6 +184,13 @@ impl<S> ClaurstBridgeHandle<S> {
         self.0.is_idle()
     }
 
+    pub(crate) fn exited(&self) -> Result<Option<String>, String>
+    where
+        S: ClaurstAcpStdio,
+    {
+        self.0.exited()
+    }
+
     pub(crate) async fn start_summary(
         &self,
         request: ClaurstStartRequest,
@@ -217,6 +250,9 @@ use operations::{
     start_summary_blocking, submit_blocking,
 };
 
+#[cfg(test)]
+#[path = "claurst_acp_cancel_tests.rs"]
+mod cancel_tests;
 #[cfg(test)]
 #[path = "claurst_acp_bridge_tests.rs"]
 mod tests;

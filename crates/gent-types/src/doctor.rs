@@ -2,6 +2,24 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyStatus {
+    pub name: String,
+    pub present: bool,
+    pub version: Option<String>,
+    pub remediation: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DoctorReport {
+    pub dependencies: Vec<DependencyStatus>,
+    pub public_providers: Vec<PublicProviderStatus>,
+    pub mcp: McpDoctorStatus,
+    pub private_bridge: PrivateBridgeAvailability,
+    pub next_action: DoctorNextAction,
+}
+
 /// Canonical identity observed for a public executable without starting a session.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,11 +52,11 @@ pub struct PublicProviderStatus {
     pub remediation: String,
 }
 
-/// The only MCP permission state in the observer runtime milestone.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum McpPermissionStatus {
     HardDisabledObserver,
+    Enabled,
 }
 
 /// MCP readiness facts. These never inspect or start a connector.

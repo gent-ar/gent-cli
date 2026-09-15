@@ -5,14 +5,9 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand, ValueEnum};
-use gent_protocol::{
-    GOAL_CAPABILITY, GoalFrame, WireFrame, read_json_frame, write_frame, write_json_frame,
-};
-use gent_types::{
-    AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord,
-    GoalStatus, GoalTransition,
-};
+use clap::{Args, Subcommand};
+use gent_protocol::{GOAL_CAPABILITY, GoalFrame, read_json_frame, write_json_frame};
+use gent_types::{AgentChatConversationId, GoalRecord, GoalReportOutcome};
 use serde_json::Value;
 
 use crate::local_ipc::{LocalStream, connect_and_negotiate};
@@ -20,208 +15,193 @@ use crate::local_ipc::{LocalStream, connect_and_negotiate};
 mod reply;
 use reply::valid_reply;
 
-/// Terminal-facing goal actions shared with any future native host client.
 #[derive(Debug, Subcommand)]
 pub(crate) enum GoalCommand {
-    /// Create one active user-authored goal bound to an existing conversation run.
-    Create(CreateArgs),
-    /// Read one exact goal binding.
-    Read(ReadArgs),
-    /// List goals for one durable conversation.
-    List(ListArgs),
-    /// Revision-fenced terminal transition of one active goal.
-    Transition(TransitionArgs),
+    #[command(about = "Set the goal Gent keeps working on until it is complete or blocked")]
+    Set(SetArgs),
+    #[command(about = "Pause work on the goal")]
+    Pause(ControlArgs),
+    #[command(about = "Resume work on a paused goal")]
+    Resume(ControlArgs),
+    #[command(about = "Remove the goal")]
+    Clear(ControlArgs),
+    #[command(about = "Show the conversation's goal as JSON")]
+    Show(ShowArgs),
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct CreateArgs {
-    #[arg(long)]
+pub(crate) struct SetArgs {
+    #[arg(long, help = "Conversation that pursues the goal")]
     conversation_id: String,
-    #[arg(long)]
-    run_id: String,
-    #[arg(long)]
-    summary: String,
-    #[arg(long)]
-    goal_id: Option<String>,
-    #[arg(long)]
+    #[arg(value_name = "OBJECTIVE", help = "What the goal should achieve")]
+    objective: String,
+    #[arg(long, help = "Stop pursuing the goal after this many tokens")]
+    token_budget: Option<u64>,
+    #[arg(long, help = "Client request id used to correlate the reply")]
     request_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct ReadArgs {
-    #[arg(long = "conversation-id")]
-    conversation: String,
-    #[arg(long = "run-id")]
-    run: String,
-    #[arg(long = "goal-id")]
-    goal: String,
-    #[arg(long = "request-id")]
-    request: Option<String>,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct ListArgs {
-    #[arg(long)]
+pub(crate) struct ControlArgs {
+    #[arg(long, help = "Conversation whose goal changes")]
     conversation_id: String,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Apply only if the goal is still at this revision [default: current revision]"
+    )]
+    expected_revision: Option<u64>,
+    #[arg(long, help = "Client request id used to correlate the reply")]
     request_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct TransitionArgs {
-    #[arg(long)]
+pub(crate) struct ShowArgs {
+    #[arg(long, help = "Conversation whose goal is shown")]
     conversation_id: String,
-    #[arg(long)]
-    run_id: String,
-    #[arg(long)]
-    goal_id: String,
-    #[arg(long)]
-    expected_revision: u64,
-    #[arg(long, value_enum)]
-    status: StatusArgument,
-    #[arg(long)]
+    #[arg(long, help = "Client request id used to correlate the reply")]
     request_id: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub(crate) enum StatusArgument {
-    Completed,
-    Abandoned,
-    Failed,
+#[derive(Clone, Copy, Debug)]
+enum Control {
+    Pause,
+    Resume,
+    Clear,
 }
 
-/// Exchanges one goal command after strict capability negotiation.
 pub(crate) async fn execute(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     command: GoalCommand,
 ) -> Result<GoalFrame, Box<dyn std::error::Error>> {
+    let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
+    require_capability(&capabilities)?;
     match command {
-        GoalCommand::Transition(args) => transition(data_dir, no_autostart, args).await,
-        other => exchange(data_dir, no_autostart, frame(other)).await,
+        GoalCommand::Set(args) => {
+            exchange(
+                &mut stream,
+                GoalFrame::Set {
+                    request_id: request_id(args.request_id),
+                    conversation_id: AgentChatConversationId(args.conversation_id),
+                    objective: args.objective,
+                    token_budget: args.token_budget,
+                },
+            )
+            .await
+        }
+        GoalCommand::Pause(args) => control(&mut stream, args, Control::Pause).await,
+        GoalCommand::Resume(args) => control(&mut stream, args, Control::Resume).await,
+        GoalCommand::Clear(args) => control(&mut stream, args, Control::Clear).await,
+        GoalCommand::Show(args) => {
+            exchange(
+                &mut stream,
+                GoalFrame::Read {
+                    request_id: request_id(args.request_id),
+                    conversation_id: AgentChatConversationId(args.conversation_id),
+                },
+            )
+            .await
+        }
     }
 }
 
-/// Creates a shorthand goal only after the caller supplied an existing run binding.
-pub(crate) async fn create_shorthand(
+pub(crate) async fn report(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
-    conversation_id: String,
-    run_id: String,
-    summary: String,
+    goal_id: String,
+    outcome: GoalReportOutcome,
+    note: Option<String>,
 ) -> Result<GoalRecord, Box<dyn std::error::Error>> {
-    let request = GoalFrame::Create {
-        request_id: request_id(None),
-        goal: active_goal(conversation_id, run_id, summary, None),
-    };
-    let GoalFrame::Created { goal, .. } = exchange(data_dir, no_autostart, request).await? else {
-        return Err("daemon did not create the requested goal".into());
+    let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
+    require_capability(&capabilities)?;
+    let reply = exchange(
+        &mut stream,
+        GoalFrame::Report {
+            request_id: request_id(None),
+            goal_id,
+            outcome,
+            note,
+        },
+    )
+    .await?;
+    let GoalFrame::Goal {
+        goal: Some(goal), ..
+    } = reply
+    else {
+        return Err("daemon did not settle the reported goal".into());
     };
     Ok(goal)
 }
 
-async fn transition(
-    data_dir: Option<PathBuf>,
-    no_autostart: bool,
-    args: TransitionArgs,
+async fn control(
+    stream: &mut LocalStream,
+    args: ControlArgs,
+    control: Control,
 ) -> Result<GoalFrame, Box<dyn std::error::Error>> {
-    let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
-    require_capability(&capabilities)?;
-    write_frame(&mut stream, &WireFrame::StatusRequest).await?;
-    let WireFrame::Status(status) = read_wire_or_error(&mut stream).await? else {
-        return Err("daemon did not return host status before goal transition".into());
-    };
-    exchange_stream(
-        &mut stream,
-        GoalFrame::Transition {
-            request_id: request_id(args.request_id),
-            transition: GoalTransition {
-                binding: binding(args.conversation_id, args.run_id, args.goal_id),
-                expected_revision: args.expected_revision,
-                host_epoch: status.host_epoch,
-                next_status: args.status.into(),
-            },
+    let conversation_id = AgentChatConversationId(args.conversation_id);
+    let GoalFrame::Goal {
+        goal: Some(goal), ..
+    } = exchange(
+        stream,
+        GoalFrame::Read {
+            request_id: request_id(None),
+            conversation_id: conversation_id.clone(),
         },
     )
-    .await
+    .await?
+    else {
+        return Err("conversation has no goal; nothing was changed".into());
+    };
+    let request_id = request_id(args.request_id);
+    let goal_id = goal.binding.goal_id;
+    let expected_revision = args.expected_revision.unwrap_or(goal.revision);
+    let frame = match control {
+        Control::Pause => GoalFrame::Pause {
+            request_id,
+            conversation_id,
+            goal_id,
+            expected_revision,
+        },
+        Control::Resume => GoalFrame::Resume {
+            request_id,
+            conversation_id,
+            goal_id,
+            expected_revision,
+        },
+        Control::Clear => GoalFrame::Clear {
+            request_id,
+            conversation_id,
+            goal_id,
+            expected_revision,
+        },
+    };
+    exchange(stream, frame).await
 }
 
 async fn exchange(
-    data_dir: Option<PathBuf>,
-    no_autostart: bool,
-    request: GoalFrame,
-) -> Result<GoalFrame, Box<dyn std::error::Error>> {
-    let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
-    require_capability(&capabilities)?;
-    exchange_stream(&mut stream, request).await
-}
-
-async fn exchange_stream(
     stream: &mut LocalStream,
     request: GoalFrame,
 ) -> Result<GoalFrame, Box<dyn std::error::Error>> {
     request.validate()?;
     write_json_frame(stream, &request).await?;
     let raw: Value = read_json_frame(stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     let response: GoalFrame =
         serde_json::from_value(raw).map_err(|_| "daemon did not return a goal response")?;
     response.validate()?;
-    valid_reply(&request, &response)
-        .then_some(response)
-        .ok_or_else(|| "daemon returned a goal response with different identity".into())
-}
-
-fn frame(command: GoalCommand) -> GoalFrame {
-    match command {
-        GoalCommand::Create(args) => GoalFrame::Create {
-            request_id: request_id(args.request_id),
-            goal: active_goal(
-                args.conversation_id,
-                args.run_id,
-                args.summary,
-                args.goal_id,
-            ),
-        },
-        GoalCommand::Read(args) => GoalFrame::Read {
-            request_id: request_id(args.request),
-            binding: binding(args.conversation, args.run, args.goal),
-        },
-        GoalCommand::List(args) => GoalFrame::List {
-            request_id: request_id(args.request_id),
-            conversation_id: AgentChatConversationId(args.conversation_id),
-        },
-        GoalCommand::Transition(_) => unreachable!("goal transitions require a fresh host epoch"),
+    if !valid_reply(&request, &response) {
+        return Err("daemon returned a goal response with different identity".into());
     }
-}
-
-fn active_goal(
-    conversation_id: String,
-    run_id: String,
-    summary: String,
-    goal_id: Option<String>,
-) -> GoalRecord {
-    GoalRecord {
-        schema_version: GOAL_SCHEMA_VERSION,
-        binding: binding(
-            conversation_id,
-            run_id,
-            goal_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
-        ),
-        revision: 1,
-        status: GoalStatus::Active,
-        summary,
+    if let GoalFrame::Rejected { code, .. } = response {
+        return Err(format!(
+            "goal request was rejected: {}",
+            serde_json::to_value(code)?.as_str().unwrap_or_default()
+        )
+        .into());
     }
-}
-
-fn binding(conversation_id: String, run_id: String, goal_id: String) -> GoalBinding {
-    GoalBinding {
-        goal_id,
-        conversation_id: AgentChatConversationId(conversation_id),
-        run_id: AgentChatRunId(run_id),
-    }
+    Ok(response)
 }
 
 fn request_id(value: Option<String>) -> String {
@@ -239,16 +219,6 @@ fn require_capability(
         .ok_or_else(|| {
             "goal capability is unavailable while gentd runs in observer mode; no provider work was started".into()
         })
-}
-
-async fn read_wire_or_error(
-    stream: &mut LocalStream,
-) -> Result<WireFrame, Box<dyn std::error::Error>> {
-    let response = gent_protocol::read_frame(stream).await?;
-    if let WireFrame::Error { message, .. } = &response {
-        return Err(message.clone().into());
-    }
-    Ok(response)
 }
 
 #[cfg(all(test, unix))]

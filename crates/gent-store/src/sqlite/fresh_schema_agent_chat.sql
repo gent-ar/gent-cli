@@ -2,7 +2,8 @@ CREATE TABLE agent_chat_conversations (
     conversation_id TEXT PRIMARY KEY NOT NULL REFERENCES conversations(conversation_id),
     root_run_id TEXT NOT NULL UNIQUE REFERENCES runs(run_id),
     provider TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, mode TEXT NOT NULL,
-    workspace_id TEXT REFERENCES workspaces(workspace_id)
+    workspace_id TEXT REFERENCES workspaces(workspace_id),
+    updated_at_unix_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE agent_chat_sessions (
     session_id TEXT PRIMARY KEY NOT NULL,
@@ -123,12 +124,10 @@ CREATE TABLE reviewed_plan_approval_receipts (
 CREATE TABLE conversation_goals (
     creation_order INTEGER PRIMARY KEY AUTOINCREMENT, goal_id TEXT NOT NULL UNIQUE,
     conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
-    run_id TEXT NOT NULL REFERENCES runs(run_id), schema_version INTEGER NOT NULL,
-    revision INTEGER NOT NULL CHECK (revision > 0),
-    status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'abandoned', 'failed')),
-    summary TEXT NOT NULL
+    revision INTEGER NOT NULL CHECK (revision > 0), status TEXT NOT NULL, record_json TEXT NOT NULL
 );
 CREATE INDEX conversation_goals_by_conversation ON conversation_goals (conversation_id, creation_order);
+CREATE INDEX conversation_goals_by_status ON conversation_goals (status);
 CREATE TABLE orchestration_graph_facts (
     cursor INTEGER PRIMARY KEY AUTOINCREMENT, graph_id TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision > 0), idempotency_key TEXT NOT NULL,
@@ -173,7 +172,7 @@ CREATE TABLE agent_chat_transcript_events (
     cursor INTEGER NOT NULL CHECK (cursor > 0), event_id TEXT NOT NULL UNIQUE,
     turn_id TEXT NOT NULL REFERENCES turns(turn_id), run_id TEXT NOT NULL REFERENCES runs(run_id),
     kind TEXT NOT NULL, text TEXT NOT NULL, is_partial INTEGER NOT NULL CHECK (is_partial IN (0, 1)),
-    PRIMARY KEY (conversation_id, cursor)
+    origin_json TEXT, PRIMARY KEY (conversation_id, cursor)
 );
 CREATE TABLE agent_chat_prompt_dispatches (
     message_id TEXT PRIMARY KEY NOT NULL REFERENCES conversation_messages(message_id),

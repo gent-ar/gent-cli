@@ -1,8 +1,4 @@
-use std::{
-    net::TcpListener,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{net::TcpListener, path::Path, sync::Arc};
 
 use crate::{
     claurst_acp_bridge::ClaurstAcpBridge,
@@ -14,9 +10,7 @@ use crate::{
     claurst_local_runtime_owner::{
         LlamaServerReadiness, LocalRuntimeProcess, PrivateSettingsStore,
     },
-    local_model_download::{
-        ModelDownloadError, ModelDownloadProgress, ModelDownloadTransport, download_model,
-    },
+    claurst_runtime_factory::LlamaContextSummarizer,
     local_model_provisioning::LocalModelDownloadPlan,
 };
 
@@ -31,6 +25,7 @@ pub(crate) trait ClaurstStandaloneLauncher {
 pub(crate) struct ClaurstStandaloneRuntime<L, S> {
     llama: L,
     bridge: Arc<ClaurstAcpBridge<S>>,
+    summarizer: Arc<LlamaContextSummarizer>,
 }
 
 impl<L, S> ClaurstStandaloneRuntime<L, S> {
@@ -38,9 +33,21 @@ impl<L, S> ClaurstStandaloneRuntime<L, S> {
     pub(crate) fn bridge(&self) -> Arc<ClaurstAcpBridge<S>> {
         Arc::clone(&self.bridge)
     }
+
+    #[must_use]
+    pub(crate) fn summarizer(&self) -> Arc<LlamaContextSummarizer> {
+        Arc::clone(&self.summarizer)
+    }
 }
 
-impl<L: LocalRuntimeProcess, S> ClaurstStandaloneRuntime<L, S> {
+impl<L: LocalRuntimeProcess, S: ClaurstAcpStdio> ClaurstStandaloneRuntime<L, S> {
+    pub(crate) fn exited(&mut self) -> Result<Option<String>, String> {
+        if let Some(exit) = self.llama.exited()? {
+            return Ok(Some(exit));
+        }
+        self.bridge.exited()
+    }
+
     pub(crate) fn shutdown(self) -> Result<(), String> {
         drop(self.bridge);
         let mut llama = self.llama;
@@ -96,14 +103,6 @@ where
         }
     }
 
-    pub(crate) async fn download_after_consent(
-        plan: &LocalModelDownloadPlan,
-        transport: &dyn ModelDownloadTransport,
-        report: impl FnMut(ModelDownloadProgress),
-    ) -> Result<PathBuf, ModelDownloadError> {
-        download_model(plan, transport, report).await
-    }
-
     pub(crate) fn start(
         &self,
         model_id: &str,
@@ -157,7 +156,11 @@ where
             let _ = llama.shutdown();
             return Err(ClaurstStandaloneStartError::ReadinessProbe(error));
         }
-        let acp = match self.launcher.launch_acp(&plan.claurst_acp) {
+        let acp_launch = LocalProcessLaunch {
+            working_directory: Some(workspace.to_path_buf()),
+            ..plan.claurst_acp.clone()
+        };
+        let acp = match self.launcher.launch_acp(&acp_launch) {
             Ok(acp) => acp,
             Err(error) => {
                 let _ = llama.shutdown();
@@ -165,12 +168,12 @@ where
             }
         };
         Ok(ClaurstStandaloneRuntime {
+            summarizer: Arc::new(LlamaContextSummarizer::new(plan.summary_endpoint.clone())),
             llama,
-            bridge: Arc::new(ClaurstAcpBridge::new(
-                workspace.to_path_buf(),
-                acp,
-                mcp_servers,
-            )),
+            bridge: Arc::new(
+                ClaurstAcpBridge::new(workspace.to_path_buf(), acp, mcp_servers)
+                    .with_history_input_bytes(plan.history_input_bytes),
+            ),
         })
     }
 }

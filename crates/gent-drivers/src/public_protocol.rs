@@ -3,11 +3,19 @@
 use crate::PublicProvider;
 use gent_types::{
     AgentChatCompactionFailure, NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity,
-    ToolActivity, ToolPhase, TurnPhase,
+    ToolPhase,
 };
 use serde_json::Value;
 
 pub(crate) mod claude_protocol;
+
+pub(crate) fn oversized_frames_skipped(skipped: usize) -> Option<PublicWireFact> {
+    (skipped > 0).then(|| {
+        PublicWireFact::Event(gent_types::NormalizedProviderEvent::TransportDiagnostic {
+            classification: gent_types::OVERSIZED_PROVIDER_FRAME_DIAGNOSTIC.into(),
+        })
+    })
+}
 mod codex_protocol;
 
 /// A provider-neutral fact extracted without process, ledger, or UI access.
@@ -55,38 +63,31 @@ pub fn replay_public_frames(provider: PublicProvider, frames: &[Value]) -> Vec<P
 }
 
 fn claude(frame: &Value) -> Vec<PublicWireFact> {
-    match string(frame, "type") {
-        Some("system") if string(frame, "subtype") == Some("init") => {
-            session(frame, "session_id", "malformedClaudeInit")
-        }
-        Some("stream_event") => claude_stream_event(frame),
-        Some("assistant") => claude_assistant(frame),
-        Some("user") => claude_protocol::user(frame),
-        Some("system")
-            if matches!(
-                string(frame, "subtype"),
-                Some("task_started" | "task_progress" | "thinking_tokens" | "status")
-            ) =>
-        {
-            match string(frame, "subtype") {
-                Some("task_started" | "task_progress") => {
-                    claude_protocol::background_activity(frame)
-                }
-                _ => Vec::new(),
-            }
-        }
-        Some("system") if string(frame, "subtype") == Some("permission_denied") => {
-            permission_denied(frame)
-        }
-        Some("control_response") => claude_protocol::control_response(frame),
-        Some("control_cancel_request" | "tool_progress" | "rate_limit_event") => Vec::new(),
-        Some("queue-operation")
-            if !claude_protocol::background_terminal_tool_use_ids(frame).is_empty() =>
-        {
-            Vec::new()
-        }
-        Some("error") => claude_error(frame),
-        Some("result") => claude_result(frame),
+    if let Some(parent_tool_use_id) = claude_protocol::child_parent(frame) {
+        return claude_protocol::child(frame, parent_tool_use_id);
+    }
+    match (string(frame, "type"), string(frame, "subtype")) {
+        (Some("system"), Some("init")) => session(frame, "session_id", "malformedClaudeInit"),
+        (Some("system"), Some("permission_denied")) => permission_denied(frame),
+        (Some("system"), Some("task_notification")) => claude_protocol::task_notification(frame),
+        (
+            Some("system"),
+            Some(
+                "task_started"
+                | "task_progress"
+                | "task_updated"
+                | "background_tasks_changed"
+                | "thinking_tokens",
+            ),
+        ) => Vec::new(),
+        (Some("system"), Some("status" | "compact_boundary")) => claude_protocol::compaction(frame),
+        (Some("stream_event"), _) => claude_stream_event(frame),
+        (Some("assistant"), _) => claude_assistant(frame),
+        (Some("user"), _) => claude_protocol::user(frame),
+        (Some("control_response"), _) => claude_protocol::control_response(frame),
+        (Some("control_cancel_request" | "tool_progress" | "rate_limit_event"), _) => Vec::new(),
+        (Some("error"), _) => claude_error(frame),
+        (Some("result"), _) => claude_protocol::result(frame),
         _ => diagnostic("unsupportedClaudeFrame"),
     }
 }
@@ -181,12 +182,25 @@ fn claude_assistant(frame: &Value) -> Vec<PublicWireFact> {
     let Some(content) = frame.pointer("/message/content").and_then(Value::as_array) else {
         return diagnostic("malformedClaudeAssistant");
     };
-    let facts: Vec<_> = content.iter().flat_map(claude_content).collect();
+    let visible: Vec<_> = content
+        .iter()
+        .filter(|block| !signed_empty_thinking(block))
+        .collect();
+    if visible.is_empty() && !content.is_empty() {
+        return Vec::new();
+    }
+    let facts: Vec<_> = visible.into_iter().flat_map(claude_content).collect();
     if facts.is_empty() {
         diagnostic("emptyClaudeAssistant")
     } else {
         facts
     }
+}
+
+fn signed_empty_thinking(block: &Value) -> bool {
+    string(block, "type") == Some("thinking")
+        && string(block, "thinking") == Some("")
+        && string(block, "signature").is_some_and(|signature| !signature.is_empty())
 }
 
 fn claude_content(block: &Value) -> Vec<PublicWireFact> {
@@ -214,38 +228,13 @@ fn claude_content(block: &Value) -> Vec<PublicWireFact> {
                 },
             ),
         Some("tool_use") => {
-            tool_activity(block, ToolPhase::Started, "malformedClaudeToolUse", false)
+            let mut facts =
+                tool_activity(block, ToolPhase::Started, "malformedClaudeToolUse", false);
+            facts.extend(claude_protocol::proposed_plan(block));
+            facts
         }
         _ => diagnostic("unsupportedClaudeContent"),
     }
-}
-
-fn claude_result(frame: &Value) -> Vec<PublicWireFact> {
-    let failed = frame
-        .get("is_error")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let phase = if failed {
-        TurnPhase::Failed
-    } else {
-        TurnPhase::Ready
-    };
-    let mut facts = Vec::new();
-    if failed {
-        facts.push(PublicWireFact::Event(
-            NormalizedProviderEvent::ProviderFailure {
-                classification: claude_protocol::failure_classification(frame),
-                message: claude_protocol::failure_message(frame),
-            },
-        ));
-    }
-    facts.extend([
-        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {
-            activity: RootActivity::Idle,
-        }),
-        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase { phase }),
-    ]);
-    facts
 }
 
 fn claude_error(frame: &Value) -> Vec<PublicWireFact> {
@@ -265,16 +254,7 @@ fn permission_denied(frame: &Value) -> Vec<PublicWireFact> {
         (Some(tool_use_id), Some(tool_name))
             if !tool_use_id.is_empty() && !tool_name.is_empty() =>
         {
-            vec![PublicWireFact::Lifecycle(
-                NormalizedLifecycleSignal::ToolActivity {
-                    activity: ToolActivity {
-                        tool_use_id: tool_use_id.into(),
-                        tool_name: tool_name.into(),
-                        phase: ToolPhase::Failed,
-                        output_digest: None,
-                    },
-                },
-            )]
+            claude_protocol::activity(tool_use_id, tool_name, ToolPhase::Failed, None, None)
         }
         _ => diagnostic("malformedClaudePermissionDenied"),
     }
@@ -295,16 +275,7 @@ fn tool_activity(
         (Some(tool_use_id), Some(tool_name))
             if !tool_use_id.is_empty() && !tool_name.is_empty() =>
         {
-            vec![PublicWireFact::Lifecycle(
-                NormalizedLifecycleSignal::ToolActivity {
-                    activity: ToolActivity {
-                        tool_use_id: tool_use_id.into(),
-                        tool_name: tool_name.into(),
-                        phase,
-                        output_digest: None,
-                    },
-                },
-            )]
+            claude_protocol::activity(tool_use_id, tool_name, phase, None, None)
         }
         _ => diagnostic(invalid),
     }

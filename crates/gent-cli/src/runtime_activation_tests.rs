@@ -13,10 +13,7 @@ const TARGET: &str = "x86_64-unknown-linux-gnu";
 fn activation_selects_a_complete_newer_bootstrap_without_downgrading() {
     let temporary = tempfile::tempdir().unwrap();
     let bootstrap = temporary.path().join("bootstrap");
-    fs::create_dir_all(&bootstrap).unwrap();
-    for name in required_files() {
-        fs::write(bootstrap.join(name), name).unwrap();
-    }
+    write_bootstrap(&bootstrap, |name| name.to_owned());
     fs::write(
         bootstrap.join("bootstrap.json"),
         format!(r#"{{"version":"v0.1.21","target":"{TARGET}"}}"#),
@@ -67,10 +64,7 @@ fn activation_passes_data_directory_before_the_update_subcommand() {
 fn activation_keeps_the_runtime_available_when_scheduler_refresh_fails() {
     let temporary = tempfile::tempdir().unwrap();
     let bootstrap = temporary.path().join("bootstrap");
-    fs::create_dir_all(&bootstrap).unwrap();
-    for name in required_files() {
-        fs::write(bootstrap.join(name), name).unwrap();
-    }
+    write_bootstrap(&bootstrap, |name| name.to_owned());
     fs::write(
         bootstrap.join("bootstrap.json"),
         format!(r#"{{"version":"v0.1.23","target":"{TARGET}"}}"#),
@@ -87,13 +81,35 @@ fn activation_keeps_the_runtime_available_when_scheduler_refresh_fails() {
 
 #[cfg(not(windows))]
 #[test]
+fn isolated_runtime_root_activation_never_takes_over_update_scheduling() {
+    use std::os::unix::fs::PermissionsExt;
+    let temporary = tempfile::tempdir().unwrap();
+    let bootstrap = temporary.path().join("bootstrap");
+    write_bootstrap(&bootstrap, |name| name.to_owned());
+    let marker = temporary.path().join("scheduler-invoked");
+    fs::write(
+        bootstrap.join("gent"),
+        format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+    )
+    .unwrap();
+    fs::set_permissions(bootstrap.join("gent"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(
+        bootstrap.join("bootstrap.json"),
+        format!(r#"{{"version":"v0.1.26","target":"{TARGET}"}}"#),
+    )
+    .unwrap();
+    let root = temporary.path().join("isolated-runtime");
+    let daemon = activate(bootstrap, Some(root.clone()), temporary.path().join("data")).unwrap();
+    assert_eq!(daemon, root.join("current/gentd"));
+    assert!(!marker.exists());
+}
+
+#[cfg(not(windows))]
+#[test]
 fn activation_refreshes_the_runtime_root_auto_update_helper() {
     let temporary = tempfile::tempdir().unwrap();
     let bootstrap = temporary.path().join("bootstrap");
-    fs::create_dir_all(&bootstrap).unwrap();
-    for name in required_files() {
-        fs::write(bootstrap.join(name), format!("new-{name}")).unwrap();
-    }
+    write_bootstrap(&bootstrap, |name| format!("new-{name}"));
     fs::write(
         bootstrap.join("bootstrap.json"),
         format!(r#"{{"version":"v0.1.24","target":"{TARGET}"}}"#),
@@ -114,10 +130,7 @@ fn activation_refreshes_the_runtime_root_auto_update_helper() {
 fn activation_reuses_a_signed_release_with_the_same_verified_identity() {
     let temporary = tempfile::tempdir().unwrap();
     let bootstrap = temporary.path().join("bootstrap");
-    fs::create_dir_all(&bootstrap).unwrap();
-    for name in required_files() {
-        fs::write(bootstrap.join(name), name).unwrap();
-    }
+    write_bootstrap(&bootstrap, |name| name.to_owned());
     fs::write(
         bootstrap.join("bootstrap.json"),
         format!(r#"{{"version":"v0.1.25","target":"{TARGET}"}}"#),
@@ -136,4 +149,75 @@ fn activation_reuses_a_signed_release_with_the_same_verified_identity() {
         selected_release(&root).unwrap().as_deref(),
         Some(expected.as_str())
     );
+}
+
+#[cfg(not(windows))]
+#[test]
+fn activation_restages_a_rebuilt_release_that_kept_its_version() {
+    let temporary = tempfile::tempdir().unwrap();
+    let bootstrap = temporary.path().join("bootstrap");
+    write_bootstrap(&bootstrap, |name| name.to_owned());
+    fs::write(
+        bootstrap.join("bootstrap.json"),
+        format!(r#"{{"version":"v0.1.34","target":"{TARGET}"}}"#),
+    )
+    .unwrap();
+    let root = temporary.path().join("runtime");
+    activate_at(&bootstrap, &root, temporary.path(), verify_scheduler).unwrap();
+    let release = root.join("releases").join(format!("v0.1.34-{TARGET}"));
+    let witness = release.join("staged-once");
+    fs::write(&witness, "witness").unwrap();
+
+    activate_at(&bootstrap, &root, temporary.path(), verify_scheduler).unwrap();
+    assert!(witness.exists(), "identical bytes must be reused");
+
+    fs::write(bootstrap.join("gentd"), "rebuilt gentd").unwrap();
+    activate_at(&bootstrap, &root, temporary.path(), verify_scheduler).unwrap();
+    assert!(!witness.exists(), "rebuilt bytes must be restaged");
+    assert_eq!(
+        fs::read_to_string(release.join("gentd")).unwrap(),
+        "rebuilt gentd"
+    );
+    assert_eq!(
+        selected_release(&root).unwrap().as_deref(),
+        Some(format!("v0.1.34-{TARGET}").as_str())
+    );
+    assert!(active_daemon(&root).exists());
+}
+
+#[cfg(not(windows))]
+fn write_bootstrap(bootstrap: &Path, contents: fn(&str) -> String) {
+    for name in required_files() {
+        let path = bootstrap.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents(name)).unwrap();
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn activation_refuses_a_bootstrap_without_its_packaged_runtime_or_authority() {
+    for missing in [
+        "runtime/node/bin/node",
+        "runtime/claurst/claurst",
+        "runtime/claurst/llama/llama-server",
+        "authority/ordinary-authority.json",
+        "authority/root-keys.json",
+    ] {
+        let temporary = tempfile::tempdir().unwrap();
+        let bootstrap = temporary.path().join("bootstrap");
+        write_bootstrap(&bootstrap, |name| name.to_owned());
+        fs::remove_file(bootstrap.join(missing)).unwrap();
+        fs::write(
+            bootstrap.join("bootstrap.json"),
+            format!(r#"{{"version":"v0.1.27","target":"{TARGET}"}}"#),
+        )
+        .unwrap();
+        let root = temporary.path().join("runtime-root");
+        assert!(
+            activate_at(&bootstrap, &root, temporary.path(), verify_scheduler).is_err(),
+            "a bootstrap without {missing} must not be activated"
+        );
+        assert!(!root.join("current").exists());
+    }
 }

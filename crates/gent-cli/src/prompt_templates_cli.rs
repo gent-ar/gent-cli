@@ -12,21 +12,37 @@ use crate::local_ipc::connect_and_negotiate;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PromptTemplateCommand {
+    #[command(about = "Create a prompt template")]
     Create {
+        #[arg(help = "Template id")]
         template_id: String,
+        #[arg(help = "Display name")]
         name: String,
+        #[arg(help = "Template body; use {{name}} for variables")]
         body: String,
     },
+    #[command(about = "List prompt templates")]
     List,
+    #[command(about = "Show one prompt template")]
     Get {
+        #[arg(help = "Template id")]
         template_id: String,
     },
+    #[command(about = "Delete a prompt template")]
     Delete {
+        #[arg(help = "Template id")]
         template_id: String,
     },
+    #[command(about = "Render a prompt template with variables")]
     Render {
+        #[arg(help = "Template id")]
         template_id: String,
-        #[arg(long = "var", value_parser = parse_variable)]
+        #[arg(
+            long = "var",
+            value_parser = parse_variable,
+            value_name = "NAME=VALUE",
+            help = "Variable value (repeatable)"
+        )]
         variables: Vec<PromptTemplateVariable>,
     },
 }
@@ -85,8 +101,8 @@ pub(crate) async fn execute(
     if let Ok(reply) = serde_json::from_value::<PromptTemplateFrame>(raw.clone()) {
         return Ok(serde_json::to_value(reply)?);
     }
-    if let Ok(gent_protocol::WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     Err("daemon did not return a prompt template response".into())
 }

@@ -5,6 +5,7 @@
 pub enum LaunchIntent {
     Start,
     Resume { session_id: String },
+    Recreate { session_id: String },
 }
 
 /// Returns the minimal, documented arguments required to enter a public transport.
@@ -23,10 +24,25 @@ pub fn arguments(provider: &str, intent: &LaunchIntent) -> Result<Vec<String>, L
             arguments.extend(["--resume".into(), session_id.clone()]);
             Ok(arguments)
         }
-        ("claude", LaunchIntent::Resume { .. }) => Err(LaunchSpecError::EmptySessionId),
-        ("codex", _) => Ok(vec!["app-server".into()]),
+        ("claude", LaunchIntent::Recreate { session_id }) if !session_id.is_empty() => {
+            let mut arguments = claude_stream_arguments();
+            arguments.extend(["--session-id".into(), session_id.clone()]);
+            Ok(arguments)
+        }
+        ("claude", LaunchIntent::Resume { .. } | LaunchIntent::Recreate { .. }) => {
+            Err(LaunchSpecError::EmptySessionId)
+        }
+        ("codex", _) => Ok(codex_app_server_arguments()),
         (provider, _) => Err(LaunchSpecError::UnsupportedProvider(provider.into())),
     }
+}
+
+#[must_use]
+pub fn codex_app_server_arguments() -> Vec<String> {
+    ["app-server", "-c", "check_for_update_on_startup=false"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
 }
 
 pub fn append_claude_mcp_config(arguments: &mut Vec<String>, path: Option<&std::path::Path>) {
@@ -43,6 +59,8 @@ fn claude_stream_arguments() -> Vec<String> {
         "stream-json",
         "--print",
         "--verbose",
+        "--include-partial-messages",
+        "--replay-user-messages",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -72,6 +90,8 @@ mod tests {
                 "stream-json",
                 "--print",
                 "--verbose",
+                "--include-partial-messages",
+                "--replay-user-messages",
             ]
         );
         assert_eq!(
@@ -97,6 +117,31 @@ mod tests {
     }
 
     #[test]
+    fn claude_recreates_a_lost_session_under_its_bound_identity_instead_of_resuming() {
+        let recreated = arguments(
+            "claude",
+            &LaunchIntent::Recreate {
+                session_id: "session-1".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            recreated[recreated.len() - 2..],
+            ["--session-id", "session-1"]
+        );
+        assert!(!recreated.iter().any(|argument| argument == "--resume"));
+        assert_eq!(
+            arguments(
+                "claude",
+                &LaunchIntent::Recreate {
+                    session_id: String::new(),
+                }
+            ),
+            Err(LaunchSpecError::EmptySessionId)
+        );
+    }
+
+    #[test]
     fn codex_uses_its_app_server_and_private_names_are_rejected() {
         assert_eq!(
             arguments(
@@ -105,7 +150,11 @@ mod tests {
                     session_id: "thread-1".into(),
                 }
             ),
-            Ok(vec!["app-server".into()])
+            Ok(vec![
+                "app-server".into(),
+                "-c".into(),
+                "check_for_update_on_startup=false".into()
+            ])
         );
         assert!(matches!(
             arguments("claurst", &LaunchIntent::Start),

@@ -145,7 +145,7 @@ fn start_persists_run_lock_and_lease_before_fake_launch() {
     assert_eq!(resolver_calls.load(Ordering::SeqCst), 1);
 }
 #[test]
-fn changed_binary_returns_provider_changed_after_durable_reservation() {
+fn a_binary_changed_before_spawn_is_denied_after_durable_reservation() {
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("claude");
     fs::write(&executable, "stable").unwrap();
@@ -158,10 +158,9 @@ fn changed_binary_returns_provider_changed_after_durable_reservation() {
         resolved_lock(&executable),
     );
     let answer = service.start(request(&executable)).unwrap();
-    assert_eq!(answer.outcome, PublicRunOutcome::ProviderChanged);
-    assert_ne!(answer.run_id, "run-a");
-    let child = ledger.find_run(&answer.run_id).unwrap().unwrap();
-    assert_eq!(child.parent_run_id, Some("run-a".into()));
+    assert_eq!(answer.outcome, PublicRunOutcome::Denied);
+    assert_eq!(answer.run_id, "run-a");
+    assert!(ledger.find_run_version_lock("run-a").unwrap().is_some());
 }
 
 #[test]
@@ -292,5 +291,66 @@ fn resume_refuses_runs_without_a_server_owned_session() {
                 host_epoch: HostEpoch(1),
             })
             .is_err()
+    );
+}
+
+#[derive(Debug)]
+struct CurrentFileResolver(std::path::PathBuf);
+
+impl gent_ports::PublicProviderResolver for CurrentFileResolver {
+    fn resolve(&self, _: &str) -> Result<RunVersionLock, PublicProviderRunError> {
+        Ok(resolved_lock(&self.0))
+    }
+}
+
+#[test]
+fn resume_rebinds_the_run_to_the_currently_authorized_executable() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("claude");
+    fs::write(&executable, "version a").unwrap();
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let runner = FakeRunner::new(ledger.clone());
+    let resumed_sessions = Arc::clone(&runner.resumed_sessions);
+    let (authorizer, allowed, _) = FakeAuthorizer::new(true);
+    let service = PublicRunService::new(
+        Coordinator::new(ledger.clone(), CapabilitySet::default()),
+        runner,
+        authorizer,
+        CurrentFileResolver(executable.clone()),
+        ProviderRunAuthority::PublicDrivers,
+    );
+    service.start(request(&executable)).unwrap();
+    service
+        .record_provider_session("run-a".into(), "daemon-a", HostEpoch(1), "session".into())
+        .unwrap();
+    let resume = || {
+        service
+            .resume(PublicRunResumeRequest {
+                run_id: "run-a".into(),
+                coordinator_id: "daemon-a".into(),
+                host_epoch: HostEpoch(1),
+            })
+            .unwrap()
+            .outcome
+    };
+    assert!(service.launched_executable_is_current("run-a").unwrap());
+
+    fs::write(&executable, "version b, upgraded").unwrap();
+    assert!(!service.launched_executable_is_current("run-a").unwrap());
+    assert_eq!(resume(), PublicRunOutcome::Resumed);
+    assert_eq!(
+        ledger.find_run_version_lock("run-a").unwrap(),
+        Some(resolved_lock(&executable))
+    );
+    assert!(service.launched_executable_is_current("run-a").unwrap());
+    assert_eq!(resumed_sessions.lock().unwrap().as_slice(), ["session"]);
+
+    fs::write(&executable, "version c, unauthorized").unwrap();
+    allowed.store(0, Ordering::SeqCst);
+    assert_eq!(resume(), PublicRunOutcome::Denied);
+    assert_eq!(resumed_sessions.lock().unwrap().len(), 1);
+    assert_ne!(
+        ledger.find_run_version_lock("run-a").unwrap(),
+        Some(resolved_lock(&executable))
     );
 }

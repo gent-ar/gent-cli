@@ -1,44 +1,44 @@
 //! Durable boundary for provider-neutral user-authored conversation goals.
 
-use gent_types::{GoalBinding, GoalRecord};
+use gent_types::{GoalRecord, GoalTurnObservation, HostEpoch};
 
 use crate::LedgerError;
 
-/// The result of one atomic goal create or compare-and-replace attempt.
+pub const MAX_GOAL_TURN_OBSERVATIONS: usize = 64;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GoalWrite {
-    Created(GoalRecord),
     Updated(GoalRecord),
-    Current(GoalRecord),
+    Current(Option<GoalRecord>),
 }
 
-/// Persistence boundary for revision-fenced goal records.
 pub trait GoalLedger: Send + Sync {
-    /// Reads one durable goal by its complete ownership binding.
-    ///
-    /// # Errors
-    /// Returns an error when durable state cannot be read.
-    fn find_goal(&self, binding: &GoalBinding) -> Result<Option<GoalRecord>, LedgerError>;
+    fn current_goal(&self, conversation_id: &str) -> Result<Option<GoalRecord>, LedgerError>;
 
-    /// Atomically creates a revision-one goal or returns the existing record.
-    ///
-    /// # Errors
-    /// Returns an error when persistence fails or the record violates durable invariants.
-    fn create_goal(&self, goal: &GoalRecord) -> Result<GoalWrite, LedgerError>;
+    fn find_goal(&self, goal_id: &str) -> Result<Option<GoalRecord>, LedgerError>;
 
-    /// Atomically replaces an exact current revision or returns the durable current record.
-    ///
-    /// # Errors
-    /// Returns an error when persistence fails or the replacement changes immutable identity.
+    fn active_goals(&self) -> Result<Vec<GoalRecord>, LedgerError>;
+
+    fn create_goal(
+        &self,
+        expected_current: Option<&GoalRecord>,
+        replaced: Option<&GoalRecord>,
+        goal: &GoalRecord,
+        host_epoch: HostEpoch,
+    ) -> Result<GoalWrite, LedgerError>;
+
     fn replace_goal(
         &self,
         expected: &GoalRecord,
         next: &GoalRecord,
+        host_epoch: HostEpoch,
     ) -> Result<GoalWrite, LedgerError>;
 
-    /// Reads the bounded current goals in one conversation, ordered by stable creation identity.
-    ///
-    /// # Errors
-    /// Returns an error when durable state cannot be read.
-    fn conversation_goals(&self, conversation_id: &str) -> Result<Vec<GoalRecord>, LedgerError>;
+    fn goal_turns(
+        &self,
+        conversation_id: &str,
+        after_ordinal: u64,
+    ) -> Result<Vec<GoalTurnObservation>, LedgerError>;
+
+    fn latest_turn_ordinal(&self, conversation_id: &str) -> Result<u64, LedgerError>;
 }

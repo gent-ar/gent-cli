@@ -1,6 +1,6 @@
 //! Daemon mapping for secret-free permission-policy revisions.
 
-use gent_ports::{Ledger, PolicyLedger};
+use gent_ports::{Ledger, PolicyLedger, WorkspaceLedger};
 use gent_protocol::PermissionPolicyFrame;
 use gent_runtime::Coordinator;
 use gent_types::{PermissionMode, PolicyScope};
@@ -11,14 +11,13 @@ pub(crate) fn exchange<L>(
     frame: PermissionPolicyFrame,
 ) -> Result<PermissionPolicyFrame, String>
 where
-    L: Ledger + PolicyLedger,
+    L: Ledger + PolicyLedger + WorkspaceLedger,
 {
     match frame {
         PermissionPolicyFrame::Current {
             request_id,
             workspace_id,
-        } => coordinator
-            .current_policy(&workspace_id, PolicyScope::ProviderPermissions)
+        } => current(coordinator, &workspace_id)
             .map(|policy| PermissionPolicyFrame::CurrentPolicy { request_id, policy })
             .map_err(|error| error.to_string()),
         PermissionPolicyFrame::Save {
@@ -30,6 +29,21 @@ where
             Err("permission policy response frames are server-only".into())
         }
     }
+}
+
+fn current<L>(
+    coordinator: &Coordinator<L>,
+    workspace_id: &str,
+) -> Result<Option<gent_types::PolicyRecord>, gent_runtime::RuntimeError>
+where
+    L: Ledger + PolicyLedger + WorkspaceLedger,
+{
+    if coordinator.workspace(workspace_id)?.is_none() {
+        return coordinator.current_policy(workspace_id, PolicyScope::ProviderPermissions);
+    }
+    coordinator
+        .ensure_default_provider_permission_policy(workspace_id)
+        .map(Some)
 }
 
 fn save<L>(
@@ -135,12 +149,12 @@ mod tests {
             .ensure_default_provider_permission_policy("workspace-1")
             .unwrap();
         assert_eq!(first, retry);
-        assert_eq!(first.mode, PermissionMode::Default);
+        assert_eq!(first.mode, PermissionMode::AskEveryTime);
         assert!(first.allowed_tools.is_empty() && first.allowed_categories.is_empty());
         let revised = PolicyRecord {
             revision: 2,
             policy_id: "policy-2".into(),
-            mode: PermissionMode::Plan,
+            mode: PermissionMode::AskEveryTime,
             ..first
         };
         coordinator.save_policy(&revised).unwrap();
@@ -150,5 +164,39 @@ mod tests {
                 .unwrap(),
             revised
         );
+    }
+
+    #[test]
+    fn a_known_workspace_reports_the_policy_that_gates_its_chats() {
+        let ledger = SqliteLedger::in_memory().unwrap();
+        let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
+        coordinator
+            .create_workspace(&WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
+            })
+            .unwrap();
+        let current = |workspace_id: &str| match exchange(
+            &coordinator,
+            PermissionPolicyFrame::Current {
+                request_id: "request".into(),
+                workspace_id: workspace_id.into(),
+            },
+        )
+        .unwrap()
+        {
+            PermissionPolicyFrame::CurrentPolicy { policy, .. } => policy,
+            _ => panic!("current policy reply"),
+        };
+        let policy = current("workspace-1").unwrap();
+        assert_eq!(
+            (policy.revision, policy.mode),
+            (1, PermissionMode::AskEveryTime)
+        );
+        assert_eq!(
+            crate::permission_workspace::policy_for(&ledger, "workspace-1").unwrap(),
+            policy
+        );
+        assert_eq!(current("workspace-unknown"), None);
     }
 }

@@ -59,7 +59,6 @@ pub enum ProviderAuthRejection {
     InvalidChallenge,
     NoActiveChallenge,
     ChallengeMismatch,
-    MethodNotOffered,
 }
 
 /// Reduces one typed provider-auth event without process, persistence, or clock access.
@@ -149,12 +148,6 @@ fn select(
     }
     if challenge.expires_at_unix_seconds <= now {
         return expire(state, &challenge);
-    }
-    if !challenge.methods.contains(&selection.method) {
-        return (
-            state,
-            ProviderAuthEffect::Rejected(ProviderAuthRejection::MethodNotOffered),
-        );
     }
     if state.status.as_ref().is_some_and(|current| {
         current.lifecycle == ProviderAuthLifecycle::Verifying
@@ -248,7 +241,7 @@ fn status(
 ) -> ProviderAuthStatus {
     ProviderAuthStatus {
         provider,
-        binary_lock,
+        binary_lock: Some(binary_lock),
         lifecycle,
         selected_method,
         expires_at_unix_seconds,

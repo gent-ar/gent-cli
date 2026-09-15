@@ -25,17 +25,21 @@ pub fn encode_codex_handshake(request_id: u64) -> Result<Vec<Vec<u8>>, MessageEn
         return Err(MessageEncodingError::InvalidCodexRequestId);
     }
     Ok(vec![
-        encode_frame(&json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "initialize",
-            "params": {
-                "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
-                "capabilities": {}
-            }
-        }))?,
+        encode_frame(&codex_initialize_request(request_id))?,
         encode_frame(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}))?,
     ])
+}
+
+pub(crate) fn codex_initialize_request(request_id: u64) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
+            "capabilities": {"experimentalApi": true, "requestAttestation": false}
+        }
+    })
 }
 
 /// Encodes one `userMessage` command as an NDJSON frame for a known public transport.
@@ -189,7 +193,7 @@ mod tests {
         assert_eq!(
             frames.iter().map(|frame| decode(frame)).collect::<Vec<_>>(),
             vec![
-                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"gent","version":env!("CARGO_PKG_VERSION")},"capabilities":{}}}),
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"gent","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true,"requestAttestation":false}}}),
                 json!({"jsonrpc":"2.0","method":"initialized","params":{}}),
             ]
         );

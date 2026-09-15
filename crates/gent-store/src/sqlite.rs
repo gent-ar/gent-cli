@@ -12,9 +12,12 @@ mod agent_chat_compaction_ledger;
 mod agent_chat_conversation_config;
 mod agent_chat_conversation_config_ledger;
 mod agent_chat_ledger;
+mod agent_chat_projection_ledger;
+mod agent_chat_queue_activity;
 mod agent_chat_read_ledger;
 mod agent_chat_run_context_ledger;
 mod agent_chat_sessions;
+mod agent_chat_steer_interrupt;
 mod agent_chat_terminal_settlement;
 #[cfg(test)]
 mod agent_chat_terminal_settlement_tests;
@@ -65,8 +68,11 @@ mod runs;
 mod runtime_update_journal;
 mod tool_source_ledger;
 mod tool_sources;
+mod transcript_attachments;
 mod transcript_ledger;
+mod transcript_settlement;
 mod turn_follow_ledger;
+mod turn_terminal;
 mod workspace_ledger;
 mod workspaces;
 use epoch::require_epoch;
@@ -255,6 +261,13 @@ impl Ledger for SqliteLedger {
             return Err(LedgerError::Invariant("run does not exist".into()));
         }
         save_run_session_binding(&connection, binding)
+    }
+    fn retire_run_session_binding(
+        &self,
+        binding: &RunSessionBinding,
+        host_epoch: gent_types::HostEpoch,
+    ) -> Result<(), LedgerError> {
+        leases::retire_run_session_binding(self, binding, host_epoch)
     }
     fn find_run_session_binding(
         &self,

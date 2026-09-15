@@ -12,7 +12,7 @@ pub struct CodexTurnOptions {
     effort: CodexTurnEffort,
     sandbox: CodexSandboxPolicy,
     approval: CodexApprovalPolicy,
-    instruction: Option<&'static str>,
+    plan: bool,
     configured_append_system_prompt: Option<String>,
 }
 
@@ -49,12 +49,11 @@ impl CodexTurnOptions {
         selection: &AgentChatSelection,
         working_directory: Option<&str>,
     ) -> Result<Self, CodexSessionError> {
-        let permission_mode = match selection.mode {
-            AgentChatMode::Ask => PermissionMode::Default,
-            AgentChatMode::Plan => PermissionMode::Plan,
-            AgentChatMode::Agent => PermissionMode::AutoAcceptEdits,
-        };
-        Self::from_selection_with_permissions(selection, working_directory, permission_mode)
+        Self::from_selection_with_permissions(
+            selection,
+            working_directory,
+            PermissionMode::AskEveryTime,
+        )
     }
 
     pub fn from_selection_with_permissions(
@@ -89,7 +88,7 @@ impl CodexTurnOptions {
                 mode_sandbox
             };
         let approval = match permission_mode {
-            PermissionMode::Default | PermissionMode::Plan => CodexApprovalPolicy::Untrusted,
+            PermissionMode::AskEveryTime => CodexApprovalPolicy::Untrusted,
             PermissionMode::AutoAcceptEdits | PermissionMode::Autonomous => {
                 CodexApprovalPolicy::OnRequest
             }
@@ -100,9 +99,7 @@ impl CodexTurnOptions {
             effort,
             sandbox,
             approval,
-            instruction: (selection.mode == AgentChatMode::Plan).then_some(
-                "You are in Plan Mode. Do not make changes, run write commands, or apply patches. Inspect only as needed, then provide a complete, actionable plan and wait for user approval before implementation.",
-            ),
+            plan: selection.mode == AgentChatMode::Plan,
             configured_append_system_prompt: None,
         })
     }
@@ -115,7 +112,7 @@ impl CodexTurnOptions {
                 effort: CodexTurnEffort::Low,
                 sandbox: CodexSandboxPolicy::ReadOnly,
                 approval: CodexApprovalPolicy::Never,
-                instruction: None,
+                plan: false,
                 configured_append_system_prompt: None,
             })
             .ok_or(CodexSessionError::InvalidModel)
@@ -183,19 +180,13 @@ pub(crate) fn turn_parameters(
         }),
         CodexSandboxPolicy::DangerFullAccess => json!({"type": "dangerFullAccess"}),
     };
-    let instruction = match (
-        options.instruction,
-        options.configured_append_system_prompt.as_deref(),
-    ) {
-        (Some(mode_text), Some(configured)) => Some(format!("{mode_text}\n\n{configured}")),
-        (Some(text), None) => Some(text.to_owned()),
-        (None, Some(text)) => Some(text.to_owned()),
-        (None, None) => None,
-    };
-    let prompt = instruction.map_or_else(
-        || prompt.into(),
-        |instruction| format!("{instruction}\n\nUser request:\n{prompt}"),
-    );
+    let prompt = options
+        .configured_append_system_prompt
+        .as_deref()
+        .map_or_else(
+            || prompt.into(),
+            |instruction| format!("{instruction}\n\nUser request:\n{prompt}"),
+        );
     let mut parameters = json!({
         "threadId": thread_id,
         "input": [{"type": "text", "text": prompt}],
@@ -205,6 +196,12 @@ pub(crate) fn turn_parameters(
     });
     if let Some(model) = options.model() {
         parameters["model"] = Value::String(model.into());
+        if options.plan {
+            parameters["collaborationMode"] = json!({
+                "mode": "plan",
+                "settings": {"model": model, "reasoning_effort": options.effort(), "developer_instructions": null},
+            });
+        }
     }
     if !attachments.is_empty() {
         let input = parameters["input"]
@@ -233,13 +230,16 @@ pub enum CodexSessionIngress {
     /// Frames that must be written in order before reading another provider response.
     Send(Vec<Vec<u8>>),
     /// The matching thread response established a usable native thread.
-    Ready { thread_id: String },
+    Ready {
+        thread_id: String,
+    },
     /// The matching turn response established a live native turn.
     TurnStarted,
     /// The live native turn ended.
     TurnEnded,
     /// The frame did not affect this session.
     Ignored,
+    Steer(super::CodexSteerOutcome),
 }
 
 /// Controlled failures for the bounded Codex app-server handshake.
@@ -255,7 +255,7 @@ pub enum CodexSessionError {
     ThreadNotReady,
     #[error("the Codex app-server already has a live or pending user turn")]
     TurnAlreadyActive,
-    #[error("the Codex app-server has no live turn to interrupt")]
+    #[error("the Codex app-server has no live turn")]
     TurnNotActive,
     #[error("the Codex app-server already has a pending interrupt request")]
     InterruptAlreadyRequested,
@@ -271,6 +271,8 @@ pub enum CodexSessionError {
     RequestRejected,
     #[error("the resumed Codex thread did not match the exact recorded identity")]
     ResumedThreadMismatch,
+    #[error("the Codex app-server no longer has the resumed thread")]
+    ResumedThreadUnavailable,
     #[error("the Codex turn notification and response disagreed")]
     TurnIdentityMismatch,
     #[error("the Codex app-server frame could not be encoded")]
@@ -289,15 +291,26 @@ mod tests {
     };
 
     #[test]
-    fn configured_append_system_prompt_composes_with_the_plan_mode_instruction() {
+    fn plan_mode_is_codex_native_collaboration_mode_without_a_prompt_prefix() {
         let options = CodexTurnOptions::from_selection(&selection(AgentChatMode::Plan), None)
             .unwrap()
             .with_conversation_config(Some("Prefer terse replies.".into()), true);
         let parameters = turn_parameters(&options, "thread", "do the thing", &[]);
-        let text = parameters["input"][0]["text"].as_str().unwrap();
-        assert!(text.contains("Plan Mode"));
-        assert!(text.contains("Prefer terse replies."));
-        assert!(text.ends_with("User request:\ndo the thing"));
+        assert_eq!(
+            parameters["collaborationMode"],
+            serde_json::json!({"mode": "plan", "settings": {"model": "gpt-5.6", "reasoning_effort": "high", "developer_instructions": null}})
+        );
+        assert_eq!(
+            parameters["input"][0]["text"],
+            "Prefer terse replies.\n\nUser request:\ndo the thing"
+        );
+        let agent =
+            CodexTurnOptions::from_selection(&selection(AgentChatMode::Agent), None).unwrap();
+        assert!(
+            turn_parameters(&agent, "thread", "do the thing", &[])
+                .get("collaborationMode")
+                .is_none()
+        );
     }
 
     #[test]
@@ -345,11 +358,7 @@ mod tests {
         let parameters = turn_parameters(&options, "thread", "prompt", &[]);
         assert_eq!(parameters["approvalPolicy"], "never");
         assert_eq!(parameters["sandboxPolicy"]["type"], "readOnly");
-        assert!(
-            parameters["input"][0]["text"]
-                .as_str()
-                .is_some_and(|text| text.contains("Plan Mode"))
-        );
+        assert_eq!(parameters["collaborationMode"]["mode"], "plan");
     }
 
     #[test]
@@ -363,7 +372,7 @@ mod tests {
         let options = CodexTurnOptions::from_selection_with_permissions(
             &selection,
             Some("/workspace"),
-            PermissionMode::Default,
+            PermissionMode::AskEveryTime,
         )
         .unwrap();
         assert_eq!(

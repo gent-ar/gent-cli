@@ -2,20 +2,50 @@
 
 use gent_types::{
     NormalizedLifecycleSignal, NormalizedProviderEvent, ProviderFailureClassification,
-    ToolActivity, ToolPhase,
+    RootActivity, ToolActivity, ToolPhase, TurnPhase,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 
 use super::PublicWireFact;
 
 #[path = "claude_protocol/usage.rs"]
 mod usage;
-pub(super) use usage::context_usage;
+pub(super) use usage::{context_usage, turn_usage};
+
+pub(super) fn compaction(frame: &Value) -> Vec<PublicWireFact> {
+    let observation = match (string(frame, "subtype"), frame.get("compact_result")) {
+        (Some("compact_boundary"), _) => super::PublicCompactionObservation::Completed,
+        (_, Some(result)) if result.as_str() != Some("success") => {
+            super::PublicCompactionObservation::Failed {
+                failure: gent_types::AgentChatCompactionFailure::ProviderFailed,
+            }
+        }
+        _ if string(frame, "status") == Some("compacting") => {
+            super::PublicCompactionObservation::Started
+        }
+        _ => return Vec::new(),
+    };
+    vec![PublicWireFact::Compaction(observation)]
+}
+
+pub(super) fn proposed_plan(block: &Value) -> Option<PublicWireFact> {
+    (string(block, "name") == Some("ExitPlanMode"))
+        .then(|| block.pointer("/input/plan").and_then(Value::as_str))
+        .flatten()
+        .filter(|plan| !plan.trim().is_empty())
+        .map(|plan| {
+            PublicWireFact::Event(gent_types::NormalizedProviderEvent::PlanProposed {
+                text: plan.into(),
+            })
+        })
+}
 #[path = "claude_protocol/control.rs"]
 mod control;
 pub(super) use control::control_response;
+#[path = "claude_protocol/child.rs"]
+mod child;
+pub(crate) use child::{child, child_parent, task_notification, task_terminal};
 
 pub(super) fn partial_text(delta: &Value, field: &str, thinking: bool) -> Vec<PublicWireFact> {
     let Some(text) = string(delta, field).filter(|text| !text.is_empty()) else {
@@ -87,16 +117,17 @@ pub(super) fn user(frame: &Value) -> Vec<PublicWireFact> {
     let Some(content) = frame.pointer("/message/content").and_then(Value::as_array) else {
         return Vec::new();
     };
+    let parent_tool_use_id = child_parent(frame);
     let mut facts = content
         .iter()
         .filter(|block| string(block, "type") == Some("tool_result"))
-        .flat_map(tool_result)
+        .flat_map(|block| tool_result(block, parent_tool_use_id))
         .collect::<Vec<_>>();
     facts.extend(background_launches(frame));
     facts
 }
 
-fn tool_result(block: &Value) -> Vec<PublicWireFact> {
+fn tool_result(block: &Value, parent_tool_use_id: Option<&str>) -> Vec<PublicWireFact> {
     let Some(tool_use_id) = string(block, "tool_use_id").filter(|id| !id.is_empty()) else {
         return diagnostic("malformedClaudeToolResult");
     };
@@ -111,12 +142,24 @@ fn tool_result(block: &Value) -> Vec<PublicWireFact> {
     } else {
         ToolPhase::Completed
     };
-    activity(
+    let mut facts = activity(
         tool_use_id,
         tool_name,
         phase,
         block.get("content").map(digest_json),
-    )
+        parent_tool_use_id,
+    );
+    let text = block.get("content").map(content_text).unwrap_or_default();
+    if parent_tool_use_id.is_none() && !text.is_empty() {
+        facts.push(PublicWireFact::Event(
+            NormalizedProviderEvent::ToolOutputDelta {
+                tool_use_id: tool_use_id.into(),
+                text,
+                is_partial: false,
+            },
+        ));
+    }
+    facts
 }
 
 pub(crate) fn background_launches(frame: &Value) -> Vec<PublicWireFact> {
@@ -149,7 +192,7 @@ pub(crate) fn background_launches(frame: &Value) -> Vec<PublicWireFact> {
         .collect()
 }
 
-fn content_text(value: &Value) -> String {
+pub(crate) fn content_text(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
         Value::Array(blocks) => blocks
@@ -171,78 +214,12 @@ fn marker_value<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
     (!value.is_empty()).then_some(value)
 }
 
-/// Background task notifications normally include only a parent tool id. Preserve no content;
-/// normalize only compatible frames that also prove the display name.
-pub(super) fn background_activity(frame: &Value) -> Vec<PublicWireFact> {
-    let Some(tool_use_id) = string(frame, "tool_use_id").filter(|id| !id.is_empty()) else {
-        return diagnostic("malformedClaudeBackgroundTask");
-    };
-    let Some(tool_name) = string(frame, "tool_name")
-        .or_else(|| string(frame, "name"))
-        .filter(|name| !name.is_empty())
-    else {
-        return diagnostic("unresolvedClaudeBackgroundTask");
-    };
-    activity(tool_use_id, tool_name, ToolPhase::Started, None)
-}
-
-pub(crate) fn background_terminal_tool_use_ids(frame: &Value) -> Vec<String> {
-    let content = match string(frame, "type") {
-        Some("queue-operation") if string(frame, "operation") == Some("enqueue") => {
-            string(frame, "content")
-        }
-        Some("user") => frame.pointer("/message/content").and_then(Value::as_str),
-        _ => None,
-    };
-    let Some(content) = content else {
-        return Vec::new();
-    };
-    let mut ids = Vec::new();
-    let mut remaining = content;
-    while let Some(start) = remaining.find("<task-notification>") {
-        remaining = &remaining[start + "<task-notification>".len()..];
-        let Some(end) = remaining.find("</task-notification>") else {
-            break;
-        };
-        let body = &remaining[..end];
-        if tag(body, "status").is_some_and(|status| status.trim() == "completed") {
-            if let Some(id) = tag(body, "tool-use-id")
-                .map(str::trim)
-                .filter(|id| !id.is_empty() && !id.chars().any(char::is_whitespace))
-            {
-                if !ids.iter().any(|known| known == id) {
-                    ids.push(id.to_owned());
-                }
-            }
-        }
-        remaining = &remaining[end + "</task-notification>".len()..];
-    }
-    ids
-}
-
-pub(crate) fn correlated_background_activity(
-    tool_names: &BTreeMap<String, String>,
-    frame: &Value,
-) -> Option<Vec<PublicWireFact>> {
-    if string(frame, "type") != Some("system")
-        || !matches!(
-            string(frame, "subtype"),
-            Some("task_started" | "task_progress")
-        )
-        || string(frame, "tool_name").is_some_and(|name| !name.is_empty())
-    {
-        return None;
-    }
-    let tool_use_id = string(frame, "tool_use_id").filter(|id| !id.is_empty())?;
-    let tool_name = tool_names.get(tool_use_id)?;
-    Some(activity(tool_use_id, tool_name, ToolPhase::Started, None))
-}
-
 pub(crate) fn activity(
     tool_use_id: &str,
     tool_name: &str,
     phase: ToolPhase,
     output_digest: Option<String>,
+    parent_tool_use_id: Option<&str>,
 ) -> Vec<PublicWireFact> {
     vec![PublicWireFact::Lifecycle(
         NormalizedLifecycleSignal::ToolActivity {
@@ -251,6 +228,7 @@ pub(crate) fn activity(
                 tool_name: tool_name.into(),
                 phase,
                 output_digest,
+                parent_tool_use_id: parent_tool_use_id.map(str::to_owned),
             },
         },
     )]
@@ -272,54 +250,33 @@ fn string<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
     value.get(field)?.as_str()
 }
 
-fn tag<'a>(value: &'a str, name: &str) -> Option<&'a str> {
-    let open = format!("<{name}>");
-    let close = format!("</{name}>");
-    let start = value.find(&open)? + open.len();
-    let end = value[start..].find(&close)? + start;
-    Some(&value[start..end])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::background_terminal_tool_use_ids;
-    use serde_json::json;
-
-    #[test]
-    fn accepts_only_explicit_completed_background_notifications() {
-        let notification = "<task-notification>\n<tool-use-id>task-1</tool-use-id>\n<status> completed </status>\n</task-notification>";
-        assert_eq!(
-            background_terminal_tool_use_ids(&json!({
-                "type": "queue-operation",
-                "operation": "enqueue",
-                "content": notification
-            })),
-            ["task-1"]
-        );
-        assert_eq!(
-            background_terminal_tool_use_ids(&json!({
-                "type": "user",
-                "message": {"content": notification}
-            })),
-            ["task-1"]
-        );
-        assert!(background_terminal_tool_use_ids(&json!({
-            "type": "user",
-            "message": {"content": "<task-notification><tool-use-id>task-1</tool-use-id><status>running</status></task-notification>"}
-        }))
-        .is_empty());
+pub(super) fn result(frame: &Value) -> Vec<PublicWireFact> {
+    let failed = frame
+        .get("is_error")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let phase = if failed {
+        TurnPhase::Failed
+    } else {
+        TurnPhase::Ready
+    };
+    let mut facts: Vec<PublicWireFact> = turn_usage(frame)
+        .map(PublicWireFact::Event)
+        .into_iter()
+        .collect();
+    if failed {
+        facts.push(PublicWireFact::Event(
+            NormalizedProviderEvent::ProviderFailure {
+                classification: failure_classification(frame),
+                message: failure_message(frame),
+            },
+        ));
     }
-
-    #[test]
-    fn rejects_unbounded_or_malformed_task_ids() {
-        let notification = "<task-notification><tool-use-id>task one</tool-use-id><status>completed</status></task-notification>";
-        assert!(
-            background_terminal_tool_use_ids(&json!({
-                "type": "queue-operation",
-                "operation": "enqueue",
-                "content": notification
-            }))
-            .is_empty()
-        );
-    }
+    facts.extend([
+        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {
+            activity: RootActivity::Idle,
+        }),
+        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase { phase }),
+    ]);
+    facts
 }

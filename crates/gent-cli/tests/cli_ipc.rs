@@ -19,6 +19,7 @@ fn status() -> WireFrame {
         protocol_min: PROTOCOL_MAX,
         protocol_max: PROTOCOL_MAX,
         capabilities: CapabilitySet(vec!["events".into(), "receipts".into()]),
+        executable_digest_sha256: None,
     })
 }
 fn server(directory: &TempDir, connections: usize) -> Arc<Mutex<Vec<WireFrame>>> {
@@ -60,11 +61,19 @@ fn server(directory: &TempDir, connections: usize) -> Arc<Mutex<Vec<WireFrame>>>
                             "review the vendor installer",
                             true,
                         ),
-                        state: DependencyActionState::ConsentRequired,
+                        state: if request.consent_granted {
+                            DependencyActionState::Completed
+                        } else {
+                            DependencyActionState::ConsentRequired
+                        },
                         receipt: Receipt {
                             receipt_id: request.receipt_id.clone(),
                             idempotency_key: request.idempotency_key.clone(),
-                            status: ReceiptStatus::Rejected,
+                            status: if request.consent_granted {
+                                ReceiptStatus::Settled
+                            } else {
+                                ReceiptStatus::Rejected
+                            },
                             host_epoch: request.host_epoch,
                         },
                         detail: None,
@@ -88,8 +97,10 @@ fn run(directory: &TempDir, args: &[&str]) {
         .args(args)
         .output()
         .unwrap();
-    assert!(
-        output.status.success(),
+    let consent_withheld = args == ["deps", "install", "codex"];
+    assert_eq!(
+        output.status.code(),
+        Some(if consent_withheld { 5 } else { 0 }),
         "gent failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -131,12 +142,9 @@ fn chat_server(directory: &TempDir) {
                 AgentChatIntentFrame::CreateConversation {
                     request_id,
                     receipt_id,
-                    selection,
+                    selection: None,
                     ..
                 } => {
-                    assert_eq!(selection.provider, gent_types::AgentChatProvider::Claurst);
-                    assert_eq!(selection.model, "qwen3-1-7b-q4-k-m");
-                    assert_eq!(selection.mode, gent_types::AgentChatMode::Agent);
                     write_json_frame(
                         &mut stream,
                         &AgentChatIntentFrame::Created {
@@ -177,6 +185,7 @@ fn chat_server(directory: &TempDir) {
                             conversation_id: AgentChatConversationId("conversation-1".into()),
                             run_id: AgentChatRunId("run-1".into()),
                             turn_id: "turn-1".into(),
+                            message_id: "message-1".into(),
                             delivery: AgentChatPromptDelivery::AwaitingProvider,
                         },
                     )
@@ -304,6 +313,7 @@ async fn positional_prompt_creates_then_sends_only_typed_agent_chat_intents() {
             "--data-dir",
             directory.path().to_str().unwrap(),
             "--no-autostart",
+            "--json",
             "draft the release notes",
         ])
         .output()

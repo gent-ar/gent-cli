@@ -2,9 +2,12 @@
 
 use gent_ports::LedgerError;
 use gent_types::{ConversationActivityFact, Event, NormalizedSessionBatch, ReceiptId};
-use rusqlite::Transaction;
+use rusqlite::{OptionalExtension, Transaction};
 
-use super::{conversation_activity_ledger, queries::append_event};
+use super::{
+    conversation_activity_ledger,
+    queries::{append_event, storage_error},
+};
 
 pub(super) fn append(
     transaction: &Transaction<'_>,
@@ -13,7 +16,15 @@ pub(super) fn append(
     let (Some(event_id), Some(activity)) = (&batch.activity_event_id, &batch.activity) else {
         return Ok(None);
     };
-    append_event(
+    if let Some(recorded) = repeated_tool_phase(transaction, activity)? {
+        return Ok(Some(recorded));
+    }
+    if let ConversationActivityFact::Terminal { phase, .. } = activity {
+        if *phase != gent_types::TurnPhase::Ready {
+            super::transcript_settlement::supersede_unfinished_reply(transaction, &batch.turn_id)?;
+        }
+    }
+    let cursor = append_event(
         transaction,
         &Event {
             cursor: 0,
@@ -28,37 +39,36 @@ pub(super) fn append(
                 "activity": activity,
             }),
         },
-    )
-    .map(|event| Some(event.cursor))
-}
-
-pub(super) fn apply(
-    transaction: &Transaction<'_>,
-    batch: &NormalizedSessionBatch,
-    cursor: Option<u64>,
-) -> Result<(), LedgerError> {
-    let (Some(activity), Some(cursor)) = (&batch.activity, cursor) else {
-        return Ok(());
-    };
+    )?
+    .cursor;
     conversation_activity_ledger::append(
         transaction,
         &gent_core::with_activity_cursor(activity.clone(), cursor),
-    )
+    )?;
+    Ok(Some(cursor))
+}
+
+fn repeated_tool_phase(
+    transaction: &Transaction<'_>,
+    activity: &ConversationActivityFact,
+) -> Result<Option<u64>, LedgerError> {
+    let ConversationActivityFact::ToolActivity { scope, activity } = activity else {
+        return Ok(None);
+    };
+    let phase = serde_json::to_value(&activity.phase).map_err(storage_error)?;
+    let recorded = transaction
+        .query_row(
+            "SELECT cursor, json_extract(payload, '$.activity.phase') FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 AND json_extract(payload, '$.type') = 'toolActivity' AND json_extract(payload, '$.turnId') = ?3 AND json_extract(payload, '$.activity.toolUseId') = ?4 ORDER BY cursor DESC LIMIT 1",
+            rusqlite::params![scope.conversation_id, scope.run_id, scope.turn_id, activity.tool_use_id],
+            |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    Ok(recorded
+        .filter(|(_, recorded)| phase.as_str() == Some(recorded.as_str()))
+        .map(|(cursor, _)| cursor))
 }
 
 pub(super) fn scope(fact: &ConversationActivityFact) -> &gent_types::ConversationActivityScope {
-    match fact {
-        ConversationActivityFact::TurnStarted { scope }
-        | ConversationActivityFact::ContextUsage { scope, .. }
-        | ConversationActivityFact::RootActivity { scope, .. }
-        | ConversationActivityFact::RootPhase { scope, .. }
-        | ConversationActivityFact::WorkPhase { scope, .. }
-        | ConversationActivityFact::ToolActivity { scope, .. }
-        | ConversationActivityFact::SubagentStarted { scope, .. }
-        | ConversationActivityFact::DecisionPending { scope, .. }
-        | ConversationActivityFact::DecisionSettled { scope, .. }
-        | ConversationActivityFact::InterruptRequested { scope }
-        | ConversationActivityFact::Recovered { scope }
-        | ConversationActivityFact::Terminal { scope, .. } => scope,
-    }
+    fact.scope()
 }

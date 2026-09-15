@@ -3,8 +3,7 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    CONVERSATION_CONTENT_CAPABILITY, ConversationContentFrame, WireFrame, read_json_frame,
-    write_json_frame,
+    CONVERSATION_CONTENT_CAPABILITY, ConversationContentFrame, read_json_frame, write_json_frame,
 };
 use gent_types::{ConversationContentCursor, ConversationContentPage};
 use serde_json::Value;
@@ -52,8 +51,8 @@ pub(crate) async fn request(
         }
         return Ok(page);
     }
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     Err("daemon did not return conversation content".into())
 }

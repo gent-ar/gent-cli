@@ -32,6 +32,7 @@ pub(super) fn thread_request(
     match config.resume_thread_id {
         Some(thread_id) => {
             params["threadId"] = Value::String(thread_id.clone());
+            params["excludeTurns"] = Value::Bool(true);
             ("thread/resume", params, Some(thread_id), turn_options)
         }
         None => ("thread/start", params, None, turn_options),

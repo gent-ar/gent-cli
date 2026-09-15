@@ -7,7 +7,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const FIXTURES: [&str; 7] = [
+const FIXTURES: [&str; 12] = [
     "handshake.json",
     "core.json",
     "event-stream.json",
@@ -15,6 +15,11 @@ const FIXTURES: [&str; 7] = [
     "agent-chat-transcript.json",
     "agent-chat-intents.json",
     "permission-policy.json",
+    "goal.json",
+    "agent-chat-projection.json",
+    "agent-chat-rejections.json",
+    "provider-auth.json",
+    "agent-chat-commands.json",
 ];
 
 #[derive(Debug, Parser)]
@@ -62,12 +67,22 @@ fn refresh(path: &Path) -> Result<(), String> {
 
 fn canonical_record(name: &str, value: &Value) -> Result<Value, String> {
     let (frame, wire_hex) = match name {
-        "handshake.json" | "core.json" => canonical::<WireFrame>(value)?,
+        "handshake.json" | "core.json" | "agent-chat-rejections.json" => {
+            canonical::<WireFrame>(value)?
+        }
+        "agent-chat-projection.json" => {
+            canonical::<gent_protocol::AgentChatProjectionFrame>(value)?
+        }
         "event-stream.json" => canonical::<EventStreamFrame>(value)?,
         "agent-chat-conversations.json" => canonical::<AgentChatConversationFrame>(value)?,
         "agent-chat-transcript.json" => canonical::<AgentChatTranscriptFrame>(value)?,
         "agent-chat-intents.json" => canonical::<AgentChatIntentFrame>(value)?,
         "permission-policy.json" => canonical::<PermissionPolicyFrame>(value)?,
+        "goal.json" => canonical::<gent_protocol::GoalFrame>(value)?,
+        "provider-auth.json" => canonical::<gent_protocol::ProviderAuthFrame>(value)?,
+        "agent-chat-commands.json" => {
+            canonical::<gent_protocol::agent_chat_commands::AgentChatCommandFrame>(value)?
+        }
         _ => return Err(format!("unknown fixture {name}")),
     };
     Ok(Value::Object(Map::from_iter([

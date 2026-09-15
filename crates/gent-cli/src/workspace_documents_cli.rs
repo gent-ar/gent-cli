@@ -6,8 +6,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum WorkspaceDocumentsCommand {
+    #[command(about = "List the documents in a workspace")]
     List {
-        #[arg(long, default_value = "workspace-1")]
+        #[arg(long, help = "Durable workspace id reported by conversation summaries")]
         workspace_id: String,
     },
 }
@@ -32,7 +33,11 @@ pub(crate) async fn execute(
         return Err("workspace documents capability is unavailable".into());
     }
     gent_protocol::write_json_frame(&mut stream, &frame).await?;
-    let reply: WorkspaceDocumentsFrame = gent_protocol::read_json_frame(&mut stream).await?;
+    let raw: Value = gent_protocol::read_json_frame(&mut stream).await?;
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
+    }
+    let reply: WorkspaceDocumentsFrame = serde_json::from_value(raw)?;
     Ok(serde_json::to_value(reply)?)
 }
 

@@ -21,14 +21,22 @@ fn prepare(ledger: &SqliteLedger) {
 }
 
 fn append(ledger: &SqliteLedger, event_id: &str, lifecycle: NormalizedSessionLifecycle) {
+    let payload = match &lifecycle {
+        NormalizedSessionLifecycle::Event { event } => {
+            serde_json::json!({ "runId": "run-a", "event": event })
+        }
+        NormalizedSessionLifecycle::Signal { signal } => {
+            serde_json::json!({ "runId": "run-a", "signal": signal })
+        }
+    };
     let source = ledger
         .append_event(&Event {
             cursor: 0,
             event_id: event_id.into(),
             receipt_id: ReceiptId(format!("receipt:{event_id}")),
             host_epoch: HostEpoch(1),
-            kind: "normalizedSessionLifecycle".into(),
-            payload: serde_json::json!({ "runId": "run-a", "lifecycle": lifecycle }),
+            kind: "providerLifecycle".into(),
+            payload,
         })
         .unwrap();
     ledger

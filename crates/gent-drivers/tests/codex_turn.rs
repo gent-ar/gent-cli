@@ -2,8 +2,8 @@ use gent_drivers::codex_session::{CodexSessionConfig, CodexTurnOptions};
 use gent_drivers::codex_turn::{CodexTurnDriver, CodexTurnEffect};
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_types::{
-    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
-    AgentChatSelection, GOAL_SCHEMA_VERSION, GoalBinding, GoalProjection, GoalRecord, GoalStatus,
+    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection,
+    GOAL_SCHEMA_VERSION, GoalBinding, GoalProjection, GoalRecord, GoalStatus,
     NormalizedLifecycleSignal, NormalizedProviderEvent, WorkPhase,
 };
 use serde_json::{Value, json};
@@ -36,7 +36,9 @@ fn frames(effects: &[CodexTurnEffect]) -> Vec<Value> {
                 frame.as_object_mut()?.remove("jsonrpc");
                 Some(frame)
             }
-            CodexTurnEffect::Fact(_) | CodexTurnEffect::ControlRequest(_) => None,
+            CodexTurnEffect::Fact(_)
+            | CodexTurnEffect::ControlRequest(_)
+            | CodexTurnEffect::Steer(_) => None,
         })
         .collect()
 }
@@ -47,11 +49,20 @@ fn goal(revision: u64) -> GoalProjection {
         binding: GoalBinding {
             goal_id: "goal-1".into(),
             conversation_id: AgentChatConversationId("conversation-1".into()),
-            run_id: AgentChatRunId("run-1".into()),
         },
-        revision,
+        revision: 1,
         status: GoalStatus::Active,
-        summary: "Finish the durable task".into(),
+        reason: gent_types::GoalStatusReason::UserSet,
+        objective: format!("Finish the durable task {revision}"),
+        note: None,
+        time_used_seconds: 0,
+        active_since: Some(1),
+        tokens_used: 0,
+        token_budget: None,
+        turns_without_progress: 0,
+        accounted_through_ordinal: 0,
+        created_at: 1,
+        updated_at: 1,
     })
     .unwrap()
 }
@@ -80,11 +91,15 @@ fn codex_receives_the_same_gent_owned_goal_for_each_turn() {
         .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
         .unwrap();
     let later_goal = goal(4);
-    let later_frames = frames(&driver.submit("continue", Some(&later_goal), &[]).unwrap());
+    let later_frames = frames(
+        &driver
+            .submit("continue", Some(&later_goal), &[], None)
+            .unwrap(),
+    );
     let later = later_frames[0]["params"]["input"][0]["text"]
         .as_str()
         .unwrap();
-    assert!(later.contains("\"revision\":4"));
+    assert!(later.contains("Finish the durable task 4"));
     assert!(later.ends_with("User prompt:\ncontinue"));
 }
 
@@ -115,6 +130,36 @@ fn empty_turn_completion_uses_the_owned_live_turn_identity() {
         effect,
         CodexTurnEffect::Fact(PublicWireFact::Event(
             NormalizedProviderEvent::TransportDiagnostic { .. }
+        ))
+    )));
+}
+
+#[test]
+fn reports_one_model_failure_for_a_failed_turn() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    driver
+        .receive(br#"{"id":2,"result":{"thread":{"id":"thread-private"}}}"#)
+        .unwrap();
+    driver
+        .receive(br#"{"method":"turn/started","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    let error = driver
+        .receive(br#"{"method":"error","params":{"error":{"message":"The selected model is not supported."}}}"#)
+        .unwrap();
+    assert!(error.contains(&CodexTurnEffect::Fact(PublicWireFact::Event(
+        NormalizedProviderEvent::ProviderFailure {
+            classification: gent_types::ProviderFailureClassification::Provider,
+            message: "The selected Codex model is unavailable.".into(),
+        },
+    ))));
+    let completed = driver
+        .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1","status":"failed","error":{"message":"The selected model is not supported."}}}}"#)
+        .unwrap();
+    assert!(!completed.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ProviderFailure { .. }
         ))
     )));
 }
@@ -201,7 +246,7 @@ fn handshakes_then_starts_the_exact_one_prompt_without_exporting_native_ids() {
     assert_eq!(
         frames(&next),
         vec![
-            json!({"id":3,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"on-request","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
+            json!({"id":3,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
         ]
     );
 }
@@ -262,7 +307,12 @@ fn malformed_raw_frame_is_a_normalized_diagnostic_and_oversized_input_is_refused
         [CodexTurnEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { classification }))]
             if classification == "malformedCodexFrame"
     ));
-    assert!(driver.receive(&vec![b'x'; 65_537]).is_err());
+    assert!(
+        driver
+            .receive(&vec![b'x'; gent_drivers::MAX_PROVIDER_FRAME_BYTES + 1])
+            .is_err()
+    );
+    assert!(driver.receive(&vec![b'x'; 65_537]).is_ok());
 }
 
 #[test]
@@ -285,9 +335,9 @@ fn reuses_the_ready_native_thread_for_a_later_prompt() {
         .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
         .unwrap();
     assert_eq!(
-        frames(&driver.submit("follow-up", None, &[]).unwrap()),
+        frames(&driver.submit("follow-up", None, &[], None).unwrap()),
         vec![
-            json!({"id":4,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"follow-up"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"on-request","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
+            json!({"id":4,"method":"turn/start","params":{"threadId":"thread-private","input":[{"type":"text","text":"follow-up"}],"model":"gpt-5.6","effort":"medium","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
         ]
     );
 }
@@ -320,6 +370,40 @@ fn fails_closed_for_server_to_client_requests_without_wedging_the_turn() {
         [CodexTurnEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { classification }))]
             if classification == "malformedCodexClientRequest"
     ));
+    let next = driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
+    assert_eq!(frames(&next)[1]["method"], json!("thread/start"));
+}
+
+#[test]
+fn answers_every_unrecognized_codex_server_request_with_an_error_so_codex_never_waits() {
+    let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
+    let unknown = driver
+        .receive(br#"{"jsonrpc":"2.0","id":41,"method":"item/future/requestDecision","params":{"secret":"private"}}"#)
+        .unwrap();
+    assert_eq!(
+        frames(&unknown),
+        vec![
+            json!({"id":41,"error":{"code":-32601,"message":"Gent does not handle this Codex server request."}})
+        ]
+    );
+    assert!(unknown.iter().any(|effect| matches!(
+        effect,
+        CodexTurnEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { classification }))
+            if classification == "unsupportedCodexServerRequest"
+    )));
+    assert!(!format!("{unknown:?}").contains("private"));
+    let malformed_approval = driver
+        .receive(br#"{"jsonrpc":"2.0","id":"approval-1","method":"item/commandExecution/requestApproval"}"#)
+        .unwrap();
+    assert_eq!(frames(&malformed_approval)[0]["id"], json!("approval-1"));
+    assert_eq!(
+        frames(&malformed_approval)[0]["error"]["code"],
+        json!(-32601)
+    );
+    let notification = driver
+        .receive(br#"{"jsonrpc":"2.0","method":"item/future/updated","params":{}}"#)
+        .unwrap();
+    assert!(frames(&notification).is_empty());
     let next = driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
     assert_eq!(frames(&next)[1]["method"], json!("thread/start"));
 }
@@ -450,10 +534,10 @@ fn preserves_live_child_statuses_without_settling_the_child() {
 }
 
 #[test]
-fn settles_a_known_child_on_failed_or_aborted_turn_notifications() {
-    for (method, phase) in [
-        ("turn/failed", WorkPhase::Failed),
-        ("turn/aborted", WorkPhase::Interrupted),
+fn settles_a_known_child_on_failed_or_interrupted_turn_completion() {
+    for (status, phase) in [
+        ("failed", WorkPhase::Failed),
+        ("interrupted", WorkPhase::Interrupted),
     ] {
         let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
         driver
@@ -462,8 +546,8 @@ fn settles_a_known_child_on_failed_or_aborted_turn_notifications() {
         let terminal = driver
             .receive(
                 serde_json::to_string(&json!({
-                    "method": method,
-                    "params": {"threadId": "child-thread-1", "turnId": "child-turn-1"}
+                    "method": "turn/completed",
+                    "params": {"threadId": "child-thread-1", "turn": {"id": "child-turn-1", "status": status}}
                 }))
                 .unwrap()
                 .as_bytes(),

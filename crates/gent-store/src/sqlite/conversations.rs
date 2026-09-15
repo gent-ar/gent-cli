@@ -217,6 +217,7 @@ const fn encode_phase(phase: DurableTurnPhase) -> &'static str {
         DurableTurnPhase::WaitingQuestion => "waitingQuestion",
         DurableTurnPhase::Completed => "completed",
         DurableTurnPhase::Interrupted => "interrupted",
+        DurableTurnPhase::Cancelled => "cancelled",
         DurableTurnPhase::Failed => "failed",
     }
 }
@@ -228,6 +229,7 @@ fn decode_phase(value: &str) -> rusqlite::Result<DurableTurnPhase> {
         "waitingQuestion" => Ok(DurableTurnPhase::WaitingQuestion),
         "completed" => Ok(DurableTurnPhase::Completed),
         "interrupted" => Ok(DurableTurnPhase::Interrupted),
+        "cancelled" => Ok(DurableTurnPhase::Cancelled),
         "failed" => Ok(DurableTurnPhase::Failed),
         _ => Err(rusqlite::Error::InvalidQuery),
     }

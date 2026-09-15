@@ -16,11 +16,25 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .data_dir
         .clone()
         .unwrap_or_else(startup::default_data_dir);
+    let authority_release =
+        crate::standalone_authority_release::StandaloneAuthorityRelease::resolve(
+            args.standalone_authority_release.clone(),
+            &args.standalone_authority_keys,
+            &data_dir,
+        )?;
+    if args.verify_standalone_authority_release {
+        authority_release
+            .as_ref()
+            .ok_or("standalone authority verification requires a signed release")?
+            .load(startup::unix_seconds())?;
+        return Ok(());
+    }
     #[cfg(unix)]
     crate::private_paths::prepare_data_dir(&data_dir)?;
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
+    let _provider_groups = daemon_bootstrap::stop_provider_groups_left_behind(&data_dir)?;
     let mcp_config = args
         .mcp_config
         .as_deref()
@@ -41,97 +55,173 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .transpose()?
         .unwrap_or_default();
 
-    let capability_profile = standalone_capability_profile();
+    let verified_release = authority_release
+        .as_ref()
+        .map(|release| release.load(startup::unix_seconds()))
+        .transpose()?;
+    let compatibility = verified_release.as_ref().map_or_else(
+        || CompatibilityAssessment::load(None, &[], startup::unix_seconds()),
+        crate::ordinary_authority_release::VerifiedOrdinaryAuthorityRelease::compatibility,
+    );
+    let capability_profile = standalone_capability_profile(authority_release.is_some());
     let reopened = data_dir.join("gent.db").is_file();
-    let state = DaemonCompositionState::open(
-        &data_dir,
-        &capability_profile,
-        CompatibilityAssessment::load(None, &[], startup::unix_seconds()),
-    )?;
+    let state = DaemonCompositionState::open(&data_dir, &capability_profile, compatibility)?;
     if reopened {
         state.fence_unclean_predecessor()?;
     }
+    let executables = crate::provider_executables::ProviderExecutables::standalone(
+        args.standalone_claude_executable.clone(),
+        args.standalone_codex_executable.clone(),
+        &data_dir,
+        state.ledger().clone(),
+        authority_release.clone(),
+    );
     let authority = compose_standalone_authority(
         &state,
         &StandaloneAuthorityConfig {
             data_dir: data_dir.clone(),
-            claude_executable: args.standalone_claude_executable.clone(),
-            codex_executable: args.standalone_codex_executable.clone(),
+            executables: executables.clone(),
             mcp_config: mcp_config.clone(),
         },
     )?;
+    let prompt_provider_provision = authority_release
+        .as_ref()
+        .map(|release| crate::standalone_provider_provision::compose(&state, release))
+        .transpose()?
+        .map(|provision| {
+            std::sync::Arc::new(
+                crate::ordinary_lifecycle_cadence::wake::ProvisionedPromptWake::new(
+                    provision,
+                    authority.prompt_ingress(),
+                ),
+            )
+                as std::sync::Arc<
+                    dyn crate::prompt_provider_provision_boundary::PromptProviderProvisionPort,
+                >
+        });
+    let claurst_runtime = claurst_runtime_config(&args, &data_dir, mcp_config)?;
+    let gent_runtime = claurst_runtime.is_some();
+    let doctor_mcp_servers = mcp_server_names.clone();
     authority
-        .attach_lazy_claurst_runtime(claurst_runtime_config(&args, &data_dir, mcp_config)?)
+        .attach_lazy_claurst_runtime(claurst_runtime)
         .await?;
     let side_question_runners =
         crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources {
             data_dir: data_dir.clone(),
-            claude_executable: args.standalone_claude_executable.clone(),
-            codex_executable: args.standalone_codex_executable.clone(),
+            executables: executables.clone(),
             claurst_bridge: authority.claurst_side_question_bridge(),
         };
+    let provider_auth: std::sync::Arc<dyn crate::provider_auth_api::ProviderAuthPort> =
+        std::sync::Arc::new(crate::provider_auth_api::StandaloneProviderAuthPort::new(
+            executables.clone(),
+        ));
+    let model_catalog = crate::runtime_facade::model_catalog::compose_standalone(
+        &data_dir,
+        crate::runtime_facade::model_catalog::StandaloneModelCatalogConfig {
+            local_models: authority.claurst_models().clone(),
+            auth: std::sync::Arc::clone(&provider_auth),
+            executables: executables.clone(),
+        },
+    );
+    let provisioned = state.ledger().clone();
     let runtime = RuntimeFacade::from_state_with_standalone_authority(
         state,
-        None,
+        crate::runtime_update_config::packaged::current_executable_update_checks(
+            startup::unix_seconds(),
+        ),
         authority.prompt_ingress(),
         authority.claurst_models().clone(),
+        Some(authority.provider_readiness_port()),
+        prompt_provider_provision,
+        Some(provider_auth),
         mcp_server_count,
         mcp_server_names,
         Some(side_question_runners),
-    )?;
-    let readiness_authority = authority.clone();
+    )?
+    .with_model_catalog(model_catalog)
+    .with_standalone_doctor(crate::dependency_catalog::standalone::StandaloneDoctor {
+        executables,
+        node: crate::node_runtime_lock::standalone_node_binary(),
+        mcp_servers: doctor_mcp_servers,
+        gent_runtime,
+        provider_release: authority_release.is_some(),
+        provisioned: Some(std::sync::Arc::new(provisioned)),
+    });
+    let recovered = authority.clone();
     let mut cadence = tokio::spawn(async move { authority.run_cadence().await });
     tokio::select! {
-        result = &mut cadence => {
-            let result = result.map_err(|_| "standalone provider lifecycle task failed")?;
-            result?;
-            return Err("standalone provider lifecycle stopped before it became ready".into());
+        result = &mut cadence => return lifecycle_stopped(result),
+        ready = recovered.wait_until_ready() => ready?,
+        () = daemon_bootstrap::terminated() => {
+            cadence.abort();
+            return Ok(());
         }
-        result = readiness_authority.wait_until_ready() => result?,
     }
-    // The cadence owns the only path that advances a committed provider prompt.
-    // It must remain supervised for the daemon's whole lifetime: letting it end
-    // after readiness leaves the IPC server healthy while every later prompt is
-    // permanently queued.  Terminating the daemon is deliberate here.  The
-    // durable recovery fence can then settle an ambiguous active turn and
-    // resume safely replayable queued work under a fresh owner epoch.
     let serve = daemon_bootstrap::serve_ordinary(runtime, &args, &data_dir);
     tokio::pin!(serve);
     tokio::select! {
-        result = &mut cadence => {
-            let result = result.map_err(|_| "standalone provider lifecycle task failed")?;
-            result?;
-            Err("standalone provider lifecycle stopped unexpectedly".into())
-        }
+        result = &mut cadence => lifecycle_stopped(result),
         result = &mut serve => {
             cadence.abort();
             result
         }
+        () = daemon_bootstrap::terminated() => {
+            cadence.abort();
+            Ok(())
+        }
     }
 }
 
-fn standalone_capability_profile() -> RuntimeCapabilityProfile {
-    RuntimeCapabilityProfile::new([
+fn lifecycle_stopped(
+    result: Result<Result<(), String>, tokio::task::JoinError>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    result.map_err(|_| "standalone provider lifecycle task failed")??;
+    Err("standalone provider lifecycle stopped unexpectedly".into())
+}
+
+fn standalone_capability_profile(provider_provision: bool) -> RuntimeCapabilityProfile {
+    let mut features = vec![
         RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::AgentChatProjection,
         RuntimeCapabilityFeature::ConversationActivity,
         RuntimeCapabilityFeature::AgentChatPermissions,
         RuntimeCapabilityFeature::TurnFollow,
         RuntimeCapabilityFeature::ReviewedPlans,
+        RuntimeCapabilityFeature::ProviderReadiness,
+        RuntimeCapabilityFeature::ProviderAuth,
         RuntimeCapabilityFeature::LocalModels,
         RuntimeCapabilityFeature::PromptTemplates,
         RuntimeCapabilityFeature::WorkspaceDocuments,
         RuntimeCapabilityFeature::WorkspaceGit,
-    ])
+        RuntimeCapabilityFeature::RuntimeUpdateCheck,
+    ];
+    if provider_provision {
+        features.push(RuntimeCapabilityFeature::PromptProviderProvision);
+    }
+    RuntimeCapabilityProfile::new(features)
 }
 
 fn validate(args: &Args) -> Result<(), String> {
+    validate_build(args, cfg!(debug_assertions))
+}
+
+fn validate_build(args: &Args, development_build: bool) -> Result<(), String> {
+    if !development_build
+        && (args.standalone_claude_executable.is_some()
+            || args.standalone_codex_executable.is_some())
+    {
+        return Err(
+            "explicit Claude and Codex executables require a development build of gentd".into(),
+        );
+    }
     if args.agent_chat_authority {
         return Err("standalone authority cannot be combined with another daemon authority".into());
     }
-    if args.standalone_claude_executable.is_some() != args.standalone_codex_executable.is_some() {
-        return Err(
-            "standalone Claude and Codex executable paths must be supplied together".into(),
-        );
+    if args.standalone_authority_release.is_some() != !args.standalone_authority_keys.is_empty() {
+        return Err("standalone authority release and root keys must be supplied together".into());
+    }
+    if args.verify_standalone_authority_release && args.standalone_authority_release.is_none() {
+        return Err("standalone authority verification requires a signed release".into());
     }
     for (label, path) in [
         ("Claurst", args.standalone_claurst_executable.as_ref()),
@@ -194,7 +284,7 @@ fn claurst_runtime_config(
             claurst_home: data_dir.join("claurst"),
             effort: gent_types::AgentChatEffort::Medium,
             mode: gent_types::AgentChatMode::Agent,
-            permission_mode: gent_types::PermissionMode::Default,
+            permission_mode: gent_types::PermissionMode::AskEveryTime,
             mcp_servers: Vec::new(),
         },
         mcp_config,

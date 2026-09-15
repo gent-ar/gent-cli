@@ -33,9 +33,6 @@ pub fn evaluate_permission_with_sandbox(
     request: &PermissionRequest,
     sandbox: SandboxEnforcement,
 ) -> PermissionDecision {
-    if policy.mode == PermissionMode::Plan && request.category != PermissionCategory::Read {
-        return PermissionDecision::Deny;
-    }
     if policy.mode.requires_sandbox() && sandbox != SandboxEnforcement::Enforced {
         return PermissionDecision::SandboxRequired;
     }
@@ -57,8 +54,7 @@ pub fn evaluate_permission_with_sandbox(
 
 fn mode_allows(mode: PermissionMode, category: PermissionCategory) -> bool {
     match mode {
-        PermissionMode::Default => false,
-        PermissionMode::Plan => category == PermissionCategory::Read,
+        PermissionMode::AskEveryTime => false,
         PermissionMode::AutoAcceptEdits => matches!(
             category,
             PermissionCategory::Read | PermissionCategory::Edit
@@ -96,28 +92,13 @@ mod tests {
             tool_name: tool_name.into(),
             category,
             input: None,
+            child_id: None,
         }
     }
 
     #[test]
-    fn plan_mode_stays_plan_even_when_the_policy_has_broader_approvals() {
-        let policy = policy(PermissionMode::Plan);
-        assert_eq!(
-            evaluate_permission(&policy, &request("git:status", PermissionCategory::Command)),
-            PermissionDecision::Deny
-        );
-        assert_eq!(
-            evaluate_permission(
-                &policy,
-                &request("workspace:search", PermissionCategory::Read)
-            ),
-            PermissionDecision::Allow
-        );
-    }
-
-    #[test]
-    fn exact_and_category_approvals_prevent_repeated_prompts_in_default_mode() {
-        let policy = policy(PermissionMode::Default);
+    fn exact_and_category_approvals_prevent_repeated_prompts_in_ask_every_time_mode() {
+        let policy = policy(PermissionMode::AskEveryTime);
         assert_eq!(
             evaluate_permission(&policy, &request("git:status", PermissionCategory::Command)),
             PermissionDecision::Allow

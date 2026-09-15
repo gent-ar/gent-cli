@@ -63,7 +63,9 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
                     .drain(..)
                     .collect::<Vec<_>>();
                 for run_id in interrupts {
-                    host.interrupt_claurst_run(&run_id).await?;
+                    if let Err(error) = host.interrupt_claurst_run(&run_id).await {
+                        eprintln!("Claurst interrupt for run {run_id} was not applied: {error}");
+                    }
                 }
                 host.drive_once().await?
             } else {

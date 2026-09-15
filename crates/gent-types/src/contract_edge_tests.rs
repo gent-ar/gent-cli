@@ -3,11 +3,10 @@ use std::path::PathBuf;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use crate::{
-    AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId,
-    AgentChatSelection, ConversationContentCursor, CrossReviewRequest, GoalBinding,
-    GoalContractError, GoalProjection, GoalRecord, GoalStatus, GoalTransition, HarnessProfileRef,
-    HostEpoch, OnboardingState, OrchestrationContractError, PlanRevision, PlanStatus,
-    ProviderAuthBinaryLock, ProviderAuthChallenge, ProviderAuthContractError, ProviderAuthMethod,
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRunId, AgentChatSelection,
+    ConversationContentCursor, CrossReviewRequest, HarnessProfileRef, HostEpoch, OnboardingState,
+    OrchestrationContractError, PlanRevision, PlanStatus, ProviderAuthBinaryLock,
+    ProviderAuthChallenge, ProviderAuthContractError, ProviderAuthMethod,
     ProviderAuthMethodSelection, ProviderAuthProvider, ReviewedPlanId, SandboxBackendId,
     SandboxLaunchContractError, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits,
     TaskNodeSpec, TaskRole, TurnTerminal, WorktreePolicy,
@@ -19,14 +18,6 @@ fn selection() -> AgentChatSelection {
         model: "gpt-5.6".into(),
         effort: AgentChatEffort::Medium,
         mode: AgentChatMode::Agent,
-    }
-}
-
-fn binding() -> GoalBinding {
-    GoalBinding {
-        goal_id: "goal-1".into(),
-        conversation_id: AgentChatConversationId("conversation-1".into()),
-        run_id: AgentChatRunId("run-1".into()),
     }
 }
 
@@ -49,41 +40,6 @@ fn conversation_content_cursor_rejects_zero_and_malformed_ordinals() {
         .parse::<ConversationContentCursor>()
         .unwrap();
     assert!(malformed.ordinal_for("conversation-1").is_err());
-}
-
-#[test]
-fn goal_contract_rejects_invalid_records_and_transitions() {
-    let record = GoalRecord {
-        schema_version: 1,
-        binding: binding(),
-        revision: 0,
-        status: GoalStatus::Active,
-        summary: "finish the task".into(),
-    };
-    assert_eq!(record.validate(), Err(GoalContractError::InvalidMetadata));
-    let transition = GoalTransition {
-        binding: GoalBinding {
-            goal_id: "\n".into(),
-            ..binding()
-        },
-        expected_revision: 1,
-        host_epoch: HostEpoch(1),
-        next_status: GoalStatus::Completed,
-    };
-    assert_eq!(
-        transition.validate(),
-        Err(GoalContractError::InvalidMetadata)
-    );
-    let abandoned = GoalRecord {
-        revision: 1,
-        status: GoalStatus::Abandoned,
-        ..record
-    };
-    assert_eq!(
-        GoalProjection::from_active(&abandoned),
-        Err(GoalContractError::InactiveGoal)
-    );
-    assert!(GoalStatus::Failed.is_terminal());
 }
 
 #[test]
@@ -148,8 +104,8 @@ fn provider_auth_contract_rejects_duplicate_methods_and_invalid_answers() {
             version: "1.0".into(),
         },
         methods: vec![
-            ProviderAuthMethod::DeviceCode,
-            ProviderAuthMethod::DeviceCode,
+            ProviderAuthMethod::AccountBrowser,
+            ProviderAuthMethod::AccountBrowser,
         ],
         expires_at_unix_seconds: 1,
     };
@@ -159,7 +115,7 @@ fn provider_auth_contract_rejects_duplicate_methods_and_invalid_answers() {
     );
     let answer = ProviderAuthMethodSelection {
         challenge_id: String::new(),
-        method: ProviderAuthMethod::ApiKey,
+        method: ProviderAuthMethod::AccountBrowser,
     };
     assert_eq!(
         answer.validate(),

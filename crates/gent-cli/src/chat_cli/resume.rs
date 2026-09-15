@@ -6,19 +6,27 @@ use std::path::PathBuf;
 
 use super::PromptArgs;
 
-/// Resumes a durable Gent conversation rather than a provider-native session.
 #[derive(Debug, Args)]
 pub(crate) struct ResumeArgs {
-    #[arg(value_name = "CONVERSATION_ID")]
+    #[arg(value_name = "CONVERSATION_ID", help = "Conversation to continue")]
     pub(crate) conversation_id: String,
-    #[arg(value_name = "PROMPT")]
+    #[arg(value_name = "PROMPT", help = "Prompt text")]
     pub(crate) text: String,
-    #[arg(long)]
+    #[arg(long, help = "Client request id used to correlate the reply")]
     pub(crate) request_id: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "Receipt id; reuse it to retry the same prompt safely")]
     pub(crate) receipt_id: Option<String>,
-    #[arg(long = "attach", value_name = "PATH")]
+    #[arg(
+        long = "attach",
+        value_name = "PATH",
+        help = "Attach a local file to the prompt (repeatable)"
+    )]
     pub(crate) attachments: Vec<PathBuf>,
+    #[arg(
+        long,
+        help = "Print machine-readable JSON frames instead of the streamed reply"
+    )]
+    pub(crate) json: bool,
 }
 
 pub(crate) fn frame(args: ResumeArgs, attachment_ids: Vec<String>) -> AgentChatIntentFrame {
@@ -30,6 +38,7 @@ pub(crate) fn frame(args: ResumeArgs, attachment_ids: Vec<String>) -> AgentChatI
             receipt_id: args.receipt_id,
             attachments: Vec::new(),
             tool_sources: Vec::new(),
+            json: false,
         },
         false,
         attachment_ids,

@@ -19,6 +19,7 @@ struct Wake {
     calls: Cell<u8>,
     last: Option<PromptWake>,
     failure: Option<&'static str>,
+    handles_readiness: bool,
 }
 
 impl Wake {
@@ -27,12 +28,17 @@ impl Wake {
             calls: Cell::new(0),
             last: None,
             failure: None,
+            handles_readiness: false,
         }
     }
 }
 
 impl PromptCommitWake for Wake {
     type Error = &'static str;
+
+    fn handles_awaiting_readiness(&self) -> bool {
+        self.handles_readiness
+    }
 
     fn wake_after_prompt_commit(&mut self, prompt: PromptWake) -> Result<(), Self::Error> {
         self.calls.set(self.calls.get().saturating_add(1));
@@ -109,6 +115,7 @@ fn unavailable_generic_wake_cannot_make_a_held_prompt_claimable() {
         calls: Cell::new(0),
         last: None,
         failure: Some("bounded host unavailable"),
+        handles_readiness: false,
     };
     let accepted = exchange_with_wake(
         &conversations,
@@ -143,6 +150,60 @@ fn unavailable_generic_wake_cannot_make_a_held_prompt_claimable() {
     );
 }
 
+#[test]
+fn readiness_authority_receives_queued_prompts_without_changing_queued_delivery() {
+    let (_, conversations, prompts, switches, forks) = services();
+    let created = exchange(
+        &conversations,
+        &prompts,
+        &switches,
+        &forks,
+        gent_types::HostEpoch(1),
+        create(),
+    )
+    .unwrap();
+    let conversation_id = match &created[0] {
+        AgentChatIntentFrame::Created {
+            conversation_id, ..
+        } => conversation_id.clone(),
+        _ => panic!("create must return one conversation"),
+    };
+    let mut wake = Wake {
+        calls: Cell::new(0),
+        last: None,
+        failure: None,
+        handles_readiness: true,
+    };
+    let accepted = exchange_with_wake(
+        &conversations,
+        &prompts,
+        &switches,
+        &forks,
+        gent_types::HostEpoch(1),
+        AgentChatIntentFrame::QueuePrompt {
+            request_id: AgentChatRequestId("queue-request".into()),
+            receipt_id: ReceiptId("queue-receipt".into()),
+            conversation_id,
+            text: "next".into(),
+            attachment_ids: vec![],
+        },
+        &mut wake,
+    )
+    .unwrap();
+    assert!(matches!(
+        accepted.as_slice(),
+        [AgentChatIntentFrame::Accepted {
+            delivery: gent_types::AgentChatPromptDelivery::Queued,
+            ..
+        }]
+    ));
+    assert_eq!(wake.calls.get(), 1);
+    assert_eq!(
+        wake.last.unwrap().disposition,
+        gent_types::AgentChatPromptDisposition::Queue
+    );
+}
+
 fn services() -> (
     SqliteLedger,
     AgentChatConversationService<SqliteLedger>,
@@ -168,11 +229,11 @@ fn create() -> AgentChatIntentFrame {
         request_id: AgentChatRequestId("create-request".into()),
         receipt_id: ReceiptId("create-receipt".into()),
         workspace_path: ".".into(),
-        selection: AgentChatSelection {
+        selection: Some(AgentChatSelection {
             provider: AgentChatProvider::Codex,
             model: "gpt-5.6".into(),
             effort: AgentChatEffort::Medium,
             mode: AgentChatMode::Agent,
-        },
+        }),
     }
 }

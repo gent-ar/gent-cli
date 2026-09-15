@@ -16,6 +16,5 @@ pub trait ActiveGoalResolver: Send + Sync + std::fmt::Debug {
     fn resolve_active_goal(
         &self,
         conversation_id: &str,
-        run_id: &str,
     ) -> Result<Option<GoalProjection>, LedgerError>;
 }

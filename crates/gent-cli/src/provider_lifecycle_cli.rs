@@ -28,17 +28,17 @@ pub(crate) enum ProviderLifecycleCommand {
 
 #[derive(Debug, Args)]
 pub(crate) struct ReadinessArgs {
-    #[arg(long)]
+    #[arg(long, help = "Conversation with the held prompt")]
     conversation_id: String,
-    #[arg(long)]
+    #[arg(long, help = "Run with the held prompt")]
     run_id: String,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct ProvisionArgs {
-    #[arg(long)]
+    #[arg(long, help = "Conversation with the held prompt")]
     conversation_id: String,
-    #[arg(long)]
+    #[arg(long, help = "Run with the held prompt")]
     run_id: String,
     /// Receipt returned when the held prompt was accepted.
     #[arg(long)]
@@ -73,7 +73,7 @@ pub(crate) async fn execute(
     }
 }
 
-async fn readiness(
+pub(crate) async fn readiness(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     conversation_id: &str,
@@ -170,7 +170,9 @@ async fn host_epoch(
     write_frame(stream, &WireFrame::StatusRequest).await?;
     match read_frame(stream).await? {
         WireFrame::Status(status) => Ok(status.host_epoch),
-        WireFrame::Error { message, .. } => Err(message.into()),
+        WireFrame::Error { code, message } => {
+            Err(crate::cli_error::CliError::daemon(code, message).into())
+        }
         _ => Err("daemon did not return host status before prompt provider provision".into()),
     }
 }
@@ -183,8 +185,8 @@ where
     T: serde::de::DeserializeOwned,
 {
     let raw: Value = read_json_frame(stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     serde_json::from_value(raw)
         .map_err(|_| format!("daemon did not return a {operation} response").into())
@@ -205,6 +207,7 @@ fn readiness_reply_matches(
         ProviderReadinessFrame::Ready { conversation_id: reply_conversation, run_id: reply_run, .. }
         | ProviderReadinessFrame::Review { conversation_id: reply_conversation, run_id: reply_run, .. }
         | ProviderReadinessFrame::Unavailable { conversation_id: reply_conversation, run_id: reply_run, .. }
+        | ProviderReadinessFrame::LocalModel { conversation_id: reply_conversation, run_id: reply_run, .. }
             if reply_conversation == conversation_id && reply_run == run_id
     )
 }

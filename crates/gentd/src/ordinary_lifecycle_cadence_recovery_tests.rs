@@ -3,9 +3,9 @@ use std::{
     time::Duration,
 };
 
-use gent_types::AgentChatProvider;
+use gent_types::{AgentChatProvider, AgentChatRunId};
 
-use super::{AsyncHost, cadence, wait_for, wait_for_ready};
+use super::{AsyncHost, cadence, prompt, wait_for, wait_for_ready};
 use crate::agent_chat_api::PromptCommitWake;
 
 #[tokio::test]
@@ -39,6 +39,7 @@ async fn restart_admission_waits_for_recovery_before_the_first_prompt() {
         crate::ordinary_lifecycle_control::OrdinaryLifecyclePhase::Ready
     );
     drop(control.acquire_prompt().unwrap());
+    wait_for(&events, 2).await;
     assert_eq!(&*events.lock().unwrap(), &["recovery", "drive"]);
     task.abort();
 }
@@ -100,6 +101,39 @@ async fn accepted_claurst_interrupt_is_delivered_to_its_async_owner_without_a_te
     let task = tokio::spawn(cadence.run());
     wake.interrupt_run(AgentChatProvider::Claurst, "run-claurst")
         .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while interrupts.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(&*interrupts.lock().unwrap(), &["run-claurst"]);
+    task.abort();
+}
+#[tokio::test]
+async fn steering_wakes_a_native_steer_owner_but_interrupts_claurst() {
+    let (_, cadence, wake, events, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let interrupts = Arc::new(Mutex::new(Vec::new()));
+    wake.attach_async_claurst(Box::new(AsyncHost {
+        events: Arc::new(Mutex::new(Vec::new())),
+        interrupts: Arc::clone(&interrupts),
+        active: false,
+        stopping: false,
+    }))
+    .await
+    .unwrap();
+    let task = tokio::spawn(cadence.run());
+    wait_for(&events, 1).await;
+
+    wake.steer_run(AgentChatProvider::Codex, prompt()).unwrap();
+    wait_for(&events, 2).await;
+    assert!(events.lock().unwrap().contains(&"wake"));
+    assert!(interrupts.lock().unwrap().is_empty());
+
+    let mut claurst = prompt();
+    claurst.run_id = AgentChatRunId("run-claurst".into());
+    wake.steer_run(AgentChatProvider::Claurst, claurst).unwrap();
     tokio::time::timeout(Duration::from_secs(1), async {
         while interrupts.lock().unwrap().is_empty() {
             tokio::time::sleep(Duration::from_millis(5)).await;

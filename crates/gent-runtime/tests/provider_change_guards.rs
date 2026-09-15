@@ -144,11 +144,10 @@ fn resolver_cannot_silently_substitute_a_different_provider() {
 }
 
 #[test]
-fn changed_binary_child_uses_a_fresh_matching_lock_without_mutating_parent() {
+fn a_binary_changed_before_spawn_is_refused_unstarted_without_a_child_run() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let old = lock("claude", "old");
-    let fresh = lock("claude", "fresh");
-    let (resolver, calls) = SequenceResolver::new([old.clone(), fresh.clone()]);
+    let (resolver, calls) = SequenceResolver::new([old.clone()]);
     let (runner, starts) = RecordingRunner::new(1);
     let service = PublicRunService::new(
         Coordinator::new(ledger.clone(), CapabilitySet::default()),
@@ -159,21 +158,9 @@ fn changed_binary_child_uses_a_fresh_matching_lock_without_mutating_parent() {
     );
 
     let answer = service.start(request()).unwrap();
-    assert_eq!(answer.outcome, PublicRunOutcome::ProviderChanged);
-    assert_ne!(answer.run_id, "root");
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(answer.outcome, PublicRunOutcome::Denied);
+    assert_eq!(answer.run_id, "root");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(ledger.find_run_version_lock("root").unwrap(), Some(old));
-    assert_eq!(
-        ledger.find_run_version_lock(&answer.run_id).unwrap(),
-        Some(fresh)
-    );
-    assert_eq!(
-        ledger
-            .find_run(&answer.run_id)
-            .unwrap()
-            .unwrap()
-            .parent_run_id,
-        Some("root".into())
-    );
-    assert_eq!(starts.lock().unwrap().len(), 2);
+    assert_eq!(starts.lock().unwrap().len(), 1);
 }

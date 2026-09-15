@@ -4,6 +4,7 @@
 //! credentials, endpoint configuration, and unnormalized provider payloads.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// A public provider choice supported by the agent-chat surface.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -140,6 +141,7 @@ pub enum NormalizedTranscriptKind {
     Thinking,
     ToolActivity,
     Notice,
+    Plan,
 }
 
 /// One ordered, provider-neutral event in a readable conversation transcript.
@@ -153,6 +155,10 @@ pub struct NormalizedTranscriptEvent {
     pub kind: NormalizedTranscriptKind,
     pub text: String,
     pub is_partial: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<crate::AgentChatPromptOrigin>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::AttachmentReference>,
 }
 
 /// Provider-normalized transcript content before the durable ledger assigns its cursor.
@@ -176,6 +182,76 @@ pub struct NormalizedTranscriptPage {
     pub conversation_id: String,
     pub events: Vec<NormalizedTranscriptEvent>,
     pub next_after_cursor: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentChatProjectionEvent {
+    pub cursor: u64,
+    pub source_event_id: String,
+    pub kind: String,
+    pub payload: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentChatProjectionPage {
+    pub conversation_id: String,
+    pub events: Vec<AgentChatProjectionEvent>,
+    pub next_after_cursor: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum AgentChatRejection {
+    #[error("the current turn must settle before changing its model or provider")]
+    SelectionSwitchBlockedByActiveTurn,
+    #[error("the selection can change only from the conversation's current run")]
+    SelectionSwitchParentNotCurrent,
+    #[error("the selection cannot change while provider installation is reserved for a prompt")]
+    SelectionSwitchBlockedByProvisioning,
+    #[error("the prompt is no longer queued in this conversation")]
+    QueuedPromptNotCancelable,
+    #[error("the prompt is no longer queued for delivery into this conversation")]
+    QueuedPromptNotSteerable,
+    #[error("Gentd is still recovering provider lifecycles; retry the prompt shortly")]
+    LifecycleRecoveryInProgress,
+    #[error("Gentd is shutting down and no longer accepts prompts")]
+    LifecycleShuttingDown,
+    #[error("the conversation does not exist")]
+    ConversationNotFound,
+    #[error("the selected model is not offered by this provider")]
+    SelectionModelUnavailable,
+    #[error("the selected model does not offer this effort")]
+    SelectionEffortUnavailable,
+}
+
+impl AgentChatRejection {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::SelectionSwitchBlockedByActiveTurn => "selectionSwitchBlockedByActiveTurn",
+            Self::SelectionSwitchParentNotCurrent => "selectionSwitchParentNotCurrent",
+            Self::SelectionSwitchBlockedByProvisioning => "selectionSwitchBlockedByProvisioning",
+            Self::QueuedPromptNotCancelable => "queuedPromptNotCancelable",
+            Self::QueuedPromptNotSteerable => "queuedPromptNotSteerable",
+            Self::LifecycleRecoveryInProgress => "lifecycleRecoveryInProgress",
+            Self::LifecycleShuttingDown => "lifecycleShuttingDown",
+            Self::ConversationNotFound => "conversationNotFound",
+            Self::SelectionModelUnavailable => "selectionModelUnavailable",
+            Self::SelectionEffortUnavailable => "selectionEffortUnavailable",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentChatProjectionTail {
+    pub conversation_id: String,
+    pub cursor: u64,
+    pub transcript: Vec<AgentChatProjectionEvent>,
+    pub activity: Vec<AgentChatProjectionEvent>,
+    pub transcript_truncated: bool,
+    pub activity_truncated: bool,
 }
 
 #[cfg(test)]
@@ -255,6 +331,8 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "Hello".into(),
             is_partial: false,
+            origin: None,
+            attachments: Vec::new(),
         };
         assert_eq!(
             serde_json::from_value::<NormalizedTranscriptEvent>(

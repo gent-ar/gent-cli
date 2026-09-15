@@ -8,7 +8,7 @@ use std::{
 
 use clap::Args;
 use gent_protocol::{
-    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, AgentChatTurnFollowEnd, AgentChatTurnFollowFrame, WireFrame,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, AgentChatTurnFollowEnd, AgentChatTurnFollowFrame,
     read_json_frame, write_json_frame,
 };
 use gent_types::{
@@ -23,37 +23,54 @@ use crate::local_ipc::connect_and_negotiate;
 const MAX_RECONNECTS: u8 = 10;
 const RECONNECT_DELAY: Duration = Duration::from_millis(100);
 
-/// Command arguments for following one exact durable turn through settlement.
 #[derive(Debug, Args)]
 pub(crate) struct FollowTurnArgs {
-    #[arg(long)]
+    #[arg(long, help = "Conversation that owns the turn")]
     conversation_id: String,
-    #[arg(long)]
+    #[arg(long, help = "Run that owns the turn")]
     run_id: String,
-    #[arg(long)]
+    #[arg(long, help = "Turn to follow")]
     turn_id: String,
-    /// Resume strictly after this durable turn transcript cursor.
-    #[arg(long, default_value_t = 0)]
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Resume after this turn transcript cursor"
+    )]
     after_cursor: u64,
-    /// Maximum reconnects after a stream end (0 through 10).
-    #[arg(long, default_value_t = 3)]
+    #[arg(
+        long,
+        default_value_t = 3,
+        help = "Reconnect attempts after the stream closes (0-10)"
+    )]
     reconnect_attempts: u8,
 }
 
-/// Follows an exact turn with a bounded reconnect budget and no provider protocol access.
+pub(crate) enum FollowItem<'a> {
+    Event(&'a NormalizedTranscriptEvent),
+    Terminal(&'a TurnTerminal),
+}
+
+pub(crate) fn print_json(item: FollowItem<'_>) -> io::Result<()> {
+    match item {
+        FollowItem::Event(event) => print(event),
+        FollowItem::Terminal(terminal) => print(terminal),
+    }
+}
+
 pub(crate) async fn run(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     args: FollowTurnArgs,
-) -> Result<(), Box<dyn std::error::Error>> {
+    sink: &mut impl FnMut(FollowItem<'_>) -> io::Result<()>,
+) -> Result<TurnTerminal, Box<dyn std::error::Error>> {
     if args.reconnect_attempts > MAX_RECONNECTS {
         return Err(format!("--reconnect-attempts must not exceed {MAX_RECONNECTS}").into());
     }
     require_support(data_dir.clone(), no_autostart).await?;
     let mut cursor = args.after_cursor;
     for attempt in 0..=args.reconnect_attempts {
-        match follow_once(data_dir.clone(), no_autostart, &args, &mut cursor).await {
-            Ok(FollowEnd::Terminal) => return Ok(()),
+        match follow_once(data_dir.clone(), no_autostart, &args, &mut cursor, sink).await {
+            Ok(FollowEnd::Terminal(terminal)) => return Ok(terminal),
             Ok(_) | Err(_) if attempt < args.reconnect_attempts => {
                 tokio::time::sleep(RECONNECT_DELAY).await;
             }
@@ -69,19 +86,17 @@ pub(crate) async fn run(
     unreachable!("the bounded reconnect loop always returns")
 }
 
-/// Follows an accepted prompt when the negotiated daemon exposes live turn authority.
-///
-/// Returns `false` for an observer or persistence-only daemon without sending a follow request.
 pub(crate) async fn follow_accepted_if_supported(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     conversation_id: String,
     run_id: String,
     turn_id: String,
-) -> Result<bool, Box<dyn std::error::Error>> {
+    sink: &mut impl FnMut(FollowItem<'_>) -> io::Result<()>,
+) -> Result<Option<TurnTerminal>, Box<dyn std::error::Error>> {
     let (_, capabilities) = connect_and_negotiate(data_dir.clone(), no_autostart).await?;
     if !supports(&capabilities.0) {
-        return Ok(false);
+        return Ok(None);
     }
     run(
         data_dir,
@@ -93,9 +108,10 @@ pub(crate) async fn follow_accepted_if_supported(
             after_cursor: 0,
             reconnect_attempts: 3,
         },
+        sink,
     )
-    .await?;
-    Ok(true)
+    .await
+    .map(Some)
 }
 
 async fn require_support(
@@ -108,9 +124,9 @@ async fn require_support(
         .ok_or_else(|| "daemon does not support exact turn follow; upgrade gentd".into())
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum FollowEnd {
-    Terminal,
+    Terminal(TurnTerminal),
     ResyncRequired,
     ServerClosing,
 }
@@ -120,6 +136,7 @@ async fn follow_once(
     no_autostart: bool,
     args: &FollowTurnArgs,
     cursor: &mut u64,
+    sink: &mut impl FnMut(FollowItem<'_>) -> io::Result<()>,
 ) -> Result<FollowEnd, Box<dyn std::error::Error>> {
     let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
     if !supports(&capabilities.0) {
@@ -152,15 +169,15 @@ async fn follow_once(
                     &reply,
                     &event,
                 )?;
-                print(&event)?;
+                sink(FollowItem::Event(&event))?;
             }
             AgentChatTurnFollowFrame::Terminal {
                 request_id: reply,
                 terminal,
             } => {
                 accept_terminal(&request_id, args, *cursor, &reply, &terminal)?;
-                print(&terminal)?;
-                return Ok(FollowEnd::Terminal);
+                sink(FollowItem::Terminal(&terminal))?;
+                return Ok(FollowEnd::Terminal(terminal));
             }
             AgentChatTurnFollowFrame::Ended {
                 request_id: reply,
@@ -188,8 +205,8 @@ fn supports(capabilities: &[String]) -> bool {
 }
 
 fn decode(raw: Value) -> Result<AgentChatTurnFollowFrame, Box<dyn std::error::Error>> {
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     serde_json::from_value(raw).map_err(|_| "daemon returned an invalid turn-follow frame".into())
 }

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{RootActivity, WorkPhase};
+use crate::{RootActivity, TokenUsage, WorkPhase};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +81,12 @@ pub enum NormalizedProviderEvent {
         used_tokens: u64,
         window_tokens: Option<u64>,
     },
+    TokenUsage {
+        usage: TokenUsage,
+    },
+    PlanProposed {
+        text: String,
+    },
     RootActivity {
         activity: RootActivity,
     },
@@ -114,7 +120,10 @@ pub enum ProviderFailureClassification {
     Authentication,
     RateLimited,
     ContextLimit,
+    OutputLimit,
     Provider,
+    Lifecycle,
+    SessionUnavailable,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

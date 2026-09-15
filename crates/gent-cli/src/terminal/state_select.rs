@@ -12,7 +12,7 @@ impl UiState {
                 self.selected = Some(selected);
                 self.view = None;
                 self.parent_run_id = None;
-                self.scroll_offset = 0;
+                self.scroll = super::TranscriptScroll::Follow;
                 self.clear_documents();
                 return UiEffect::Refresh(self.conversations[selected].conversation_id.clone());
             }

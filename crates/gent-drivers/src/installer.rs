@@ -58,6 +58,7 @@ impl NpmGlobalPrefix {
                 "--global".into(),
                 "--prefix".into(),
                 self.prefix.to_string_lossy().into_owned(),
+                "--offline".into(),
                 archive.to_string_lossy().into_owned(),
             ],
         }
@@ -204,7 +205,8 @@ mod tests {
             installed.arguments[5],
             "/private/gentd/providers/npm-global"
         );
-        assert_eq!(installed.arguments[6], "/private/staging/codex.tgz");
+        assert_eq!(installed.arguments[6], "--offline");
+        assert_eq!(installed.arguments[7], "/private/staging/codex.tgz");
         assert_eq!(installed.arguments[2], "--ignore-scripts");
         let package = npm.install_package("@openai/codex");
         assert_eq!(package.arguments[1], "install");

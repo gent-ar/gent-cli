@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import tarfile
 import zipfile
 from pathlib import Path
@@ -23,6 +24,8 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--suffix", default="")
     parser.add_argument("--node-runtime-dir", type=Path, required=True)
     parser.add_argument("--claurst-runtime-dir", type=Path, required=True)
+    parser.add_argument("--authority-release", type=Path, required=True)
+    parser.add_argument("--authority-root-keys", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -84,6 +87,34 @@ def claurst_files(runtime_dir: Path, suffix: str) -> list[tuple[Path, str]]:
     return files
 
 
+def authority_files(release: Path, root_keys: Path) -> list[tuple[Path, str]]:
+    for path in (release, root_keys):
+        if not path.is_file() or path.is_symlink() or path.stat().st_size > 1024 * 1024:
+            raise SystemExit(f"invalid authority release input: {path}")
+    try:
+        envelope = json.loads(release.read_text(encoding="utf-8"))
+        roots = json.loads(root_keys.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SystemExit("authority release inputs are not valid JSON") from error
+    if not isinstance(envelope, dict) or set(envelope) != {"key_id", "payload", "signature_hex"}:
+        raise SystemExit("ordinary authority release envelope is invalid")
+    key_id = envelope["key_id"]
+    signature = envelope["signature_hex"]
+    if not isinstance(key_id, str) or re.fullmatch(r"[A-Za-z0-9._-]{1,128}", key_id) is None or not isinstance(envelope["payload"], dict):
+        raise SystemExit("ordinary authority release envelope is invalid")
+    if not isinstance(signature, str) or re.fullmatch(r"[0-9a-f]{128}", signature) is None:
+        raise SystemExit("ordinary authority release envelope is invalid")
+    if not isinstance(roots, dict) or set(roots) != {"version", "keys"} or roots["version"] != 1 or not isinstance(roots["keys"], list):
+        raise SystemExit("ordinary authority root metadata is invalid")
+    keys = roots["keys"]
+    pattern = re.compile(r"[A-Za-z0-9._-]{1,128}:[0-9a-f]{64}")
+    if not 1 <= len(keys) <= 8 or len(set(keys)) != len(keys) or any(not isinstance(key, str) or pattern.fullmatch(key) is None for key in keys):
+        raise SystemExit("ordinary authority root metadata is invalid")
+    if key_id not in {key.partition(":")[0] for key in keys}:
+        raise SystemExit("ordinary authority release key is not trusted")
+    return [(release.resolve(), "authority/ordinary-authority.json"), (root_keys.resolve(), "authority/root-keys.json")]
+
+
 def archive_name(version: str, target: str, archive_format: str) -> str:
     return f"gent-{version}-{target}.{archive_format}"
 
@@ -136,6 +167,8 @@ def write_metadata(out_dir: Path, name: str, version: str, target: str, files: l
         "capabilities": [
             "agent-chat-conversations-v1",
             "agent-chat-intents-v1",
+            "agent-chat-transcript-import-v1",
+            "agent-chat-projection-v1",
             "agent-chat-transcript-v1",
             "agent-chat-turn-follow-v1",
             "agent-chat-permissions-v1",
@@ -145,7 +178,9 @@ def write_metadata(out_dir: Path, name: str, version: str, target: str, files: l
             "agent-chat-conversation-config-v1",
             "agent-chat-checkpoint-v1",
             "agent-chat-side-question-v1",
-            "permission-policy-v1",
+            "provider-auth-v1",
+            "provider-readiness-v2",
+            "permission-policy-v2",
             "prompt-provider-provision-v1",
         ],
         "runtimes": ["runtime/node", "runtime/claurst"],
@@ -160,6 +195,7 @@ def main() -> None:
     files = binaries(args.target_dir, args.suffix)
     runtime = runtime_files(args.node_runtime_dir, args.suffix)
     claurst = claurst_files(args.claurst_runtime_dir, args.suffix)
+    authority = authority_files(args.authority_release, args.authority_root_keys)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     name = archive_name(args.version, args.target, args.format)
     archive = args.out_dir / name
@@ -167,9 +203,9 @@ def main() -> None:
     if archive.exists():
         archive.unlink()
     if args.format == "tar.gz":
-        write_tar(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst], root, source_date_epoch())
+        write_tar(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst] + authority, root, source_date_epoch())
     else:
-        write_zip(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst], root, source_date_epoch())
+        write_zip(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst] + authority, root, source_date_epoch())
     write_metadata(args.out_dir, name, args.version, args.target, files)
 
 

@@ -84,10 +84,10 @@ fn plan() -> ClaurstLocalRuntimePlan {
             claurst_home: PathBuf::from("/opt/gent/claurst"),
             effort: gent_types::AgentChatEffort::Medium,
             mode: gent_types::AgentChatMode::Agent,
-            permission_mode: gent_types::PermissionMode::Default,
+            permission_mode: gent_types::PermissionMode::AskEveryTime,
             mcp_servers: Vec::new(),
         },
-        catalog.models().first().unwrap(),
+        catalog.model("hermes-3-llama-3-1-8b-q4-k-m").unwrap(),
         18_080,
     )
     .unwrap()
@@ -127,7 +127,7 @@ fn materializes_then_starts_llama_waits_and_starts_acp_before_orderly_shutdown()
     assert_eq!(
         &events[1..],
         [
-            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 8192 --parallel 1",
+            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 32768 --cache-type-k q8_0 --cache-type-v q8_0 --parallel 1",
             "ready:http://127.0.0.1:18080",
             "launch:acp",
             "stop:acp",
@@ -143,7 +143,7 @@ fn readiness_failure_stops_llama_and_never_starts_acp() {
     assert_eq!(
         events.0.borrow()[1..],
         [
-            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 8192 --parallel 1",
+            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 32768 --cache-type-k q8_0 --cache-type-v q8_0 --parallel 1",
             "ready:http://127.0.0.1:18080",
             "stop:llama",
         ]

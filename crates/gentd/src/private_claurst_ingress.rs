@@ -55,7 +55,8 @@ where
         + TranscriptLedger
         + PendingPermissionLedger
         + PolicyLedger
-        + gent_ports::AgentChatWorkspaceLedger,
+        + gent_ports::AgentChatWorkspaceLedger
+        + gent_ports::AgentChatReadLedger,
     B: PrivateClaurstBridge,
 {
     #[must_use]
@@ -232,12 +233,16 @@ where
         for fact in &batch.facts {
             self.record_fact(&state, fact, host_epoch)?;
         }
-        let terminal_phase = batch
-            .terminal
-            .as_ref()
-            .map(|terminal| terminal_phase(*terminal));
+        let effective_terminal = batch.terminal.map(|terminal| {
+            if state.cancellation_requested {
+                gent_ports::ClaurstTerminal::Interrupted
+            } else {
+                terminal
+            }
+        });
+        let terminal_phase = effective_terminal.map(terminal_phase);
         let terminal = terminal_phase.is_some();
-        let terminal_kind = batch.terminal.map(terminal_name);
+        let terminal_kind = effective_terminal.map(terminal_name);
         if let Some(kind) = terminal_kind {
             self.lifecycle.record(
                 event_id(source_id, kind),

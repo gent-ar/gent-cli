@@ -44,7 +44,6 @@ pub enum PublicRunOutcome {
     Resumed,
     Interrupted,
     Denied,
-    ProviderChanged,
     LeaseContended,
 }
 

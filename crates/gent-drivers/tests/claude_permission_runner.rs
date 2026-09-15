@@ -63,7 +63,7 @@ fn start(root: &Path) -> ClaudeRunStart {
         .unwrap(),
         goal: None,
         fresh_context: None,
-        resume_session_id: None,
+        intent: gent_drivers::LaunchIntent::Start,
         workspace_root: root.to_path_buf(),
         workspace_access: SandboxWorkspaceAccess::ReadOnly,
         mcp_config: None,
@@ -73,7 +73,7 @@ fn start(root: &Path) -> ClaudeRunStart {
 fn runner(root: &Path, state: &Arc<State>) -> ClaudeStreamRunner<Launcher, Process> {
     let mut runner = ClaudeStreamRunner::new(
         Launcher(Arc::clone(state)),
-        BufferPolicy::new(2, 128 * 1024, 0, 0).unwrap(),
+        BufferPolicy::new(2, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
     );
     runner.start(start(root)).unwrap();
     runner
@@ -94,6 +94,7 @@ fn permission_request_retains_suggestions_privately_and_writes_only_its_response
                 request_id: "request-1".into(),
                 tool_use_id: "tool-1".into(),
                 tool_name: "Bash".into(),
+                child_id: None,
             }
         )]
     );
@@ -123,7 +124,7 @@ fn permission_request_retains_suggestions_privately_and_writes_only_its_response
 }
 
 #[test]
-fn unknown_or_duplicate_permission_requests_never_write_a_response() {
+fn duplicate_permission_requests_and_unknown_response_ids_never_write_a_response() {
     let directory = tempfile::tempdir().unwrap();
     let state = Arc::new(State::default());
     let mut runner = runner(directory.path(), &state);
@@ -146,6 +147,51 @@ fn unknown_or_duplicate_permission_requests_never_write_a_response() {
             .is_err()
     );
     assert_eq!(state.writes.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn unrecognized_or_malformed_control_requests_are_answered_with_an_error_so_claude_never_waits() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = runner(directory.path(), &state);
+    let mut effects = Vec::new();
+    for frame in [
+        br#"{"type":"control_request","request_id":"future-1","request":{"subtype":"future_request","secret":"private"}}"#.as_slice(),
+        br#"{"type":"control_request","request_id":"malformed-1","request":{"subtype":"can_use_tool","tool_use_id":"tool-1"}}"#.as_slice(),
+        br#"{"type":"control_request","request":{"subtype":"future_request"}}"#.as_slice(),
+    ] {
+        state.output.lock().unwrap().push_back([frame, b"\n"].concat());
+        effects.extend(runner.poll("run-1").unwrap().unwrap());
+    }
+    let classifications: Vec<&str> = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            ClaudeRunnerEffect::Fact(PublicWireFact::Event(
+                NormalizedProviderEvent::TransportDiagnostic { classification },
+            )) => Some(classification.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        classifications,
+        [
+            "unsupportedClaudeControlRequest",
+            "malformedClaudeControlRequest",
+            "unsupportedClaudeControlRequest"
+        ]
+    );
+    let writes = state.writes.lock().unwrap();
+    let responses: Vec<serde_json::Value> = writes[1..]
+        .iter()
+        .map(|frame| serde_json::from_slice(frame).unwrap())
+        .collect();
+    assert_eq!(responses.len(), 2);
+    for (response, request_id) in responses.iter().zip(["future-1", "malformed-1"]) {
+        assert_eq!(response["type"], "control_response");
+        assert_eq!(response["response"]["subtype"], "error");
+        assert_eq!(response["response"]["request_id"], request_id);
+    }
+    assert!(!format!("{responses:?}").contains("private"));
 }
 
 #[test]
@@ -203,7 +249,12 @@ fn runner_correlates_native_tool_results_with_the_preceding_tool_start() {
             NormalizedLifecycleSignal::ToolActivity { activity }
         )) if activity.tool_use_id == "tool-1" && activity.tool_name == "Bash" && activity.phase == ToolPhase::Completed && activity.output_digest.as_deref().is_some_and(|digest| digest.starts_with("sha256:"))
     ));
-    assert!(!format!("{effects:?}").contains("private output"));
+    assert!(matches!(
+        &effects[2],
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ToolOutputDelta { tool_use_id, text, is_partial: false }
+        )) if tool_use_id == "tool-1" && text == "private output"
+    ));
 }
 
 #[test]
@@ -214,7 +265,7 @@ fn runner_keeps_background_child_lifecycle_correlated_to_its_parent_tool() {
     state.output.lock().unwrap().push_back(
         br#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"parent-tool-1","name":"Task"}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"parent-tool-1","content":"Async agent launched successfully.\nagentId: child-1\noutput_file: /tmp/child-1.output"}]}}
-{"type":"user","message":{"content":"<task-notification><tool-use-id>parent-tool-1</tool-use-id><status>completed</status></task-notification>"}}
+{"type":"system","subtype":"task_notification","task_id":"child-1","tool_use_id":"parent-tool-1","status":"completed","output_file":"/tmp/child-1.output","summary":"done"}
 "#.to_vec(),
     );
 
@@ -234,5 +285,10 @@ fn runner_keeps_background_child_lifecycle_correlated_to_its_parent_tool() {
             NormalizedProviderEvent::ChildTerminal { child_id, phase }
         )) if child_id == "child-1" && *phase == gent_types::WorkPhase::Done
     )));
-    assert!(!format!("{effects:?}").contains("/tmp/child-1.output"));
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ToolOutputDelta { tool_use_id, .. }
+        )) if tool_use_id == "parent-tool-1"
+    )));
 }

@@ -14,7 +14,7 @@ where
     L: Clone + std::fmt::Debug + GoalLedger,
 {
     let goal = GoalService::new(ledger.clone(), GoalAuthority::Approved)
-        .resolve_active_goal(&conversation_id.0, run_id)?;
+        .resolve_active_goal(&conversation_id.0)?;
     Ok(goal.map(|goal| ClaurstGoalProjection {
         run_id: run_id.into(),
         source_id: source_id.clone(),

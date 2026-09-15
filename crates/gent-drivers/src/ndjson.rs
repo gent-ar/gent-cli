@@ -5,6 +5,8 @@
 pub struct NdjsonFramer {
     max_frame_bytes: usize,
     partial: Vec<u8>,
+    discarding: bool,
+    skipped: usize,
 }
 
 impl NdjsonFramer {
@@ -19,40 +21,43 @@ impl NdjsonFramer {
         Ok(Self {
             max_frame_bytes,
             partial: Vec::new(),
+            discarding: false,
+            skipped: 0,
         })
     }
 
-    /// Adds one output chunk and returns every complete non-empty frame in order.
-    ///
-    /// # Errors
-    /// Returns an error and discards the partial line when it exceeds the configured limit.
-    pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<Vec<u8>>, NdjsonError> {
-        let mut frames = Vec::new();
-        for &byte in chunk {
-            if let Some(frame) = self.push_byte(byte)? {
-                frames.push(frame);
-            }
-        }
-        Ok(frames)
+    pub fn push(&mut self, chunk: &[u8]) -> Vec<Vec<u8>> {
+        chunk
+            .iter()
+            .filter_map(|&byte| self.push_byte(byte))
+            .collect()
     }
 
-    /// Adds one byte and returns a completed non-empty frame, if one ended at this byte.
-    ///
-    /// # Errors
-    /// Returns an error and discards the partial line when it exceeds the configured limit.
-    pub fn push_byte(&mut self, byte: u8) -> Result<Option<Vec<u8>>, NdjsonError> {
+    pub fn push_byte(&mut self, byte: u8) -> Option<Vec<u8>> {
         if byte == b'\n' {
+            if std::mem::take(&mut self.discarding) {
+                return None;
+            }
             if self.partial.last() == Some(&b'\r') {
                 self.partial.pop();
             }
-            return Ok((!self.partial.is_empty()).then(|| std::mem::take(&mut self.partial)));
+            return (!self.partial.is_empty()).then(|| std::mem::take(&mut self.partial));
+        }
+        if self.discarding {
+            return None;
         }
         if self.partial.len() == self.max_frame_bytes {
-            self.partial.clear();
-            return Err(NdjsonError::FrameTooLarge);
+            self.partial = Vec::new();
+            self.discarding = true;
+            self.skipped += 1;
+            return None;
         }
         self.partial.push(byte);
-        Ok(None)
+        None
+    }
+
+    pub fn take_skipped_frames(&mut self) -> usize {
+        std::mem::take(&mut self.skipped)
     }
 
     /// Returns the currently retained partial-frame length for observability and tests.
@@ -66,8 +71,6 @@ impl NdjsonFramer {
 pub enum NdjsonError {
     #[error("NDJSON frame limit must be non-zero")]
     ZeroLimit,
-    #[error("provider emitted an NDJSON frame larger than the configured limit")]
-    FrameTooLarge,
 }
 
 #[cfg(test)]
@@ -77,20 +80,23 @@ mod tests {
     #[test]
     fn frames_fragmented_and_multiple_lines_in_order() {
         let mut framer = NdjsonFramer::new(16).unwrap();
-        assert!(framer.push(b"{\"a\"").unwrap().is_empty());
+        assert!(framer.push(b"{\"a\"").is_empty());
         assert_eq!(
-            framer.push(b":1}\r\n\n{\"b\":2}\n").unwrap(),
+            framer.push(b":1}\r\n\n{\"b\":2}\n"),
             [b"{\"a\":1}", b"{\"b\":2}"]
         );
         assert_eq!(framer.partial_len(), 0);
     }
 
     #[test]
-    fn partial_line_is_bounded_and_reset_after_rejection() {
+    fn an_oversized_line_is_skipped_through_its_newline_without_stopping_the_stream() {
         let mut framer = NdjsonFramer::new(3).unwrap();
-        assert_eq!(framer.push(b"abcd"), Err(NdjsonError::FrameTooLarge));
+        assert!(framer.push(b"abcd").is_empty());
         assert_eq!(framer.partial_len(), 0);
-        assert_eq!(framer.push(b"ok\n").unwrap(), [b"ok"]);
+        assert!(framer.push(b"still the same line\n").is_empty());
+        assert_eq!(framer.push(b"ok\n"), [b"ok"]);
+        assert_eq!(framer.take_skipped_frames(), 1);
+        assert_eq!(framer.take_skipped_frames(), 0);
     }
 
     #[test]

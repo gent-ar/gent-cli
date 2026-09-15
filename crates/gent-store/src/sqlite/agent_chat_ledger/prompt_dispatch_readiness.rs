@@ -11,6 +11,7 @@ use super::super::SqliteLedger;
 use super::super::queries::{
     append_event, find_event, find_receipt, insert_receipt, receipt_matches_command, storage_error,
 };
+use super::prompt_admission_hold::{self, HoldExit};
 use super::prompt_dispatch::require_open;
 
 /// Promotes only the exact current selected run from held to claimable dispatch.
@@ -39,6 +40,7 @@ pub(super) fn release(
             "agent chat prompt is not held for the current reviewed run".into(),
         ));
     }
+    prompt_admission_hold::clear(&transaction, message_id, host_epoch, HoldExit::Released)?;
     transaction.commit().map_err(storage_error)
 }
 
@@ -71,7 +73,7 @@ pub(super) fn release_verified(
     let changed = transaction
         .execute(
             "UPDATE agent_chat_prompt_dispatches SET state = 'pending' WHERE message_id = ?1 AND state = 'awaiting_readiness'",
-            [message_id],
+            [&message_id],
         )
         .map_err(storage_error)?;
     if changed != 1 {
@@ -79,6 +81,12 @@ pub(super) fn release_verified(
             "verified provider readiness changed before prompt release".into(),
         ));
     }
+    prompt_admission_hold::clear(
+        &transaction,
+        &message_id,
+        command.host_epoch,
+        HoldExit::Released,
+    )?;
     transaction.commit().map_err(storage_error)?;
     Ok(receipt)
 }
@@ -119,18 +127,23 @@ pub(super) fn fail_verified(
             "verified provider readiness failure changed before prompt settlement".into(),
         ));
     }
-    let changed = transaction
-        .execute(
-            "UPDATE turns SET phase = 'failed' WHERE turn_id = ?1 AND phase = 'active'",
-            [&turn_id],
-        )
-        .map_err(storage_error)?;
-    if changed != 1 {
+    prompt_admission_hold::clear(
+        &transaction,
+        &message_id,
+        command.host_epoch,
+        HoldExit::Canceled,
+    )?;
+    if !crate::sqlite::turn_terminal::settle(
+        &transaction,
+        &turn_id,
+        command.host_epoch,
+        binding.exit.turn_phase(),
+    )? {
         return Err(LedgerError::Invariant(
             "verified provider readiness failure turn is not active".into(),
         ));
     }
-    append_failure_notice(&transaction, binding, &turn_id)?;
+    prompt_admission_hold::note_exit(&transaction, binding, &turn_id)?;
     transaction.commit().map_err(storage_error)?;
     Ok(receipt)
 }
@@ -236,7 +249,7 @@ fn held_message(
 ) -> Result<String, LedgerError> {
     transaction
         .query_row(
-            "SELECT p.message_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND prompt_receipt.status = 'settled' AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition = 'send' AND selected.provider = ?4 AND d.state = 'awaiting_readiness' AND p.run_id = (SELECT current.run_id FROM runs current WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
+            "SELECT p.message_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND prompt_receipt.status = 'settled' AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition IN ('send', 'queue') AND selected.provider = ?4 AND d.state = 'awaiting_readiness' AND p.run_id = (SELECT current.run_id FROM runs current WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
             params![binding.prompt_receipt_id.0, binding.conversation_id.0, binding.run_id.0, provider_name(binding.provider)],
             |row| row.get(0),
         )
@@ -251,7 +264,7 @@ fn held_message_and_turn(
 ) -> Result<(String, String), LedgerError> {
     transaction
         .query_row(
-            "SELECT p.message_id, p.turn_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND prompt_receipt.status = 'settled' AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition = 'send' AND selected.provider = ?4 AND d.state = 'awaiting_readiness' AND p.run_id = (SELECT current.run_id FROM runs current WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
+            "SELECT p.message_id, p.turn_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND prompt_receipt.status = 'settled' AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition IN ('send', 'queue') AND selected.provider = ?4 AND d.state = 'awaiting_readiness' AND p.run_id = (SELECT current.run_id FROM runs current WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
             params![binding.prompt_receipt_id.0, binding.conversation_id.0, binding.run_id.0, provider_name(binding.provider)],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -260,29 +273,6 @@ fn held_message_and_turn(
         .ok_or_else(|| {
             LedgerError::Invariant("verified readiness failure does not own the current held prompt".into())
         })
-}
-
-fn append_failure_notice(
-    transaction: &Transaction<'_>,
-    binding: &ProviderPromptReadinessFailureBinding,
-    turn_id: &str,
-) -> Result<(), LedgerError> {
-    let cursor: u64 = transaction
-        .query_row(
-            "SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1",
-            [&binding.conversation_id.0],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    let event_id = format!("provider-readiness-failed:{}", binding.prompt_receipt_id.0);
-    let text = format!("provider readiness failed: {}", binding.reason);
-    transaction
-        .execute(
-            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, 'notice', ?6, 0)",
-            params![binding.conversation_id.0, cursor, event_id, turn_id, binding.run_id.0, text],
-        )
-        .map_err(storage_error)?;
-    Ok(())
 }
 
 const fn provider_name(provider: AgentChatProvider) -> &'static str {

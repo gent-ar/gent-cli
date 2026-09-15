@@ -1,7 +1,8 @@
 //! Resumable HTTP download execution for a previously approved local-model plan.
 
 use crate::{
-    local_model_integrity::matches_sha256, local_model_provisioning::LocalModelDownloadPlan,
+    local_model_integrity::{matches_sha256, remember_sha256},
+    local_model_provisioning::LocalModelDownloadPlan,
 };
 use async_trait::async_trait;
 use std::fs::{self, OpenOptions};
@@ -156,12 +157,7 @@ pub(crate) async fn download_model(
             remove_partial(&plan.partial_destination)?;
             return Err(ModelDownloadError::DigestMismatch);
         }
-        fs::rename(&plan.partial_destination, &plan.destination).map_err(io_error)?;
-        report(ModelDownloadProgress::Complete {
-            path: plan.destination.clone(),
-            total_bytes: plan.expected_bytes,
-        });
-        return Ok(plan.destination.clone());
+        return publish(plan, &mut report);
     }
     let mut response = transport
         .get(DownloadRequest {
@@ -196,6 +192,13 @@ pub(crate) async fn download_model(
         if downloaded_bytes == plan.expected_bytes
             || downloaded_bytes.saturating_sub(last_reported_bytes) >= PROGRESS_INCREMENT_BYTES
         {
+            if plan.destination.exists() {
+                drop(output);
+                remove_partial(&plan.partial_destination)?;
+                return Err(ModelDownloadError::DestinationExists(
+                    plan.destination.clone(),
+                ));
+            }
             report(ModelDownloadProgress::Advanced {
                 downloaded_bytes,
                 total_bytes: plan.expected_bytes,
@@ -214,7 +217,15 @@ pub(crate) async fn download_model(
         remove_partial(&plan.partial_destination)?;
         return Err(ModelDownloadError::DigestMismatch);
     }
+    publish(plan, &mut report)
+}
+
+fn publish(
+    plan: &LocalModelDownloadPlan,
+    report: &mut impl FnMut(ModelDownloadProgress),
+) -> Result<PathBuf, ModelDownloadError> {
     fs::rename(&plan.partial_destination, &plan.destination).map_err(io_error)?;
+    remember_sha256(&plan.destination, &plan.expected_sha256);
     report(ModelDownloadProgress::Complete {
         path: plan.destination.clone(),
         total_bytes: plan.expected_bytes,
@@ -255,3 +266,7 @@ fn remove_partial(path: &Path) -> Result<(), ModelDownloadError> {
 fn io_error(error: std::io::Error) -> ModelDownloadError {
     ModelDownloadError::Io(error.to_string())
 }
+
+#[cfg(test)]
+#[path = "local_model_download_tests.rs"]
+mod tests;

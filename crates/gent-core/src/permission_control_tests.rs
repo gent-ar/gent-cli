@@ -48,13 +48,14 @@ fn request() -> PermissionDecisionRequest {
             tool_name: "workspace:edit".into(),
             category: gent_types::PermissionCategory::Edit,
             input: None,
+            child_id: None,
         },
     }
 }
 
 #[test]
 fn response_must_match_the_exact_pending_run_and_digest() {
-    let context = context(PermissionMode::Default);
+    let context = context(PermissionMode::AskEveryTime);
     let requested = reduce_permission_control(
         PermissionControlState::default(),
         &context,
@@ -81,7 +82,7 @@ fn response_must_match_the_exact_pending_run_and_digest() {
 
 #[test]
 fn approval_effects_are_closed_and_derived_from_the_pending_request() {
-    let context = context(PermissionMode::Default);
+    let context = context(PermissionMode::AskEveryTime);
     let pending = reduce_permission_control(
         PermissionControlState::default(),
         &context,
@@ -107,17 +108,14 @@ fn approval_effects_are_closed_and_derived_from_the_pending_request() {
 }
 
 #[test]
-fn plan_mode_fails_closed_before_a_user_response_can_expand_it() {
+fn ask_every_time_requires_a_user_response_before_expansion() {
     let result = reduce_permission_control(
         PermissionControlState::default(),
-        &context(PermissionMode::Plan),
+        &context(PermissionMode::AskEveryTime),
         PermissionControlEvent::Request(request()),
     );
-    assert!(matches!(
-        result.1,
-        PermissionControlEffect::Resolved(PermissionControlResolution::DeniedByPolicy(_))
-    ));
-    assert!(result.0.pending().is_none());
+    assert!(matches!(result.1, PermissionControlEffect::AskUser(_)));
+    assert!(result.0.pending().is_some());
 }
 
 #[test]
@@ -126,7 +124,7 @@ fn policy_revision_and_digest_are_fenced_before_evaluation() {
     bad.binding.policy_revision = 3;
     let policy_rejected = reduce_permission_control(
         PermissionControlState::default(),
-        &context(PermissionMode::Default),
+        &context(PermissionMode::AskEveryTime),
         PermissionControlEvent::Request(bad),
     );
     assert_eq!(
@@ -137,7 +135,7 @@ fn policy_revision_and_digest_are_fenced_before_evaluation() {
     bad.binding.request_digest_sha256 = PermissionRequestDigest("b".repeat(64));
     let digest_rejected = reduce_permission_control(
         PermissionControlState::default(),
-        &context(PermissionMode::Default),
+        &context(PermissionMode::AskEveryTime),
         PermissionControlEvent::Request(bad),
     );
     assert_eq!(
@@ -152,7 +150,7 @@ fn malformed_digest_is_rejected_before_a_pending_decision_is_created() {
     bad.binding.request_digest_sha256 = PermissionRequestDigest("not-a-digest".into());
     let result = reduce_permission_control(
         PermissionControlState::default(),
-        &context(PermissionMode::Default),
+        &context(PermissionMode::AskEveryTime),
         PermissionControlEvent::Request(bad),
     );
     assert_eq!(
@@ -164,7 +162,7 @@ fn malformed_digest_is_rejected_before_a_pending_decision_is_created() {
 
 #[test]
 fn pending_requests_are_idempotent_and_responses_cannot_target_another_decision() {
-    let context = context(PermissionMode::Default);
+    let context = context(PermissionMode::AskEveryTime);
     let pending = reduce_permission_control(
         PermissionControlState::default(),
         &context,
@@ -195,7 +193,7 @@ fn pending_requests_are_idempotent_and_responses_cannot_target_another_decision(
 
 #[test]
 fn one_pending_request_blocks_competitors_and_response_types_are_closed() {
-    let context = context(PermissionMode::Default);
+    let context = context(PermissionMode::AskEveryTime);
     let pending = reduce_permission_control(
         PermissionControlState::default(),
         &context,
@@ -232,7 +230,7 @@ fn one_pending_request_blocks_competitors_and_response_types_are_closed() {
 
 #[test]
 fn policy_allowance_and_missing_sandbox_skip_the_pending_state() {
-    let mut allowed = context(PermissionMode::Default);
+    let mut allowed = context(PermissionMode::AskEveryTime);
     allowed.policy.allowed_tools.push("workspace:edit".into());
     assert!(matches!(
         reduce_permission_control(
@@ -256,7 +254,7 @@ fn policy_allowance_and_missing_sandbox_skip_the_pending_state() {
 
 #[test]
 fn a_response_without_a_request_and_stale_bindings_fail_closed() {
-    let context = context(PermissionMode::Default);
+    let context = context(PermissionMode::AskEveryTime);
     let response = PermissionDecisionResponse {
         binding: request().binding,
         response: PermissionDecisionResponseKind::Deny,

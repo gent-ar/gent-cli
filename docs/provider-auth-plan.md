@@ -32,11 +32,14 @@ ProviderAuthRequired {
 }
 ```
 
-The response names a method, never supplies an untyped command. Account browser,
-device code, API key, and access-token choices are included only when the
-specific locked vendor version documents them. The result carries only a typed
-state: `openingBrowser`, `awaitingDeviceApproval`, `verifying`, `authenticated`,
-`failed`, `cancelled`, or `timedOut`.
+The response names a method, never supplies an untyped command. The only method
+offered is `accountBrowser`: Gentd runs the locked vendor login command and the
+vendor CLI opens the browser. Status carries only a typed lifecycle:
+`notInstalled`, `unauthenticated`, `challengeOffered`, `verifying`,
+`authenticated`, `expired`, `cancelled`, `timedOut`, `failed`, or
+`providerChanged`. An unanswered challenge reports `expired` on the next status
+request, and a login process that runs longer than ten minutes is stopped and
+reported as `timedOut`.
 
 ## Process and secret boundary
 

@@ -1,6 +1,6 @@
 //! Narrow read port over canonical compaction source events.
 
-use gent_types::EventPage;
+use gent_types::{ContextCompactionFact, EventPage, HostEpoch};
 
 use crate::LedgerError;
 
@@ -19,4 +19,18 @@ pub trait AgentChatCompactionLedger: Send + Sync {
         after_cursor: u64,
         limit: usize,
     ) -> Result<EventPage, LedgerError>;
+}
+
+pub trait ContextCompactionLedger: Send + Sync {
+    fn record_context_compaction(
+        &self,
+        fact: &ContextCompactionFact,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError>;
+
+    fn context_compactions(
+        &self,
+        conversation_id: &str,
+        limit: u16,
+    ) -> Result<Vec<ContextCompactionFact>, LedgerError>;
 }

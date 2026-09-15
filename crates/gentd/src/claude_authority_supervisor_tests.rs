@@ -36,7 +36,8 @@ fn first_wake_recovers_then_runs_one_bounded_tick() {
 fn shutdown_signals_in_order_and_refuses_to_fake_terminal_settlement() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = conversation(&ledger);
-    prompt(&ledger, &conversation_id, "a");
+    let saved = prompt(&ledger, &conversation_id, "a");
+    let terminal_event_id = format!("claude:1:run-a:{}:terminal:1", saved.message.turn_id);
     let runner = Runner::default();
     let mut supervisor = PrivateClaudeSupervisor::new(host(&ledger, runner.clone()));
     let _ = supervisor.wake().unwrap();
@@ -67,12 +68,7 @@ fn shutdown_signals_in_order_and_refuses_to_fake_terminal_settlement() {
             ProcessTreeSignal::Kill,
         ]
     );
-    assert!(
-        ledger
-            .find_event("claude:1:run-a:terminal:1")
-            .unwrap()
-            .is_none()
-    );
+    assert!(ledger.find_event(&terminal_event_id).unwrap().is_none());
     assert!(!supervisor.shutdown_complete());
 }
 
@@ -80,7 +76,8 @@ fn shutdown_signals_in_order_and_refuses_to_fake_terminal_settlement() {
 fn drain_only_stops_after_process_exit_is_persisted() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = conversation(&ledger);
-    prompt(&ledger, &conversation_id, "a");
+    let saved = prompt(&ledger, &conversation_id, "a");
+    let terminal_event_id = format!("claude:1:run-a:{}:terminal:1", saved.message.turn_id);
     let runner = Runner::default();
     let mut supervisor = PrivateClaudeSupervisor::new(host(&ledger, runner.clone()));
     let _ = supervisor.wake().unwrap();
@@ -97,12 +94,7 @@ fn drain_only_stops_after_process_exit_is_persisted() {
     ));
     assert_eq!(supervisor.state(), PrivateClaudeSupervisorState::Stopped);
     assert!(supervisor.shutdown_complete());
-    assert!(
-        ledger
-            .find_event("claude:1:run-a:terminal:1")
-            .unwrap()
-            .is_some()
-    );
+    assert!(ledger.find_event(&terminal_event_id).unwrap().is_some());
 }
 
 #[test]

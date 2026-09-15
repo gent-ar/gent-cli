@@ -19,6 +19,8 @@ pub(crate) struct ConversationView {
     selection: Option<AgentChatSelection>,
     metadata: ConversationMetadata,
     pending_permission: Option<PermissionDecisionRequest>,
+    install_hold: Option<crate::prompt_hold::InstallHold>,
+    commands: Option<gent_protocol::agent_chat_commands::CommandCatalog>,
 }
 
 impl ConversationView {
@@ -42,6 +44,8 @@ impl ConversationView {
             selection: None,
             metadata: ConversationMetadata::default(),
             pending_permission: None,
+            install_hold: None,
+            commands: None,
         }
     }
     #[must_use]
@@ -92,7 +96,7 @@ impl ConversationView {
         git_branch: Option<String>,
     ) -> Self {
         self.metadata = ConversationMetadata {
-            permission_mode: gent_types::PermissionMode::Default,
+            permission_mode: gent_types::PermissionMode::AskEveryTime,
             title,
             recap,
             preview,
@@ -118,6 +122,18 @@ impl ConversationView {
     ) -> Self {
         self.pending_permission = pending_permission;
         self
+    }
+    #[must_use]
+    pub(crate) fn with_install_hold(
+        mut self,
+        install_hold: Option<crate::prompt_hold::InstallHold>,
+    ) -> Self {
+        self.install_hold = install_hold;
+        self
+    }
+    #[must_use]
+    pub(crate) fn install_hold(&self) -> Option<&crate::prompt_hold::InstallHold> {
+        self.install_hold.as_ref()
     }
     #[must_use]
     pub(crate) fn conversation_id(&self) -> &str {
@@ -160,22 +176,38 @@ impl ConversationView {
     pub(crate) fn pending_permission(&self) -> Option<&PermissionDecisionRequest> {
         self.pending_permission.as_ref()
     }
+    #[must_use]
+    pub(crate) fn with_commands(
+        mut self,
+        commands: Option<gent_protocol::agent_chat_commands::CommandCatalog>,
+    ) -> Self {
+        self.commands = commands;
+        self
+    }
+    #[must_use]
+    pub(crate) fn commands(&self) -> Option<&gent_protocol::agent_chat_commands::CommandCatalog> {
+        self.commands.as_ref()
+    }
 }
 
 fn compact_transcript(events: Vec<NormalizedTranscriptEvent>) -> Vec<NormalizedTranscriptEvent> {
-    let mut compacted = Vec::with_capacity(events.len());
+    let mut compacted: Vec<NormalizedTranscriptEvent> = Vec::with_capacity(events.len());
     for event in events {
-        if is_streamed_text(event.kind) && !event.is_partial {
-            while compacted
-                .last()
-                .is_some_and(|previous: &NormalizedTranscriptEvent| {
-                    previous.kind == event.kind
-                        && previous.is_partial
-                        && previous.run_id == event.run_id
-                        && previous.turn_id == event.turn_id
-                })
-            {
-                compacted.pop();
+        if is_streamed_text(event.kind) {
+            let continues = compacted.last().is_some_and(|previous| {
+                previous.is_partial
+                    && previous.kind == event.kind
+                    && previous.run_id == event.run_id
+                    && previous.turn_id == event.turn_id
+            });
+            if continues && let Some(previous) = compacted.last_mut() {
+                if event.is_partial {
+                    previous.text.push_str(&event.text);
+                    previous.cursor = event.cursor;
+                } else {
+                    *previous = event;
+                }
+                continue;
             }
         }
         compacted.push(event);
@@ -214,6 +246,8 @@ mod tests {
                     kind: NormalizedTranscriptKind::AssistantMessage,
                     text: "must not render".into(),
                     is_partial: false,
+                    origin: None,
+                    attachments: Vec::new(),
                 }],
                 next_after_cursor: None,
             }),
@@ -290,6 +324,8 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: text.into(),
             is_partial,
+            origin: None,
+            attachments: Vec::new(),
         }
     }
 }

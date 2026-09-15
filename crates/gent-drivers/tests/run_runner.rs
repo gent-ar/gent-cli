@@ -160,6 +160,8 @@ fn starts_resumes_rejects_duplicates_and_interrupts_only_active_runs() {
             "stream-json",
             "--print",
             "--verbose",
+            "--include-partial-messages",
+            "--replay-user-messages",
         ]
     );
     assert!(matches!(
@@ -175,6 +177,8 @@ fn starts_resumes_rejects_duplicates_and_interrupts_only_active_runs() {
             "stream-json",
             "--print",
             "--verbose",
+            "--include-partial-messages",
+            "--replay-user-messages",
             "--resume",
             "session-a",
         ]

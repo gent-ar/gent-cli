@@ -4,7 +4,10 @@ use gent_types::{
     RootActivity, ToolActivity, ToolPhase, TurnPhase, WorkPhase,
 };
 
-use super::{NormalizedSessionFact, activity, batch, terminal, transcript_content, validate};
+use super::{
+    NormalizedSessionFact, activity, batch, recorded_wire_fact, terminal, transcript_content,
+    validate,
+};
 
 fn input(fact: PublicWireFact) -> NormalizedSessionFact {
     NormalizedSessionFact {
@@ -128,7 +131,7 @@ fn terminal_lifecycle_produces_terminal_activity_and_never_settles_implicitly() 
     assert!(terminal(&input.fact));
     assert!(matches!(
         activity(&input),
-        Some(gent_types::ConversationActivityFact::Terminal { scope, phase: TurnPhase::Ready })
+        Some(gent_types::ConversationActivityFact::Terminal { scope, phase: TurnPhase::Ready, cause: None })
             if scope.cursor == 0 && scope.host_epoch == HostEpoch(7)
     ));
 }
@@ -142,6 +145,7 @@ fn structured_tool_and_subagent_lifecycle_preserve_provider_neutral_correlations
                 tool_name: "mcp__linear_cloud__search_issues".into(),
                 phase: ToolPhase::WaitingPermission,
                 output_digest: Some("a".repeat(64)),
+                parent_tool_use_id: None,
             },
         },
     ));
@@ -229,4 +233,42 @@ fn compaction_stays_with_its_dedicated_ingress() {
         },
     ));
     assert!(validate(&nonterminal).is_ok());
+}
+
+#[test]
+fn compaction_observations_record_one_notice_per_turn_and_outcome() {
+    let mut noticed = std::collections::BTreeSet::new();
+    let diagnostic = |classification: &str| {
+        Some(PublicWireFact::Event(
+            NormalizedProviderEvent::TransportDiagnostic {
+                classification: classification.into(),
+            },
+        ))
+    };
+    let completed = PublicWireFact::Compaction(PublicCompactionObservation::Completed);
+    assert_eq!(
+        recorded_wire_fact(
+            &mut noticed,
+            "turn-1",
+            &PublicWireFact::Compaction(PublicCompactionObservation::Started)
+        ),
+        None
+    );
+    assert_eq!(
+        recorded_wire_fact(&mut noticed, "turn-1", &completed),
+        diagnostic(gent_types::PROVIDER_CONTEXT_COMPACTED_DIAGNOSTIC)
+    );
+    assert_eq!(recorded_wire_fact(&mut noticed, "turn-1", &completed), None);
+    assert_eq!(
+        recorded_wire_fact(&mut noticed, "turn-2", &completed),
+        diagnostic(gent_types::PROVIDER_CONTEXT_COMPACTED_DIAGNOSTIC)
+    );
+    let output = PublicWireFact::Event(NormalizedProviderEvent::Output {
+        text: "kept".into(),
+        is_partial: false,
+    });
+    assert_eq!(
+        recorded_wire_fact(&mut noticed, "turn-1", &output),
+        Some(output)
+    );
 }

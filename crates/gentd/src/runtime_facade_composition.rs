@@ -35,7 +35,6 @@ impl DaemonCompositionState {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let capabilities = declared_capabilities_with_profiles(capability_profile);
         let ledger = SqliteLedger::open(data_dir.join("gent.db"))?;
-        crate::permission_workspace::ensure(&ledger, data_dir)?;
         let coordinator = Coordinator::new(ledger.clone(), capabilities);
         Ok(Self {
             data_dir: data_dir.into(),

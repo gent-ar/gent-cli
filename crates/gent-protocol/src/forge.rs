@@ -13,6 +13,7 @@ const MAX_CONNECTORS: usize = 128;
     deny_unknown_fields
 )]
 pub enum ForgeConnectorFrame {
+    #[serde(rename = "listConnectorsRequest")]
     ListRequest {
         request_id: String,
         workspace_id: String,
@@ -223,6 +224,16 @@ mod tests {
     #[test]
     fn catalog_contract_has_a_stable_capability_and_rejects_unknown_fields() {
         assert_eq!(FORGE_CONNECTORS_CAPABILITY, "forge-connectors-v1");
-        assert!(serde_json::from_str::<ForgeConnectorFrame>(r#"{"type":"listRequest","body":{"requestId":"request","workspaceId":"workspace","extra":true}}"#).is_err());
+        assert!(serde_json::from_str::<ForgeConnectorFrame>(r#"{"type":"listConnectorsRequest","body":{"requestId":"request","workspaceId":"workspace","extra":true}}"#).is_err());
+    }
+
+    #[test]
+    fn catalog_requests_are_never_read_as_automation_requests() {
+        let request = serde_json::to_value(ForgeConnectorFrame::ListRequest {
+            request_id: "request".into(),
+            workspace_id: "workspace".into(),
+        })
+        .unwrap();
+        assert!(serde_json::from_value::<crate::AutomationFrame>(request).is_err());
     }
 }

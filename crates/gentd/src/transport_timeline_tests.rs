@@ -125,5 +125,5 @@ async fn conversation_timeline_uses_its_own_negotiated_read_only_extension() {
         ConversationTimelineFrame::Timeline(timeline) if timeline.conversation_id == "conversation-1"
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }

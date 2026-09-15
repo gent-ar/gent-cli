@@ -1,0 +1,11 @@
+{
+ "captured_at": "2026-09-15T01:38:50+00:00",
+ "evidence": "installedExecutable",
+ "executable_file": "2.1.271",
+ "executable_sha256": "87d119eb46782a1369d79d6e8cc00557f1b51bc9db7a51bd01fa2f909d8fe3dc",
+ "platform": "darwin-arm64",
+ "provider": "claude",
+ "tool": "provider-contract-snapshot/1",
+ "version": "2.1.271",
+ "version_output": "2.1.271 (Claude Code)"
+}

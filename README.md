@@ -176,36 +176,35 @@ health-check, and rollback path. It serializes/backoffs; never starts provider
 work or replaces `gentd` in process.
 ## Run standalone chat
 
-Running `gent` with no subcommand, or `gent --conversations`, opens the local conversation browser. It creates and resumes durable Gent conversations, shows normalized transcript history, and uses the
-same data directory as scripted chat commands. The first command starts standalone `gentd` unless
-`--no-autostart` is supplied.
+`gent` with no arguments opens the terminal client; `gent --conversations` opens it for browsing only (no
+prompts). `gent "PROMPT"` streams one reply: answer text goes to stdout, while tool activity, waiting
+permissions (with ready-to-run approve/deny commands), model downloads, and failures go to stderr. Add
+`--json` to `gent "PROMPT"`, `chat send`, or `chat resume` for the raw daemon frames. The local provider is
+named `gent`; a provider alone picks that provider's default model.
 
 ```sh
-gent chat create --workspace . --provider codex --model default --mode agent
-gent chat send --conversation-id CONVERSATION_ID --text 'Inspect this workspace'
-gent chat resume CONVERSATION_ID 'Continue from the prior result'
-gent chat switch --conversation-id CONVERSATION_ID --provider claude --model default --mode agent
-gent chat interrupt --conversation-id CONVERSATION_ID --run-id RUN_ID
-gent chat transcript --conversation-id CONVERSATION_ID
-gent models list
-gent models download MODEL_ID
+gent --provider claude "Inspect this workspace"
+gent chat queue --conversation-id CONVERSATION_ID --text 'Also check the tests'
+gent chat steer --conversation-id CONVERSATION_ID
+gent chat cancel-queued --conversation-id CONVERSATION_ID --all
+gent chat switch --conversation-id CONVERSATION_ID --effort low
+gent chat interrupt --conversation-id CONVERSATION_ID
 ```
 
-`gent chat switch` creates a Gent-owned child run. `--context preserve` is the default and carries
-durable conversation history into that run; it never attempts to reuse a Claude, Codex, or Claurst native session.
-Claude and Codex are installed only when first selected. To run a manually supervised daemon or provide a shared
-MCP configuration, start it explicitly and use `--no-autostart` from clients:
-
-```sh
-gentd --data-dir "$GENT_DATA_DIR" --standalone-authority --mcp-config /absolute/path/mcp.json
-gent --no-autostart chat create --workspace . --provider codex
-```
-
+In the terminal client, Enter during a turn queues, Ctrl+R (`/steer`) delivers queued prompts now, Ctrl+K
+(`/cancel-queued`) removes the newest, Ctrl+C interrupts, Esc clears, End follows, Ctrl+Q quits. Exit codes: 0
+ok, 1 rejected, 2 usage, 3 gentd unavailable, 4 not found, 5 consent required, 6 turn failed, 7 turn or
+model download interrupted. `gent chat switch` creates a Gent-owned child run that keeps history unless
+`--context clear`; a new model keeps the current effort only if it accepts it, and Gentd rejects an unsupported
+`--effort` with the model's choices. Claude and Codex install only when first selected; the waiting client prints
+the reviewed package and the exact `gent provider provision ... --consent` command. For a supervised daemon or shared MCP config, run
+`gentd --data-dir "$GENT_DATA_DIR" --standalone-authority --mcp-config /absolute/path/mcp.json` and pass
+`--no-autostart` to clients.
 The MCP file must be a bounded JSON object with a `mcpServers` map of stdio server declarations.
 Gentd projects the same configuration to Claude, Codex, and Claurst at provider launch.
 
-For Claurst, select a curated model returned by `gent models list`, then create or switch to
-`--provider claurst --model MODEL_ID`. The first prompt automatically downloads a missing model from its
+For local Gent models, select a curated model returned by `gent models list`, then create or switch to
+`--provider gent --model MODEL_ID`. The first prompt automatically downloads a missing model from its
 curated Hugging Face source and reports correlated progress; `gent models download MODEL_ID` is also available
 to prefetch one. The local runtime requires the packaged Claurst and llama.cpp files; it does not fall back to a hosted model.
 
@@ -221,61 +220,13 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo llvm-cov --workspace --all-targets --all-features --json --summary-only --output-path /tmp/gent-coverage-summary.json \
-  --ignore-filename-regex '(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/' \
+  --ignore-filename-regex '(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/|/examples/' \
   --fail-under-lines 90
 bash tools/smoke-local-ipc.sh
 ```
 
-The helper prints exact provider-specific capture commands for each unrecorded
-cell, including model, transport, and canonical output path. Add `--run --confirm`
-only in an attended, reviewed capture session.
-
-Use `--require-live` only at the real-provider evidence gate. It deliberately
-fails until every cell is a redacted live recording or a reasoned recorded
-absence; synthetic fixtures never satisfy that gate. A claimed live capture
-also requires canonical executable identity and SHA-256, provider transport,
-platform, RFC3339 capture time, run identifier, and attestation digest. The
-capture helper's digest is a reproducible hash of reviewed redacted metadata
-and normalized frames; raw provider output is bounded, discarded, and
-deliberately not claimed as attested. These are structural provenance checks,
-not a substitute for the planned signed real-provider artifact and
-normalized-event replay gate.
-
-Refresh an approved safe Claude/Codex cell with the redaction-first helper:
-
-```sh
-python3 tools/capture-public-driver-transcript.py claude full_turn \
-  --model haiku --output fixtures/public-driver-transcripts/claude-full-turn.jsonl \
-  --confirm-live-capture --update-manifest
-```
-
-It retains raw output only in memory, writes normalized facts, and refuses to
-run without explicit confirmation. The native Claude subagent row uses the
-separate reviewed `tools/capture-claude-subagent-transcript.py` helper: it
-allows only `Task(gent_probe)` and records a correlated native `Agent` call,
-matching tool result, and successful terminal event—not prompt text. Other
-matrix rows need scenario-specific reviewed captures. Claurst local-runtime
-validation is separate from this Claude/Codex capture corpus. It has no hosted
-credentials or endpoint, and this section does not claim a live local-model
-generation.
-
-An observed absence can be kept as diagnostic context, but never satisfies the
-real-provider `--require-live` gate: authority requires positive, redacted,
-scenario-specific live capture. A parser error before a provider turn, help
-output, or an unavailable flag is not provider evidence.
-
-Codex approval, persistent-permission, plan, compaction, MCP, interrupt, and
-steering scenarios use the documented app-server JSON-RPC harness rather than
-one-shot `codex exec`; it has a provider-free dry run and never changes the
-matrix automatically. It emits a candidate fixture only after the scenario's
-correlated native protocol conditions are observed. Its MCP helper requires an
-already-authenticated, isolated `CODEX_HOME` and never copies or reads credentials:
-
-```sh
-python3 tools/capture-codex-app-server-transcript.py plan_mode \
-  --model gpt-5.6-luna \
-  --output fixtures/public-driver-transcripts/codex-plan-mode.jsonl --dry-run
-```
+Public-driver transcript capture and the real-provider evidence gate are in
+[docs/public-driver-transcript-capture.md](docs/public-driver-transcript-capture.md).
 
 The repository’s architecture and orchestration boundary are in [docs/architecture.md](docs/architecture.md) and [the orchestration plan](docs/multi-agent-orchestration-plan.md).
 The Flutter app is not a dependency of this workspace. Setup is in [docs/onboarding.md](docs/onboarding.md),

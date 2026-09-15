@@ -115,9 +115,9 @@ fn preserve_collects_frozen_prompt_and_final_provider_neutral_history() {
         artifact
             .transcript_events
             .iter()
-            .map(|event| event.cursor)
+            .map(|event| (event.cursor, event.event_id.as_str()))
             .collect::<Vec<_>>(),
-        vec![1, 3]
+        vec![(1, "event-1"), (2, "interrupted:event-2"), (3, "event-3")]
     );
     assert_eq!(artifact.content_digest_sha256.len(), 64);
 }
@@ -140,12 +140,15 @@ fn preserve_rejects_a_page_beyond_its_frozen_boundary() {
 
 #[test]
 fn preserve_zero_is_empty_but_malformed_transcript_pages_are_rejected() {
-    let reader = Reader::default();
+    let reader = Reader {
+        transcript: Arc::new(Mutex::new(vec![(0, transcript_page(Vec::new()))])),
+        ..Reader::default()
+    };
     let empty = ConversationContextArtifactService::new(reader.clone())
         .project(&request(ContextPolicy::Preserve, 0))
         .unwrap();
     assert!(empty.entries.is_empty());
-    assert_eq!(*reader.reads.lock().unwrap(), 0);
+    assert_eq!(*reader.reads.lock().unwrap(), 1);
 
     let malformed = Reader {
         content: Arc::new(Mutex::new(vec![(
@@ -167,6 +170,37 @@ fn preserve_zero_is_empty_but_malformed_transcript_pages_are_rejected() {
             .project(&request(ContextPolicy::Preserve, 1))
             .is_err()
     );
+}
+
+#[test]
+fn preserve_zero_retains_historical_imports_for_the_first_live_prompt() {
+    let mut user = transcript(
+        1,
+        "historical-import:run",
+        NormalizedTranscriptKind::UserMessage,
+        false,
+    );
+    user.event_id = "import:legacy-user".into();
+    let mut assistant = transcript(
+        2,
+        "historical-import:run",
+        NormalizedTranscriptKind::AssistantMessage,
+        false,
+    );
+    assistant.event_id = "import:legacy-assistant".into();
+    let reader = Reader {
+        transcript: Arc::new(Mutex::new(vec![(
+            0,
+            transcript_page(vec![user, assistant]),
+        )])),
+        ..Reader::default()
+    };
+    let artifact = ConversationContextArtifactService::new(reader)
+        .project(&request(ContextPolicy::Preserve, 0))
+        .unwrap();
+    assert_eq!(artifact.transcript_events.len(), 2);
+    assert_eq!(artifact.transcript_events[0].text, "event-1");
+    assert_eq!(artifact.transcript_events[1].text, "event-2");
 }
 
 #[test]
@@ -283,5 +317,7 @@ fn transcript(
         kind,
         text: format!("event-{cursor}"),
         is_partial,
+        origin: None,
+        attachments: Vec::new(),
     }
 }

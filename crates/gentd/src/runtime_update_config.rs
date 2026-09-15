@@ -201,6 +201,9 @@ pub(crate) fn platform_target() -> Result<String, String> {
     }
 }
 
+#[path = "runtime_update_packaged.rs"]
+pub(crate) mod packaged;
+
 #[cfg(test)]
 #[path = "runtime_update_config_tests.rs"]
 mod tests;

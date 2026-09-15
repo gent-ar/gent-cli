@@ -5,6 +5,25 @@ use serde_json::Value;
 
 use crate::public_protocol::PublicWireFact;
 
+pub(super) fn retain_root_context(
+    frame: &Value,
+    children: &BTreeMap<String, String>,
+    facts: &mut Vec<PublicWireFact>,
+) {
+    if frame
+        .pointer("/params/threadId")
+        .and_then(Value::as_str)
+        .is_some_and(|thread_id| children.contains_key(thread_id))
+    {
+        facts.retain(|fact| {
+            !matches!(
+                fact,
+                PublicWireFact::Event(NormalizedProviderEvent::ContextUsage { .. })
+            )
+        });
+    }
+}
+
 pub(super) fn child_terminal(
     frame: &Value,
     children: &BTreeMap<String, String>,
@@ -41,8 +60,6 @@ pub(super) fn child_phase(
             }
             _ => return None,
         },
-        "turn/failed" => WorkPhase::Failed,
-        "turn/aborted" => WorkPhase::Interrupted,
         "thread/status/changed" => match frame
             .pointer("/params/status/type")
             .and_then(Value::as_str)?
@@ -56,6 +73,38 @@ pub(super) fn child_phase(
         _ => return None,
     };
     Some((child_id.into(), phase))
+}
+
+pub(super) fn command_completion_fallback(
+    tool_output_item_ids: &mut std::collections::BTreeSet<String>,
+    frame: &Value,
+) -> Option<PublicWireFact> {
+    if method(frame) != Some("item/completed") {
+        return None;
+    }
+    let item = frame.pointer("/params/item")?;
+    if item.get("type").and_then(Value::as_str) != Some("commandExecution") {
+        return None;
+    }
+    let id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?;
+    if tool_output_item_ids.contains(id) {
+        return None;
+    }
+    let text = item
+        .get("aggregatedOutput")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())?;
+    tool_output_item_ids.insert(id.into());
+    Some(PublicWireFact::Event(
+        NormalizedProviderEvent::ToolOutputDelta {
+            tool_use_id: id.into(),
+            text: text.into(),
+            is_partial: false,
+        },
+    ))
 }
 
 pub(super) fn method(frame: &Value) -> Option<&str> {

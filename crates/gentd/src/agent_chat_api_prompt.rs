@@ -8,27 +8,26 @@ pub(super) fn prompt<L, W>(
     host_epoch: gent_types::HostEpoch,
     input: PromptInput,
     wake: &mut W,
-) -> Result<Vec<AgentChatIntentFrame>, String>
+) -> Result<Vec<AgentChatIntentFrame>, crate::agent_chat_intent_error::AgentChatIntentError>
 where
     L: gent_ports::AgentChatPromptLedger,
     W: PromptCommitWake,
 {
-    match service
-        .submit(&AgentChatPromptRequest {
-            request_id: input.request_id.clone(),
-            receipt_id: input.receipt_id,
-            host_epoch,
-            conversation_id: input.conversation_id.clone(),
-            disposition: input.disposition,
-            text: input.text,
-            attachment_ids: input.attachment_ids,
-            tool_source_ids: input.tool_source_ids,
-        })
-        .map_err(|error| error.to_string())?
-    {
+    match service.submit(&AgentChatPromptRequest {
+        request_id: input.request_id.clone(),
+        receipt_id: input.receipt_id,
+        host_epoch,
+        conversation_id: input.conversation_id.clone(),
+        disposition: input.disposition,
+        text: input.text,
+        attachment_ids: input.attachment_ids,
+        tool_source_ids: input.tool_source_ids,
+    })? {
         AgentChatPromptResult::Saved(saved) => {
             let should_notify = saved.delivery == AgentChatPromptDelivery::AwaitingProvider
                 || (saved.delivery == AgentChatPromptDelivery::AwaitingReadiness
+                    && wake.handles_awaiting_readiness())
+                || (saved.delivery == AgentChatPromptDelivery::Queued
                     && wake.handles_awaiting_readiness());
             let mut delivery = saved.delivery;
             if should_notify {
@@ -50,6 +49,7 @@ where
                 conversation_id: input.conversation_id,
                 run_id: saved.run_id.clone(),
                 turn_id: saved.message.turn_id.clone(),
+                message_id: saved.message.message_id.clone(),
                 delivery,
             }])
         }

@@ -1,0 +1,20 @@
+{
+ "initialize": {
+  "/": "object",
+  "/analytics_disabled": "bool",
+  "/available_output_styles": "array",
+  "/available_output_styles/[]": "str",
+  "/current_permission_mode": "str",
+  "/fast_mode_disabled_reason": "str",
+  "/fast_mode_state": "str",
+  "/ide_rc_auto_enable_gate": "bool",
+  "/output_style": "str",
+  "/pid": "int",
+  "/remote_control_auto_connect_default": "bool",
+  "/remote_control_auto_enable": "bool",
+  "/remote_control_auto_on_by_default": "bool",
+  "/remote_control_available": "bool",
+  "/session_state": "str",
+  "/user_output_styles_dir": "str"
+ }
+}

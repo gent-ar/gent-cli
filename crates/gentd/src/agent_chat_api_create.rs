@@ -18,23 +18,20 @@ pub(super) fn create<L, G>(
     receipt_id: gent_types::ReceiptId,
     workspace_path: &str,
     selection: gent_types::AgentChatSelection,
-) -> Result<Vec<AgentChatIntentFrame>, String>
+) -> Result<Vec<AgentChatIntentFrame>, crate::agent_chat_intent_error::AgentChatIntentError>
 where
     L: gent_ports::AgentChatLedger + gent_ports::AgentChatWorkspaceLedger,
     G: AgentChatSelectionGate,
 {
     let workspace = CanonicalWorkspace::from_path(Path::new(workspace_path))
         .map_err(|_| "agent-chat workspace must be an accessible local directory".to_owned())?;
-    match service
-        .create(&AgentChatConversationRequest {
-            request_id: request_id.clone(),
-            receipt_id,
-            host_epoch,
-            selection,
-            workspace: workspace.record().clone(),
-        })
-        .map_err(|error| error.to_string())?
-    {
+    match service.create(&AgentChatConversationRequest {
+        request_id: request_id.clone(),
+        receipt_id,
+        host_epoch,
+        selection,
+        workspace: workspace.record().clone(),
+    })? {
         AgentChatConversationResult::Created(created) => Ok(vec![AgentChatIntentFrame::Created {
             request_id,
             receipt: created.receipt,

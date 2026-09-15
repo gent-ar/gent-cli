@@ -170,7 +170,7 @@ mod tests {
         AgentChatCheckpointAuthority, AgentChatCheckpointCaptureResult,
         AgentChatCheckpointRestoreResult, AgentChatCheckpointService,
     };
-    use gent_ports::{AgentChatWorkspaceLedger, AttachmentLedger};
+    use gent_ports::AgentChatWorkspaceLedger;
     use gent_store::{FileAttachmentBlobs, SqliteLedger};
     use gent_types::{
         AgentChatCheckpointCapture, AgentChatCheckpointRestore, AgentChatConversationCreate,

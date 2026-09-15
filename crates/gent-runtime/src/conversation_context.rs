@@ -1,15 +1,19 @@
 //! Bounded provider-neutral projection of one durable conversation history boundary.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 use gent_ports::{ConversationContentReader, TranscriptLedger};
 use gent_types::{
     AgentChatConversationId, ContextPolicy, ConversationContentEntry, ConversationContentPage,
-    FrozenConversationContext, NormalizedTranscriptEvent, NormalizedTranscriptKind,
+    ConversationContextSummary, FrozenConversationContext, NormalizedTranscriptEvent,
+    NormalizedTranscriptKind,
 };
 use sha2::{Digest, Sha256};
 
 use crate::RuntimeError;
+use crate::conversation_context_window::{
+    UnfinishedReplies, drop_oldest_until_within, keep_newest,
+};
 
 const PAGE_LIMIT: u16 = 100;
 const MAX_ENTRIES: usize = 200;
@@ -43,41 +47,12 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
         conversation_id: AgentChatConversationId,
         message_id: &str,
     ) -> Result<FrozenConversationContext, RuntimeError> {
-        let mut before = None;
-        let mut scanned = 0usize;
-        loop {
-            let page =
-                self.reader
-                    .read_conversation_content(&conversation_id.0, before, PAGE_LIMIT)?;
-            if page.conversation_id != conversation_id.0 {
-                return Err(invariant(
-                    "conversation context belongs to another conversation",
-                ));
-            }
-            scanned = scanned.saturating_add(page.entries.len());
-            if scanned > MAX_ENTRIES {
-                return Err(invariant("conversation context exceeds entry bound"));
-            }
-            if let Some(entry) = page
-                .entries
-                .iter()
-                .find(|entry| entry.message_id == message_id)
-            {
-                return self.project(&ConversationContextRequest {
-                    conversation_id,
-                    context_policy: ContextPolicy::Preserve,
-                    context_through_ordinal: entry.ordinal.saturating_sub(1),
-                });
-            }
-            before = page
-                .next_before
-                .map(|cursor| cursor.ordinal_for(&conversation_id.0))
-                .transpose()
-                .map_err(|_| invariant("conversation context cursor is invalid"))?;
-            if before.is_none() {
-                return Err(invariant("conversation context message is unavailable"));
-            }
-        }
+        let ordinal = self.message_ordinal(&conversation_id, message_id)?;
+        self.project(&ConversationContextRequest {
+            conversation_id,
+            context_policy: ContextPolicy::Preserve,
+            context_through_ordinal: ordinal.saturating_sub(1),
+        })
     }
 
     /// Returns a chronological frozen context for preserve, or a strict empty context for clear.
@@ -90,19 +65,46 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
     ) -> Result<FrozenConversationContext, RuntimeError> {
         match request.context_policy {
             ContextPolicy::Clear => cleared(request),
-            ContextPolicy::Preserve if request.context_through_ordinal == 0 => Ok(
-                FrozenConversationContext::cleared(request.conversation_id.clone()),
-            ),
-            ContextPolicy::Preserve => self.preserved(request),
+            ContextPolicy::Preserve => self.preserved(request, &|_| true, true),
         }
     }
 
     fn preserved(
         &self,
         request: &ConversationContextRequest,
+        keep: &dyn Fn(&ConversationContentEntry) -> bool,
+        imports: bool,
     ) -> Result<FrozenConversationContext, RuntimeError> {
-        let entries = self.entries(request)?;
-        let transcript_events = self.transcript(request, &entries)?;
+        let (entries, exhausted) = if request.context_through_ordinal == 0 {
+            (Vec::new(), true)
+        } else {
+            let (mut entries, exhausted) = self.entries(request, MAX_ENTRIES)?;
+            entries.retain(|entry| keep(entry));
+            (entries, exhausted)
+        };
+        self.artifact(request, entries, imports, None, !exhausted)
+    }
+
+    fn artifact(
+        &self,
+        request: &ConversationContextRequest,
+        entries: Vec<ConversationContentEntry>,
+        imports: bool,
+        summary: Option<ConversationContextSummary>,
+        omitted: bool,
+    ) -> Result<FrozenConversationContext, RuntimeError> {
+        let (mut transcript_events, dropped) =
+            self.transcript(request, &entries, imports, MAX_TRANSCRIPT_EVENTS)?;
+        if entries.is_empty() && transcript_events.is_empty() && summary.is_none() {
+            return Ok(FrozenConversationContext::cleared(
+                request.conversation_id.clone(),
+            ));
+        }
+        let mut entries = VecDeque::from(entries);
+        let squeezed =
+            drop_oldest_until_within(&mut entries, &mut transcript_events, MAX_ENCODED_BYTES);
+        let entries = Vec::from(entries);
+        let transcript_events = Vec::from(transcript_events);
         let artifact = FrozenConversationContext {
             conversation_id: request.conversation_id.clone(),
             context_through_ordinal: request.context_through_ordinal,
@@ -112,6 +114,8 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
             ),
             transcript_events,
             entries,
+            summary,
+            earlier_history_omitted: omitted || dropped || squeezed,
         };
         (serde_json::to_vec(&artifact)
             .map_err(|_| invariant("conversation context encoding failed"))?
@@ -124,7 +128,8 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
     fn entries(
         &self,
         request: &ConversationContextRequest,
-    ) -> Result<Vec<ConversationContentEntry>, RuntimeError> {
+        limit: usize,
+    ) -> Result<(Vec<ConversationContentEntry>, bool), RuntimeError> {
         let mut before = request
             .context_through_ordinal
             .checked_add(1)
@@ -145,12 +150,11 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
                 .map_err(|_| invariant("conversation context reader returned an invalid cursor"))?
                 .unwrap_or(0);
             newest_first.extend(page.entries);
-            if newest_first.len() > MAX_ENTRIES {
-                return Err(invariant("conversation context exceeds entry bound"));
-            }
-            if before == 0 {
+            if before == 0 || newest_first.len() >= limit {
+                let exhausted = before == 0 && newest_first.len() <= limit;
+                newest_first.truncate(limit);
                 newest_first.reverse();
-                return Ok(newest_first);
+                return Ok((newest_first, exhausted));
             }
         }
     }
@@ -159,13 +163,17 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
         &self,
         request: &ConversationContextRequest,
         entries: &[ConversationContentEntry],
-    ) -> Result<Vec<NormalizedTranscriptEvent>, RuntimeError> {
+        imports: bool,
+        limit: usize,
+    ) -> Result<(VecDeque<NormalizedTranscriptEvent>, bool), RuntimeError> {
         let turns = entries
             .iter()
             .map(|entry| entry.turn_id.as_str())
             .collect::<BTreeSet<_>>();
         let mut after = 0;
-        let mut retained = Vec::new();
+        let mut retained = VecDeque::new();
+        let mut unfinished = UnfinishedReplies::default();
+        let mut dropped = false;
         loop {
             let page = self.reader.normalized_transcript_page(
                 &request.conversation_id,
@@ -183,19 +191,22 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
                     return Err(invariant("conversation transcript cursor does not advance"));
                 }
                 previous = event.cursor;
-                if turns.contains(event.turn_id.as_str())
+                if turns.contains(event.turn_id.as_str()) {
+                    unfinished.observe(&event);
+                }
+                let imported = imports && event.event_id.starts_with("import:");
+                if (turns.contains(event.turn_id.as_str()) || imported)
                     && !event.is_partial
-                    && matches!(
+                    && (matches!(
                         event.kind,
                         NormalizedTranscriptKind::AssistantMessage
                             | NormalizedTranscriptKind::ToolActivity
                             | NormalizedTranscriptKind::Notice
-                    )
+                            | NormalizedTranscriptKind::Plan
+                    ) || imported && event.kind == NormalizedTranscriptKind::UserMessage)
                 {
-                    retained.push(event);
-                    if retained.len() > MAX_TRANSCRIPT_EVENTS {
-                        return Err(invariant("conversation transcript exceeds event bound"));
-                    }
+                    retained.push_back(event);
+                    dropped |= keep_newest(&mut retained, limit);
                 }
             }
             match page.next_after_cursor {
@@ -205,11 +216,22 @@ impl<L: ConversationContentReader + TranscriptLedger> ConversationContextArtifac
                 Some(_) => {
                     return Err(invariant("conversation transcript continuation is invalid"));
                 }
-                None => return Ok(retained),
+                None => {
+                    retained.extend(unfinished.into_interrupted());
+                    retained.make_contiguous().sort_by_key(|event| event.cursor);
+                    dropped |= keep_newest(&mut retained, limit);
+                    return Ok((retained, dropped));
+                }
             }
         }
     }
 }
+
+#[path = "conversation_context_compaction.rs"]
+mod compaction;
+#[path = "conversation_context_run.rs"]
+mod run;
+pub use compaction::{ContextCompactionBudget, ContextCompactionDecision};
 
 fn cleared(
     request: &ConversationContextRequest,

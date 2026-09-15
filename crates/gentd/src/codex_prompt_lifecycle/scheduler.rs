@@ -65,9 +65,7 @@ where
     /// Returns whether any owned run still needs stdout/exit polling.
     #[must_use]
     pub(crate) fn needs_poll(&self) -> bool {
-        self.active
-            .values()
-            .any(|binding| !binding.settled || binding.releasing)
+        self.active.values().any(|binding| !binding.idle())
     }
 
     pub(crate) fn poll_active(
@@ -84,9 +82,16 @@ where
         let mut facts: u16 = 0;
         let mut exited_runs: u16 = 0;
         for run_id in &run_ids {
-            if let Some(result) = self.poll(run_id, host_epoch)? {
-                facts = facts.saturating_add(result.facts);
-                exited_runs += u16::from(result.exited);
+            match self.poll(run_id, host_epoch) {
+                Ok(Some(result)) => {
+                    facts = facts.saturating_add(result.facts);
+                    exited_runs += u16::from(result.exited);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    self.fail_run(run_id, host_epoch, error)?;
+                    exited_runs += 1;
+                }
             }
         }
         Ok(CodexPollBatch {
@@ -115,6 +120,7 @@ where
     ) -> Result<CodexLifecycleTick, RuntimeError> {
         let dispatch = self.dispatch_next(host_epoch)?;
         let batch = self.poll_active(host_epoch, MAX_POLLS_PER_TICK)?;
+        self.steer_active(host_epoch)?;
         Ok(CodexLifecycleTick {
             dispatch,
             polled_runs: batch.polled_runs,

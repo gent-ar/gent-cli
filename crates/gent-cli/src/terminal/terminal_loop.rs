@@ -51,7 +51,12 @@ where
                 match state.apply(command) {
                     UiEffect::Quit => return Ok(()),
                     UiEffect::Request(value) => {
-                        let clears_composer = matches!(&value, UiRequest::Send { .. });
+                        let clears_composer = matches!(
+                            &value,
+                            UiRequest::Send { .. }
+                                | UiRequest::Queue { .. }
+                                | UiRequest::InvokeCommand { .. }
+                        );
                         match request(value) {
                             Ok(result) => {
                                 if clears_composer {

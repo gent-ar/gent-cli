@@ -55,6 +55,8 @@ impl TranscriptLedger for Reader {
                 kind,
                 text: "text".into(),
                 is_partial: false,
+                origin: None,
+                attachments: Vec::new(),
             }
         };
         Ok(match after {

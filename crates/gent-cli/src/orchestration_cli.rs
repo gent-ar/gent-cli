@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 use gent_protocol::{
-    ORCHESTRATION_CAPABILITY, OrchestrationFrame, WireFrame, read_json_frame, write_json_frame,
+    ORCHESTRATION_CAPABILITY, OrchestrationFrame, read_json_frame, write_json_frame,
 };
 use gent_types::AgentChatConversationId;
 use serde_json::Value;
@@ -34,7 +34,7 @@ pub(crate) struct FanoutArgs {
     /// Path to a strict JSON-encoded `FanoutRequest`.
     #[arg(long)]
     graph_json: PathBuf,
-    #[arg(long)]
+    #[arg(long, help = "Client request id used to correlate the reply")]
     request_id: Option<String>,
 }
 
@@ -43,17 +43,20 @@ pub(crate) struct CrossReviewArgs {
     /// Path to a strict JSON-encoded `CrossReviewRequest`.
     #[arg(long)]
     request_json: PathBuf,
-    #[arg(long)]
+    #[arg(long, help = "Client request id used to correlate the reply")]
     request_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct ReadArgs {
-    #[arg(long = "conversation-id")]
+    #[arg(long = "conversation-id", help = "Conversation that owns the graph")]
     conversation: String,
-    #[arg(long = "graph-id")]
+    #[arg(long = "graph-id", help = "Task graph id")]
     graph: String,
-    #[arg(long = "request-id")]
+    #[arg(
+        long = "request-id",
+        help = "Client request id used to correlate the reply"
+    )]
     request: Option<String>,
 }
 
@@ -149,8 +152,8 @@ async fn exchange_stream(
     request.validate()?;
     write_json_frame(stream, &request).await?;
     let raw: Value = read_json_frame(stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     let response: OrchestrationFrame = serde_json::from_value(raw)
         .map_err(|_| "daemon did not return an orchestration response")?;

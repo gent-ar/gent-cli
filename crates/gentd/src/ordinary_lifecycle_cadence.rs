@@ -129,12 +129,12 @@ impl<L> OrdinaryPromptIngress<L> {
         provider: AgentChatProvider,
         run_id: &str,
     ) -> Result<(), String> {
+        if let Some(readiness) = &self.standalone_readiness
+            && readiness.cancel_held_prompts(run_id)?
+        {
+            return Ok(());
+        }
         if provider == AgentChatProvider::Claurst {
-            if let Some(readiness) = &self.standalone_readiness
-                && readiness.cancel_claurst_provision(run_id)?
-            {
-                return Ok(());
-            }
             if !self.async_claurst_attached.load(Ordering::Acquire) {
                 return Err("Claurst interrupt owner is unavailable".into());
             }
@@ -227,16 +227,18 @@ pub(crate) fn pair_with_standalone_models(
     ledger: SqliteLedger,
     host_epoch: HostEpoch,
     models: crate::standalone_authority_composition::StandaloneClaurstModels,
+    public_readiness: crate::standalone_provider_readiness::StandalonePublicProviderReadinessPort,
 ) -> (
     OrdinaryLifecycleControl,
     OrdinaryPromptIngress<SqliteLedger>,
     OrdinaryLifecycleCadence<SqliteLedger>,
 ) {
     let (control, mut ingress, cadence) = pair(router);
-    ingress.standalone_readiness = Some(Arc::new(StandaloneReadiness::new(
+    ingress.standalone_readiness = Some(Arc::new(StandaloneReadiness::new_with_public_readiness(
         ledger,
         host_epoch,
         Some(models),
+        public_readiness,
     )));
     (control, ingress, cadence)
 }
@@ -261,12 +263,16 @@ impl<L: AgentChatReadLedger + 'static> PromptCommitWake for OrdinaryPromptIngres
                 )?;
                 return Ok(());
             }
-            if readiness.release(&prompt)? == StandalonePromptReleaseOutcome::Claurst {
-                self.async_claurst_notify
-                    .as_ref()
-                    .expect("ordinary cadence always retains its Claurst wake")
-                    .notify_one();
-                return Ok(());
+            match readiness.release(&prompt)? {
+                StandalonePromptReleaseOutcome::Claurst => {
+                    self.async_claurst_notify
+                        .as_ref()
+                        .expect("ordinary cadence always retains its Claurst wake")
+                        .notify_one();
+                    return Ok(());
+                }
+                StandalonePromptReleaseOutcome::Held => return Ok(()),
+                StandalonePromptReleaseOutcome::Routed => {}
             }
             self.wake.schedule(prompt, Arc::clone(readiness));
             return Ok(());
@@ -277,7 +283,6 @@ impl<L: AgentChatReadLedger + 'static> PromptCommitWake for OrdinaryPromptIngres
 
 #[path = "ordinary_lifecycle_cadence_claurst.rs"]
 mod claurst;
-
 #[path = "ordinary_lifecycle_cadence_run.rs"]
 mod run;
 
@@ -285,7 +290,7 @@ mod run;
 mod standalone;
 
 #[path = "ordinary_lifecycle_cadence_wake.rs"]
-mod wake;
+pub(crate) mod wake;
 
 #[cfg(test)]
 #[path = "ordinary_lifecycle_cadence_shutdown_tests.rs"]

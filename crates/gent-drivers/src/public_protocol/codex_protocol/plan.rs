@@ -29,6 +29,19 @@ pub(super) fn updated(frame: &Value) -> Vec<PublicWireFact> {
     }
 }
 
+pub(super) fn proposed(item: &Value) -> Vec<PublicWireFact> {
+    string(item, "text")
+        .filter(|text| !text.trim().is_empty())
+        .map_or_else(
+            || diagnostic("malformedCodexPlanItem"),
+            |text| {
+                vec![PublicWireFact::Event(
+                    NormalizedProviderEvent::PlanProposed { text: text.into() },
+                )]
+            },
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::updated;

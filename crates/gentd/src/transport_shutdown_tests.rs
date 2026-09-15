@@ -5,9 +5,9 @@ use tokio::io::AsyncReadExt;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::time::timeout;
 
+use super::tests::FakeRuntime;
+use super::tests::hello;
 use crate::transport_shutdown::{TransportShutdown, serve_until};
-use crate::transport_tests::FakeRuntime;
-use crate::transport_tests::hello;
 
 #[tokio::test]
 async fn shutdown_stops_listener_and_closes_a_pending_connection() {

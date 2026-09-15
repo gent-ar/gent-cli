@@ -1,0 +1,197 @@
+{
+  "capability": "agent-chat-intents-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "code": "selectionSwitchBlockedByActiveTurn",
+          "message": "the current turn must settle before changing its model or provider"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000947b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a2273656c656374696f6e537769746368426c6f636b656442794163746976655475726e222c226d657373616765223a227468652063757272656e74207475726e206d75737420736574746c65206265666f7265206368616e67696e6720697473206d6f64656c206f722070726f7669646572227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "selectionSwitchParentNotCurrent",
+          "message": "the selection can change only from the conversation's current run"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000907b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a2273656c656374696f6e537769746368506172656e744e6f7443757272656e74222c226d657373616765223a227468652073656c656374696f6e2063616e206368616e6765206f6e6c792066726f6d2074686520636f6e766572736174696f6e27732063757272656e742072756e227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "selectionSwitchBlockedByProvisioning",
+          "message": "the selection cannot change while provider installation is reserved for a prompt"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000a47b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a2273656c656374696f6e537769746368426c6f636b6564427950726f766973696f6e696e67222c226d657373616765223a227468652073656c656374696f6e2063616e6e6f74206368616e6765207768696c652070726f766964657220696e7374616c6c6174696f6e20697320726573657276656420666f7220612070726f6d7074227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "queuedPromptNotCancelable",
+          "message": "the prompt is no longer queued in this conversation"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000007c7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a2271756575656450726f6d70744e6f7443616e63656c61626c65222c226d657373616765223a227468652070726f6d7074206973206e6f206c6f6e6765722071756575656420696e207468697320636f6e766572736174696f6e227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "queuedPromptNotSteerable",
+          "message": "the prompt is no longer queued for delivery into this conversation"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000008a7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a2271756575656450726f6d70744e6f74537465657261626c65222c226d657373616765223a227468652070726f6d7074206973206e6f206c6f6e6765722071756575656420666f722064656c697665727920696e746f207468697320636f6e766572736174696f6e227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "lifecycleRecoveryInProgress",
+          "message": "Gentd is still recovering provider lifecycles; retry the prompt shortly"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000927b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a226c6966656379636c655265636f76657279496e50726f6772657373222c226d657373616765223a2247656e7464206973207374696c6c207265636f766572696e672070726f7669646572206c6966656379636c65733b207265747279207468652070726f6d70742073686f72746c79227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "lifecycleShuttingDown",
+          "message": "Gentd is shutting down and no longer accepts prompts"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000797b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a226c6966656379636c655368757474696e67446f776e222c226d657373616765223a2247656e7464206973207368757474696e6720646f776e20616e64206e6f206c6f6e67657220616363657074732070726f6d707473227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "conversationNotFound",
+          "message": "the conversation does not exist"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000637b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636f6e766572736174696f6e4e6f74466f756e64222c226d657373616765223a2274686520636f6e766572736174696f6e20646f6573206e6f74206578697374227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "selectionModelUnavailable",
+          "message": "the selected model is not offered by this provider"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000007b7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a2273656c656374696f6e4d6f64656c556e617661696c61626c65222c226d657373616765223a227468652073656c6563746564206d6f64656c206973206e6f74206f66666572656420627920746869732070726f7669646572227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "selectionEffortUnavailable",
+          "message": "the selected model does not offer this effort"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000777b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a2273656c656374696f6e4566666f7274556e617661696c61626c65222c226d657373616765223a227468652073656c6563746564206d6f64656c20646f6573206e6f74206f666665722074686973206566666f7274227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "unknownCommand",
+          "message": "/nope is not a command in this conversation's catalog"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000737b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22756e6b6e6f776e436f6d6d616e64222c226d657373616765223a222f6e6f7065206973206e6f74206120636f6d6d616e6420696e207468697320636f6e766572736174696f6e277320636174616c6f67227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "unsupportedCommand",
+          "message": "/mcp is not supported by Gent: MCP servers are configured through Gent. Use /tools instead."
+        },
+        "type": "error"
+      },
+      "wireHex": "0000009d7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22756e737570706f72746564436f6d6d616e64222c226d657373616765223a222f6d6370206973206e6f7420737570706f727465642062792047656e743a204d435020736572766572732061726520636f6e66696775726564207468726f7567682047656e742e20557365202f746f6f6c7320696e73746561642e227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "clientActionCommand",
+          "message": "/resume is handled by the client, not by Gentd"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000717b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636c69656e74416374696f6e436f6d6d616e64222c226d657373616765223a222f726573756d652069732068616e646c65642062792074686520636c69656e742c206e6f742062792047656e7464227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "commandRequiresConversation",
+          "message": "/model needs a conversation"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000667b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636f6d6d616e645265717569726573436f6e766572736174696f6e222c226d657373616765223a222f6d6f64656c206e65656473206120636f6e766572736174696f6e227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "commandBlockedByActiveTurn",
+          "message": "/model waits until the current turn settles"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000757b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636f6d6d616e64426c6f636b656442794163746976655475726e222c226d657373616765223a222f6d6f64656c20776169747320756e74696c207468652063757272656e74207475726e20736574746c6573227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "commandArgumentsInvalid",
+          "message": "/effort needs low, medium, high, xhigh, max, or ultra"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000007c7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636f6d6d616e64417267756d656e7473496e76616c6964222c226d657373616765223a222f6566666f7274206e65656473206c6f772c206d656469756d2c20686967682c2078686967682c206d61782c206f7220756c747261227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "commandRequiresProviderSession",
+          "message": "/context needs a provider session; send a message in this run first"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000917b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636f6d6d616e64526571756972657350726f766964657253657373696f6e222c226d657373616765223a222f636f6e74657874206e6565647320612070726f76696465722073657373696f6e3b2073656e642061206d65737361676520696e20746869732072756e206669727374227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "commandCatalogLoading",
+          "message": "the provider's commands are still loading; try /context again shortly"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000008a7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636f6d6d616e64436174616c6f674c6f6164696e67222c226d657373616765223a227468652070726f7669646572277320636f6d6d616e647320617265207374696c6c206c6f6164696e673b20747279202f636f6e7465787420616761696e2073686f72746c79227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "slashCommandRequiresInvoke",
+          "message": "/context is a command; invoke it through the command catalog instead of sending it as a prompt"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000a87b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22736c617368436f6d6d616e645265717569726573496e766f6b65222c226d657373616765223a222f636f6e74657874206973206120636f6d6d616e643b20696e766f6b65206974207468726f7567682074686520636f6d6d616e6420636174616c6f6720696e7374656164206f662073656e64696e6720697420617320612070726f6d7074227d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

@@ -181,3 +181,7 @@ impl<L: AgentChatReadLedger> PromptCommitWake for OrdinaryPublicLifecycleRouter<
 #[cfg(test)]
 #[path = "ordinary_lifecycle_shutdown_tests.rs"]
 mod ordinary_lifecycle_shutdown_tests;
+
+#[cfg(test)]
+#[path = "ordinary_lifecycle_router_tests.rs"]
+mod tests;

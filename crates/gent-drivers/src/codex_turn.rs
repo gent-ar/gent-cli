@@ -5,24 +5,22 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use gent_types::{
-    GoalProjection, NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, TurnPhase,
-};
+use gent_types::{GoalProjection, NormalizedProviderEvent};
 use serde_json::Value;
 
-use crate::PublicProvider;
-use crate::codex_client_request::{CodexClientRequestResponse, respond_to_codex_client_request};
+use crate::codex_client_request::{
+    CodexClientRequestResponse, reject_unhandled_codex_request, respond_to_codex_client_request,
+};
 use crate::codex_control::{CodexControlRequest, parse as parse_control};
 use crate::codex_session::{
     CodexAppServerSession, CodexSessionConfig, CodexSessionError, CodexSessionIngress,
+    CodexSteerOutcome,
 };
 use crate::goal_projection::project_prompt;
-use crate::public_protocol::{PublicWireFact, normalize_public_frame};
+use crate::public_protocol::PublicWireFact;
 
+mod correlation;
 mod facts;
-
-/// Maximum retained Codex app-server line accepted by this driver boundary.
-pub const MAX_CODEX_FRAME_BYTES: usize = 64 * 1024;
 
 /// A write or a secret-free normalized fact owned by the daemon process edge.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +28,7 @@ pub enum CodexTurnEffect {
     Write(Vec<u8>),
     Fact(PublicWireFact),
     ControlRequest(CodexControlRequest),
+    Steer(CodexSteerOutcome),
 }
 
 /// Controlled failure while correlating a Codex app-server response.
@@ -47,9 +46,11 @@ pub struct CodexTurnDriver {
     session: CodexAppServerSession,
     prompt: Option<String>,
     attachments: Vec<Value>,
+    interrupted_reply: Option<String>,
     child_parent_by_thread: BTreeMap<String, String>,
     settled_child_threads: BTreeSet<String>,
     tool_output_item_ids: BTreeSet<String>,
+    reported_root_failure: bool,
 }
 
 impl CodexTurnDriver {
@@ -62,7 +63,7 @@ impl CodexTurnDriver {
         prompt: &str,
         goal: Option<&GoalProjection>,
     ) -> Result<(Self, Vec<CodexTurnEffect>), CodexTurnError> {
-        Self::start_with_attachments(config, prompt, Vec::new(), goal)
+        Self::start_with_attachments(config, prompt, Vec::new(), goal, None)
     }
 
     pub fn start_with_attachments(
@@ -70,6 +71,7 @@ impl CodexTurnDriver {
         prompt: &str,
         attachments: Vec<Value>,
         goal: Option<&GoalProjection>,
+        interrupted_reply: Option<String>,
     ) -> Result<(Self, Vec<CodexTurnEffect>), CodexTurnError> {
         let prompt =
             project_prompt(prompt, goal, 65_536).map_err(|_| CodexSessionError::InvalidPrompt)?;
@@ -80,9 +82,11 @@ impl CodexTurnDriver {
                 session,
                 prompt: Some(prompt),
                 attachments,
+                interrupted_reply,
                 child_parent_by_thread: BTreeMap::new(),
                 settled_child_threads: BTreeSet::new(),
                 tool_output_item_ids: BTreeSet::new(),
+                reported_root_failure: false,
             },
             vec![CodexTurnEffect::Write(initialize)],
         ))
@@ -96,7 +100,7 @@ impl CodexTurnDriver {
     /// # Errors
     /// Returns only for oversized input or an invalid correlated response; no raw payload is kept.
     pub fn receive(&mut self, raw: &[u8]) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
-        if raw.len() > MAX_CODEX_FRAME_BYTES {
+        if raw.len() > crate::MAX_PROVIDER_FRAME_BYTES {
             return Err(CodexTurnError::FrameTooLarge);
         }
         let Ok(frame) = serde_json::from_slice::<Value>(raw) else {
@@ -113,8 +117,11 @@ impl CodexTurnDriver {
         }
         match parse_control(&frame) {
             Ok(Some(request)) => return Ok(vec![CodexTurnEffect::ControlRequest(request)]),
-            Err(classification) => return Ok(diagnostic(classification)),
+            Err(classification) => return Ok(rejected(&frame, classification)),
             Ok(None) => {}
+        }
+        if frame.get("id").is_some() && frame.get("method").is_some() {
+            return Ok(rejected(&frame, "unsupportedCodexServerRequest"));
         }
         let notification = frame.get("method").and_then(Value::as_str).is_some();
         let mut effects = if notification {
@@ -135,16 +142,25 @@ impl CodexTurnDriver {
                     .prompt
                     .take()
                     .ok_or(CodexSessionError::TurnAlreadyActive)?;
+                let interrupted_reply = self.interrupted_reply.take();
                 effects.push(CodexTurnEffect::Write(
-                    self.session
-                        .start_turn_with_attachments(&prompt, &self.attachments)?,
+                    self.session.start_turn_after_interrupted_reply(
+                        &prompt,
+                        &self.attachments,
+                        interrupted_reply.as_deref(),
+                    )?,
                 ));
             }
-            Ok(
-                CodexSessionIngress::TurnStarted
-                | CodexSessionIngress::TurnEnded
-                | CodexSessionIngress::Ignored,
-            ) => {}
+            Ok(CodexSessionIngress::Steer(outcome)) => {
+                effects.push(CodexTurnEffect::Steer(outcome))
+            }
+            Ok(CodexSessionIngress::TurnEnded) => effects.extend(
+                self.session
+                    .unconsumed_steers()
+                    .into_iter()
+                    .map(CodexTurnEffect::Steer),
+            ),
+            Ok(CodexSessionIngress::TurnStarted | CodexSessionIngress::Ignored) => {}
             Err(_) if notification => {}
             Err(error) => return Err(error.into()),
         }
@@ -160,13 +176,30 @@ impl CodexTurnDriver {
         prompt: &str,
         goal: Option<&GoalProjection>,
         attachments: &[Value],
+        interrupted_reply: Option<&str>,
     ) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
         let prompt =
             project_prompt(prompt, goal, 65_536).map_err(|_| CodexSessionError::InvalidPrompt)?;
         Ok(vec![CodexTurnEffect::Write(
-            self.session
-                .start_turn_with_attachments(&prompt, attachments)?,
+            self.session.start_turn_after_interrupted_reply(
+                &prompt,
+                attachments,
+                interrupted_reply,
+            )?,
         )])
+    }
+
+    pub fn steer(
+        &mut self,
+        message_id: &str,
+        prompt: &str,
+        attachments: &[Value],
+    ) -> Result<CodexTurnEffect, CodexTurnError> {
+        Ok(CodexTurnEffect::Write(self.session.steer(
+            message_id,
+            prompt,
+            attachments,
+        )?))
     }
 
     /// Requests a documented Codex turn interruption without destroying the owned session.
@@ -188,116 +221,12 @@ fn writes(effects: &mut Vec<CodexTurnEffect>, frames: Vec<Vec<u8>>) {
     effects.extend(frames.into_iter().map(CodexTurnEffect::Write));
 }
 
-impl CodexTurnDriver {
-    fn facts(&mut self, frame: &Value) -> Vec<CodexTurnEffect> {
-        let terminal = facts::child_terminal(frame, &self.child_parent_by_thread);
-        let child_phase = facts::child_phase(frame, &self.child_parent_by_thread);
-        let mut facts = if facts::is_empty_turn_completion(frame) {
-            self.session.active_turn_id().map_or_else(
-                || normalize_public_frame(PublicProvider::Codex, frame),
-                |turn_id| {
-                    vec![
-                        PublicWireFact::Event(NormalizedProviderEvent::TurnEnded {
-                            turn_id: turn_id.into(),
-                        }),
-                        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {
-                            activity: RootActivity::Idle,
-                        }),
-                        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase {
-                            phase: TurnPhase::Ready,
-                        }),
-                    ]
-                },
-            )
-        } else {
-            normalize_public_frame(PublicProvider::Codex, frame)
-        };
-        facts.retain(|fact| !matches!(fact, PublicWireFact::SessionStarted { .. }));
-        // A child turn completion is not a root turn completion. The public
-        // normalizer is intentionally stateless, so this owner-side correlation
-        // removes the root-only terminal facts once an explicit child mapping
-        // proves the frame belongs to detached work.
-        if terminal.is_some()
-            && matches!(
-                facts::method(frame),
-                Some("turn/completed" | "turn/failed" | "turn/aborted")
-            )
-        {
-            facts.retain(|fact| !facts::root_terminal_fact(fact));
-        }
-        for fact in &facts {
-            if let PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
-                tool_use_id,
-                ..
-            }) = fact
-            {
-                self.tool_output_item_ids.insert(tool_use_id.clone());
-            }
-            if let PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
-                child_id,
-                parent_tool_use_id,
-            }) = fact
-            {
-                self.child_parent_by_thread
-                    .entry(child_id.clone())
-                    .or_insert_with(|| parent_tool_use_id.clone());
-            }
-        }
-        if let Some(fallback) = self.command_completion_fallback(frame) {
-            facts.push(fallback);
-        }
-        if let Some((child_id, phase)) = child_phase
-            && !matches!(
-                phase,
-                gent_types::WorkPhase::Done
-                    | gent_types::WorkPhase::Failed
-                    | gent_types::WorkPhase::Interrupted
-            )
-        {
-            facts.push(PublicWireFact::Lifecycle(
-                NormalizedLifecycleSignal::ChildPhase { child_id, phase },
-            ));
-        }
-        let mut effects: Vec<_> = facts.into_iter().map(CodexTurnEffect::Fact).collect();
-        if let Some((child_id, phase)) = terminal
-            && self.settled_child_threads.insert(child_id.clone())
-        {
-            effects.push(CodexTurnEffect::Fact(PublicWireFact::Event(
-                NormalizedProviderEvent::ChildTerminal { child_id, phase },
-            )));
-        }
-        effects
-    }
-
-    fn command_completion_fallback(&mut self, frame: &Value) -> Option<PublicWireFact> {
-        if facts::method(frame) != Some("item/completed") {
-            return None;
-        }
-        let item = frame.pointer("/params/item")?;
-        if item.get("type").and_then(Value::as_str) != Some("commandExecution") {
-            return None;
-        }
-        let id = item
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|id| !id.is_empty())?;
-        if self.tool_output_item_ids.contains(id) {
-            return None;
-        }
-        let text = item
-            .get("aggregatedOutput")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())?;
-        self.tool_output_item_ids.insert(id.into());
-        Some(PublicWireFact::Event(
-            NormalizedProviderEvent::ToolOutputDelta {
-                tool_use_id: id.into(),
-                text: text.into(),
-                is_partial: false,
-            },
-        ))
-    }
+fn rejected(frame: &Value, classification: &str) -> Vec<CodexTurnEffect> {
+    let mut effects = diagnostic(classification);
+    effects.extend(reject_unhandled_codex_request(frame).map(CodexTurnEffect::Write));
+    effects
 }
+
 fn diagnostic(classification: &str) -> Vec<CodexTurnEffect> {
     vec![CodexTurnEffect::Fact(PublicWireFact::Event(
         NormalizedProviderEvent::TransportDiagnostic {

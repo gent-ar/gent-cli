@@ -10,50 +10,36 @@ fn artifact() -> PlanArtifact {
         source_run_id: AgentChatRunId("run-1".into()),
         source_turn_id: "turn-1".into(),
         revision: PlanRevision(1),
-        content_digest_sha256: "a".repeat(64),
+        content_digest_sha256: PlanArtifact::content_digest("1. Update Cargo.toml"),
         status: PlanStatus::ReadyForReview,
-        actions: vec![PlanAction {
-            action_id: "action-1".into(),
-            kind: PlanActionKind::Edit,
-            summary: "Update a config file".into(),
-        }],
-        risks: vec![],
-        diffs: vec![PlanDiff {
-            path: "Cargo.toml".into(),
-            kind: PlanDiffKind::Modify,
-            summary: "Add a dependency".into(),
-        }],
-        permission_preview: vec![PlanPermissionPreview {
-            category: PermissionCategory::Edit,
-            summary: "Modify one file".into(),
-        }],
+        content: "1. Update Cargo.toml".into(),
     }
 }
 
 #[test]
 fn artifact_is_closed_and_contains_no_raw_provider_fields() {
     let value = serde_json::to_value(artifact()).unwrap();
-    assert_eq!(value["contentDigestSha256"], "a".repeat(64));
+    assert_eq!(value["content"], "1. Update Cargo.toml");
+    assert!(artifact().validate().is_ok());
     assert!(
         serde_json::from_value::<PlanArtifact>(json!({
-        "planId": "p", "conversationId": "c", "sourceRunId": "r", "sourceTurnId": "t", "revision": 1,
-            "contentDigestSha256": "a".repeat(64), "status": "draft", "actions": [],
-            "risks": [], "diffs": [], "permissionPreview": [], "providerSessionId": "never"
+            "planId": "p", "conversationId": "c", "sourceRunId": "r", "sourceTurnId": "t", "revision": 1,
+            "contentDigestSha256": "a".repeat(64), "status": "draft", "content": "plan",
+            "providerSessionId": "never"
         }))
         .is_err()
     );
 }
 
 #[test]
-fn artifact_rejects_unbounded_metadata_and_invalid_digest() {
+fn artifact_rejects_unbounded_content_and_a_digest_of_other_content() {
     let mut value = artifact();
-    value.actions[0].summary = "x".repeat(MAX_SUMMARY_BYTES + 1);
+    value.content = "x".repeat(MAX_PLAN_CONTENT_BYTES + 1);
     assert_eq!(
         value.validate(),
         Err(ReviewedPlanContractError::InvalidMetadata)
     );
-    value.actions[0].summary = "valid".into();
-    value.content_digest_sha256 = "UPPER".into();
+    value.content = "1. Something else".into();
     assert_eq!(
         value.validate(),
         Err(ReviewedPlanContractError::InvalidRevisionOrDigest)

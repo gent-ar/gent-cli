@@ -139,6 +139,7 @@ mod tests {
                     tool_name: "read_file".into(),
                     phase: ToolPhase::Started,
                     output_digest: None,
+                    parent_tool_use_id: None,
                 },
             },
         );

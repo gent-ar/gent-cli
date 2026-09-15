@@ -26,7 +26,10 @@ fn captures_an_explicit_claude_binary_without_release_material() {
             data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
-            executable,
+            executables: crate::provider_executables::ProviderExecutables::explicit(
+                Some(executable),
+                None,
+            ),
             mcp_config: None,
         },
         SystemLauncher::new(64 * 1024),
@@ -53,7 +56,10 @@ fn rejects_missing_local_executable_before_host_composition() {
             data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
-            executable: directory.path().join("missing-claude"),
+            executables: crate::provider_executables::ProviderExecutables::explicit(
+                Some(directory.path().join("missing-claude")),
+                None,
+            ),
             mcp_config: None,
         },
         SystemLauncher::new(64 * 1024),

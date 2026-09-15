@@ -9,19 +9,22 @@ use gent_types::DecisionCommand;
 pub enum DecisionCommandLine {
     /// Persist a decision idempotently before any provider observes it.
     Submit {
-        #[arg(long)]
+        #[arg(long, help = "Decision id")]
         decision_id: String,
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Idempotency key; reuse it to retry the same submission safely"
+        )]
         idempotency_key: String,
     },
     /// Terminally record that provider acknowledgement cannot be proven.
     Unprovable {
-        #[arg(long)]
+        #[arg(long, help = "Decision id")]
         decision_id: String,
     },
     /// Terminally require recovery when the original decision cannot safely continue.
     Recovery {
-        #[arg(long)]
+        #[arg(long, help = "Decision id")]
         decision_id: String,
     },
 }

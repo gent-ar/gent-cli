@@ -33,16 +33,27 @@ async fn started_source_projects_output_into_the_shared_conversation_transcript(
     let binding = binding();
     bridge.push_start_binding(binding.clone());
     bridge.push_batch(ClaurstDrainBatch {
-        facts: vec![ClaurstNormalizedFact {
-            source_id: binding.source_id.clone(),
-            cursor: 1,
-            value: ClaurstFactValue::Event(NormalizedProviderEvent::Output {
-                text: "local Claurst reply".into(),
-                is_partial: true,
-            }),
-        }],
+        facts: vec![
+            ClaurstNormalizedFact {
+                source_id: binding.source_id.clone(),
+                cursor: 1,
+                value: ClaurstFactValue::Event(NormalizedProviderEvent::Output {
+                    text: "local Claurst reply".into(),
+                    is_partial: true,
+                }),
+            },
+            ClaurstNormalizedFact {
+                source_id: binding.source_id.clone(),
+                cursor: 2,
+                value: ClaurstFactValue::Event(NormalizedProviderEvent::ToolOutputDelta {
+                    tool_use_id: "tool-1".into(),
+                    text: format!("HEAD{}TAIL", "x".repeat(70 * 1024)),
+                    is_partial: false,
+                }),
+            },
+        ],
         permissions: vec![],
-        checkpoint: Some(checkpoint(1)),
+        checkpoint: Some(checkpoint(2)),
         session_binding: Some(binding.clone()),
         terminal: Some(gent_ports::ClaurstTerminal::Completed),
     });
@@ -62,7 +73,10 @@ async fn started_source_projects_output_into_the_shared_conversation_transcript(
     let page = ledger
         .normalized_transcript_page(&AgentChatConversationId("conversation-a".into()), 0, 8)
         .unwrap();
-    assert_eq!(page.events.len(), 2);
+    assert_eq!(page.events.len(), 3);
+    assert_eq!(page.events[2].kind, NormalizedTranscriptKind::ToolActivity);
+    assert!(page.events[2].text.starts_with("HEAD") && page.events[2].text.ends_with("TAIL"));
+    assert!(page.events[2].text.len() <= gent_types::MAX_TRANSCRIPT_TEXT_BYTES);
     assert_eq!(page.events[0].kind, NormalizedTranscriptKind::UserMessage);
     assert_eq!(page.events[0].text, "render output");
     assert!(!page.events[0].is_partial);
@@ -165,6 +179,7 @@ async fn started_source_projects_pending_permission_into_shared_activity() {
             tool_use_id: "tool-1".into(),
             tool_name: "write_file".into(),
             category: PermissionCategory::Edit,
+            input: Some(serde_json::json!({"file_path": "/workspace/notes.md"})),
         }],
         checkpoint: Some(checkpoint(0)),
         session_binding: Some(binding.clone()),
@@ -183,14 +198,18 @@ async fn started_source_projects_pending_permission_into_shared_activity() {
         .drain(&binding.source_id, HostEpoch(1))
         .await
         .unwrap();
-    assert!(
-        ledger
-            .pending_permission(
-                &AgentChatConversationId("conversation-a".into()),
-                &AgentChatRunId("run-a".into())
-            )
-            .unwrap()
-            .is_some()
+    let pending = ledger
+        .pending_permission(
+            &AgentChatConversationId("conversation-a".into()),
+            &AgentChatRunId("run-a".into()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.request.tool_name, "write_file");
+    assert_eq!(pending.request.category, PermissionCategory::Edit);
+    assert_eq!(
+        pending.request.input,
+        Some(serde_json::json!({"file_path": "/workspace/notes.md"}))
     );
     let facts = ledger
         .read_conversation_activity_page("conversation-a", "run-a", 0, 8)

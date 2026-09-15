@@ -54,8 +54,8 @@ pub(crate) async fn request(
     {
         return Ok(status);
     }
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     Err("daemon did not return conversation status".into())
 }

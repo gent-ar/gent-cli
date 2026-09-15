@@ -14,7 +14,8 @@ use gent_drivers::{
 };
 use gent_ports::PublicProviderRunner;
 use gent_types::{
-    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, SandboxWorkspaceAccess,
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, RunVersionLock,
+    SandboxWorkspaceAccess,
 };
 
 #[derive(Default)]
@@ -77,32 +78,50 @@ fn prompt(root: PathBuf) -> CodexPromptStart {
         turn_options: options(),
         attachments: vec![],
         selected_mcp_source_names: Vec::new(),
+        interrupted_reply: None,
     }
 }
 
-#[test]
-fn changed_mcp_config_terminates_the_old_process_and_fresh_start_uses_new_servers() {
-    let directory = tempfile::tempdir().unwrap();
-    let executable = directory.path().join("codex");
-    std::fs::write(&executable, "test executable").unwrap();
-    let config = directory.path().join("mcp.json");
-    std::fs::write(&config, r#"{"mcpServers":{"old":{"command":"old"}}}"#).unwrap();
-    let state = Arc::new(State::default());
-    let runner = CodexPromptRunner::new(
-        Launcher(Arc::clone(&state)),
-        BufferPolicy::new(4, 65_536, 0, 0).unwrap(),
+fn runner(directory: &std::path::Path, state: &Arc<State>) -> CodexPromptRunner<Launcher, Process> {
+    std::fs::write(
+        directory.join("mcp.json"),
+        r#"{"mcpServers":{"old":{"command":"old"}}}"#,
+    )
+    .unwrap();
+    CodexPromptRunner::new(
+        Launcher(Arc::clone(state)),
+        BufferPolicy::new(4, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
         None,
-        Some(config.clone()),
-    );
+        Some(directory.join("mcp.json")),
+    )
+}
+
+fn started(
+    directory: &std::path::Path,
+    runner: &CodexPromptRunner<Launcher, Process>,
+) -> RunVersionLock {
+    let executable = directory.join("codex");
+    std::fs::write(&executable, "test executable").unwrap();
     let lock = capture("codex", &executable, "test", "test").unwrap();
     runner
-        .prepare("run".into(), prompt(directory.path().into()))
+        .prepare("run".into(), prompt(directory.into()))
         .unwrap();
-    PublicProviderRunner::start(&runner, "run", &lock).unwrap();
-    // The runner records the same complete config representation that refresh
-    // observes, so a normal follow-up must reuse its live native session.
+    PublicProviderRunner::start(runner, "run", &lock).unwrap();
+    lock
+}
+
+#[test]
+fn changed_mcp_config_replaces_the_process_and_resumes_the_bound_thread_with_new_servers() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let runner = runner(directory.path(), &state);
+    let lock = started(directory.path(), &runner);
     assert!(!runner.refresh_mcp_config("run").unwrap());
-    std::fs::write(&config, r#"{"mcpServers":{"new":{"command":"new"}}}"#).unwrap();
+    std::fs::write(
+        directory.path().join("mcp.json"),
+        r#"{"mcpServers":{"new":{"command":"new"}}}"#,
+    )
+    .unwrap();
     assert!(runner.refresh_mcp_config("run").unwrap());
     assert_eq!(
         state.signals.lock().unwrap().as_slice(),
@@ -111,7 +130,7 @@ fn changed_mcp_config_terminates_the_old_process_and_fresh_start_uses_new_server
     runner
         .prepare("run".into(), prompt(directory.path().into()))
         .unwrap();
-    PublicProviderRunner::start(&runner, "run", &lock).unwrap();
+    PublicProviderRunner::resume(&runner, "run", &lock, "bound-thread").unwrap();
     state
         .reads
         .lock()
@@ -120,9 +139,30 @@ fn changed_mcp_config_terminates_the_old_process_and_fresh_start_uses_new_server
     runner.poll("run").unwrap();
     let frame: serde_json::Value =
         serde_json::from_slice(state.writes.lock().unwrap().last().unwrap()).unwrap();
-    assert_eq!(frame["method"], "thread/start");
+    assert_eq!(frame["method"], "thread/resume");
+    assert_eq!(frame["params"]["threadId"], "bound-thread");
+    assert_eq!(frame["params"]["excludeTurns"], true);
     assert_eq!(
         frame["params"]["config"]["mcp_servers"]["new"]["command"],
         "new"
+    );
+}
+
+#[test]
+fn changed_mcp_config_after_the_process_is_gone_leaves_nothing_to_replace() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let runner = runner(directory.path(), &state);
+    started(directory.path(), &runner);
+    runner.release_session("run").unwrap();
+    std::fs::write(
+        directory.path().join("mcp.json"),
+        r#"{"mcpServers":{"new":{"command":"new"}}}"#,
+    )
+    .unwrap();
+    assert!(!runner.refresh_mcp_config("run").unwrap());
+    assert_eq!(
+        state.signals.lock().unwrap().as_slice(),
+        &[ProcessTreeSignal::Terminate]
     );
 }

@@ -44,7 +44,6 @@ impl NormalizedSessionBatchLedger for SqliteLedger {
         )?;
         let transcript_cursor = append_transcript(&transaction, batch)?;
         let activity_cursor = normalized_session_activity::append(&transaction, batch)?;
-        normalized_session_activity::apply(&transaction, batch, activity_cursor)?;
         let result = NormalizedSessionBatchResult {
             lifecycle_cursor: lifecycle.cursor,
             transcript_cursor,
@@ -82,7 +81,7 @@ fn validate(batch: &NormalizedSessionBatch) -> Result<(), LedgerError> {
             || transcript.turn_id != batch.turn_id
             || transcript.run_id != batch.run_id
             || transcript.text.contains('\0')
-            || transcript.text.len() > 64 * 1024
+            || transcript.text.len() > gent_types::MAX_TRANSCRIPT_TEXT_BYTES
         {
             return Err(LedgerError::Invariant(
                 "normalized session transcript does not match its batch".into(),
@@ -269,5 +268,6 @@ const fn transcript_kind(kind: gent_types::NormalizedTranscriptKind) -> &'static
         gent_types::NormalizedTranscriptKind::Thinking => "thinking",
         gent_types::NormalizedTranscriptKind::ToolActivity => "toolActivity",
         gent_types::NormalizedTranscriptKind::Notice => "notice",
+        gent_types::NormalizedTranscriptKind::Plan => "plan",
     }
 }

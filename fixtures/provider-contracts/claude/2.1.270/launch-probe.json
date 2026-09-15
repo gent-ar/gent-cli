@@ -1,0 +1,102 @@
+{
+ "chat": {
+  "argv": [
+   "--input-format",
+   "stream-json",
+   "--output-format",
+   "stream-json",
+   "--print",
+   "--verbose",
+   "--include-partial-messages",
+   "--replay-user-messages",
+   "--model",
+   "haiku",
+   "--effort",
+   "medium",
+   "--permission-prompt-tool",
+   "stdio",
+   "--permission-mode",
+   "manual"
+  ],
+  "handshake": "success",
+  "stderr": ""
+ },
+ "chatPlan": {
+  "argv": [
+   "--input-format",
+   "stream-json",
+   "--output-format",
+   "stream-json",
+   "--print",
+   "--verbose",
+   "--include-partial-messages",
+   "--replay-user-messages",
+   "--model",
+   "haiku",
+   "--effort",
+   "max",
+   "--permission-prompt-tool",
+   "stdio",
+   "--permission-mode",
+   "plan",
+   "--append-system-prompt",
+   "probe",
+   "--max-turns",
+   "3",
+   "--disallowedTools",
+   "WebFetch"
+  ],
+  "handshake": "success",
+  "stderr": ""
+ },
+ "chatSystemPrompt": {
+  "argv": [
+   "--input-format",
+   "stream-json",
+   "--output-format",
+   "stream-json",
+   "--print",
+   "--verbose",
+   "--include-partial-messages",
+   "--replay-user-messages",
+   "--model",
+   "haiku",
+   "--effort",
+   "low",
+   "--permission-prompt-tool",
+   "stdio",
+   "--permission-mode",
+   "bypassPermissions",
+   "--system-prompt",
+   "probe",
+   "--mcp-config",
+   "<mcp-config>"
+  ],
+  "handshake": "success",
+  "stderr": ""
+ },
+ "summary": {
+  "argv": [
+   "--input-format",
+   "stream-json",
+   "--output-format",
+   "stream-json",
+   "--print",
+   "--verbose",
+   "--include-partial-messages",
+   "--replay-user-messages",
+   "--model",
+   "haiku",
+   "--safe-mode",
+   "--permission-mode",
+   "dontAsk",
+   "--tools",
+   "",
+   "--max-turns",
+   "1",
+   "--no-session-persistence"
+  ],
+  "handshake": "success",
+  "stderr": ""
+ }
+}

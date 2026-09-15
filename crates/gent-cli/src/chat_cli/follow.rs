@@ -9,7 +9,7 @@ use std::{
 use clap::Args;
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY, AgentChatIntentFrame,
-    AgentChatSubscriptionEnd, WireFrame, read_json_frame, write_json_frame,
+    AgentChatSubscriptionEnd, read_json_frame, write_json_frame,
 };
 use gent_types::{AgentChatConversationId, AgentChatRequestId, NormalizedTranscriptEvent};
 use serde_json::Value;
@@ -18,16 +18,21 @@ use crate::local_ipc::connect_and_negotiate;
 
 const MAX_RECONNECTS: u8 = 10;
 
-/// Streams one conversation's normalized events and resumes after a bounded number of disconnects.
 #[derive(Debug, Args)]
 pub(crate) struct FollowArgs {
-    #[arg(long)]
+    #[arg(long, help = "Conversation to follow")]
     conversation_id: String,
-    /// Resume strictly after this durable transcript cursor.
-    #[arg(long, default_value_t = 0)]
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Resume after this transcript cursor"
+    )]
     after_cursor: u64,
-    /// Maximum reconnects after a closed daemon stream (0 through 10).
-    #[arg(long, default_value_t = 3)]
+    #[arg(
+        long,
+        default_value_t = 3,
+        help = "Reconnect attempts after the stream closes (0-10)"
+    )]
     reconnect_attempts: u8,
 }
 
@@ -130,8 +135,8 @@ fn supports_subscription(capabilities: &[String]) -> bool {
 }
 
 fn decode(raw: Value) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     serde_json::from_value(raw)
         .map_err(|_| "daemon returned an invalid chat subscription frame".into())
@@ -193,6 +198,8 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "normalized only".into(),
             is_partial: false,
+            origin: None,
+            attachments: Vec::new(),
         }
     }
 

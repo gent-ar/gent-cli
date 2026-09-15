@@ -212,6 +212,7 @@ fn label(kind: NormalizedTranscriptKind) -> &'static str {
         NormalizedTranscriptKind::ToolActivity => "tool",
         NormalizedTranscriptKind::Notice => "notice",
         NormalizedTranscriptKind::Thinking => "thinking",
+        NormalizedTranscriptKind::Plan => "plan",
     }
 }
 

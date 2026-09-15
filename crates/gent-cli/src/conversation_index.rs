@@ -3,8 +3,7 @@
 use std::{collections::HashSet, path::PathBuf};
 
 use gent_protocol::{
-    CONVERSATION_INDEX_CAPABILITY, ConversationIndexFrame, WireFrame, read_json_frame,
-    write_json_frame,
+    CONVERSATION_INDEX_CAPABILITY, ConversationIndexFrame, read_json_frame, write_json_frame,
 };
 use gent_types::ConversationListItem;
 use serde_json::Value;
@@ -45,8 +44,8 @@ pub(crate) async fn request(
         }
         return Err("daemon returned a conversation index with an empty identity".into());
     }
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     Err("daemon did not return a conversation index".into())
 }

@@ -9,13 +9,17 @@ use gent_types::{
 use serde_json::json;
 use tokio::io::duplex;
 
+use crate::agent_chat_intent_error::AgentChatIntentError;
 use crate::agent_chat_transport::{IntentPort, dispatch_port};
 
 #[derive(Clone)]
 struct FakePort;
 
 impl IntentPort for FakePort {
-    fn exchange(&self, request: AgentChatIntentFrame) -> Result<Vec<AgentChatIntentFrame>, String> {
+    fn exchange(
+        &self,
+        request: AgentChatIntentFrame,
+    ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
         match request {
             AgentChatIntentFrame::CreateConversation {
                 request_id,
@@ -31,7 +35,54 @@ impl IntentPort for FakePort {
                 request_id,
                 receipt_id,
                 ..
+            }
+            | AgentChatIntentFrame::SendPromptWithTools {
+                request_id,
+                receipt_id,
+                ..
+            }
+            | AgentChatIntentFrame::QueuePromptWithTools {
+                request_id,
+                receipt_id,
+                ..
             } => Ok(vec![accepted(request_id, receipt_id)]),
+            AgentChatIntentFrame::CancelQueuedPrompt {
+                request_id,
+                receipt_id,
+                conversation_id,
+                message_id,
+            } if message_id == "message-queued" => {
+                Ok(vec![AgentChatIntentFrame::QueuedPromptCanceled {
+                    request_id,
+                    receipt: receipt(receipt_id),
+                    conversation_id,
+                    message_id,
+                }])
+            }
+            AgentChatIntentFrame::CancelQueuedPrompt { .. } => {
+                Err(gent_types::AgentChatRejection::QueuedPromptNotCancelable.into())
+            }
+            AgentChatIntentFrame::SteerQueuedPrompt {
+                request_id,
+                receipt_id,
+                conversation_id,
+                message_id,
+            } if message_id == "message-queued" => {
+                Ok(vec![AgentChatIntentFrame::QueuedPromptSteered {
+                    request_id,
+                    receipt: receipt(receipt_id),
+                    conversation_id,
+                    message_id,
+                }])
+            }
+            AgentChatIntentFrame::SteerQueuedPrompt { .. } => {
+                Err(gent_types::AgentChatRejection::QueuedPromptNotSteerable.into())
+            }
+            AgentChatIntentFrame::SwitchSelection { parent_run_id, .. }
+                if parent_run_id.0 == "run-busy" =>
+            {
+                Err(gent_types::AgentChatRejection::SelectionSwitchBlockedByActiveTurn.into())
+            }
             AgentChatIntentFrame::SwitchSelection {
                 request_id,
                 receipt_id,
@@ -62,6 +113,8 @@ impl IntentPort for FakePort {
                         kind: NormalizedTranscriptKind::AssistantMessage,
                         text: "hello".into(),
                         is_partial: false,
+                        origin: None,
+                        attachments: Vec::new(),
                     },
                 },
                 AgentChatIntentFrame::SubscriptionEnded {
@@ -78,7 +131,10 @@ impl IntentPort for FakePort {
 struct BadReceiptPort;
 
 impl IntentPort for BadReceiptPort {
-    fn exchange(&self, _: AgentChatIntentFrame) -> Result<Vec<AgentChatIntentFrame>, String> {
+    fn exchange(
+        &self,
+        _: AgentChatIntentFrame,
+    ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
         Ok(vec![accepted(
             AgentChatRequestId("wrong-request".into()),
             ReceiptId("wrong-receipt".into()),
@@ -90,7 +146,10 @@ impl IntentPort for BadReceiptPort {
 struct ObserverPort;
 
 impl IntentPort for ObserverPort {
-    fn exchange(&self, _: AgentChatIntentFrame) -> Result<Vec<AgentChatIntentFrame>, String> {
+    fn exchange(
+        &self,
+        _: AgentChatIntentFrame,
+    ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
         Err("observer-disabled".into())
     }
 }
@@ -102,6 +161,7 @@ fn accepted(request_id: AgentChatRequestId, receipt_id: ReceiptId) -> AgentChatI
         conversation_id: gent_types::AgentChatConversationId("conversation-1".into()),
         run_id: gent_types::AgentChatRunId("run-1".into()),
         turn_id: "turn-1".into(),
+        message_id: "message-1".into(),
         delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider,
     }
 }
@@ -132,7 +192,7 @@ async fn prompt_reply_requires_a_correlated_receipt() {
             .unwrap()
     );
     assert!(
-        matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Accepted { request_id, receipt, conversation_id, run_id, turn_id, delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider } if request_id.0 == "request-1" && receipt.receipt_id.0 == "receipt-1" && conversation_id.0 == "conversation-1" && run_id.0 == "run-1" && turn_id == "turn-1")
+        matches!(read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(), AgentChatIntentFrame::Accepted { request_id, receipt, conversation_id, run_id, turn_id, delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider, .. } if request_id.0 == "request-1" && receipt.receipt_id.0 == "receipt-1" && conversation_id.0 == "conversation-1" && run_id.0 == "run-1" && turn_id == "turn-1")
     );
 }
 
@@ -177,7 +237,7 @@ async fn clear_switch_with_inherited_history_is_rejected() {
         fn exchange(
             &self,
             request: AgentChatIntentFrame,
-        ) -> Result<Vec<AgentChatIntentFrame>, String> {
+        ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
             let AgentChatIntentFrame::SwitchSelection {
                 request_id,
                 receipt_id,
@@ -280,4 +340,125 @@ fn prompt_fixture_has_one_conversation_identity() {
         AgentChatConversationId("conversation-1".into()).0,
         "conversation-1"
     );
+}
+
+#[tokio::test]
+async fn tool_bearing_prompts_are_client_requests_with_correlated_receipts() {
+    for kind in ["sendPromptWithTools", "queuePromptWithTools"] {
+        let (mut reader, mut writer) = duplex(4096);
+        let request = json!({ "type": kind, "body": {
+            "requestId": "request-tools", "receiptId": "receipt-tools", "conversationId": "conversation-1",
+            "text": "use the docs", "attachmentIds": [], "toolSourceIds": ["mcp:docs"]
+        } });
+        assert!(
+            dispatch_port(&mut writer, &FakePort, &capabilities(), &request)
+                .await
+                .unwrap()
+        );
+        assert!(matches!(
+            read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(),
+            AgentChatIntentFrame::Accepted { request_id, receipt, .. }
+                if request_id.0 == "request-tools" && receipt.receipt_id.0 == "receipt-tools"
+        ));
+    }
+}
+
+#[tokio::test]
+async fn queued_prompt_cancellation_replies_or_rejects_with_a_typed_code() {
+    let cancel = |message: &str| {
+        json!({ "type": "cancelQueuedPrompt", "body": {
+            "requestId": "cancel-1", "receiptId": "receipt-cancel", "conversationId": "conversation-1",
+            "messageId": message
+        } })
+    };
+    let (mut reader, mut writer) = duplex(4096);
+    assert!(
+        dispatch_port(
+            &mut writer,
+            &FakePort,
+            &capabilities(),
+            &cancel("message-queued")
+        )
+        .await
+        .unwrap()
+    );
+    assert!(matches!(
+        read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(),
+        AgentChatIntentFrame::QueuedPromptCanceled { message_id, receipt, .. }
+            if message_id == "message-queued" && receipt.receipt_id.0 == "receipt-cancel"
+    ));
+    assert!(
+        dispatch_port(
+            &mut writer,
+            &FakePort,
+            &capabilities(),
+            &cancel("message-released")
+        )
+        .await
+        .unwrap()
+    );
+    assert!(matches!(
+        read_frame(&mut reader).await.unwrap(),
+        WireFrame::Error { code, .. } if code == "queuedPromptNotCancelable"
+    ));
+}
+
+#[tokio::test]
+async fn queued_prompt_steer_replies_or_rejects_with_a_typed_code() {
+    let steer = |message: &str| {
+        json!({ "type": "steerQueuedPrompt", "body": {
+            "requestId": "steer-1", "receiptId": "receipt-steer", "conversationId": "conversation-1",
+            "messageId": message
+        } })
+    };
+    let (mut reader, mut writer) = duplex(4096);
+    assert!(
+        dispatch_port(
+            &mut writer,
+            &FakePort,
+            &capabilities(),
+            &steer("message-queued")
+        )
+        .await
+        .unwrap()
+    );
+    assert!(matches!(
+        read_json_frame::<_, AgentChatIntentFrame>(&mut reader).await.unwrap(),
+        AgentChatIntentFrame::QueuedPromptSteered { message_id, receipt, .. }
+            if message_id == "message-queued" && receipt.receipt_id.0 == "receipt-steer"
+    ));
+    assert!(
+        dispatch_port(
+            &mut writer,
+            &FakePort,
+            &capabilities(),
+            &steer("message-released")
+        )
+        .await
+        .unwrap()
+    );
+    assert!(matches!(
+        read_frame(&mut reader).await.unwrap(),
+        WireFrame::Error { code, .. } if code == "queuedPromptNotSteerable"
+    ));
+}
+
+#[tokio::test]
+async fn blocked_selection_switch_is_a_typed_rejection() {
+    let (mut reader, mut writer) = duplex(4096);
+    let request = json!({ "type": "switchSelection", "body": {
+        "requestId": "switch-busy", "receiptId": "receipt-busy", "conversationId": "conversation-1",
+        "parentRunId": "run-busy", "selection": { "provider": "codex", "model": "gpt-5.6", "effort": "high", "mode": "agent" }, "contextPolicy": "preserve"
+    } });
+    assert!(
+        dispatch_port(&mut writer, &FakePort, &capabilities(), &request)
+            .await
+            .unwrap()
+    );
+    assert!(matches!(
+        read_frame(&mut reader).await.unwrap(),
+        WireFrame::Error { code, message }
+            if code == "selectionSwitchBlockedByActiveTurn"
+                && message == "the current turn must settle before changing its model or provider"
+    ));
 }

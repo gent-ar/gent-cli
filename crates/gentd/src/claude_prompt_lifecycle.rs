@@ -1,21 +1,24 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PendingPermissionLedger,
-    PolicyLedger, PublicProviderResolver, PublicProviderRunError, TranscriptLedger,
+    PolicyLedger, PublicProviderResolver, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
 use gent_types::{AgentChatPromptSaved, DurableTurnPhase, HostEpoch};
 
 use crate::public_driver_runtime::{NormalizedSessionFact, PublicDriverFact, PublicDriversRuntime};
 
+mod containment;
 mod execution;
 mod permission;
+mod poll;
+mod recovery;
 mod scheduler;
 mod start;
+mod steer;
 mod summary;
 mod terminal;
 mod types;
@@ -30,6 +33,16 @@ pub(super) struct Binding {
     prompt: AgentChatPromptSaved,
     sequence: u64,
     settled: bool,
+    interrupt_requested: bool,
+    steers: Vec<AgentChatPromptSaved>,
+    session_recovery: SessionRecovery,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SessionRecovery {
+    NotNeeded,
+    Unavailable,
+    Recovered,
 }
 
 #[derive(Debug)]
@@ -39,6 +52,7 @@ pub(crate) struct ClaudePromptLifecycle<L, D, R> {
     coordinator_id: String,
     active: BTreeMap<String, Binding>,
     summary_hook: Option<Arc<dyn ClaudeSummaryHook>>,
+    compaction_notices: std::collections::BTreeSet<String>,
 }
 
 impl<L, D, R> ClaudePromptLifecycle<L, D, R>
@@ -71,6 +85,7 @@ where
             coordinator_id,
             active: BTreeMap::new(),
             summary_hook: None,
+            compaction_notices: std::collections::BTreeSet::new(),
         }
     }
 
@@ -89,7 +104,7 @@ where
             .filter(|run_id| {
                 self.active
                     .get(*run_id)
-                    .is_some_and(|binding| !binding.settled)
+                    .is_some_and(|binding| !binding.settled || binding.interrupt_requested)
             })
             .cloned()
             .map(gent_types::AgentChatRunId)
@@ -105,15 +120,16 @@ where
             }
             AgentChatPromptDispatchResult::Empty => Ok(ClaudePromptDispatchOutcome::Empty),
             AgentChatPromptDispatchResult::Claimed(prompt) => {
-                // Retain the claimed conversation's live session.  Other idle
-                // sessions are explicitly released before a different run can
-                // consume the bounded process capacity.
+                if let Err(error) = self.release_outdated_session(&prompt.run_id.0) {
+                    return self.fail_dispatch(&prompt, host_epoch, error);
+                }
                 let other_settled = self
                     .active
                     .iter()
                     .filter(|(run_id, binding)| {
                         run_id.as_str() != prompt.run_id.0.as_str()
                             && binding.settled
+                            && binding.steers.is_empty()
                             && self.runner.has_claude_session(run_id)
                     })
                     .map(|(run_id, _)| run_id.clone())
@@ -127,14 +143,15 @@ where
                     &self.runner,
                     &self.coordinator_id,
                     &mut self.active,
-                    *prompt,
+                    (*prompt).clone(),
                     host_epoch,
                 )
+                .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error))
             }
         }
     }
 
-    pub(crate) fn interrupt(&self, run_id: &str) -> Result<(), RuntimeError> {
+    pub(crate) fn interrupt(&mut self, run_id: &str) -> Result<(), RuntimeError> {
         if !self.active.contains_key(run_id) {
             return Err(missing_binding());
         }
@@ -143,59 +160,12 @@ where
                 run_id,
                 gent_drivers::interrupt::ProcessTreeSignal::Interrupt,
             )
-            .map_err(RuntimeError::from)
-    }
-
-    pub(crate) fn poll(
-        &mut self,
-        run_id: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Option<ClaudePromptPoll>, RuntimeError> {
-        let effects = self.runner.poll_claude_prompt(run_id).map_err(|_| {
-            RuntimeError::ProviderRun(PublicProviderRunError::Failed(
-                "provider poll unavailable".into(),
-            ))
-        })?;
-        let Some(effects) = effects else {
-            return Ok(None);
-        };
-        if !self.active.contains_key(run_id) {
-            return Err(missing_binding());
-        }
-        let mut facts: u16 = 0;
-        let mut terminal = None;
-        for effect in effects {
-            match effect {
-                ClaudeRunnerEffect::Fact(fact) => {
-                    terminal = terminal.or_else(|| terminal::phase(&fact));
-                    self.record_wire(run_id, host_epoch, &fact)?;
-                    facts = facts.saturating_add(1);
-                }
-                ClaudeRunnerEffect::PermissionRequest(request) => {
-                    let permission = self.record_permission_request(run_id, host_epoch, request)?;
-                    if permission.terminal {
-                        terminal = Some(DurableTurnPhase::Failed);
-                    }
-                    facts = facts.saturating_add(permission.facts);
-                }
-                ClaudeRunnerEffect::Exited { code } => {
-                    self.record_exit(run_id, host_epoch, code)?;
-                    self.settle_if_open(run_id, host_epoch, DurableTurnPhase::Failed)?;
-                    self.active.remove(run_id);
-                    return Ok(Some(ClaudePromptPoll {
-                        facts,
-                        exited: true,
-                    }));
-                }
-            }
-        }
-        if let Some(phase) = terminal {
-            self.settle_if_open(run_id, host_epoch, phase)?;
-        }
-        Ok(Some(ClaudePromptPoll {
-            facts,
-            exited: false,
-        }))
+            .map_err(RuntimeError::from)?;
+        self.active
+            .get_mut(run_id)
+            .ok_or_else(missing_binding)?
+            .interrupt_requested = true;
+        Ok(())
     }
 
     fn record_wire(
@@ -222,6 +192,13 @@ where
             .get(run_id)
             .cloned()
             .ok_or_else(missing_binding)?;
+        let Some(fact) = crate::public_driver_runtime::session::recorded_wire_fact(
+            &mut self.compaction_notices,
+            &binding.prompt.message.turn_id,
+            fact,
+        ) else {
+            return Ok(false);
+        };
         let lifecycle_event_id = self.next_event_id(run_id, host_epoch, "wire")?;
         let transcript_event_id = self.next_event_id(run_id, host_epoch, "transcript")?;
         let activity_event_id = self.next_event_id(run_id, host_epoch, "activity")?;
@@ -233,12 +210,10 @@ where
             lifecycle_event_id,
             transcript_event_id,
             activity_event_id,
-            fact: fact.clone(),
+            fact,
         };
-        let record = self
-            .runtime
+        self.runtime
             .record_normalized_session(&self.coordinator_id, &input)?;
-        let _ = record;
         Ok(false)
     }
 
@@ -312,8 +287,8 @@ where
         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
         binding.sequence = binding.sequence.saturating_add(1);
         Ok(format!(
-            "claude:{}:{run_id}:{kind}:{}",
-            host_epoch.0, binding.sequence
+            "claude:{}:{run_id}:{}:{kind}:{}",
+            host_epoch.0, binding.prompt.message.turn_id, binding.sequence
         ))
     }
 }

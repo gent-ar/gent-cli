@@ -85,8 +85,17 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 ));
                 ClaurstAcpTerminal::Failed
             } else {
-                prompt_terminal(&value)
+                prompt_terminal(&value, &self.assistant_output)
             };
+            if terminal == ClaurstAcpTerminal::Failed && value.get("error").is_none() {
+                let (classification, message) = prompt_failure(&value, &self.assistant_output);
+                self.queued.push_back(ClaurstAcpFact::Event(
+                    gent_types::NormalizedProviderEvent::ProviderFailure {
+                        classification,
+                        message: message.into(),
+                    },
+                ));
+            }
             if terminal == ClaurstAcpTerminal::Completed && !self.assistant_output.is_empty() {
                 self.queued.push_back(ClaurstAcpFact::Event(
                     gent_types::NormalizedProviderEvent::Output {
@@ -101,7 +110,13 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         Ok(None)
     }
     fn project(&mut self, value: Value) -> Result<(), ClaurstAcpTransportError> {
-        if value.get("method").and_then(Value::as_str) == Some("session/update") {
+        if value.get("method").and_then(Value::as_str) == Some(super::OVERSIZED_FRAME_METHOD) {
+            self.queued.push_back(ClaurstAcpFact::Event(
+                gent_types::NormalizedProviderEvent::TransportDiagnostic {
+                    classification: gent_types::OVERSIZED_PROVIDER_FRAME_DIAGNOSTIC.into(),
+                },
+            ));
+        } else if value.get("method").and_then(Value::as_str) == Some("session/update") {
             if let Some(fact) = self.session_update_fact(value.get("params")) {
                 self.queued.push_back(fact);
             }
@@ -116,11 +131,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             .get("id")
             .cloned()
             .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
-        if self.pending_permission.is_some() {
-            return self.write(
-                json!({"jsonrpc":"2.0","id":id,"result":{"outcome":{"outcome":"cancelled"}}}),
-            );
-        }
         let request_id = json_rpc_request_id(&id).ok_or(ClaurstAcpTransportError::InvalidFrame)?;
         let tool_call = value
             .pointer("/params/toolCall")
@@ -131,25 +141,34 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             .filter(|v| !v.trim().is_empty())
             .map(str::to_owned)
             .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
-        let tool_name = safe_permission_tool_name(tool_call);
-        let category = if tool_name.eq_ignore_ascii_case("bash")
-            || tool_name.eq_ignore_ascii_case("execute")
-        {
-            PermissionCategory::Command
-        } else {
-            PermissionCategory::Provider
-        };
-        self.pending_permission = Some(PendingPermission {
+        let category = permission_category(tool_call);
+        let tool = self.claim_permission_tool(tool_call);
+        let pending = PendingPermission {
             request_id: request_id.clone(),
             json_rpc_id: id,
-        });
-        self.queued_permissions
-            .push_back(ClaurstAcpPermissionRequest {
+        };
+        let request = match tool {
+            Some(tool) => ClaurstAcpPermissionRequest {
+                request_id,
+                tool_use_id: tool.tool_use_id,
+                tool_name: tool.tool_name,
+                category,
+                input: tool.input,
+            },
+            None => ClaurstAcpPermissionRequest {
                 request_id,
                 tool_use_id,
-                tool_name,
+                tool_name: safe_permission_tool_name(tool_call),
                 category,
-            });
+                input: None,
+            },
+        };
+        if self.pending_permission.is_some() {
+            self.held_permissions.push_back((pending, request));
+        } else {
+            self.pending_permission = Some(pending);
+            self.queued_permissions.push_back(request);
+        }
         Ok(())
     }
 }
@@ -158,6 +177,15 @@ fn json_rpc_request_id(id: &Value) -> Option<String> {
         Value::String(v) if !v.trim().is_empty() && v.len() <= 128 => Some(v.clone()),
         Value::Number(v) => Some(v.to_string()),
         _ => None,
+    }
+}
+fn permission_category(call: &Value) -> PermissionCategory {
+    match call.get("kind").and_then(Value::as_str) {
+        Some("read" | "search") => PermissionCategory::Read,
+        Some("edit" | "delete" | "move") => PermissionCategory::Edit,
+        Some("execute") => PermissionCategory::Command,
+        Some("fetch") => PermissionCategory::Network,
+        _ => PermissionCategory::Provider,
     }
 }
 fn safe_permission_tool_name(call: &Value) -> String {
@@ -170,10 +198,53 @@ fn safe_permission_tool_name(call: &Value) -> String {
 fn parse_frame(frame: &[u8]) -> Result<Value, ClaurstAcpTransportError> {
     serde_json::from_slice(frame).map_err(|_| ClaurstAcpTransportError::InvalidFrame)
 }
-fn prompt_terminal(value: &Value) -> ClaurstAcpTerminal {
+fn prompt_terminal(value: &Value, assistant_output: &str) -> ClaurstAcpTerminal {
     match value.pointer("/result/stopReason").and_then(Value::as_str) {
-        Some("end_turn" | "max_tokens" | "max_turn_requests") => ClaurstAcpTerminal::Completed,
+        Some("end_turn")
+            if !assistant_output.is_empty()
+                && unanswered_stop_reason(assistant_output).is_none() =>
+        {
+            ClaurstAcpTerminal::Completed
+        }
         Some("cancelled") => ClaurstAcpTerminal::Interrupted,
         _ => ClaurstAcpTerminal::Failed,
     }
+}
+
+fn prompt_failure(
+    value: &Value,
+    assistant_output: &str,
+) -> (gent_types::ProviderFailureClassification, &'static str) {
+    use gent_types::ProviderFailureClassification::{ContextLimit, OutputLimit, Provider};
+    let stop_reason = unanswered_stop_reason(assistant_output)
+        .or_else(|| value.pointer("/result/stopReason").and_then(Value::as_str));
+    match stop_reason {
+        Some("end_turn") => (
+            Provider,
+            "Claurst ended the turn without an assistant response.",
+        ),
+        Some("max_tokens") => (
+            OutputLimit,
+            "Claurst exhausted its output limit before completing the turn.",
+        ),
+        Some("max_turn_requests") => (
+            OutputLimit,
+            "Claurst exhausted its turn-request limit before completing the turn.",
+        ),
+        Some("refusal") => (
+            ContextLimit,
+            "Claurst refused the request without completing the turn.",
+        ),
+        _ => (
+            Provider,
+            "Claurst stopped without a successful end-turn response.",
+        ),
+    }
+}
+
+pub(super) fn unanswered_stop_reason(output: &str) -> Option<&str> {
+    output
+        .trim()
+        .strip_prefix("(no response — model ended the turn with stop_reason \"")?
+        .strip_suffix("\")")
 }

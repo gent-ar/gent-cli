@@ -9,6 +9,15 @@ use super::{DaemonCompositionState, RuntimeFacade};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 
 impl RuntimeFacade {
+    #[must_use]
+    pub(crate) fn with_standalone_doctor(
+        mut self,
+        doctor: crate::dependency_catalog::standalone::StandaloneDoctor,
+    ) -> Self {
+        self.dependencies = self.dependencies.for_standalone(doctor);
+        self
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_state_with_standalone_authority(
         state: DaemonCompositionState,
@@ -17,6 +26,13 @@ impl RuntimeFacade {
             gent_store::SqliteLedger,
         >,
         local_models: crate::standalone_authority_composition::StandaloneClaurstModels,
+        provider_readiness: Option<
+            Arc<dyn crate::provider_readiness_boundary::ProviderReadinessPort>,
+        >,
+        prompt_provider_provision: Option<
+            Arc<dyn crate::prompt_provider_provision_boundary::PromptProviderProvisionPort>,
+        >,
+        provider_auth: Option<Arc<dyn crate::provider_auth_api::ProviderAuthPort>>,
         mcp_server_count: u16,
         mcp_server_names: Vec<String>,
         agent_chat_side_question_runners: Option<
@@ -43,7 +59,9 @@ impl RuntimeFacade {
             state,
             runtime_update_checks,
             Some(prompt_ingress),
-            None,
+            provider_readiness,
+            prompt_provider_provision,
+            provider_auth,
             Some(local_models),
             mcp_server_count,
             mcp_server_names,
@@ -91,3 +109,6 @@ impl AgentChatSelectionGate for StandaloneSelectionGate {
 #[cfg(test)]
 #[path = "runtime_facade_standalone_selection_tests.rs"]
 mod standalone_selection_tests;
+#[cfg(test)]
+#[path = "runtime_facade_steer_goal_tests.rs"]
+mod steer_goal_tests;

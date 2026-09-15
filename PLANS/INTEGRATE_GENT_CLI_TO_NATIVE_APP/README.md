@@ -9,8 +9,8 @@ implementation.
 ## Read in this order
 
 1. `gentd-source-of-truth-contract.md` — the non-negotiable ownership and generic-UI rule.
-2. `integration-gap-review.md` — the audited blockers, with file-and-line evidence. This is the only
-   doc that carries evidence; every other doc defers to it.
+2. `integration-gap-review.md` (P1 items in `integration-gap-review-p1.md`) — the audited blockers,
+   with file-and-line evidence. These are the only docs that carry evidence; every other doc defers to them.
 3. `implementation-backlog.md` — the ordered work items and their acceptance gates.
 4. `native-surface-disposition.md` — every native Agent Chat surface mapped to its final owner.
 5. `native-agent-chat-cutover-map.md` — the Flutter cutover architecture and deletion boundary.

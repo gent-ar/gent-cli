@@ -8,7 +8,7 @@ use gent_store::SqliteLedger;
 use gent_testkit::FakePrivateClaurstBridge;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
-    AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet,
+    AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet, DurableTurnPhase,
     FrozenConversationContext, HostEpoch, NormalizedLifecycleSignal, ReceiptId, RootActivity,
     WorkspaceRecord,
 };
@@ -204,16 +204,34 @@ async fn cancellation_reaches_only_the_exact_active_binding_without_settlement()
     ingress.start(start_request(), HostEpoch(1)).await.unwrap();
     assert!(ingress.cancel_run("other-run").await.is_err());
     ingress.cancel_run("run-a").await.unwrap();
-    assert_eq!(bridge.cancellations(), vec![binding]);
+    assert_eq!(bridge.cancellations(), vec![binding.clone()]);
     assert!(ingress.cancel_run("run-a").await.is_err());
     assert!(ledger
         .find_event("claurst:0f9f5ce47831e099e77e295ed8bb627f089efa8672ee6fbdc49eac6f0d7f5275:interrupted")
         .unwrap()
         .is_none());
     assert!(ledger.list_run_checkpoints("run-a").unwrap().is_empty());
+    bridge.push_batch(ClaurstDrainBatch {
+        facts: vec![],
+        permissions: vec![],
+        checkpoint: Some(checkpoint(0)),
+        session_binding: Some(binding),
+        terminal: Some(gent_ports::ClaurstTerminal::Failed {
+            classification: gent_ports::ClaurstFailureClassification::Protocol,
+        }),
+    });
+    let drained = ingress
+        .drain(&ClaurstSourceId("source-a".into()), HostEpoch(1))
+        .await
+        .unwrap();
+    assert_eq!(drained.terminal_phase, Some(DurableTurnPhase::Interrupted));
 }
 
 pub(crate) fn prepared_ledger() -> SqliteLedger {
+    prepared_ledger_in_mode(AgentChatMode::Agent)
+}
+
+pub(crate) fn prepared_ledger_in_mode(mode: AgentChatMode) -> SqliteLedger {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
         .create_agent_chat_conversation_in_workspace(
@@ -227,7 +245,7 @@ pub(crate) fn prepared_ledger() -> SqliteLedger {
                     provider: AgentChatProvider::Claurst,
                     model: "claurst-private".into(),
                     effort: AgentChatEffort::Medium,
-                    mode: AgentChatMode::Agent,
+                    mode,
                 },
             },
             &WorkspaceRecord {

@@ -13,6 +13,7 @@ use gent_drivers::{
     NodeReadOnlyHostLauncher,
     installer::NpmGlobalPrefix,
     node_runtime_lock::{NodeRuntimeLock, NodeRuntimeLockError},
+    process::SystemLauncher,
 };
 
 const NODE_BINARY_ENV: &str = "GENT_NODE_BINARY";
@@ -44,7 +45,7 @@ impl AppNodeRuntimeLock {
     pub(crate) fn from_standalone_environment(
         data_dir: &Path,
     ) -> Result<Self, AppNodeRuntimeLockError> {
-        Self::capture_standalone(env::var_os(NODE_BINARY_ENV), data_dir)
+        Self::capture_standalone(standalone_node_binary(), data_dir)
     }
 
     /// Captures a caller-supplied app runtime for a private, uncomposed authority seam.
@@ -63,10 +64,10 @@ impl AppNodeRuntimeLock {
     }
 
     pub(crate) fn capture_standalone(
-        node: Option<OsString>,
+        node: Option<PathBuf>,
         data_dir: &Path,
     ) -> Result<Self, AppNodeRuntimeLockError> {
-        let node = node.map_or_else(|| packaged_node(data_dir), PathBuf::from);
+        let node = node.ok_or(AppNodeRuntimeLockError::MissingNode)?;
         Ok(Self {
             lock: NodeRuntimeLock::capture(&node)?,
             private_prefix: data_dir.join("providers").join("npm-global"),
@@ -96,6 +97,11 @@ impl AppNodeRuntimeLock {
         ))
     }
 
+    pub(crate) fn rechecked_lock(&self) -> Result<NodeRuntimeLock, AppNodeRuntimeLockError> {
+        self.recheck()?;
+        Ok(self.lock.clone())
+    }
+
     /// Rechecks and binds the app Node runtime to one bounded Ask/Plan launcher.
     ///
     /// # Errors
@@ -112,17 +118,35 @@ impl AppNodeRuntimeLock {
     }
 }
 
-fn packaged_node(data_dir: &Path) -> PathBuf {
-    let release = std::env::current_exe()
-        .ok()
-        .map(|executable| packaged_node_from_executable(&executable));
-    release.filter(|node| node.is_file()).unwrap_or_else(|| {
-        data_dir
-            .join("runtime")
-            .join("node")
-            .join("bin")
-            .join(node_name())
-    })
+pub(crate) fn standalone_provider_launcher(output_limit: usize) -> SystemLauncher {
+    provider_launcher_from(standalone_node_binary(), output_limit)
+}
+
+fn provider_launcher_from(node: Option<PathBuf>, output_limit: usize) -> SystemLauncher {
+    node.as_deref().and_then(Path::parent).map_or_else(
+        || SystemLauncher::new(output_limit),
+        |node_bin| SystemLauncher::with_node_first(output_limit, node_bin.to_path_buf()),
+    )
+}
+
+pub(crate) fn standalone_node_binary() -> Option<PathBuf> {
+    node_binary_from(
+        env::var_os(NODE_BINARY_ENV),
+        env::current_exe()
+            .and_then(std::fs::canonicalize)
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn node_binary_from(
+    explicit: Option<OsString>,
+    gentd_executable: Option<&Path>,
+) -> Option<PathBuf> {
+    explicit
+        .map(PathBuf::from)
+        .or_else(|| gentd_executable.map(packaged_node_from_executable))
+        .filter(|node| node.is_file())
 }
 
 fn packaged_node_from_executable(executable: &Path) -> PathBuf {
@@ -199,11 +223,12 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let explicit = write_pair(&root.path().join("explicit"));
         let packaged = write_pair(&root.path().join("gentd").join("runtime").join("node"));
-        let runtime = AppNodeRuntimeLock::capture_standalone(
+        let resolved = super::node_binary_from(
             Some(explicit.clone().into_os_string()),
-            &root.path().join("gentd"),
-        )
-        .unwrap();
+            Some(&root.path().join("gentd")),
+        );
+        let runtime =
+            AppNodeRuntimeLock::capture_standalone(resolved, &root.path().join("gentd")).unwrap();
         fs::write(explicit, "replacement").unwrap();
         assert!(matches!(
             runtime.recheck(),
@@ -216,8 +241,9 @@ mod tests {
     fn standalone_runtime_uses_the_packaged_binary_without_path_lookup() {
         let root = tempfile::tempdir().unwrap();
         let data_dir = root.path().join("gentd");
-        let node = write_pair(&data_dir.join("runtime").join("node"));
-        let runtime = AppNodeRuntimeLock::capture_standalone(None, &data_dir).unwrap();
+        let node = write_pair(&root.path().join("release").join("runtime").join("node"));
+        let resolved = super::node_binary_from(None, Some(&root.path().join("release/gentd")));
+        let runtime = AppNodeRuntimeLock::capture_standalone(resolved, &data_dir).unwrap();
         fs::write(node, "replacement").unwrap();
         assert!(matches!(
             runtime.recheck(),
@@ -237,10 +263,46 @@ mod tests {
     #[test]
     fn standalone_runtime_requires_an_explicit_or_packaged_binary() {
         let root = tempfile::tempdir().unwrap();
+        let resolved = super::node_binary_from(None, Some(&root.path().join("gentd")));
         assert!(matches!(
-            AppNodeRuntimeLock::capture_standalone(None, root.path()),
-            Err(AppNodeRuntimeLockError::Runtime(_))
+            AppNodeRuntimeLock::capture_standalone(resolved, root.path()),
+            Err(AppNodeRuntimeLockError::MissingNode)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provider_launches_run_env_node_from_the_packaged_runtime() {
+        use gent_drivers::{LaunchIntent, ProcessLauncher, ProviderLaunch, ProviderProcess};
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let release = root.path().join("release");
+        let node = write_pair(&release.join("runtime").join("node"));
+        fs::write(&node, "#!/bin/sh\necho packaged-node\n").unwrap();
+        fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).unwrap();
+        let launcher = super::provider_launcher_from(
+            super::node_binary_from(None, Some(&release.join("gentd"))),
+            4096,
+        );
+        let lock =
+            gent_drivers::lock::capture("codex", std::path::Path::new("/bin/sh"), "test", "test")
+                .unwrap();
+        let process = launcher
+            .launch(&ProviderLaunch {
+                executable: lock.canonical_path.clone().into(),
+                lock,
+                provider: "codex".into(),
+                arguments: vec!["-c".into(), "node && command -v sh".into()],
+                intent: LaunchIntent::Start,
+                workspace_root: None,
+                workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
+            })
+            .unwrap();
+        process.close_stdin().unwrap();
+        assert!(process.wait().unwrap().success());
+        let output = String::from_utf8(process.output().stdout.bytes).unwrap();
+        assert_eq!(output.lines().next(), Some("packaged-node"));
+        assert_eq!(output.lines().count(), 2);
     }
 
     fn write_pair(root: &std::path::Path) -> std::path::PathBuf {

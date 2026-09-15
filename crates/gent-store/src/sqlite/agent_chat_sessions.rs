@@ -1,6 +1,6 @@
 use gent_ports::{AgentChatSessionLedger, LedgerError};
 use gent_types::{AgentChatSession, AgentChatSessionId};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{SqliteLedger, queries::storage_error};
 
@@ -38,27 +38,7 @@ impl AgentChatSessionLedger for SqliteLedger {
         session_id: &AgentChatSessionId,
     ) -> Result<Option<AgentChatSession>, LedgerError> {
         let connection = self.lock()?;
-        let mut session = connection.query_row(
-            "SELECT session_id, workspace_id, name, created_at, updated_at FROM agent_chat_sessions WHERE session_id = ?1",
-            [&session_id.0],
-            |row| Ok(AgentChatSession {
-                session_id: AgentChatSessionId(row.get(0)?),
-                workspace_id: row.get(1)?,
-                name: row.get(2)?,
-                conversation_ids: Vec::new(),
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
-            }),
-        ).optional().map_err(storage_error)?;
-        if let Some(value) = &mut session {
-            let mut statement = connection.prepare("SELECT conversation_id FROM agent_chat_session_conversations WHERE session_id = ?1 ORDER BY ordinal").map_err(storage_error)?;
-            value.conversation_ids = statement
-                .query_map([&value.session_id.0], |row| row.get(0))
-                .map_err(storage_error)?
-                .collect::<Result<Vec<String>, _>>()
-                .map_err(storage_error)?;
-        }
-        Ok(session)
+        read_session(&connection, &session_id.0)
     }
 
     fn list_agent_chat_sessions(
@@ -72,10 +52,9 @@ impl AgentChatSessionLedger for SqliteLedger {
             .map_err(storage_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(storage_error)?;
-        drop(statement);
-        ids.into_iter()
+        ids.iter()
             .map(|id| {
-                self.find_agent_chat_session(&AgentChatSessionId(id))?
+                read_session(&connection, id)?
                     .ok_or_else(|| LedgerError::Invariant("session disappeared".into()))
             })
             .collect()
@@ -97,10 +76,36 @@ impl AgentChatSessionLedger for SqliteLedger {
             )
             .map_err(storage_error)?;
         transaction.commit().map_err(storage_error)?;
-        drop(connection);
-        self.find_agent_chat_session(session_id)?
+        read_session(&connection, &session_id.0)?
             .ok_or_else(|| LedgerError::Invariant("session does not exist".into()))
     }
+}
+
+fn read_session(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<Option<AgentChatSession>, LedgerError> {
+    let mut session = connection.query_row(
+        "SELECT session_id, workspace_id, name, created_at, updated_at FROM agent_chat_sessions WHERE session_id = ?1",
+        [session_id],
+        |row| Ok(AgentChatSession {
+            session_id: AgentChatSessionId(row.get(0)?),
+            workspace_id: row.get(1)?,
+            name: row.get(2)?,
+            conversation_ids: Vec::new(),
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+        }),
+    ).optional().map_err(storage_error)?;
+    if let Some(value) = &mut session {
+        let mut statement = connection.prepare("SELECT conversation_id FROM agent_chat_session_conversations WHERE session_id = ?1 ORDER BY ordinal").map_err(storage_error)?;
+        value.conversation_ids = statement
+            .query_map([session_id], |row| row.get(0))
+            .map_err(storage_error)?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(storage_error)?;
+    }
+    Ok(session)
 }
 
 #[cfg(test)]
@@ -114,8 +119,7 @@ mod tests {
 
     use super::SqliteLedger;
 
-    #[test]
-    fn attaching_a_conversation_releases_the_write_connection_before_reading_the_session() {
+    fn ledger_with_conversation() -> SqliteLedger {
         let ledger = SqliteLedger::in_memory().unwrap();
         ledger
             .create_agent_chat_conversation_in_workspace(
@@ -138,6 +142,12 @@ mod tests {
                 },
             )
             .unwrap();
+        ledger
+    }
+
+    #[test]
+    fn attaching_a_conversation_returns_the_updated_session() {
+        let ledger = ledger_with_conversation();
         ledger
             .create_agent_chat_session(&AgentChatSession {
                 session_id: AgentChatSessionId("session".into()),
@@ -155,29 +165,33 @@ mod tests {
     }
 
     #[test]
-    fn creating_a_session_retains_its_initial_conversation() {
-        let ledger = SqliteLedger::in_memory().unwrap();
+    fn listing_sessions_returns_while_a_session_exists() {
+        let ledger = ledger_with_conversation();
         ledger
-            .create_agent_chat_conversation_in_workspace(
-                &AgentChatConversationCreate {
-                    receipt_id: ReceiptId("receipt".into()),
-                    idempotency_key: "key".into(),
-                    host_epoch: HostEpoch(1),
-                    conversation_id: AgentChatConversationId("conversation".into()),
-                    run_id: AgentChatRunId("run".into()),
-                    selection: AgentChatSelection {
-                        provider: AgentChatProvider::Claurst,
-                        model: "qwen3-1-7b-q4-k-m".into(),
-                        effort: AgentChatEffort::Medium,
-                        mode: AgentChatMode::Agent,
-                    },
-                },
-                &WorkspaceRecord {
-                    workspace_id: "workspace".into(),
-                    canonical_path: "/workspace".into(),
-                },
-            )
+            .create_agent_chat_session(&AgentChatSession {
+                session_id: AgentChatSessionId("session".into()),
+                workspace_id: "workspace".into(),
+                name: "Session".into(),
+                conversation_ids: Vec::new(),
+                created_at: 0,
+                updated_at: 0,
+            })
             .unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(ledger.list_agent_chat_sessions("workspace"));
+        });
+        let sessions = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("listing sessions must not block on the ledger connection")
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].name, "Session");
+    }
+
+    #[test]
+    fn creating_a_session_retains_its_initial_conversation() {
+        let ledger = ledger_with_conversation();
         ledger
             .create_agent_chat_session(&AgentChatSession {
                 session_id: AgentChatSessionId("session".into()),

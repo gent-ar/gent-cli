@@ -26,7 +26,10 @@ fn captures_an_explicit_codex_binary_without_release_material() {
             data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
-            executable,
+            executables: crate::provider_executables::ProviderExecutables::explicit(
+                None,
+                Some(executable),
+            ),
             mcp_servers: None,
             mcp_config: None,
         },
@@ -53,7 +56,10 @@ fn rejects_missing_local_executable_before_host_composition() {
             data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
-            executable: directory.path().join("missing-codex"),
+            executables: crate::provider_executables::ProviderExecutables::explicit(
+                None,
+                Some(directory.path().join("missing-codex")),
+            ),
             mcp_servers: None,
             mcp_config: None,
         },

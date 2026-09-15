@@ -124,5 +124,5 @@ async fn structured_content_request_wins_before_the_bodyless_index_request() {
         ConversationContentFrame::Page(page) if page.conversation_id == "conversation-1"
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }

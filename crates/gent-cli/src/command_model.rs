@@ -1,7 +1,4 @@
-//! Command parsing model owned by the terminal boundary.
-
 use clap::{Parser, Subcommand};
-use gent_protocol::{DependencyAction, DependencyProvider};
 use std::path::PathBuf;
 
 use crate::{
@@ -11,272 +8,192 @@ use crate::{
     update_check::UpdateCommand, workspace_documents_cli, workspace_git_cli,
 };
 #[derive(Debug, Parser)]
-#[command(name = "gent", about = "Protocol-only client for a local gentd")]
+#[command(
+    name = "gent",
+    about = "Chat with Claude, Codex, or local Gent models through the local gentd daemon",
+    long_about = "Chat with Claude, Codex, or local Gent models through the local gentd daemon.\n\nRun `gent` to open the terminal client, or `gent \"<prompt>\"` to stream one reply.",
+    after_help = EXIT_CODES
+)]
 #[command(version)]
 pub(crate) struct Args {
-    #[arg(long, env = "GENT_DATA_DIR")]
+    #[arg(
+        long,
+        global = true,
+        help = "Gent data directory [default: $GENT_DATA_DIR, else the platform default]"
+    )]
     pub(crate) data_dir: Option<PathBuf>,
-    /// Fail if the local daemon is unavailable instead of starting one.
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        help = "Fail if gentd is not running instead of starting it"
+    )]
     pub(crate) no_autostart: bool,
-    /// Open the read-only conversation browser.
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        help = "Open the terminal client to browse conversations without sending prompts"
+    )]
     pub(crate) conversations: bool,
-    /// Start or continue a local agent chat without entering the terminal browser.
     #[command(flatten)]
     pub(crate) direct_prompt: chat_cli::DirectPromptArgs,
     #[command(subcommand)]
     pub(crate) command: Option<CommandLine>,
 }
 
+const EXIT_CODES: &str = "Exit codes:\n  0  success\n  1  the request was rejected or failed\n  2  invalid command-line usage\n  3  gentd is unavailable\n  4  the requested item was not found\n  5  the action needs explicit consent\n  6  the turn failed\n  7  a turn or model download was interrupted or cancelled";
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum CommandLine {
-    /// Read-only dependency discovery through the local daemon.
+    #[command(about = "Check which provider CLIs and runtimes gentd can find")]
     Doctor,
-    /// Read the closed three-provider onboarding model without starting any provider.
+    #[command(about = "Show what each provider needs before it can be used")]
     Onboarding,
-    /// Review or explicitly consent to a public provider dependency action.
+    #[command(about = "Review or consent to installing or updating a provider CLI")]
     Deps {
         #[command(subcommand)]
         action: DependencyCommand,
     },
-    /// Submit or terminally settle a durable provider-neutral decision.
+    #[command(about = "Record or settle a low-level durable decision (developer tool)")]
     Decision {
         #[command(subcommand)]
         action: DecisionCommandLine,
     },
-    /// Inspect signed runtime-release availability or explicitly hand off a paired update.
+    #[command(about = "Check for, schedule, or apply Gent runtime updates")]
     Update {
         #[command(subcommand)]
         action: UpdateCommand,
     },
+    #[command(about = "Install a Gent runtime release from a bootstrap directory")]
     Runtime {
         #[command(subcommand)]
         action: RuntimeCommand,
     },
-    /// Read durable conversation, run, and active-turn status.
+    #[command(about = "List conversations and read their runs, turns, and activity")]
     Conversation {
         #[command(subcommand)]
         action: ConversationCommand,
     },
-    /// Create a conversation or persist a user prompt through local agent-chat IPC.
+    #[command(about = "Create conversations, send prompts, and manage running turns")]
     Chat {
         #[command(subcommand)]
         action: chat_cli::ChatCommand,
     },
-    /// Read, approve, or reject a reviewed plan through the same Gent-owned IPC as the native app.
+    #[command(about = "Review, approve, or reject a plan produced in plan mode")]
     Plan {
         #[command(subcommand)]
         action: reviewed_plan_cli::ReviewedPlanCommand,
     },
-    /// Create, read, list, or settle durable provider-neutral conversation goals.
+    #[command(about = "Set, pause, resume, clear, or show a conversation's goal")]
     Goal {
         #[command(subcommand)]
         action: goal_cli::GoalCommand,
     },
-    /// Submit or read a capability-gated Gent-owned task graph.
+    #[command(about = "Submit or read a multi-agent task graph")]
     Orchestration {
         #[command(subcommand)]
         action: orchestration_cli::OrchestrationCommand,
     },
-    /// Read or explicitly revise durable local permission preferences.
+    #[command(about = "Show or change permission settings and answer permission requests")]
     Permissions {
         #[command(subcommand)]
         action: permissions_cli::PermissionCommand,
     },
-    /// Start Claude or Codex authentication without storing credentials in Gent.
+    #[command(about = "Check or start Claude or Codex sign-in")]
     Auth {
         #[command(subcommand)]
         action: provider_auth_cli::ProviderAuthCommand,
     },
+    #[command(about = "Manage Forge connectors for a workspace")]
     Forge {
         #[command(subcommand)]
         action: ForgeCommand,
     },
+    #[command(about = "Create, list, and run workspace automations")]
     Automation {
         #[command(subcommand)]
         action: AutomationCommand,
     },
+    #[command(about = "Create, select, and attach conversations to named sessions")]
     Sessions {
         #[command(subcommand)]
         action: SessionCommand,
     },
+    #[command(about = "Serve every Gent MCP tool over stdio")]
     McpServer,
+    #[command(about = "Serve Gent MCP tools over stdio, optionally for one domain")]
     Mcp {
+        #[arg(
+            value_parser = ["goal", "automations", "forge"],
+            help = "Tool domain to serve [default: every domain]"
+        )]
         domain: Option<String>,
     },
-    /// Ask Gentd about one held prompt or consent to its daemon-issued provider install review.
+    #[command(about = "Check whether a held prompt can run, or consent to its provider install")]
     Provider {
         #[command(subcommand)]
         action: provider_lifecycle_cli::ProviderLifecycleCommand,
     },
+    #[command(about = "List every provider's models and efforts, and download local Gent models")]
     Models {
         #[command(subcommand)]
         action: local_models_cli::LocalModelsCommand,
     },
+    #[command(about = "Create, list, render, and delete prompt templates")]
     Templates {
         #[command(subcommand)]
         action: prompt_templates_cli::PromptTemplateCommand,
     },
+    #[command(about = "List documents in a workspace")]
     Documents {
         #[command(subcommand)]
         action: workspace_documents_cli::WorkspaceDocumentsCommand,
     },
+    #[command(about = "Read Git status and nested repositories of a workspace")]
     WorkspaceGit {
         #[command(subcommand)]
         action: workspace_git_cli::WorkspaceGitCommand,
     },
-    /// Ask, cancel, or list bounded, provider-neutral side questions through Gent-owned IPC.
+    #[command(about = "Ask, cancel, or list side questions about a conversation")]
     SideQuestion {
         #[command(subcommand)]
         action: side_question_cli::SideQuestionCommand,
     },
-    /// Print the resolved data directory and exit without contacting or starting a daemon.
-    ///
-    /// Any host that launches the packaged `gentd` runtime (including a native application)
-    /// should resolve the shared data directory through this command rather than duplicating
-    /// the `GENT_DATA_DIR` and platform-default resolution rules.
+    #[command(about = "Print the resolved data directory without contacting gentd")]
     DataDir,
+    #[command(about = "Show gentd's host status and negotiated capabilities")]
     Status,
+    #[command(about = "Submit a raw durable command to gentd (developer tool)")]
     Submit {
-        #[arg(long)]
+        #[arg(long, help = "Command kind")]
         kind: String,
-        #[arg(long, default_value = "{}")]
+        #[arg(long, default_value = "{}", help = "Command payload as JSON")]
         payload: String,
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Idempotency key; reuse it to retry the same command safely"
+        )]
         idempotency_key: Option<String>,
     },
+    #[command(about = "Print gentd's durable event log")]
     Events {
-        #[arg(long, default_value_t = 0)]
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Print only events after this cursor"
+        )]
         after_cursor: u64,
-        /// Keep the local IPC connection open and print cursor-ordered live batches.
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Keep the connection open and print new events as they happen"
+        )]
         follow: bool,
     },
 }
 
-#[derive(Debug, Subcommand)]
-pub(crate) enum ForgeCommand {
-    List {
-        workspace_id: String,
-    },
-    Get {
-        workspace_id: String,
-        connector_id: String,
-    },
-    Create {
-        connector: String,
-    },
-    Enable {
-        workspace_id: String,
-        connector_id: String,
-    },
-    Disable {
-        workspace_id: String,
-        connector_id: String,
-    },
-    Invoke {
-        workspace_id: String,
-        connector_id: String,
-        #[arg(long)]
-        tool_name: Option<String>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum AutomationCommand {
-    List {
-        workspace_id: String,
-    },
-    Create {
-        definition: String,
-    },
-    Run {
-        automation_id: String,
-    },
-    Runs {
-        automation_id: String,
-        #[arg(long, default_value_t = 20)]
-        limit: u16,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum SessionCommand {
-    List {
-        workspace_id: String,
-    },
-    Create {
-        session: String,
-    },
-    Select {
-        session_id: String,
-    },
-    Attach {
-        session_id: String,
-        conversation_id: String,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum DependencyCommand {
-    /// Show a read-only install or update plan.
-    Plan {
-        action: DependencyAction,
-        provider: DependencyProvider,
-    },
-    /// Confirm and run a reviewed public-provider installer.
-    Install {
-        provider: DependencyProvider,
-        #[arg(long)]
-        consent: bool,
-        /// Reuse this key to safely retry the exact action after an interrupted client session.
-        #[arg(long)]
-        idempotency_key: Option<String>,
-    },
-    /// Confirm and run a reviewed public-provider updater.
-    Update {
-        provider: DependencyProvider,
-        #[arg(long)]
-        consent: bool,
-        /// Reuse this key to safely retry the exact action after an interrupted client session.
-        #[arg(long)]
-        idempotency_key: Option<String>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum ConversationCommand {
-    /// List durable conversation identities and run counts without exposing messages.
-    List,
-    Status {
-        #[arg(long)]
-        conversation_id: String,
-    },
-    /// Read durable run/turn lineage and artifact provenance without transcript content.
-    Timeline {
-        #[arg(long)]
-        conversation_id: String,
-    },
-    /// Read one future authority-gated ordered activity-fact page.
-    Activity {
-        #[arg(long)]
-        conversation_id: String,
-        #[arg(long)]
-        run_id: String,
-        #[arg(long, default_value_t = 0)]
-        after_cursor: u64,
-    },
-    /// Read a bounded page of locally stored user prompts from protected IPC.
-    Content {
-        #[arg(long)]
-        conversation_id: String,
-        #[arg(long)]
-        before: Option<gent_types::ConversationContentCursor>,
-        #[arg(long, default_value_t = 50)]
-        limit: u16,
-    },
-}
+#[path = "command_model_domains.rs"]
+mod domains;
+pub(crate) use domains::{
+    AutomationCommand, ConversationCommand, DependencyCommand, ForgeCommand, SessionCommand,
+};
 
 #[cfg(test)]
 #[path = "command_model_local_models_tests.rs"]
@@ -292,3 +209,7 @@ mod chat_tests;
 #[cfg(test)]
 #[path = "command_model_resume_tests.rs"]
 mod resume_tests;
+
+#[cfg(test)]
+#[path = "command_model_help_tests.rs"]
+mod help_tests;

@@ -12,14 +12,9 @@ impl UiState {
     pub(crate) fn permission_mode(&self) -> gent_types::PermissionMode {
         self.selected()
             .and_then(|item| self.metadata.get(&item.conversation_id))
-            .map_or(gent_types::PermissionMode::Default, |metadata| {
+            .map_or(gent_types::PermissionMode::AskEveryTime, |metadata| {
                 metadata.permission_mode
             })
-    }
-
-    #[must_use]
-    pub(crate) const fn scroll_offset(&self) -> u16 {
-        self.scroll_offset
     }
 
     #[must_use]
@@ -214,6 +209,17 @@ impl UiState {
             .and_then(ConversationView::pending_permission)
     }
 
+    #[must_use]
+    pub(crate) fn selected_install_hold(&self) -> Option<&crate::prompt_hold::InstallHold> {
+        self.view
+            .as_ref()
+            .filter(|view| {
+                self.selected()
+                    .is_some_and(|item| item.conversation_id == view.conversation_id())
+            })
+            .and_then(ConversationView::install_hold)
+    }
+
     pub(crate) fn apply_view(&mut self, view: ConversationView) {
         if self
             .selected()
@@ -237,7 +243,7 @@ impl UiState {
             let permission_mode = self
                 .metadata
                 .get(view.conversation_id())
-                .map_or(gent_types::PermissionMode::Default, |metadata| {
+                .map_or(gent_types::PermissionMode::AskEveryTime, |metadata| {
                     metadata.permission_mode
                 });
             let mut metadata = view.metadata().clone();

@@ -1,22 +1,24 @@
 //! Atomic `SQLite` ownership for one persisted agent-chat prompt.
 
-use gent_ports::{AgentChatPromptLedger, IngressMode, LedgerError};
+use gent_ports::{AgentChatPromptLedger, LedgerError};
 use gent_types::{
-    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatRunId,
-    Command, ConversationMessage, Receipt, ReceiptStatus,
+    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptOrigin, AgentChatPromptSaved,
+    AgentChatRunId, Command, ConversationActivityFact, ConversationActivityScope,
+    ConversationMessage, Receipt, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use super::super::SqliteLedger;
-use super::super::epoch::require_epoch;
-use super::super::queries::{
-    find_receipt, host_ingress, insert_receipt, receipt_matches_command, storage_error,
-};
+use super::super::queries::{find_receipt, insert_receipt, receipt_matches_command, storage_error};
+use super::prompt_dispatch::require_open;
 #[path = "prompt_attachments.rs"]
 mod prompt_attachments;
+#[path = "prompt_retry.rs"]
+mod retry;
 use prompt_attachments::attach_available;
+use retry::{existing, reject_receipt_id_collision};
 
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 
@@ -25,7 +27,15 @@ impl AgentChatPromptLedger for SqliteLedger {
         &self,
         prompt: &AgentChatPromptCreate,
     ) -> Result<AgentChatPromptSaved, LedgerError> {
-        save(self, prompt, None)
+        save(self, prompt, None, &AgentChatPromptOrigin::User)
+    }
+
+    fn save_agent_chat_prompt_with_origin(
+        &self,
+        prompt: &AgentChatPromptCreate,
+        origin: &AgentChatPromptOrigin,
+    ) -> Result<AgentChatPromptSaved, LedgerError> {
+        save(self, prompt, None, origin)
     }
 
     fn save_agent_chat_prompt_for_run(
@@ -33,7 +43,12 @@ impl AgentChatPromptLedger for SqliteLedger {
         prompt: &AgentChatPromptCreate,
         expected_run_id: &AgentChatRunId,
     ) -> Result<AgentChatPromptSaved, LedgerError> {
-        save(self, prompt, Some(expected_run_id))
+        save(
+            self,
+            prompt,
+            Some(expected_run_id),
+            &AgentChatPromptOrigin::User,
+        )
     }
 }
 
@@ -41,6 +56,7 @@ fn save(
     ledger: &SqliteLedger,
     prompt: &AgentChatPromptCreate,
     expected_run_id: Option<&AgentChatRunId>,
+    origin: &AgentChatPromptOrigin,
 ) -> Result<AgentChatPromptSaved, LedgerError> {
     validate(prompt)?;
     let command = command_for(prompt);
@@ -48,13 +64,7 @@ fn save(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
-    let ingress = host_ingress(&transaction)?;
-    require_epoch(prompt.host_epoch, ingress.epoch)?;
-    if ingress.mode == IngressMode::Closed {
-        return Err(LedgerError::IngressClosed {
-            epoch: ingress.epoch,
-        });
-    }
+    require_open(&transaction, prompt.host_epoch)?;
     if let Some(saved) = existing(&transaction, prompt)? {
         if !receipt_matches_command(&transaction, &command)? {
             return Err(LedgerError::Invariant(
@@ -78,7 +88,7 @@ fn save(
     }
     let message = insert_prompt(&transaction, prompt, &run_id)?;
     attach_available(&transaction, &message.turn_id, &prompt.attachment_ids)?;
-    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'userMessage', ?5, 0)", params![message.conversation_id, format!("user:{}", message.message_id), message.turn_id, message.run_id, message.text]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'userMessage', ?5, 0, ?6)", params![message.conversation_id, format!("user:{}", message.message_id), message.turn_id, message.run_id, message.text, serde_json::to_string(origin).map_err(storage_error)?]).map_err(storage_error)?;
     let receipt = Receipt {
         receipt_id: prompt.receipt_id.clone(),
         idempotency_key: key,
@@ -87,8 +97,23 @@ fn save(
     };
     insert_receipt(&transaction, &receipt, &command)?;
     transaction.execute("INSERT INTO agent_chat_prompt_receipts (request_id, idempotency_key, conversation_id, run_id, turn_id, message_id, disposition, tool_source_ids_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![prompt.request_id.0, receipt.idempotency_key, prompt.conversation_id.0, run_id, message.turn_id, message.message_id, disposition(prompt.disposition), serde_json::to_string(&prompt.tool_source_ids).map_err(storage_error)?]).map_err(storage_error)?;
-    if prompt.disposition == AgentChatPromptDisposition::Send {
-        transaction.execute("INSERT INTO agent_chat_prompt_dispatches (message_id, state, coordinator_id, host_epoch, created_rowid) VALUES (?1, 'awaiting_readiness', NULL, NULL, (SELECT COALESCE(MAX(created_rowid), 0) + 1 FROM agent_chat_prompt_dispatches))", params![message.message_id]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_chat_prompt_dispatches (message_id, state, coordinator_id, host_epoch, created_rowid) VALUES (?1, 'awaiting_readiness', NULL, NULL, (SELECT COALESCE(MAX(created_rowid), 0) + 1 FROM agent_chat_prompt_dispatches))", params![message.message_id]).map_err(storage_error)?;
+    if prompt.disposition == AgentChatPromptDisposition::Queue {
+        super::super::agent_chat_queue_activity::append(
+            &transaction,
+            format!("agent-chat-queue:{}:queued", message.message_id),
+            prompt.receipt_id.clone(),
+            ConversationActivityFact::PromptQueued {
+                scope: ConversationActivityScope {
+                    conversation_id: message.conversation_id.clone(),
+                    run_id: message.run_id.clone(),
+                    turn_id: message.turn_id.clone(),
+                    host_epoch: prompt.host_epoch,
+                    cursor: 0,
+                },
+                message_id: message.message_id.clone(),
+            },
+        )?;
     }
     transaction.commit().map_err(storage_error)?;
     Ok(AgentChatPromptSaved {
@@ -131,91 +156,21 @@ fn validate(prompt: &AgentChatPromptCreate) -> Result<(), LedgerError> {
     Ok(())
 }
 
-fn existing(
-    transaction: &Transaction<'_>,
-    prompt: &AgentChatPromptCreate,
-) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
-    let row = transaction.query_row("SELECT r.receipt_id, r.status, r.host_epoch, p.conversation_id, p.run_id, p.disposition, p.tool_source_ids_json, m.message_id, m.turn_id, t.sequence, m.text, m.text_digest_sha256 FROM agent_chat_prompt_receipts p JOIN receipts r ON r.idempotency_key = p.idempotency_key JOIN conversation_messages m ON m.message_id = p.message_id JOIN turns t ON t.turn_id = p.turn_id WHERE p.request_id = ?1", [&prompt.request_id.0], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, u64>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, u64>(9)?, row.get::<_, String>(10)?, row.get::<_, String>(11)?))).optional().map_err(storage_error)?;
-    let Some((
-        receipt_id,
-        status,
-        epoch,
-        conversation_id,
-        run_id,
-        saved_disposition,
-        tool_source_ids_json,
-        message_id,
-        turn_id,
-        sequence,
-        text,
-        digest,
-    )) = row
-    else {
-        return Ok(None);
-    };
-    let tool_source_ids = serde_json::from_str(&tool_source_ids_json)
-        .map_err(|_| LedgerError::Invariant("stored tool-source selection is invalid".into()))?;
-    if receipt_id != prompt.receipt_id.0
-        || conversation_id != prompt.conversation_id.0
-        || saved_disposition != disposition(prompt.disposition)
-        || text != prompt.text
-    {
-        return Err(LedgerError::Invariant(
-            "agent chat prompt retry conflicts with durable ownership".into(),
-        ));
-    }
-    if status != "settled" {
-        return Err(LedgerError::Invariant(
-            "agent chat prompt receipt must settle in its write transaction".into(),
-        ));
-    }
-    Ok(Some(AgentChatPromptSaved {
-        receipt: Receipt {
-            receipt_id: prompt.receipt_id.clone(),
-            idempotency_key: idempotency_key(prompt),
-            status: ReceiptStatus::Settled,
-            host_epoch: gent_types::HostEpoch(epoch),
-        },
-        run_id: AgentChatRunId(run_id.clone()),
-        message: ConversationMessage {
-            message_id,
-            turn_id,
-            conversation_id,
-            run_id,
-            sequence,
-            text,
-            text_digest_sha256: digest,
-        },
-        disposition: prompt.disposition,
-        delivery: prompt.disposition.delivery(),
-        tool_source_ids,
-    }))
-}
-
-fn reject_receipt_id_collision(
-    transaction: &Transaction<'_>,
-    prompt: &AgentChatPromptCreate,
-) -> Result<(), LedgerError> {
-    let owner = transaction
-        .query_row(
-            "SELECT 1 FROM receipts WHERE receipt_id = ?1",
-            [&prompt.receipt_id.0],
-            |_| Ok(()),
-        )
-        .optional()
-        .map_err(storage_error)?;
-    if owner.is_some() {
-        return Err(LedgerError::Invariant(
-            "agent chat prompt receipt id is owned by another command".into(),
-        ));
-    }
-    Ok(())
-}
-
 fn current_run(
     transaction: &Transaction<'_>,
     conversation_id: &str,
 ) -> Result<String, LedgerError> {
+    transaction
+        .query_row(
+            "SELECT 1 FROM agent_chat_conversations WHERE conversation_id = ?1",
+            [conversation_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(storage_error)?
+        .ok_or(LedgerError::Rejected(
+            gent_types::AgentChatRejection::ConversationNotFound,
+        ))?;
     transaction.query_row("SELECT current.run_id FROM agent_chat_conversations c JOIN agent_chat_run_selections current JOIN runs r ON r.run_id = current.run_id WHERE c.conversation_id = ?1 AND c.workspace_id IS NOT NULL AND r.conversation_id = c.conversation_id ORDER BY r.rowid DESC LIMIT 1", [conversation_id], |row| row.get(0)).optional().map_err(storage_error)?.ok_or_else(|| LedgerError::Invariant("agent chat conversation has no daemon-bound workspace and cannot accept a prompt".into()))
 }
 

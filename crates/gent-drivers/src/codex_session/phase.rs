@@ -13,6 +13,9 @@ pub(super) enum CodexSessionPhase {
         resumed_thread_id: Option<String>,
         turn_options: CodexTurnOptions,
     },
+    ConfirmResumeUnavailable {
+        request_id: u64,
+    },
     Ready {
         thread_id: String,
         turn_id: Option<String>,
@@ -25,6 +28,20 @@ pub(super) enum CodexSessionPhase {
         announced_turn_id: Option<String>,
         turn_options: CodexTurnOptions,
     },
+    AwaitCompaction {
+        request_id: Option<u64>,
+        thread_id: String,
+        announced_turn_id: Option<String>,
+        turn_options: CodexTurnOptions,
+    },
+    AwaitInjection {
+        request_id: u64,
+        thread_id: String,
+        turn_options: CodexTurnOptions,
+        prompt: String,
+        attachments: Vec<serde_json::Value>,
+        interrupted_reply: String,
+    },
     Failed,
 }
 
@@ -32,7 +49,10 @@ pub(super) fn matches_response(phase: &CodexSessionPhase, response_id: u64) -> b
     match phase {
         CodexSessionPhase::AwaitInitialize { request_id, .. }
         | CodexSessionPhase::AwaitThread { request_id, .. }
-        | CodexSessionPhase::AwaitTurn { request_id, .. } => *request_id == response_id,
+        | CodexSessionPhase::ConfirmResumeUnavailable { request_id }
+        | CodexSessionPhase::AwaitTurn { request_id, .. }
+        | CodexSessionPhase::AwaitInjection { request_id, .. } => *request_id == response_id,
+        CodexSessionPhase::AwaitCompaction { request_id, .. } => *request_id == Some(response_id),
         CodexSessionPhase::Ready {
             interrupt_request_id,
             ..

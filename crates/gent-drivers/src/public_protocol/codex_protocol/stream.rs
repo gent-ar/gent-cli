@@ -1,53 +1,14 @@
-use gent_types::{NormalizedProviderEvent, ProviderFailureClassification};
+use gent_types::{NormalizedProviderEvent, TokenUsage};
 use serde_json::Value;
 
 use super::PublicWireFact;
 use super::support::diagnostic;
 
 pub(super) fn error(frame: &Value) -> Vec<PublicWireFact> {
-    let text = [
-        frame
-            .pointer("/params/error/message")
-            .and_then(Value::as_str),
-        frame.pointer("/params/msg/message").and_then(Value::as_str),
-        frame.pointer("/params/message").and_then(Value::as_str),
-        frame
-            .pointer("/params/error/codexErrorInfo")
-            .and_then(Value::as_str),
-        frame
-            .pointer("/params/error/codex_error_info")
-            .and_then(Value::as_str),
-        frame
-            .pointer("/params/msg/codex_error_info")
-            .and_then(Value::as_str),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" ")
-    .to_ascii_lowercase();
-    let (classification, message) =
-        if text.contains("401") || text.contains("unauthor") || text.contains("missing bearer") {
-            (
-                ProviderFailureClassification::Authentication,
-                "Codex authentication failed.",
-            )
-        } else if text.contains("rate") || text.contains("limit") {
-            (
-                ProviderFailureClassification::RateLimited,
-                "Codex rate limit reached.",
-            )
-        } else if text.contains("context") || text.contains("token limit") {
-            (
-                ProviderFailureClassification::ContextLimit,
-                "Codex context limit reached.",
-            )
-        } else {
-            (
-                ProviderFailureClassification::Provider,
-                "Codex reported a provider error.",
-            )
-        };
+    let (classification, message) = super::failure::classify(
+        frame.pointer("/params/error"),
+        "Codex reported a provider error.",
+    );
     vec![PublicWireFact::Event(
         NormalizedProviderEvent::ProviderFailure {
             classification,
@@ -114,4 +75,32 @@ fn diff_from_changes(changes: Option<&Value>) -> Option<String> {
         }
     }
     (!parts.is_empty()).then(|| parts.join("\n"))
+}
+
+pub(super) fn token_usage(frame: &Value) -> Vec<PublicWireFact> {
+    let Some(last) = frame.pointer("/params/tokenUsage/last") else {
+        return diagnostic("malformedCodexTokenUsage");
+    };
+    let count = |key: &str| last.get(key).and_then(Value::as_u64).unwrap_or_default();
+    let input = count("inputTokens");
+    let cache_read_tokens = count("cachedInputTokens");
+    let cache_creation_tokens = count("cacheWriteInputTokens");
+    let window_tokens = frame
+        .pointer("/params/tokenUsage/modelContextWindow")
+        .and_then(Value::as_u64);
+    vec![
+        PublicWireFact::Event(NormalizedProviderEvent::ContextUsage {
+            used_tokens: input,
+            window_tokens,
+        }),
+        PublicWireFact::Event(NormalizedProviderEvent::TokenUsage {
+            usage: TokenUsage {
+                input_tokens: input
+                    .saturating_sub(cache_read_tokens.saturating_add(cache_creation_tokens)),
+                output_tokens: count("outputTokens"),
+                cache_read_tokens,
+                cache_creation_tokens,
+            },
+        }),
+    ]
 }

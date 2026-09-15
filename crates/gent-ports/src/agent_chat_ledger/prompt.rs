@@ -1,6 +1,9 @@
 //! Atomic ownership boundary for one immutable agent-chat prompt.
 
-use gent_types::{AgentChatPromptCreate, AgentChatPromptSaved, AgentChatRunId};
+use gent_types::{
+    AgentChatConversationId, AgentChatPromptCreate, AgentChatPromptOrigin, AgentChatPromptSaved,
+    AgentChatRunId, HostEpoch, Receipt, ReceiptId,
+};
 
 use crate::LedgerError;
 
@@ -25,6 +28,16 @@ pub trait AgentChatPromptLedger: Send + Sync {
     ///
     /// # Errors
     /// Returns when the implementation cannot atomically confirm the expected current run.
+    fn save_agent_chat_prompt_with_origin(
+        &self,
+        _: &AgentChatPromptCreate,
+        _: &AgentChatPromptOrigin,
+    ) -> Result<AgentChatPromptSaved, LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat prompt origin is unavailable".into(),
+        ))
+    }
+
     fn save_agent_chat_prompt_for_run(
         &self,
         _: &AgentChatPromptCreate,
@@ -34,4 +47,29 @@ pub trait AgentChatPromptLedger: Send + Sync {
             "agent chat prompt run fence is unavailable".into(),
         ))
     }
+}
+
+pub trait AgentChatQueuedPromptLedger: Send + Sync {
+    fn cancel_queued_agent_chat_prompt(
+        &self,
+        receipt_id: &ReceiptId,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+        message_id: &str,
+    ) -> Result<Receipt, LedgerError>;
+
+    fn steer_queued_agent_chat_prompt(
+        &self,
+        receipt_id: &ReceiptId,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+        message_id: &str,
+    ) -> Result<(Receipt, AgentChatRunId), LedgerError>;
+
+    fn interrupt_active_turn_for_steer(
+        &self,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+        run_id: &AgentChatRunId,
+    ) -> Result<bool, LedgerError>;
 }

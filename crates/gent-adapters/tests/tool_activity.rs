@@ -23,6 +23,7 @@ fn manifest_normalizes_content_safe_tool_activity() {
                 tool_name: "read_file".into(),
                 phase: ToolPhase::WaitingPermission,
                 output_digest: Some("sha256:abc".into()),
+                parent_tool_use_id: None,
             }
         })
     );

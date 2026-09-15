@@ -102,6 +102,8 @@ fn page(phase: DurableTurnPhase, next_after_cursor: Option<u64>) -> TurnFollowPa
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "done".into(),
             is_partial: false,
+            origin: None,
+            attachments: Vec::new(),
         }],
         next_after_cursor,
     }

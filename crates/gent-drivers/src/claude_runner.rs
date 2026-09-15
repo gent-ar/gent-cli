@@ -1,18 +1,17 @@
-use crate::PublicProvider;
 use crate::buffering::BufferPolicy;
 use crate::claude_control::{ClaudePermissionBehavior, ClaudePermissionRequest};
 use crate::claude_permission_relay::ClaudePermissionRelay;
-use crate::claude_tool_results;
 use crate::claude_turn_options::ClaudeTurnOptions;
 use crate::interrupt::ProcessTreeSignal;
 use crate::launch_spec::{LaunchIntent, append_claude_mcp_config, arguments};
 use crate::lock::{LockError, recheck};
-use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
-use crate::public_protocol::{PublicWireFact, claude_protocol, normalize_public_frame};
+use crate::output_pump::{
+    MAX_OUTPUT_CHUNK_BYTES, MAX_PROVIDER_FRAME_BYTES, OutputPumpError, ProviderOutputPump,
+};
+use crate::public_protocol::PublicWireFact;
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use gent_types::{
-    FrozenConversationContext, GoalProjection, NormalizedProviderEvent, RunVersionLock,
-    SandboxWorkspaceAccess,
+    FrozenConversationContext, GoalProjection, RunVersionLock, SandboxWorkspaceAccess, ToolActivity,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -27,7 +26,7 @@ pub struct ClaudeRunStart {
     pub turn_options: ClaudeTurnOptions,
     pub goal: Option<GoalProjection>,
     pub fresh_context: Option<FrozenConversationContext>,
-    pub resume_session_id: Option<String>,
+    pub intent: LaunchIntent,
     pub workspace_root: PathBuf,
     pub workspace_access: SandboxWorkspaceAccess,
     pub mcp_config: Option<PathBuf>,
@@ -38,6 +37,8 @@ pub struct ClaudeRunStart {
 pub enum ClaudeRunnerEffect {
     Fact(PublicWireFact),
     PermissionRequest(ClaudePermissionRequest),
+    SteerConsumed { message_id: String },
+    ResumeUnavailable,
     Exited { code: Option<i32> },
 }
 
@@ -75,8 +76,11 @@ struct OwnedRun<P> {
     process: P,
     output: ProviderOutputPump,
     permissions: ClaudePermissionRelay,
-    tool_names: BTreeMap<String, String>,
+    started_tools: BTreeMap<String, ToolActivity>,
     child_ids: BTreeMap<String, String>,
+    steers: BTreeMap<String, String>,
+    plans_for_review: bool,
+    awaiting_resumed_frame: bool,
 }
 
 impl<L, P> ClaudeStreamRunner<L, P>
@@ -106,15 +110,15 @@ where
             return Err(ClaudeRunnerError::UnsupportedProvider);
         }
         let input = input_frame(&start)?;
-        let output =
-            ProviderOutputPump::new(MAX_OUTPUT_CHUNK_BYTES, MAX_CLAUDE_FRAME_BYTES, self.policy)?;
+        let plans_for_review = start.turn_options.plans_for_review();
+        let output = ProviderOutputPump::new(
+            MAX_OUTPUT_CHUNK_BYTES,
+            MAX_PROVIDER_FRAME_BYTES,
+            self.policy,
+        )?;
         recheck(&start.lock)?;
-        let intent = start
-            .resume_session_id
-            .as_ref()
-            .map_or(LaunchIntent::Start, |session_id| LaunchIntent::Resume {
-                session_id: session_id.clone(),
-            });
+        let intent = start.intent.clone();
+        let awaiting_resumed_frame = matches!(intent, LaunchIntent::Resume { .. });
         let mut arguments = arguments("claude", &intent)
             .map_err(|error| SupervisorError::Launch(error.to_string()))?;
         start.turn_options.append_arguments(&mut arguments);
@@ -139,14 +143,16 @@ where
                 process,
                 output,
                 permissions: ClaudePermissionRelay::default(),
-                tool_names: BTreeMap::new(),
+                started_tools: BTreeMap::new(),
                 child_ids: BTreeMap::new(),
+                steers: BTreeMap::new(),
+                plans_for_review,
+                awaiting_resumed_frame,
             },
         );
         Ok(())
     }
 
-    /// Sends a later user turn to the process that already owns this conversation.
     pub fn submit(
         &mut self,
         run_id: &str,
@@ -163,13 +169,29 @@ where
         Ok(())
     }
 
+    pub fn steer(
+        &mut self,
+        run_id: &str,
+        message_id: &str,
+        prompt: &str,
+        content: &[serde_json::Value],
+    ) -> Result<(), ClaudeRunnerError> {
+        let uuid = input::steer_uuid(message_id);
+        let input = input::steer_input_frame(&uuid, prompt, content)?;
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(ClaudeRunnerError::NotActive)?;
+        run.process.write_frame(&input)?;
+        run.steers.insert(uuid, message_id.into());
+        Ok(())
+    }
+
     #[must_use]
     pub fn owns(&self, run_id: &str) -> bool {
         self.runs.contains_key(run_id)
     }
 
-    /// Terminates and forgets an idle session so another conversation can use
-    /// the bounded provider-process capacity.
     pub fn release(&mut self, run_id: &str) -> Result<(), ClaudeRunnerError> {
         let run = self.runs.get(run_id).ok_or(ClaudeRunnerError::NotActive)?;
         run.process.signal_tree(ProcessTreeSignal::Terminate)?;
@@ -177,10 +199,6 @@ where
         Ok(())
     }
 
-    /// Drains one process chunk or a fully drained terminal exit into normalized public facts.
-    ///
-    /// # Errors
-    /// Returns a controlled process or bounded framing failure without exposing raw output.
     pub fn poll(
         &mut self,
         run_id: &str,
@@ -204,10 +222,6 @@ where
         Ok(Some(vec![ClaudeRunnerEffect::Exited { code }]))
     }
 
-    /// Signals exactly the process tree owned by this run.
-    ///
-    /// # Errors
-    /// Returns an error when the run is absent or its process tree cannot be signaled.
     pub fn signal(&self, run_id: &str, signal: ProcessTreeSignal) -> Result<(), ClaudeRunnerError> {
         self.runs
             .get(run_id)
@@ -266,50 +280,17 @@ fn drain<P: ProviderProcess>(run: &mut OwnedRun<P>) -> Option<Vec<ClaudeRunnerEf
     while run.output.queued_frames() > 0 {
         let (frame, _) = run.output.take_frame();
         let Some(frame) = frame else { break };
-        effects.extend(normalize(run, &frame));
+        effects.extend(frames::normalize(run, &frame));
     }
+    effects.extend(
+        crate::public_protocol::oversized_frames_skipped(run.output.take_skipped_frames())
+            .map(ClaudeRunnerEffect::Fact),
+    );
     (!effects.is_empty()).then_some(effects)
 }
 
-fn normalize<P: ProviderProcess>(run: &mut OwnedRun<P>, raw: &[u8]) -> Vec<ClaudeRunnerEffect> {
-    let frame: serde_json::Value = match serde_json::from_slice(raw) {
-        Ok(frame) => frame,
-        Err(_) => return diagnostic("malformedClaudeFrame"),
-    };
-    if frame.get("type").and_then(serde_json::Value::as_str) == Some("control_request") {
-        return match run.permissions.accept(&frame) {
-            Ok(request) => vec![ClaudeRunnerEffect::PermissionRequest(request)],
-            Err(classification) => diagnostic(classification),
-        };
-    }
-    if frame.get("type").and_then(serde_json::Value::as_str) == Some("control_cancel_request") {
-        run.permissions.cancel(&frame);
-        return Vec::new();
-    }
-    if frame.get("type").and_then(serde_json::Value::as_str) == Some("user") {
-        let mut facts = claude_tool_results::results(&mut run.tool_names, &frame)
-            .unwrap_or_else(|| normalize_public_frame(PublicProvider::Claude, &frame));
-        background::remember_launches(run, &frame, &mut facts);
-        background::append_terminals(run, &frame, &mut facts);
-        return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
-    }
-    if let Some(facts) = claude_protocol::correlated_background_activity(&run.tool_names, &frame) {
-        return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
-    }
-    let mut facts = normalize_public_frame(PublicProvider::Claude, &frame);
-    claude_tool_results::remember(&facts, &mut run.tool_names);
-    background::append_terminals(run, &frame, &mut facts);
-    facts.into_iter().map(ClaudeRunnerEffect::Fact).collect()
-}
-fn diagnostic(classification: &str) -> Vec<ClaudeRunnerEffect> {
-    vec![ClaudeRunnerEffect::Fact(PublicWireFact::Event(
-        NormalizedProviderEvent::TransportDiagnostic {
-            classification: classification.into(),
-        },
-    ))]
-}
-#[path = "claude_runner_background.rs"]
-mod background;
+#[path = "claude_runner_frames.rs"]
+mod frames;
 #[path = "claude_runner_input.rs"]
 mod input;
 use input::input_frame;

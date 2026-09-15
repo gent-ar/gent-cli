@@ -1,7 +1,7 @@
 //! Daemon mapping for asking, cancelling, and reading bounded side questions.
 //!
 //! Answering itself never happens here: `AskSideQuestion` only performs the fast, durable
-//! `Pending` write and returns. The caller (see `runtime_facade_api`) is responsible for
+//! `Pending` write and returns. The caller (see `runtime_facade_side_questions`) is responsible for
 //! dispatching the actual provider call off the request path once this returns a `Pending`
 //! record — see `agent_chat_side_question_worker`.
 
@@ -93,3 +93,7 @@ fn unix_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as u64)
 }
+
+#[cfg(test)]
+#[path = "agent_chat_side_question_api_tests.rs"]
+mod tests;

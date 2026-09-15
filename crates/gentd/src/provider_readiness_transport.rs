@@ -98,6 +98,11 @@ fn correlated(request: &ProviderReadinessFrame, reply: &ProviderReadinessFrame) 
             conversation_id: reply_conversation,
             run_id: reply_run,
             ..
+        }
+        | ProviderReadinessFrame::LocalModel {
+            conversation_id: reply_conversation,
+            run_id: reply_run,
+            ..
         } => reply_conversation == conversation_id && reply_run == run_id,
         ProviderReadinessFrame::Assess { .. } => false,
     }

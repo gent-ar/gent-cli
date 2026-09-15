@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use gent_drivers::claude_runner::{ClaudeRunStart, ClaudeRunnerEffect, ClaudeStreamRunner};
 use gent_drivers::claude_turn_options::ClaudeTurnOptions;
 use gent_drivers::interrupt::ProcessTreeSignal;
+use gent_drivers::launch_spec::LaunchIntent;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
 use gent_types::{
@@ -18,6 +19,7 @@ mod mcp;
 use mcp::selected_config;
 #[path = "execution_trait.rs"]
 mod execution_trait;
+pub(crate) use execution_trait::ClaudePromptExecution;
 
 /// Prompt held only between a durable dispatch claim and a locked Claude launch.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +32,7 @@ pub(crate) struct ClaudePromptStart {
     pub(crate) fresh_context: Option<FrozenConversationContext>,
     pub(crate) content: Vec<serde_json::Value>,
     pub(crate) selected_mcp_source_names: Vec<String>,
+    pub(crate) recreate_session: bool,
 }
 
 /// Binds each public-run reservation to one bounded Claude stream process.
@@ -196,7 +199,13 @@ where
                 fresh_context: prompt.fresh_context,
                 mcp_config,
                 selected_mcp_source_names: Vec::new(),
-                resume_session_id,
+                intent: match resume_session_id {
+                    Some(session_id) if prompt.recreate_session => {
+                        LaunchIntent::Recreate { session_id }
+                    }
+                    Some(session_id) => LaunchIntent::Resume { session_id },
+                    None => LaunchIntent::Start,
+                },
                 workspace_root: prompt.workspace_root,
                 workspace_access: prompt.workspace_access,
             })
@@ -239,52 +248,6 @@ where
         lock(&self.runner)
             .signal(run_id, ProcessTreeSignal::Interrupt)
             .map_err(map_error)
-    }
-}
-
-pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
-    fn prepare_claude_prompt(
-        &self,
-        run_id: String,
-        prompt: ClaudePromptStart,
-    ) -> Result<(), PublicProviderRunError>;
-    fn cancel_claude_prompt(&self, run_id: &str);
-    fn poll_claude_prompt(
-        &self,
-        run_id: &str,
-    ) -> Result<Option<Vec<ClaudeRunnerEffect>>, PublicProviderRunError>;
-    fn has_claude_session(&self, run_id: &str) -> bool;
-    fn release_claude_session(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
-    fn submit_claude_prompt(
-        &self,
-        run_id: &str,
-        prompt: &str,
-        goal: Option<&GoalProjection>,
-        content: &[serde_json::Value],
-    ) -> Result<(), PublicProviderRunError>;
-    fn signal_claude_process(
-        &self,
-        run_id: &str,
-        signal: ProcessTreeSignal,
-    ) -> Result<(), PublicProviderRunError>;
-    fn respond_claude_permission(
-        &self,
-        run_id: &str,
-        request_id: &str,
-        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
-        persist_suggestions: bool,
-    ) -> Result<(), PublicProviderRunError>;
-
-    fn respond_claude_permission_with_input(
-        &self,
-        run_id: &str,
-        request_id: &str,
-        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
-        persist_suggestions: bool,
-        updated_input: Option<serde_json::Value>,
-    ) -> Result<(), PublicProviderRunError> {
-        let _ = updated_input;
-        self.respond_claude_permission(run_id, request_id, behavior, persist_suggestions)
     }
 }
 

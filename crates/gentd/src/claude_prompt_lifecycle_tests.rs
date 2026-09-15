@@ -28,13 +28,14 @@ pub(crate) struct Runner(pub(crate) Arc<Mutex<State>>);
 pub(crate) struct State {
     pending: Option<String>,
     pub(crate) prepared_goals: Vec<Option<gent_types::GoalProjection>>,
-    starts: usize,
-    resumes: usize,
+    pub(crate) starts: usize,
+    pub(crate) resumes: usize,
     submits: usize,
-    active: bool,
+    pub(crate) active: bool,
     pub(crate) effects: VecDeque<Vec<ClaudeRunnerEffect>>,
     pub(crate) poll_failure: bool,
     pub(crate) signals: Vec<gent_drivers::interrupt::ProcessTreeSignal>,
+    pub(crate) steers: Vec<(String, String)>,
     pub(crate) permission_responses: Vec<(
         String,
         String,
@@ -109,6 +110,20 @@ impl ClaudePromptExecution for Runner {
         self.0.lock().unwrap().submits += 1;
         Ok(())
     }
+    fn steer_claude_prompt(
+        &self,
+        _: &str,
+        message_id: &str,
+        prompt: &str,
+        _: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError> {
+        self.0
+            .lock()
+            .unwrap()
+            .steers
+            .push((message_id.into(), prompt.into()));
+        Ok(())
+    }
     fn signal_claude_process(
         &self,
         _: &str,
@@ -143,6 +158,8 @@ impl PublicProviderResolver for Resolver {
     }
 }
 
+#[path = "claude_steer_lifecycle_tests.rs"]
+mod steer;
 #[path = "claude_prompt_lifecycle_test_support.rs"]
 mod support;
 pub(crate) use support::{compatibility, lock};
@@ -218,6 +235,7 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
                 request_id: "permission-a".into(),
                 tool_use_id: "tool-a".into(),
                 tool_name: "write_file".into(),
+                child_id: None,
             },
         ),
     ]);

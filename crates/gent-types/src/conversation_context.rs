@@ -23,6 +23,18 @@ pub struct FrozenConversationContext {
     /// Digest over every transcript field rendered into provider input.
     pub transcript_digest_sha256: String,
     pub content_digest_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<ConversationContextSummary>,
+    #[serde(default)]
+    pub earlier_history_omitted: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ConversationContextSummary {
+    pub covers_through_ordinal: u64,
+    pub imports_covered: bool,
+    pub text: String,
 }
 
 impl FrozenConversationContext {
@@ -36,6 +48,8 @@ impl FrozenConversationContext {
             transcript_events: Vec::new(),
             transcript_digest_sha256: "0".repeat(64),
             content_digest_sha256: "0".repeat(64),
+            summary: None,
+            earlier_history_omitted: false,
         }
     }
 
@@ -68,5 +82,13 @@ const fn kind_tag(kind: NormalizedTranscriptKind) -> u8 {
         NormalizedTranscriptKind::Thinking => 3,
         NormalizedTranscriptKind::ToolActivity => 4,
         NormalizedTranscriptKind::Notice => 5,
+        NormalizedTranscriptKind::Plan => 6,
     }
+}
+
+pub(crate) fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }

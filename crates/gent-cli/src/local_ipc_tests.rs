@@ -3,8 +3,8 @@ use gent_types::{CapabilitySet, HostEpoch, HostStatus, PROTOCOL_MAX};
 use tokio::net::UnixListener;
 
 use super::{
-    client_capabilities, connect_and_negotiate, daemon_arguments_from, default_daemon_binary,
-    default_data_dir, request, wait_for_connection_until,
+    client_capabilities, connect_and_negotiate, daemon_arguments_from, daemon_command,
+    default_daemon_binary, default_data_dir, request, wait_for_connection_until,
 };
 
 fn status() -> WireFrame {
@@ -13,6 +13,7 @@ fn status() -> WireFrame {
         protocol_min: PROTOCOL_MAX,
         protocol_max: PROTOCOL_MAX,
         capabilities: CapabilitySet(vec!["events".into()]),
+        executable_digest_sha256: None,
     })
 }
 
@@ -188,6 +189,21 @@ fn client_requests_private_conversation_content_on_every_platform() {
 }
 
 #[test]
+fn client_requests_every_capability_its_commands_require() {
+    let capabilities = client_capabilities();
+    for required in [
+        gent_protocol::model_catalog::MODEL_CATALOG_CAPABILITY,
+        gent_protocol::PROMPT_TEMPLATES_CAPABILITY,
+        gent_protocol::WORKSPACE_DOCUMENTS_CAPABILITY,
+        gent_protocol::FORGE_CONNECTORS_CAPABILITY,
+        gent_protocol::AUTOMATIONS_CAPABILITY,
+        gent_protocol::AGENT_CHAT_SIDE_QUESTION_CAPABILITY,
+    ] {
+        assert!(capabilities.0.contains(&required.into()), "{required}");
+    }
+}
+
+#[test]
 fn client_requests_workspace_git() {
     assert!(
         client_capabilities()
@@ -233,4 +249,28 @@ async fn spawned_daemon_failure_is_reported_without_waiting_for_the_timeout() {
         .await
         .unwrap_err();
     assert!(error.to_string().contains("exited before becoming ready"));
+}
+
+#[tokio::test]
+async fn autostarted_daemon_leaves_the_terminal_process_group() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let daemon = directory.path().join("gentd");
+    std::fs::write(&daemon, "#!/bin/sh\nps -o pgid= -p $$ > \"$2/pgid\"\n").unwrap();
+    std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let status = daemon_command(daemon, directory.path())
+        .spawn()
+        .unwrap()
+        .wait()
+        .await
+        .unwrap();
+    assert!(status.success());
+    let group = |output: &[u8]| String::from_utf8_lossy(output).trim().to_owned();
+    let client = std::process::Command::new("ps")
+        .args(["-o", "pgid=", "-p", &std::process::id().to_string()])
+        .output()
+        .unwrap();
+    let daemon_group = std::fs::read(directory.path().join("pgid")).unwrap();
+    assert!(!group(&daemon_group).is_empty());
+    assert_ne!(group(&daemon_group), group(&client.stdout));
 }

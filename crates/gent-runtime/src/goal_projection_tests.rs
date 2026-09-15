@@ -1,84 +1,88 @@
-use std::sync::{Arc, Mutex};
-
 use gent_ports::{ActiveGoalResolver, GoalLedger, GoalWrite, LedgerError};
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord,
-    GoalStatus,
+    AgentChatConversationId, GoalRecord, GoalReportOutcome, GoalTurnObservation, HostEpoch,
 };
 
-use crate::{GoalAuthority, GoalService};
+use super::{GoalAuthority, GoalControl, GoalResult, GoalService};
 
 #[derive(Debug)]
-struct SnapshotLedger(Arc<Mutex<Vec<GoalRecord>>>);
+struct PanicLedger;
 
-impl GoalLedger for SnapshotLedger {
-    fn find_goal(&self, _: &GoalBinding) -> Result<Option<GoalRecord>, LedgerError> {
-        unreachable!("projection only reads the conversation snapshot")
+impl GoalLedger for PanicLedger {
+    fn current_goal(&self, _: &str) -> Result<Option<GoalRecord>, LedgerError> {
+        panic!("observer goal read reached the ledger")
     }
-    fn create_goal(&self, _: &GoalRecord) -> Result<GoalWrite, LedgerError> {
-        unreachable!("projection does not write")
+    fn find_goal(&self, _: &str) -> Result<Option<GoalRecord>, LedgerError> {
+        panic!("observer goal read reached the ledger")
     }
-    fn replace_goal(&self, _: &GoalRecord, _: &GoalRecord) -> Result<GoalWrite, LedgerError> {
-        unreachable!("projection does not write")
+    fn active_goals(&self) -> Result<Vec<GoalRecord>, LedgerError> {
+        panic!("observer goal read reached the ledger")
     }
-    fn conversation_goals(&self, _: &str) -> Result<Vec<GoalRecord>, LedgerError> {
-        Ok(self.0.lock().unwrap().clone())
+    fn create_goal(
+        &self,
+        _: Option<&GoalRecord>,
+        _: Option<&GoalRecord>,
+        _: &GoalRecord,
+        _: HostEpoch,
+    ) -> Result<GoalWrite, LedgerError> {
+        panic!("observer goal write reached the ledger")
     }
-}
-
-fn goal() -> GoalRecord {
-    GoalRecord {
-        schema_version: GOAL_SCHEMA_VERSION,
-        binding: GoalBinding {
-            goal_id: "goal-1".into(),
-            conversation_id: AgentChatConversationId("conversation-1".into()),
-            run_id: AgentChatRunId("run-1".into()),
-        },
-        revision: 1,
-        status: GoalStatus::Active,
-        summary: "Finish the terminal workflow".into(),
+    fn replace_goal(
+        &self,
+        _: &GoalRecord,
+        _: &GoalRecord,
+        _: HostEpoch,
+    ) -> Result<GoalWrite, LedgerError> {
+        panic!("observer goal write reached the ledger")
+    }
+    fn goal_turns(&self, _: &str, _: u64) -> Result<Vec<GoalTurnObservation>, LedgerError> {
+        panic!("observer goal read reached the ledger")
+    }
+    fn latest_turn_ordinal(&self, _: &str) -> Result<u64, LedgerError> {
+        panic!("observer goal read reached the ledger")
     }
 }
 
 #[test]
-fn approved_projection_reloads_each_follow_up_and_omits_stale_or_completed_goals() {
-    let goals = Arc::new(Mutex::new(vec![goal()]));
-    let service = GoalService::new(SnapshotLedger(Arc::clone(&goals)), GoalAuthority::Approved);
+fn observer_has_no_goal_read_write_or_projection_path() {
+    let service = GoalService::new(PanicLedger, GoalAuthority::Observer);
+    let conversation = AgentChatConversationId("conversation-1".into());
     assert_eq!(
         service
-            .resolve_active_goal("conversation-1", "run-1")
-            .unwrap()
-            .unwrap()
-            .revision(),
-        1
-    );
-    goals.lock().unwrap()[0].revision = 4;
-    assert_eq!(
-        service
-            .resolve_active_goal("conversation-1", "run-1")
-            .unwrap()
-            .unwrap()
-            .revision(),
-        4
-    );
-    goals.lock().unwrap()[0].status = GoalStatus::Completed;
-    assert_eq!(
-        service
-            .resolve_active_goal("conversation-1", "run-1")
+            .set(
+                "request-1",
+                &conversation,
+                "Ship".into(),
+                None,
+                HostEpoch(1),
+                1
+            )
             .unwrap(),
-        None
+        GoalResult::DeniedObserver
     );
-    goals.lock().unwrap()[0] = GoalRecord {
-        binding: GoalBinding {
-            run_id: AgentChatRunId("other-run".into()),
-            ..goal().binding
-        },
-        ..goal()
-    };
     assert_eq!(
         service
-            .resolve_active_goal("conversation-1", "run-1")
+            .control(
+                &conversation,
+                "goal-1",
+                1,
+                GoalControl::Pause,
+                HostEpoch(1),
+                1
+            )
             .unwrap(),
-        None
+        GoalResult::DeniedObserver
     );
+    assert_eq!(
+        service
+            .report("goal-1", GoalReportOutcome::Complete, None, HostEpoch(1), 1)
+            .unwrap(),
+        GoalResult::DeniedObserver
+    );
+    assert_eq!(service.stop(&conversation, HostEpoch(1), 1).unwrap(), None);
+    assert_eq!(
+        service.current(&conversation).unwrap(),
+        GoalResult::DeniedObserver
+    );
+    assert_eq!(service.resolve_active_goal("conversation-1").unwrap(), None);
 }

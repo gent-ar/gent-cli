@@ -74,6 +74,20 @@ pub fn respond_to_codex_client_request(
     CodexClientRequestResponse::Write(encoded)
 }
 
+#[must_use]
+pub fn reject_unhandled_codex_request(frame: &Value) -> Option<Vec<u8>> {
+    frame.get("method").and_then(Value::as_str)?;
+    let id = request_id(frame)?;
+    let mut encoded = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {"code": -32601, "message": "Gent does not handle this Codex server request."}
+    }))
+    .ok()?;
+    encoded.push(b'\n');
+    Some(encoded)
+}
+
 fn request_id(frame: &Value) -> Option<Value> {
     match frame.get("id") {
         Some(Value::String(id)) if !id.is_empty() => Some(Value::String(id.clone())),

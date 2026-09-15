@@ -9,6 +9,8 @@ fn event(kind: NormalizedTranscriptKind, text: &str) -> NormalizedTranscriptEven
         kind,
         text: text.into(),
         is_partial: false,
+        origin: None,
+        attachments: Vec::new(),
     }
 }
 
@@ -32,6 +34,8 @@ fn scheduler_retries_missing_titles_and_creates_recaps_at_native_cadence() {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "done".into(),
             is_partial: false,
+            origin: None,
+            attachments: Vec::new(),
         })
         .collect::<Vec<_>>();
     let first = scheduled_requests("conversation", "claude", "haiku", &events[..1], &[]).unwrap();

@@ -4,7 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DEFAULT_READINESS_TIMEOUT: Duration = Duration::from_secs(300);
+const DEFAULT_READINESS_TIMEOUT: Duration =
+    crate::provider_launch_budget::launch_budget(Duration::from_secs(300));
 
 pub(crate) trait LlamaServerReadiness {
     fn wait_ready<P: super::LocalRuntimeProcess>(

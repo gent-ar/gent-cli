@@ -1,21 +1,22 @@
-use std::{
-    collections::{BTreeMap, VecDeque},
-    path::Path,
-    time::Duration,
-};
+use std::{collections::VecDeque, path::Path, time::Duration};
 
 use gent_ports::ClaurstPermissionReply;
 use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, PermissionCategory};
 use serde_json::{Value, json};
 
-const MAX_ACP_FRAME_BYTES: usize = 256 * 1024;
+const MAX_ACP_FRAME_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
+pub(crate) const OVERSIZED_FRAME_METHOD: &str = "gent/oversizedProviderFrame";
 const MAX_HANDSHAKE_FRAMES: usize = 32;
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const HANDSHAKE_TIMEOUT: Duration =
+    crate::provider_launch_budget::launch_budget(Duration::from_secs(20));
 const HANDSHAKE_RETRY_DELAY: Duration = Duration::from_millis(5);
 
 pub(crate) trait ClaurstAcpStdio {
     fn write_frame(&mut self, frame: &[u8]) -> Result<(), String>;
     fn try_read_frame(&mut self, maximum_bytes: usize) -> Result<Option<Vec<u8>>, String>;
+    fn exited(&mut self) -> Result<Option<String>, String> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +39,7 @@ pub(crate) struct ClaurstAcpPermissionRequest {
     pub(crate) tool_use_id: String,
     pub(crate) tool_name: String,
     pub(crate) category: PermissionCategory,
+    pub(crate) input: Option<Value>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,10 +72,11 @@ pub(crate) struct ClaurstAcpTransport<S> {
     initialized: bool,
     queued: VecDeque<ClaurstAcpFact>,
     queued_permissions: VecDeque<ClaurstAcpPermissionRequest>,
-    tool_names: BTreeMap<String, String>,
+    open_tools: Vec<updates::OpenTool>,
     pending_prompt_id: Option<u64>,
     pending_terminal: Option<ClaurstAcpTerminal>,
     pending_permission: Option<PendingPermission>,
+    held_permissions: VecDeque<(PendingPermission, ClaurstAcpPermissionRequest)>,
     assistant_output: String,
     mcp_servers: Vec<Value>,
     supports_images: bool,
@@ -93,10 +96,11 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             initialized: false,
             queued: VecDeque::new(),
             queued_permissions: VecDeque::new(),
-            tool_names: BTreeMap::new(),
+            open_tools: Vec::new(),
             pending_prompt_id: None,
             pending_terminal: None,
             pending_permission: None,
+            held_permissions: VecDeque::new(),
             assistant_output: String::new(),
             mcp_servers: Vec::new(),
             supports_images: false,
@@ -114,6 +118,10 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
 
     pub(crate) fn is_idle(&self) -> bool {
         self.pending_prompt_id.is_none()
+    }
+
+    pub(crate) fn exited(&mut self) -> Result<Option<String>, String> {
+        self.stdio.exited()
     }
 
     pub(crate) fn initialize_session(
@@ -205,7 +213,19 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             "jsonrpc": "2.0",
             "method": "session/cancel",
             "params": {"sessionId": session_id},
-        }))
+        }))?;
+        self.queued_permissions.clear();
+        let held = std::mem::take(&mut self.held_permissions)
+            .into_iter()
+            .map(|(pending, _)| pending);
+        for pending in self.pending_permission.take().into_iter().chain(held) {
+            self.write(json!({
+                "jsonrpc": "2.0",
+                "id": pending.json_rpc_id,
+                "result": {"outcome": {"outcome": "cancelled"}},
+            }))?;
+        }
+        Ok(())
     }
 
     pub(crate) fn drain(
@@ -242,10 +262,16 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         request_id: &str,
         reply: ClaurstPermissionReply,
     ) -> Result<(), ClaurstAcpTransportError> {
+        if self
+            .pending_permission
+            .as_ref()
+            .is_none_or(|pending| pending.request_id != request_id)
+        {
+            return Err(ClaurstAcpTransportError::InvalidPermission);
+        }
         let pending = self
             .pending_permission
             .take()
-            .filter(|pending| pending.request_id == request_id)
             .ok_or(ClaurstAcpTransportError::InvalidPermission)?;
         let result = match reply {
             ClaurstPermissionReply::AllowOnce => {
@@ -253,7 +279,12 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             }
             ClaurstPermissionReply::Deny => json!({"outcome": {"outcome": "cancelled"}}),
         };
-        self.write(json!({"jsonrpc": "2.0", "id": pending.json_rpc_id, "result": result}))
+        self.write(json!({"jsonrpc": "2.0", "id": pending.json_rpc_id, "result": result}))?;
+        if let Some((next, request)) = self.held_permissions.pop_front() {
+            self.pending_permission = Some(next);
+            self.queued_permissions.push_back(request);
+        }
+        Ok(())
     }
 }
 

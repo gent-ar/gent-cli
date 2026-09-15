@@ -44,7 +44,7 @@ impl TurnFollowReader for SqliteLedger {
             .ok_or_else(|| LedgerError::Invariant("turn follow hierarchy is unknown".into()))?;
         let mut statement = connection
             .prepare(
-                "SELECT cursor, event_id, turn_id, run_id, kind, text, is_partial FROM agent_chat_transcript_events WHERE conversation_id = ?1 AND run_id = ?2 AND turn_id = ?3 AND cursor > ?4 ORDER BY cursor ASC LIMIT ?5",
+                "SELECT cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json FROM agent_chat_transcript_events WHERE conversation_id = ?1 AND run_id = ?2 AND turn_id = ?3 AND cursor > ?4 ORDER BY cursor ASC LIMIT ?5",
             )
             .map_err(storage_error)?;
         let rows = statement
@@ -62,6 +62,7 @@ impl TurnFollowReader for SqliteLedger {
         let mut events = rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
         let has_next = events.len() > usize::from(limit);
         events.truncate(usize::from(limit));
+        super::transcript_attachments::attach_to_events(&connection, &mut events)?;
         Ok(TurnFollowPage {
             turn,
             next_after_cursor: has_next
@@ -90,6 +91,8 @@ fn decode_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<NormalizedTranscrip
         kind: decode_kind(&row.get::<_, String>(4)?)?,
         text: row.get(5)?,
         is_partial: row.get::<_, i64>(6)? != 0,
+        origin: crate::sqlite::goal_ledger::decode_origin(row.get(7)?)?,
+        attachments: Vec::new(),
     })
 }
 
@@ -100,6 +103,7 @@ fn decode_phase(value: &str) -> rusqlite::Result<DurableTurnPhase> {
         "waitingQuestion" => Ok(DurableTurnPhase::WaitingQuestion),
         "completed" => Ok(DurableTurnPhase::Completed),
         "interrupted" => Ok(DurableTurnPhase::Interrupted),
+        "cancelled" => Ok(DurableTurnPhase::Cancelled),
         "failed" => Ok(DurableTurnPhase::Failed),
         _ => Err(rusqlite::Error::InvalidQuery),
     }

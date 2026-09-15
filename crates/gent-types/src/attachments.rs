@@ -27,6 +27,15 @@ pub struct AttachmentMetadata {
     pub storage_key: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentReference {
+    pub attachment_id: String,
+    pub display_name: String,
+    pub media_type: String,
+    pub byte_len: u64,
+}
+
 /// Durable receipt-scoped progress for one local attachment transfer.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,9 +1,12 @@
 //! Local IPC adapter. It only knows the `RuntimeApi` port, never persistence or providers.
 
+use std::io::ErrorKind;
+
 use gent_protocol::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
-    AgentChatIntentFrame, AgentChatTurnFollowFrame, AttachmentFrame, EVENT_STREAM_CAPABILITY,
-    EventStreamFrame, WireFrame, negotiate, read_frame, read_json_frame, write_frame,
+    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_PROJECTION_CAPABILITY,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, AgentChatIntentFrame, AgentChatProjectionFrame,
+    AgentChatTurnFollowFrame, EVENT_STREAM_CAPABILITY, EventStreamFrame, WireFrame, negotiate,
+    read_frame, read_json_frame, write_frame,
 };
 use gent_runtime::catalog::{RuntimeCapabilityProfile, declared_capabilities_with_profiles};
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
@@ -15,7 +18,13 @@ use tokio::net::UnixListener;
 
 use crate::api::RuntimeApi;
 
-include!("transport_commands.rs");
+#[path = "transport_commands.rs"]
+mod commands;
+#[path = "transport_dispatch.rs"]
+mod dispatch;
+
+use commands::command_frame;
+use dispatch::dispatch_extension;
 
 /// Reports the capabilities backed by one explicitly composed runtime profile.
 #[must_use]
@@ -71,7 +80,11 @@ where
         return Ok(());
     };
     loop {
-        let raw: Value = read_json_frame(&mut stream).await?;
+        let raw: Value = match read_json_frame(&mut stream).await {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == ErrorKind::UnexpectedEof => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
         if extensions.supports(EVENT_STREAM_CAPABILITY) {
             if let Ok(EventStreamFrame::Attach { after_cursor }) =
                 serde_json::from_value(raw.clone())
@@ -117,6 +130,23 @@ where
                 .await;
             }
         }
+        if extensions.supports(AGENT_CHAT_PROJECTION_CAPABILITY) {
+            if let Ok(AgentChatProjectionFrame::FollowConversation {
+                request_id,
+                conversation_id,
+                after_cursor,
+            }) = serde_json::from_value(raw.clone())
+            {
+                return crate::agent_chat_projection_transport::serve(
+                    stream,
+                    runtime,
+                    request_id,
+                    conversation_id,
+                    after_cursor,
+                )
+                .await;
+            }
+        }
         if dispatch_extension(&mut stream, &runtime, &extensions, &raw).await? {
             continue;
         }
@@ -136,7 +166,12 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    let WireFrame::Hello(hello) = read_frame(&mut stream).await? else {
+    let first = match read_frame(&mut stream).await {
+        Ok(frame) => frame,
+        Err(error) if error.kind() == ErrorKind::UnexpectedEof => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let WireFrame::Hello(hello) = first else {
         write_error(
             &mut stream,
             "handshakeRequired",
@@ -167,109 +202,6 @@ where
     Ok(Some(extensions))
 }
 
-async fn dispatch_extension<S, R>(
-    stream: &mut S,
-    runtime: &R,
-    extensions: &ExtensionSupport,
-    raw: &Value,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>
-where
-    S: AsyncWrite + Unpin,
-    R: RuntimeApi,
-{
-    if crate::agent_chat_read_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::automation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::agent_chat_sessions_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::forge_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::provider_readiness_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::prompt_provider_provision_transport::dispatch(stream, runtime, &extensions.0, raw)
-        .await?
-    {
-        return Ok(true);
-    }
-    if crate::agent_chat_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::agent_chat_permission_transport::dispatch(stream, runtime, &extensions.0, raw).await?
-    {
-        return Ok(true);
-    }
-    if crate::permission_policy_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::agent_chat_conversation_config_transport::dispatch(
-        stream,
-        runtime,
-        &extensions.0,
-        raw,
-    )
-    .await?
-    {
-        return Ok(true);
-    }
-    if crate::agent_chat_checkpoint_transport::dispatch(stream, runtime, &extensions.0, raw).await?
-    {
-        return Ok(true);
-    }
-    if crate::agent_chat_side_question_transport::dispatch(stream, runtime, &extensions.0, raw)
-        .await?
-    {
-        return Ok(true);
-    }
-    if crate::provider_auth_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::reviewed_plan_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::orchestration_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::goal_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::prompt_template_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::workspace_documents_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::workspace_git_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::conversation_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::activity_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::runtime_update_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::runtime_maintenance_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if crate::local_model_transport::dispatch(stream, runtime, &extensions.0, raw).await? {
-        return Ok(true);
-    }
-    if extensions.supports(ATTACHMENTS_CAPABILITY) {
-        if let Ok(frame) = serde_json::from_value::<AttachmentFrame>(raw.clone()) {
-            return crate::attachment_transport::write(stream, runtime, frame).await;
-        }
-    }
-    Ok(false)
-}
-
 #[derive(Clone)]
 struct ExtensionSupport(CapabilitySet);
 
@@ -297,3 +229,27 @@ where
     .await?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "transport_tests.rs"]
+pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "transport_decision_tests.rs"]
+mod decision_tests;
+
+#[cfg(all(test, unix))]
+#[path = "transport_shutdown_tests.rs"]
+mod shutdown_tests;
+
+#[cfg(test)]
+#[path = "transport_stream_tests.rs"]
+mod stream_tests;
+
+#[cfg(test)]
+#[path = "transport_timeline_tests.rs"]
+mod timeline_tests;
+
+#[cfg(test)]
+#[path = "transport_turn_follow_tests.rs"]
+mod turn_follow_tests;

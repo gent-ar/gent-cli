@@ -87,6 +87,7 @@ mod tests {
                 tool_name: tool_name.into(),
                 phase,
                 output_digest: None,
+                parent_tool_use_id: None,
             },
         }
     }

@@ -1,0 +1,271 @@
+{
+ "<root>": {
+  "options": {
+   "--add-dir": {
+    "arg": "required",
+    "short": null
+   },
+   "--approve-for-me": {
+    "arg": "none",
+    "short": null
+   },
+   "--ask-for-approval": {
+    "arg": "required",
+    "short": "-a"
+   },
+   "--cd": {
+    "arg": "required",
+    "short": "-C"
+   },
+   "--config": {
+    "arg": "required",
+    "short": "-c"
+   },
+   "--dangerously-bypass-approvals-and-sandbox": {
+    "arg": "none",
+    "short": null
+   },
+   "--dangerously-bypass-hook-trust": {
+    "arg": "none",
+    "short": null
+   },
+   "--disable": {
+    "arg": "required",
+    "short": null
+   },
+   "--enable": {
+    "arg": "required",
+    "short": null
+   },
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   },
+   "--image": {
+    "arg": "none",
+    "short": "-i"
+   },
+   "--local-provider": {
+    "arg": "required",
+    "short": null
+   },
+   "--model": {
+    "arg": "required",
+    "short": "-m"
+   },
+   "--no-alt-screen": {
+    "arg": "none",
+    "short": null
+   },
+   "--oss": {
+    "arg": "none",
+    "short": null
+   },
+   "--profile": {
+    "arg": "required",
+    "short": "-p"
+   },
+   "--remote": {
+    "arg": "required",
+    "short": null
+   },
+   "--remote-auth-token-env": {
+    "arg": "required",
+    "short": null
+   },
+   "--sandbox": {
+    "arg": "required",
+    "choices": [
+     "danger-full-access",
+     "read-only",
+     "workspace-write"
+    ],
+    "short": "-s"
+   },
+   "--search": {
+    "arg": "none",
+    "short": null
+   },
+   "--strict-config": {
+    "arg": "none",
+    "short": null
+   },
+   "--version": {
+    "arg": "none",
+    "short": "-V"
+   }
+  },
+  "subcommands": {
+   "agents": [],
+   "app": [],
+   "app-server": [],
+   "apply": [],
+   "archive": [],
+   "cloud": [],
+   "completion": [],
+   "debug": [],
+   "delete": [],
+   "doctor": [],
+   "exec": [
+    "e"
+   ],
+   "exec-server": [],
+   "features": [],
+   "fork": [],
+   "help": [],
+   "login": [],
+   "logout": [],
+   "mcp": [],
+   "mcp-server": [],
+   "migrate-rollouts": [],
+   "plugin": [],
+   "queue": [],
+   "remote-control": [],
+   "resume": [],
+   "review": [],
+   "sandbox": [],
+   "unarchive": [],
+   "update": []
+  },
+  "usage": "codex [OPTIONS] [PROMPT]"
+ },
+ "app-server": {
+  "options": {
+   "--analytics-default-enabled": {
+    "arg": "none",
+    "short": null
+   },
+   "--code-mode-host": {
+    "arg": "required",
+    "short": null
+   },
+   "--config": {
+    "arg": "required",
+    "short": "-c"
+   },
+   "--disable": {
+    "arg": "required",
+    "short": null
+   },
+   "--enable": {
+    "arg": "required",
+    "short": null
+   },
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   },
+   "--listen": {
+    "arg": "required",
+    "short": null
+   },
+   "--stdio": {
+    "arg": "none",
+    "short": null
+   },
+   "--strict-config": {
+    "arg": "none",
+    "short": null
+   },
+   "--ws-audience": {
+    "arg": "required",
+    "short": null
+   },
+   "--ws-auth": {
+    "arg": "required",
+    "choices": [
+     "capability-token",
+     "signed-bearer-token"
+    ],
+    "short": null
+   },
+   "--ws-issuer": {
+    "arg": "required",
+    "short": null
+   },
+   "--ws-max-clock-skew-seconds": {
+    "arg": "required",
+    "short": null
+   },
+   "--ws-shared-secret-file": {
+    "arg": "required",
+    "short": null
+   },
+   "--ws-token-file": {
+    "arg": "required",
+    "short": null
+   },
+   "--ws-token-sha256": {
+    "arg": "required",
+    "short": null
+   }
+  },
+  "subcommands": {
+   "daemon": [],
+   "generate-json-schema": [],
+   "generate-ts": [],
+   "help": [],
+   "proxy": []
+  },
+  "usage": "codex app-server [OPTIONS] [COMMAND]"
+ },
+ "login": {
+  "options": {
+   "--config": {
+    "arg": "required",
+    "short": "-c"
+   },
+   "--device-auth": {
+    "arg": "none",
+    "short": null
+   },
+   "--disable": {
+    "arg": "required",
+    "short": null
+   },
+   "--enable": {
+    "arg": "required",
+    "short": null
+   },
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   },
+   "--with-access-token": {
+    "arg": "none",
+    "short": null
+   },
+   "--with-api-key": {
+    "arg": "none",
+    "short": null
+   }
+  },
+  "subcommands": {
+   "help": [],
+   "status": []
+  },
+  "usage": "codex login [OPTIONS] [COMMAND]"
+ },
+ "login status": {
+  "options": {
+   "--config": {
+    "arg": "required",
+    "short": "-c"
+   },
+   "--disable": {
+    "arg": "required",
+    "short": null
+   },
+   "--enable": {
+    "arg": "required",
+    "short": null
+   },
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   }
+  },
+  "subcommands": {},
+  "usage": "codex login status [OPTIONS]"
+ }
+}

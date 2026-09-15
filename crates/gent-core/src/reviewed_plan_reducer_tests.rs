@@ -1,4 +1,6 @@
-use gent_types::{AgentChatRunId, ContextPolicy, PlanRevision, PlanStatus, ReviewedPlanId};
+use gent_types::{
+    AgentChatRunId, ContextPolicy, PlanArtifact, PlanRevision, PlanStatus, ReviewedPlanId,
+};
 
 use super::tests::{approval, plan, reviewed_state};
 use super::{
@@ -32,7 +34,8 @@ fn observation_rejects_invalid_conflicting_and_stale_revisions() {
         state
     );
     let mut conflicting = plan();
-    conflicting.content_digest_sha256 = "b".repeat(64);
+    conflicting.content = "1. Update two files".into();
+    conflicting.content_digest_sha256 = PlanArtifact::content_digest(&conflicting.content);
     assert_eq!(
         reduce_reviewed_plan(state, ReviewedPlanEvent::Observed(conflicting)).1,
         ReviewedPlanEffect::Rejected(ReviewedPlanRejection::PlanMismatch)
@@ -51,7 +54,8 @@ fn newer_observation_replaces_plan_and_clears_an_existing_approval() {
     );
     let mut newer = plan();
     newer.revision = PlanRevision(2);
-    newer.content_digest_sha256 = "b".repeat(64);
+    newer.content = "1. Update two files".into();
+    newer.content_digest_sha256 = PlanArtifact::content_digest(&newer.content);
     let (state, effect) = reduce_reviewed_plan(approved, ReviewedPlanEvent::Observed(newer));
     assert_eq!(effect, ReviewedPlanEffect::None);
     assert_eq!(state.plan.unwrap().revision, PlanRevision(2));
@@ -151,7 +155,7 @@ fn rejection_and_failure_only_change_the_exact_reviewed_plan() {
     let mismatch = ReviewedPlanEvent::Reject {
         plan_id: ReviewedPlanId("plan-2".into()),
         revision: PlanRevision(1),
-        content_digest_sha256: "a".repeat(64),
+        content_digest_sha256: plan().content_digest_sha256,
     };
     assert_eq!(
         reduce_reviewed_plan(reviewed_state(), mismatch).1,
@@ -163,7 +167,7 @@ fn rejection_and_failure_only_change_the_exact_reviewed_plan() {
             ReviewedPlanEvent::Reject {
                 plan_id: ReviewedPlanId("plan-1".into()),
                 revision: PlanRevision(1),
-                content_digest_sha256: "a".repeat(64),
+                content_digest_sha256: plan().content_digest_sha256,
             },
         )
         .1,
@@ -174,7 +178,7 @@ fn rejection_and_failure_only_change_the_exact_reviewed_plan() {
         ReviewedPlanEvent::Reject {
             plan_id: ReviewedPlanId("plan-1".into()),
             revision: PlanRevision(1),
-            content_digest_sha256: "a".repeat(64),
+            content_digest_sha256: plan().content_digest_sha256,
         },
     );
     assert_eq!(effect, ReviewedPlanEffect::None);
@@ -185,7 +189,7 @@ fn rejection_and_failure_only_change_the_exact_reviewed_plan() {
             ReviewedPlanEvent::Reject {
                 plan_id: ReviewedPlanId("plan-1".into()),
                 revision: PlanRevision(1),
-                content_digest_sha256: "a".repeat(64),
+                content_digest_sha256: plan().content_digest_sha256,
             },
         )
         .1,

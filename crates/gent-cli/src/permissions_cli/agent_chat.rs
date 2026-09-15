@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame, WireFrame, read_json_frame,
-    write_json_frame,
+    AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame, read_json_frame, write_json_frame,
 };
 use gent_types::{
     AgentChatConversationId, AgentChatRequestId, AgentChatRunId, PermissionDecisionRequest,
-    PermissionDecisionResponse, ReceiptId,
+    PermissionDecisionResponse, PermissionDecisionResponseKind, ReceiptId,
 };
 use serde_json::Value;
 
+use crate::cli_error::{CliError, Failure};
 use crate::local_ipc::connect_and_negotiate;
 
 pub(crate) async fn pending(
@@ -52,18 +52,33 @@ pub(crate) async fn respond(
     }
 }
 
-pub(crate) async fn respond_json(
+pub(crate) async fn respond_decision(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
-    response_json: String,
+    conversation_id: String,
+    run_id: String,
+    decision_id: String,
+    response: PermissionDecisionResponseKind,
     receipt_id: Option<String>,
 ) -> Result<Value, Box<dyn std::error::Error>> {
-    let response = serde_json::from_str(&response_json)?;
+    let pending = pending(data_dir.clone(), no_autostart, conversation_id, run_id)
+        .await?
+        .filter(|request| request.binding.decision_id.0 == decision_id)
+        .ok_or_else(|| {
+            CliError::new(
+                Failure::NotFound,
+                "no pending permission request has that decision id",
+            )
+        })?;
     let request_id = AgentChatRequestId(uuid::Uuid::new_v4().to_string());
     let request = AgentChatPermissionFrame::Respond {
         request_id: request_id.clone(),
         receipt_id: ReceiptId(receipt_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string())),
-        response,
+        response: PermissionDecisionResponse {
+            binding: pending.binding,
+            response,
+            input: None,
+        },
     };
     let reply = exchange(data_dir, no_autostart, request).await?;
     if matches!(
@@ -94,8 +109,8 @@ async fn exchange(
     }
     write_json_frame(&mut stream, &request).await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     Ok(serde_json::from_value(raw)?)
 }

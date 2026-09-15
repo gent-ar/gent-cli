@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use gent_protocol::{
-    AUTOMATIONS_CAPABILITY, AutomationFrame, WireFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{AUTOMATIONS_CAPABILITY, AutomationFrame, read_json_frame, write_json_frame};
 use gent_types::{AutomationDefinition, AutomationId, AutomationRun};
 use serde_json::Value;
 
@@ -58,8 +56,8 @@ pub(crate) async fn list(
     )
     .await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     match serde_json::from_value(raw)? {
         AutomationFrame::List {
@@ -95,8 +93,8 @@ pub(crate) async fn create(
     )
     .await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     match serde_json::from_value(raw)? {
         AutomationFrame::Created {
@@ -164,8 +162,8 @@ async fn exchange(
     require_capability(&capabilities)?;
     write_json_frame(&mut stream, &frame).await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     let response: AutomationFrame = serde_json::from_value(raw)?;
     let response_id = match &response {

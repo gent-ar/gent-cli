@@ -7,7 +7,11 @@
       "local_filename": "qwen3-1-7b-q4-k-m.gguf",
       "provider_model_id": "qwen3-1-7b-q4-k-m",
       "size_bytes": 1282439264,
-      "sha256": "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5"
+      "sha256": "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5",
+      "context_tokens": 32768,
+      "agent_profile": "compact",
+      "chat_template_file": "qwen3-tool-use.jinja",
+      "runtime_memory_bytes": 3388964864
     },
     {
       "id": "qwen3-8b-q4-k-m",
@@ -16,7 +20,11 @@
       "local_filename": "qwen3-8b-q4-k-m.gguf",
       "provider_model_id": "qwen3-8b-q4-k-m",
       "size_bytes": 5027783488,
-      "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"
+      "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+      "context_tokens": 32768,
+      "agent_profile": "full",
+      "chat_template_file": "qwen3-tool-use.jinja",
+      "runtime_memory_bytes": 7704734432
     },
     {
       "id": "hermes-3-llama-3-1-8b-q4-k-m",
@@ -25,7 +33,10 @@
       "local_filename": "hermes-3-llama-3-1-8b-q4-k-m.gguf",
       "provider_model_id": "hermes-3-llama-3-1-8b-q4-k-m",
       "size_bytes": 4920733824,
-      "sha256": "d4403ce5a6e930f4c2509456388c20d633a15ff08dd52ef3b142ff1810ec3553"
+      "sha256": "d4403ce5a6e930f4c2509456388c20d633a15ff08dd52ef3b142ff1810ec3553",
+      "context_tokens": 32768,
+      "agent_profile": "full",
+      "runtime_memory_bytes": 7312472096
     }
   ]
 }

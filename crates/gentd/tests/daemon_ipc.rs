@@ -153,6 +153,29 @@ async fn daemon_requires_hello_and_negotiates_before_status() {
 }
 
 #[tokio::test]
+async fn status_names_the_running_daemon_build_so_a_client_can_refuse_a_stale_one() {
+    let daemon = daemon().await;
+    let mut stream = client(&daemon).await;
+    let WireFrame::Status(status) = request(&mut stream, WireFrame::StatusRequest).await else {
+        panic!("the daemon answers a status request");
+    };
+    let digest = status
+        .executable_digest_sha256
+        .expect("the daemon names its own build");
+    assert_eq!(digest.len(), 64);
+    assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert_eq!(
+        digest,
+        sha256_of(std::path::Path::new(env!("CARGO_BIN_EXE_gentd")))
+    );
+}
+
+fn sha256_of(path: &std::path::Path) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(std::fs::read(path).unwrap()))
+}
+
+#[tokio::test]
 async fn command_receipts_are_idempotent_and_events_resume_over_ipc() {
     let daemon = daemon().await;
     let mut stream = client(&daemon).await;

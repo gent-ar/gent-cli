@@ -13,8 +13,9 @@ pub(crate) fn command(event: KeyEvent, chat_enabled: bool) -> Option<UiCommand> 
         KeyCode::Up => Some(UiCommand::SelectPrevious),
         KeyCode::PageUp => Some(UiCommand::ScrollOlder),
         KeyCode::PageDown => Some(UiCommand::ScrollNewer),
+        KeyCode::End => Some(UiCommand::FollowLatest),
         KeyCode::Char('k') if !chat_enabled => Some(UiCommand::SelectPrevious),
-        KeyCode::Esc => Some(UiCommand::Quit),
+        KeyCode::Esc => Some(UiCommand::Dismiss),
         KeyCode::Char('q') if !chat_enabled => Some(UiCommand::Quit),
         KeyCode::Char('q') if chat_enabled && event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(UiCommand::Quit)
@@ -59,6 +60,12 @@ pub(crate) fn command(event: KeyEvent, chat_enabled: bool) -> Option<UiCommand> 
         }
         KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(UiCommand::Interrupt)
+        }
+        KeyCode::Char('r') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::SteerQueued)
+        }
+        KeyCode::Char('k') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(UiCommand::CancelQueued)
         }
         KeyCode::Char(value)
             if event.modifiers.is_empty() || event.modifiers == KeyModifiers::SHIFT =>

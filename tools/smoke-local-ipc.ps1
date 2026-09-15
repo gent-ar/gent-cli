@@ -44,6 +44,20 @@ function Invoke-Gent([string]$label, [string[]]$arguments) {
     return $output
 }
 
+$defaultLocalModel = "qwen3-1-7b-q4-k-m"
+
+function Deny-DefaultModelDownload([string]$directory) {
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    $preferences = '{"defaultSelection":null,"declinedDownloads":["' + $defaultLocalModel + '"]}'
+    [System.IO.File]::WriteAllText((Join-Path $directory "model-catalog.json"), $preferences)
+}
+
+function Assert-NoModelDownload([string]$label, [string[]]$scope, [string]$directory) {
+    $modelStatus = Invoke-Gent "$label model status" ($scope + @("models", "status", $defaultLocalModel)) | ConvertFrom-Json
+    Assert-Equal $modelStatus.state "notInstalled" "$label default model state"
+    Assert-Equal (Test-Path (Join-Path $directory "models")) $false "$label model directory"
+}
+
 try {
     New-Item -ItemType Directory -Path $dataDir | Out-Null
     Push-Location $root
@@ -52,6 +66,7 @@ try {
     $gent = Join-Path $root "target\debug\gent.exe"
     $defaultHome = Join-Path $dataDir "home"
     New-Item -ItemType Directory -Path $defaultHome | Out-Null
+    Deny-DefaultModelDownload (Join-Path $defaultHome ".gentd")
     $env:HOME = $defaultHome
     $env:USERPROFILE = $defaultHome
     $defaultDaemon = Start-Process -FilePath $gentd -ArgumentList @("--standalone-authority") -PassThru `
@@ -68,11 +83,13 @@ try {
     }
     $defaultStatus = $defaultStatusJson | ConvertFrom-Json
     Assert-Equal $defaultStatus.type "status" "default status frame"
+    Assert-NoModelDownload "default" @() (Join-Path $defaultHome ".gentd")
     Stop-Process -Id $defaultDaemon.Id -Force
     $null = $defaultDaemon.WaitForExit(5000)
     $defaultDaemon = $null
     $env:HOME = $originalHome
     $env:USERPROFILE = $originalUserProfile
+    Deny-DefaultModelDownload $dataDir
     $daemon = Start-Process -FilePath $gentd -ArgumentList @("--data-dir", $dataDir, "--standalone-authority") -PassThru `
         -RedirectStandardOutput (Join-Path $dataDir "gentd.stdout") `
         -RedirectStandardError (Join-Path $dataDir "gentd.stderr")
@@ -96,8 +113,9 @@ try {
     $conversations = Invoke-Gent "conversation list" @("--data-dir", $dataDir, "conversation", "list") | ConvertFrom-Json
 
     Assert-Equal $status.type "status" "status frame"
+    Assert-NoModelDownload "data directory" @("--data-dir", $dataDir) $dataDir
     Assert-Equal $receipt.body.status "settled" "receipt status"
-    $eventKinds = ($events.body.page.events | ForEach-Object { $_.kind }) -join ","
+    $eventKinds = ($events.body.page.events | Where-Object { $_.receiptId -eq $receipt.body.receiptId } | ForEach-Object { $_.kind }) -join ","
     Assert-Equal $eventKinds "commandAccepted,commandSettled" "event order"
     Assert-Equal $decision.type "decisionSubmission" "decision frame"
     Assert-Equal $decision.body.outcome "accepted" "decision outcome"

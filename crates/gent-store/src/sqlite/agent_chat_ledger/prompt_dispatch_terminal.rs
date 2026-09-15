@@ -4,7 +4,7 @@ use rusqlite::{TransactionBehavior, params};
 
 use super::helpers::valid_owner;
 use super::{SqliteLedger, require_open};
-use crate::sqlite::queries::storage_error;
+use crate::sqlite::{queries, turn_terminal};
 
 pub(super) fn settle(
     ledger: &SqliteLedger,
@@ -22,40 +22,69 @@ pub(super) fn settle(
     let mut connection = ledger.lock()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(storage_error)?;
+        .map_err(queries::storage_error)?;
     require_open(&transaction, host_epoch)?;
+    let turn_id = turn_of(&transaction, message_id)?;
     let changed = transaction
         .execute(
             "UPDATE agent_chat_prompt_dispatches SET state = 'settled' WHERE message_id = ?1 AND state = 'started' AND coordinator_id = ?2 AND host_epoch = ?3",
             params![message_id, coordinator_id, host_epoch.0],
         )
-        .map_err(storage_error)?;
+        .map_err(queries::storage_error)?;
     if changed != 1 {
         return Err(LedgerError::Invariant(
             "agent chat dispatch is not owned by this coordinator".into(),
         ));
     }
-    let changed = transaction
-        .execute(
-            "UPDATE turns SET phase = ?1 WHERE turn_id = (SELECT turn_id FROM conversation_messages WHERE message_id = ?2) AND phase IN ('active', 'waitingPermission', 'waitingQuestion')",
-            params![phase_name(phase), message_id],
-        )
-        .map_err(storage_error)?;
-    if changed != 1 {
+    if !turn_terminal::settle(&transaction, &turn_id, host_epoch, phase)? {
         return Err(LedgerError::Invariant(
             "agent chat terminal turn is not active".into(),
         ));
     }
-    transaction.commit().map_err(storage_error)
+    transaction.commit().map_err(queries::storage_error)
 }
 
-const fn phase_name(phase: DurableTurnPhase) -> &'static str {
-    match phase {
-        DurableTurnPhase::Completed => "completed",
-        DurableTurnPhase::Interrupted => "interrupted",
-        DurableTurnPhase::Failed => "failed",
-        DurableTurnPhase::Active
-        | DurableTurnPhase::WaitingPermission
-        | DurableTurnPhase::WaitingQuestion => unreachable!(),
+pub(super) fn turn_of(
+    transaction: &rusqlite::Transaction<'_>,
+    message_id: &str,
+) -> Result<String, LedgerError> {
+    transaction
+        .query_row(
+            "SELECT turn_id FROM conversation_messages WHERE message_id = ?1",
+            params![message_id],
+            |row| row.get(0),
+        )
+        .map_err(queries::storage_error)
+}
+
+pub(super) fn abandon_unprovable(
+    ledger: &SqliteLedger,
+    message_id: &str,
+    coordinator_id: &str,
+    host_epoch: HostEpoch,
+) -> Result<(), LedgerError> {
+    valid_owner(coordinator_id)?;
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(queries::storage_error)?;
+    require_open(&transaction, host_epoch)?;
+    let changed = transaction
+        .execute(
+            "UPDATE agent_chat_prompt_dispatches SET state = 'unprovable' WHERE message_id = ?1 AND state = 'launching' AND coordinator_id = ?2 AND host_epoch = ?3",
+            params![message_id, coordinator_id, host_epoch.0],
+        )
+        .map_err(queries::storage_error)?;
+    if changed != 1 {
+        return Err(LedgerError::Invariant(
+            "agent chat dispatch is not owned by this coordinator".into(),
+        ));
     }
+    let turn_id = turn_of(&transaction, message_id)?;
+    if !turn_terminal::settle(&transaction, &turn_id, host_epoch, DurableTurnPhase::Failed)? {
+        return Err(LedgerError::Invariant(
+            "agent chat unprovable turn is not active".into(),
+        ));
+    }
+    transaction.commit().map_err(queries::storage_error)
 }

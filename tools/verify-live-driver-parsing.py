@@ -79,7 +79,7 @@ def run_scenario(vendor: str, scenario: str, model: str) -> tuple[bool, str]:
     if not lines:
         return False, "provider produced no output lines"
     replay = subprocess.run(
-        ["cargo", "run", "--quiet", "-p", "gent-testkit", "--bin", "replay-live-driver-transcript",
+        ["cargo", "run", "--quiet", "-p", "gent-drivers", "--example", "replay-live-driver-transcript",
          "--", vendor],
         input="\n".join(lines), text=True, capture_output=True, cwd=ROOT, timeout=120,
     )

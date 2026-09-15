@@ -30,7 +30,7 @@ use crate::runtime_facade::DaemonCompositionState;
 
 const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
 const BUFFERED_FRAMES: usize = 16;
-const BUFFERED_BYTES: usize = 256 * 1024;
+const BUFFERED_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 const MAX_ACTIVE_CODEX_RUNS: usize = 4;
 const EVIDENCE_REFERENCE: &str = "private-codex-authority-v1";
 

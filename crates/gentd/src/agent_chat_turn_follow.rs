@@ -14,7 +14,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::api::RuntimeApi;
 
 const PAGE_LIMIT: u16 = 100;
-const MAX_PAGES_PER_POLL: usize = 4;
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Serves one exact turn from a read-only, epoch-fenced source until durable settlement.
@@ -86,7 +85,7 @@ where
     W: AsyncWrite + Unpin,
     R: TurnFollowPort,
 {
-    for _ in 0..MAX_PAGES_PER_POLL {
+    loop {
         if runtime
             .host_epoch()
             .map_err(|_| AgentChatTurnFollowEnd::ServerClosing)?
@@ -118,7 +117,6 @@ where
             return Ok(false);
         }
     }
-    Ok(false)
 }
 
 async fn send<W>(

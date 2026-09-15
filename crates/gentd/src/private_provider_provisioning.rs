@@ -4,8 +4,9 @@
 //! evidence-approved host supplies a durable accepted receipt and explicit consent after a prompt
 //! identifies a missing public provider. Claurst never enters this public npm path.
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path, path::PathBuf};
 
+use ed25519_dalek::VerifyingKey;
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvider};
@@ -21,6 +22,12 @@ use crate::{
 };
 
 mod effect;
+
+#[derive(Clone, Debug)]
+pub(crate) struct ReleaseAuthorityConfig {
+    pub(crate) path: PathBuf,
+    pub(crate) root_keys: BTreeMap<String, VerifyingKey>,
+}
 
 /// Receipt-bound, consented prompt trigger without any prompt text or provider executable path.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,6 +86,7 @@ pub(crate) struct PrivateProviderProvisioner<I, P, V, R, B> {
     verifier: Option<V>,
     receipts: R,
     compatibility: B,
+    release_authority: Option<ReleaseAuthorityConfig>,
 }
 
 impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
@@ -90,6 +98,7 @@ impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
         verifier: Option<V>,
         receipts: R,
         compatibility: B,
+        release_authority: Option<ReleaseAuthorityConfig>,
     ) -> Self {
         Self {
             runtime,
@@ -98,6 +107,7 @@ impl<I, P, V, R, B> PrivateProviderProvisioner<I, P, V, R, B> {
             verifier,
             receipts,
             compatibility,
+            release_authority,
         }
     }
 }
@@ -126,6 +136,26 @@ impl<I, P, V, R>
             verifier,
             receipts,
             crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
+            None,
+        )
+    }
+
+    pub(crate) fn with_release_authority(
+        runtime: AppNodeRuntimeLock,
+        installer: I,
+        policy: P,
+        verifier: Option<V>,
+        receipts: R,
+        release_authority: ReleaseAuthorityConfig,
+    ) -> Self {
+        Self::with_compatibility(
+            runtime,
+            installer,
+            policy,
+            verifier,
+            receipts,
+            crate::private_provider_compatibility::TestProvisionedProviderCompatibility,
+            Some(release_authority),
         )
     }
 }
@@ -149,6 +179,7 @@ impl<
         verifier: Option<V>,
         receipts: R,
         compatibility: B,
+        release_authority: Option<ReleaseAuthorityConfig>,
     ) -> Result<Self, PrivateProvisionError> {
         Ok(Self::with_compatibility(
             AppNodeRuntimeLock::from_environment(data_dir)?,
@@ -157,6 +188,7 @@ impl<
             verifier,
             receipts,
             compatibility,
+            release_authority,
         ))
     }
 

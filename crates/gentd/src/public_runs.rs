@@ -16,7 +16,7 @@ const STREAM_CAPTURE_BYTES: usize = 64 * 1024;
 const OUTPUT_FRAME_BYTES: usize = 16 * 1024;
 const OUTPUT_TOTAL_BYTES: usize = 256 * 1024;
 const BUFFERED_FRAMES: usize = 16;
-const BUFFERED_BYTES: usize = 256 * 1024;
+const BUFFERED_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 const INTERRUPT_GRACE_MS: u64 = 5_000;
 const TERMINATE_GRACE_MS: u64 = 5_000;
 

@@ -19,7 +19,9 @@ use crate::private_claurst_ingress::PrivateClaurstIngress;
 #[tokio::test]
 async fn start_and_follow_up_replace_incoming_goals_with_the_active_gent_projection() {
     let ledger = ledger();
-    ledger.create_goal(&goal()).unwrap();
+    ledger
+        .create_goal(None, None, &goal(), HostEpoch(1))
+        .unwrap();
     let bridge = FakePrivateClaurstBridge::default();
     bridge.push_start_binding(binding());
     let mut ingress = PrivateClaurstIngress::new(
@@ -32,8 +34,7 @@ async fn start_and_follow_up_replace_incoming_goals_with_the_active_gent_project
     ingress.submit(submit(binding)).await.unwrap();
     let starts = bridge.starts();
     let projected = starts[0].goal.as_ref().unwrap();
-    assert_eq!(projected.goal.revision(), 1);
-    assert_eq!(projected.goal.binding().goal_id, "goal-1");
+    assert_eq!(projected.goal.goal_id(), "goal-1");
     assert_eq!(projected.source_id.0, "source-a");
     let submissions = bridge.submissions();
     assert_eq!(submissions[0].goal.as_ref(), Some(projected));
@@ -92,11 +93,20 @@ fn goal() -> GoalRecord {
         binding: GoalBinding {
             goal_id: "goal-1".into(),
             conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
         },
         revision: 1,
         status: GoalStatus::Active,
-        summary: "Complete safely".into(),
+        reason: gent_types::GoalStatusReason::UserSet,
+        objective: "Complete safely".into(),
+        note: None,
+        time_used_seconds: 0,
+        active_since: Some(1),
+        tokens_used: 0,
+        token_budget: None,
+        turns_without_progress: 0,
+        accounted_through_ordinal: 0,
+        created_at: 1,
+        updated_at: 1,
     }
 }
 

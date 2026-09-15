@@ -256,7 +256,7 @@ mod tests {
                 if items == vec![ConversationListItem { conversation_id: "conversation-1".into(), run_count: 1 }]
         ));
         drop(client);
-        assert!(task.await.unwrap().is_err());
+        assert!(task.await.unwrap().is_ok());
     }
 
     #[tokio::test]
@@ -276,7 +276,7 @@ mod tests {
             WireFrame::Error { code, .. } if code == "invalidCommand"
         ));
         drop(client);
-        assert!(task.await.unwrap().is_err());
+        assert!(task.await.unwrap().is_ok());
     }
 
     #[tokio::test]
@@ -295,6 +295,6 @@ mod tests {
             WireFrame::Error { code, message } if code == "invalidRequest" && message == "ledger unavailable"
         ));
         drop(client);
-        assert!(task.await.unwrap().is_err());
+        assert!(task.await.unwrap().is_ok());
     }
 }

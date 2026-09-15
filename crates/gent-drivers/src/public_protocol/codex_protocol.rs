@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use super::{PublicCompactionObservation, PublicWireFact};
 
+mod failure;
 mod output;
 mod plan;
 mod stream;
@@ -18,8 +19,6 @@ pub(super) fn normalize(frame: &Value) -> Vec<PublicWireFact> {
         Some("thread/started") => thread_started(frame),
         Some("turn/started") => terminal::started(frame),
         Some("turn/completed") => terminal::completed(frame),
-        Some("turn/aborted") => terminal::aborted(frame),
-        Some("turn/failed") => terminal::failed(frame),
         Some("item/agentMessage/delta") => agent_message_delta(frame),
         Some(
             "item/reasoning/textDelta" | "item/reasoning/summaryTextDelta" | "item/plan/delta",
@@ -34,11 +33,12 @@ pub(super) fn normalize(frame: &Value) -> Vec<PublicWireFact> {
         Some("item/started") => item(frame, ToolPhase::Started),
         Some("item/completed") => completed_item(frame),
         Some("item/mcpToolCall/progress") => stream::mcp_progress(frame),
+        Some("thread/tokenUsage/updated") => stream::token_usage(frame),
         Some("turn/plan/updated") => updated(frame),
         Some("thread/compacted") => vec![PublicWireFact::Compaction(
             PublicCompactionObservation::Completed,
         )],
-        Some("error" | "codex/event/stream_error" | "codex/event/error") => stream::error(frame),
+        Some("error") => stream::error(frame),
         Some(method) if method.ends_with("requestApproval") => attention(),
         Some(method) if housekeeping(method) => Vec::new(),
         Some(_) => diagnostic("unsupportedCodexNotification"),
@@ -119,6 +119,9 @@ fn completed_item(frame: &Value) -> Vec<PublicWireFact> {
     if string(completed, "type") == Some("agentMessage") {
         return completed_agent_message(completed);
     }
+    if string(completed, "type") == Some("plan") {
+        return plan::proposed(completed);
+    }
     let phase = match frame.pointer("/params/item/status").and_then(Value::as_str) {
         Some("failed") => ToolPhase::Failed,
         _ => ToolPhase::Completed,
@@ -159,6 +162,7 @@ fn tool_activity(item: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
                         tool_name,
                         phase,
                         output_digest: None,
+                        parent_tool_use_id: None,
                     },
                 },
             )]

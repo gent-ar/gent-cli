@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use gent_protocol::AgentChatIntentFrame;
-use gent_types::{AgentChatConversationId, AgentChatRequestId, AgentChatSelection, ReceiptId};
+use gent_types::{AgentChatConversationId, AgentChatRequestId, ReceiptId};
 
-use super::{ChatCommand, PromptArgs, effort, interrupt, mode, model, provider, resume, switch};
+use super::{ChatCommand, PromptArgs, interrupt, queue, resume, switch};
 
 pub(crate) fn frame(
     action: ChatCommand,
@@ -13,22 +13,30 @@ pub(crate) fn frame(
             request_id: request_id(args.request_id),
             receipt_id: receipt_id(args.receipt_id),
             workspace_path: workspace_path(args.workspace)?,
-            selection: AgentChatSelection {
-                provider: provider(args.provider),
-                model: model(args.provider, args.model),
-                effort: effort(args.effort),
-                mode: mode(args.mode),
+            selection: {
+                let request = args.selection.request();
+                if request.is_empty() {
+                    None
+                } else {
+                    Some(request.resolve(None, None)?)
+                }
             },
         },
         ChatCommand::Send(args) => prompt_frame(args, false, Vec::new()),
         ChatCommand::Resume(args) => resume::frame(args, Vec::new()),
         ChatCommand::Queue(args) => prompt_frame(args, true, Vec::new()),
-        ChatCommand::Interrupt(args) => interrupt::frame(args),
+        ChatCommand::Interrupt(args) => interrupt::frame(args)?,
+        ChatCommand::ContinueFromHistory(args) => super::continuation::frame(args),
         ChatCommand::Switch(args) | ChatCommand::Fork(args) => switch::frame(args)?,
         ChatCommand::Follow(_) => unreachable!("long-lived subscriptions bypass one-shot frames"),
         ChatCommand::FollowTurn(_) => unreachable!("turn follow bypasses one-shot frames"),
-        ChatCommand::Summary(_) | ChatCommand::Detail(_) | ChatCommand::Transcript(_) => {
-            unreachable!("agent-chat reads bypass intent frames")
+        ChatCommand::Summary(_)
+        | ChatCommand::Detail(_)
+        | ChatCommand::Transcript(_)
+        | ChatCommand::Queued(_)
+        | ChatCommand::Steer(_)
+        | ChatCommand::CancelQueued(_) => {
+            unreachable!("agent-chat reads and queue commands bypass one-shot intent frames")
         }
     })
 }
@@ -90,7 +98,9 @@ pub(crate) fn prompt_frame(
 }
 
 pub(crate) fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIntentFrame) -> bool {
-    if let Some(valid) = switch::valid_reply(request, response) {
+    if let Some(valid) =
+        switch::valid_reply(request, response).or(queue::valid_reply(request, response))
+    {
         return valid;
     }
     match (request, response) {
@@ -132,6 +142,12 @@ pub(crate) fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIn
                 ..
             }
             | AgentChatIntentFrame::QueuePromptWithTools {
+                request_id,
+                receipt_id,
+                conversation_id: expected_conversation_id,
+                ..
+            }
+            | AgentChatIntentFrame::ContinueFromSavedHistory {
                 request_id,
                 receipt_id,
                 conversation_id: expected_conversation_id,

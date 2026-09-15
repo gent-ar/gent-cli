@@ -3,8 +3,7 @@ use ratatui::{Terminal, backend::TestBackend};
 use std::collections::BTreeMap;
 
 use super::{
-    active_turn_label, operational_chips, render, render_text::conversation_title,
-    scroll_for_latest, transcript_lines,
+    active_turn_label, operational_chips, render, render_text::conversation_title, transcript_lines,
 };
 use crate::terminal::{UiState, state::UiCommand};
 
@@ -172,6 +171,34 @@ fn thinking_is_compact_and_assistant_content_stays_readable() {
 }
 
 #[test]
+fn local_compaction_outcomes_render_as_notices_in_the_transcript() {
+    let lines = transcript_lines(
+        &[
+            event(NormalizedTranscriptKind::UserMessage, "/compact", false),
+            event(
+                NormalizedTranscriptKind::Notice,
+                gent_types::PROVIDER_CONTEXT_COMPACTED_NOTICE,
+                false,
+            ),
+            event(
+                NormalizedTranscriptKind::Notice,
+                gent_types::CONTEXT_COMPACTION_FALLBACK_NOTICE,
+                false,
+            ),
+        ],
+        false,
+    );
+    let output = lines
+        .into_iter()
+        .flat_map(|line| line.spans)
+        .map(|span| span.content.into_owned())
+        .collect::<String>();
+    assert!(output.contains("Notice"));
+    assert!(output.contains("Context compacted; the conversation continues"));
+    assert!(output.contains("Gent could not compact this conversation's context"));
+}
+
+#[test]
 fn visible_thinking_uses_the_provider_emitted_text() {
     let lines = transcript_lines(
         &[event(
@@ -226,7 +253,9 @@ fn composer_shows_the_selected_workspace_permission_posture() {
 
 #[test]
 fn model_picker_is_a_navigable_chat_panel() {
-    let mut state = UiState::new(Vec::new()).with_chat_input(true);
+    let mut state = UiState::new(Vec::new())
+        .with_chat_input(true)
+        .with_model_catalog(Some(crate::terminal::selection::tests::catalog()));
     state.apply(UiCommand::CycleModel);
     let backend = TestBackend::new(110, 28);
     let mut terminal = Terminal::new(backend).unwrap();
@@ -240,15 +269,6 @@ fn model_picker_is_a_navigable_chat_panel() {
         .collect::<String>();
     assert!(output.contains("Model · Enter apply · Esc cancel"));
     assert!(output.contains(gent_protocol::DEFAULT_LOCAL_MODEL_ID));
-}
-
-#[test]
-fn transcript_starts_at_the_live_end_and_page_up_moves_older() {
-    let lines = (0..20)
-        .map(|index| ratatui::text::Line::from(format!("line {index}")))
-        .collect::<Vec<_>>();
-    assert_eq!(scroll_for_latest(&lines, 8, 0), 14);
-    assert_eq!(scroll_for_latest(&lines, 8, 8), 6);
 }
 
 #[test]
@@ -294,5 +314,52 @@ fn event(
         kind,
         text: text.into(),
         is_partial,
+        origin: None,
+        attachments: Vec::new(),
     }
+}
+
+fn rendered(state: &UiState) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(160, 90)).unwrap();
+    terminal.draw(|frame| render(frame, state)).unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect()
+}
+
+#[test]
+fn typing_a_slash_renders_the_catalog_palette_help_and_typed_rejections() {
+    let mut state = UiState::new(vec![gent_types::ConversationListItem {
+        conversation_id: "one".into(),
+        run_count: 1,
+    }])
+    .with_chat_input(true)
+    .with_command_catalog(Some(crate::terminal::commands::tests::catalog_for(Some(
+        gent_types::AgentChatProvider::Claurst,
+    ))));
+    for character in "/re".chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    let palette = rendered(&state);
+    assert!(palette.contains("Commands"));
+    assert!(palette.contains("/resume [conversation-id] — Open a conversation"));
+    assert!(!palette.contains("/rename"));
+    for character in "sume x".chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    assert!(!rendered(&state).contains("Open a conversation"));
+    state.replace_input("/nope".into());
+    state.apply(UiCommand::SubmitPrompt);
+    assert!(rendered(&state).contains("/nope is not a command in this conversation's catalog"));
+    state.replace_input("/comp".into());
+    assert!(rendered(&state).contains("/compact — Compact the conversation context"));
+    state.replace_input(String::new());
+    state.apply(UiCommand::ToggleHelp);
+    let help = rendered(&state);
+    assert!(help.contains("/fork — Fork this conversation into a new one"));
+    assert!(!help.contains("/btw"));
 }

@@ -1,9 +1,11 @@
 //! Durable ownership boundary for trusted reviewed-plan artifacts and approvals.
 
 use gent_types::{
-    PlanArtifact, PlanRevision, ReviewedPlanId, StartImplementationRequest,
-    StartImplementationResult,
+    PlanArtifact, PlanImplementation, PlanRevision, PlanTurn, ReviewedPlanId,
+    StartImplementationRequest, StartImplementationResult,
 };
+
+pub const MAX_PLAN_PURSUIT_BATCH: usize = 16;
 
 use crate::LedgerError;
 
@@ -47,4 +49,13 @@ pub trait ReviewedPlanLedger: Send + Sync {
         revision: PlanRevision,
         content_digest_sha256: &str,
     ) -> Result<(), LedgerError>;
+
+    fn current_conversation_plan(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<PlanArtifact>, LedgerError>;
+
+    fn plan_turns_awaiting_review(&self) -> Result<Vec<PlanTurn>, LedgerError>;
+
+    fn implementations_awaiting_prompt(&self) -> Result<Vec<PlanImplementation>, LedgerError>;
 }

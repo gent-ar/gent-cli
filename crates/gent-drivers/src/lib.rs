@@ -1,12 +1,12 @@
 //! Public-driver contracts and pure policies; infrastructure owns provider processes.
 
 pub mod buffering;
+pub mod claude_commands;
 pub mod claude_control;
 mod claude_permission_relay;
 pub mod claude_runner;
 mod claude_tool_results;
 pub mod claude_turn_options;
-pub mod codex_bootstrap;
 pub mod codex_client_request;
 pub mod codex_control;
 pub mod codex_prompt_runner;
@@ -14,6 +14,7 @@ pub mod codex_runner;
 pub mod codex_session;
 pub mod codex_turn;
 pub mod conversation_context_input;
+pub mod conversation_context_summary;
 pub mod discovery;
 pub mod goal_projection;
 pub mod installer;
@@ -42,7 +43,9 @@ pub use macos_provider_helper::{
     MacosHelperDenial, MacosHelperPrepare, MacosProviderHelperClient, MacosProviderHelperError,
     MacosProviderHelperTransport,
 };
-pub use output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
+pub use output_pump::{
+    MAX_OUTPUT_CHUNK_BYTES, MAX_PROVIDER_FRAME_BYTES, OutputPumpError, ProviderOutputPump,
+};
 pub use process::{CapturedStream, ProcessOutput, SystemLauncher, SystemProcess};
 pub use read_only_host_launch::{NodeReadOnlyHostLauncher, ReadOnlyHostLauncher};
 pub use run_runner::DriverRunRunner;

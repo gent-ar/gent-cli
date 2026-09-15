@@ -1,12 +1,15 @@
+mod commands;
 mod input;
 mod render;
 mod render_activity;
 mod render_activity_panel;
+mod render_commands;
 mod render_composer;
 mod render_header;
 mod render_help;
 mod render_permission;
 mod render_picker;
+mod render_plan;
 mod render_processes;
 mod render_selection_picker;
 mod render_sidebar;

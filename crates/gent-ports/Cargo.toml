@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 async-trait.workspace = true
 gent-types = { path = "../gent-types" }
+serde_json.workspace = true
 thiserror.workspace = true
 
 [lints]

@@ -26,9 +26,8 @@ impl ActiveGoalResolver for FreshGoals {
     fn resolve_active_goal(
         &self,
         conversation_id: &str,
-        run_id: &str,
     ) -> Result<Option<GoalProjection>, LedgerError> {
-        let _ = (conversation_id, run_id);
+        assert_eq!(conversation_id, "conversation-a");
         Ok(self.0.lock().unwrap().pop_front())
     }
 }
@@ -39,11 +38,20 @@ fn projection(revision: u64) -> GoalProjection {
         binding: GoalBinding {
             goal_id: "goal-1".into(),
             conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
         },
-        revision,
+        revision: 1,
         status: GoalStatus::Active,
-        summary: "Finish without stopping".into(),
+        reason: gent_types::GoalStatusReason::UserSet,
+        objective: format!("Finish without stopping {revision}"),
+        note: None,
+        time_used_seconds: 0,
+        active_since: Some(1),
+        tokens_used: 0,
+        token_budget: None,
+        turns_without_progress: 0,
+        accounted_through_ordinal: 0,
+        created_at: 1,
+        updated_at: 1,
     })
     .unwrap()
 }
@@ -105,8 +113,8 @@ fn codex_resolves_a_fresh_goal_projection_for_initial_and_follow_up_turns() {
         runner.state.lock().unwrap().prepared_goals[0]
             .as_ref()
             .unwrap()
-            .revision(),
-        1
+            .objective(),
+        "Finish without stopping 1"
     );
     runner.state.lock().unwrap().effects.push_back(vec![
         CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {

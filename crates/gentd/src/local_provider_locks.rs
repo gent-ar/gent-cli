@@ -1,93 +1,53 @@
-//! Explicit local executable locks for a future standalone authority profile.
-//!
-//! This is deliberately not discovery: callers must provide canonical candidate paths. It makes
-//! the exact resolver seam available without falling back to `PATH`, a provider prefix, or the
-//! signed ordinary-authority release path.
-
-use std::{collections::BTreeMap, path::Path};
-
-use gent_drivers::{
-    PublicProvider,
-    lock::{LockError, capture, recheck},
-};
+use gent_drivers::PublicProvider;
 use gent_ports::{PublicProviderResolver, PublicProviderRunError};
-use gent_types::RunVersionLock;
+use gent_types::{AgentChatProvider, RunVersionLock};
 
-/// Resolver input for one explicitly selected local public executable.
-#[derive(Clone, Debug, Eq, PartialEq)]
+use crate::provider_executables::ProviderExecutables;
+
+pub(crate) const LOCAL_VERSION: &str = "local-unprobed";
+pub(crate) const LOCAL_ENTRY: &str = "standalone-local-v1";
+
+#[derive(Clone, Debug)]
 pub(crate) struct LocalProviderLocks {
-    locks: BTreeMap<String, RunVersionLock>,
+    public: PublicProvider,
+    provider: AgentChatProvider,
+    executables: ProviderExecutables,
 }
 
-/// Controlled errors while forming a standalone local executable resolver.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub(crate) enum LocalProviderLockError {
     #[error("local provider path is unavailable")]
     PathUnavailable,
     #[error("local provider path is not a file")]
     NotAFile,
-    #[error("local provider was selected more than once")]
-    DuplicateProvider,
     #[error("local provider identity cannot be captured")]
     Capture,
+    #[error("installed provider failed verification and must be reinstalled")]
+    InvalidInstallation,
 }
 
 impl LocalProviderLocks {
-    /// Captures exact file identities from explicitly selected paths, without starting a process.
-    ///
-    /// The placeholder version is intentionally not a compatibility claim. A future standalone
-    /// authority must pair these locks with its own local compatibility authorizer before launch.
-    pub(crate) fn capture(
-        providers: impl IntoIterator<Item = (PublicProvider, std::path::PathBuf)>,
-    ) -> Result<Self, LocalProviderLockError> {
-        let mut locks = BTreeMap::new();
-        for (provider, path) in providers {
-            let lock = capture_local(provider, &path)?;
-            if locks
-                .insert(provider.executable_name().into(), lock)
-                .is_some()
-            {
-                return Err(LocalProviderLockError::DuplicateProvider);
-            }
+    pub(crate) const fn new(
+        public: PublicProvider,
+        provider: AgentChatProvider,
+        executables: ProviderExecutables,
+    ) -> Self {
+        Self {
+            public,
+            provider,
+            executables,
         }
-        Ok(Self { locks })
     }
 }
 
 impl PublicProviderResolver for LocalProviderLocks {
     fn resolve(&self, provider: &str) -> Result<RunVersionLock, PublicProviderRunError> {
-        let lock = self
-            .locks
-            .get(provider)
-            .ok_or(PublicProviderRunError::CompatibilityDenied)?;
-        recheck(lock).map_err(lock_error)?;
-        Ok(lock.clone())
-    }
-}
-
-fn capture_local(
-    provider: PublicProvider,
-    path: &Path,
-) -> Result<RunVersionLock, LocalProviderLockError> {
-    let path = path
-        .canonicalize()
-        .map_err(|_| LocalProviderLockError::PathUnavailable)?;
-    if !path.is_file() {
-        return Err(LocalProviderLockError::NotAFile);
-    }
-    capture(
-        provider.executable_name(),
-        &path,
-        "local-unprobed",
-        "standalone-local-v1",
-    )
-    .map_err(|_| LocalProviderLockError::Capture)
-}
-
-fn lock_error(error: LockError) -> PublicProviderRunError {
-    match error {
-        LockError::ProviderChanged => PublicProviderRunError::ProviderChanged,
-        LockError::Io(_) => PublicProviderRunError::CompatibilityDenied,
+        if provider != self.public.executable_name() {
+            return Err(PublicProviderRunError::CompatibilityDenied);
+        }
+        self.executables
+            .launch_lock(self.provider)
+            .map_err(|_| PublicProviderRunError::CompatibilityDenied)
     }
 }
 
@@ -95,41 +55,32 @@ fn lock_error(error: LockError) -> PublicProviderRunError {
 mod tests {
     use std::fs;
 
-    use gent_drivers::PublicProvider;
     use gent_ports::PublicProviderResolver;
+    use gent_types::AgentChatProvider;
 
-    use super::{LocalProviderLockError, LocalProviderLocks};
+    use crate::provider_executables::ProviderExecutables;
 
     #[test]
-    fn captures_explicit_paths_without_path_discovery_or_process_start() {
+    fn an_explicit_path_is_recaptured_for_every_launch_without_path_discovery() {
         let directory = tempfile::tempdir().unwrap();
         let claude = directory.path().join("chosen-claude");
         fs::write(&claude, "claude executable").unwrap();
-        let locks = LocalProviderLocks::capture([(PublicProvider::Claude, claude)]).unwrap();
+        let locks = ProviderExecutables::explicit(Some(claude.clone()), None)
+            .locks(AgentChatProvider::Claude)
+            .unwrap();
 
         let lock = locks.resolve("claude").unwrap();
         assert_eq!(lock.provider, "claude");
         assert_eq!(lock.version, "local-unprobed");
         assert_eq!(lock.compatibility_entry, "standalone-local-v1");
         assert!(locks.resolve("codex").is_err());
-    }
 
-    #[test]
-    fn refuses_mutation_and_duplicate_provider_selection() {
-        let directory = tempfile::tempdir().unwrap();
-        let claude = directory.path().join("claude");
-        fs::write(&claude, "before").unwrap();
-        let locks =
-            LocalProviderLocks::capture([(PublicProvider::Claude, claude.clone())]).unwrap();
-        fs::write(&claude, "after").unwrap();
-        assert!(locks.resolve("claude").is_err());
-
-        assert_eq!(
-            LocalProviderLocks::capture([
-                (PublicProvider::Claude, claude.clone()),
-                (PublicProvider::Claude, claude),
-            ]),
-            Err(LocalProviderLockError::DuplicateProvider)
+        fs::write(&claude, "rebuilt developer claude").unwrap();
+        assert_ne!(
+            locks.resolve("claude").unwrap().digest_sha256,
+            lock.digest_sha256
         );
+        fs::remove_file(&claude).unwrap();
+        assert!(locks.resolve("claude").is_err());
     }
 }

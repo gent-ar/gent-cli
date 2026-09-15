@@ -50,9 +50,15 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
     New-Item -ItemType Directory -Path (Join-Path $claurstRuntime "llama") -Force | Out-Null
     Write-FixtureBinary (Join-Path $claurstRuntime "claurst.exe") "claurst"
     Write-FixtureBinary (Join-Path $claurstRuntime "llama\llama-server.exe") "llama-server"
+    $authority = Join-Path $source "authority-inputs"
+    New-Item -ItemType Directory -Path $authority | Out-Null
+    Set-Content -NoNewline -Encoding utf8 (Join-Path $authority "ordinary-authority.json") '{"key_id":"fixture","payload":{},"signature_hex":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}'
+    Set-Content -NoNewline -Encoding utf8 (Join-Path $authority "root-keys.json") '{"version":1,"keys":["fixture:0101010101010101010101010101010101010101010101010101010101010101"]}'
     & $python (Join-Path $repo "tools\package-release.py") --target-dir $source --out-dir $output `
         --version $version --target $target --format zip --suffix .exe `
-        --node-runtime-dir $nodeRuntime --claurst-runtime-dir $claurstRuntime
+        --node-runtime-dir $nodeRuntime --claurst-runtime-dir $claurstRuntime `
+        --authority-release (Join-Path $authority "ordinary-authority.json") `
+        --authority-root-keys (Join-Path $authority "root-keys.json")
     if ($LASTEXITCODE -ne 0) { throw "could not package release fixture" }
     $archive = "gent-$version-$target.zip"
     Set-Content -NoNewline -Encoding utf8 (Join-Path $output "$archive.sigstore.json") '{}'

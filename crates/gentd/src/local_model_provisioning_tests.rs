@@ -13,7 +13,7 @@ fn provisioner() -> (tempfile::TempDir, LocalModelProvisioner) {
 fn small_provisioner() -> (tempfile::TempDir, LocalModelProvisioner) {
     let directory = tempdir().unwrap();
     let catalog = LocalModelCatalog::from_json(
-        r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/gent/model/resolve/0123456789abcdef0123456789abcdef01234567/model.gguf","local_filename":"model.gguf","provider_model_id":"model","size_bytes":5,"sha256":"36bbe50ed96841d10443bcb670d6554f0a34b761be67ec9c4a8ad2c0c44ca42c"}]}"#,
+        r#"{"models":[{"id":"model","label":"Model","huggingface_url":"https://huggingface.co/gent/model/resolve/0123456789abcdef0123456789abcdef01234567/model.gguf","local_filename":"model.gguf","provider_model_id":"model","size_bytes":5,"sha256":"36bbe50ed96841d10443bcb670d6554f0a34b761be67ec9c4a8ad2c0c44ca42c","context_tokens":8192,"runtime_memory_bytes":4096,"agent_profile":"full"}]}"#,
     )
     .unwrap();
     let provisioner = LocalModelProvisioner::new(directory.path(), catalog);

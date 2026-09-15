@@ -15,13 +15,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Check exported library APIs against main
-        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
-        with:
-          baseline-rev: origin/main
-          exclude: gent-cli,gentd
-          feature-group: all-features
-          release-type: patch
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - run: cargo install cargo-semver-checks --version 0.49.0 --locked
+      - name: Check exported library APIs against the last release
+        run: |
+          baseline="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD^)"
+          echo "API baseline: $baseline; release type derived from each crate's version change"
+          cargo semver-checks check-release --workspace --exclude gent-cli --exclude gentd \
+            --all-features --baseline-rev "$baseline"
   coverage:
     name: production library line coverage
     runs-on: ubuntu-latest
@@ -108,10 +109,14 @@ jobs:
       - run: python -m py_compile tools/capture-claude-mcp-transcript.py
       - run: python tools/test-capture-claude-mcp-transcript.py
       - run: python tools/test-release-tools.py
+      - run: python tools/test-release-workflow-scripts.py
       - run: python -m py_compile tools/sign-runtime-release.py
       - run: python tools/test-sign-runtime-release.py
       - run: python -m py_compile tools/sign-ordinary-authority-release.py
       - run: python tools/test-sign-ordinary-authority-release.py
+      - run: python tools/test-provider-pins.py
+      - run: python tools/test-provider-contract-snapshot.py
+      - run: python tools/test-stage-claurst-runtime.py
       - run: python tools/test-generate-runtime-release-key.py
       - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
@@ -132,10 +137,19 @@ jobs:
           python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node "${node_args[@]}"
           python tools/stage-claurst-runtime.py --target "$RELEASE_TARGET" --out-dir dist-runtime/claurst --profile release
           python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst --target "$RELEASE_TARGET"
+          python - <<'PY'
+          import json, pathlib
+          root = pathlib.Path('dist-runtime/authority')
+          root.mkdir(parents=True)
+          root.joinpath('ordinary-authority.json').write_text(json.dumps({'key_id':'fixture','payload':{},'signature_hex':'00'*64}), encoding='utf-8')
+          root.joinpath('root-keys.json').write_text(json.dumps({'version':1,'keys':['fixture:'+'01'*32]}), encoding='utf-8')
+          PY
           python tools/package-release.py --target-dir target/release --out-dir dist \
             --version v0.0.0-ci --target "$RELEASE_TARGET" --format "$RELEASE_ARCHIVE" \
             --suffix "$RELEASE_SUFFIX" --node-runtime-dir dist-runtime/node \
-            --claurst-runtime-dir dist-runtime/claurst
+            --claurst-runtime-dir dist-runtime/claurst \
+            --authority-release dist-runtime/authority/ordinary-authority.json \
+            --authority-root-keys dist-runtime/authority/root-keys.json
           python tools/verify-release.py "dist/gent-v0.0.0-ci-$RELEASE_TARGET.$RELEASE_ARCHIVE" \
             --manifest "dist/gent-v0.0.0-ci-$RELEASE_TARGET.$RELEASE_ARCHIVE.manifest.json" \
             --checksum "dist/gent-v0.0.0-ci-$RELEASE_TARGET.$RELEASE_ARCHIVE.sha256" \

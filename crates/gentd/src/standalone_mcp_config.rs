@@ -5,7 +5,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 const MAX_BYTES: u64 = 1024 * 1024;
-const INTERNAL_SERVER_NAMES: [&str; 2] = ["gent-automations", "gent-forge"];
+pub(crate) const INTERNAL_SERVER_NAMES: [&str; 3] = ["gent-automations", "gent-forge", "gent-goal"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StandaloneMcpConfig {
@@ -28,14 +28,17 @@ impl StandaloneMcpConfig {
             .cloned()
             .ok_or("MCP config is invalid")?;
         let executable = gent_cli_executable()?;
-        for (name, domain) in [("gent-automations", "automations"), ("gent-forge", "forge")] {
-            servers.entry(name).or_insert_with(|| {
+        for (name, domain) in
+            INTERNAL_SERVER_NAMES.map(|name| (name, name.trim_start_matches("gent-")))
+        {
+            servers.insert(
+                name.into(),
                 serde_json::json!({
                     "command": executable.clone(),
                     "args": ["--data-dir", data_dir, "mcp", domain],
                     "env": {}
-                })
-            });
+                }),
+            );
         }
         let path = data_dir.join("standalone-mcp.json");
         std::fs::create_dir_all(data_dir).map_err(|_| "MCP config directory is unavailable")?;

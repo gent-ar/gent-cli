@@ -9,7 +9,6 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::{SqliteLedger, queries::storage_error};
 
-const MAX_EVENT_TEXT_BYTES: usize = 64 * 1024;
 const MAX_PAGE_LIMIT: u16 = 100;
 
 impl TranscriptLedger for SqliteLedger {
@@ -36,23 +35,32 @@ fn append_event(
     conversation_id: &AgentChatConversationId,
     append: &NormalizedTranscriptAppend,
 ) -> Result<NormalizedTranscriptEvent, LedgerError> {
-    validate(conversation_id, append)?;
     let mut connection = ledger.lock()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
-    if let Some(event) = find_by_event_id(&transaction, &append.event_id)? {
+    let event = append_in(&transaction, conversation_id, append)?;
+    transaction.commit().map_err(storage_error)?;
+    Ok(event)
+}
+
+pub(super) fn append_in(
+    transaction: &Transaction<'_>,
+    conversation_id: &AgentChatConversationId,
+    append: &NormalizedTranscriptAppend,
+) -> Result<NormalizedTranscriptEvent, LedgerError> {
+    validate(conversation_id, append)?;
+    if let Some(event) = find_by_event_id(transaction, &append.event_id)? {
         return retry_result(event, conversation_id, append);
     }
-    require_hierarchy(&transaction, conversation_id, append)?;
-    let cursor = next_cursor(&transaction, conversation_id)?;
+    require_hierarchy(transaction, conversation_id, append)?;
+    let cursor = next_cursor(transaction, conversation_id)?;
     transaction
         .execute(
             "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![conversation_id.0, cursor, append.event_id, append.turn_id, append.run_id, kind(append.kind), append.text, i64::from(append.is_partial)],
         )
         .map_err(storage_error)?;
-    transaction.commit().map_err(storage_error)?;
     event(cursor, append)
 }
 
@@ -69,14 +77,14 @@ pub(super) fn page(
     }
     let connection = ledger.lock()?;
     if !conversation_exists(&connection, conversation_id)? {
-        return Err(LedgerError::Invariant(
-            "agent chat conversation does not exist".into(),
+        return Err(LedgerError::Rejected(
+            gent_types::AgentChatRejection::ConversationNotFound,
         ));
     }
     let after = i64::try_from(after_cursor)
         .map_err(|_| LedgerError::Invariant("transcript cursor exceeds SQLite range".into()))?;
     let mut statement = connection
-        .prepare("SELECT cursor, event_id, turn_id, run_id, kind, text, is_partial FROM agent_chat_transcript_events WHERE conversation_id = ?1 AND cursor > ?2 ORDER BY cursor ASC LIMIT ?3")
+        .prepare(&format!("SELECT e.cursor, e.event_id, e.turn_id, e.run_id, e.kind, e.text, e.is_partial, e.origin_json FROM agent_chat_transcript_events e WHERE e.conversation_id = ?1 AND e.cursor > ?2 AND NOT ({}) ORDER BY e.cursor ASC LIMIT ?3", super::transcript_settlement::SUPERSEDED_PARTIAL))
         .map_err(storage_error)?;
     let rows = statement
         .query_map(
@@ -87,6 +95,7 @@ pub(super) fn page(
     let mut events = rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
     let has_next = events.len() > usize::from(limit);
     events.truncate(usize::from(limit));
+    super::transcript_attachments::attach_to_events(&connection, &mut events)?;
     let next_after_cursor =
         has_next.then(|| events.last().map_or(after_cursor, |item| item.cursor));
     Ok(NormalizedTranscriptPage {
@@ -104,7 +113,7 @@ fn validate(
         || [&append.event_id, &append.turn_id, &append.run_id]
             .into_iter()
             .any(|value| value.trim().is_empty())
-        || append.text.len() > MAX_EVENT_TEXT_BYTES
+        || append.text.len() > gent_types::MAX_TRANSCRIPT_TEXT_BYTES
         || append.text.contains('\0')
     {
         return Err(LedgerError::Invariant("transcript event is invalid".into()));
@@ -162,7 +171,7 @@ fn find_by_event_id(
     transaction: &Transaction<'_>,
     event_id: &str,
 ) -> Result<Option<(String, NormalizedTranscriptEvent)>, LedgerError> {
-    transaction.query_row("SELECT conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial FROM agent_chat_transcript_events WHERE event_id = ?1", [event_id], |row| Ok((row.get(0)?, decode_event_at(row, 1)?))).optional().map_err(storage_error)
+    transaction.query_row("SELECT conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json FROM agent_chat_transcript_events WHERE event_id = ?1", [event_id], |row| Ok((row.get(0)?, decode_event_at(row, 1)?))).optional().map_err(storage_error)
 }
 
 fn retry_result(
@@ -203,6 +212,8 @@ fn event(
         kind: append.kind,
         text: append.text.clone(),
         is_partial: append.is_partial,
+        origin: None,
+        attachments: Vec::new(),
     })
 }
 
@@ -222,6 +233,8 @@ fn decode_event_at(
         kind: decode_kind(&row.get::<_, String>(start + 4)?).map_err(to_sql_error)?,
         text: row.get(start + 5)?,
         is_partial: row.get::<_, i64>(start + 6)? != 0,
+        origin: crate::sqlite::goal_ledger::decode_origin(row.get(start + 7)?)?,
+        attachments: Vec::new(),
     })
 }
 
@@ -232,6 +245,7 @@ const fn kind(value: NormalizedTranscriptKind) -> &'static str {
         NormalizedTranscriptKind::Thinking => "thinking",
         NormalizedTranscriptKind::ToolActivity => "toolActivity",
         NormalizedTranscriptKind::Notice => "notice",
+        NormalizedTranscriptKind::Plan => "plan",
     }
 }
 
@@ -242,6 +256,7 @@ fn decode_kind(value: &str) -> Result<NormalizedTranscriptKind, LedgerError> {
         "thinking" => Ok(NormalizedTranscriptKind::Thinking),
         "toolActivity" => Ok(NormalizedTranscriptKind::ToolActivity),
         "notice" => Ok(NormalizedTranscriptKind::Notice),
+        "plan" => Ok(NormalizedTranscriptKind::Plan),
         _ => Err(LedgerError::Storage("unknown transcript event kind".into())),
     }
 }

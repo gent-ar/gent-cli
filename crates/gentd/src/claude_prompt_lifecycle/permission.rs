@@ -90,11 +90,12 @@ where
             ledger.agent_chat_workspace_for_run(&binding.prompt.message.conversation_id, run_id)?;
         let policy = crate::permission_workspace::policy_for(&ledger, &workspace.workspace_id)?;
         let category = crate::permission_category::for_tool(&request.tool_name);
-        let normalized = PermissionRequest {
-            tool_name: request.tool_name.clone(),
+        let normalized = PermissionRequest::new(
+            request.tool_name.clone(),
             category,
-            input: None,
-        };
+            None,
+            request.child_id.clone(),
+        );
         match crate::permission_preflight::evaluate(&policy, &normalized) {
             crate::permission_preflight::PermissionPreflight::Allow => {
                 self.runner
@@ -115,6 +116,7 @@ where
                             tool_name: request.tool_name,
                             phase: ToolPhase::Started,
                             output_digest: None,
+                            parent_tool_use_id: None,
                         },
                     }),
                 )?;
@@ -139,6 +141,7 @@ where
                             tool_name: request.tool_name,
                             phase: ToolPhase::Failed,
                             output_digest: None,
+                            parent_tool_use_id: None,
                         },
                     }),
                 )?;
@@ -179,6 +182,7 @@ where
                     tool_name: request.tool_name,
                     phase: ToolPhase::WaitingPermission,
                     output_digest: None,
+                    parent_tool_use_id: None,
                 },
             }),
         ] {

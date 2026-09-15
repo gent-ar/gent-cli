@@ -11,20 +11,17 @@ pub(super) fn fork<L>(
     receipt_id: gent_types::ReceiptId,
     source_conversation_id: gent_types::AgentChatConversationId,
     fork_through_message_id: String,
-) -> Result<Vec<AgentChatIntentFrame>, String>
+) -> Result<Vec<AgentChatIntentFrame>, crate::agent_chat_intent_error::AgentChatIntentError>
 where
     L: gent_ports::AgentChatForkLedger,
 {
-    match service
-        .fork(&gent_types::AgentChatFork {
-            request_id: request_id.clone(),
-            receipt_id,
-            host_epoch,
-            source_conversation_id,
-            fork_through_message_id,
-        })
-        .map_err(|error| error.to_string())?
-    {
+    match service.fork(&gent_types::AgentChatFork {
+        request_id: request_id.clone(),
+        receipt_id,
+        host_epoch,
+        source_conversation_id,
+        fork_through_message_id,
+    })? {
         AgentChatForkResult::Forked(forked) => Ok(vec![AgentChatIntentFrame::Forked {
             request_id,
             receipt: forked.receipt,

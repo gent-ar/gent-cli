@@ -4,16 +4,20 @@ use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, ReceiptId, WorkspaceRecord,
+    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, NormalizedLifecycleSignal,
+    ReceiptId, TurnPhase, WorkspaceRecord,
 };
+
+use gent_drivers::codex_runner::CodexRunnerEffect;
+use gent_drivers::public_protocol::{PublicCompactionObservation, PublicWireFact};
 
 use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptLifecycle};
 use crate::codex_prompt_lifecycle_tests::{Resolver, Runner, compatibility, profile};
 use crate::public_driver_runtime::PublicDriversRuntime;
 
-#[test]
-fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement() {
-    let directory = tempfile::tempdir().unwrap();
+type Host = CodexPromptLifecycle<SqliteLedger, Runner, Resolver>;
+
+fn started_host(directory: &std::path::Path) -> (SqliteLedger, Runner, Host) {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
@@ -62,14 +66,21 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
     )
     .unwrap()
     .with_attachment_roots(
-        directory.path().join("attachments"),
-        directory.path().join("codex-attachments"),
+        directory.join("attachments"),
+        directory.join("codex-attachments"),
     );
     let mut host = CodexPromptLifecycle::new(runtime, "daemon-a".into());
     assert!(matches!(
         host.dispatch_next(HostEpoch(1)).unwrap(),
         CodexPromptDispatchOutcome::Started { .. }
     ));
+    (ledger, runner, host)
+}
+
+#[test]
+fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement() {
+    let directory = tempfile::tempdir().unwrap();
+    let (ledger, runner, mut host) = started_host(directory.path());
     host.interrupt("run-a").unwrap();
     assert_eq!(runner.state.lock().unwrap().turn_interrupts, ["run-a"]);
     assert!(runner.state.lock().unwrap().signals.is_empty());
@@ -87,4 +98,37 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
         runner.state.lock().unwrap().signals,
         [gent_drivers::interrupt::ProcessTreeSignal::Interrupt]
     );
+}
+
+#[test]
+fn codex_compaction_observations_never_fail_the_owned_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let (_ledger, runner, mut host) = started_host(directory.path());
+    runner.state.lock().unwrap().effects.push_back(vec![
+        CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
+            provider_session_id: "thread-a".into(),
+        }),
+        CodexRunnerEffect::Fact(PublicWireFact::Compaction(
+            PublicCompactionObservation::Started,
+        )),
+        CodexRunnerEffect::Fact(PublicWireFact::Compaction(
+            PublicCompactionObservation::Completed,
+        )),
+    ]);
+    let batch = host.poll_active(HostEpoch(1), 16).unwrap();
+    assert_eq!(batch.polled_runs, 1);
+    assert_eq!(batch.exited_runs, 0, "compaction must not fail the run");
+    assert_eq!(batch.facts, 3);
+    runner
+        .state
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        ))]);
+    let settled = host.poll_active(HostEpoch(1), 16).unwrap();
+    assert_eq!((settled.facts, settled.exited_runs), (1, 0));
 }

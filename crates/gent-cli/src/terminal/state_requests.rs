@@ -7,7 +7,7 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum UiRequest {
     Create {
-        selection: AgentChatSelection,
+        selection: Option<AgentChatSelection>,
         session_id: Option<gent_types::AgentChatSessionId>,
     },
     Send {
@@ -15,10 +15,16 @@ pub(crate) enum UiRequest {
         text: String,
         attachments: Vec<PathBuf>,
     },
-    Goal {
+    Queue {
         conversation_id: String,
-        run_id: String,
-        summary: String,
+        text: String,
+        attachments: Vec<PathBuf>,
+    },
+    InvokeCommand {
+        conversation_id: Option<String>,
+        name: String,
+        arguments: String,
+        session_id: Option<gent_types::AgentChatSessionId>,
     },
     RunAutomation {
         automation_id: String,
@@ -42,6 +48,18 @@ pub(crate) enum UiRequest {
     Interrupt {
         conversation_id: String,
         run_id: String,
+    },
+    SteerQueued {
+        conversation_id: String,
+        message_ids: Vec<String>,
+    },
+    CancelQueued {
+        conversation_id: String,
+        message_id: String,
+    },
+    ContinueFromHistory {
+        conversation_id: String,
+        message_id: String,
     },
 }
 

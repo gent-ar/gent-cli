@@ -1,0 +1,375 @@
+{
+ "<root>": {
+  "options": {
+   "--add-dir": {
+    "arg": "required-variadic",
+    "short": null
+   },
+   "--agent": {
+    "arg": "required",
+    "short": null
+   },
+   "--agents": {
+    "arg": "required",
+    "short": null
+   },
+   "--allow-dangerously-skip-permissions": {
+    "arg": "none",
+    "short": null
+   },
+   "--append-system-prompt": {
+    "arg": "required",
+    "short": null
+   },
+   "--autocompact": {
+    "arg": "required",
+    "short": null
+   },
+   "--ax-screen-reader": {
+    "arg": "none",
+    "short": null
+   },
+   "--bare": {
+    "arg": "none",
+    "short": null
+   },
+   "--betas": {
+    "arg": "required-variadic",
+    "short": null
+   },
+   "--brief": {
+    "arg": "none",
+    "short": null
+   },
+   "--chrome": {
+    "arg": "none",
+    "short": null
+   },
+   "--cloud": {
+    "arg": "optional",
+    "short": null
+   },
+   "--continue": {
+    "arg": "none",
+    "short": "-c"
+   },
+   "--dangerously-skip-permissions": {
+    "arg": "none",
+    "short": null
+   },
+   "--debug": {
+    "arg": "optional",
+    "short": "-d"
+   },
+   "--debug-file": {
+    "arg": "required",
+    "short": null
+   },
+   "--disable-slash-commands": {
+    "arg": "none",
+    "short": null
+   },
+   "--effort": {
+    "arg": "required",
+    "short": null
+   },
+   "--environment": {
+    "arg": "required",
+    "short": null
+   },
+   "--exclude-dynamic-system-prompt-sections": {
+    "arg": "none",
+    "short": null
+   },
+   "--fallback-model": {
+    "arg": "required",
+    "short": null
+   },
+   "--file": {
+    "arg": "required-variadic",
+    "short": null
+   },
+   "--fork-session": {
+    "arg": "none",
+    "short": null
+   },
+   "--forward-subagent-text": {
+    "arg": "none",
+    "short": null
+   },
+   "--from-pr": {
+    "arg": "optional",
+    "short": null
+   },
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   },
+   "--ide": {
+    "arg": "none",
+    "short": null
+   },
+   "--include-hook-events": {
+    "arg": "none",
+    "short": null
+   },
+   "--include-partial-messages": {
+    "arg": "none",
+    "short": null
+   },
+   "--input-format": {
+    "arg": "required",
+    "choices": [
+     "stream-json",
+     "text"
+    ],
+    "short": null
+   },
+   "--json-schema": {
+    "arg": "required",
+    "short": null
+   },
+   "--max-budget-usd": {
+    "arg": "required",
+    "short": null
+   },
+   "--mcp-config": {
+    "arg": "required-variadic",
+    "short": null
+   },
+   "--model": {
+    "arg": "required",
+    "short": null
+   },
+   "--name": {
+    "arg": "required",
+    "short": "-n"
+   },
+   "--no-chrome": {
+    "arg": "none",
+    "short": null
+   },
+   "--no-session-persistence": {
+    "arg": "none",
+    "short": null
+   },
+   "--output-format": {
+    "arg": "required",
+    "choices": [
+     "json",
+     "stream-json",
+     "text"
+    ],
+    "short": null
+   },
+   "--permission-mode": {
+    "arg": "required",
+    "choices": [
+     "acceptEdits",
+     "auto",
+     "bypassPermissions",
+     "dontAsk",
+     "manual",
+     "plan"
+    ],
+    "short": null
+   },
+   "--permission-prompts": {
+    "arg": "required",
+    "choices": [
+     "host",
+     "none"
+    ],
+    "short": null
+   },
+   "--plugin-dir": {
+    "arg": "required",
+    "short": null
+   },
+   "--plugin-url": {
+    "arg": "required",
+    "short": null
+   },
+   "--print": {
+    "arg": "none",
+    "short": "-p"
+   },
+   "--prompt-suggestions": {
+    "arg": "optional",
+    "choices": [
+     "0",
+     "1",
+     "false",
+     "no",
+     "off",
+     "on",
+     "true",
+     "yes"
+    ],
+    "short": null
+   },
+   "--remote-control": {
+    "arg": "optional",
+    "short": null
+   },
+   "--remote-control-session-name-prefix": {
+    "arg": "required",
+    "short": null
+   },
+   "--replay-user-messages": {
+    "arg": "none",
+    "short": null
+   },
+   "--restricted": {
+    "arg": "none",
+    "short": null
+   },
+   "--resume": {
+    "arg": "optional",
+    "short": "-r"
+   },
+   "--safe-mode": {
+    "arg": "none",
+    "short": null
+   },
+   "--session-id": {
+    "arg": "required",
+    "short": null
+   },
+   "--setting-sources": {
+    "arg": "required",
+    "short": null
+   },
+   "--settings": {
+    "arg": "required",
+    "short": null
+   },
+   "--strict-mcp-config": {
+    "arg": "none",
+    "short": null
+   },
+   "--system-prompt": {
+    "arg": "required",
+    "short": null
+   },
+   "--system-prompt-snapshot": {
+    "arg": "required",
+    "choices": [
+     "off",
+     "on"
+    ],
+    "short": null
+   },
+   "--teleport": {
+    "arg": "optional",
+    "short": null
+   },
+   "--tmux": {
+    "arg": "none",
+    "short": null
+   },
+   "--tools": {
+    "arg": "required-variadic",
+    "short": null
+   },
+   "--verbose": {
+    "arg": "none",
+    "short": null
+   },
+   "--version": {
+    "arg": "none",
+    "short": "-v"
+   },
+   "--worktree": {
+    "arg": "optional",
+    "short": "-w"
+   }
+  },
+  "subcommands": {
+   "agents": [],
+   "attach": [],
+   "auth": [],
+   "auto-mode": [],
+   "doctor": [],
+   "gateway": [],
+   "import": [],
+   "install": [],
+   "logs": [],
+   "mcp": [],
+   "plugin": [
+    "plugins"
+   ],
+   "project": [],
+   "respawn": [],
+   "rm": [],
+   "setup-token": [],
+   "stop": [
+    "kill"
+   ],
+   "ultrareview": [],
+   "update": [
+    "upgrade"
+   ]
+  },
+  "usage": "claude [options] [command] [prompt]"
+ },
+ "auth": {
+  "options": {
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   }
+  },
+  "subcommands": {
+   "help": [],
+   "login": [],
+   "logout": [],
+   "status": []
+  },
+  "usage": "claude auth [options] [command]"
+ },
+ "auth login": {
+  "options": {
+   "--claudeai": {
+    "arg": "none",
+    "short": null
+   },
+   "--console": {
+    "arg": "none",
+    "short": null
+   },
+   "--email": {
+    "arg": "required",
+    "short": null
+   },
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   },
+   "--sso": {
+    "arg": "none",
+    "short": null
+   }
+  },
+  "subcommands": {},
+  "usage": "claude auth login [options]"
+ },
+ "auth status": {
+  "options": {
+   "--help": {
+    "arg": "none",
+    "short": "-h"
+   },
+   "--json": {
+    "arg": "none",
+    "short": null
+   },
+   "--text": {
+    "arg": "none",
+    "short": null
+   }
+  },
+  "subcommands": {},
+  "usage": "claude auth status [options]"
+ }
+}

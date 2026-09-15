@@ -7,7 +7,7 @@ use gent_types::{
 };
 use tokio::net::UnixListener;
 
-use super::super::{ChatCommand, CreateArgs, Effort, Mode, Provider, execute};
+use super::super::{ChatCommand, CreateArgs, Mode, Provider, execute};
 
 #[tokio::test]
 async fn create_negotiates_agent_chat_and_requires_a_matching_created_reply() {
@@ -59,10 +59,12 @@ async fn create_negotiates_agent_chat_and_requires_a_matching_created_reply() {
         true,
         ChatCommand::Create(CreateArgs {
             workspace: None,
-            provider: Provider::Claude,
-            model: "haiku".into(),
-            effort: Effort::Low,
-            mode: Mode::Ask,
+            selection: crate::chat_cli::SelectionArgs {
+                provider: Some(Provider::Claude),
+                model: Some("haiku".into()),
+                effort: Some(gent_types::AgentChatEffort::Low),
+                mode: Some(Mode::Ask),
+            },
             request_id: Some("request-1".into()),
             receipt_id: Some("receipt-1".into()),
         }),
@@ -127,10 +129,12 @@ async fn switch_negotiates_a_parent_bound_child_run() {
         ChatCommand::Switch(super::super::switch::SwitchArgs {
             conversation_id: "conversation-1".into(),
             parent_run_id: Some("run-1".into()),
-            provider: Provider::Codex,
-            model: "gpt-5.6".into(),
-            effort: Effort::High,
-            mode: Mode::Agent,
+            selection: crate::chat_cli::SelectionArgs {
+                provider: Some(Provider::Codex),
+                model: Some("gpt-5.6".into()),
+                effort: Some(gent_types::AgentChatEffort::High),
+                mode: Some(Mode::Agent),
+            },
             context: super::super::switch::Context::Preserve,
             request_id: Some("switch-1".into()),
             receipt_id: Some("receipt-1".into()),
@@ -190,7 +194,7 @@ async fn interrupt_negotiates_the_exact_durable_run() {
         true,
         ChatCommand::Interrupt(super::super::interrupt::InterruptArgs {
             conversation: "conversation-1".into(),
-            run: "run-1".into(),
+            run: Some("run-1".into()),
             request: Some("interrupt-1".into()),
             receipt: Some("receipt-1".into()),
         }),

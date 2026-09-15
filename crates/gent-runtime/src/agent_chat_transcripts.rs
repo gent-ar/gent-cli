@@ -82,7 +82,8 @@ fn normalized(request: &AgentChatTranscriptAppendRequest) -> NormalizedTranscrip
         turn_id: request.turn_id.clone(),
         run_id: request.run_id.0.clone(),
         kind: request.kind,
-        text: request.text.clone(),
+        text: gent_types::bounded_text(&request.text, gent_types::MAX_TRANSCRIPT_TEXT_BYTES)
+            .into_owned(),
         is_partial: request.is_partial,
     }
 }
@@ -123,6 +124,8 @@ mod tests {
                 kind: append.kind,
                 text: append.text.clone(),
                 is_partial: append.is_partial,
+                origin: None,
+                attachments: Vec::new(),
             })
         }
 

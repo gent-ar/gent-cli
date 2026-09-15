@@ -29,8 +29,15 @@ trap report_failure ERR
 
 cargo build --quiet -p gentd -p gent-cli
 
+default_local_model="qwen3-1-7b-q4-k-m"
+decline_default_model_download() {
+  mkdir -p "$1"
+  printf '{"defaultSelection":null,"declinedDownloads":["%s"]}' "$default_local_model" >"$1/model-catalog.json"
+}
+
 default_home="$data_dir/home"
 mkdir -p "$default_home"
+decline_default_model_download "$default_home/.gentd"
 HOME="$default_home" target/debug/gentd --standalone-authority >"$data_dir/default-gentd.log" 2>&1 &
 default_daemon_pid="$!"
 for _ in $(seq 1 600); do
@@ -42,7 +49,9 @@ if [[ ! -S "$default_home/.gentd/gentd.sock" ]]; then
   exit 1
 fi
 HOME="$default_home" target/debug/gent --no-autostart status >"$data_dir/default-status.json"
+HOME="$default_home" target/debug/gent --no-autostart models status "$default_local_model" >"$data_dir/default-model-status.json"
 
+decline_default_model_download "$data_dir"
 target/debug/gentd --data-dir "$data_dir" --standalone-authority >"$data_dir/gentd.log" 2>&1 &
 daemon_pid="$!"
 
@@ -73,6 +82,7 @@ run_gent() {
 }
 
 run_gent "$data_dir/status.json" status
+run_gent "$data_dir/model-status.json" models status "$default_local_model"
 run_gent "$data_dir/receipt.json" submit --kind ping --payload '{"message":"smoke"}' --idempotency-key smoke-ping
 run_gent "$data_dir/events.json" events
 run_gent "$data_dir/decision.json" decision submit --decision-id smoke-decision --idempotency-key smoke-key
@@ -91,6 +101,10 @@ import pathlib
 import sys
 
 data_dir = pathlib.Path(sys.argv[1])
+for name in ("default-model-status.json", "model-status.json"):
+    assert json.loads((data_dir / name).read_text()) == {"state": "notInstalled"}, name
+assert not (data_dir / "models").exists()
+assert not (data_dir / "home" / ".gentd" / "models").exists()
 status = json.loads((data_dir / "status.json").read_text())
 receipt = json.loads((data_dir / "receipt.json").read_text())
 events = json.loads((data_dir / "events.json").read_text())
@@ -106,7 +120,11 @@ transcript = json.loads((data_dir / "transcript.json").read_text())
 assert default_status["type"] == "status"
 assert status["type"] == "status"
 assert receipt["body"]["status"] == "settled"
-assert [event["kind"] for event in events["body"]["page"]["events"]] == [
+assert [
+    event["kind"]
+    for event in events["body"]["page"]["events"]
+    if event["receiptId"] == receipt["body"]["receiptId"]
+] == [
     "commandAccepted",
     "commandSettled",
 ]
@@ -121,5 +139,10 @@ assert conversations[0]["conversationId"] == chat_created["body"]["conversationI
 assert queued["type"] == "accepted"
 assert attached["type"] == "accepted"
 assert any(event["kind"] == "userMessage" and event["text"] == "durable smoke prompt" for event in transcript["events"])
-assert any(event["kind"] == "userMessage" and event["text"] == "attached smoke prompt" for event in transcript["events"])
+attached_events = [event for event in transcript["events"] if event["kind"] == "userMessage" and event["text"] == "attached smoke prompt"]
+assert len(attached_events) == 1
+[reference] = attached_events[0]["attachments"]
+assert set(reference) == {"attachmentId", "displayName", "mediaType", "byteLen"}
+assert (reference["displayName"], reference["mediaType"], reference["byteLen"]) == ("attachment.txt", "text/plain", len("attachment smoke"))
+assert all("attachments" not in event for event in transcript["events"] if event["text"] == "durable smoke prompt")
 PY

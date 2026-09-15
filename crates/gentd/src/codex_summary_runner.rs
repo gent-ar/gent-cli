@@ -1,5 +1,6 @@
 use std::{
     path::PathBuf,
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
@@ -13,26 +14,40 @@ use gent_drivers::{
     process::SystemLauncher,
     supervisor::ProcessLauncher,
 };
-use gent_ports::{ConversationSummaryRunner, PortError};
+use gent_ports::{ConversationSummaryRunner, PortError, PublicProviderResolver};
 use gent_runtime::conversation_summary_scheduler::ConversationSummaryScheduler;
-use gent_types::{NormalizedProviderEvent, RunVersionLock, SandboxWorkspaceAccess};
+use gent_types::{NormalizedProviderEvent, SandboxWorkspaceAccess};
 
 const MAX_OUTPUT_BYTES: usize = 16 * 1024;
-const MAX_POLL_TIME: Duration = Duration::from_secs(60);
+const MAX_POLL_TIME: Duration =
+    crate::provider_launch_budget::launch_budget(Duration::from_secs(60));
 const POLL_DELAY: Duration = Duration::from_millis(5);
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct CodexSummaryRunner<L = SystemLauncher> {
     launcher: L,
-    lock: RunVersionLock,
+    resolver: Arc<dyn PublicProviderResolver>,
     workspace_root: PathBuf,
 }
 
+impl<L> std::fmt::Debug for CodexSummaryRunner<L> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CodexSummaryRunner")
+            .field("workspace_root", &self.workspace_root)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<L> CodexSummaryRunner<L> {
-    pub(crate) fn new(launcher: L, lock: RunVersionLock, workspace_root: PathBuf) -> Self {
+    pub(crate) fn new(
+        launcher: L,
+        resolver: Arc<dyn PublicProviderResolver>,
+        workspace_root: PathBuf,
+    ) -> Self {
         Self {
             launcher,
-            lock,
+            resolver,
             workspace_root,
         }
     }
@@ -48,7 +63,7 @@ where
         model_version: &str,
         prompt: &str,
     ) -> Result<String, PortError> {
-        if provider != "codex" || self.lock.provider != "codex" {
+        if provider != "codex" {
             return Err(PortError::Unavailable(
                 "Codex summary runner received another provider".into(),
             ));
@@ -75,13 +90,17 @@ where
         runner
             .start(CodexRunStart {
                 run_id: run_id.clone(),
-                lock: self.lock.clone(),
+                lock: self
+                    .resolver
+                    .resolve("codex")
+                    .map_err(|error| PortError::Unavailable(error.to_string()))?,
                 session,
                 workspace_root: self.workspace_root.clone(),
                 workspace_access: SandboxWorkspaceAccess::ReadOnly,
                 prompt: prompt.into(),
                 goal: None,
                 attachments: Vec::new(),
+                interrupted_reply: None,
             })
             .map_err(|error| PortError::Provider(error.to_string()))?;
         let result = collect(&mut runner, &run_id);
@@ -152,12 +171,14 @@ where
                         }
                         return Ok(output);
                     }
-                    CodexRunnerEffect::Exited { .. } => {
+                    CodexRunnerEffect::Exited { .. } | CodexRunnerEffect::ResumeUnavailable => {
                         return Err(PortError::Provider(
                             "Codex summary process exited before completion".into(),
                         ));
                     }
-                    CodexRunnerEffect::Fact(_) | CodexRunnerEffect::ControlRequest(_) => {}
+                    CodexRunnerEffect::Fact(_)
+                    | CodexRunnerEffect::ControlRequest(_)
+                    | CodexRunnerEffect::Steer(_) => {}
                 }
             }
         } else {

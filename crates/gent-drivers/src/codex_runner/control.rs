@@ -3,11 +3,7 @@ pub(super) fn cancelled_control_request_key(frame: &[u8]) -> Option<String> {
     if frame.get("method").and_then(serde_json::Value::as_str) != Some("serverRequest/resolved") {
         return None;
     }
-    let request_id = frame
-        .pointer("/params/requestId")
-        .or_else(|| frame.pointer("/params/request_id"))
-        .or_else(|| frame.get("requestId"))
-        .or_else(|| frame.get("request_id"))?;
+    let request_id = frame.pointer("/params/requestId")?;
     match request_id {
         serde_json::Value::String(value) if !value.is_empty() => Some(value.clone()),
         serde_json::Value::Number(value) if value.as_u64().is_some() => Some(value.to_string()),
@@ -29,7 +25,7 @@ mod tests {
         );
         assert_eq!(
             cancelled_control_request_key(
-                br#"{"method":"serverRequest/resolved","params":{"request_id":"request-1"}}"#,
+                br#"{"method":"serverRequest/resolved","params":{"requestId":"request-1","threadId":"thread-1"}}"#,
             ),
             Some("request-1".into())
         );

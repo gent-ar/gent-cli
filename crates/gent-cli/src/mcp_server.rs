@@ -58,6 +58,7 @@ fn tools(domain: Option<&str>) -> Vec<Value> {
         json!({"name":"gent_automations_list","description":"List Gent automations for a workspace","inputSchema":{"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string"}}}}),
         json!({"name":"gent_automation_run","description":"Run one manual Gent automation","inputSchema":{"type":"object","required":["automationId"],"properties":{"automationId":{"type":"string"}}}}),
         json!({"name":"gent_forge_list","description":"List Gent Forge connectors for a workspace","inputSchema":{"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string"}}}}),
+        json!({"name":"gent_goal_update","description":"Report that the active Gent goal is complete, or blocked until the user helps","inputSchema":{"type":"object","required":["goalId","status"],"properties":{"goalId":{"type":"string"},"status":{"type":"string","enum":["complete","blocked"]},"note":{"type":"string"}}}}),
     ];
     all.into_iter()
         .filter(|tool| {
@@ -67,6 +68,7 @@ fn tools(domain: Option<&str>) -> Vec<Value> {
                         .as_str()
                         .is_some_and(|name| name.starts_with("gent_automation"))
                 || domain == Some("forge") && tool["name"] == "gent_forge_list"
+                || domain == Some("goal") && tool["name"] == "gent_goal_update"
         })
         .collect()
 }
@@ -125,6 +127,7 @@ async fn call_tool(
         )
         .await
         .map(|value| json!(value)),
+        "gent_goal_update" => goal_update(data_dir, no_autostart, &args).await,
         _ => Err("unknown Gent tool".into()),
     };
     match result {
@@ -135,6 +138,30 @@ async fn call_tool(
             json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":error.to_string()}],"isError":true}})
         }
     }
+}
+
+async fn goal_update(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    args: &Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let outcome = match args.get("status").and_then(Value::as_str) {
+        Some("complete") => gent_types::GoalReportOutcome::Complete,
+        Some("blocked") => gent_types::GoalReportOutcome::Blocked,
+        _ => return Err("status must be complete or blocked".into()),
+    };
+    let goal = crate::goal_cli::report(
+        data_dir,
+        no_autostart,
+        args.get("goalId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into(),
+        outcome,
+        args.get("note").and_then(Value::as_str).map(str::to_owned),
+    )
+    .await?;
+    Ok(json!(goal))
 }
 
 #[cfg(test)]
@@ -150,5 +177,8 @@ mod tests {
         assert_eq!(tools(Some("forge")).len(), 1);
         assert!(tool_available(Some("forge"), "gent_forge_list"));
         assert!(!tool_available(Some("forge"), "gent_automation_run"));
+        assert_eq!(tools(Some("goal")).len(), 1);
+        assert!(tool_available(Some("goal"), "gent_goal_update"));
+        assert!(!tool_available(Some("goal"), "gent_forge_list"));
     }
 }

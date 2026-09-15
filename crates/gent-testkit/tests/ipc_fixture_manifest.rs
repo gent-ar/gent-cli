@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use gent_testkit::validate_ipc_fixture_manifest;
 use tempfile::TempDir;
 
-const FIXTURES: [&str; 8] = [
+const FIXTURES: [&str; 9] = [
     "manifest.json",
     "handshake.json",
     "core.json",
@@ -12,6 +12,7 @@ const FIXTURES: [&str; 8] = [
     "agent-chat-transcript.json",
     "agent-chat-intents.json",
     "permission-policy.json",
+    "goal.json",
 ];
 
 fn source_root() -> PathBuf {

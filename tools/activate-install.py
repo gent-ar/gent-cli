@@ -39,15 +39,14 @@ def require_directory(path: Path) -> None:
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
         fail(f"{path} must be a real directory")
 def require_executable(path: Path) -> None:
-    details = lstat(path)
-    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
-        fail(f"{path} must be a real file")
-    if details.st_mode & 0o111 == 0:
+    require_regular_file(path)
+    if lstat(path).st_mode & 0o111 == 0:
         fail(f"{path} is not executable")
 def require_regular_file(path: Path) -> None:
     details = lstat(path)
     if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
         fail(f"{path} must be a real file")
+PACKAGED_TREES = ("runtime", "authority")
 def require_node_runtime(release: Path) -> None:
     runtime = release / "runtime" / "node"
     require_directory(runtime)
@@ -146,9 +145,12 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
     require_directory(source)
     for name in ("gent", "gentd"):
         require_executable(source / name)
-    has_runtime = (source / "runtime").exists()
-    if has_runtime:
+    trees = [name for name in PACKAGED_TREES if (source / name).exists()]
+    if "runtime" in trees:
         require_node_runtime(source)
+    if "authority" in trees:
+        for name in ("ordinary-authority.json", "root-keys.json"):
+            require_regular_file(source / "authority" / name)
     if supervisor is not None:
         require_regular_file(supervisor)
     if auto_updater is not None:
@@ -162,7 +164,7 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
             names.extend(("supervise-runtime-activation.py", "activate-install.py"))
         if auto_updater is not None:
             names.append("gent-auto-update.py")
-        runtime_matches = identical_tree(source / "runtime", release / "runtime") if has_runtime else not (release / "runtime").exists()
+        runtime_matches = all(identical_tree(source / name, release / name) if name in trees else not (release / name).exists() for name in PACKAGED_TREES)
         if all(identical(source / name, release / name) for name in ("gent", "gentd")) and runtime_matches and (
             supervisor is None
             or all((release / name).is_file() for name in names[2:])
@@ -187,8 +189,8 @@ def prepare_release(runtime_root: Path, release_name: str, source: Path, supervi
             shutil.copyfile(source / name, output)
             output.chmod(0o755)
             fsync_file(output)
-        if has_runtime:
-            shutil.copytree(source / "runtime", stage / "runtime", copy_function=shutil.copy2)
+        for name in trees:
+            shutil.copytree(source / name, stage / name, copy_function=shutil.copy2)
         if supervisor is not None:
             output = stage / "supervise-runtime-activation.py"
             shutil.copyfile(supervisor, output)

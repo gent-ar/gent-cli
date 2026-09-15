@@ -33,4 +33,6 @@ pub struct ToolActivity {
     pub phase: ToolPhase,
     /// Optional digest permits result correlation without retaining provider output.
     pub output_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_use_id: Option<String>,
 }

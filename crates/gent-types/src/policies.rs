@@ -18,9 +18,7 @@ pub enum PolicyScope {
 pub enum PermissionMode {
     /// Ask for every operation that has not received an explicit durable approval.
     #[default]
-    Default,
-    /// Permit read-only planning, while every non-read operation remains blocked by the mode.
-    Plan,
+    AskEveryTime,
     /// Permit reads and edits; commands, network access, and provider control still ask.
     AutoAcceptEdits,
     /// Permit reads, edits, and commands; network and provider control still ask.
@@ -68,6 +66,43 @@ pub struct PermissionRequest {
     pub category: PermissionCategory,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_id: Option<String>,
+}
+
+impl PermissionRequest {
+    #[must_use]
+    pub const fn new(
+        tool_name: String,
+        category: PermissionCategory,
+        input: Option<serde_json::Value>,
+        child_id: Option<String>,
+    ) -> Self {
+        Self {
+            tool_name,
+            category,
+            input,
+            child_id,
+        }
+    }
+}
+
+/// Why Gent itself refused a provider permission request before asking the user.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionDenialReason {
+    ReadOnlyMode,
+}
+
+impl PermissionDenialReason {
+    #[must_use]
+    pub const fn notice(self) -> &'static str {
+        match self {
+            Self::ReadOnlyMode => {
+                "Gent denied a file change or command because Ask and Plan modes are read-only. Switch to Agent mode to allow changes."
+            }
+        }
+    }
 }
 
 /// One immutable revision of a workspace policy.
@@ -104,7 +139,7 @@ mod tests {
             "allowedTools": ["git:status"]
         }))
         .unwrap();
-        assert_eq!(policy.mode, PermissionMode::Default);
+        assert_eq!(policy.mode, PermissionMode::AskEveryTime);
         assert!(policy.allowed_categories.is_empty());
     }
 
@@ -125,7 +160,7 @@ mod tests {
     fn broad_modes_require_a_daemon_verified_sandbox() {
         assert!(PermissionMode::Autonomous.requires_sandbox());
         assert!(PermissionMode::Bypass.requires_sandbox());
-        assert!(!PermissionMode::Plan.requires_sandbox());
+        assert!(!PermissionMode::AskEveryTime.requires_sandbox());
         let _ = SandboxEnforcement::Enforced;
     }
 }

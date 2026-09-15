@@ -203,7 +203,7 @@ async fn activity_facts_require_a_negotiated_activity_capability() {
             if page.facts[0].scope().cursor == 8 && page.next_after_cursor.is_none()
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }
 
 #[tokio::test]
@@ -249,7 +249,7 @@ async fn cached_update_check_requires_its_negotiated_capability() {
         })
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }
 
 #[tokio::test]
@@ -290,5 +290,5 @@ async fn maintenance_report_requires_the_negotiated_authority_capability() {
             if report.record.attempt_id == "attempt-1" && report.record.revision == 2
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }

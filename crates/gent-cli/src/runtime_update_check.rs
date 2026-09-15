@@ -3,8 +3,7 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame, WireFrame, read_json_frame,
-    write_json_frame,
+    RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame, read_json_frame, write_json_frame,
 };
 use gent_types::{RuntimeReleaseChannel, RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest};
 use serde_json::Value;
@@ -40,8 +39,8 @@ pub(crate) async fn request(
     if let Ok(RuntimeUpdateCheckFrame::Report(report)) = serde_json::from_value(raw.clone()) {
         return Ok(report);
     }
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     Err("daemon did not return a runtime update report".into())
 }
@@ -55,7 +54,9 @@ mod tests {
     };
     use tokio::net::UnixListener;
 
-    use super::{RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame, WireFrame, request};
+    use gent_protocol::WireFrame;
+
+    use super::{RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame, request};
 
     #[tokio::test]
     async fn request_requires_the_negotiated_update_capability() {

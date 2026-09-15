@@ -24,6 +24,23 @@ pub(super) fn permission_lines(
     lines
 }
 
+pub(super) fn install_hold_lines(hold: &crate::prompt_hold::InstallHold) -> Vec<Line<'static>> {
+    crate::prompt_hold::install_lines(hold, "gent")
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let style = if index == 0 {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
+            Line::styled(line.trim_start_matches("! ").to_owned(), style)
+        })
+        .collect()
+}
+
 fn question_summary(input: Option<&serde_json::Value>) -> Option<String> {
     let questions = input?.get("questions")?.as_array()?;
     let values = questions

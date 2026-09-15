@@ -1,0 +1,11 @@
+{
+ "captured_at": "2026-09-14T21:10:53+00:00",
+ "evidence": "installedExecutable",
+ "executable_file": "codex",
+ "executable_sha256": "b973d440acac501fd2594a43e7ca9ce41e0a65b9dfb28d0d7a7837c99e1261e3",
+ "platform": "darwin-arm64",
+ "provider": "codex",
+ "tool": "provider-contract-snapshot/1",
+ "version": "0.153.4",
+ "version_output": "codex-cli 0.153.4"
+}

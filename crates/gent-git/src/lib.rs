@@ -1,6 +1,10 @@
 //! Git porcelain parsing plus a dormant, fixed-argv status executor.
 
 pub mod executor;
+mod repository_marker;
+mod workspace_repositories;
+
+pub use workspace_repositories::workspace_repositories;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StatusEntry {

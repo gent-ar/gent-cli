@@ -1,6 +1,6 @@
 use gent_ports::{
-    AgentChatPromptLedger, AgentChatReadLedger, AgentChatSelectionLedger, AgentChatWorkspaceLedger,
-    TranscriptLedger,
+    AgentChatProjectionLedger, AgentChatPromptLedger, AgentChatReadLedger,
+    AgentChatSelectionLedger, AgentChatWorkspaceLedger, TranscriptLedger,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -78,7 +78,7 @@ fn append_assigns_conversation_cursor_and_exact_retries_are_idempotent() {
         .unwrap();
 
     assert_eq!(first, retry);
-    assert_eq!(first.cursor, 1);
+    assert_eq!(first.cursor, 2);
     let mut conflict = event;
     conflict.text = "changed".into();
     assert!(
@@ -92,7 +92,7 @@ fn append_assigns_conversation_cursor_and_exact_retries_are_idempotent() {
             .unwrap()
             .events
             .len(),
-        1
+        2
     );
 }
 
@@ -129,7 +129,7 @@ fn pages_are_bounded_cursor_ordered_and_available_through_the_read_port() {
             .iter()
             .map(|item| &item.text)
             .collect::<Vec<_>>(),
-        vec!["three"]
+        vec!["two", "three"]
     );
     assert_eq!(second.next_after_cursor, None);
     assert!(
@@ -174,4 +174,85 @@ fn summary_tracks_the_current_provider_after_a_selection_switch() {
     let summary = ledger.read_agent_chat_summary(&conversation_id.0).unwrap();
     assert_eq!(summary.selection.provider, AgentChatProvider::Claude);
     assert_eq!(summary.selection.model, "claude-sonnet");
+}
+
+#[test]
+fn projection_tail_is_the_latest_readable_window_at_the_latest_cursor() {
+    let (ledger, conversation_id, turn_id, run_id) = ledger();
+    for index in 0..150 {
+        ledger
+            .append_normalized_transcript(
+                &conversation_id,
+                &append(
+                    &format!("history-{index}"),
+                    &turn_id,
+                    &run_id,
+                    &format!("history {index}"),
+                ),
+            )
+            .unwrap();
+    }
+    for (event_id, text, is_partial) in [
+        ("delta-1", "Hel", true),
+        ("delta-2", "lo", true),
+        ("final", "Hello", false),
+        ("live-1", "Stre", true),
+        ("live-2", "aming", true),
+    ] {
+        let mut event = append(event_id, &turn_id, &run_id, text);
+        event.is_partial = is_partial;
+        ledger
+            .append_normalized_transcript(&conversation_id, &event)
+            .unwrap();
+    }
+    let mut latest = 0;
+    loop {
+        let page = ledger
+            .agent_chat_projection_page(&conversation_id, latest, 100)
+            .unwrap();
+        latest = page.events.last().map_or(latest, |event| event.cursor);
+        if page.next_after_cursor.is_none() {
+            break;
+        }
+    }
+    let tail = ledger
+        .agent_chat_projection_tail(&conversation_id, 100, 100)
+        .unwrap();
+    assert_eq!(tail.cursor, latest);
+    let texts = tail
+        .transcript
+        .iter()
+        .map(|event| event.payload["text"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(texts.len(), 100);
+    assert!(tail.transcript_truncated);
+    assert_eq!(texts[0], "history 53");
+    assert_eq!(texts[96], "history 149");
+    assert_eq!(&texts[97..], ["Hello", "Stre", "aming"]);
+    assert!(
+        tail.transcript
+            .windows(2)
+            .all(|pair| pair[0].cursor < pair[1].cursor)
+    );
+    assert!(tail.transcript.iter().all(|event| event.cursor <= latest));
+    let short = ledger
+        .agent_chat_projection_tail(&conversation_id, 2, 1)
+        .unwrap();
+    assert_eq!(short.cursor, latest);
+    assert!(short.transcript_truncated);
+    assert_eq!(short.activity_truncated, tail.activity.len() > 1);
+    assert!(!tail.activity_truncated);
+    assert_eq!(
+        short
+            .transcript
+            .iter()
+            .map(|event| event.payload["text"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["Stre", "aming"]
+    );
+    assert!(
+        ledger
+            .agent_chat_projection_tail(&conversation_id, 0, 1)
+            .is_err()
+    );
 }

@@ -1,7 +1,7 @@
 use gent_protocol::AgentChatIntentFrame;
 use gent_types::{HostEpoch, Receipt, ReceiptStatus};
 
-use super::{ChatCommand, CreateArgs, Effort, Mode, Provider, frame, valid_reply};
+use super::{ChatCommand, CreateArgs, Mode, Provider, frame, valid_reply};
 
 #[path = "tests/ipc_roundtrips.rs"]
 mod ipc_roundtrips;
@@ -11,7 +11,7 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
     let cases = [
         (
             Provider::Codex,
-            Effort::Low,
+            gent_types::AgentChatEffort::Low,
             Mode::Ask,
             super::switch::Context::Preserve,
             gent_types::AgentChatProvider::Codex,
@@ -21,7 +21,7 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
         ),
         (
             Provider::Claude,
-            Effort::Medium,
+            gent_types::AgentChatEffort::Medium,
             Mode::Plan,
             super::switch::Context::Clear,
             gent_types::AgentChatProvider::Claude,
@@ -30,8 +30,8 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
             gent_types::ContextPolicy::Clear,
         ),
         (
-            Provider::Claurst,
-            Effort::High,
+            Provider::Gent,
+            gent_types::AgentChatEffort::High,
             Mode::Agent,
             super::switch::Context::Preserve,
             gent_types::AgentChatProvider::Claurst,
@@ -54,10 +54,12 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
         let request = frame(ChatCommand::Switch(super::switch::SwitchArgs {
             conversation_id: "conversation-1".into(),
             parent_run_id: Some("run-1".into()),
-            provider,
-            model: "exact-model".into(),
-            effort,
-            mode,
+            selection: crate::chat_cli::SelectionArgs {
+                provider: Some(provider),
+                model: Some("exact-model".into()),
+                effort: Some(effort),
+                mode: Some(mode),
+            },
             context,
             request_id: Some("request-1".into()),
             receipt_id: Some("receipt-1".into()),
@@ -80,21 +82,26 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
 }
 
 #[test]
-fn claurst_default_model_is_a_shipped_curated_model() {
+fn create_without_a_choice_leaves_the_selection_to_gentd() {
     let request = frame(ChatCommand::Create(CreateArgs {
         workspace: None,
-        provider: Provider::Claurst,
-        model: "default".into(),
-        effort: Effort::Medium,
-        mode: Mode::Agent,
+        selection: crate::chat_cli::SelectionArgs {
+            provider: None,
+            model: None,
+            effort: None,
+            mode: None,
+        },
         request_id: Some("request-1".into()),
         receipt_id: Some("receipt-1".into()),
     }))
     .unwrap();
-    let AgentChatIntentFrame::CreateConversation { selection, .. } = request else {
-        panic!("expected create");
-    };
-    assert_eq!(selection.model, gent_protocol::DEFAULT_LOCAL_MODEL_ID);
+    assert!(matches!(
+        request,
+        AgentChatIntentFrame::CreateConversation {
+            selection: None,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -102,10 +109,12 @@ fn clear_context_refuses_a_reply_that_claims_inherited_history() {
     let request = frame(ChatCommand::Switch(super::switch::SwitchArgs {
         conversation_id: "conversation-1".into(),
         parent_run_id: Some("run-1".into()),
-        provider: Provider::Claude,
-        model: "sonnet".into(),
-        effort: Effort::Medium,
-        mode: Mode::Plan,
+        selection: crate::chat_cli::SelectionArgs {
+            provider: Some(Provider::Claude),
+            model: Some("sonnet".into()),
+            effort: Some(gent_types::AgentChatEffort::Medium),
+            mode: Some(Mode::Plan),
+        },
         context: super::switch::Context::Clear,
         request_id: Some("request-1".into()),
         receipt_id: Some("receipt-1".into()),

@@ -28,21 +28,20 @@ pub(super) async fn model_state(
     }
 }
 
-pub(super) async fn local_model_ids(
+pub(super) async fn model_catalog(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     capabilities: &[String],
-) -> Vec<String> {
+) -> Option<gent_protocol::model_catalog::ModelCatalog> {
     if !capabilities
         .iter()
-        .any(|value| value == gent_protocol::LOCAL_MODELS_CAPABILITY)
+        .any(|value| value == gent_protocol::model_catalog::MODEL_CATALOG_CAPABILITY)
     {
-        return Vec::new();
+        return None;
     }
-    local_models_cli::list(data_dir, no_autostart)
+    crate::model_catalog_cli::read(data_dir, no_autostart)
         .await
-        .map(|models| models.into_iter().map(|model| model.id).collect())
-        .unwrap_or_default()
+        .ok()
 }
 
 pub(super) async fn pending_permission(

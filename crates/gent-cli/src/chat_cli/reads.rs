@@ -4,8 +4,7 @@ use std::{collections::HashSet, path::PathBuf};
 
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
-    AgentChatConversationFrame, AgentChatTranscriptFrame, WireFrame, read_json_frame,
-    write_json_frame,
+    AgentChatConversationFrame, AgentChatTranscriptFrame, read_json_frame, write_json_frame,
 };
 use gent_types::{
     AgentChatConversationDetail, AgentChatConversationSummary, NormalizedTranscriptPage,
@@ -151,8 +150,8 @@ fn decode<T: serde::de::DeserializeOwned>(
     raw: Value,
     label: &str,
 ) -> Result<T, Box<dyn std::error::Error>> {
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     serde_json::from_value(raw).map_err(|_| format!("daemon did not return {label}").into())
 }

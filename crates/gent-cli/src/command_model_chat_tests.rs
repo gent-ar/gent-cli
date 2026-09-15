@@ -14,7 +14,7 @@ fn selection_switch_parses_clear_context_without_losing_the_selected_model() {
         "--parent-run-id",
         "run-1",
         "--provider",
-        "claurst",
+        "gent",
         "--model",
         "claurst-main",
         "--effort",
@@ -31,10 +31,19 @@ fn selection_switch_parses_clear_context_without_losing_the_selected_model() {
     else {
         panic!("expected selection switch");
     };
-    assert!(matches!(value.provider, crate::chat_cli::Provider::Claurst));
-    assert_eq!(value.model, "claurst-main");
-    assert!(matches!(value.effort, crate::chat_cli::Effort::Low));
-    assert!(matches!(value.mode, crate::chat_cli::Mode::Agent));
+    assert!(matches!(
+        value.selection.provider,
+        Some(crate::chat_cli::Provider::Gent)
+    ));
+    assert_eq!(value.selection.model.as_deref(), Some("claurst-main"));
+    assert!(matches!(
+        value.selection.effort,
+        Some(gent_types::AgentChatEffort::Low)
+    ));
+    assert!(matches!(
+        value.selection.mode,
+        Some(crate::chat_cli::Mode::Agent)
+    ));
     assert!(matches!(
         value.context,
         crate::chat_cli::switch::Context::Clear
@@ -66,7 +75,7 @@ fn fork_parses_a_context_preserving_provider_change() {
 }
 
 #[test]
-fn create_uses_the_same_default_selection_as_prompt_first_chat() {
+fn create_without_a_choice_leaves_the_default_to_gentd() {
     let args = Args::try_parse_from(["gent", "chat", "create"]).unwrap();
     let Some(CommandLine::Chat {
         action: ChatCommand::Create(value),
@@ -74,13 +83,23 @@ fn create_uses_the_same_default_selection_as_prompt_first_chat() {
     else {
         panic!("expected conversation creation");
     };
-    assert!(matches!(value.provider, crate::chat_cli::Provider::Claurst));
-    assert_eq!(value.model, gent_protocol::DEFAULT_LOCAL_MODEL_ID);
-    assert!(matches!(value.mode, crate::chat_cli::Mode::Agent));
+    assert!(value.selection.request().is_empty());
+    assert!(Args::try_parse_from(["gent", "chat", "create", "--provider", "codex"]).is_ok());
+    assert!(Args::try_parse_from(["gent", "chat", "create", "--mode", "ask"]).is_ok());
 }
 
 #[test]
-fn interrupt_requires_the_conversation_and_run_identity() {
+fn interrupt_defaults_to_the_current_run_of_the_conversation() {
+    assert!(
+        Args::try_parse_from([
+            "gent",
+            "chat",
+            "interrupt",
+            "--conversation-id",
+            "conversation-1",
+        ])
+        .is_ok()
+    );
     let args = Args::try_parse_from([
         "gent",
         "chat",

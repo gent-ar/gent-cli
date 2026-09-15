@@ -43,7 +43,7 @@ impl PromptTemplateRecord {
     pub fn validate(&self) -> Result<(), PromptTemplateError> {
         if self.schema_version != PROMPT_TEMPLATE_SCHEMA_VERSION
             || !identifier(&self.template_id)
-            || !identifier(&self.name)
+            || !display_name(&self.name)
             || self.body.is_empty()
             || self.body.len() > 16 * 1024
             || self.body.chars().any(char::is_control)
@@ -104,6 +104,10 @@ impl PromptTemplateRecord {
     }
 }
 
+fn display_name(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+}
+
 fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
@@ -137,9 +141,20 @@ mod tests {
         PromptTemplateRecord {
             schema_version: PROMPT_TEMPLATE_SCHEMA_VERSION,
             template_id: "review".into(),
-            name: "Review".into(),
+            name: "review".into(),
             body: body.into(),
         }
+    }
+
+    #[test]
+    fn accepts_a_human_display_name_but_not_control_characters() {
+        let mut record = template("Say hello to {{name}}");
+        record.name = "Code Review Greeter".into();
+        assert_eq!(record.validate(), Ok(()));
+        record.name = "Greeter\n".into();
+        assert_eq!(record.validate(), Err(PromptTemplateError::InvalidMetadata));
+        record.name = "  ".into();
+        assert_eq!(record.validate(), Err(PromptTemplateError::InvalidMetadata));
     }
 
     #[test]

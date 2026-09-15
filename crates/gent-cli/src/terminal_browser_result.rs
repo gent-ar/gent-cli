@@ -23,7 +23,7 @@ pub(super) fn result(
 pub(crate) const fn delivery_notice(delivery: AgentChatPromptDelivery) -> &'static str {
     match delivery {
         AgentChatPromptDelivery::Queued => {
-            "Prompt queued. Gent will continue when the provider is available."
+            "Prompt queued after the running turn · Ctrl+R sends it now · Ctrl+K removes it"
         }
         AgentChatPromptDelivery::AwaitingReadiness => "Gent is preparing the selected provider…",
         AgentChatPromptDelivery::AwaitingProvider => "Gent is thinking…",

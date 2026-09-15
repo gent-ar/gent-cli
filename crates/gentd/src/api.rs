@@ -2,10 +2,11 @@
 
 use gent_protocol::{
     AgentChatCheckpointFrame, AgentChatConversationConfigFrame, AgentChatConversationFrame,
-    AgentChatIntentFrame, AgentChatSideQuestionFrame, AgentChatTranscriptFrame, AttachmentFrame,
-    AutomationFrame, DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest,
-    DependencyActionResult, DependencyPlan, DependencyPlanRequest, ForgeConnectorFrame, GoalFrame,
-    LocalModelFrame, OrchestrationFrame, PermissionPolicyFrame, PromptProviderProvisionFrame,
+    AgentChatIntentFrame, AgentChatProjectionDelta, AgentChatProjectionFrame,
+    AgentChatSideQuestionFrame, AgentChatTranscriptFrame, AttachmentFrame, AutomationFrame,
+    DecisionRecoveryEvidence, DecisionSubmission, DependencyActionRequest, DependencyActionResult,
+    DependencyPlan, DependencyPlanRequest, ForgeConnectorFrame, GoalFrame, LocalModelFrame,
+    OrchestrationFrame, PermissionPolicyFrame, ProjectionCursor, PromptProviderProvisionFrame,
     PromptTemplateFrame, ProviderAuthFrame, ProviderReadinessFrame, PublicRunInterruptRequest,
     PublicRunResponse, PublicRunResumeRequest, PublicRunStartRequest, ReviewedPlanFrame,
     WorkspaceDocumentsFrame, WorkspaceGitFrame,
@@ -19,10 +20,33 @@ use gent_types::{
     RuntimeUpdateCheckRequest,
 };
 
+pub(crate) fn stamped_status(
+    status: Result<HostStatus, gent_runtime::RuntimeError>,
+) -> Result<HostStatus, String> {
+    status
+        .map(|status| HostStatus {
+            executable_digest_sha256: executable_digest().clone(),
+            ..status
+        })
+        .map_err(|error| error.to_string())
+}
+
+fn executable_digest() -> &'static Option<String> {
+    static DIGEST: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    DIGEST.get_or_init(|| {
+        crate::local_model_integrity::file_sha256(&std::env::current_exe().ok()?).ok()
+    })
+}
+
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     fn agent_chat_permission_port(
         &self,
     ) -> Option<std::sync::Arc<dyn crate::agent_chat_permission_api::AgentChatPermissionPort>> {
+        None
+    }
+    fn model_catalog_port(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::runtime_facade::ModelCatalogPort>> {
         None
     }
     fn capabilities(&self) -> Result<CapabilitySet, String>;
@@ -63,21 +87,21 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     ) -> Result<WorkspaceDocumentsFrame, String> {
         Err("workspace documents are unavailable for this runtime".into())
     }
-    fn workspace_git(&self, _: WorkspaceGitFrame) -> Result<WorkspaceGitFrame, String> {
+    fn workspace_git(
+        &self,
+        _: WorkspaceGitFrame,
+    ) -> Result<WorkspaceGitFrame, crate::workspace_git_api::WorkspaceGitRejection> {
         Err("workspace git is unavailable for this runtime".into())
     }
     fn forge_connectors(&self, _: ForgeConnectorFrame) -> Result<ForgeConnectorFrame, String> {
         Err("Forge connectors are unavailable while gentd is observer-disabled".into())
     }
-    fn begin_local_model_download(
+    fn start_local_model_download(
         &self,
         _: &str,
-    ) -> Result<crate::standalone_authority_composition::LocalModelDownloadStart, String> {
-        Err("local-model downloads are unavailable for this runtime".into())
-    }
-    fn finish_local_model_download(&self, _: &str) {}
-    fn publish_local_model_frame(&self, _: LocalModelFrame) -> Result<(), String> {
-        Ok(())
+    ) -> Result<crate::local_model_jobs::DownloadStart, gent_protocol::LocalModelDownloadFailure>
+    {
+        Err(gent_protocol::LocalModelDownloadFailure::StorageUnavailable)
     }
     /// Reads a separately configured, signed cached release report.
     fn runtime_update_check(
@@ -117,8 +141,18 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     fn agent_chat_intent(
         &self,
         _: AgentChatIntentFrame,
-    ) -> Result<Vec<AgentChatIntentFrame>, String> {
+    ) -> Result<Vec<AgentChatIntentFrame>, crate::agent_chat_intent_error::AgentChatIntentError>
+    {
         Err("agent chat is unavailable while gentd is observer-disabled".into())
+    }
+    fn agent_chat_command(
+        &self,
+        _: gent_protocol::agent_chat_commands::AgentChatCommandFrame,
+    ) -> Result<
+        gent_protocol::agent_chat_commands::AgentChatCommandFrame,
+        crate::agent_chat_intent_error::AgentChatIntentError,
+    > {
+        Err("agent-chat commands are unavailable while gentd is observer-disabled".into())
     }
     /// Reads a public, provider-neutral conversation view only in a composed chat authority.
     ///
@@ -127,15 +161,43 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     fn agent_chat_conversation(
         &self,
         _: AgentChatConversationFrame,
-    ) -> Result<AgentChatConversationFrame, String> {
-        Err("agent-chat conversation reads are unavailable while gentd is observer-disabled".into())
+    ) -> Result<AgentChatConversationFrame, crate::agent_chat_intent_error::AgentChatIntentError>
+    {
+        Err(crate::agent_chat_intent_error::AgentChatIntentError {
+            code: "agentChatReadUnavailable",
+            message:
+                "agent-chat conversation reads are unavailable while gentd is observer-disabled"
+                    .into(),
+        })
     }
     /// Reads a normalized transcript page only in a composed chat authority.
     fn agent_chat_transcript(
         &self,
         _: AgentChatTranscriptFrame,
-    ) -> Result<AgentChatTranscriptFrame, String> {
-        Err("agent-chat transcript reads are unavailable while gentd is observer-disabled".into())
+    ) -> Result<AgentChatTranscriptFrame, crate::agent_chat_intent_error::AgentChatIntentError>
+    {
+        Err(crate::agent_chat_intent_error::AgentChatIntentError {
+            code: "agentChatReadUnavailable",
+            message: "agent-chat transcript reads are unavailable while gentd is observer-disabled"
+                .into(),
+        })
+    }
+    fn agent_chat_projection(
+        &self,
+        _: AgentChatProjectionFrame,
+    ) -> Result<AgentChatProjectionFrame, crate::agent_chat_intent_error::AgentChatIntentError>
+    {
+        Err(crate::agent_chat_intent_error::AgentChatIntentError {
+            code: "agentChatProjectionUnavailable",
+            message: "agent-chat projection is unavailable while gentd is observer-disabled".into(),
+        })
+    }
+    fn agent_chat_projection_follow(
+        &self,
+        _: &str,
+        _: &ProjectionCursor,
+    ) -> Result<Vec<AgentChatProjectionDelta>, String> {
+        Err("agent-chat projection is unavailable while gentd is observer-disabled".into())
     }
     /// Assesses one exact current run only in an approved private readiness composition.
     fn provider_readiness(

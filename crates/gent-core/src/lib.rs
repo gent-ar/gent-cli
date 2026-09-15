@@ -1,5 +1,6 @@
 //! Pure runtime policy and reducer rules. This crate never opens a database or process.
 use gent_types::HostEpoch;
+mod agent_chat_commands;
 mod agent_chat_compaction;
 #[cfg(test)]
 mod agent_chat_compaction_tests;
@@ -8,6 +9,7 @@ mod conversation_activity;
 mod decision_settlement;
 mod git_operation;
 mod goal;
+mod goal_pursuit;
 #[cfg(test)]
 mod goal_reducer_tests;
 #[cfg(test)]
@@ -28,6 +30,7 @@ mod runtime_update;
 mod runtime_update_schedule;
 mod tool_classification;
 mod turn_lifecycle;
+pub use agent_chat_commands::{command_catalog, reserved_names, resolve_command};
 pub use agent_chat_compaction::{
     AgentChatCompactionEffect, AgentChatCompactionRejection, AgentChatCompactionState,
     reduce_agent_chat_compaction,
@@ -42,9 +45,12 @@ pub use decision_settlement::{
 };
 pub use git_operation::permits_git_operation_transition;
 pub use goal::{
-    ActiveGoalRejection, ActiveGoalSelection, GoalControlContext, GoalControlEffect,
-    GoalControlEvent, GoalControlRejection, GoalControlState, reduce_goal_control,
-    select_active_goal,
+    GoalDraft, GoalRejection, GoalUserCommand, apply_user_command, create_goal, replaced_goal,
+    reported_goal, stopped_goal,
+};
+pub use goal_pursuit::{
+    GoalPursuitStep, MAX_CONTINUATIONS_WITHOUT_PROGRESS, accounted_goal, blocked_admission,
+    continuation_prompt, continuation_request_id, next_pursuit_step,
 };
 pub use lifecycle_projection::{
     LifecycleProjection, ProjectionUpdate, project_normalized_event, projected_live_status,

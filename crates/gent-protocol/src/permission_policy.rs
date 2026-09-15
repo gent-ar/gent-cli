@@ -4,7 +4,7 @@ use gent_types::PolicyRecord;
 use serde::{Deserialize, Serialize};
 
 /// Negotiated capability for local permission-policy reads and explicit revisions.
-pub const PERMISSION_POLICY_CAPABILITY: &str = "permission-policy-v1";
+pub const PERMISSION_POLICY_CAPABILITY: &str = "permission-policy-v2";
 
 /// One finite permission-policy exchange. Provider execution is never part of this protocol.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -60,7 +60,7 @@ mod tests {
             }
         });
         assert!(serde_json::from_value::<PermissionPolicyFrame>(valid).is_ok());
-        assert_eq!(PERMISSION_POLICY_CAPABILITY, "permission-policy-v1");
+        assert_eq!(PERMISSION_POLICY_CAPABILITY, "permission-policy-v2");
     }
 
     #[test]
@@ -72,7 +72,7 @@ mod tests {
                 workspace_id: "workspace-1".into(),
                 scope: PolicyScope::ProviderPermissions,
                 revision: 1,
-                mode: PermissionMode::Plan,
+                mode: PermissionMode::AskEveryTime,
                 allowed_tools: Vec::new(),
                 allowed_categories: Vec::new(),
             },

@@ -1,0 +1,204 @@
+{
+ "__remote-workflow": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "agents": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "auto-mode-setup": {
+  "aliases": [],
+  "argumentHint": "[--request-id <uuid>] (--wizard posture=\u2026 scope=\u2026 depth=\u2026 --propose | --expect-sha256 <64-hex> --apply-file <path>)"
+ },
+ "autocompact": {
+  "aliases": [],
+  "argumentHint": "[auto|<tokens>]"
+ },
+ "batch": {
+  "aliases": [],
+  "argumentHint": "<instruction>"
+ },
+ "claude-api": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "clear": {
+  "aliases": [
+   "new",
+   "reset"
+  ],
+  "argumentHint": "[name]"
+ },
+ "code-review": {
+  "aliases": [
+   "review"
+  ],
+  "argumentHint": "[low|medium|high|xhigh|max] [--fix] [--comment] [<pr#>|<branch>|<path>]"
+ },
+ "color": {
+  "aliases": [],
+  "argumentHint": "[red|blue|green|yellow|purple|orange|pink|cyan|default]"
+ },
+ "compact": {
+  "aliases": [],
+  "argumentHint": "<optional custom summarization instructions>"
+ },
+ "config": {
+  "aliases": [
+   "settings"
+  ],
+  "argumentHint": "key=value"
+ },
+ "context": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "dataviz": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "debug": {
+  "aliases": [],
+  "argumentHint": "[issue description]"
+ },
+ "deep-research": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "design": {
+  "aliases": [],
+  "argumentHint": "consent | revoke"
+ },
+ "design-consent": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "design-revoke": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "design-sync": {
+  "aliases": [],
+  "argumentHint": "[<project hint, e.g. \"Acme DS\">]"
+ },
+ "doctor": {
+  "aliases": [
+   "checkup"
+  ],
+  "argumentHint": ""
+ },
+ "effort": {
+  "aliases": [],
+  "argumentHint": "<low|medium|high|xhigh|max|auto>"
+ },
+ "fast": {
+  "aliases": [],
+  "argumentHint": "[on|off]"
+ },
+ "fewer-permission-prompts": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "goal": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "heapdump": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "init": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "insights": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "list-agents": {
+  "aliases": [
+   "peers"
+  ],
+  "argumentHint": ""
+ },
+ "loop": {
+  "aliases": [
+   "proactive"
+  ],
+  "argumentHint": "[interval] [prompt]"
+ },
+ "mcp": {
+  "aliases": [],
+  "argumentHint": "[reconnect|enable|disable [<server>|all]]"
+ },
+ "model": {
+  "aliases": [],
+  "argumentHint": "<model>"
+ },
+ "output-style": {
+  "aliases": [],
+  "argumentHint": "[style]"
+ },
+ "recap": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "reload-plugins": {
+  "aliases": [],
+  "argumentHint": "[--force]"
+ },
+ "reload-skills": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "rename": {
+  "aliases": [
+   "name"
+  ],
+  "argumentHint": "[name]"
+ },
+ "run": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "run-skill-generator": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "security-review": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "simplify": {
+  "aliases": [],
+  "argumentHint": "[<target>]"
+ },
+ "team-onboarding": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "update-config": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "usage": {
+  "aliases": [
+   "cost",
+   "stats"
+  ],
+  "argumentHint": ""
+ },
+ "verify": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "workflow-authoring": {
+  "aliases": [],
+  "argumentHint": ""
+ },
+ "workflow-launch-exec": {
+  "aliases": [],
+  "argumentHint": ""
+ }
+}

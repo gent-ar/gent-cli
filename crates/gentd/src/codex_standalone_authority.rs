@@ -6,10 +6,8 @@
 use std::{path::PathBuf, sync::Arc};
 
 use gent_drivers::{
-    PublicProvider, buffering::BufferPolicy, codex_prompt_runner::CodexPromptRunner,
-    supervisor::ProcessLauncher,
+    buffering::BufferPolicy, codex_prompt_runner::CodexPromptRunner, supervisor::ProcessLauncher,
 };
-use gent_ports::PublicProviderResolver;
 use gent_runtime::{Coordinator, GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
 use gent_types::HostEpoch;
@@ -30,17 +28,17 @@ use crate::{
 };
 
 const BUFFERED_FRAMES: usize = 16;
-const BUFFERED_BYTES: usize = 256 * 1024;
+const BUFFERED_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 const MAX_ACTIVE_CODEX_RUNS: usize = 4;
 const STANDALONE_EVIDENCE_REFERENCE: &str = "standalone-local-codex-v1";
 
 /// Explicit local inputs for the standalone Codex provider host.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct StandaloneCodexConfig {
     pub(crate) data_dir: PathBuf,
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
-    pub(crate) executable: PathBuf,
+    pub(crate) executables: crate::provider_executables::ProviderExecutables,
     pub(crate) mcp_servers: Option<serde_json::Value>,
     pub(crate) mcp_config: Option<PathBuf>,
 }
@@ -140,8 +138,6 @@ pub(crate) enum StandaloneCodexError {
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
-    #[error("Codex summary runner is unavailable: {0}")]
-    Summary(String),
 }
 
 /// Composes the real Codex lifecycle from a selected local executable without release material.
@@ -158,14 +154,16 @@ where
     L: ProcessLauncher + Clone + std::fmt::Debug + 'static,
 {
     validate(config)?;
-    let resolver =
-        LocalProviderLocks::capture([(PublicProvider::Codex, config.executable.clone())])?;
-    let summary_lock = resolver
-        .resolve("codex")
-        .map_err(|error| StandaloneCodexError::Summary(error.to_string()))?;
+    let resolver = config
+        .executables
+        .locks(gent_types::AgentChatProvider::Codex)?;
     let summary_hook = Arc::new(CodexSummarySchedulerHook::new(
         ledger.clone(),
-        CodexSummaryRunner::new(launcher.clone(), summary_lock, std::env::temp_dir()),
+        CodexSummaryRunner::new(
+            launcher.clone(),
+            Arc::new(resolver.clone()),
+            std::env::temp_dir(),
+        ),
     ));
     let runner = CodexPromptRunner::new(
         launcher,
@@ -218,6 +216,18 @@ fn profile() -> Result<ValidatedAuthorityProfile, StandaloneCodexError> {
     .map_err(StandaloneCodexError::from)
 }
 
+#[cfg(all(test, unix))]
+#[path = "codex_fake_cli_harness.rs"]
+mod fake_cli;
+#[cfg(all(test, unix))]
+#[path = "codex_goal_pursuit_tests.rs"]
+mod goal_pursuit_tests;
+#[cfg(all(test, unix))]
+#[path = "codex_session_continuity_tests.rs"]
+mod session_continuity_tests;
+#[cfg(all(test, unix))]
+#[path = "codex_steer_tests.rs"]
+mod steer_tests;
 #[cfg(test)]
 #[path = "codex_standalone_authority_tests.rs"]
 mod tests;

@@ -1,9 +1,9 @@
 //! Pure validation and pagination boundary for agent-chat reads.
 
-use gent_ports::AgentChatReadLedger;
+use gent_ports::{AgentChatProjectionLedger, AgentChatReadLedger};
 use gent_types::{
-    AgentChatConversationDetail, AgentChatConversationSummary, AgentChatSelection,
-    NormalizedTranscriptPage,
+    AgentChatConversationDetail, AgentChatConversationId, AgentChatConversationSummary,
+    AgentChatProjectionPage, AgentChatProjectionTail, AgentChatSelection, NormalizedTranscriptPage,
 };
 
 use crate::RuntimeError;
@@ -87,6 +87,73 @@ impl<L: AgentChatReadLedger> AgentChatReadService<L> {
     }
 }
 
+impl<L: AgentChatReadLedger + AgentChatProjectionLedger> AgentChatReadService<L> {
+    pub fn projection(
+        &self,
+        conversation_id: &str,
+        after_cursor: u64,
+        limit: u16,
+    ) -> Result<AgentChatProjectionPage, RuntimeError> {
+        let page = self.ledger.agent_chat_projection_page(
+            &AgentChatConversationId(conversation_id.to_owned()),
+            after_cursor,
+            limit.clamp(1, 100),
+        )?;
+        if page.conversation_id != conversation_id {
+            return Err(invariant(
+                "agent-chat projection belongs to another conversation",
+            ));
+        }
+        let mut previous = after_cursor;
+        for event in &page.events {
+            if event.cursor <= previous {
+                return Err(invariant(
+                    "agent-chat projection cursor is not strictly ascending",
+                ));
+            }
+            previous = event.cursor;
+        }
+        if let Some(cursor) = page.next_after_cursor {
+            if page.events.is_empty() || cursor != previous {
+                return Err(invariant(
+                    "agent-chat projection continuation does not advance",
+                ));
+            }
+        }
+        Ok(page)
+    }
+
+    pub fn projection_tail(
+        &self,
+        conversation_id: &str,
+        transcript_limit: u16,
+        activity_limit: u16,
+    ) -> Result<AgentChatProjectionTail, RuntimeError> {
+        let tail = self.ledger.agent_chat_projection_tail(
+            &AgentChatConversationId(conversation_id.to_owned()),
+            transcript_limit.clamp(1, 100),
+            activity_limit.clamp(1, 100),
+        )?;
+        if tail.conversation_id != conversation_id {
+            return Err(invariant(
+                "agent-chat projection tail belongs to another conversation",
+            ));
+        }
+        for window in [&tail.transcript, &tail.activity] {
+            let mut previous = 0;
+            for event in window {
+                if event.cursor <= previous || event.cursor > tail.cursor {
+                    return Err(invariant(
+                        "agent-chat projection tail is not ordered within its cursor",
+                    ));
+                }
+                previous = event.cursor;
+            }
+        }
+        Ok(tail)
+    }
+}
+
 fn validate_page(
     conversation_id: &str,
     after_cursor: Option<u64>,
@@ -123,9 +190,10 @@ fn invariant(message: &str) -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::AgentChatReadService;
-    use gent_ports::{AgentChatReadLedger, LedgerError};
+    use gent_ports::{AgentChatProjectionLedger, AgentChatReadLedger, LedgerError};
     use gent_types::{
-        AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
+        AgentChatConversationDetail, AgentChatConversationId, AgentChatConversationSummary,
+        AgentChatEffort, AgentChatMode, AgentChatProjectionEvent, AgentChatProjectionPage,
         AgentChatProvider, AgentChatSelection, NormalizedTranscriptEvent, NormalizedTranscriptKind,
         NormalizedTranscriptPage,
     };
@@ -133,7 +201,35 @@ mod tests {
     #[derive(Clone)]
     struct Ledger {
         page: NormalizedTranscriptPage,
+        projection: AgentChatProjectionPage,
         runs: Vec<gent_types::AgentChatRun>,
+    }
+
+    impl AgentChatProjectionLedger for Ledger {
+        fn agent_chat_projection_page(
+            &self,
+            _: &AgentChatConversationId,
+            _: u64,
+            _: u16,
+        ) -> Result<AgentChatProjectionPage, LedgerError> {
+            Ok(self.projection.clone())
+        }
+
+        fn agent_chat_projection_tail(
+            &self,
+            _: &AgentChatConversationId,
+            _: u16,
+            _: u16,
+        ) -> Result<gent_types::AgentChatProjectionTail, LedgerError> {
+            Ok(gent_types::AgentChatProjectionTail {
+                conversation_id: self.projection.conversation_id.clone(),
+                cursor: self.projection.next_after_cursor.unwrap_or_default(),
+                transcript: self.projection.events.clone(),
+                activity: Vec::new(),
+                transcript_truncated: false,
+                activity_truncated: false,
+            })
+        }
     }
 
     impl AgentChatReadLedger for Ledger {
@@ -167,9 +263,13 @@ mod tests {
     fn transcript_rejects_a_non_advancing_cursor() {
         let page = page(vec![event(2), event(2)], None);
         assert!(
-            AgentChatReadService::new(Ledger { page, runs: vec![] })
-                .transcript("conversation", Some(1), 20)
-                .is_err()
+            AgentChatReadService::new(Ledger {
+                page,
+                projection: projection(vec![], None),
+                runs: vec![]
+            })
+            .transcript("conversation", Some(1), 20)
+            .is_err()
         );
     }
 
@@ -177,11 +277,15 @@ mod tests {
     fn transcript_accepts_the_final_event_cursor_as_the_resume_token() {
         let page = page(vec![event(2), event(3)], Some(3));
         assert_eq!(
-            AgentChatReadService::new(Ledger { page, runs: vec![] })
-                .transcript("conversation", Some(1), 500)
-                .unwrap()
-                .events
-                .len(),
+            AgentChatReadService::new(Ledger {
+                page,
+                projection: projection(vec![], None),
+                runs: vec![]
+            })
+            .transcript("conversation", Some(1), 500)
+            .unwrap()
+            .events
+            .len(),
             2
         );
     }
@@ -190,9 +294,13 @@ mod tests {
     fn transcript_rejects_a_continuation_that_skips_past_the_final_event() {
         let page = page(vec![event(2), event(3)], Some(4));
         assert!(
-            AgentChatReadService::new(Ledger { page, runs: vec![] })
-                .transcript("conversation", Some(1), 20)
-                .is_err()
+            AgentChatReadService::new(Ledger {
+                page,
+                projection: projection(vec![], None),
+                runs: vec![]
+            })
+            .transcript("conversation", Some(1), 20)
+            .is_err()
         );
     }
 
@@ -200,11 +308,57 @@ mod tests {
     fn run_selection_refuses_a_run_from_another_conversation() {
         let ledger = Ledger {
             page: page(vec![], None),
+            projection: projection(vec![], None),
             runs: vec![],
         };
         assert!(
             AgentChatReadService::new(ledger)
                 .run_selection("conversation", "other-run")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn projection_rejects_a_non_advancing_total_cursor() {
+        let ledger = Ledger {
+            page: page(vec![], None),
+            projection: projection(vec![projection_event(2), projection_event(2)], None),
+            runs: vec![],
+        };
+        assert!(
+            AgentChatReadService::new(ledger)
+                .projection("conversation", 1, 20)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn projection_uses_its_final_total_cursor_as_the_resume_token() {
+        let ledger = Ledger {
+            page: page(vec![], None),
+            projection: projection(vec![projection_event(2), projection_event(3)], Some(3)),
+            runs: vec![],
+        };
+        assert_eq!(
+            AgentChatReadService::new(ledger)
+                .projection("conversation", 1, 20)
+                .unwrap()
+                .events
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn projection_tail_rejects_a_window_past_its_snapshot_cursor() {
+        let ledger = Ledger {
+            page: page(vec![], None),
+            projection: projection(vec![projection_event(2), projection_event(5)], Some(4)),
+            runs: vec![],
+        };
+        assert!(
+            AgentChatReadService::new(ledger)
+                .projection_tail("conversation", 20, 20)
                 .is_err()
         );
     }
@@ -238,6 +392,8 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "ok".into(),
             is_partial: false,
+            origin: None,
+            attachments: Vec::new(),
         }
     }
     fn page(
@@ -248,6 +404,26 @@ mod tests {
             conversation_id: "conversation".into(),
             events,
             next_after_cursor,
+        }
+    }
+
+    fn projection(
+        events: Vec<AgentChatProjectionEvent>,
+        next_after_cursor: Option<u64>,
+    ) -> AgentChatProjectionPage {
+        AgentChatProjectionPage {
+            conversation_id: "conversation".into(),
+            events,
+            next_after_cursor,
+        }
+    }
+
+    fn projection_event(cursor: u64) -> AgentChatProjectionEvent {
+        AgentChatProjectionEvent {
+            cursor,
+            source_event_id: format!("projection-{cursor}"),
+            kind: "transcript".into(),
+            payload: serde_json::json!({"text": "ok"}),
         }
     }
 }

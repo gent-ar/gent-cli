@@ -1,10 +1,13 @@
 //! Validation for language-neutral, local IPC contract fixtures.
+mod agent_chat_projection;
 mod frames;
 mod wire;
 
+use agent_chat_projection::{validate_chat_projection, validate_chat_rejections};
 use frames::{
-    validate_chat_conversations, validate_chat_intents, validate_chat_transcript, validate_core,
-    validate_event_stream, validate_handshake, validate_permission_policy,
+    validate_chat_commands, validate_chat_conversations, validate_chat_intents,
+    validate_chat_transcript, validate_core, validate_event_stream, validate_goal,
+    validate_handshake, validate_model_catalog, validate_permission_policy, validate_provider_auth,
 };
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
@@ -78,6 +81,27 @@ pub fn validate_ipc_fixture_manifest(path: &Path) -> Result<(), String> {
         &entries,
         "permission-policy",
         validate_permission_policy,
+    )?;
+    validate_fixture(root, &entries, "model-catalog", validate_model_catalog)?;
+    validate_fixture(root, &entries, "goal", validate_goal)?;
+    validate_fixture(
+        root,
+        &entries,
+        "agent-chat-projection",
+        validate_chat_projection,
+    )?;
+    validate_fixture(
+        root,
+        &entries,
+        "agent-chat-rejections",
+        validate_chat_rejections,
+    )?;
+    validate_fixture(root, &entries, "provider-auth", validate_provider_auth)?;
+    validate_fixture(
+        root,
+        &entries,
+        "agent-chat-commands",
+        validate_chat_commands,
     )
 }
 
@@ -150,6 +174,50 @@ fn specs() -> BTreeMap<&'static str, FixtureSpec> {
             FixtureSpec {
                 path: "permission-policy.json",
                 capability: Some(PERMISSION_POLICY_CAPABILITY),
+            },
+        ),
+        (
+            "model-catalog",
+            FixtureSpec {
+                path: "model-catalog.json",
+                capability: Some(gent_protocol::model_catalog::MODEL_CATALOG_CAPABILITY),
+            },
+        ),
+        (
+            "goal",
+            FixtureSpec {
+                path: "goal.json",
+                capability: Some(gent_protocol::GOAL_CAPABILITY),
+            },
+        ),
+        (
+            "agent-chat-projection",
+            FixtureSpec {
+                path: "agent-chat-projection.json",
+                capability: Some(gent_protocol::AGENT_CHAT_PROJECTION_CAPABILITY),
+            },
+        ),
+        (
+            "agent-chat-rejections",
+            FixtureSpec {
+                path: "agent-chat-rejections.json",
+                capability: Some(AGENT_CHAT_INTENTS_CAPABILITY),
+            },
+        ),
+        (
+            "provider-auth",
+            FixtureSpec {
+                path: "provider-auth.json",
+                capability: Some(gent_protocol::PROVIDER_AUTH_CAPABILITY),
+            },
+        ),
+        (
+            "agent-chat-commands",
+            FixtureSpec {
+                path: "agent-chat-commands.json",
+                capability: Some(
+                    gent_protocol::agent_chat_commands::AGENT_CHAT_COMMANDS_CAPABILITY,
+                ),
             },
         ),
     ]

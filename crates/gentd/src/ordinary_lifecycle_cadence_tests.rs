@@ -288,3 +288,69 @@ fn selection(provider: AgentChatProvider) -> AgentChatSelection {
         mode: AgentChatMode::Ask,
     }
 }
+
+struct Provisioned(gent_protocol::PromptProviderProvisionState);
+
+impl crate::prompt_provider_provision_boundary::PromptProviderProvisionPort for Provisioned {
+    fn confirm(
+        &self,
+        _: gent_protocol::PromptProviderProvisionFrame,
+    ) -> Result<gent_protocol::PromptProviderProvisionFrame, String> {
+        Ok(gent_protocol::PromptProviderProvisionFrame::Result {
+            receipt: gent_types::Receipt {
+                receipt_id: ReceiptId("provision".into()),
+                idempotency_key: "provision".into(),
+                status: gent_types::ReceiptStatus::Settled,
+                host_epoch: gent_types::HostEpoch(1),
+            },
+            prompt_receipt_id: ReceiptId("receipt-1".into()),
+            conversation_id: AgentChatConversationId("conversation-1".into()),
+            run_id: AgentChatRunId("run-1".into()),
+            state: self.0,
+        })
+    }
+}
+
+fn provision_confirm() -> gent_protocol::PromptProviderProvisionFrame {
+    gent_protocol::PromptProviderProvisionFrame::Confirm {
+        receipt_id: ReceiptId("provision".into()),
+        idempotency_key: "provision".into(),
+        host_epoch: gent_types::HostEpoch(1),
+        prompt_receipt_id: ReceiptId("receipt-1".into()),
+        conversation_id: AgentChatConversationId("conversation-1".into()),
+        run_id: AgentChatRunId("run-1".into()),
+        consent_granted: true,
+        reviewed_plan_digest: "a".repeat(64),
+    }
+}
+
+#[tokio::test]
+async fn a_completed_provider_install_wakes_its_released_prompt_without_a_restart() {
+    use crate::prompt_provider_provision_boundary::PromptProviderProvisionPort;
+    let (control, cadence, ingress, events, ..) =
+        cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let task = tokio::spawn(cadence.run());
+    wait_for_ready(&control).await;
+    events.lock().unwrap().clear();
+
+    let failed = crate::ordinary_lifecycle_cadence::wake::ProvisionedPromptWake::new(
+        Arc::new(Provisioned(
+            gent_protocol::PromptProviderProvisionState::Failed,
+        )),
+        ingress.clone(),
+    );
+    failed.confirm(provision_confirm()).unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(events.lock().unwrap().is_empty());
+
+    let installed = crate::ordinary_lifecycle_cadence::wake::ProvisionedPromptWake::new(
+        Arc::new(Provisioned(
+            gent_protocol::PromptProviderProvisionState::Completed,
+        )),
+        ingress,
+    );
+    installed.confirm(provision_confirm()).unwrap();
+    wait_for(&events, 2).await;
+    assert_eq!(events.lock().unwrap()[..2], ["wake", "drive"]);
+    task.abort();
+}

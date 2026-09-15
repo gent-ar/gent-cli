@@ -1,13 +1,21 @@
 //! Observer-gated coordination of durable, provider-neutral user goals.
 
 use gent_core::{
-    ActiveGoalSelection, GoalControlContext, GoalControlEffect, GoalControlEvent,
-    GoalControlRejection, GoalControlState, reduce_goal_control, select_active_goal,
+    GoalDraft, GoalRejection, GoalUserCommand, apply_user_command, create_goal, replaced_goal,
+    reported_goal, stopped_goal,
 };
-use gent_ports::{ActiveGoalResolver, GoalLedger, GoalWrite, LedgerError};
-use gent_types::{GoalBinding, GoalProjection, GoalRecord, GoalTransition};
+use gent_ports::{
+    ActiveGoalResolver, GoalLedger, GoalWrite, LedgerError, MAX_GOAL_TURN_OBSERVATIONS,
+};
+use gent_types::{
+    AgentChatConversationId, GoalDispatchState, GoalProjection, GoalRecord, GoalReportOutcome,
+    GoalStatus, HostEpoch,
+};
+use sha2::{Digest, Sha256};
 
 use crate::RuntimeError;
+
+const MAX_WRITE_ATTEMPTS: usize = 4;
 
 /// Explicit composition authority for durable `/goal` operations.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -23,10 +31,15 @@ pub enum GoalAuthority {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GoalResult {
     DeniedObserver,
-    Missing,
-    Goal(GoalRecord),
-    Goals(Vec<GoalRecord>),
-    Rejected(GoalControlRejection),
+    Goal(Option<GoalRecord>),
+    Rejected(GoalRejection),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GoalControl {
+    Pause,
+    Resume,
+    Clear,
 }
 
 /// Coordinates pure goal transitions with revision-fenced durable storage.
@@ -45,90 +58,192 @@ impl<L> GoalService<L> {
 }
 
 impl<L: GoalLedger> GoalService<L> {
-    /// Creates a user-authored goal only through approved daemon composition.
-    ///
-    /// # Errors
-    /// Returns an error only after approved composition reaches durable storage.
-    pub fn create(
+    pub fn set(
         &self,
-        context: &GoalControlContext,
-        goal: GoalRecord,
+        request_id: &str,
+        conversation_id: &AgentChatConversationId,
+        objective: String,
+        token_budget: Option<u64>,
+        host_epoch: HostEpoch,
+        now: u64,
     ) -> Result<GoalResult, RuntimeError> {
         if self.authority != GoalAuthority::Approved {
             return Ok(GoalResult::DeniedObserver);
         }
-        let (_, effect) = reduce_goal_control(
-            GoalControlState::default(),
-            context,
-            GoalControlEvent::Create(goal),
-        );
-        match effect {
-            GoalControlEffect::Persist(candidate) => match self.ledger.create_goal(&candidate)? {
-                GoalWrite::Created(goal) | GoalWrite::Updated(goal) | GoalWrite::Current(goal) => {
-                    Ok(GoalResult::Goal(goal))
-                }
-            },
-            GoalControlEffect::Unchanged(goal) => Ok(GoalResult::Goal(goal)),
-            GoalControlEffect::Rejected(reason) => Ok(GoalResult::Rejected(reason)),
+        let goal_id = goal_id_for(conversation_id, request_id);
+        for _ in 0..MAX_WRITE_ATTEMPTS {
+            let current = self.ledger.current_goal(&conversation_id.0)?;
+            if let Some(current) = current
+                .as_ref()
+                .filter(|goal| goal.binding.goal_id == goal_id)
+            {
+                return Ok(GoalResult::Goal(Some(current.clone())));
+            }
+            let draft = GoalDraft {
+                goal_id: goal_id.clone(),
+                conversation_id: conversation_id.clone(),
+                objective: objective.clone(),
+                token_budget,
+                accounted_through_ordinal: self.settled_prefix(&conversation_id.0, 0)?,
+            };
+            let goal = match create_goal(draft, now) {
+                Ok(goal) => goal,
+                Err(rejection) => return Ok(GoalResult::Rejected(rejection)),
+            };
+            let replaced = current
+                .as_ref()
+                .and_then(|current| replaced_goal(current, now));
+            if let GoalWrite::Updated(goal) =
+                self.ledger
+                    .create_goal(current.as_ref(), replaced.as_ref(), &goal, host_epoch)?
+            {
+                return Ok(GoalResult::Goal(Some(goal)));
+            }
         }
+        Err(contention())
     }
 
-    /// Settles an active goal after reading and atomically rechecking its exact revision.
-    ///
-    /// # Errors
-    /// Returns an error only after approved composition reaches durable storage.
-    pub fn transition(
+    pub fn control(
         &self,
-        context: &GoalControlContext,
-        request: GoalTransition,
+        conversation_id: &AgentChatConversationId,
+        goal_id: &str,
+        expected_revision: u64,
+        control: GoalControl,
+        host_epoch: HostEpoch,
+        now: u64,
     ) -> Result<GoalResult, RuntimeError> {
         if self.authority != GoalAuthority::Approved {
             return Ok(GoalResult::DeniedObserver);
         }
-        let Some(current) = self.ledger.find_goal(&request.binding)? else {
-            return Ok(GoalResult::Missing);
-        };
-        let (_, effect) = reduce_goal_control(
-            GoalControlState::new(Some(current.clone())),
-            context,
-            GoalControlEvent::Transition(request),
-        );
-        match effect {
-            GoalControlEffect::Persist(next) => match self.ledger.replace_goal(&current, &next)? {
-                GoalWrite::Updated(goal) | GoalWrite::Created(goal) | GoalWrite::Current(goal) => {
-                    Ok(GoalResult::Goal(goal))
-                }
-            },
-            GoalControlEffect::Unchanged(goal) => Ok(GoalResult::Goal(goal)),
-            GoalControlEffect::Rejected(reason) => Ok(GoalResult::Rejected(reason)),
-        }
-    }
-
-    /// Reads one durable goal only through approved composition.
-    ///
-    /// # Errors
-    /// Returns an error only after approved composition reaches durable storage.
-    pub fn get(&self, binding: &GoalBinding) -> Result<GoalResult, RuntimeError> {
-        if self.authority != GoalAuthority::Approved {
-            return Ok(GoalResult::DeniedObserver);
-        }
-        Ok(self
+        let Some(current) = self
             .ledger
-            .find_goal(binding)?
-            .map_or(GoalResult::Missing, GoalResult::Goal))
+            .current_goal(&conversation_id.0)?
+            .filter(|goal| goal.binding.goal_id == goal_id)
+        else {
+            return Ok(GoalResult::Rejected(GoalRejection::Missing));
+        };
+        let command = match control {
+            GoalControl::Pause => GoalUserCommand::Pause,
+            GoalControl::Clear => GoalUserCommand::Clear,
+            GoalControl::Resume => GoalUserCommand::Resume {
+                accounted_through_ordinal: self
+                    .settled_prefix(&conversation_id.0, current.accounted_through_ordinal)?,
+            },
+        };
+        let next = match apply_user_command(&current, expected_revision, command, now) {
+            Ok(next) => next,
+            Err(rejection) => return Ok(GoalResult::Rejected(rejection)),
+        };
+        Ok(
+            match self.ledger.replace_goal(&current, &next, host_epoch)? {
+                GoalWrite::Updated(goal) => GoalResult::Goal(Some(goal)),
+                GoalWrite::Current(_) => GoalResult::Rejected(GoalRejection::RevisionMismatch),
+            },
+        )
     }
 
-    /// Lists current conversation goals only through approved composition.
-    ///
-    /// # Errors
-    /// Returns an error only after approved composition reaches durable storage.
-    pub fn list(&self, conversation_id: &str) -> Result<GoalResult, RuntimeError> {
+    pub fn report(
+        &self,
+        goal_id: &str,
+        outcome: GoalReportOutcome,
+        note: Option<String>,
+        host_epoch: HostEpoch,
+        now: u64,
+    ) -> Result<GoalResult, RuntimeError> {
         if self.authority != GoalAuthority::Approved {
             return Ok(GoalResult::DeniedObserver);
         }
-        Ok(GoalResult::Goals(
-            self.ledger.conversation_goals(conversation_id)?,
+        for _ in 0..MAX_WRITE_ATTEMPTS {
+            let Some(current) = self.ledger.find_goal(goal_id)? else {
+                return Ok(GoalResult::Rejected(GoalRejection::Missing));
+            };
+            if !self.turn_in_flight(&current)? {
+                return Ok(GoalResult::Rejected(GoalRejection::NoActiveTurn));
+            }
+            let next = match reported_goal(&current, outcome, note.clone(), now) {
+                Ok(next) => next,
+                Err(rejection) => return Ok(GoalResult::Rejected(rejection)),
+            };
+            if let GoalWrite::Updated(goal) =
+                self.ledger.replace_goal(&current, &next, host_epoch)?
+            {
+                return Ok(GoalResult::Goal(Some(goal)));
+            }
+        }
+        Err(contention())
+    }
+
+    pub fn stop(
+        &self,
+        conversation_id: &AgentChatConversationId,
+        host_epoch: HostEpoch,
+        now: u64,
+    ) -> Result<Option<GoalRecord>, RuntimeError> {
+        if self.authority != GoalAuthority::Approved {
+            return Ok(None);
+        }
+        for _ in 0..MAX_WRITE_ATTEMPTS {
+            let Some(current) = self.ledger.current_goal(&conversation_id.0)? else {
+                return Ok(None);
+            };
+            let Some(next) = stopped_goal(&current, now) else {
+                return Ok(None);
+            };
+            if let GoalWrite::Updated(goal) =
+                self.ledger.replace_goal(&current, &next, host_epoch)?
+            {
+                return Ok(Some(goal));
+            }
+        }
+        Err(contention())
+    }
+
+    pub fn current(
+        &self,
+        conversation_id: &AgentChatConversationId,
+    ) -> Result<GoalResult, RuntimeError> {
+        if self.authority != GoalAuthority::Approved {
+            return Ok(GoalResult::DeniedObserver);
+        }
+        Ok(GoalResult::Goal(
+            self.ledger
+                .current_goal(&conversation_id.0)?
+                .filter(|goal| goal.status != GoalStatus::Cleared),
         ))
+    }
+
+    fn turn_in_flight(&self, goal: &GoalRecord) -> Result<bool, RuntimeError> {
+        let mut after = goal.accounted_through_ordinal;
+        loop {
+            let turns = self
+                .ledger
+                .goal_turns(&goal.binding.conversation_id.0, after)?;
+            if turns.iter().any(|turn| {
+                !turn.phase.is_terminal() && turn.dispatch == GoalDispatchState::InFlight
+            }) {
+                return Ok(true);
+            }
+            match turns.last() {
+                Some(last) if turns.len() == MAX_GOAL_TURN_OBSERVATIONS => after = last.ordinal,
+                _ => return Ok(false),
+            }
+        }
+    }
+
+    fn settled_prefix(&self, conversation_id: &str, from: u64) -> Result<u64, RuntimeError> {
+        let mut settled = from;
+        loop {
+            let turns = self.ledger.goal_turns(conversation_id, settled)?;
+            for turn in &turns {
+                if !turn.phase.is_terminal() {
+                    return Ok(settled);
+                }
+                settled = turn.ordinal;
+            }
+            if turns.len() < MAX_GOAL_TURN_OBSERVATIONS {
+                return Ok(settled);
+            }
+        }
     }
 }
 
@@ -136,114 +251,37 @@ impl<L: GoalLedger + std::fmt::Debug> ActiveGoalResolver for GoalService<L> {
     fn resolve_active_goal(
         &self,
         conversation_id: &str,
-        run_id: &str,
     ) -> Result<Option<GoalProjection>, LedgerError> {
         if self.authority != GoalAuthority::Approved {
             return Ok(None);
         }
-        match select_active_goal(
-            &self.ledger.conversation_goals(conversation_id)?,
-            conversation_id,
-            run_id,
-        ) {
-            ActiveGoalSelection::None => Ok(None),
-            ActiveGoalSelection::Goal(goal) => Ok(Some(goal)),
-            ActiveGoalSelection::Rejected(_) => Err(LedgerError::Invariant(
-                "active goal state is unsafe to project".into(),
-            )),
-        }
+        self.ledger
+            .current_goal(conversation_id)?
+            .filter(|goal| goal.status == GoalStatus::Active)
+            .map(|goal| {
+                GoalProjection::from_active(&goal).map_err(|_| {
+                    LedgerError::Invariant("active goal state is unsafe to project".into())
+                })
+            })
+            .transpose()
     }
+}
+
+fn goal_id_for(conversation_id: &AgentChatConversationId, request_id: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"gent-goal-v2\0");
+    digest.update(conversation_id.0.as_bytes());
+    digest.update([0]);
+    digest.update(request_id.as_bytes());
+    format!("goal-{}", &hex::encode(digest.finalize())[..32])
+}
+
+fn contention() -> RuntimeError {
+    RuntimeError::Ledger(LedgerError::Invariant(
+        "goal changed concurrently too often".into(),
+    ))
 }
 
 #[cfg(test)]
-mod tests {
-    use gent_core::GoalControlContext;
-    use gent_ports::{ActiveGoalResolver, GoalLedger, GoalWrite, LedgerError};
-    use gent_types::{
-        AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord,
-        GoalStatus, GoalTransition, HostEpoch,
-    };
-
-    use super::{GoalAuthority, GoalResult, GoalService};
-
-    #[derive(Debug)]
-    struct PanicLedger;
-
-    impl GoalLedger for PanicLedger {
-        fn find_goal(&self, _: &GoalBinding) -> Result<Option<GoalRecord>, LedgerError> {
-            panic!("observer goal read reached the ledger")
-        }
-
-        fn create_goal(&self, _: &GoalRecord) -> Result<GoalWrite, LedgerError> {
-            panic!("observer goal create reached the ledger")
-        }
-
-        fn replace_goal(&self, _: &GoalRecord, _: &GoalRecord) -> Result<GoalWrite, LedgerError> {
-            panic!("observer goal transition reached the ledger")
-        }
-
-        fn conversation_goals(&self, _: &str) -> Result<Vec<GoalRecord>, LedgerError> {
-            panic!("observer goal list reached the ledger")
-        }
-    }
-
-    fn binding() -> GoalBinding {
-        GoalBinding {
-            goal_id: "goal-1".into(),
-            conversation_id: AgentChatConversationId("conversation-1".into()),
-            run_id: AgentChatRunId("run-1".into()),
-        }
-    }
-
-    fn context() -> GoalControlContext {
-        GoalControlContext {
-            conversation_id: "conversation-1".into(),
-            run_id: "run-1".into(),
-            host_epoch: HostEpoch(1),
-        }
-    }
-
-    fn goal() -> GoalRecord {
-        GoalRecord {
-            schema_version: GOAL_SCHEMA_VERSION,
-            binding: binding(),
-            revision: 1,
-            status: GoalStatus::Active,
-            summary: "Finish the terminal workflow".into(),
-        }
-    }
-
-    #[test]
-    fn observer_has_no_goal_read_or_write_path() {
-        let service = GoalService::new(PanicLedger, GoalAuthority::Observer);
-        assert_eq!(
-            service.create(&context(), goal()).unwrap(),
-            GoalResult::DeniedObserver
-        );
-        assert_eq!(
-            service
-                .transition(
-                    &context(),
-                    GoalTransition {
-                        binding: binding(),
-                        expected_revision: 1,
-                        host_epoch: HostEpoch(1),
-                        next_status: GoalStatus::Completed,
-                    },
-                )
-                .unwrap(),
-            GoalResult::DeniedObserver
-        );
-        assert_eq!(service.get(&binding()).unwrap(), GoalResult::DeniedObserver);
-        assert_eq!(
-            service.list("conversation-1").unwrap(),
-            GoalResult::DeniedObserver
-        );
-        assert_eq!(
-            service
-                .resolve_active_goal("conversation-1", "run-1")
-                .unwrap(),
-            None
-        );
-    }
-}
+#[path = "goal_projection_tests.rs"]
+mod tests;

@@ -1,5 +1,15 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use gent_types::{AgentChatPromptSaved, AttachmentMetadata};
+
+#[path = "claurst_context_summarizer.rs"]
+mod summarizer;
+#[cfg(test)]
+pub(crate) use summarizer::ContextSummary;
+pub(crate) use summarizer::{
+    ContextSummarizer, LlamaContextSummarizer, LlamaSummaryEndpoint, LocalContextWindow,
+};
 
 #[async_trait]
 pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug {
@@ -9,6 +19,9 @@ pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug {
     }
     async fn after_prompt_failed(&self, _: &str) -> Result<(), String> {
         Ok(())
+    }
+    async fn context_summarizer(&self) -> Option<Arc<dyn ContextSummarizer>> {
+        None
     }
     async fn prompt_attachments(
         &self,

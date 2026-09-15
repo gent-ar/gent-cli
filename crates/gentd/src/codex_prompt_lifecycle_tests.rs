@@ -33,6 +33,7 @@ pub(crate) struct State {
     pub(crate) resumes: usize,
     pub(crate) signals: Vec<ProcessTreeSignal>,
     pub(crate) turn_interrupts: Vec<String>,
+    pub(crate) steers: Vec<(String, String)>,
     pub(crate) releases: Vec<String>,
 }
 impl PublicProviderRunner for Runner {
@@ -128,6 +129,7 @@ impl CodexPromptExecution for Runner {
         prompt: &str,
         goal: Option<&gent_types::GoalProjection>,
         _: &[serde_json::Value],
+        _: Option<&str>,
     ) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
         state.submitted.push(prompt.into());
@@ -150,6 +152,21 @@ impl CodexPromptExecution for Runner {
             .unwrap()
             .turn_interrupts
             .push(run_id.into());
+        Ok(())
+    }
+
+    fn steer_codex_turn(
+        &self,
+        _: &str,
+        message_id: &str,
+        prompt: &str,
+        _: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError> {
+        self.state
+            .lock()
+            .unwrap()
+            .steers
+            .push((message_id.into(), prompt.into()));
         Ok(())
     }
 
@@ -237,7 +254,7 @@ pub(crate) fn assert_prepared_options(runner: &Runner) {
     let expected = CodexTurnOptions::from_selection_with_permissions(
         &selection(),
         Some("/workspace-a"),
-        gent_types::PermissionMode::Default,
+        gent_types::PermissionMode::AskEveryTime,
     )
     .unwrap();
     let state = runner.state.lock().unwrap();

@@ -7,7 +7,7 @@ fn review_read_is_typed_and_capability_gated() {
     let frame = ReviewedPlanFrame::ReviewRead {
         request_id: "request-1".into(),
         conversation_id: AgentChatConversationId("conversation-1".into()),
-        plan_id: ReviewedPlanId("plan-1".into()),
+        plan_id: Some(ReviewedPlanId("plan-1".into())),
     };
     assert_eq!(frame.validate(), Ok(()));
     assert_eq!(REVIEWED_PLAN_CAPABILITY, "reviewed-plan-v1");

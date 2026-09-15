@@ -69,7 +69,7 @@ impl ClaurstStartRequest {
         if let Some(goal) = &self.goal
             && (goal.run_id != self.run_id
                 || goal.source_id != self.source_id
-                || goal.goal.binding().conversation_id != self.context.conversation_id)
+                || *goal.goal.conversation_id() != self.context.conversation_id)
         {
             return Err(GoalContractError::InvalidMetadata);
         }
@@ -128,15 +128,16 @@ impl ClaurstGoalProjection {
     /// # Errors
     /// Returns an error if the record is not an active valid goal or the source is empty.
     pub fn from_active_goal(
+        run_id: &str,
         source_id: ClaurstSourceId,
         goal: &GoalRecord,
     ) -> Result<Self, GoalContractError> {
-        if source_id.0.is_empty() {
+        if source_id.0.is_empty() || run_id.trim().is_empty() {
             return Err(GoalContractError::InvalidMetadata);
         }
         let goal = GoalProjection::from_active(goal)?;
         Ok(Self {
-            run_id: goal.binding().run_id.0.clone(),
+            run_id: run_id.into(),
             source_id,
             goal,
         })
@@ -173,6 +174,7 @@ pub struct ClaurstPermissionRequest {
     pub tool_use_id: String,
     pub tool_name: String,
     pub category: PermissionCategory,
+    pub input: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -13,6 +13,7 @@ pub struct ClaudePermissionRequest {
     pub request_id: String,
     pub tool_use_id: String,
     pub tool_name: String,
+    pub child_id: Option<String>,
 }
 
 /// The closed response selected after Gent's durable permission policy resolves a request.
@@ -54,6 +55,10 @@ pub fn parse_permission_request(
             request_id: request_id.into(),
             tool_use_id: tool_use_id.into(),
             tool_name: tool_name.into(),
+            child_id: string(request, "agent_id")
+                .or_else(|| string(frame, "agent_id"))
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned),
         },
         suggestions,
     ))
@@ -77,6 +82,24 @@ pub fn encode_permission_response(
         suggestions,
         None,
     )
+}
+
+pub const PLAN_REVIEW_MESSAGE: &str = "Gent saved this plan for the user's review. End your turn now without further tool calls; the user will approve it and start implementation separately.";
+
+#[must_use]
+pub fn encode_plan_review_response(request_id: &str) -> Vec<u8> {
+    let Ok(mut frame) = serde_json::to_vec(&json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": {"behavior": "deny", "message": PLAN_REVIEW_MESSAGE},
+        }
+    })) else {
+        return Vec::new();
+    };
+    frame.push(b'\n');
+    frame
 }
 
 pub fn encode_permission_response_with_input(
@@ -125,6 +148,33 @@ pub fn encode_permission_response_with_input(
     frame
 }
 
+#[must_use]
+pub fn control_request_id(frame: &Value) -> Option<&str> {
+    string(frame, "request_id")
+        .or_else(|| {
+            frame
+                .get("request")
+                .and_then(|request| string(request, "request_id"))
+        })
+        .filter(|value| !value.is_empty() && value.len() <= 256)
+}
+
+#[must_use]
+pub fn encode_control_error(request_id: &str, classification: &str) -> Vec<u8> {
+    let Ok(mut frame) = serde_json::to_vec(&json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "error",
+            "request_id": request_id,
+            "error": format!("Gent does not handle this control request ({classification})."),
+        }
+    })) else {
+        return Vec::new();
+    };
+    frame.push(b'\n');
+    frame
+}
+
 fn suggestions(value: &Value) -> Result<Vec<Value>, &'static str> {
     let values = value.as_array().ok_or("malformedClaudeControlRequest")?;
     values
@@ -164,6 +214,21 @@ mod tests {
         assert_eq!(request.tool_name, "Bash");
         assert!(!format!("{request:?}").contains("private"));
         assert_eq!(suggestions.len(), 1);
+        assert_eq!(request.child_id, None);
+    }
+
+    #[test]
+    fn a_subagent_permission_request_carries_the_asking_child_agent() {
+        let (request, _) = parse_permission_request(&json!({
+            "type": "control_request",
+            "request_id": "request-2",
+            "request": {
+                "subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "tool-2",
+                "agent_id": "agent-7",
+            }
+        }))
+        .unwrap();
+        assert_eq!(request.child_id.as_deref(), Some("agent-7"));
     }
 
     #[test]

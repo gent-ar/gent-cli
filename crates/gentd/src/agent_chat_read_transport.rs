@@ -69,7 +69,7 @@ where
             )
             .await?;
         }
-        Err(message) => write_error(stream, "agentChatReadUnavailable", &message).await?,
+        Err(rejection) => write_error(stream, rejection.code, &rejection.message).await?,
     }
     Ok(true)
 }
@@ -104,7 +104,7 @@ where
             )
             .await?;
         }
-        Err(message) => write_error(stream, "agentChatReadUnavailable", &message).await?,
+        Err(rejection) => write_error(stream, rejection.code, &rejection.message).await?,
     }
     Ok(true)
 }

@@ -24,7 +24,7 @@ None of those records exist yet — backlog item 2 builds them.
 | Language picker | input controls | Native device service | Controls STT only |
 | Git/worktree | `app/lib/provider/repo_cache_provider.dart` and Git services | Gentd workspace projection | Render branch/status; submit declared workspace actions |
 | Checkpoint/fork/resume | `app/lib/widget/agent_chat/panel_dialogs.dart` | `agent-chat-intents-v1` | Render records; require an explicit confirmation receipt where filesystem state changes |
-| Side question | `native:app/lib/provider/network/server/controller/agent_chat_btw.dart`, `native:app/lib/util/side_question_context.dart` | `agent-chat-side-question-v1` (new) | Decided: kept. Native issues `ask`/`cancel` intents and renders streamed `side_question_*` events; delete the Dart-side helper-process spawn, bounding and concurrency-cap code in the same cutover. See `integration-gap-review.md` for the specified shape |
+| Side question | `native:app/lib/provider/network/server/controller/agent_chat_btw.dart`, `native:app/lib/util/side_question_context.dart` | `agent-chat-side-question-v1` (new) | Decided: kept. Native issues `ask`/`cancel` intents and renders streamed `side_question_*` events; delete the Dart-side helper-process spawn, bounding and concurrency-cap code in the same cutover. See `integration-gap-review-p1.md` for the specified shape |
 | System prompt and advanced options | overflow/dialog controls | Gentd conversation configuration | Render descriptor-driven fields; persist nothing in Flutter |
 
 ## Conversation body and work views

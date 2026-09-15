@@ -45,18 +45,18 @@ fn summary(
     conversation_id: &str,
 ) -> Result<AgentChatConversationSummary, LedgerError> {
     let connection = ledger.lock()?;
-    let selection = connection.query_row("SELECT s.provider, s.model, s.effort, s.mode FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id WHERE r.conversation_id = ?1 ORDER BY r.rowid DESC LIMIT 1", [conversation_id], selection).optional().map_err(storage_error)?.ok_or_else(|| LedgerError::Invariant("agent chat conversation does not exist".into()))?;
+    let selection = connection.query_row("SELECT s.provider, s.model, s.effort, s.mode FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id WHERE r.conversation_id = ?1 ORDER BY r.rowid DESC LIMIT 1", [conversation_id], selection).optional().map_err(storage_error)?.ok_or(LedgerError::Rejected(gent_types::AgentChatRejection::ConversationNotFound))?;
     let title = metadata(&connection, conversation_id, "title")?;
     let recap = metadata(&connection, conversation_id, "recap")?;
-    let (workspace_id, workspace_path) = connection
+    let (workspace_id, workspace_path, updated_at_unix_ms) = connection
         .query_row(
-            "SELECT c.workspace_id, w.canonical_path FROM agent_chat_conversations c LEFT JOIN workspaces w ON w.workspace_id = c.workspace_id WHERE c.conversation_id = ?1",
+            "SELECT c.workspace_id, w.canonical_path, c.updated_at_unix_ms FROM agent_chat_conversations c LEFT JOIN workspaces w ON w.workspace_id = c.workspace_id WHERE c.conversation_id = ?1",
             [conversation_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
         .map_err(storage_error)?
-        .unwrap_or((None, None));
+        .unwrap_or((None, None, 0));
     Ok(AgentChatConversationSummary {
         conversation_id: conversation_id.into(),
         title,
@@ -67,7 +67,7 @@ fn summary(
         mcp_server_names: Vec::new(),
         changed_file_count: None,
         git_branch: None,
-        updated_at_unix_ms: 0,
+        updated_at_unix_ms,
         selection,
     })
 }

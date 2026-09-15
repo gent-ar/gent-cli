@@ -3,10 +3,10 @@
 //! This wrapper deliberately has no provider, process, or daemon dependency. The prompt ledger
 //! owns receipt correlation, current-run resolution, and the single durable transaction.
 
-use gent_ports::AgentChatPromptLedger;
+use gent_ports::{AgentChatPromptLedger, AgentChatQueuedPromptLedger};
 use gent_types::{
     AgentChatConversationId, AgentChatPromptCreate, AgentChatPromptDisposition,
-    AgentChatPromptSaved, AgentChatRequestId, AgentChatRunId, HostEpoch, ReceiptId,
+    AgentChatPromptSaved, AgentChatRequestId, AgentChatRunId, HostEpoch, Receipt, ReceiptId,
 };
 
 use crate::RuntimeError;
@@ -97,6 +97,58 @@ impl<L: AgentChatPromptLedger> AgentChatPromptService<L> {
             self.ledger
                 .save_agent_chat_prompt_for_run(&to_create(request), expected_run_id)?,
         )))
+    }
+}
+
+impl<L: AgentChatQueuedPromptLedger> AgentChatPromptService<L> {
+    pub fn cancel_queued(
+        &self,
+        receipt_id: &ReceiptId,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+        message_id: &str,
+    ) -> Result<Option<Receipt>, RuntimeError> {
+        if self.authority != AgentChatPromptAuthority::Approved {
+            return Ok(None);
+        }
+        Ok(Some(self.ledger.cancel_queued_agent_chat_prompt(
+            receipt_id,
+            host_epoch,
+            conversation_id,
+            message_id,
+        )?))
+    }
+
+    pub fn interrupt_active_turn_for_steer(
+        &self,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+        run_id: &gent_types::AgentChatRunId,
+    ) -> Result<bool, RuntimeError> {
+        if self.authority != AgentChatPromptAuthority::Approved {
+            return Ok(false);
+        }
+        Ok(self
+            .ledger
+            .interrupt_active_turn_for_steer(host_epoch, conversation_id, run_id)?)
+    }
+
+    pub fn steer_queued(
+        &self,
+        receipt_id: &ReceiptId,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+        message_id: &str,
+    ) -> Result<Option<(Receipt, gent_types::AgentChatRunId)>, RuntimeError> {
+        if self.authority != AgentChatPromptAuthority::Approved {
+            return Ok(None);
+        }
+        Ok(Some(self.ledger.steer_queued_agent_chat_prompt(
+            receipt_id,
+            host_epoch,
+            conversation_id,
+            message_id,
+        )?))
     }
 }
 

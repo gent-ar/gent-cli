@@ -1,6 +1,9 @@
-// Generic command-frame mapping kept separate from IPC connection routing.
+use gent_protocol::WireFrame;
+use serde_json::Value;
 
-pub(crate) fn command_frame<R: RuntimeApi>(runtime: &R, raw: Value) -> Result<WireFrame, String> {
+use crate::api::RuntimeApi;
+
+pub(super) fn command_frame<R: RuntimeApi>(runtime: &R, raw: Value) -> Result<WireFrame, String> {
     match serde_json::from_value::<WireFrame>(raw) {
         Ok(WireFrame::OnboardingRequest) => Ok(WireFrame::Onboarding(runtime.onboarding())),
         Ok(WireFrame::StatusRequest) => runtime.status().map(WireFrame::Status),

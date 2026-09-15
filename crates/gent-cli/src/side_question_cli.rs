@@ -6,17 +6,21 @@ use std::path::PathBuf;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SideQuestionCommand {
+    #[command(about = "Ask a question about a conversation without adding it to the chat")]
     Ask {
-        #[arg(long)]
+        #[arg(long, help = "Conversation the question is about")]
         conversation_id: String,
+        #[arg(help = "Question text")]
         question: String,
     },
+    #[command(about = "Cancel a pending side question")]
     Cancel {
-        #[arg(long)]
+        #[arg(long, help = "Side question id")]
         side_question_id: String,
     },
+    #[command(about = "List a conversation's side questions")]
     List {
-        #[arg(long)]
+        #[arg(long, help = "Conversation to read")]
         conversation_id: String,
     },
 }

@@ -1,6 +1,8 @@
 //! Capability-gated provider readiness frames for one exact Gent chat selection.
 
 use gent_types::{AgentChatConversationId, AgentChatProvider, AgentChatRunId};
+
+use crate::LocalModelInstallState;
 use serde::{Deserialize, Serialize};
 
 use crate::ProviderInstallReview;
@@ -12,7 +14,6 @@ pub const PROVIDER_READINESS_CAPABILITY: &str = "provider-readiness-v2";
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderReadinessUnavailable {
-    ClaurstPrivateBridge,
     ProvenanceUnreadable,
 }
 
@@ -53,6 +54,12 @@ pub enum ProviderReadinessFrame {
         conversation_id: AgentChatConversationId,
         run_id: AgentChatRunId,
         reason: ProviderReadinessUnavailable,
+    },
+    LocalModel {
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
+        model_id: String,
+        install: LocalModelInstallState,
     },
 }
 

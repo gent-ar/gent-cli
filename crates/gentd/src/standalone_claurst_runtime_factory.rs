@@ -1,39 +1,50 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use gent_ports::{
-    AgentChatWorkspaceLedger, ClaurstDrainBatch, ClaurstDrainRequest, ClaurstPermissionReply,
-    ClaurstPromptAttachment, ClaurstSessionBinding, ClaurstStartRequest, ClaurstSubmitRequest,
-    PortError, PrivateClaurstBridge, ToolSourceLedger,
+    ClaurstDrainBatch, ClaurstDrainRequest, ClaurstPermissionReply, ClaurstPromptAttachment,
+    ClaurstSessionBinding, ClaurstStartRequest, ClaurstSubmitRequest, PortError,
+    PrivateClaurstBridge,
 };
-use gent_runtime::AgentChatReadService;
 use gent_runtime::conversation_summary_scheduler::ConversationSummaryScheduler;
 use gent_store::SqliteLedger;
-use gent_types::{AgentChatPromptSaved, AttachmentMetadata, PermissionMode};
+use gent_types::{AgentChatPromptSaved, AttachmentMetadata};
 use sha2::{Digest, Sha256};
 
 use crate::{
     claurst_acp_bridge::ClaurstBridgeHandle,
     claurst_local_readiness::ClaurstLocalReadinessService,
     claurst_local_runtime::ClaurstLocalRuntimeRequest,
-    claurst_local_runtime_owner::{
-        HttpLlamaServerReadiness, SystemClaurstAcpStdio, SystemClaurstStandaloneLauncher,
-        SystemLocalRuntimeProcess, SystemPrivateSettingsStore,
-    },
-    claurst_runtime_factory::ClaurstRuntimeFactory,
-    claurst_standalone_owner::{ClaurstStandaloneOwner, ClaurstStandaloneRuntime},
+    claurst_local_runtime_owner::{SystemClaurstAcpStdio, SystemLocalRuntimeProcess},
+    claurst_metadata_summary::ClaurstMetadataSummaryRunner,
+    claurst_runtime_factory::{ClaurstRuntimeFactory, ContextSummarizer},
+    claurst_standalone_owner::ClaurstStandaloneRuntime,
 };
+
+#[path = "standalone_claurst_runtime_factory_launch.rs"]
+mod launch;
+use launch::RuntimeIdentity;
 
 type SystemRuntime = ClaurstStandaloneRuntime<SystemLocalRuntimeProcess, SystemClaurstAcpStdio>;
 type SystemBridge = ClaurstBridgeHandle<SystemClaurstAcpStdio>;
 
 struct ActiveRuntime {
-    model_id: String,
-    workspace: PathBuf,
-    permission_mode: PermissionMode,
-    mcp_config_digest: Option<String>,
+    identity: RuntimeIdentity,
     bridge: SystemBridge,
     runtime: SystemRuntime,
+}
+
+impl ActiveRuntime {
+    async fn shut_down(self, failure: &str) -> Result<(), String> {
+        let Self {
+            bridge, runtime, ..
+        } = self;
+        drop(bridge);
+        tokio::task::spawn_blocking(move || runtime.shutdown())
+            .await
+            .map_err(|_| "local Claurst shutdown worker stopped unexpectedly".to_owned())?
+            .map_err(|error| format!("{failure}: {error}"))
+    }
 }
 
 impl std::fmt::Debug for ActiveRuntime {
@@ -52,7 +63,6 @@ pub(crate) struct StandaloneClaurstRuntimeConfig {
 pub(crate) struct StandaloneClaurstRuntimeFactory {
     ledger: SqliteLedger,
     readiness: ClaurstLocalReadinessService,
-    models: crate::standalone_authority_composition::StandaloneClaurstModels,
     config: Option<StandaloneClaurstRuntimeConfig>,
     active: tokio::sync::Mutex<Option<ActiveRuntime>>,
 }
@@ -69,8 +79,7 @@ impl StandaloneClaurstRuntimeFactory {
     ) -> Self {
         Self {
             ledger,
-            readiness: ClaurstLocalReadinessService::new(models.provisioner.clone()),
-            models,
+            readiness: ClaurstLocalReadinessService::new(models.provisioner),
             config,
             active: tokio::sync::Mutex::new(None),
         }
@@ -95,7 +104,7 @@ impl StandaloneClaurstRuntimeFactory {
         let runtime = active
             .as_ref()
             .ok_or_else(|| PortError::Unavailable("local Claurst runtime is not ready".into()))?;
-        if runtime.model_id != model_id {
+        if runtime.identity.model_id != model_id {
             return Err(PortError::Unavailable(
                 "selected Claurst model is not the active local model".into(),
             ));
@@ -108,156 +117,12 @@ impl StandaloneClaurstRuntimeFactory {
         Ok(runtime.bridge.clone())
     }
 
-    async fn start_selected(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
-        let selection = AgentChatReadService::new(self.ledger.clone())
-            .run_selection(&saved.message.conversation_id, &saved.run_id.0)
-            .map_err(|error| error.to_string())?;
-        let workspace_record = self
-            .ledger
-            .agent_chat_workspace_for_run(&saved.message.conversation_id, &saved.run_id.0)
-            .map_err(|error| error.to_string())?;
-        let workspace_id = workspace_record.workspace_id.clone();
-        let workspace = PathBuf::from(workspace_record.canonical_path);
-        let permission = crate::permission_workspace::policy_for(&self.ledger, &workspace_id)
-            .map_err(|error| error.to_string())?;
-        if !workspace.is_absolute() {
-            return Err("the selected Gent workspace is not absolute".into());
-        }
-
-        let config = self.config.as_ref().ok_or_else(|| {
-            "Claurst is selected but its local Claurst and llama.cpp executables are not installed"
-                .to_owned()
-        })?;
-        let selected_sources = saved
-            .tool_source_ids
-            .iter()
-            .map(|source_id| {
-                self.ledger
-                    .find_tool_source(source_id)
-                    .map_err(|error| error.to_string())?
-                    .ok_or_else(|| "selected MCP tool source does not exist".to_owned())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if selected_sources.iter().any(|source| {
-            source.workspace_id != workspace_id
-                || source.kind != gent_types::ToolSourceKind::McpServer
-        }) {
-            return Err("selected MCP tool source is not available in this workspace".into());
-        }
-        let selected = !selected_sources.is_empty();
-        let mcp_config_digest = config
-            .mcp_config
-            .as_ref()
-            .map(crate::standalone_mcp_config::StandaloneMcpConfig::digest)
-            .transpose()?;
-        let permission_mode = if selection.mode == gent_types::AgentChatMode::Plan {
-            PermissionMode::Plan
-        } else {
-            permission.mode
-        };
-        let previous = {
-            let mut active = self.active.lock().await;
-            if active.as_ref().is_some_and(|runtime| {
-                runtime.model_id == selection.model
-                    && runtime.workspace == workspace
-                    && runtime.permission_mode == permission_mode
-                    && runtime.mcp_config_digest == mcp_config_digest
-            }) {
-                return Ok(());
-            }
-            active.take()
-        };
-        if let Some(previous) = previous {
-            let ActiveRuntime {
-                bridge, runtime, ..
-            } = previous;
-            drop(bridge);
-            tokio::task::spawn_blocking(move || runtime.shutdown())
-                .await
-                .map_err(|_| "local Claurst shutdown worker stopped unexpectedly".to_owned())?
-                .map_err(|error| {
-                    format!("could not stop previous local Claurst runtime: {error}")
-                })?;
-        }
-
-        let model_id = selection.model;
-        let mut request = config.request.clone();
-        request.effort = selection.effort;
-        request.mode = selection.mode;
-        request.permission_mode = permission_mode;
-        let settings_mcp_servers = config
-            .mcp_config
-            .as_ref()
-            .map(|config| {
-                if selected {
-                    config.selected_claurst_settings_servers(&selected_sources)
-                } else {
-                    config.claurst_settings_servers()
-                }
-            })
-            .transpose()?;
-        request.mcp_servers = settings_mcp_servers.unwrap_or_default();
-        let mcp_servers = config
-            .mcp_config
-            .as_ref()
-            .map(|config| {
-                if selected {
-                    config.selected_claurst_servers(&selected_sources)
-                } else {
-                    config.claurst_servers()
-                }
-            })
-            .transpose()?;
-        let readiness = self.readiness.clone();
-        let launch_model_id = model_id.clone();
-        let launch_workspace = workspace.clone();
-        let startup = tokio::task::spawn_blocking(move || {
-            ClaurstStandaloneOwner::new(
-                readiness,
-                SystemPrivateSettingsStore,
-                SystemClaurstStandaloneLauncher,
-                HttpLlamaServerReadiness::default(),
-            )
-            .start_with_mcp(
-                &launch_model_id,
-                request,
-                &launch_workspace,
-                mcp_servers.unwrap_or_default(),
-            )
-        });
-        let runtime = startup
-            .await
-            .map_err(|_| "local Claurst startup worker stopped unexpectedly".to_owned())?
-            .map_err(|error| error.to_string())?;
-        let bridge = ClaurstBridgeHandle::new(runtime.bridge());
-        let mut active = self.active.lock().await;
-        if active.is_some() {
-            drop(bridge);
-            let _ = tokio::task::spawn_blocking(move || runtime.shutdown()).await;
-            return Err("local Claurst runtime changed while it was starting".into());
-        }
-        *active = Some(ActiveRuntime {
-            model_id,
-            workspace,
-            permission_mode,
-            mcp_config_digest,
-            bridge,
-            runtime,
-        });
-        Ok(())
-    }
-
     async fn stop_active(&self) -> Result<(), String> {
         let previous = self.active.lock().await.take();
-        if let Some(ActiveRuntime {
-            bridge, runtime, ..
-        }) = previous
-        {
-            drop(bridge);
-            tokio::task::spawn_blocking(move || runtime.shutdown())
-                .await
-                .map_err(|_| "local Claurst shutdown worker stopped unexpectedly".to_owned())?
-                .map_err(|error| format!("could not stop local Claurst runtime: {error}"))?;
+        if let Some(previous) = previous {
+            previous
+                .shut_down("could not stop local Claurst runtime")
+                .await?;
         }
         Ok(())
     }
@@ -276,16 +141,25 @@ impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
     }
 
     async fn after_prompt_settled(&self, conversation_id: &str) -> Result<(), String> {
-        if let Err(error) = ConversationSummaryScheduler::new(self.ledger.clone(), self.bridge())
-            .schedule(conversation_id)
+        if let Err(error) =
+            ConversationSummaryScheduler::new(self.ledger.clone(), ClaurstMetadataSummaryRunner)
+                .schedule(conversation_id)
         {
             eprintln!("Claurst summary failed: {error}");
         }
-        self.stop_active().await
+        Ok(())
     }
 
     async fn after_prompt_failed(&self, _: &str) -> Result<(), String> {
         self.stop_active().await
+    }
+
+    async fn context_summarizer(&self) -> Option<Arc<dyn ContextSummarizer>> {
+        self.active
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.runtime.summarizer() as Arc<dyn ContextSummarizer>)
     }
 
     async fn prompt_attachments(
@@ -345,6 +219,10 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
         self.0.active_bridge().await?.submit(request).await
     }
 
+    async fn cancel(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
+        self.0.active_bridge().await?.cancel(binding).await
+    }
+
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
         self.0.active_bridge().await?.drain(request).await
     }
@@ -362,3 +240,7 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
             .await
     }
 }
+
+#[cfg(test)]
+#[path = "standalone_claurst_runtime_factory_tests.rs"]
+mod tests;

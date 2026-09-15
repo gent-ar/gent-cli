@@ -16,7 +16,7 @@ pub(super) fn composer_widget(state: &UiState) -> Paragraph<'static> {
     let selection = if state.chat_enabled() {
         format!(
             "{} · {} · {:?} · {:?}",
-            provider_name(state.selection().provider),
+            crate::chat_cli::provider_name(state.selection().provider),
             state.selection().model,
             state.selection().effort,
             state.selection().mode,
@@ -98,18 +98,9 @@ fn local_model_status(state: &LocalModelInstallState, model: &str) -> String {
     }
 }
 
-fn provider_name(provider: gent_types::AgentChatProvider) -> &'static str {
-    match provider {
-        gent_types::AgentChatProvider::Claude => "Claude",
-        gent_types::AgentChatProvider::Codex => "Codex",
-        gent_types::AgentChatProvider::Claurst => "Gent (Claurst)",
-    }
-}
-
 fn permission_label(mode: gent_types::PermissionMode) -> &'static str {
     match mode {
-        gent_types::PermissionMode::Default => "ask",
-        gent_types::PermissionMode::Plan => "read-only",
+        gent_types::PermissionMode::AskEveryTime => "ask every time",
         gent_types::PermissionMode::AutoAcceptEdits => "auto edits",
         gent_types::PermissionMode::Autonomous => "autonomous",
         gent_types::PermissionMode::Bypass => "bypass",

@@ -12,7 +12,7 @@ impl<S> ClaurstAcpTransport<S> {
             "agent_thought_chunk" => text(update, true),
             "tool_call" => self.tool_call(update),
             "tool_call_update" => self.tool_call_update(update),
-            "usage_update" | "current_usage" => usage(update),
+            "usage_update" => usage(update),
             kind if kind.contains("error") || kind.contains("fail") => {
                 Some(ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
                     text: format!("Claurst ACP session update: {update}"),
@@ -26,6 +26,9 @@ impl<S> ClaurstAcpTransport<S> {
     fn output(&mut self, update: &Value) -> Option<ClaurstAcpFact> {
         let text = update.get("content")?.get("text")?.as_str()?.to_owned();
         self.assistant_output.push_str(&text);
+        if super::io::unanswered_stop_reason(&text).is_some() {
+            return None;
+        }
         Some(ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
             text,
             is_partial: true,
@@ -35,7 +38,17 @@ impl<S> ClaurstAcpTransport<S> {
     fn tool_call(&mut self, update: &Value) -> Option<ClaurstAcpFact> {
         let id = tool_id(update)?;
         let name = safe_tool_name(update.get("title").and_then(Value::as_str));
-        self.tool_names.insert(id.clone(), name.clone());
+        self.open_tools.retain(|tool| tool.id != id);
+        self.open_tools.push(OpenTool {
+            id: id.clone(),
+            name: name.clone(),
+            kind: update
+                .get("kind")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            input: update.get("rawInput").cloned(),
+            permission_claimed: false,
+        });
         Some(tool_fact(
             id,
             name,
@@ -46,29 +59,95 @@ impl<S> ClaurstAcpTransport<S> {
 
     fn tool_call_update(&mut self, update: &Value) -> Option<ClaurstAcpFact> {
         let id = tool_id(update)?;
-        let status = update
-            .get("fields")
-            .and_then(|fields| fields.get("status"))
-            .and_then(Value::as_str)?;
+        let field = |name: &str| {
+            update
+                .get(name)
+                .or_else(|| update.get("fields").and_then(|fields| fields.get(name)))
+        };
+        let status = field("status").and_then(Value::as_str)?;
         let phase = phase(status)?;
         let name = self
-            .tool_names
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| "Tool".into());
+            .open_tools
+            .iter()
+            .find(|tool| tool.id == id)
+            .map_or_else(|| "Tool".into(), |tool| tool.name.clone());
         if matches!(phase, ToolPhase::Completed | ToolPhase::Failed) {
-            self.tool_names.remove(&id);
+            self.open_tools.retain(|tool| tool.id != id);
         }
-        let output_digest = if matches!(phase, ToolPhase::Completed | ToolPhase::Failed) {
-            update
-                .get("rawOutput")
-                .or_else(|| update.pointer("/fields/rawOutput"))
-                .map(|value| format!("sha256:{:x}", Sha256::digest(value.to_string().as_bytes())))
-        } else {
-            None
-        };
-        Some(tool_fact(id, name, phase, output_digest))
+        if !matches!(phase, ToolPhase::Completed | ToolPhase::Failed) {
+            return Some(tool_fact(id, name, phase, None));
+        }
+        let output_digest = field("rawOutput")
+            .map(|value| format!("sha256:{:x}", Sha256::digest(value.to_string().as_bytes())));
+        let text = tool_output_text(field("content"), field("rawOutput"));
+        let activity = tool_fact(id.clone(), name, phase, output_digest);
+        if text.is_empty() {
+            return Some(activity);
+        }
+        self.queued.push_back(activity);
+        Some(ClaurstAcpFact::Event(
+            NormalizedProviderEvent::ToolOutputDelta {
+                tool_use_id: id,
+                text,
+                is_partial: false,
+            },
+        ))
     }
+}
+
+pub(super) struct OpenTool {
+    id: String,
+    name: String,
+    kind: Option<String>,
+    input: Option<Value>,
+    permission_claimed: bool,
+}
+
+pub(super) struct PermissionTool {
+    pub(super) tool_use_id: String,
+    pub(super) tool_name: String,
+    pub(super) input: Option<Value>,
+}
+
+impl<S> ClaurstAcpTransport<S> {
+    pub(super) fn claim_permission_tool(&mut self, permission: &Value) -> Option<PermissionTool> {
+        let named = permission
+            .get("title")
+            .and_then(Value::as_str)
+            .and_then(|title| title.strip_prefix("Tool '"))
+            .and_then(|rest| rest.split_once('\''))
+            .map(|(name, _)| name);
+        let kind = permission.get("kind").and_then(Value::as_str);
+        let unclaimed = || {
+            self.open_tools
+                .iter()
+                .enumerate()
+                .filter(|(_, tool)| !tool.permission_claimed)
+        };
+        let only = || {
+            let mut tools = unclaimed();
+            tools.next().filter(|_| tools.next().is_none())
+        };
+        let (index, _) = unclaimed()
+            .find(|(_, tool)| Some(tool.name.as_str()) == named)
+            .or_else(|| {
+                unclaimed().find(|(_, tool)| {
+                    kind.is_some_and(|kind| same_kind(kind, tool.kind.as_deref()))
+                })
+            })
+            .or_else(only)?;
+        let tool = &mut self.open_tools[index];
+        tool.permission_claimed = true;
+        Some(PermissionTool {
+            tool_use_id: tool.id.clone(),
+            tool_name: tool.name.clone(),
+            input: tool.input.clone(),
+        })
+    }
+}
+
+fn same_kind(permission: &str, tool: Option<&str>) -> bool {
+    tool == Some(permission) || (permission == "read" && tool == Some("search"))
 }
 
 fn usage(update: &Value) -> Option<ClaurstAcpFact> {
@@ -116,8 +195,25 @@ fn tool_fact(
             tool_name,
             phase,
             output_digest,
+            parent_tool_use_id: None,
         },
     })
+}
+
+fn tool_output_text(content: Option<&Value>, raw_output: Option<&Value>) -> String {
+    let blocks = content
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|block| block.pointer("/content/text").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    if !blocks.is_empty() {
+        return blocks.join("\n");
+    }
+    raw_output
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
 }
 
 fn tool_id(update: &Value) -> Option<String> {

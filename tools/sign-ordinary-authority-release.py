@@ -15,6 +15,8 @@ import re
 import sys
 from pathlib import Path
 
+from provider_pins import PINS, require_pinned_authority
+
 
 ROOT = Path(__file__).resolve().parents[1]
 KEY_ID = re.compile(r"[A-Za-z0-9._-]{1,128}$")
@@ -36,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--key-id", required=True)
     parser.add_argument("--private-key", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--pins", type=Path, default=PINS)
     return parser.parse_args()
 
 
@@ -70,6 +73,7 @@ def main() -> None:
     if KEY_ID.fullmatch(args.key_id) is None:
         raise ValueError("key id is invalid")
     payload = load_payload(args.payload)
+    require_pinned_authority(payload, args.pins)
     module = signer()
     canonical = json.dumps(payload, separators=(",", ":"), ensure_ascii=True, sort_keys=True).encode("utf-8")
     envelope = {
@@ -83,5 +87,5 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise SystemExit(f"ordinary authority release signing failed: {error}") from error

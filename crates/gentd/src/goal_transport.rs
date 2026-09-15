@@ -24,7 +24,7 @@ where
     let Ok(frame) = serde_json::from_value::<GoalFrame>(raw.clone()) else {
         return Ok(false);
     };
-    if frame.validate().is_err() || !client_request(&frame) {
+    if frame.validate().is_err() || !frame.is_client_request() {
         write_error(stream, "invalidGoal", "goal request is invalid").await?;
         return Ok(true);
     }
@@ -35,28 +35,6 @@ where
     Ok(true)
 }
 
-fn client_request(frame: &GoalFrame) -> bool {
-    matches!(
-        frame,
-        GoalFrame::Create { .. }
-            | GoalFrame::Transition { .. }
-            | GoalFrame::Read { .. }
-            | GoalFrame::List { .. }
-    )
-}
-
 #[cfg(test)]
-mod tests {
-    use gent_protocol::GoalFrame;
-
-    use super::client_request;
-
-    #[test]
-    fn replies_are_never_accepted_as_client_goal_requests() {
-        assert!(!client_request(&GoalFrame::Goals {
-            request_id: "request-1".into(),
-            conversation_id: gent_types::AgentChatConversationId("conversation-1".into()),
-            goals: Vec::new(),
-        }));
-    }
-}
+#[path = "goal_transport_tests.rs"]
+mod tests;

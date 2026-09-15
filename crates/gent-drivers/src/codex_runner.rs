@@ -11,15 +11,20 @@ use gent_types::{GoalProjection, RunVersionLock, SandboxWorkspaceAccess};
 use crate::buffering::BufferPolicy;
 use crate::codex_control::{CodexControlDecision, CodexControlRequest, encode};
 use crate::codex_session::CodexSessionConfig;
-use crate::codex_turn::{CodexTurnDriver, CodexTurnEffect, CodexTurnError, MAX_CODEX_FRAME_BYTES};
+use crate::codex_turn::{CodexTurnDriver, CodexTurnError};
 use crate::lock::{LockError, recheck};
-use crate::output_pump::{MAX_OUTPUT_CHUNK_BYTES, OutputPumpError, ProviderOutputPump};
+use crate::output_pump::{
+    MAX_OUTPUT_CHUNK_BYTES, MAX_PROVIDER_FRAME_BYTES, OutputPumpError, ProviderOutputPump,
+};
 use crate::public_protocol::PublicWireFact;
 use crate::supervisor::{
     LaunchIntent, ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError,
 };
 
 mod control;
+mod output;
+
+use output::{drain, write};
 
 /// Inputs for one locked Codex process and its first durable prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,6 +38,7 @@ pub struct CodexRunStart {
     /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
     pub goal: Option<GoalProjection>,
     pub attachments: Vec<serde_json::Value>,
+    pub interrupted_reply: Option<String>,
 }
 
 /// One provider-neutral fact or final process settlement from a Codex process.
@@ -40,6 +46,8 @@ pub struct CodexRunStart {
 pub enum CodexRunnerEffect {
     Fact(PublicWireFact),
     ControlRequest(CodexControlRequest),
+    Steer(crate::codex_session::CodexSteerOutcome),
+    ResumeUnavailable,
     Exited { code: Option<i32> },
 }
 
@@ -97,9 +105,6 @@ where
         }
     }
 
-    /// Rechecks, launches, and handshakes exactly one locked Codex process for a durable prompt.
-    ///
-    /// # Errors
     pub fn start(&mut self, start: CodexRunStart) -> Result<(), CodexRunnerError> {
         if self.runs.contains_key(&start.run_id) {
             return Err(CodexRunnerError::AlreadyActive);
@@ -112,15 +117,19 @@ where
             &start.prompt,
             start.attachments,
             start.goal.as_ref(),
+            start.interrupted_reply,
         )?;
-        let output =
-            ProviderOutputPump::new(MAX_OUTPUT_CHUNK_BYTES, MAX_CODEX_FRAME_BYTES, self.policy)?;
+        let output = ProviderOutputPump::new(
+            MAX_OUTPUT_CHUNK_BYTES,
+            MAX_PROVIDER_FRAME_BYTES,
+            self.policy,
+        )?;
         recheck(&start.lock)?;
         let launch = ProviderLaunch {
             lock: start.lock.clone(),
             provider: "codex".into(),
             executable: PathBuf::from(&start.lock.canonical_path),
-            arguments: vec!["app-server".into()],
+            arguments: crate::launch_spec::codex_app_server_arguments(),
             intent: LaunchIntent::Start,
             workspace_root: Some(start.workspace_root),
             workspace_access: start.workspace_access,
@@ -144,18 +153,11 @@ where
         Ok(())
     }
 
-    /// Drains at most one process chunk (or a settled exit) through bounded framing and reduction.
-    ///
-    /// # Errors
-    /// Returns a controlled error when the owned process, frame pump, or strict turn bridge fails.
     pub fn poll(
         &mut self,
         run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, CodexRunnerError> {
-        let run = self
-            .runs
-            .get_mut(run_id)
-            .ok_or(CodexRunnerError::NotActive)?;
+        let run = self.run_mut(run_id)?;
         if let Some(chunk) = run.process.next_stdout_chunk()? {
             run.output.accept_chunk(&chunk)?;
             return drain(run);
@@ -171,37 +173,40 @@ where
         Ok(Some(vec![CodexRunnerEffect::Exited { code }]))
     }
 
-    /// Writes one later prompt and its freshly ledger-resolved active goal after the prior turn.
-    ///
-    /// # Errors
-    /// Returns a controlled error if the run is absent, its prior turn is still active, or the
-    /// owned process rejects the bounded next-turn frame.
     pub fn submit_turn(
         &mut self,
         run_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
         attachments: &[serde_json::Value],
+        interrupted_reply: Option<&str>,
     ) -> Result<(), CodexRunnerError> {
-        let run = self
-            .runs
-            .get_mut(run_id)
-            .ok_or(CodexRunnerError::NotActive)?;
-        for effect in run.turn.submit(prompt, goal, attachments)? {
+        let run = self.run_mut(run_id)?;
+        for effect in run
+            .turn
+            .submit(prompt, goal, attachments, interrupted_reply)?
+        {
             write(&run.process, effect)?;
         }
         Ok(())
     }
 
-    /// Requests cooperative interruption of the live turn before process-tree escalation.
-    ///
-    /// # Errors
-    /// Returns a controlled error if the owned session has no live Codex turn.
+    pub fn steer_turn(
+        &mut self,
+        run_id: &str,
+        message_id: &str,
+        prompt: &str,
+        attachments: &[serde_json::Value],
+    ) -> Result<(), CodexRunnerError> {
+        let run = self.run_mut(run_id)?;
+        write(
+            &run.process,
+            run.turn.steer(message_id, prompt, attachments)?,
+        )
+    }
+
     pub fn interrupt_turn(&mut self, run_id: &str) -> Result<(), CodexRunnerError> {
-        let run = self
-            .runs
-            .get_mut(run_id)
-            .ok_or(CodexRunnerError::NotActive)?;
+        let run = self.run_mut(run_id)?;
         write(&run.process, run.turn.interrupt()?)
     }
 
@@ -212,10 +217,7 @@ where
         decision: CodexControlDecision,
         answers: Option<serde_json::Value>,
     ) -> Result<(), CodexRunnerError> {
-        let run = self
-            .runs
-            .get_mut(run_id)
-            .ok_or(CodexRunnerError::NotActive)?;
+        let run = self.run_mut(run_id)?;
         let request = run
             .controls
             .remove(request_id)
@@ -225,16 +227,15 @@ where
         Ok(())
     }
 
-    /// Reports whether this process owner still owns the named native session.
+    fn run_mut(&mut self, run_id: &str) -> Result<&mut OwnedRun<P>, CodexRunnerError> {
+        self.runs.get_mut(run_id).ok_or(CodexRunnerError::NotActive)
+    }
+
     #[must_use]
     pub fn owns(&self, run_id: &str) -> bool {
         self.runs.contains_key(run_id)
     }
 
-    /// Sends one explicit tree signal to an owned process; scheduling remains daemon-owned.
-    ///
-    /// # Errors
-    /// Returns an error when the run is absent or the whole process tree cannot be signaled.
     pub fn signal(
         &self,
         run_id: &str,
@@ -257,37 +258,4 @@ where
             .signal_tree(crate::interrupt::ProcessTreeSignal::Terminate)?;
         Ok(())
     }
-}
-
-fn drain<P: ProviderProcess>(
-    run: &mut OwnedRun<P>,
-) -> Result<Option<Vec<CodexRunnerEffect>>, CodexRunnerError> {
-    let mut effects = Vec::new();
-    while run.output.queued_frames() > 0 {
-        let (frame, _) = run.output.take_frame();
-        let Some(frame) = frame else { break };
-        if let Some(request_key) = control::cancelled_control_request_key(&frame) {
-            run.controls.remove(&request_key);
-        }
-        for effect in run.turn.receive(&frame)? {
-            match effect {
-                CodexTurnEffect::Write(frame) => run.process.write_frame(&frame)?,
-                CodexTurnEffect::Fact(fact) => effects.push(CodexRunnerEffect::Fact(fact)),
-                CodexTurnEffect::ControlRequest(request) => {
-                    run.controls
-                        .insert(request.request_key.clone(), request.clone());
-                    effects.push(CodexRunnerEffect::ControlRequest(request));
-                }
-            }
-        }
-    }
-    Ok((!effects.is_empty()).then_some(effects))
-}
-
-fn write<P: ProviderProcess>(process: &P, effect: CodexTurnEffect) -> Result<(), CodexRunnerError> {
-    match effect {
-        CodexTurnEffect::Write(frame) => process.write_frame(&frame)?,
-        CodexTurnEffect::Fact(_) | CodexTurnEffect::ControlRequest(_) => {}
-    }
-    Ok(())
 }

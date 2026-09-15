@@ -96,14 +96,17 @@ def check_file_lengths() -> list[str]:
         if not source.is_file():
             continue
         lines = source.read_text(encoding="utf-8").splitlines()
-        is_test_source = "tests" in source.parts or source.stem.endswith("_tests")
-        ignored = set(range(len(lines))) if is_test_source else (
+        ignored = set(range(len(lines))) if is_test_source(source) else (
             test_module_lines(lines) if source.suffix == ".rs" else set()
         )
         count = sum(index not in ignored for index in range(len(lines)))
         if count > 300:
             errors.append(f"{source.relative_to(ROOT)} has {count} lines (maximum is 300)")
     return errors
+
+
+def is_test_source(source: pathlib.Path) -> bool:
+    return "tests" in source.parts or source.stem.endswith("_tests")
 
 
 def check_snapshot_contract() -> list[str]:
@@ -143,7 +146,7 @@ def check_production_imports() -> list[str]:
     errors = []
     for source in (ROOT / "crates").glob("*/src/**/*.rs"):
         crate = source.relative_to(ROOT / "crates").parts[0]
-        if crate == "gentd":
+        if crate == "gentd" or is_test_source(source):
             continue
         lines = source.read_text(encoding="utf-8").splitlines()
         ignored = test_module_lines(lines)

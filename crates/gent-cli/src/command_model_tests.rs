@@ -53,6 +53,8 @@ fn positional_prompt_selects_the_typed_prompt_first_flow() {
         "write a status report",
         "--provider",
         "codex",
+        "--model",
+        "gpt-6-astra",
         "--mode",
         "agent",
     ])
@@ -66,16 +68,14 @@ fn positional_prompt_selects_the_typed_prompt_first_flow() {
 }
 
 #[test]
-fn positional_prompt_defaults_to_local_gent_agent_mode() {
+fn positional_prompt_leaves_the_selection_to_the_gentd_default() {
     let args = Args::try_parse_from(["gent", "summarize this project"]).unwrap();
-    assert!(matches!(
-        args.direct_prompt.provider,
-        crate::chat_cli::Provider::Claurst
-    ));
-    assert!(matches!(
-        args.direct_prompt.mode,
-        crate::chat_cli::Mode::Agent
-    ));
+    assert!(args.direct_prompt.selection.clone().request().is_empty());
+    let mode_only = Args::try_parse_from(["gent", "--mode", "ask", "hi"]).unwrap();
+    assert!(mode_only.direct_prompt.selection.provider.is_none());
+    assert!(mode_only.direct_prompt.selection.mode.is_some());
+    assert!(Args::try_parse_from(["gent", "--provider", "gent", "hi"]).is_ok());
+    assert!(Args::try_parse_from(["gent", "--provider", "claurst", "hi"]).is_err());
 }
 
 #[test]

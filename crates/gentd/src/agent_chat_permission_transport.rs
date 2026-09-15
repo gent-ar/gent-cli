@@ -81,3 +81,7 @@ where
     }
     Ok(true)
 }
+
+#[cfg(test)]
+#[path = "agent_chat_permission_transport_tests.rs"]
+mod tests;

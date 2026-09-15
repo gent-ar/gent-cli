@@ -1,0 +1,114 @@
+{
+  "capability": "agent-chat-projection-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "activityLimit": 100,
+          "conversationId": "conversation-1",
+          "requestId": "snapshot-1",
+          "transcriptLimit": 100
+        },
+        "type": "conversationSnapshotRequest"
+      },
+      "wireHex": "000000947b2274797065223a22636f6e766572736174696f6e536e617073686f7452657175657374222c22626f6479223a7b22726571756573744964223a22736e617073686f742d31222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c227472616e7363726970744c696d6974223a3130302c2261637469766974794c696d6974223a3130307d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "requestId": "snapshot-1",
+          "snapshot": {
+            "activity": [
+              {
+                "cause": "steered",
+                "conversationId": "conversation-1",
+                "cursor": 236,
+                "hostEpoch": 1,
+                "phase": "interrupted",
+                "runId": "run-1",
+                "turnId": "turn-8",
+                "type": "terminal"
+              },
+              {
+                "conversationId": "conversation-1",
+                "cursor": 238,
+                "hostEpoch": 1,
+                "messageId": "message-10",
+                "receiptId": "receipt-steer-10",
+                "runId": "run-1",
+                "transcriptCursor": 237,
+                "turnId": "turn-9",
+                "type": "promptSteered"
+              },
+              {
+                "conversationId": "conversation-1",
+                "cursor": 239,
+                "hostEpoch": 1,
+                "phase": "ready",
+                "runId": "run-1",
+                "turnId": "turn-9",
+                "type": "terminal"
+              }
+            ],
+            "activityTruncated": false,
+            "catalogs": [],
+            "conversation": {
+              "currentRunId": "run-1",
+              "runs": [
+                {
+                  "parentRunId": null,
+                  "runId": "run-1",
+                  "selection": {
+                    "effort": "medium",
+                    "mode": "ask",
+                    "model": "gpt-5.6-luna",
+                    "provider": "codex"
+                  },
+                  "state": "completed"
+                }
+              ],
+              "summary": {
+                "changedFileCount": null,
+                "conversationId": "conversation-1",
+                "gitBranch": null,
+                "mcpServerCount": 0,
+                "mcpServerNames": [],
+                "recap": null,
+                "selection": {
+                  "effort": "medium",
+                  "mode": "ask",
+                  "model": "gpt-5.6-luna",
+                  "provider": "codex"
+                },
+                "title": "Safe fixture",
+                "updatedAtUnixMs": 1,
+                "workspaceId": null,
+                "workspacePath": null
+              }
+            },
+            "cursor": {
+              "value": 240
+            },
+            "goal": null,
+            "transcript": [
+              {
+                "cursor": 240,
+                "eventId": "event-240",
+                "isPartial": false,
+                "kind": "assistantMessage",
+                "runId": "run-1",
+                "text": "Latest reply",
+                "turnId": "turn-9"
+              }
+            ],
+            "transcriptTruncated": true
+          }
+        },
+        "type": "conversationSnapshot"
+      },
+      "wireHex": "000005347b2274797065223a22636f6e766572736174696f6e536e617073686f74222c22626f6479223a7b22726571756573744964223a22736e617073686f742d31222c22736e617073686f74223a7b22636f6e766572736174696f6e223a7b2273756d6d617279223a7b22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c227469746c65223a22536166652066697874757265222c227265636170223a6e756c6c2c22776f726b73706163654964223a6e756c6c2c22776f726b737061636550617468223a6e756c6c2c226d6370536572766572436f756e74223a302c226d63705365727665724e616d6573223a5b5d2c226368616e67656446696c65436f756e74223a6e756c6c2c226769744272616e6368223a6e756c6c2c22757064617465644174556e69784d73223a312c2273656c656374696f6e223a7b2270726f7669646572223a22636f646578222c226d6f64656c223a226770742d352e362d6c756e61222c226566666f7274223a226d656469756d222c226d6f6465223a2261736b227d7d2c2263757272656e7452756e4964223a2272756e2d31222c2272756e73223a5b7b2272756e4964223a2272756e2d31222c22706172656e7452756e4964223a6e756c6c2c2273656c656374696f6e223a7b2270726f7669646572223a22636f646578222c226d6f64656c223a226770742d352e362d6c756e61222c226566666f7274223a226d656469756d222c226d6f6465223a2261736b227d2c227374617465223a22636f6d706c65746564227d5d7d2c22637572736f72223a7b2276616c7565223a3234307d2c22636174616c6f6773223a5b5d2c227472616e736372697074223a5b7b22637572736f72223a3234302c226576656e744964223a226576656e742d323430222c227475726e4964223a227475726e2d39222c2272756e4964223a2272756e2d31222c226b696e64223a22617373697374616e744d657373616765222c2274657874223a224c6174657374207265706c79222c2269735061727469616c223a66616c73657d5d2c226163746976697479223a5b7b2274797065223a227465726d696e616c222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c2272756e4964223a2272756e2d31222c227475726e4964223a227475726e2d38222c22686f737445706f6368223a312c22637572736f72223a3233362c227068617365223a22696e746572727570746564222c226361757365223a2273746565726564227d2c7b2274797065223a2270726f6d707453746565726564222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c2272756e4964223a2272756e2d31222c227475726e4964223a227475726e2d39222c22686f737445706f6368223a312c22637572736f72223a3233382c226d6573736167654964223a226d6573736167652d3130222c22726563656970744964223a22726563656970742d73746565722d3130222c227472616e736372697074437572736f72223a3233377d2c7b2274797065223a227465726d696e616c222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c2272756e4964223a2272756e2d31222c227475726e4964223a227475726e2d39222c22686f737445706f6368223a312c22637572736f72223a3233392c227068617365223a227265616479227d5d2c22676f616c223a6e756c6c2c227472616e7363726970745472756e6361746564223a747275652c2261637469766974795472756e6361746564223a66616c73657d7d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

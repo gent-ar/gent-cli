@@ -105,20 +105,74 @@ fn claude_authoritative_assistant_snapshot_preserves_complete_thinking() {
 }
 
 #[test]
+fn claude_haiku_signed_empty_thinking_is_valid_invisible_and_never_makes_a_message_empty() {
+    let signed = json!({"type":"thinking","thinking":"","signature":"EpwGCkYIBxgCKkA"});
+    let facts = replay_public_frames(
+        PublicProvider::Claude,
+        &[
+            json!({"type":"system","subtype":"init","session_id":"claude-session"}),
+            json!({"type":"system","subtype":"thinking_tokens"}),
+            json!({"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","role":"assistant","content":[signed],"stop_reason":null},"parent_tool_use_id":null}),
+            json!({"type":"assistant","message":{"content":[signed, {"type":"text","text":"answer"}, {"type":"tool_use","id":"toolu_1","name":"Read","input":{}}]},"parent_tool_use_id":null}),
+            json!({"type":"result","subtype":"success","is_error":false,"result":"answer"}),
+        ],
+    );
+
+    assert!(
+        !facts.iter().any(|fact| matches!(
+            fact,
+            PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { .. })
+                | PublicWireFact::Event(NormalizedProviderEvent::Thinking { .. })
+        )),
+        "{facts:?}"
+    );
+    assert!(
+        facts.contains(&PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: "answer".into(),
+            is_partial: false,
+        }))
+    );
+    assert!(facts.iter().any(|fact| matches!(fact, PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) if activity.tool_use_id == "toolu_1" && activity.phase == ToolPhase::Started)));
+    assert!(facts.contains(&PublicWireFact::Lifecycle(
+        NormalizedLifecycleSignal::RootPhase {
+            phase: TurnPhase::Ready
+        }
+    )));
+    for unsigned in [
+        json!({"type":"thinking","thinking":""}),
+        json!({"type":"thinking","thinking":"","signature":""}),
+    ] {
+        assert_eq!(
+            normalize_public_frame(
+                PublicProvider::Claude,
+                &json!({"type":"assistant","message":{"content":[unsigned]}}),
+            ),
+            vec![PublicWireFact::Event(
+                NormalizedProviderEvent::TransportDiagnostic {
+                    classification: "malformedClaudeThinking".into(),
+                },
+            )]
+        );
+    }
+}
+
+#[test]
 fn claude_user_tool_results_need_explicit_identity_and_name() {
     let completed = normalize_public_frame(
         PublicProvider::Claude,
         &json!({"type":"user","message":{"content":[{
             "type":"tool_result","tool_use_id":"tool-1","tool_name":"Read",
-            "content":"private output"
+            "content":[{"type":"text","text":"tool output"}]
         }]}}),
     );
     assert!(matches!(completed.as_slice(), [PublicWireFact::Lifecycle(
         NormalizedLifecycleSignal::ToolActivity { activity }
-    )] if activity.tool_use_id == "tool-1" && activity.tool_name == "Read"
+    ), PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
+        tool_use_id, text, is_partial: false
+    })] if activity.tool_use_id == "tool-1" && activity.tool_name == "Read"
         && activity.phase == ToolPhase::Completed
-        && activity.output_digest.as_deref().is_some_and(|digest| digest.starts_with("sha256:"))));
-    assert!(!format!("{completed:?}").contains("private output"));
+        && activity.output_digest.as_deref().is_some_and(|digest| digest.starts_with("sha256:"))
+        && tool_use_id == "tool-1" && text == "tool output"));
 
     assert_eq!(
         normalize_public_frame(
@@ -154,6 +208,7 @@ fn claude_permission_denial_marks_the_named_tool_failed_without_correlation() {
                     tool_name: "Bash".into(),
                     phase: ToolPhase::Failed,
                     output_digest: None,
+                    parent_tool_use_id: None,
                 },
             }
         )]
@@ -176,7 +231,7 @@ fn claude_permission_denial_without_an_identity_is_a_diagnostic() {
 }
 
 #[test]
-fn claude_background_launch_receipt_binds_provider_child_to_parent_without_output() {
+fn claude_background_launch_receipt_binds_provider_child_to_parent() {
     let facts = normalize_public_frame(
         PublicProvider::Claude,
         &json!({
@@ -196,51 +251,85 @@ fn claude_background_launch_receipt_binds_provider_child_to_parent_without_outpu
             parent_tool_use_id
         }) if child_id == "child-1" && parent_tool_use_id == "parent-tool-1"
     )));
-    assert!(!format!("{facts:?}").contains("/tmp/child-1.output"));
+    assert!(facts.iter().any(|fact| matches!(
+        fact,
+        PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta { tool_use_id, text, .. })
+            if tool_use_id == "parent-tool-1" && text.contains("agentId: child-1")
+    )));
 }
 
 #[test]
-fn claude_background_tasks_do_not_guess_a_tool_name() {
+fn claude_task_lifecycle_frames_are_recognized_and_left_to_runner_correlation() {
+    for frame in [
+        json!({"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"child-1","task_type":"local_agent","description":"Count"}]}),
+        json!({"type":"system","subtype":"task_started","task_id":"child-1","tool_use_id":"parent-1","description":"Count","subagent_type":"general-purpose","is_backgrounded":true,"spawn_depth":1,"task_type":"local_agent","prompt":"private"}),
+        json!({"type":"system","subtype":"task_progress","task_id":"child-1","tool_use_id":"parent-1","description":"Running","usage":{"total_tokens":1},"last_tool_name":"Bash"}),
+        json!({"type":"system","subtype":"task_updated","task_id":"child-1","patch":{"status":"completed","end_time":1}}),
+        json!({"type":"system","subtype":"task_notification","task_id":"child-1","tool_use_id":"parent-1","status":"completed","output_file":"/tmp/child-1.output","summary":"private"}),
+        json!({"type":"system","subtype":"task_notification","task_id":"child-1","tool_use_id":"parent-1","status":"failed","output_file":"","summary":""}),
+        json!({"type":"system","subtype":"task_notification","task_id":"child-1","status":"stopped","output_file":"","summary":""}),
+    ] {
+        assert!(
+            normalize_public_frame(PublicProvider::Claude, &frame).is_empty(),
+            "{frame}"
+        );
+    }
     assert_eq!(
         normalize_public_frame(
             PublicProvider::Claude,
-            &json!({"type":"system","subtype":"task_progress","tool_use_id":"parent-1"}),
+            &json!({"type":"system","subtype":"task_notification","task_id":"child-1","status":"paused"}),
         ),
         vec![PublicWireFact::Event(
             NormalizedProviderEvent::TransportDiagnostic {
-                classification: "unresolvedClaudeBackgroundTask".into()
+                classification: "unsupportedClaudeTaskStatus".into()
             }
         )]
     );
-    let facts = normalize_public_frame(
-        PublicProvider::Claude,
-        &json!({"type":"system","subtype":"task_started","tool_use_id":"parent-1","tool_name":"Task"}),
-    );
-    assert!(matches!(facts.as_slice(), [PublicWireFact::Lifecycle(
-        NormalizedLifecycleSignal::ToolActivity { activity }
-    )] if activity.tool_use_id == "parent-1" && activity.tool_name == "Task"
-        && activity.phase == ToolPhase::Started));
 }
 
 #[test]
-fn claude_child_activity_is_not_flattened_into_the_root_transcript() {
+fn claude_child_frames_are_attributed_to_the_parent_tool_not_the_root_turn() {
     let facts = normalize_public_frame(
         PublicProvider::Claude,
         &json!({
-            "type": "stream_event",
-            "parent_tool_use_id": "parent-tool-1",
-            "event": {"type": "subagent_activity", "kind": "text", "text": "private child output"}
+            "type":"assistant",
+            "message":{"content":[
+                {"type":"text","text":"3"},
+                {"type":"tool_use","id":"child-tool-1","name":"Bash","input":{"command":"find . -name '*.txt'"}}
+            ]},
+            "parent_tool_use_id":"parent-tool-1"
         }),
     );
     assert_eq!(
         facts,
-        vec![PublicWireFact::Event(
-            NormalizedProviderEvent::TransportDiagnostic {
-                classification: "unsupportedClaudeStreamEvent".into()
-            }
-        )]
+        vec![
+            PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
+                tool_use_id: "parent-tool-1".into(),
+                text: "3".into(),
+                is_partial: false,
+            }),
+            PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
+                activity: gent_types::ToolActivity {
+                    tool_use_id: "child-tool-1".into(),
+                    tool_name: "Bash".into(),
+                    phase: ToolPhase::Started,
+                    output_digest: None,
+                    parent_tool_use_id: Some("parent-tool-1".into()),
+                },
+            }),
+        ]
     );
-    assert!(!format!("{facts:?}").contains("private child output"));
+    assert!(
+        normalize_public_frame(
+            PublicProvider::Claude,
+            &json!({
+                "type":"stream_event",
+                "parent_tool_use_id":"parent-tool-1",
+                "event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"private child output"}}
+            }),
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -477,19 +566,29 @@ fn codex_error_notifications_are_redacted_and_classified() {
             "Codex rate limit reached.",
         ),
         (
-            json!({"method":"codex/event/stream_error","params":{"msg":{"message":"unauthorized access"}}}),
+            json!({"method":"error","params":{"error":{"message":"request failed","codexErrorInfo":"unauthorized"},"threadId":"t","turnId":"u","willRetry":false}}),
             ProviderFailureClassification::Authentication,
             "Codex authentication failed.",
         ),
         (
-            json!({"method":"codex/event/stream_error","params":{"msg":{"message":"request failed","codex_error_info":"unauthorized"}}}),
-            ProviderFailureClassification::Authentication,
-            "Codex authentication failed.",
+            json!({"method":"error","params":{"error":{"message":"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 3:12 PM.","codexErrorInfo":"usageLimitExceeded","additionalDetails":null,"misalignment":null},"willRetry":false,"threadId":"t","turnId":"u"}}),
+            ProviderFailureClassification::RateLimited,
+            "Codex usage limit reached.",
         ),
         (
-            json!({"method":"codex/event/error","params":{"message":"context window exceeded"}}),
+            json!({"method":"error","params":{"error":{"message":"rate limited, please try again","codexErrorInfo":"rateLimitExceeded"}}}),
+            ProviderFailureClassification::RateLimited,
+            "Codex rate limit reached.",
+        ),
+        (
+            json!({"method":"error","params":{"error":{"message":"context window exceeded"}}}),
             ProviderFailureClassification::ContextLimit,
             "Codex context limit reached.",
+        ),
+        (
+            json!({"method":"error","params":{"error":{"message":"The 'gpt-5.6' model is not supported for this account."}}}),
+            ProviderFailureClassification::Provider,
+            "The selected Codex model is unavailable.",
         ),
     ] {
         assert_eq!(

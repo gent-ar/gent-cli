@@ -85,6 +85,9 @@ pub(super) fn validate_chat_intents(records: &[FixtureFrame]) -> Result<(), Stri
             AgentChatIntentFrame::SendPrompt { .. },
             AgentChatIntentFrame::QueuePrompt { .. },
             AgentChatIntentFrame::Interrupt { .. },
+            AgentChatIntentFrame::SteerQueuedPrompt { .. },
+            AgentChatIntentFrame::QueuedPromptSteered { .. },
+            AgentChatIntentFrame::ContinueFromSavedHistory { .. },
             AgentChatIntentFrame::Decision { .. },
             AgentChatIntentFrame::Subscribe { .. },
             AgentChatIntentFrame::SubscriptionEvent { .. },
@@ -111,7 +114,111 @@ pub(super) fn validate_permission_policy(records: &[FixtureFrame]) -> Result<(),
     .ok_or_else(|| "must contain current, current policy, save, and saved frames".into())
 }
 
-fn canonical<T>(records: &[FixtureFrame]) -> Result<Vec<T>, String>
+pub(super) fn validate_model_catalog(records: &[FixtureFrame]) -> Result<(), String> {
+    use gent_protocol::model_catalog::ModelCatalogFrame;
+    let frames: Vec<ModelCatalogFrame> = canonical(records)?;
+    let valid = frames.iter().all(|frame| frame.validate().is_ok());
+    (valid
+        && matches!(
+            frames.as_slice(),
+            [
+                ModelCatalogFrame::ReadModelCatalog { .. },
+                ModelCatalogFrame::ModelCatalog { .. },
+                ModelCatalogFrame::SetDefaultModel { .. },
+                ModelCatalogFrame::StartModelDownload { .. },
+                ModelCatalogFrame::CancelModelDownload { .. }
+            ]
+        ))
+    .then_some(())
+    .ok_or_else(|| "must contain valid read, catalog, default, download, and cancel frames".into())
+}
+
+pub(super) fn validate_chat_commands(records: &[FixtureFrame]) -> Result<(), String> {
+    use gent_protocol::agent_chat_commands::{AgentChatCommandFrame as Frame, CommandOutcome};
+    let frames: Vec<Frame> = canonical(records)?;
+    let valid = frames.iter().all(|frame| frame.validate().is_ok());
+    (valid
+        && matches!(
+            frames.as_slice(),
+            [
+                Frame::ReadCommandCatalog { .. },
+                Frame::CommandCatalog { .. },
+                Frame::InvokeCommand { .. },
+                Frame::CommandInvoked {
+                    outcome: CommandOutcome::Delivered { .. },
+                    ..
+                },
+                Frame::InvokeCommand { .. },
+                Frame::CommandInvoked {
+                    outcome: CommandOutcome::IntentApplied { .. },
+                    ..
+                }
+            ]
+        ))
+    .then_some(())
+    .ok_or_else(|| {
+        "must contain valid catalog read, catalog, and delivered and applied invocations".into()
+    })
+}
+
+pub(super) fn validate_provider_auth(records: &[FixtureFrame]) -> Result<(), String> {
+    use gent_protocol::ProviderAuthFrame;
+    use gent_types::ProviderAuthLifecycle;
+    let frames: Vec<ProviderAuthFrame> = canonical(records)?;
+    let valid = frames.iter().all(|frame| frame.validate().is_ok());
+    let lifecycle = |frame: &ProviderAuthFrame| match frame {
+        ProviderAuthFrame::Status { status, .. }
+        | ProviderAuthFrame::SelectionAccepted { status, .. } => Some(status.lifecycle),
+        _ => None,
+    };
+    (valid
+        && frames.get(1).and_then(lifecycle) == Some(ProviderAuthLifecycle::Checking)
+        && matches!(
+            frames.as_slice(),
+            [
+                ProviderAuthFrame::StatusRequest { .. },
+                ProviderAuthFrame::Status { .. },
+                ProviderAuthFrame::StatusRequest { .. },
+                ProviderAuthFrame::Status { .. },
+                ProviderAuthFrame::LoginRequest { .. },
+                ProviderAuthFrame::AskTool { .. },
+                ProviderAuthFrame::SelectMethod { .. },
+                ProviderAuthFrame::SelectionAccepted { .. },
+                ProviderAuthFrame::Cancel { .. },
+                ProviderAuthFrame::Status { .. }
+            ]
+        ))
+    .then_some(())
+    .ok_or_else(|| {
+        "must contain valid checking, status, login, selection, and cancel frames".into()
+    })
+}
+
+pub(super) fn validate_goal(records: &[FixtureFrame]) -> Result<(), String> {
+    use gent_protocol::GoalFrame;
+    let frames: Vec<GoalFrame> = canonical(records)?;
+    let valid = frames.iter().all(|frame| frame.validate().is_ok());
+    (valid
+        && matches!(
+            frames.as_slice(),
+            [
+                GoalFrame::Set { .. },
+                GoalFrame::Goal { .. },
+                GoalFrame::Pause { .. },
+                GoalFrame::Resume { .. },
+                GoalFrame::Clear { .. },
+                GoalFrame::Read { .. },
+                GoalFrame::Report { .. },
+                GoalFrame::Rejected { .. }
+            ]
+        ))
+    .then_some(())
+    .ok_or_else(|| {
+        "must contain valid set, goal, control, read, report, and rejected frames".into()
+    })
+}
+
+pub(super) fn canonical<T>(records: &[FixtureFrame]) -> Result<Vec<T>, String>
 where
     T: serde::de::DeserializeOwned + serde::Serialize,
 {

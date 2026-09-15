@@ -64,7 +64,7 @@ mod tests {
         assert!(client_request(&ReviewedPlanFrame::ReviewRead {
             request_id: "request-1".into(),
             conversation_id: AgentChatConversationId("conversation-1".into()),
-            plan_id: ReviewedPlanId("plan-1".into()),
+            plan_id: Some(ReviewedPlanId("plan-1".into())),
         }));
     }
 }

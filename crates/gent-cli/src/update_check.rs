@@ -15,12 +15,17 @@ pub(crate) enum UpdateCommand {
     },
     /// Read one durable update planning or successor-recovery maintenance record.
     Status {
-        #[arg(long)]
+        #[arg(long, help = "Update attempt id")]
         attempt_id: String,
     },
     /// Read the local metadata-only runtime update status.
     Check {
-        #[arg(long, value_enum, default_value_t = UpdateChannel::Stable)]
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = UpdateChannel::Stable,
+            help = "Release channel to check"
+        )]
         channel: UpdateChannel,
     },
     /// Verify a tag-pinned installer, then explicitly update an idle runtime pair.
@@ -43,14 +48,22 @@ pub(crate) enum UpdateCommand {
 /// Automatic updates are external and only operate on an installed runtime pair.
 #[derive(Debug, Subcommand)]
 pub(crate) enum AutoUpdateAction {
+    #[command(about = "Schedule automatic update checks")]
     Enable {
-        #[arg(long, default_value_t = 6 * 60 * 60)]
+        #[arg(
+            long,
+            default_value_t = 6 * 60 * 60,
+            help = "Seconds between automatic update checks"
+        )]
         interval_seconds: u32,
     },
+    #[command(about = "Stop automatic update checks")]
     Disable,
+    #[command(about = "Show whether automatic updates are enabled and their last result")]
     Status,
+    #[command(about = "Run an automatic update check now")]
     Run {
-        #[arg(long)]
+        #[arg(long, help = "Run even if the next scheduled check is not due")]
         force: bool,
     },
 }

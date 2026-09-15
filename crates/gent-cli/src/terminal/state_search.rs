@@ -7,7 +7,7 @@ impl UiState {
             self.selected = Some(index);
             self.view = None;
             self.parent_run_id = None;
-            self.scroll_offset = 0;
+            self.scroll = super::TranscriptScroll::Follow;
             self.clear_documents();
             return Some(self.conversations[index].conversation_id.clone());
         }

@@ -72,7 +72,9 @@ impl ProviderAuthFrame {
             Self::Status { request_id, status }
             | Self::SelectionAccepted { request_id, status } => {
                 validate_id(request_id)?;
-                status.binary_lock.validate()?;
+                if let Some(binary_lock) = &status.binary_lock {
+                    binary_lock.validate()?;
+                }
             }
             Self::AskTool {
                 request_id,
@@ -202,10 +204,7 @@ mod tests {
                 challenge_id: "challenge-1".into(),
                 provider: ProviderAuthProvider::Claude,
                 binary_lock: lock(),
-                methods: vec![
-                    ProviderAuthMethod::AccountBrowser,
-                    ProviderAuthMethod::ApiKey,
-                ],
+                methods: vec![ProviderAuthMethod::AccountBrowser],
                 expires_at_unix_seconds: 42,
             },
         };
@@ -251,13 +250,100 @@ mod tests {
             request_id: "request-1".into(),
             status: ProviderAuthStatus {
                 provider: ProviderAuthProvider::Codex,
-                binary_lock: lock(),
+                binary_lock: Some(lock()),
                 lifecycle: ProviderAuthLifecycle::Authenticated,
-                selected_method: Some(ProviderAuthMethod::AccessToken),
+                selected_method: Some(ProviderAuthMethod::AccountBrowser),
                 expires_at_unix_seconds: Some(42),
             },
         };
         assert_no_secret_keys(&serde_json::to_value(frame).unwrap());
+    }
+
+    #[test]
+    fn lifecycle_vocabulary_is_closed_and_secret_free() {
+        let not_installed = ProviderAuthFrame::Status {
+            request_id: "request-1".into(),
+            status: ProviderAuthStatus {
+                provider: ProviderAuthProvider::Claude,
+                binary_lock: None,
+                lifecycle: ProviderAuthLifecycle::NotInstalled,
+                selected_method: None,
+                expires_at_unix_seconds: None,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&not_installed).unwrap(),
+            json!({
+                "type": "status",
+                "body": {
+                    "requestId": "request-1",
+                    "status": {
+                        "provider": "claude", "binaryLock": null, "lifecycle": "notInstalled",
+                        "selectedMethod": null, "expiresAtUnixSeconds": null
+                    }
+                }
+            })
+        );
+        for lifecycle in [
+            ProviderAuthLifecycle::NotInstalled,
+            ProviderAuthLifecycle::Checking,
+            ProviderAuthLifecycle::Unauthenticated,
+            ProviderAuthLifecycle::ChallengeOffered,
+            ProviderAuthLifecycle::Verifying,
+            ProviderAuthLifecycle::Authenticated,
+            ProviderAuthLifecycle::Expired,
+            ProviderAuthLifecycle::Cancelled,
+            ProviderAuthLifecycle::TimedOut,
+            ProviderAuthLifecycle::Failed,
+            ProviderAuthLifecycle::ProviderChanged,
+        ] {
+            let frame = ProviderAuthFrame::SelectionAccepted {
+                request_id: "request-1".into(),
+                status: ProviderAuthStatus {
+                    provider: ProviderAuthProvider::Codex,
+                    binary_lock: Some(lock()),
+                    lifecycle,
+                    selected_method: Some(ProviderAuthMethod::AccountBrowser),
+                    expires_at_unix_seconds: Some(42),
+                },
+            };
+            let encoded = serde_json::to_value(&frame).unwrap();
+            assert_no_secret_keys(&encoded);
+            assert_eq!(
+                serde_json::from_value::<ProviderAuthFrame>(encoded).unwrap(),
+                frame
+            );
+        }
+        for retired in ["unknown", "openingBrowser", "awaitingDeviceApproval"] {
+            let frame = json!({
+                "type": "status", "body": {
+                    "requestId": "request-1", "status": {
+                        "provider": "claude", "binaryLock": null, "lifecycle": retired,
+                        "selectedMethod": null, "expiresAtUnixSeconds": null
+                    }
+                }
+            });
+            assert!(serde_json::from_value::<ProviderAuthFrame>(frame).is_err());
+        }
+        for method in ["deviceCode", "apiKey", "accessToken"] {
+            let frame = json!({
+                "type": "selectMethod", "body": {
+                    "requestId": "request-1",
+                    "selection": { "challengeId": "challenge-1", "method": method }
+                }
+            });
+            assert!(serde_json::from_value::<ProviderAuthFrame>(frame).is_err());
+        }
+        let with_device_code = json!({
+            "type": "status", "body": {
+                "requestId": "request-1", "status": {
+                    "provider": "claude", "binaryLock": null, "lifecycle": "verifying",
+                    "selectedMethod": "accountBrowser", "expiresAtUnixSeconds": 1,
+                    "deviceCode": "never"
+                }
+            }
+        });
+        assert!(serde_json::from_value::<ProviderAuthFrame>(with_device_code).is_err());
     }
 
     #[test]
@@ -273,13 +359,16 @@ mod tests {
     }
 
     fn assert_no_secret_keys(value: &Value) {
-        const FORBIDDEN: [&str; 6] = [
+        const FORBIDDEN: [&str; 9] = [
             "apiKey",
             "accessToken",
             "token",
             "secret",
             "password",
             "credential",
+            "deviceCode",
+            "callback",
+            "stdout",
         ];
         match value {
             Value::Object(map) => {

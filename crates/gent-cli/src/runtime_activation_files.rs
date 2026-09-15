@@ -27,6 +27,40 @@ pub(super) fn remove_path(path: &Path) -> Result<(), String> {
     }
 }
 
+pub(super) fn required_files() -> &'static [&'static str] {
+    #[cfg(windows)]
+    {
+        &[
+            "gent.exe",
+            "gentd.exe",
+            "gent-launcher.exe",
+            "gent-auto-update.ps1",
+            "runtime/node/bin/node.exe",
+            "runtime/node/bin/npm.cmd",
+            "runtime/node/lib/node_modules/npm/bin/npm-cli.js",
+            "runtime/claurst/claurst.exe",
+            "runtime/claurst/llama/llama-server.exe",
+            "authority/ordinary-authority.json",
+            "authority/root-keys.json",
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        &[
+            "gent",
+            "gentd",
+            "gent-auto-update.py",
+            "runtime/node/bin/node",
+            "runtime/node/bin/npm",
+            "runtime/node/lib/node_modules/npm/bin/npm-cli.js",
+            "runtime/claurst/claurst",
+            "runtime/claurst/llama/llama-server",
+            "authority/ordinary-authority.json",
+            "authority/root-keys.json",
+        ]
+    }
+}
+
 fn display(error: impl std::fmt::Display) -> String {
     error.to_string()
 }

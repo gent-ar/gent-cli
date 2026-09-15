@@ -7,6 +7,9 @@ use crate::terminal_browser::{
     result::{delivery_notice, result},
 };
 
+#[path = "terminal_browser_command.rs"]
+mod command;
+
 pub(super) fn request(
     runtime: &tokio::runtime::Handle,
     data_dir: Option<PathBuf>,
@@ -21,6 +24,7 @@ async fn resolve(
     no_autostart: bool,
     request: terminal::UiRequest,
 ) -> Result<terminal::UiRequestResult, String> {
+    let queued = matches!(request, terminal::UiRequest::Queue { .. });
     match request {
         terminal::UiRequest::Create {
             selection,
@@ -28,8 +32,13 @@ async fn resolve(
         } => {
             let workspace = std::env::current_dir()
                 .map_err(|_| "Gent could not determine the current workspace.".to_owned())?;
+            if let Some(selection) = &selection {
+                crate::model_catalog_cli::set_default(data_dir.clone(), no_autostart, selection)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
             let (conversation_id, run_id) =
-                chat_cli::create(data_dir.clone(), no_autostart, selection, Some(workspace))
+                chat_cli::create(data_dir.clone(), no_autostart, None, Some(workspace))
                     .await
                     .map_err(|error| error.to_string())?;
             let mut created = result(
@@ -59,6 +68,11 @@ async fn resolve(
             conversation_id,
             text,
             attachments,
+        }
+        | terminal::UiRequest::Queue {
+            conversation_id,
+            text,
+            attachments,
         } => {
             let accepted = chat_cli::send(
                 data_dir,
@@ -66,7 +80,7 @@ async fn resolve(
                 conversation_id,
                 text,
                 attachments,
-                Vec::new(),
+                queued,
             )
             .await
             .map_err(|error| error.to_string())?;
@@ -86,25 +100,21 @@ async fn resolve(
             automation_id,
             conversation_id,
         } => automation::run(data_dir, no_autostart, automation_id, conversation_id).await,
-        terminal::UiRequest::Goal {
+        terminal::UiRequest::InvokeCommand {
             conversation_id,
-            run_id,
-            summary,
+            name,
+            arguments,
+            session_id,
         } => {
-            crate::goal_cli::create_shorthand(
+            command::invoke(
                 data_dir,
                 no_autostart,
-                conversation_id.clone(),
-                run_id,
-                summary,
+                conversation_id,
+                name,
+                arguments,
+                session_id,
             )
             .await
-            .map_err(|error| error.to_string())?;
-            Ok(result(
-                conversation_id,
-                None,
-                "Goal saved; it will be projected only by an authorized provider turn.",
-            ))
         }
         terminal::UiRequest::Switch {
             conversation_id,
@@ -161,6 +171,59 @@ async fn resolve(
             );
             saved.permission_mode = Some(mode);
             Ok(saved)
+        }
+        terminal::UiRequest::SteerQueued {
+            conversation_id,
+            message_ids,
+        } => {
+            let count = message_ids.len();
+            chat_cli::queue::deliver(data_dir, no_autostart, &conversation_id, message_ids, true)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(result(
+                conversation_id,
+                None,
+                if count == 1 {
+                    "Sent the queued prompt into the running turn.".to_owned()
+                } else {
+                    format!("Sent {count} queued prompts into the running turn.")
+                },
+            ))
+        }
+        terminal::UiRequest::CancelQueued {
+            conversation_id,
+            message_id,
+        } => {
+            chat_cli::queue::deliver(
+                data_dir,
+                no_autostart,
+                &conversation_id,
+                vec![message_id],
+                false,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            Ok(result(
+                conversation_id,
+                None,
+                "Removed the last queued prompt.",
+            ))
+        }
+        terminal::UiRequest::ContinueFromHistory {
+            conversation_id,
+            message_id,
+        } => {
+            let accepted =
+                chat_cli::continuation::send(data_dir, no_autostart, conversation_id, message_id)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            let mut continued = result(
+                accepted.conversation_id.0,
+                Some(accepted.run_id.0),
+                "Continuing from Gent's saved history.",
+            );
+            continued.awaiting_turn = Some(true);
+            Ok(continued)
         }
         terminal::UiRequest::Interrupt {
             conversation_id,

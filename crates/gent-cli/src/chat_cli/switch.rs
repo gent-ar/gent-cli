@@ -1,33 +1,32 @@
-//! Typed client-side construction and validation for a durable selection switch.
-
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
 use gent_protocol::AgentChatIntentFrame;
 use gent_types::{AgentChatConversationId, AgentChatRunId, AgentChatSelection, ContextPolicy};
 
-use super::{Effort, Mode, Provider, model};
+use gent_protocol::model_catalog::ModelCatalog;
 
 #[derive(Debug, Args)]
 pub(crate) struct SwitchArgs {
-    #[arg(long)]
+    #[arg(long, help = "Conversation whose selection changes")]
     pub(crate) conversation_id: String,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Run to branch from [default: the conversation's current run]"
+    )]
     pub(crate) parent_run_id: Option<String>,
-    #[arg(long, value_enum)]
-    pub(crate) provider: Provider,
-    #[arg(long)]
-    pub(crate) model: String,
-    #[arg(long, value_enum, default_value_t = Effort::Medium)]
-    pub(crate) effort: Effort,
-    #[arg(long, value_enum, default_value_t = Mode::Ask)]
-    pub(crate) mode: Mode,
-    /// Explicitly preserve durable context or begin this child with an empty context.
-    #[arg(long, value_enum, default_value_t = Context::Preserve)]
+    #[command(flatten)]
+    pub(crate) selection: super::SelectionArgs,
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = Context::Preserve,
+        help = "Keep the conversation history for the new run, or start it with a clear context"
+    )]
     pub(crate) context: Context,
-    #[arg(long)]
+    #[arg(long, help = "Client request id used to correlate the reply")]
     pub(crate) request_id: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "Receipt id; reuse it to retry the same switch safely")]
     pub(crate) receipt_id: Option<String>,
 }
 
@@ -37,19 +36,32 @@ pub(crate) enum Context {
     Clear,
 }
 
-pub(crate) fn frame(args: SwitchArgs) -> Result<AgentChatIntentFrame, &'static str> {
+pub(crate) fn frame(args: SwitchArgs) -> Result<AgentChatIntentFrame, String> {
+    inheriting_frame(args, None, None)
+}
+
+fn inheriting_frame(
+    args: SwitchArgs,
+    parent: Option<&AgentChatSelection>,
+    catalog: Option<&ModelCatalog>,
+) -> Result<AgentChatIntentFrame, String> {
     let parent_run_id = args
         .parent_run_id
         .ok_or("a switch needs a durable current run")?;
+    let request = args.selection.request();
+    if parent.is_none()
+        && (request.provider.is_none()
+            || request.model.is_none()
+            || request.effort.is_none()
+            || request.mode.is_none())
+    {
+        return Err("a switch needs an explicit or inherited selection".into());
+    }
+    let selection = request.resolve(parent, catalog)?;
     Ok(selection_frame(
         args.conversation_id,
         parent_run_id,
-        AgentChatSelection {
-            provider: super::provider(args.provider),
-            model: model(args.provider, args.model),
-            effort: super::effort(args.effort),
-            mode: super::mode(args.mode),
-        },
+        selection,
         match args.context {
             Context::Preserve => ContextPolicy::Preserve,
             Context::Clear => ContextPolicy::Clear,
@@ -64,20 +76,32 @@ pub(crate) async fn resolve(
     no_autostart: bool,
     mut args: SwitchArgs,
 ) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
-    if args.parent_run_id.is_none() {
-        let detail =
-            super::reads::detail(data_dir, no_autostart, args.conversation_id.clone()).await?;
-        if detail.current_run_id.is_empty()
-            || !detail
-                .runs
-                .iter()
-                .any(|run| run.run_id == detail.current_run_id)
-        {
-            return Err("daemon returned an invalid current run for this conversation".into());
-        }
-        args.parent_run_id = Some(detail.current_run_id);
+    let request = &args.selection;
+    if args.parent_run_id.is_some()
+        && request.provider.is_some()
+        && request.model.is_some()
+        && request.effort.is_some()
+        && request.mode.is_some()
+    {
+        return frame(args).map_err(Into::into);
     }
-    frame(args).map_err(Into::into)
+    let detail =
+        super::reads::detail(data_dir.clone(), no_autostart, args.conversation_id.clone()).await?;
+    let parent_run_id = args
+        .parent_run_id
+        .get_or_insert_with(|| detail.current_run_id.clone())
+        .clone();
+    let Some(parent) = detail.runs.iter().find(|run| run.run_id == parent_run_id) else {
+        return Err("daemon returned an invalid current run for this conversation".into());
+    };
+    let catalog = super::selection_catalog(
+        data_dir,
+        no_autostart,
+        &args.selection.clone().request(),
+        Some(&parent.selection),
+    )
+    .await?;
+    inheriting_frame(args, Some(&parent.selection), catalog.as_ref()).map_err(Into::into)
 }
 
 /// Switches one known terminal parent through the same checked IPC path as `gent chat switch`.

@@ -6,13 +6,15 @@ use gent_types::{
     CompatibilityTrust, DependencyStatus, DoctorNextAction, DoctorReport, ExecutableIdentity,
     McpDoctorStatus, McpPermissionStatus, PrivateBridgeAvailability, PublicProviderStatus,
 };
-use std::env;
+use standalone::StandaloneDoctor;
 use std::path::{Path, PathBuf};
 #[derive(Clone, Debug)]
 pub struct DependencyCatalog {
     compatibility: CompatibilityAssessment,
     provider_prefix: Option<PathBuf>,
+    standalone: Option<StandaloneDoctor>,
 }
+
 impl Default for DependencyCatalog {
     fn default() -> Self {
         Self::with_compatibility(CompatibilityAssessment::default())
@@ -25,6 +27,7 @@ impl DependencyCatalog {
         Self {
             compatibility,
             provider_prefix: None,
+            standalone: None,
         }
     }
 
@@ -36,25 +39,42 @@ impl DependencyCatalog {
         Self {
             compatibility,
             provider_prefix: Some(provider_prefix),
+            standalone: None,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn for_standalone(mut self, doctor: StandaloneDoctor) -> Self {
+        self.standalone = Some(doctor);
+        self
     }
 }
 
 impl DependencyCatalog {
-    #[allow(clippy::unused_self)]
     #[must_use]
     pub fn doctor(&self) -> DoctorReport {
+        let standalone = self.standalone.as_ref();
         let providers = [DependencyProvider::Claude, DependencyProvider::Codex]
             .into_iter()
             .map(|provider| {
                 observe_provider(
                     provider,
                     &self.compatibility,
+                    standalone.and_then(|doctor| doctor.executable(provider)),
                     self.provider_prefix.as_deref(),
+                    standalone,
                 )
             })
             .collect::<Vec<_>>();
-        doctor_report(providers, discover_node())
+        let node = node_status(
+            standalone.map_or_else(crate::node_runtime_lock::standalone_node_binary, |doctor| {
+                doctor.node.clone()
+            }),
+        );
+        match standalone {
+            Some(doctor) => doctor.report(providers, node),
+            None => doctor_report(providers, node),
+        }
     }
     #[allow(clippy::unused_self, clippy::needless_pass_by_value)]
     #[must_use]
@@ -99,13 +119,25 @@ pub(crate) fn doctor_report(
 fn observe_provider(
     provider: DependencyProvider,
     compatibility: &CompatibilityAssessment,
+    explicit: Option<&Path>,
     provider_prefix: Option<&Path>,
+    standalone: Option<&StandaloneDoctor>,
 ) -> (DependencyStatus, PublicProviderStatus) {
-    let (name, remediation) = provider_details(provider);
-    let executable = find_executable(name, provider_prefix);
+    let (name, observer_remediation) = provider_details(provider);
+    let executable = explicit
+        .filter(|path| path.is_file())
+        .map(Path::to_path_buf)
+        .or_else(|| find_executable(provider, name, provider_prefix));
+    let standalone_remediation =
+        standalone.map(|doctor| doctor.remediation(name, executable.is_some()));
+    let remediation = standalone_remediation
+        .as_deref()
+        .unwrap_or(observer_remediation);
     // Observer-mode discovery never executes a provider binary, including `--version`.
     // A later, authority-gated lifecycle captures version and rechecks identity before spawn.
-    let version = None;
+    let version = standalone
+        .zip(executable.as_deref())
+        .and_then(|(doctor, path)| doctor.provisioned_version(name, path));
     let identity = executable
         .as_deref()
         .and_then(|path| executable_identity(name, path, version.as_deref()));
@@ -143,25 +175,19 @@ fn provider_details(provider: DependencyProvider) -> (&'static str, &'static str
     }
 }
 
-fn find_executable(name: &str, provider_prefix: Option<&Path>) -> Option<PathBuf> {
+fn find_executable(
+    provider: DependencyProvider,
+    name: &str,
+    provider_prefix: Option<&Path>,
+) -> Option<PathBuf> {
     if let Some(prefix) = provider_prefix {
-        let candidate = prefix.join("bin").join(provider_name(name));
-        return candidate.is_file().then_some(candidate);
+        return crate::standalone_provider_setup::provider_executable(prefix, provider)
+            .filter(|candidate| candidate.is_file());
     }
-    let paths = env::var_os("PATH")?;
-    env::split_paths(&paths)
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths)
         .map(|directory| directory.join(name))
         .find(|candidate| candidate.is_file())
-}
-
-#[cfg(windows)]
-fn provider_name(name: &str) -> String {
-    format!("{name}.cmd")
-}
-
-#[cfg(not(windows))]
-fn provider_name(name: &str) -> String {
-    name.into()
 }
 
 fn executable_identity(
@@ -184,18 +210,13 @@ fn executable_identity(
     })
 }
 
-fn discover_node() -> DependencyStatus {
-    let executable = env::var_os("GENT_NODE_BINARY")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-        .or_else(|| find_executable("node", None));
+fn node_status(node: Option<PathBuf>) -> DependencyStatus {
     DependencyStatus {
         name: "node".into(),
-        present: executable.is_some(),
+        present: node.is_some(),
         version: None,
         remediation:
-            "Set GENT_NODE_BINARY to the app-supplied Node executable; discovery remains read-only."
-                .into(),
+            "Install Gent's packaged runtime or set GENT_NODE_BINARY to a Node executable.".into(),
     }
 }
 
@@ -216,3 +237,10 @@ fn plan(provider: DependencyProvider, action: DependencyAction) -> DependencyPla
     };
     DependencyPlan::reviewed(provider, action, instruction, true)
 }
+
+#[path = "standalone_doctor.rs"]
+pub(crate) mod standalone;
+
+#[cfg(test)]
+#[path = "dependency_catalog_tests.rs"]
+mod tests;

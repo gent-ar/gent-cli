@@ -118,3 +118,31 @@ fn prompt_provision_requires_explicit_readiness_and_its_own_profile_feature() {
             .contains(&PROMPT_PROVIDER_PROVISION_CAPABILITY.into())
     );
 }
+
+#[test]
+fn every_profile_feature_capability_is_reconciled_from_observation() {
+    let profile = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ConversationActivity,
+        RuntimeCapabilityFeature::AgentChatPermissions,
+        RuntimeCapabilityFeature::AgentChatProjection,
+        RuntimeCapabilityFeature::TurnFollow,
+        RuntimeCapabilityFeature::ReviewedPlans,
+        RuntimeCapabilityFeature::ProviderReadiness,
+        RuntimeCapabilityFeature::ProviderAuth,
+        RuntimeCapabilityFeature::PromptProviderProvision,
+        RuntimeCapabilityFeature::RuntimeUpdateCheck,
+        RuntimeCapabilityFeature::RuntimeMaintenance,
+        RuntimeCapabilityFeature::LocalModels,
+        RuntimeCapabilityFeature::PromptTemplates,
+        RuntimeCapabilityFeature::WorkspaceDocuments,
+        RuntimeCapabilityFeature::WorkspaceGit,
+    ]);
+    let observed = declared_capabilities_with_profiles(&profile);
+    assert!(
+        observed
+            .0
+            .contains(&gent_protocol::PROVIDER_AUTH_CAPABILITY.into())
+    );
+    assert_eq!(validate_observed_capabilities(&observed), Ok(observed));
+}

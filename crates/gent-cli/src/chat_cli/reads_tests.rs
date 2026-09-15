@@ -1,4 +1,4 @@
-use gent_protocol::{Hello, Negotiated, read_frame, write_frame};
+use gent_protocol::{Hello, Negotiated, WireFrame, read_frame, write_frame};
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, CapabilitySet,
     NormalizedTranscriptEvent, NormalizedTranscriptKind, PROTOCOL_MAX,
@@ -202,5 +202,7 @@ fn event(cursor: u64) -> NormalizedTranscriptEvent {
         kind: NormalizedTranscriptKind::AssistantMessage,
         text: "ok".into(),
         is_partial: false,
+        origin: None,
+        attachments: Vec::new(),
     }
 }

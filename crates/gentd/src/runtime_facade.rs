@@ -8,17 +8,18 @@ use crate::provider_readiness_boundary::ProviderReadinessPort;
 use crate::public_runs::{DaemonPublicRuns, observer_service};
 use crate::runtime_update_config::DaemonRuntimeUpdateChecks;
 use gent_runtime::{
-    AgentChatConversationAuthority, AgentChatConversationService, AgentChatPromptAuthority,
-    AgentChatPromptService, AgentChatReadService, AgentChatSelectionGate,
-    AgentChatSelectionSwitchAuthority, AgentChatSelectionSwitchService, AgentChatSessionAuthority,
-    AgentChatSessionService, AllowAnyAgentChatSelection, AttachmentService, AutomationAuthority,
-    AutomationService, ConversationActivityAuthority, ConversationActivityService, Coordinator,
-    DependencyActionService, GoalAuthority, GoalService, OrchestrationAuthority,
-    OrchestrationService, ReviewedPlanAuthority, ReviewedPlanService, RuntimeMaintenanceAuthority,
-    RuntimeMaintenanceService, TurnFollowService,
+    AgentChatConversationService, AgentChatPromptService, AgentChatReadService,
+    AgentChatSelectionGate, AgentChatSelectionSwitchService, AgentChatSessionService,
+    AllowAnyAgentChatSelection, AttachmentService, AutomationService, ConversationActivityService,
+    Coordinator, DependencyActionService, GoalService, OrchestrationService, ReviewedPlanService,
+    RuntimeMaintenanceService,
 };
 use gent_store::{FileAttachmentBlobs, SqliteLedger};
-use gent_types::CapabilitySet;
+use observer_gates::{
+    activity_authority, automation_authority, chat_authority, checkpoint_authority, fork_authority,
+    goal_authority, maintenance_authority, orchestration_authority, prompt_authority,
+    reviewed_plan_authority, session_authority, side_question_authority, switch_authority,
+};
 
 type RuntimeSelectionGate = Arc<dyn AgentChatSelectionGate>;
 
@@ -28,13 +29,33 @@ mod authority;
 mod automations;
 #[path = "runtime_facade_chat_reads.rs"]
 mod chat_reads;
+#[path = "runtime_facade_commands.rs"]
+mod commands;
 #[path = "runtime_facade_composition.rs"]
 mod composition;
+#[path = "runtime_facade_documents.rs"]
+mod documents;
+#[path = "runtime_facade_api_intents.rs"]
+mod intents;
+#[path = "runtime_facade_api_local_models.rs"]
+mod local_models;
+#[path = "model_catalog.rs"]
+pub(crate) mod model_catalog;
+#[path = "runtime_facade_observer_gates.rs"]
+mod observer_gates;
 #[path = "runtime_facade_prompt_admission.rs"]
 mod prompt_admission;
-
-include!("runtime_facade_api_local_models.rs");
-include!("runtime_facade_api_interrupt.rs");
+#[path = "runtime_facade_provider_ports.rs"]
+mod provider_ports;
+#[path = "runtime_facade_api.rs"]
+mod runtime_api;
+#[path = "runtime_facade_session_continuation.rs"]
+mod session_continuation;
+#[path = "runtime_facade_side_questions.rs"]
+mod side_questions;
+#[path = "runtime_facade_transcript_import.rs"]
+mod transcript_import;
+pub(crate) use model_catalog::transport::ModelCatalogPort;
 
 #[cfg(test)]
 pub(crate) use composition::build_runtime;
@@ -50,16 +71,21 @@ pub(crate) struct RuntimeFacade {
     agent_chat_sessions: AgentChatSessionService<SqliteLedger>,
     agent_chat_reads: Option<AgentChatReadService<SqliteLedger>>,
     provider_readiness: Option<Arc<dyn ProviderReadinessPort>>,
+    prompt_provider_provision:
+        Option<Arc<dyn crate::prompt_provider_provision_boundary::PromptProviderProvisionPort>>,
+    provider_auth: Option<Arc<dyn crate::provider_auth_api::ProviderAuthPort>>,
     local_models: Option<crate::standalone_authority_composition::StandaloneClaurstModels>,
     mcp_server_count: u16,
     mcp_server_names: Vec<String>,
     local_model_events: SqliteLedger,
+    transcript_import_ledger: SqliteLedger,
     turn_follow_source: Option<SqliteLedger>,
     conversation_activity: ConversationActivityService<SqliteLedger>,
     ordinary_prompt_ingress:
         Option<crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>>,
     agent_chat_permission_port:
         Option<std::sync::Arc<dyn crate::agent_chat_permission_api::AgentChatPermissionPort>>,
+    model_catalog: Option<Arc<dyn ModelCatalogPort>>,
     goals: GoalService<SqliteLedger>,
     prompt_templates: gent_runtime::PromptTemplateService<SqliteLedger>,
     reviewed_plans: ReviewedPlanService<SqliteLedger>,
@@ -93,6 +119,8 @@ impl RuntimeFacade {
             None,
             None,
             None,
+            None,
+            None,
             0,
             Vec::new(),
             None,
@@ -109,6 +137,10 @@ impl RuntimeFacade {
             crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress<SqliteLedger>,
         >,
         provider_readiness: Option<Arc<dyn ProviderReadinessPort>>,
+        prompt_provider_provision: Option<
+            Arc<dyn crate::prompt_provider_provision_boundary::PromptProviderProvisionPort>,
+        >,
+        provider_auth: Option<Arc<dyn crate::provider_auth_api::ProviderAuthPort>>,
         local_models: Option<crate::standalone_authority_composition::StandaloneClaurstModels>,
         mcp_server_count: u16,
         mcp_server_names: Vec<String>,
@@ -136,6 +168,16 @@ impl RuntimeFacade {
             return Err(
                 "provider readiness authority requires its typed capability profile".into(),
             );
+        }
+        if capability_profile.prompt_provider_provision_enabled()
+            != prompt_provider_provision.is_some()
+        {
+            return Err(
+                "prompt provider provision requires an explicit typed authority composition".into(),
+            );
+        }
+        if capability_profile.provider_auth_enabled() != provider_auth.is_some() {
+            return Err("provider authentication requires an explicit standalone authority".into());
         }
         if capability_profile.local_models_enabled() != local_models.is_some() {
             return Err("local models require an explicit curated catalogue composition".into());
@@ -199,11 +241,15 @@ impl RuntimeFacade {
             ),
             agent_chat_reads: agent_chat_enabled.then(|| AgentChatReadService::new(ledger.clone())),
             provider_readiness,
+            prompt_provider_provision,
+            provider_auth,
             local_models,
             mcp_server_count,
             mcp_server_names,
             local_model_events: ledger.clone(),
+            transcript_import_ledger: ledger.clone(),
             agent_chat_permission_port,
+            model_catalog: None,
             turn_follow_source,
             conversation_activity,
             ordinary_prompt_ingress,
@@ -235,110 +281,11 @@ impl RuntimeFacade {
             dependency_actions: DependencyActionService::new(ledger, ObserverDependencyExecutor),
         })
     }
-}
 
-fn chat_authority(enabled: bool) -> AgentChatConversationAuthority {
-    if enabled {
-        AgentChatConversationAuthority::Approved
-    } else {
-        AgentChatConversationAuthority::Observer
+    fn host_epoch(&self) -> Result<gent_types::HostEpoch, String> {
+        self.coordinator
+            .status()
+            .map(|status| status.host_epoch)
+            .map_err(|error| error.to_string())
     }
 }
-
-fn fork_authority(enabled: bool) -> gent_runtime::AgentChatForkAuthority {
-    if enabled {
-        gent_runtime::AgentChatForkAuthority::Approved
-    } else {
-        gent_runtime::AgentChatForkAuthority::Observer
-    }
-}
-
-fn checkpoint_authority(enabled: bool) -> gent_runtime::AgentChatCheckpointAuthority {
-    if enabled {
-        gent_runtime::AgentChatCheckpointAuthority::Approved
-    } else {
-        gent_runtime::AgentChatCheckpointAuthority::Observer
-    }
-}
-
-fn side_question_authority(enabled: bool) -> gent_runtime::AgentChatSideQuestionAuthority {
-    if enabled {
-        gent_runtime::AgentChatSideQuestionAuthority::Approved
-    } else {
-        gent_runtime::AgentChatSideQuestionAuthority::Observer
-    }
-}
-
-fn prompt_authority(enabled: bool) -> AgentChatPromptAuthority {
-    if enabled {
-        AgentChatPromptAuthority::Approved
-    } else {
-        AgentChatPromptAuthority::Observer
-    }
-}
-
-fn automation_authority(enabled: bool) -> AutomationAuthority {
-    if enabled {
-        AutomationAuthority::Approved
-    } else {
-        AutomationAuthority::Observer
-    }
-}
-
-fn session_authority(enabled: bool) -> AgentChatSessionAuthority {
-    if enabled {
-        AgentChatSessionAuthority::Approved
-    } else {
-        AgentChatSessionAuthority::Observer
-    }
-}
-
-fn switch_authority(enabled: bool) -> AgentChatSelectionSwitchAuthority {
-    if enabled {
-        AgentChatSelectionSwitchAuthority::Approved
-    } else {
-        AgentChatSelectionSwitchAuthority::Observer
-    }
-}
-
-fn activity_authority(enabled: bool) -> ConversationActivityAuthority {
-    if enabled {
-        ConversationActivityAuthority::Approved
-    } else {
-        ConversationActivityAuthority::Observer
-    }
-}
-
-fn maintenance_authority(enabled: bool) -> RuntimeMaintenanceAuthority {
-    if enabled {
-        RuntimeMaintenanceAuthority::Approved
-    } else {
-        RuntimeMaintenanceAuthority::Observer
-    }
-}
-
-fn goal_authority(enabled: bool) -> GoalAuthority {
-    if enabled {
-        GoalAuthority::Approved
-    } else {
-        GoalAuthority::Observer
-    }
-}
-
-fn orchestration_authority(enabled: bool) -> OrchestrationAuthority {
-    if enabled {
-        OrchestrationAuthority::Approved
-    } else {
-        OrchestrationAuthority::Observer
-    }
-}
-
-fn reviewed_plan_authority(enabled: bool) -> ReviewedPlanAuthority {
-    if enabled {
-        ReviewedPlanAuthority::Approved
-    } else {
-        ReviewedPlanAuthority::Observer
-    }
-}
-
-include!("runtime_facade_api.rs");

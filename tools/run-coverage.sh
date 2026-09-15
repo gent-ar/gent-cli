@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-IGNORE='(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/'
+IGNORE='(^|/)crates/(gent-cli|gentd|gent-testkit)/|/tests/|_tests\.rs$|/src/bin/|/examples/'
 minimum_mb=${GENT_COVERAGE_MIN_FREE_MB:-4096}
 target_dir=${GENT_COVERAGE_TARGET_DIR:-}
 report_path=${GENT_COVERAGE_REPORT_PATH:-}

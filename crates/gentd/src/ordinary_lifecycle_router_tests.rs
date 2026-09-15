@@ -96,6 +96,11 @@ impl OrdinaryLifecycleHost for Host {
         self.calls.lock().unwrap().push("permission");
         Ok(())
     }
+
+    fn interrupt_run(&mut self, _: &str) -> Result<(), ()> {
+        self.calls.lock().unwrap().push("interrupt");
+        Ok(())
+    }
 }
 
 #[test]
@@ -133,6 +138,24 @@ fn claude_permission_response_reaches_only_the_claude_owner() {
         .unwrap();
 
     assert_eq!(&*claude_calls.lock().unwrap(), &["permission"]);
+    assert!(codex_calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn interrupt_reaches_only_the_selected_provider_owner() {
+    let claude_calls = Arc::new(Mutex::new(Vec::new()));
+    let codex_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut router = router(
+        AgentChatProvider::Claude,
+        host(AgentChatProvider::Claude, Arc::clone(&claude_calls)),
+        host(AgentChatProvider::Codex, Arc::clone(&codex_calls)),
+    );
+
+    router
+        .interrupt_run(AgentChatProvider::Claude, "run-1")
+        .unwrap();
+
+    assert_eq!(&*claude_calls.lock().unwrap(), &["interrupt"]);
     assert!(codex_calls.lock().unwrap().is_empty());
 }
 

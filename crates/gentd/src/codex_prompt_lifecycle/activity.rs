@@ -24,7 +24,10 @@ pub(super) fn fact(
         PublicWireFact::Event(NormalizedProviderEvent::TurnStarted { .. }) => {
             Some(ConversationActivityFact::TurnStarted { scope: scope() })
         }
-        PublicWireFact::Event(NormalizedProviderEvent::ContextUsage { used_tokens, window_tokens }) => Some(ConversationActivityFact::ContextUsage {
+        PublicWireFact::Event(NormalizedProviderEvent::ContextUsage {
+            used_tokens,
+            window_tokens,
+        }) => Some(ConversationActivityFact::ContextUsage {
             scope: scope(),
             used_tokens: *used_tokens,
             window_tokens: *window_tokens,
@@ -58,20 +61,39 @@ pub(super) fn fact(
                 activity: activity.clone(),
             })
         }
-        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted { child_id, parent_tool_use_id }) => Some(ConversationActivityFact::SubagentStarted {
-            scope: scope(), child_id: child_id.clone(), parent_tool_use_id: parent_tool_use_id.clone(),
+        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
+            child_id,
+            parent_tool_use_id,
+        }) => Some(ConversationActivityFact::SubagentStarted {
+            scope: scope(),
+            child_id: child_id.clone(),
+            parent_tool_use_id: parent_tool_use_id.clone(),
         }),
         PublicWireFact::Event(NormalizedProviderEvent::ChildTerminal { child_id, phase })
-        | PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ChildPhase { child_id, phase }) => Some(ConversationActivityFact::WorkPhase {
-            scope: scope(), work_id: child_id.clone(), kind: ActivityWorkKind::Subagent, phase: phase.clone(),
-        }),
+        | PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ChildPhase { child_id, phase }) => {
+            Some(ConversationActivityFact::WorkPhase {
+                scope: scope(),
+                work_id: child_id.clone(),
+                kind: ActivityWorkKind::Subagent,
+                phase: phase.clone(),
+            })
+        }
         PublicWireFact::Event(NormalizedProviderEvent::CommandTerminal { command_id, phase })
-        | PublicWireFact::Lifecycle(NormalizedLifecycleSignal::CommandPhase { command_id, phase }) => Some(ConversationActivityFact::WorkPhase {
-            scope: scope(), work_id: command_id.clone(), kind: ActivityWorkKind::Command, phase: phase.clone(),
+        | PublicWireFact::Lifecycle(NormalizedLifecycleSignal::CommandPhase {
+            command_id,
+            phase,
+        }) => Some(ConversationActivityFact::WorkPhase {
+            scope: scope(),
+            work_id: command_id.clone(),
+            kind: ActivityWorkKind::Command,
+            phase: phase.clone(),
         }),
-        PublicWireFact::Event(NormalizedProviderEvent::DecisionSettled { decision_id }) => Some(ConversationActivityFact::DecisionSettled {
-            scope: scope(), decision_id: decision_id.clone(),
-        }),
+        PublicWireFact::Event(NormalizedProviderEvent::DecisionSettled { decision_id }) => {
+            Some(ConversationActivityFact::DecisionSettled {
+                scope: scope(),
+                decision_id: decision_id.clone(),
+            })
+        }
         _ => None,
     }
 }

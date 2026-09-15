@@ -1,8 +1,7 @@
 use gent_types::{
     AgentChatConversationId, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, ContextPolicy, HostEpoch, PermissionCategory, PlanAction,
-    PlanActionKind, PlanArtifact, PlanPermissionPreview, PlanRevision, PlanStatus, ReceiptId,
-    ReviewedPlanId, StartImplementationRequest,
+    AgentChatRunId, AgentChatSelection, ContextPolicy, HostEpoch, PlanArtifact, PlanRevision,
+    PlanStatus, ReceiptId, ReviewedPlanId, StartImplementationRequest,
 };
 
 use super::{
@@ -17,19 +16,9 @@ pub(super) fn plan() -> PlanArtifact {
         source_run_id: AgentChatRunId("run-1".into()),
         source_turn_id: "turn-1".into(),
         revision: PlanRevision(1),
-        content_digest_sha256: "a".repeat(64),
+        content_digest_sha256: PlanArtifact::content_digest("1. Update one file"),
         status: PlanStatus::ReadyForReview,
-        actions: vec![PlanAction {
-            action_id: "action-1".into(),
-            kind: PlanActionKind::Edit,
-            summary: "Update one file".into(),
-        }],
-        risks: Vec::new(),
-        diffs: Vec::new(),
-        permission_preview: vec![PlanPermissionPreview {
-            category: PermissionCategory::Edit,
-            summary: "Modify one file".into(),
-        }],
+        content: "1. Update one file".into(),
     }
 }
 
@@ -44,7 +33,7 @@ pub(super) fn approval(policy: ContextPolicy) -> StartImplementationRequest {
         conversation_id: AgentChatConversationId("conversation-1".into()),
         plan_id: ReviewedPlanId("plan-1".into()),
         plan_revision: PlanRevision(1),
-        plan_content_digest_sha256: "a".repeat(64),
+        plan_content_digest_sha256: PlanArtifact::content_digest("1. Update one file"),
         parent_run_id: AgentChatRunId("run-1".into()),
         selection: AgentChatSelection {
             provider: AgentChatProvider::Codex,

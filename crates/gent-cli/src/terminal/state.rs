@@ -7,6 +7,8 @@ mod state_automations;
 mod state_constructor;
 #[path = "state_documents.rs"]
 mod state_documents;
+#[path = "state_navigation.rs"]
+mod state_navigation;
 #[path = "state_picker.rs"]
 mod state_picker;
 #[path = "state_requests.rs"]
@@ -23,6 +25,9 @@ mod state_templates;
 mod state_thinking_commands;
 #[path = "state_updates.rs"]
 mod state_updates;
+pub(crate) use state_navigation::TranscriptScroll;
+#[path = "state_queue.rs"]
+mod state_queue;
 pub(crate) use state_requests::{UiEffect, UiRequest, UiRequestResult};
 #[path = "ui_command.rs"]
 mod ui_command;
@@ -36,7 +41,8 @@ pub(crate) struct UiState {
     selected: Option<usize>,
     chat_enabled: bool,
     input: String,
-    pub(super) scroll_offset: u16,
+    pub(super) scroll: TranscriptScroll,
+    pub(super) scroll_limit: std::cell::Cell<u16>,
     pub(super) attachments: Vec<PathBuf>,
     pub(super) metadata: BTreeMap<String, super::ConversationMetadata>,
     pub(super) sessions: Vec<AgentChatSession>,
@@ -59,10 +65,12 @@ pub(crate) struct UiState {
     pub(super) automation_cursor: usize,
     selection_picker: Option<SelectionPicker>,
     selection_picker_index: usize,
-    pub(super) local_model_ids: Vec<String>,
+    pub(super) model_catalog: Option<gent_protocol::model_catalog::ModelCatalog>,
+    pub(super) new_conversation_selection: Option<AgentChatSelection>,
     show_thinking: bool,
     awaiting_turn: bool,
     conversation_filter: String,
+    pub(super) commands: super::commands::CommandState,
 }
 impl UiState {
     #[must_use]
@@ -91,7 +99,7 @@ impl UiState {
         self.selected = Some(index);
         self.view = None;
         self.parent_run_id = None;
-        self.scroll_offset = 0;
+        self.scroll = TranscriptScroll::Follow;
         self.clear_documents();
         true
     }
@@ -149,22 +157,10 @@ impl UiState {
     }
     pub(crate) fn apply(&mut self, command: UiCommand) -> UiEffect {
         match command {
-            UiCommand::Quit if self.close_picker() => UiEffect::Continue,
-            UiCommand::Quit
-                if self.help_visible
-                    || self.activity_visible
-                    || self.documents_visible
-                    || self.templates_visible
-                    || self.automations_visible =>
-            {
-                self.help_visible = false;
-                self.activity_visible = false;
-                self.documents_visible = false;
-                self.templates_visible = false;
-                self.automations_visible = false;
-                UiEffect::Continue
-            }
             UiCommand::Quit => UiEffect::Quit,
+            UiCommand::Dismiss => self.dismiss(),
+            UiCommand::SteerQueued if self.chat_enabled => self.steer_queued(),
+            UiCommand::CancelQueued if self.chat_enabled => self.cancel_queued(),
             UiCommand::ToggleHelp => {
                 self.help_visible = !self.help_visible;
                 UiEffect::Continue
@@ -198,55 +194,17 @@ impl UiState {
                     UiEffect::Continue
                 }
             },
-            UiCommand::SelectNext => {
-                if self.selection_picker.is_some() {
-                    self.picker_move(true);
-                    UiEffect::Continue
-                } else if self.documents_visible {
-                    self.document_move(true);
-                    UiEffect::Continue
-                } else if self.templates_visible {
-                    self.template_move(true);
-                    UiEffect::Continue
-                } else if self.automations_visible {
-                    self.automation_move(true);
-                    UiEffect::Continue
-                } else if self.session_focus {
-                    self.select_session(|index, count| (index + 1).min(count.saturating_sub(1)))
-                } else {
-                    self.select(|index, count| (index + 1).min(count.saturating_sub(1)))
-                }
-            }
-            UiCommand::SelectPrevious => {
-                if self.selection_picker.is_some() {
-                    self.picker_move(false);
-                    UiEffect::Continue
-                } else if self.documents_visible {
-                    self.document_move(false);
-                    UiEffect::Continue
-                } else if self.templates_visible {
-                    self.template_move(false);
-                    UiEffect::Continue
-                } else if self.automations_visible {
-                    self.automation_move(false);
-                    UiEffect::Continue
-                } else if self.session_focus {
-                    self.select_session(|index, _| index.saturating_sub(1))
-                } else {
-                    self.select(|index, _| index.saturating_sub(1))
-                }
-            }
+            UiCommand::SelectNext => self.move_selection(true),
+            UiCommand::SelectPrevious => self.move_selection(false),
             UiCommand::FocusSessions => self.toggle_session_focus(),
             UiCommand::SubmitPrompt if self.selection_picker.is_some() => {
                 self.apply_picker().unwrap_or(UiEffect::Continue)
             }
             UiCommand::SubmitPrompt if self.session_focus => self.open_session(),
-            UiCommand::ScrollOlder => {
-                self.scroll_offset = self.scroll_offset.saturating_add(8);
-                UiEffect::Continue
-            }
-            UiCommand::ScrollNewer => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(8);
+            UiCommand::ScrollOlder => self.scroll_by(false),
+            UiCommand::ScrollNewer => self.scroll_by(true),
+            UiCommand::FollowLatest => {
+                self.scroll = TranscriptScroll::Follow;
                 UiEffect::Continue
             }
             UiCommand::Insert('?') if self.chat_enabled && self.input.is_empty() => {
@@ -254,13 +212,13 @@ impl UiState {
             }
             UiCommand::Insert(value) if self.chat_enabled => {
                 self.input.push(value);
-                UiEffect::Continue
+                self.command_catalog_refresh()
             }
             UiCommand::InsertNewline if self.chat_enabled => {
                 self.input.push('\n');
                 UiEffect::Continue
             }
-            UiCommand::Paste(value) if self.chat_enabled => state_submit::paste(self, value),
+            UiCommand::Paste(value) if self.chat_enabled => attachments::paste(self, value),
             UiCommand::DeleteInput if self.chat_enabled => {
                 self.input.pop();
                 UiEffect::Continue
@@ -276,7 +234,7 @@ impl UiState {
             }
             UiCommand::CreateConversation if self.chat_enabled => {
                 UiEffect::Request(UiRequest::Create {
-                    selection: self.selection.clone(),
+                    selection: self.new_conversation_selection.take(),
                     session_id: self.focused_session_id(),
                 })
             }
@@ -321,6 +279,11 @@ impl UiState {
         }
     }
 }
+#[path = "state_submit_attachments.rs"]
+mod attachments;
+#[cfg(test)]
+#[path = "state_navigation_tests.rs"]
+mod navigation_tests;
 #[path = "state_submit_notices.rs"]
 mod notices;
 #[path = "state_permissions.rs"]

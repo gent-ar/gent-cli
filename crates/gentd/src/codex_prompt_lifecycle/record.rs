@@ -49,11 +49,19 @@ where
             )?;
             return Ok(());
         }
-        let binding = self
-            .active
-            .get(run_id)
-            .cloned()
-            .ok_or_else(super::missing_binding)?;
+        let Some(binding) = self.active.get(run_id).cloned() else {
+            return match fact {
+                PublicWireFact::Compaction(_) => Ok(()),
+                _ => Err(super::missing_binding()),
+            };
+        };
+        let Some(fact) = crate::public_driver_runtime::session::recorded_wire_fact(
+            &mut self.compaction_notices,
+            &binding.prompt.message.turn_id,
+            fact,
+        ) else {
+            return Ok(());
+        };
         let lifecycle_event_id = self.next_event_id(run_id, host_epoch, "wire")?;
         let transcript_event_id = self.next_event_id(run_id, host_epoch, "transcript")?;
         let activity_event_id = self.next_event_id(run_id, host_epoch, "activity")?;
@@ -65,7 +73,7 @@ where
             lifecycle_event_id,
             transcript_event_id,
             activity_event_id,
-            fact: fact.clone(),
+            fact,
         };
         self.runtime
             .record_normalized_session(&self.coordinator_id, &input)?;

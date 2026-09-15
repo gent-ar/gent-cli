@@ -5,8 +5,8 @@ use gent_ports::{
 };
 use gent_testkit::FakePrivateClaurstBridge;
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord,
-    GoalStatus, NormalizedProviderEvent,
+    AgentChatConversationId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord, GoalStatus,
+    NormalizedProviderEvent,
 };
 
 fn source() -> ClaurstSourceId {
@@ -36,29 +36,43 @@ fn active_goal() -> GoalRecord {
         binding: GoalBinding {
             goal_id: "goal-a".into(),
             conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
         },
         revision: 2,
         status: GoalStatus::Active,
-        summary: "Finish safely".into(),
+        reason: gent_types::GoalStatusReason::UserSet,
+        objective: "Finish safely".into(),
+        note: None,
+        time_used_seconds: 0,
+        active_since: Some(1),
+        tokens_used: 0,
+        token_budget: None,
+        turns_without_progress: 0,
+        accounted_through_ordinal: 0,
+        created_at: 1,
+        updated_at: 1,
     }
 }
 
 #[test]
 fn private_goal_dto_maps_only_a_valid_active_goal_without_bridge_configuration() {
-    let projection = ClaurstGoalProjection::from_active_goal(source(), &active_goal()).unwrap();
+    let projection =
+        ClaurstGoalProjection::from_active_goal("run-a", source(), &active_goal()).unwrap();
     assert_eq!(projection.run_id, "run-a");
-    assert_eq!(projection.goal.binding().goal_id, "goal-a");
-    assert_eq!(projection.goal.revision(), 2);
+    assert_eq!(projection.goal.goal_id(), "goal-a");
 
     let terminal = GoalRecord {
-        status: GoalStatus::Completed,
+        status: GoalStatus::Complete,
+        active_since: None,
         ..active_goal()
     };
-    assert!(ClaurstGoalProjection::from_active_goal(source(), &terminal).is_err());
+    assert!(ClaurstGoalProjection::from_active_goal("run-a", source(), &terminal).is_err());
     assert!(
-        ClaurstGoalProjection::from_active_goal(ClaurstSourceId(String::new()), &active_goal())
-            .is_err()
+        ClaurstGoalProjection::from_active_goal(
+            "run-a",
+            ClaurstSourceId(String::new()),
+            &active_goal()
+        )
+        .is_err()
     );
 }
 

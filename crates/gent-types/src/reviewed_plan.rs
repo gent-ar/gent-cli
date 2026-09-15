@@ -1,33 +1,23 @@
-//! Secret-free, provider-neutral values for reviewed-plan implementation.
-//!
-//! These values describe a future authority flow. They never contain raw
-//! provider events, hidden reasoning, provider session identifiers, patches,
-//! commands, credentials, or endpoint configuration.
-
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
     AgentChatConversationId, AgentChatRequestId, AgentChatRunId, AgentChatSelection, HostEpoch,
-    PermissionCategory, Receipt, ReceiptId,
+    Receipt, ReceiptId,
 };
 
 const MAX_ID_BYTES: usize = 128;
-const MAX_SUMMARY_BYTES: usize = 1_024;
-const MAX_PATH_BYTES: usize = 4_096;
-const MAX_ITEMS: usize = 100;
+pub const MAX_PLAN_CONTENT_BYTES: usize = 64 * 1024;
 
-/// An immutable reviewed-plan identifier.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct ReviewedPlanId(pub String);
 
-/// A monotonically increasing immutable revision of one reviewed plan.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct PlanRevision(pub u64);
 
-/// Closed lifecycle states for a provider-normalized plan.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum PlanStatus {
@@ -39,82 +29,6 @@ pub enum PlanStatus {
     TerminallyFailed,
 }
 
-/// A normalized class of planned work, never a provider command or shell text.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub enum PlanActionKind {
-    Read,
-    Edit,
-    Command,
-    Git,
-    Mcp,
-}
-
-/// One concise, provider-neutral action proposed by a reviewed plan.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PlanAction {
-    pub action_id: String,
-    pub kind: PlanActionKind,
-    pub summary: String,
-}
-
-/// A normalized class of potential implementation risk.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub enum PlanRiskKind {
-    DataLoss,
-    Security,
-    Dependency,
-    ExternalSideEffect,
-    Unknown,
-}
-
-/// Relative severity of a concise, user-visible plan risk.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub enum PlanRiskSeverity {
-    Low,
-    Medium,
-    High,
-}
-
-/// One concise normalized risk, without hidden provider reasoning.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PlanRisk {
-    pub kind: PlanRiskKind,
-    pub severity: PlanRiskSeverity,
-    pub summary: String,
-}
-
-/// The file-level effect proposed by a plan, without a raw diff or patch.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub enum PlanDiffKind {
-    Add,
-    Modify,
-    Delete,
-}
-
-/// A normalized, path-level change preview without source content.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PlanDiff {
-    pub path: String,
-    pub kind: PlanDiffKind,
-    pub summary: String,
-}
-
-/// A concise preview of a provider-neutral permission a plan may request.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PlanPermissionPreview {
-    pub category: PermissionCategory,
-    pub summary: String,
-}
-
-/// Immutable, normalized content presented to a user for plan review.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanArtifact {
@@ -125,36 +39,48 @@ pub struct PlanArtifact {
     pub revision: PlanRevision,
     pub content_digest_sha256: String,
     pub status: PlanStatus,
-    pub actions: Vec<PlanAction>,
-    pub risks: Vec<PlanRisk>,
-    pub diffs: Vec<PlanDiff>,
-    pub permission_preview: Vec<PlanPermissionPreview>,
+    pub content: String,
 }
 
 impl PlanArtifact {
-    /// Validates bounded public metadata before durable or protocol use.
-    ///
+    #[must_use]
+    pub fn content_digest(content: &str) -> String {
+        format!("{:x}", Sha256::digest(content.as_bytes()))
+    }
+
     /// # Errors
-    /// Returns an error for malformed IDs, digests, paths, or bounded review fields.
+    /// Returns an error for malformed IDs, an unbounded plan, or a digest that is not the plan's.
     pub fn validate(&self) -> Result<(), ReviewedPlanContractError> {
         valid_id(&self.plan_id.0)?;
         valid_id(&self.conversation_id.0)?;
         valid_id(&self.source_run_id.0)?;
         valid_id(&self.source_turn_id)?;
-        if self.revision.0 == 0 || !valid_digest(&self.content_digest_sha256) {
+        if self.content.trim().is_empty() || self.content.len() > MAX_PLAN_CONTENT_BYTES {
+            return Err(ReviewedPlanContractError::InvalidMetadata);
+        }
+        if self.revision.0 == 0
+            || !valid_digest(&self.content_digest_sha256)
+            || self.content_digest_sha256 != Self::content_digest(&self.content)
+        {
             return Err(ReviewedPlanContractError::InvalidRevisionOrDigest);
         }
-        valid_items(&self.actions, |item| {
-            valid_id(&item.action_id).and_then(|()| valid_summary(&item.summary))
-        })?;
-        valid_items(&self.risks, |item| valid_summary(&item.summary))?;
-        valid_items(&self.diffs, |item| {
-            valid_path(&item.path).and_then(|()| valid_summary(&item.summary))
-        })?;
-        valid_items(&self.permission_preview, |item| {
-            valid_summary(&item.summary)
-        })
+        Ok(())
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanTurn {
+    pub conversation_id: AgentChatConversationId,
+    pub run_id: AgentChatRunId,
+    pub turn_id: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanImplementation {
+    pub idempotency_key: String,
+    pub implementation_run_id: AgentChatRunId,
+    pub plan: PlanArtifact,
 }
 
 /// Whether a child run receives prior provider-neutral history.
@@ -230,26 +156,8 @@ pub enum ReviewedPlanContractError {
     InvalidRevisionOrDigest,
 }
 
-fn valid_items<T>(
-    items: &[T],
-    validator: impl Fn(&T) -> Result<(), ReviewedPlanContractError>,
-) -> Result<(), ReviewedPlanContractError> {
-    if items.len() > MAX_ITEMS {
-        return Err(ReviewedPlanContractError::InvalidMetadata);
-    }
-    items.iter().try_for_each(validator)
-}
-
 fn valid_id(value: &str) -> Result<(), ReviewedPlanContractError> {
     valid_bounded(value, MAX_ID_BYTES)
-}
-
-fn valid_summary(value: &str) -> Result<(), ReviewedPlanContractError> {
-    valid_bounded(value, MAX_SUMMARY_BYTES)
-}
-
-fn valid_path(value: &str) -> Result<(), ReviewedPlanContractError> {
-    valid_bounded(value, MAX_PATH_BYTES)
 }
 
 fn valid_bounded(value: &str, max: usize) -> Result<(), ReviewedPlanContractError> {

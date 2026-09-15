@@ -1,10 +1,21 @@
 use super::{
-    UiCommand, UiEffect, UiRequest, UiState, notices::notice, permissions, search,
-    selection_commands, state_automations, state_documents, state_templates,
+    UiCommand, UiEffect, UiRequest, UiState,
+    attachments::{attach, attachment_command, existing_file_path},
+    notices::notice,
+    permissions, search, selection_commands, state_automations, state_documents, state_templates,
     state_thinking_commands,
 };
-use gent_types::{ContextPolicy, PromptTemplateVariable};
+use gent_types::{
+    AgentChatClientAction as Action, AgentChatCommandDescriptor,
+    AgentChatCommandDispatch as Dispatch, AgentChatCommandIntent, AgentChatCommandRejection,
+    PromptTemplateVariable,
+};
+#[path = "state_submit_resume.rs"]
+mod resume;
 pub(super) fn submit(state: &mut UiState) -> UiEffect {
+    if let Some(effect) = state.conversation_picker_submit() {
+        return effect;
+    }
     let text = state.input.trim().to_owned();
     if text.is_empty() {
         return UiEffect::Continue;
@@ -12,77 +23,121 @@ pub(super) fn submit(state: &mut UiState) -> UiEffect {
     if let Some(path) = existing_file_path(&text) {
         return attach(state, path);
     }
-    if let Some(effect) = slash_command(state, &text) {
-        return effect;
+    if let Some((name, argument)) = gent_types::slash_command(&text) {
+        return command(state, name, argument);
     }
     let Some(conversation_id) = state.selected().map(|value| value.conversation_id.clone()) else {
         state.notice = Some("Create a conversation first with Ctrl+N.".into());
         return UiEffect::Continue;
     };
-    match goal_summary(&text) {
-        Ok(Some(summary)) => {
-            let Some(run_id) = state.parent_run_id.clone() else {
-                state.notice =
-                    Some("Run status is unavailable; refusing to guess a /goal binding.".into());
-                return UiEffect::Continue;
-            };
-            state.input.clear();
-            return UiEffect::Request(UiRequest::Goal {
-                conversation_id,
-                run_id,
-                summary,
-            });
+    let attachments = state.attachments.clone();
+    UiEffect::Request(if state.turn_active() {
+        UiRequest::Queue {
+            conversation_id,
+            text,
+            attachments,
         }
-        Ok(None) => {}
-        Err(notice) => {
-            state.notice = Some(notice.into());
-            return UiEffect::Continue;
+    } else {
+        UiRequest::Send {
+            conversation_id,
+            text,
+            attachments,
         }
-    }
-    UiEffect::Request(UiRequest::Send {
-        conversation_id,
-        text,
-        attachments: state.attachments.clone(),
     })
 }
-fn slash_command(state: &mut UiState, text: &str) -> Option<UiEffect> {
-    let (command, argument) = text
-        .split_once(char::is_whitespace)
-        .map_or((text, ""), |(head, tail)| (head, tail.trim()));
-    match command {
-        "/new" => new_command(state, argument),
-        "/resume" => Some(resume_command(state, argument)),
-        "/provider" | "/model" | "/effort" | "/mode" | "/plan" | "/context" => {
-            selection_commands::command(state, command, argument)
+fn command(state: &mut UiState, name: &str, argument: &str) -> UiEffect {
+    let Some(catalog) = state.command_catalog() else {
+        return notice(
+            state,
+            "Gentd has not listed this conversation's commands yet.",
+        );
+    };
+    let Some(command) = crate::command_catalog_cli::resolve(catalog, name).cloned() else {
+        let rejection = AgentChatCommandRejection::UnknownCommand { name: name.into() };
+        return notice(state, &format!("{rejection}. Type / to list commands."));
+    };
+    match &command.dispatch {
+        Dispatch::ClientAction { action } if super::super::commands::implemented(*action) => {
+            client_action(state, *action, &command.name, argument)
         }
-        "/switch" | "/fork" | "/clear" => switch_command(state, command, argument),
-        "/attach" | "/detach" => attachment_command(state, command, argument),
-        "/approve" | "/approve-tool" | "/approve-category" | "/deny" | "/answer" => {
-            permissions::command(state, command, argument)
-        }
-        "/permissions" => permissions::settings_command(state, argument),
-        "/login" => login_command(state, argument),
-        "/automation" => automation_command(state, argument),
-        "/automations" => Some(state_automations::open(state)),
-        "/session" => session_command(state, argument),
-        "/tools" => tools_command(state, argument),
-        "/git" => git_command(state, argument),
-        "/template" => template_command(state, argument),
-        "/documents" | "/attach-doc" => Some(state_documents::list(state, argument)),
-        "/templates" => Some(state_templates::open(state)),
-        "/search" => search::command(state, argument),
-        "/thinking" => Some(state_thinking_commands::command(state, argument)),
-        "/activity" => Some(state_thinking_commands::activity(state, argument)),
-        "/help" => help_command(state, argument),
-        _ => None,
+        Dispatch::ClientAction { .. } => notice(
+            state,
+            &format!("/{} is not available in the terminal.", command.name),
+        ),
+        Dispatch::Unsupported {
+            reason,
+            use_instead,
+        } => notice(
+            state,
+            &AgentChatCommandRejection::UnsupportedCommand {
+                name: command.name.clone(),
+                reason: reason.clone(),
+                use_instead: use_instead.clone(),
+            }
+            .to_string(),
+        ),
+        Dispatch::GentIntent { .. } | Dispatch::ProviderNative => invoke(state, &command, argument),
     }
+}
+fn invoke(state: &mut UiState, command: &AgentChatCommandDescriptor, argument: &str) -> UiEffect {
+    let conversation_id = state.selected().map(|item| item.conversation_id.clone());
+    if command.availability.requires_conversation && conversation_id.is_none() {
+        let rejection = AgentChatCommandRejection::CommandRequiresConversation {
+            name: command.name.clone(),
+        };
+        return notice(state, &rejection.to_string());
+    }
+    let creates = command.dispatch
+        == Dispatch::GentIntent {
+            intent: AgentChatCommandIntent::CreateConversation,
+        };
+    UiEffect::Request(UiRequest::InvokeCommand {
+        conversation_id,
+        name: command.name.clone(),
+        arguments: argument.into(),
+        session_id: creates.then(|| state.focused_session_id()).flatten(),
+    })
+}
+fn client_action(state: &mut UiState, action: Action, name: &str, argument: &str) -> UiEffect {
+    let slash = format!("/{name}");
+    let effect = match action {
+        Action::ConversationPicker => Some(resume::command(state, argument)),
+        Action::Help => help_command(state, argument),
+        Action::ProviderLogin => login_command(state, argument),
+        Action::Attach | Action::Detach => attachment_command(state, &slash, argument),
+        Action::Search => search::command(state, argument),
+        Action::Thinking => Some(state_thinking_commands::command(state, argument)),
+        Action::Activity => Some(state_thinking_commands::activity(state, argument)),
+        Action::SteerQueued if argument.is_empty() => {
+            Some(clear_then(state, UiCommand::SteerQueued))
+        }
+        Action::CancelQueued if argument.is_empty() => {
+            Some(clear_then(state, UiCommand::CancelQueued))
+        }
+        Action::ContinueFromHistory if argument.is_empty() => Some(state.continue_from_history()),
+        Action::Decision => permissions::command(state, &slash, argument),
+        Action::PermissionSettings => permissions::settings_command(state, argument),
+        Action::Automations => automation_command(state, argument),
+        Action::Sessions => session_command(state, argument),
+        Action::Tools => tools_command(state, argument),
+        Action::Git => git_command(state, argument),
+        Action::Templates if argument.is_empty() => Some(state_templates::open(state)),
+        Action::Templates => template_command(state, argument),
+        Action::Documents => Some(state_documents::list(state, argument)),
+        Action::ApplySelection if argument.is_empty() => {
+            Some(clear_then(state, UiCommand::SwitchSelection))
+        }
+        Action::ContextPolicy => selection_commands::command(state, "/context", argument),
+        _ => None,
+    };
+    effect.unwrap_or_else(|| notice(state, &format!("{slash} does not take that argument.")))
 }
 fn login_command(state: &mut UiState, argument: &str) -> Option<UiEffect> {
     let provider = match argument {
         "" => state.selection.provider,
         "claude" => gent_types::AgentChatProvider::Claude,
         "codex" => gent_types::AgentChatProvider::Codex,
-        "gent" | "claurst" => gent_types::AgentChatProvider::Claurst,
+        "gent" => gent_types::AgentChatProvider::Claurst,
         _ => return Some(notice(state, "/login accepts claude or codex.")),
     };
     if provider == gent_types::AgentChatProvider::Claurst {
@@ -190,148 +245,9 @@ fn git_command(state: &mut UiState, argument: &str) -> Option<UiEffect> {
     state.notice = Some(format!("Git · {branch} · {files} · {workspace}"));
     Some(UiEffect::Continue)
 }
-fn new_command(state: &mut UiState, argument: &str) -> Option<UiEffect> {
-    if !argument.is_empty() {
-        return None;
-    }
+fn clear_then(state: &mut UiState, command: UiCommand) -> UiEffect {
     state.input.clear();
-    Some(UiEffect::Request(UiRequest::Create {
-        selection: state.selection.clone(),
-        session_id: state.focused_session_id(),
-    }))
-}
-fn resume_command(state: &mut UiState, argument: &str) -> UiEffect {
-    if let Some((candidate, prompt)) = argument.split_once(char::is_whitespace)
-        && state.select_conversation(candidate)
-    {
-        let prompt = prompt.trim();
-        state.input.clear();
-        return if prompt.is_empty() {
-            UiEffect::Refresh(candidate.into())
-        } else {
-            UiEffect::Request(UiRequest::Send {
-                conversation_id: candidate.into(),
-                text: prompt.into(),
-                attachments: Vec::new(),
-            })
-        };
-    }
-    if !argument.is_empty() && state.select_conversation(argument) {
-        state.input.clear();
-        return UiEffect::Refresh(argument.into());
-    }
-    let Some(conversation_id) = state.selected().map(|value| value.conversation_id.clone()) else {
-        state.notice = Some("Select a conversation before using /resume.".into());
-        return UiEffect::Continue;
-    };
-    state.input.clear();
-    if argument.is_empty() {
-        UiEffect::Refresh(conversation_id)
-    } else {
-        UiEffect::Request(UiRequest::Send {
-            conversation_id,
-            text: argument.to_owned(),
-            attachments: Vec::new(),
-        })
-    }
-}
-fn attachment_command(state: &mut UiState, command: &str, argument: &str) -> Option<UiEffect> {
-    if command == "/detach" {
-        if !argument.is_empty() {
-            return None;
-        }
-        let count = state.attachments.len();
-        state.attachments.clear();
-        state.input.clear();
-        state.notice = Some(format!("Removed {count} pending attachment(s)."));
-        return Some(UiEffect::Continue);
-    }
-    if argument.is_empty() {
-        return Some(notice(state, "/attach requires a file path."));
-    }
-    Some(match attachment_path(argument) {
-        Some(path) => attach(state, path),
-        None => notice(state, "Attach requires a local file path."),
-    })
-}
-pub(super) fn paste(state: &mut UiState, value: String) -> UiEffect {
-    if let Some(path) = existing_file_path(&value) {
-        attach(state, path)
-    } else {
-        state.input.push_str(&value);
-        UiEffect::Continue
-    }
-}
-fn existing_file_path(value: &str) -> Option<std::path::PathBuf> {
-    let path = attachment_path(value)?;
-    path.is_file().then_some(path)
-}
-
-fn attachment_path(value: &str) -> Option<std::path::PathBuf> {
-    let value = value.trim().trim_matches('"').replace("\\ ", " ");
-    if let Some(value) = value.strip_prefix("file://") {
-        return file_url_path(value).map(std::path::PathBuf::from);
-    }
-    (!value.is_empty()).then(|| std::path::PathBuf::from(value))
-}
-
-fn file_url_path(value: &str) -> Option<String> {
-    let path = if value.starts_with('/') {
-        value.to_owned()
-    } else {
-        format!("/{}", value.strip_prefix("localhost/")?)
-    };
-    let mut bytes = Vec::with_capacity(path.len());
-    let source = path.as_bytes();
-    let mut index = 0;
-    while index < source.len() {
-        if source[index] == b'%' {
-            let high = *source.get(index + 1)?;
-            let low = *source.get(index + 2)?;
-            bytes.push((hex(high)? << 4) | hex(low)?);
-            index += 3;
-        } else {
-            bytes.push(source[index]);
-            index += 1;
-        }
-    }
-    String::from_utf8(bytes).ok()
-}
-
-const fn hex(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        b'A'..=b'F' => Some(value - b'A' + 10),
-        _ => None,
-    }
-}
-fn attach(state: &mut UiState, path: std::path::PathBuf) -> UiEffect {
-    if !path.is_file() {
-        return notice(state, "Attach requires a readable file path.");
-    }
-    if state.attachments.iter().any(|value| value == &path) {
-        return notice(state, "That file is already attached.");
-    }
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("file")
-        .to_owned();
-    state.attachments.push(path);
-    state.input.clear();
-    state.notice = Some(format!("Attached {name}. Enter sends it with the prompt."));
-    UiEffect::Continue
-}
-fn switch_command(state: &mut UiState, command: &str, argument: &str) -> Option<UiEffect> {
-    if !argument.is_empty() {
-        return None;
-    }
-    if command == "/clear" {
-        state.context_policy = ContextPolicy::Clear;
-    }
-    state.input.clear();
-    Some(state.apply(UiCommand::SwitchSelection))
+    state.apply(command)
 }
 fn help_command(state: &mut UiState, argument: &str) -> Option<UiEffect> {
     if !argument.is_empty() {
@@ -339,16 +255,4 @@ fn help_command(state: &mut UiState, argument: &str) -> Option<UiEffect> {
     }
     state.input.clear();
     Some(state.apply(UiCommand::ToggleHelp))
-}
-fn goal_summary(text: &str) -> Result<Option<String>, &'static str> {
-    let Some(summary) = text.strip_prefix("/goal") else {
-        return Ok(None);
-    };
-    if !summary.is_empty() && !summary.chars().next().is_some_and(char::is_whitespace) {
-        return Ok(None);
-    }
-    let summary = summary.trim();
-    (!summary.is_empty())
-        .then(|| Some(summary.to_owned()))
-        .ok_or("`/goal` requires a concise summary; no provider work was started")
 }

@@ -27,7 +27,7 @@ fn observer_neither_advertises_nor_accepts_reviewed_plan_authority() {
         .reviewed_plan(ReviewedPlanFrame::ReviewRead {
             request_id: "request-1".into(),
             conversation_id: AgentChatConversationId("conversation-1".into()),
-            plan_id: ReviewedPlanId("plan-1".into()),
+            plan_id: Some(ReviewedPlanId("plan-1".into())),
         })
         .unwrap_err();
     assert_eq!(
@@ -57,7 +57,7 @@ fn chat_persistence_profile_keeps_reviewed_plans_unadvertised_until_lifecycle_au
             .reviewed_plan(ReviewedPlanFrame::ReviewRead {
                 request_id: "request-1".into(),
                 conversation_id: AgentChatConversationId("conversation-1".into()),
-                plan_id: ReviewedPlanId("plan-1".into()),
+                plan_id: Some(ReviewedPlanId("plan-1".into())),
             })
             .unwrap_err(),
         "reviewed plans are unavailable while gentd is observer-disabled"

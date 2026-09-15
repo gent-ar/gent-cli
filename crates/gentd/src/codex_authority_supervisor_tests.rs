@@ -16,6 +16,17 @@ use gent_types::{
     ReceiptId, WorkspaceRecord,
 };
 
+fn has_exit_event(ledger: &SqliteLedger) -> bool {
+    ledger
+        .read_event_page(0, 128)
+        .unwrap()
+        .events
+        .iter()
+        .any(|event| {
+            event.event_id.starts_with("codex:1:run-a:") && event.event_id.contains(":exit:")
+        })
+}
+
 #[test]
 fn first_wake_recovers_then_runs_one_bounded_tick() {
     let ledger = SqliteLedger::in_memory().unwrap();
@@ -81,7 +92,7 @@ fn shutdown_signals_the_tree_in_order_then_refuses_to_fake_terminal_settlement()
             ProcessTreeSignal::Kill,
         ]
     );
-    assert!(ledger.find_event("codex:1:run-a:exit:1").unwrap().is_none());
+    assert!(!has_exit_event(&ledger));
     assert!(!supervisor.shutdown_complete());
 }
 
@@ -114,7 +125,7 @@ fn a_drain_stops_only_after_the_existing_lifecycle_settles_an_exit() {
     ));
     assert_eq!(supervisor.state(), PrivateCodexSupervisorState::Stopped);
     assert!(supervisor.shutdown_complete());
-    assert!(ledger.find_event("codex:1:run-a:exit:1").unwrap().is_some());
+    assert!(has_exit_event(&ledger));
 }
 
 #[test]

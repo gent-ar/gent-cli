@@ -18,6 +18,8 @@ thiserror.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
+clap.workspace = true
+gent-core = { path = "../gent-core" }
 gent-testkit = { path = "../gent-testkit" }
 
 [lints]

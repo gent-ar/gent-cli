@@ -40,7 +40,7 @@ where
     }
     match runtime.workspace_git(frame) {
         Ok(reply) => write_json_frame(stream, &reply).await?,
-        Err(message) => write_error(stream, "workspaceGitRejected", &message).await?,
+        Err(rejection) => write_error(stream, rejection.code, &rejection.message).await?,
     }
     Ok(true)
 }

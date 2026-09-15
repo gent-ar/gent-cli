@@ -8,16 +8,7 @@ use crate::{
     transport,
 };
 use gent_runtime::catalog::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
-use {
-    clap::{Parser, ValueEnum},
-    std::path::PathBuf,
-};
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub(crate) enum ProviderLogin {
-    Claude,
-    Codex,
-}
+use {clap::Parser, std::path::PathBuf};
 
 #[path = "daemon_bootstrap_updates.rs"]
 mod updates;
@@ -54,12 +45,19 @@ pub(crate) struct Args {
     pub(crate) standalone_claude_executable: Option<PathBuf>,
     #[arg(long, env = "GENT_CODEX_EXECUTABLE")]
     pub(crate) standalone_codex_executable: Option<PathBuf>,
+    #[arg(long, env = "GENT_STANDALONE_AUTHORITY_RELEASE")]
+    pub(crate) standalone_authority_release: Option<PathBuf>,
+    #[arg(long, requires = "standalone_authority")]
+    pub(crate) verify_standalone_authority_release: bool,
+    #[arg(
+        long = "standalone-authority-key",
+        env = "GENT_STANDALONE_AUTHORITY_KEY"
+    )]
+    pub(crate) standalone_authority_keys: Vec<String>,
     #[arg(long, env = "GENT_CLAURST_EXECUTABLE")]
     pub(crate) standalone_claurst_executable: Option<PathBuf>,
     #[arg(long, env = "GENT_LLAMA_SERVER_EXECUTABLE")]
     pub(crate) standalone_llama_server_executable: Option<PathBuf>,
-    #[arg(long, value_enum)]
-    pub(crate) provider_login: Option<ProviderLogin>,
     #[arg(long, env = "GENT_MCP_CONFIG_PATH")]
     pub(crate) mcp_config: Option<PathBuf>,
     /// Serve only a locally cached, revalidated signed runtime-release report.
@@ -115,13 +113,6 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", data_dir.display());
         return Ok(());
     }
-    if let Some(provider) = args.provider_login {
-        let data_dir = args
-            .data_dir
-            .as_deref()
-            .map_or_else(startup::default_data_dir, PathBuf::from);
-        return crate::standalone_provider_setup::login(&data_dir, provider).map_err(Into::into);
-    }
     if args.standalone_authority {
         return crate::standalone_authority_bootstrap::run(args).await;
     }
@@ -138,11 +129,14 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
+    let _provider_groups = stop_provider_groups_left_behind(&data_dir)?;
     let update_checks = updates::configure_update_checks(&args)?;
     let capability_profile = RuntimeCapabilityProfile::new(
         [
             args.agent_chat_authority
                 .then_some(RuntimeCapabilityFeature::AgentChat),
+            args.agent_chat_authority
+                .then_some(RuntimeCapabilityFeature::AgentChatProjection),
             update_checks
                 .is_some()
                 .then_some(RuntimeCapabilityFeature::RuntimeUpdateCheck),
@@ -165,7 +159,43 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         compatibility,
         update_checks,
     )?;
-    serve_local(runtime, &args, &data_dir, recovery.as_ref()).await
+    tokio::select! {
+        result = serve_local(runtime, &args, &data_dir, recovery.as_ref()) => result,
+        () = terminated() => Ok(()),
+    }
+}
+
+pub(crate) fn stop_provider_groups_left_behind(
+    data_dir: &std::path::Path,
+) -> Result<gent_drivers::process::groups::StopRecordedOnExit, Box<dyn std::error::Error>> {
+    let (guard, survivors) =
+        gent_drivers::process::groups::install(&data_dir.join("process-groups"))?;
+    if !survivors.is_empty() {
+        eprintln!("stopped provider process groups left by a previous gentd: {survivors:?}");
+    }
+    Ok(guard)
+}
+
+#[cfg(unix)]
+pub(crate) async fn terminated() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let (Ok(mut terminate), Ok(mut interrupt)) = (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::interrupt()),
+    ) else {
+        return std::future::pending().await;
+    };
+    tokio::select! {
+        _ = terminate.recv() => {}
+        _ = interrupt.recv() => {}
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) async fn terminated() {
+    if tokio::signal::ctrl_c().await.is_err() {
+        std::future::pending::<()>().await;
+    }
 }
 
 /// Refuses startup if a future bootstrap edit attempts to select a non-observer authority profile.

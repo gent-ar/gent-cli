@@ -34,6 +34,7 @@ pub fn with_activity_cursor(
     match &mut fact {
         ConversationActivityFact::TurnStarted { scope }
         | ConversationActivityFact::ContextUsage { scope, .. }
+        | ConversationActivityFact::TokenUsage { scope, .. }
         | ConversationActivityFact::RootActivity { scope, .. }
         | ConversationActivityFact::RootPhase { scope, .. }
         | ConversationActivityFact::WorkPhase { scope, .. }
@@ -41,9 +42,16 @@ pub fn with_activity_cursor(
         | ConversationActivityFact::SubagentStarted { scope, .. }
         | ConversationActivityFact::DecisionPending { scope, .. }
         | ConversationActivityFact::DecisionSettled { scope, .. }
+        | ConversationActivityFact::PromptQueued { scope, .. }
+        | ConversationActivityFact::PromptHeld { scope, .. }
+        | ConversationActivityFact::PromptReleased { scope, .. }
+        | ConversationActivityFact::PromptCanceled { scope, .. }
+        | ConversationActivityFact::PromptSteered { scope, .. }
         | ConversationActivityFact::InterruptRequested { scope }
         | ConversationActivityFact::Recovered { scope }
-        | ConversationActivityFact::Terminal { scope, .. } => scope.cursor = cursor,
+        | ConversationActivityFact::Terminal { scope, .. }
+        | ConversationActivityFact::GoalUpdated { scope, .. }
+        | ConversationActivityFact::PlanUpdated { scope, .. } => scope.cursor = cursor,
     }
     fact
 }

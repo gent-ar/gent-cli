@@ -6,12 +6,21 @@
 use gent_types::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse,
     AgentChatPromptDelivery, AgentChatRequestId, AgentChatRunId, AgentChatSelection, ContextPolicy,
-    NormalizedTranscriptEvent, Receipt,
+    NormalizedTranscriptEvent, NormalizedTranscriptKind, Receipt,
 };
 use serde::{Deserialize, Serialize};
 
 /// Required before a client may submit future agent-chat intents.
 pub const AGENT_CHAT_INTENTS_CAPABILITY: &str = "agent-chat-intents-v1";
+pub const AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY: &str = "agent-chat-transcript-import-v1";
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoricalTranscriptEntry {
+    pub source_id: String,
+    pub kind: NormalizedTranscriptKind,
+    pub text: String,
+}
 
 /// Future receipt-backed commands plus cursor-based subscription requests.
 ///
@@ -31,7 +40,14 @@ pub enum AgentChatIntentFrame {
         receipt_id: gent_types::ReceiptId,
         /// Raw local path, canonicalized and validated by gentd before it is persisted.
         workspace_path: String,
-        selection: AgentChatSelection,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selection: Option<AgentChatSelection>,
+    },
+    ImportTranscript {
+        request_id: AgentChatRequestId,
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
+        entries: Vec<HistoricalTranscriptEntry>,
     },
     SendPrompt {
         request_id: AgentChatRequestId,
@@ -62,6 +78,36 @@ pub enum AgentChatIntentFrame {
         text: String,
         attachment_ids: Vec<String>,
         tool_source_ids: Vec<String>,
+    },
+    CancelQueuedPrompt {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        conversation_id: AgentChatConversationId,
+        message_id: String,
+    },
+    QueuedPromptCanceled {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        conversation_id: AgentChatConversationId,
+        message_id: String,
+    },
+    SteerQueuedPrompt {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        conversation_id: AgentChatConversationId,
+        message_id: String,
+    },
+    QueuedPromptSteered {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        conversation_id: AgentChatConversationId,
+        message_id: String,
+    },
+    ContinueFromSavedHistory {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        conversation_id: AgentChatConversationId,
+        message_id: String,
     },
     SwitchSelection {
         request_id: AgentChatRequestId,
@@ -106,6 +152,12 @@ pub enum AgentChatIntentFrame {
         conversation_id: AgentChatConversationId,
         run_id: AgentChatRunId,
     },
+    TranscriptImported {
+        request_id: AgentChatRequestId,
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
+        imported_count: u16,
+    },
     /// Durable result of selecting a new immutable child run for one conversation.
     Switched {
         request_id: AgentChatRequestId,
@@ -125,6 +177,7 @@ pub enum AgentChatIntentFrame {
         run_id: AgentChatRunId,
         /// Immutable turn created by the same transaction as the receipt.
         turn_id: String,
+        message_id: String,
         /// Durable local delivery state; this never attests that a provider was launched.
         delivery: AgentChatPromptDelivery,
     },
@@ -250,6 +303,7 @@ mod tests {
             conversation_id: AgentChatConversationId("conversation-1".into()),
             run_id: AgentChatRunId("run-1".into()),
             turn_id: "turn-1".into(),
+            message_id: "message-1".into(),
             delivery: gent_types::AgentChatPromptDelivery::AwaitingProvider,
         };
         assert_eq!(
@@ -262,7 +316,8 @@ mod tests {
                         "status": "accepted", "hostEpoch": 1
                     },
                     "conversationId": "conversation-1", "runId": "run-1",
-                    "turnId": "turn-1", "delivery": "awaitingProvider"
+                    "turnId": "turn-1", "messageId": "message-1",
+                    "delivery": "awaitingProvider"
                 }
             })
         );
@@ -305,6 +360,86 @@ mod tests {
                 "body": {
                     "requestId": "request-1", "receiptId": "receipt-1",
                     "sourceConversationId": "conversation-1", "forkThroughMessageId": "message-1"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn queued_prompt_cancellation_is_receipt_bound_to_one_message() {
+        let request = json!({
+            "type": "cancelQueuedPrompt",
+            "body": {
+                "requestId": "request-1", "receiptId": "receipt-1",
+                "conversationId": "conversation-1", "messageId": "message-1"
+            }
+        });
+        assert!(matches!(
+            serde_json::from_value::<AgentChatIntentFrame>(request).unwrap(),
+            AgentChatIntentFrame::CancelQueuedPrompt { message_id, .. } if message_id == "message-1"
+        ));
+        let reply = AgentChatIntentFrame::QueuedPromptCanceled {
+            request_id: AgentChatRequestId("request-1".into()),
+            receipt: Receipt {
+                receipt_id: ReceiptId("receipt-1".into()),
+                idempotency_key: "agent-chat-cancel-queued-prompt:receipt-1".into(),
+                status: ReceiptStatus::Settled,
+                host_epoch: HostEpoch(1),
+            },
+            conversation_id: AgentChatConversationId("conversation-1".into()),
+            message_id: "message-1".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(reply).unwrap(),
+            json!({
+                "type": "queuedPromptCanceled",
+                "body": {
+                    "requestId": "request-1", "receipt": {
+                        "receiptId": "receipt-1",
+                        "idempotencyKey": "agent-chat-cancel-queued-prompt:receipt-1",
+                        "status": "settled", "hostEpoch": 1
+                    },
+                    "conversationId": "conversation-1", "messageId": "message-1"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn queued_prompt_steer_is_receipt_bound_to_one_message() {
+        let request = json!({
+            "type": "steerQueuedPrompt",
+            "body": {
+                "requestId": "request-1", "receiptId": "receipt-1",
+                "conversationId": "conversation-1", "messageId": "message-1"
+            }
+        });
+        assert!(matches!(
+            serde_json::from_value::<AgentChatIntentFrame>(request).unwrap(),
+            AgentChatIntentFrame::SteerQueuedPrompt { message_id, .. } if message_id == "message-1"
+        ));
+        let reply = AgentChatIntentFrame::QueuedPromptSteered {
+            request_id: AgentChatRequestId("request-1".into()),
+            receipt: Receipt {
+                receipt_id: ReceiptId("receipt-1".into()),
+                idempotency_key: "agent-chat-steer-queued-prompt:message-1".into(),
+                status: ReceiptStatus::Settled,
+                host_epoch: HostEpoch(1),
+            },
+            conversation_id: AgentChatConversationId("conversation-1".into()),
+            message_id: "message-1".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(reply).unwrap(),
+            json!({
+                "type": "queuedPromptSteered",
+                "body": {
+                    "requestId": "request-1", "receipt": {
+                        "receiptId": "receipt-1",
+                        "idempotencyKey": "agent-chat-steer-queued-prompt:message-1",
+                        "status": "settled", "hostEpoch": 1
+                    },
+                    "conversationId": "conversation-1", "messageId": "message-1"
                 }
             })
         );

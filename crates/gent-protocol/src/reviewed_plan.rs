@@ -25,7 +25,8 @@ pub enum ReviewedPlanFrame {
     ReviewRead {
         request_id: String,
         conversation_id: AgentChatConversationId,
-        plan_id: ReviewedPlanId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plan_id: Option<ReviewedPlanId>,
     },
     Review {
         request_id: String,
@@ -65,7 +66,9 @@ impl ReviewedPlanFrame {
             } => {
                 valid_id(request_id)?;
                 valid_id(&conversation_id.0)?;
-                valid_id(&plan_id.0)?;
+                if let Some(plan_id) = plan_id {
+                    valid_id(&plan_id.0)?;
+                }
             }
             Self::Review { request_id, plan } => {
                 valid_id(request_id)?;

@@ -20,6 +20,8 @@ SAFE_COMPONENT = re.compile(r"[A-Za-z0-9._+-]+\Z")
 REQUIRED_CAPABILITIES = {
     "agent-chat-conversations-v1",
     "agent-chat-intents-v1",
+    "agent-chat-transcript-import-v1",
+    "agent-chat-projection-v1",
     "agent-chat-transcript-v1",
     "agent-chat-turn-follow-v1",
     "agent-chat-permissions-v1",
@@ -29,7 +31,9 @@ REQUIRED_CAPABILITIES = {
     "agent-chat-conversation-config-v1",
     "agent-chat-checkpoint-v1",
     "agent-chat-side-question-v1",
-    "permission-policy-v1",
+    "provider-auth-v1",
+    "provider-readiness-v2",
+    "permission-policy-v2",
     "prompt-provider-provision-v1",
 }
 
@@ -85,6 +89,10 @@ def expected_runtime(archive: Path) -> list[str]:
 def expected_claurst_runtime(archive: Path) -> list[str]:
     suffix = ".exe" if archive.suffix == ".zip" else ""
     return [f"runtime/claurst/claurst{suffix}", f"runtime/claurst/llama/llama-server{suffix}"]
+
+
+def expected_authority() -> list[str]:
+    return ["authority/ordinary-authority.json", "authority/root-keys.json"]
 
 
 def expected_executables(archive: Path) -> set[str]:
@@ -145,7 +153,7 @@ def read_manifest(path: Path, archive: Path) -> tuple[str, str, str, int, list[s
 
 
 def verify_tar(archive: Path, root: str, binaries: list[str]) -> None:
-    required = [f"{root}/{name}" for name in [*binaries, *expected_runtime(archive), *expected_claurst_runtime(archive)]]
+    required = [f"{root}/{name}" for name in [*binaries, *expected_runtime(archive), *expected_claurst_runtime(archive), *expected_authority()]]
     executable_members = {f"{root}/{name}" for name in expected_executables(archive)}
     try:
         with tarfile.open(archive, "r:gz") as bundle:
@@ -175,7 +183,7 @@ def verify_tar(archive: Path, root: str, binaries: list[str]) -> None:
 
 
 def verify_zip(archive: Path, root: str, binaries: list[str]) -> None:
-    required = [f"{root}/{name}" for name in [*binaries, *expected_runtime(archive), *expected_claurst_runtime(archive)]]
+    required = [f"{root}/{name}" for name in [*binaries, *expected_runtime(archive), *expected_claurst_runtime(archive), *expected_authority()]]
     try:
         with zipfile.ZipFile(archive) as bundle:
             entries = bundle.infolist()

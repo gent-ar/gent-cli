@@ -2,7 +2,7 @@ CREATE TABLE gent_schema (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     identity TEXT NOT NULL
 );
-INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v15');
+INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v23');
 CREATE TABLE host_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     epoch INTEGER NOT NULL,
@@ -133,13 +133,14 @@ CREATE TABLE policies (
     scope TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision > 0),
     allowed_tools TEXT NOT NULL,
-    mode TEXT NOT NULL DEFAULT 'default',
+    mode TEXT NOT NULL DEFAULT 'askEveryTime',
     allowed_categories TEXT NOT NULL DEFAULT '[]',
     UNIQUE (workspace_id, scope, revision)
 );
 CREATE TABLE pending_provider_permissions (
-    decision_id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
+    decision_id TEXT NOT NULL, conversation_id TEXT NOT NULL REFERENCES conversations(conversation_id),
     run_id TEXT NOT NULL REFERENCES runs(run_id), binding_json TEXT NOT NULL, request_json TEXT NOT NULL,
+    PRIMARY KEY(conversation_id, run_id, decision_id),
     UNIQUE(conversation_id, run_id)
 );
 CREATE TABLE git_operations (

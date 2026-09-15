@@ -1,0 +1,158 @@
+{
+  "capability": "provider-auth-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "provider": "claude",
+          "requestId": "auth-1"
+        },
+        "type": "statusRequest"
+      },
+      "wireHex": "0000004a7b2274797065223a2273746174757352657175657374222c22626f6479223a7b22726571756573744964223a22617574682d31222c2270726f7669646572223a22636c61756465227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "requestId": "auth-1",
+          "status": {
+            "binaryLock": null,
+            "expiresAtUnixSeconds": null,
+            "lifecycle": "checking",
+            "provider": "claude",
+            "selectedMethod": null
+          }
+        },
+        "type": "status"
+      },
+      "wireHex": "000000a97b2274797065223a22737461747573222c22626f6479223a7b22726571756573744964223a22617574682d31222c22737461747573223a7b2270726f7669646572223a22636c61756465222c2262696e6172794c6f636b223a6e756c6c2c226c6966656379636c65223a22636865636b696e67222c2273656c65637465644d6574686f64223a6e756c6c2c22657870697265734174556e69785365636f6e6473223a6e756c6c7d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "provider": "claude",
+          "requestId": "auth-2"
+        },
+        "type": "statusRequest"
+      },
+      "wireHex": "0000004a7b2274797065223a2273746174757352657175657374222c22626f6479223a7b22726571756573744964223a22617574682d32222c2270726f7669646572223a22636c61756465227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "requestId": "auth-2",
+          "status": {
+            "binaryLock": {
+              "canonicalExecutableId": "provider-id:claude",
+              "digestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "version": "2.1.270"
+            },
+            "expiresAtUnixSeconds": null,
+            "lifecycle": "unauthenticated",
+            "provider": "claude",
+            "selectedMethod": null
+          }
+        },
+        "type": "status"
+      },
+      "wireHex": "000001407b2274797065223a22737461747573222c22626f6479223a7b22726571756573744964223a22617574682d32222c22737461747573223a7b2270726f7669646572223a22636c61756465222c2262696e6172794c6f636b223a7b2263616e6f6e6963616c45786563757461626c654964223a2270726f76696465722d69643a636c61756465222c22646967657374536861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2276657273696f6e223a22322e312e323730227d2c226c6966656379636c65223a22756e61757468656e74696361746564222c2273656c65637465644d6574686f64223a6e756c6c2c22657870697265734174556e69785365636f6e6473223a6e756c6c7d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "provider": "claude",
+          "requestId": "auth-3"
+        },
+        "type": "loginRequest"
+      },
+      "wireHex": "000000497b2274797065223a226c6f67696e52657175657374222c22626f6479223a7b22726571756573744964223a22617574682d33222c2270726f7669646572223a22636c61756465227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "challenge": {
+            "binaryLock": {
+              "canonicalExecutableId": "provider-id:claude",
+              "digestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "version": "2.1.270"
+            },
+            "challengeId": "auth-challenge-1",
+            "expiresAtUnixSeconds": 4102444800,
+            "methods": [
+              "accountBrowser"
+            ],
+            "provider": "claude"
+          },
+          "requestId": "auth-3"
+        },
+        "type": "askTool"
+      },
+      "wireHex": "000001547b2274797065223a2261736b546f6f6c222c22626f6479223a7b22726571756573744964223a22617574682d33222c226368616c6c656e6765223a7b226368616c6c656e67654964223a22617574682d6368616c6c656e67652d31222c2270726f7669646572223a22636c61756465222c2262696e6172794c6f636b223a7b2263616e6f6e6963616c45786563757461626c654964223a2270726f76696465722d69643a636c61756465222c22646967657374536861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2276657273696f6e223a22322e312e323730227d2c226d6574686f6473223a5b226163636f756e7442726f77736572225d2c22657870697265734174556e69785365636f6e6473223a343130323434343830307d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "requestId": "auth-4",
+          "selection": {
+            "challengeId": "auth-challenge-1",
+            "method": "accountBrowser"
+          }
+        },
+        "type": "selectMethod"
+      },
+      "wireHex": "0000007e7b2274797065223a2273656c6563744d6574686f64222c22626f6479223a7b22726571756573744964223a22617574682d34222c2273656c656374696f6e223a7b226368616c6c656e67654964223a22617574682d6368616c6c656e67652d31222c226d6574686f64223a226163636f756e7442726f77736572227d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "requestId": "auth-4",
+          "status": {
+            "binaryLock": {
+              "canonicalExecutableId": "provider-id:claude",
+              "digestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "version": "2.1.270"
+            },
+            "expiresAtUnixSeconds": 4102444800,
+            "lifecycle": "verifying",
+            "provider": "claude",
+            "selectedMethod": "accountBrowser"
+          }
+        },
+        "type": "selectionAccepted"
+      },
+      "wireHex": "000001577b2274797065223a2273656c656374696f6e4163636570746564222c22626f6479223a7b22726571756573744964223a22617574682d34222c22737461747573223a7b2270726f7669646572223a22636c61756465222c2262696e6172794c6f636b223a7b2263616e6f6e6963616c45786563757461626c654964223a2270726f76696465722d69643a636c61756465222c22646967657374536861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2276657273696f6e223a22322e312e323730227d2c226c6966656379636c65223a22766572696679696e67222c2273656c65637465644d6574686f64223a226163636f756e7442726f77736572222c22657870697265734174556e69785365636f6e6473223a343130323434343830307d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "challengeId": "auth-challenge-1",
+          "requestId": "auth-5"
+        },
+        "type": "cancel"
+      },
+      "wireHex": "000000507b2274797065223a2263616e63656c222c22626f6479223a7b22726571756573744964223a22617574682d35222c226368616c6c656e67654964223a22617574682d6368616c6c656e67652d31227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "requestId": "auth-5",
+          "status": {
+            "binaryLock": {
+              "canonicalExecutableId": "provider-id:claude",
+              "digestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "version": "2.1.270"
+            },
+            "expiresAtUnixSeconds": null,
+            "lifecycle": "cancelled",
+            "provider": "claude",
+            "selectedMethod": null
+          }
+        },
+        "type": "status"
+      },
+      "wireHex": "0000013a7b2274797065223a22737461747573222c22626f6479223a7b22726571756573744964223a22617574682d35222c22737461747573223a7b2270726f7669646572223a22636c61756465222c2262696e6172794c6f636b223a7b2263616e6f6e6963616c45786563757461626c654964223a2270726f76696465722d69643a636c61756465222c22646967657374536861323536223a2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c2276657273696f6e223a22322e312e323730227d2c226c6966656379636c65223a2263616e63656c6c6564222c2273656c65637465644d6574686f64223a6e756c6c2c22657870697265734174556e69785365636f6e6473223a6e756c6c7d7d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

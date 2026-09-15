@@ -2,15 +2,13 @@ use super::{UiEffect, UiRequest, UiState};
 
 pub(super) fn settings_command(state: &mut UiState, argument: &str) -> Option<UiEffect> {
     let (mode, bypass_consent) = match argument {
-        "ask" => (gent_types::PermissionMode::Default, false),
-        "read" => (gent_types::PermissionMode::Plan, false),
+        "ask" => (gent_types::PermissionMode::AskEveryTime, false),
         "edits" => (gent_types::PermissionMode::AutoAcceptEdits, false),
         "autonomous" => (gent_types::PermissionMode::Autonomous, false),
         "bypass confirm" => (gent_types::PermissionMode::Bypass, true),
         _ => {
-            state.notice = Some(
-                "/permissions requires ask, read, edits, autonomous, or bypass confirm.".into(),
-            );
+            state.notice =
+                Some("/permissions requires ask, edits, autonomous, or bypass confirm.".into());
             return Some(UiEffect::Continue);
         }
     };

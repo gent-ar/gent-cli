@@ -54,7 +54,24 @@ def main():
             pass
         else:
             raise AssertionError("tampered source was accepted")
+    check_pinned_artifacts()
     print("Claurst runtime staging checks passed")
+
+
+def check_pinned_artifacts():
+    assert stage.ARTIFACTS["aarch64-apple-darwin"]["claurst"][0].endswith("/v0.1.7/claurst-macos-aarch64.tar.gz")
+    assert stage.ARTIFACTS["aarch64-apple-darwin"]["llama"][2] == "llama-server"
+    import json
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "pins.json"
+        artifact = {"url": "https://fixture.invalid/a.tar.gz", "sha256": "0" * 64, "binary": "claurst"}
+        path.write_text(json.dumps({"providers": {"claurst": {"artifacts": {"one": artifact}}}, "runtimes": {"llama_cpp": {"artifacts": {"two": artifact}}}}))
+        try:
+            stage.pinned_artifacts(path)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("pins with mismatched Claurst and llama.cpp targets were accepted")
 
 
 if __name__ == "__main__":

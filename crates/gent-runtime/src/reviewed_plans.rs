@@ -62,14 +62,15 @@ impl<L: ReviewedPlanLedger> ReviewedPlanService<L> {
     pub fn review(
         &self,
         conversation_id: &str,
-        plan_id: &ReviewedPlanId,
+        plan_id: Option<&ReviewedPlanId>,
     ) -> Result<ReviewedPlanResult, RuntimeError> {
         if self.authority != ReviewedPlanAuthority::Approved {
             return Ok(ReviewedPlanResult::DeniedObserver);
         }
-        Ok(ReviewedPlanResult::Plan(
-            self.ledger.reviewed_plan(conversation_id, plan_id)?,
-        ))
+        Ok(ReviewedPlanResult::Plan(match plan_id {
+            Some(plan_id) => self.ledger.reviewed_plan(conversation_id, plan_id)?,
+            None => self.ledger.current_conversation_plan(conversation_id)?,
+        }))
     }
 
     /// Atomically rechecks and reserves the implementation child through the ledger.
@@ -106,6 +107,9 @@ impl<L: ReviewedPlanLedger> ReviewedPlanService<L> {
         Ok(ReviewedPlanResult::Rejected)
     }
 }
+
+#[path = "reviewed_plan_pursuit.rs"]
+mod pursuit;
 
 #[cfg(test)]
 mod tests {

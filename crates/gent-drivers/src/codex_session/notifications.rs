@@ -10,6 +10,9 @@ pub(super) fn reduce(
     let Some(params) = params else {
         return Ok(CodexSessionIngress::Ignored);
     };
+    if method == "turn/started" && matches!(phase, CodexSessionPhase::AwaitCompaction { .. }) {
+        return super::compaction::announced(phase, params);
+    }
     let current = phase.clone();
     match (method, current) {
         (

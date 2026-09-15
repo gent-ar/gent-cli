@@ -21,3 +21,7 @@ impl<R: PublicProviderResolver> PublicProviderResolver for CodexOnlyResolver<R> 
         self.inner.resolve(provider)
     }
 }
+
+#[cfg(test)]
+#[path = "provider_resolver_tests.rs"]
+mod tests;

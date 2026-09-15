@@ -12,9 +12,11 @@ pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 mod agent_chat;
 mod agent_chat_checkpoint;
+pub mod agent_chat_commands;
 mod agent_chat_conversation_config;
 mod agent_chat_intent;
 mod agent_chat_permission;
+mod agent_chat_projection;
 mod agent_chat_sessions;
 mod agent_chat_side_question;
 mod attachments;
@@ -30,6 +32,7 @@ mod event_stream;
 mod forge;
 mod goal;
 mod local_models;
+pub mod model_catalog;
 mod orchestration;
 mod permission_policy;
 mod prompt_provider_provision;
@@ -54,9 +57,14 @@ pub use agent_chat_conversation_config::{
     AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY, AgentChatConversationConfigFrame,
 };
 pub use agent_chat_intent::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd,
+    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame,
+    AgentChatSubscriptionEnd, HistoricalTranscriptEntry,
 };
 pub use agent_chat_permission::{AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame};
+pub use agent_chat_projection::{
+    AGENT_CHAT_PROJECTION_CAPABILITY, AgentChatProjectionDelta, AgentChatProjectionFrame,
+    AgentChatProjectionSnapshot, DisplayRecord, ProjectionCatalog, ProjectionCursor,
+};
 pub use agent_chat_sessions::{AGENT_CHAT_SESSIONS_CAPABILITY, AgentChatSessionFrame};
 pub use agent_chat_side_question::{
     AGENT_CHAT_SIDE_QUESTION_CAPABILITY, AgentChatSideQuestionFrame,
@@ -80,7 +88,9 @@ pub use dependencies::{
 };
 pub use event_stream::{EVENT_STREAM_CAPABILITY, EventStreamFrame};
 pub use forge::{FORGE_CONNECTORS_CAPABILITY, ForgeConnectorFrame, ForgeConnectorFrameError};
-pub use goal::{GOAL_CAPABILITY, GoalFrame, GoalFrameError, MAX_GOAL_FRAME_BYTES};
+pub use goal::{
+    GOAL_CAPABILITY, GoalFrame, GoalFrameError, GoalRejectionCode, MAX_GOAL_FRAME_BYTES,
+};
 pub use local_models::{
     DEFAULT_LOCAL_MODEL_ID, LOCAL_MODELS_CAPABILITY, LocalModelDescriptor,
     LocalModelDownloadFailure, LocalModelFrame, LocalModelFrameError, LocalModelInstallState,

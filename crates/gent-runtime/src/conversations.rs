@@ -6,9 +6,9 @@ use gent_ports::{
     RunLifecycleFactLedger, RunRecord, TurnPhaseUpdate,
 };
 use gent_types::{
-    ConversationArtifact, ConversationArtifactSummary, ConversationListItem, ConversationRecord,
-    ConversationRunStatus, ConversationStatus, ConversationTimeline, ConversationTimelineRun,
-    DurableTurnPhase, TurnRecord,
+    ConversationArtifact, ConversationArtifactSummary, ConversationErrorStatus,
+    ConversationListItem, ConversationRecord, ConversationRunStatus, ConversationStatus,
+    ConversationTimeline, ConversationTimelineRun, DurableTurnPhase, TurnRecord,
 };
 
 use crate::{Coordinator, RuntimeError, to_record};
@@ -176,9 +176,26 @@ where
         let runs = self.ledger.list_conversation_runs(conversation_id)?;
         let mut statuses = Vec::with_capacity(runs.len());
         for run in runs {
-            let live_status =
+            let mut live_status =
                 crate::RunLifecycleStatusService::new(self.clone()).live_status(&run.run_id)?;
-            let active_turn_id = if live_status.is_some() {
+            let latest_phase = self
+                .ledger
+                .list_run_turns(&run.run_id)?
+                .last()
+                .map(|turn| turn.phase);
+            let durable_terminal = latest_phase.is_some_and(DurableTurnPhase::is_terminal);
+            if durable_terminal && let Some(live_status) = &mut live_status {
+                live_status.status.processing = gent_types::ConversationProcessingStatus::Idle;
+                live_status.status.subagent_work = gent_types::ConversationWorkStatus::None;
+                live_status.status.command_work = gent_types::ConversationWorkStatus::None;
+                live_status.status.attention = gent_types::ConversationAttentionStatus::Clear;
+                live_status.status.error = if latest_phase == Some(DurableTurnPhase::Failed) {
+                    ConversationErrorStatus::Error
+                } else {
+                    ConversationErrorStatus::Clear
+                };
+            }
+            let active_turn_id = if live_status.is_some() && !durable_terminal {
                 active_turn_id(&self.ledger, &run.run_id)?
             } else {
                 None

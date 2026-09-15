@@ -1,4 +1,3 @@
-//! Durable public-provider run orchestration. The default observer authority never launches.
 use crate::{Coordinator, RuntimeError};
 use gent_ports::{
     Ledger, PublicProviderResolver, PublicProviderRunError, PublicProviderRunner, RunLease,
@@ -8,7 +7,7 @@ use gent_protocol::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
     PublicRunStartRequest,
 };
-use gent_types::ReceiptId;
+use gent_types::RunVersionLock;
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProviderRunAuthority {
     #[default]
@@ -52,12 +51,9 @@ where
         if !self.is_authoritative() {
             return Ok(denied(request.run_id));
         }
-        let Ok(lock) = self.resolver.resolve(request.provider.as_str()) else {
+        let Some(lock) = self.authorized(request.provider.as_str()) else {
             return Ok(denied(request.run_id));
         };
-        if lock.provider != request.provider.as_str() || self.authorizer.authorize(&lock).is_err() {
-            return Ok(denied(request.run_id));
-        }
         let run = RunRecord {
             run_id: request.run_id.clone(),
             parent_run_id: None,
@@ -75,16 +71,11 @@ where
         ) {
             return Ok(response(request.run_id, PublicRunOutcome::LeaseContended));
         }
-        match self.runner.start(&request.run_id, &lock) {
-            Ok(()) => Ok(response(request.run_id, PublicRunOutcome::Started)),
-            Err(PublicProviderRunError::ProviderChanged) => self.provider_changed(
-                &request.run_id,
-                &request.coordinator_id,
-                request.host_epoch,
-                request.provider.as_str(),
-            ),
-            Err(error) => Err(error.into()),
-        }
+        launched(
+            request.run_id.clone(),
+            self.runner.start(&request.run_id, &lock),
+            PublicRunOutcome::Started,
+        )
     }
 
     pub fn start_or_resume(
@@ -118,42 +109,44 @@ where
         let Some(session) = self.coordinator.public_run_session(&request.run_id)? else {
             return Err(missing_session());
         };
-        let lock = self
+        let provider = self
             .coordinator
             .public_run_lock(&request.run_id)?
             .ok_or_else(|| {
                 RuntimeError::Ledger(gent_ports::LedgerError::Invariant(
                     "run has no version lock".into(),
                 ))
-            })?;
+            })?
+            .provider;
+        let Some(lock) = self.authorized(&provider) else {
+            return Ok(denied(request.run_id));
+        };
         let lease = RunLease {
             run_id: request.run_id.clone(),
             coordinator_id: request.coordinator_id.clone(),
             host_epoch: request.host_epoch,
         };
-        match self.coordinator.claim_run_lease(&lease)? {
-            RunLeaseClaim::Contended(_) => {
-                Ok(response(request.run_id, PublicRunOutcome::LeaseContended))
-            }
-            RunLeaseClaim::Acquired(_) | RunLeaseClaim::Recovered { .. } => {
-                if self.authorizer.authorize(&lock).is_err() {
-                    return Ok(denied(request.run_id));
-                }
-                match self
-                    .runner
-                    .resume(&request.run_id, &lock, &session.provider_session_id)
-                {
-                    Ok(()) => Ok(response(request.run_id, PublicRunOutcome::Resumed)),
-                    Err(PublicProviderRunError::ProviderChanged) => self.provider_changed(
-                        &request.run_id,
-                        &request.coordinator_id,
-                        request.host_epoch,
-                        &lock.provider,
-                    ),
-                    Err(error) => Err(error.into()),
-                }
-            }
+        if matches!(
+            self.coordinator
+                .ledger
+                .activate_existing_run_start(&lock, &lease)?,
+            RunLeaseClaim::Contended(_)
+        ) {
+            return Ok(response(request.run_id, PublicRunOutcome::LeaseContended));
         }
+        launched(
+            request.run_id.clone(),
+            self.runner
+                .resume(&request.run_id, &lock, &session.provider_session_id),
+            PublicRunOutcome::Resumed,
+        )
+    }
+
+    pub fn launched_executable_is_current(&self, run_id: &str) -> Result<bool, RuntimeError> {
+        let Some(stored) = self.coordinator.public_run_lock(run_id)? else {
+            return Ok(false);
+        };
+        Ok(self.authorized(&stored.provider).as_ref() == Some(&stored))
     }
 
     pub fn record_provider_session(
@@ -186,6 +179,20 @@ where
             })
     }
 
+    pub fn retire_provider_session(
+        &self,
+        run_id: &str,
+        host_epoch: gent_types::HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        let Some(binding) = self.coordinator.public_run_session(run_id)? else {
+            return Ok(());
+        };
+        Ok(self
+            .coordinator
+            .ledger
+            .retire_run_session_binding(&binding, host_epoch)?)
+    }
+
     pub fn interrupt(
         &self,
         request: PublicRunInterruptRequest,
@@ -204,56 +211,20 @@ where
         Ok(response(request.run_id, PublicRunOutcome::Interrupted))
     }
 
-    fn is_authoritative(&self) -> bool {
-        self.authority == ProviderRunAuthority::PublicDrivers
+    fn authorized(&self, provider: &str) -> Option<RunVersionLock> {
+        let lock = self.resolver.resolve(provider).ok()?;
+        (lock.provider == provider && self.authorizer.authorize(&lock).is_ok()).then_some(lock)
     }
 
-    fn provider_changed(
-        &self,
-        parent_run_id: &str,
-        coordinator_id: &str,
-        host_epoch: gent_types::HostEpoch,
-        provider: &str,
-    ) -> Result<PublicRunResponse, RuntimeError> {
-        let child_id = format!("{parent_run_id}:provider-changed:{}", ReceiptId::new().0);
-        let Ok(lock) = self.resolver.resolve(provider) else {
-            return Ok(response(
-                parent_run_id.into(),
-                PublicRunOutcome::ProviderChanged,
-            ));
-        };
-        if lock.provider != provider || self.authorizer.authorize(&lock).is_err() {
-            return Ok(response(
-                parent_run_id.into(),
-                PublicRunOutcome::ProviderChanged,
-            ));
-        }
-        self.coordinator.reserve_or_activate_public_run(
-            &RunRecord {
-                run_id: child_id.clone(),
-                parent_run_id: Some(parent_run_id.into()),
-                provider: lock.provider.clone(),
-            },
-            &lock,
-            &RunLease {
-                run_id: child_id.clone(),
-                coordinator_id: coordinator_id.into(),
-                host_epoch,
-            },
-        )?;
-        match self.runner.start(&child_id, &lock) {
-            Ok(()) | Err(PublicProviderRunError::ProviderChanged) => {
-                Ok(response(child_id, PublicRunOutcome::ProviderChanged))
-            }
-            Err(error) => Err(error.into()),
-        }
+    fn is_authoritative(&self) -> bool {
+        self.authority == ProviderRunAuthority::PublicDrivers
     }
 }
 impl<L: Ledger> Coordinator<L> {
     fn reserve_or_activate_public_run(
         &self,
         run: &RunRecord,
-        lock: &gent_types::RunVersionLock,
+        lock: &RunVersionLock,
         lease: &RunLease,
     ) -> Result<RunLeaseClaim, RuntimeError> {
         if self.ledger.find_run(&run.run_id)?.is_some() {
@@ -263,10 +234,7 @@ impl<L: Ledger> Coordinator<L> {
         Ok(RunLeaseClaim::Acquired(lease.clone()))
     }
 
-    fn public_run_lock(
-        &self,
-        run_id: &str,
-    ) -> Result<Option<gent_types::RunVersionLock>, RuntimeError> {
+    fn public_run_lock(&self, run_id: &str) -> Result<Option<RunVersionLock>, RuntimeError> {
         Ok(self.ledger.find_run_version_lock(run_id)?)
     }
 
@@ -285,6 +253,18 @@ impl<L: Ledger> Coordinator<L> {
 
 const fn response(run_id: String, outcome: PublicRunOutcome) -> PublicRunResponse {
     PublicRunResponse { run_id, outcome }
+}
+
+fn launched(
+    run_id: String,
+    launch: Result<(), PublicProviderRunError>,
+    outcome: PublicRunOutcome,
+) -> Result<PublicRunResponse, RuntimeError> {
+    match launch {
+        Ok(()) => Ok(response(run_id, outcome)),
+        Err(PublicProviderRunError::ProviderChanged) => Ok(denied(run_id)),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn denied(run_id: String) -> PublicRunResponse {

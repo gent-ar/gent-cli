@@ -9,6 +9,9 @@ pub(crate) enum PermissionPreflight {
 }
 
 pub(crate) fn evaluate(policy: &PolicyRecord, request: &PermissionRequest) -> PermissionPreflight {
+    if is_internal_tool(&request.tool_name) {
+        return PermissionPreflight::Allow;
+    }
     match evaluate_permission_with_sandbox(policy, request, SandboxEnforcement::Unavailable) {
         PermissionDecision::Allow => PermissionPreflight::Allow,
         PermissionDecision::Deny => PermissionPreflight::Deny,
@@ -16,6 +19,17 @@ pub(crate) fn evaluate(policy: &PolicyRecord, request: &PermissionRequest) -> Pe
             PermissionPreflight::Ask
         }
     }
+}
+
+pub(crate) fn is_internal_tool(tool_name: &str) -> bool {
+    tool_name.strip_prefix("mcp__").is_some_and(|qualified| {
+        let server = qualified
+            .split_once("__")
+            .map_or(qualified, |(server, _)| server);
+        crate::standalone_mcp_config::INTERNAL_SERVER_NAMES
+            .iter()
+            .any(|name| server == *name || server == name.replace('-', "_"))
+    })
 }
 
 #[cfg(test)]
@@ -43,6 +57,7 @@ mod tests {
             tool_name: tool_name.into(),
             category,
             input: None,
+            child_id: None,
         }
     }
 
@@ -50,14 +65,14 @@ mod tests {
     fn exact_and_category_grants_are_auto_approved_in_ask_mode() {
         assert_eq!(
             evaluate(
-                &policy(PermissionMode::Default),
+                &policy(PermissionMode::AskEveryTime),
                 &request("workspace:edit", PermissionCategory::Edit)
             ),
             PermissionPreflight::Allow
         );
         assert_eq!(
             evaluate(
-                &policy(PermissionMode::Default),
+                &policy(PermissionMode::AskEveryTime),
                 &request("fetch", PermissionCategory::Network)
             ),
             PermissionPreflight::Allow
@@ -65,13 +80,43 @@ mod tests {
     }
 
     #[test]
-    fn plan_mode_denies_changes_even_when_a_workspace_grant_exists() {
+    fn gent_internal_mcp_tools_are_pre_approved_in_every_mode() {
+        for mode in [PermissionMode::AskEveryTime, PermissionMode::Bypass] {
+            for tool in [
+                "mcp__gent-goal__gent_goal_update",
+                "mcp__gent_goal__gent_goal_update",
+                "mcp__gent-automations__list",
+                "mcp__gent-forge",
+            ] {
+                assert_eq!(
+                    evaluate(&policy(mode), &request(tool, PermissionCategory::Provider)),
+                    PermissionPreflight::Allow
+                );
+            }
+        }
+        for lookalike in [
+            "mcp__gent-goal-extra__gent_goal_update",
+            "mcp__other__gent_goal_update",
+            "gent-goal",
+        ] {
+            assert_eq!(
+                evaluate(
+                    &policy(PermissionMode::AskEveryTime),
+                    &request(lookalike, PermissionCategory::Provider)
+                ),
+                PermissionPreflight::Ask
+            );
+        }
+    }
+
+    #[test]
+    fn ask_mode_requires_a_decision_without_a_workspace_grant() {
         assert_eq!(
             evaluate(
-                &policy(PermissionMode::Plan),
-                &request("workspace:edit", PermissionCategory::Edit)
+                &policy(PermissionMode::AskEveryTime),
+                &request("shell", PermissionCategory::Command)
             ),
-            PermissionPreflight::Deny
+            PermissionPreflight::Ask
         );
     }
 

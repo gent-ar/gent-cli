@@ -5,20 +5,33 @@
 //! [`RuntimeApi`].
 
 use gent_protocol::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd, write_json_frame,
+    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame,
+    write_json_frame,
 };
 use gent_types::CapabilitySet;
 use serde_json::Value;
 use tokio::io::AsyncWrite;
 
-use crate::{api::RuntimeApi, transport::write_error};
+use crate::{
+    agent_chat_intent_error::AgentChatIntentError, api::RuntimeApi, transport::write_error,
+};
+
+#[path = "agent_chat_transport_replies.rs"]
+mod replies;
+use replies::validate_replies;
 
 pub(crate) trait IntentPort {
-    fn exchange(&self, request: AgentChatIntentFrame) -> Result<Vec<AgentChatIntentFrame>, String>;
+    fn exchange(
+        &self,
+        request: AgentChatIntentFrame,
+    ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError>;
 }
 
 impl<R: RuntimeApi> IntentPort for R {
-    fn exchange(&self, request: AgentChatIntentFrame) -> Result<Vec<AgentChatIntentFrame>, String> {
+    fn exchange(
+        &self,
+        request: AgentChatIntentFrame,
+    ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
         self.agent_chat_intent(request)
     }
 }
@@ -53,6 +66,22 @@ where
     let Ok(request) = serde_json::from_value::<AgentChatIntentFrame>(raw.clone()) else {
         return Ok(false);
     };
+    if matches!(request, AgentChatIntentFrame::ImportTranscript { .. })
+        && !capabilities
+            .0
+            .iter()
+            .any(|capability| capability == AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY)
+    {
+        return Ok(false);
+    }
+    if !matches!(request, AgentChatIntentFrame::ImportTranscript { .. })
+        && !capabilities
+            .0
+            .iter()
+            .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY)
+    {
+        return Ok(false);
+    }
     if !is_client_request(&request) {
         write_error(
             stream,
@@ -71,159 +100,34 @@ where
             }
             Err(message) => write_error(stream, "invalidAgentChatResponse", message).await?,
         },
-        Err(message) => write_error(stream, "agentChatRejected", &message).await?,
+        Err(error) => write_error(stream, error.code, &error.message).await?,
     }
     Ok(true)
 }
 
 fn supports(capabilities: &CapabilitySet) -> bool {
-    capabilities
-        .0
-        .iter()
-        .any(|capability| capability == AGENT_CHAT_INTENTS_CAPABILITY)
+    capabilities.0.iter().any(|capability| {
+        capability == AGENT_CHAT_INTENTS_CAPABILITY
+            || capability == AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY
+    })
 }
 
 fn is_client_request(frame: &AgentChatIntentFrame) -> bool {
     matches!(
         frame,
         AgentChatIntentFrame::CreateConversation { .. }
+            | AgentChatIntentFrame::ImportTranscript { .. }
             | AgentChatIntentFrame::SendPrompt { .. }
             | AgentChatIntentFrame::QueuePrompt { .. }
+            | AgentChatIntentFrame::SendPromptWithTools { .. }
+            | AgentChatIntentFrame::QueuePromptWithTools { .. }
+            | AgentChatIntentFrame::CancelQueuedPrompt { .. }
+            | AgentChatIntentFrame::SteerQueuedPrompt { .. }
+            | AgentChatIntentFrame::ContinueFromSavedHistory { .. }
             | AgentChatIntentFrame::SwitchSelection { .. }
             | AgentChatIntentFrame::Interrupt { .. }
             | AgentChatIntentFrame::Decision { .. }
             | AgentChatIntentFrame::Subscribe { .. }
             | AgentChatIntentFrame::ForkConversation { .. }
     )
-}
-
-fn validate_replies(
-    request: &AgentChatIntentFrame,
-    replies: &[AgentChatIntentFrame],
-) -> Result<(), &'static str> {
-    match request {
-        AgentChatIntentFrame::Subscribe {
-            request_id,
-            after_cursor,
-            ..
-        } => validate_subscription(request_id, *after_cursor, replies),
-        AgentChatIntentFrame::CreateConversation {
-            request_id,
-            receipt_id,
-            ..
-        } => matches!(
-            replies,
-            [AgentChatIntentFrame::Created { request_id: reply_id, receipt, conversation_id, run_id }]
-                if reply_id == request_id && receipt.receipt_id == *receipt_id
-                    && !conversation_id.0.is_empty() && !run_id.0.is_empty()
-        )
-        .then_some(())
-        .ok_or("conversation creation requires one matching durable result"),
-        AgentChatIntentFrame::SwitchSelection {
-            request_id,
-            receipt_id,
-            conversation_id,
-            parent_run_id,
-            context_policy,
-            ..
-        } => matches!(
-            replies,
-            [AgentChatIntentFrame::Switched { request_id: reply_id, receipt, conversation_id: reply_conversation, parent_run_id: reply_parent, run_id, context_policy: reply_policy, context_through_ordinal, .. }]
-                if reply_id == request_id && receipt.receipt_id == *receipt_id
-                    && reply_conversation == conversation_id && reply_parent == parent_run_id
-                    && reply_policy == context_policy && !run_id.0.is_empty()
-                    && (*context_policy != gent_types::ContextPolicy::Clear
-                        || *context_through_ordinal == 0)
-        )
-        .then_some(())
-        .ok_or("selection switching requires one matching durable child run"),
-        AgentChatIntentFrame::SendPrompt {
-            request_id,
-            receipt_id,
-            ..
-        }
-        | AgentChatIntentFrame::QueuePrompt {
-            request_id,
-            receipt_id,
-            ..
-        }
-        | AgentChatIntentFrame::SendPromptWithTools {
-            request_id,
-            receipt_id,
-            ..
-        }
-        | AgentChatIntentFrame::QueuePromptWithTools {
-            request_id,
-            receipt_id,
-            ..
-        }
-        | AgentChatIntentFrame::Decision {
-            request_id,
-            receipt_id,
-            ..
-        } => matches!(
-            replies,
-            [AgentChatIntentFrame::Accepted { request_id: reply_id, receipt, .. }]
-                if reply_id == request_id && receipt.receipt_id == *receipt_id
-        )
-        .then_some(())
-        .ok_or("a chat command requires one matching accepted receipt"),
-        AgentChatIntentFrame::Interrupt { request_id, receipt_id, conversation_id, run_id } => matches!(
-            replies,
-            [AgentChatIntentFrame::Interrupted { request_id: reply_id, receipt, conversation_id: reply_conversation, run_id: reply_run }]
-                if reply_id == request_id && receipt.receipt_id == *receipt_id && reply_conversation == conversation_id && reply_run == run_id
-        ).then_some(()).ok_or("an interrupt requires one matching durable result"),
-        AgentChatIntentFrame::ForkConversation {
-            request_id,
-            receipt_id,
-            source_conversation_id,
-            ..
-        } => matches!(
-            replies,
-            [AgentChatIntentFrame::Forked { request_id: reply_id, receipt, source_conversation_id: reply_source, conversation_id, run_id }]
-                if reply_id == request_id && receipt.receipt_id == *receipt_id
-                    && reply_source == source_conversation_id
-                    && !conversation_id.0.is_empty() && !run_id.0.is_empty()
-        )
-        .then_some(())
-        .ok_or("conversation forking requires one matching durable result"),
-        AgentChatIntentFrame::SubscriptionEvent { .. }
-        | AgentChatIntentFrame::SubscriptionEnded { .. }
-        | AgentChatIntentFrame::Created { .. }
-        | AgentChatIntentFrame::Switched { .. }
-        | AgentChatIntentFrame::Accepted { .. }
-        | AgentChatIntentFrame::Interrupted { .. }
-        | AgentChatIntentFrame::Forked { .. } => {
-            Err("agent chat response frames are server-only")
-        }
-    }
-}
-
-fn validate_subscription(
-    request_id: &gent_types::AgentChatRequestId,
-    after_cursor: u64,
-    replies: &[AgentChatIntentFrame],
-) -> Result<(), &'static str> {
-    let Some((last, events)) = replies.split_last() else {
-        return Err("a chat subscription must end explicitly");
-    };
-    if !matches!(last, AgentChatIntentFrame::SubscriptionEnded { request_id: reply_id, reason: AgentChatSubscriptionEnd::ServerClosing | AgentChatSubscriptionEnd::ResyncRequired } if reply_id == request_id)
-    {
-        return Err("a chat subscription must end with its matching terminal frame");
-    }
-    let mut cursor = after_cursor;
-    for event in events {
-        let AgentChatIntentFrame::SubscriptionEvent {
-            request_id: reply_id,
-            event,
-        } = event
-        else {
-            return Err("chat subscription replies may contain only events before termination");
-        };
-        if reply_id != request_id || event.cursor <= cursor {
-            return Err("chat subscription event correlation or cursor is invalid");
-        }
-        cursor = event.cursor;
-    }
-    Ok(())
 }

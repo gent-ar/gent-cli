@@ -1,8 +1,15 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use async_trait::async_trait;
 use gent_ports::agent_chat_terminal_settlement::AgentChatTerminalSettlementReader;
 use gent_ports::{
-    AgentChatConversationConfigLedger, AgentChatPromptLedger, AgentChatWorkspaceLedger,
-    AttachmentLedger, ClaurstCheckpoint, ClaurstDrainBatch, ClaurstSessionBinding, ClaurstSourceId,
-    ConversationLedger, Ledger, RunLease,
+    AgentChatConversationConfigLedger, AgentChatProjectionLedger, AgentChatPromptLedger,
+    AgentChatWorkspaceLedger, AttachmentLedger, ClaurstCheckpoint, ClaurstDrainBatch,
+    ClaurstSessionBinding, ClaurstSourceId, ConversationActivityLedger, ConversationLedger, Ledger,
+    RunLease,
 };
 use gent_store::SqliteLedger;
 use gent_testkit::FakePrivateClaurstBridge;
@@ -10,11 +17,31 @@ use gent_types::{
     AgentChatConversationConfigRecord, AgentChatConversationCreate, AgentChatConversationId,
     AgentChatEffort, AgentChatMode, AgentChatPromptCreate, AgentChatPromptDisposition,
     AgentChatProvider, AgentChatRequestId, AgentChatRunId, AgentChatSelection, AttachmentMetadata,
-    AttachmentState, AttachmentTransfer, DurableTurnPhase, HostEpoch, ReceiptId, WorkspaceRecord,
+    AttachmentState, AttachmentTransfer, ConversationActivityFact, DurableTurnPhase, HostEpoch,
+    ReceiptId, TurnPhase, WorkspaceRecord,
 };
 use sha2::{Digest, Sha256};
 
+use crate::claurst_runtime_factory::ClaurstRuntimeFactory;
+
 use super::{AsyncOrdinaryLifecycleHost, ClaurstPromptLifecycle};
+
+#[derive(Clone, Debug, Default)]
+struct TrackingRuntime {
+    failures: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl ClaurstRuntimeFactory for TrackingRuntime {
+    async fn ensure_for_prompt(&self, _: &gent_types::AgentChatPromptSaved) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn after_prompt_failed(&self, _: &str) -> Result<(), String> {
+        self.failures.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
 
 #[tokio::test]
 async fn empty_claurst_outbox_is_idle_after_recovery() {
@@ -100,6 +127,14 @@ async fn claimed_claurst_prompt_acquires_the_run_lease_before_recording_its_sess
             .provider_session_id,
         "acp-session"
     );
+    assert!(matches!(
+        ledger
+            .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
+            .unwrap()
+            .facts
+            .as_slice(),
+        [ConversationActivityFact::TurnStarted { .. }]
+    ));
 }
 
 #[tokio::test]
@@ -190,6 +225,33 @@ async fn terminal_claurst_drain_atomically_settles_its_exact_durable_turn() {
             .unwrap()
             .is_some()
     );
+    let terminal_facts = ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
+        .unwrap()
+        .facts
+        .into_iter()
+        .filter(|fact| {
+            matches!(
+                fact,
+                ConversationActivityFact::Terminal {
+                    phase: TurnPhase::Ready,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(terminal_facts, 1);
+    let projection = ledger
+        .agent_chat_projection_page(&AgentChatConversationId("conversation-a".into()), 0, 100)
+        .unwrap();
+    assert_eq!(
+        projection
+            .events
+            .iter()
+            .filter(|event| event.payload["activity"]["type"] == "terminal")
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -237,6 +299,45 @@ async fn unsupported_attachments_fail_before_claurst_acp_receives_a_prompt() {
     lifecycle.activate_recovery().await.unwrap();
     assert!(lifecycle.drive_once().await.unwrap());
     assert!(bridge.starts().is_empty());
+}
+
+#[tokio::test]
+async fn failed_acp_start_stops_the_runtime_factory() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &conversation(),
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
+            },
+        )
+        .unwrap();
+    let saved = ledger.save_agent_chat_prompt(&prompt()).unwrap();
+    crate::readiness_test_support::release(&ledger, &saved);
+    let bridge = FakePrivateClaurstBridge::default();
+    let runtime = TrackingRuntime::default();
+    let failures = Arc::clone(&runtime.failures);
+    let mut lifecycle = ClaurstPromptLifecycle::new_with_runtime(
+        ledger.clone(),
+        bridge.clone(),
+        runtime,
+        "gentd-1".into(),
+        HostEpoch(1),
+    );
+    lifecycle.activate_recovery().await.unwrap();
+    assert!(lifecycle.drive_once().await.unwrap());
+    assert_eq!(bridge.starts().len(), 1);
+    assert_eq!(failures.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        ledger
+            .find_turn(&saved.message.turn_id)
+            .unwrap()
+            .unwrap()
+            .phase,
+        DurableTurnPhase::Failed
+    );
+    assert!(!lifecycle.drive_once().await.unwrap());
 }
 
 fn conversation() -> AgentChatConversationCreate {

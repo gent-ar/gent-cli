@@ -161,7 +161,7 @@ def test_install_publishes_launchers_before_idle_pointer_activation() -> None:
         assert not list((root / "releases").glob(".gent-stage-*"))
 
 
-def test_install_preserves_the_packaged_claurst_runtime_tree() -> None:
+def test_install_preserves_the_packaged_runtime_and_authority_trees() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root, bin_dir = Path(temporary) / "gent", Path(temporary) / "bin"
         source = release(Path(temporary) / "source", "v1-target")
@@ -174,6 +174,8 @@ def test_install_preserves_the_packaged_claurst_runtime_tree() -> None:
             source / "runtime" / "claurst" / "claurst",
             llama / "llama-server",
             llama / "libllama.so",
+            source / "authority" / "ordinary-authority.json",
+            source / "authority" / "root-keys.json",
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("runtime", encoding="utf-8")
@@ -185,6 +187,9 @@ def test_install_preserves_the_packaged_claurst_runtime_tree() -> None:
         assert (installed / "llama" / "libllama.so").is_file()
         assert (installed / "claurst").stat().st_mode & 0o111
         assert (installed / "llama" / "llama-server").stat().st_mode & 0o111
+        authority = root / "releases" / "v1-target" / "authority"
+        assert (authority / "ordinary-authority.json").read_text(encoding="utf-8") == "runtime"
+        assert (authority / "root-keys.json").is_file()
 
 
 def test_stage_only_preserves_the_current_pair_for_later_health_checks() -> None:
@@ -250,6 +255,7 @@ def main() -> None:
     test_idle_lock_refuses_activation_and_preserves_current_pair()
     test_install_rejects_tampered_existing_release_and_preserves_pointer()
     test_install_publishes_launchers_before_idle_pointer_activation()
+    test_install_preserves_the_packaged_runtime_and_authority_trees()
     test_stage_only_preserves_the_current_pair_for_later_health_checks()
     test_concurrent_installs_leave_no_stage_remnants()
     test_install_rejects_dangling_lock_symlink()

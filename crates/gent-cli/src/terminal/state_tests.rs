@@ -107,6 +107,7 @@ fn search_filters_titles_and_navigation_stays_inside_visible_results() {
     );
     let mut state = UiState::new(vec![item("one"), item("two"), item("three")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_metadata(metadata);
     for character in "/search release".chars() {
         state.apply(UiCommand::Insert(character));
@@ -164,6 +165,7 @@ fn creating_while_a_session_is_focused_preserves_that_session_binding() {
     };
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_sessions(vec![session]);
     state.apply(UiCommand::FocusSessions);
     assert!(matches!(
@@ -196,7 +198,9 @@ fn quit_is_the_only_terminal_action() {
 
 #[test]
 fn enabled_input_emits_a_typed_request_without_doing_io() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     state.apply(UiCommand::Insert('h'));
     state.apply(UiCommand::Insert('i'));
     assert_eq!(
@@ -212,7 +216,9 @@ fn enabled_input_emits_a_typed_request_without_doing_io() {
 
 #[test]
 fn login_uses_the_selected_public_provider_without_leaving_the_terminal_state() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     state.set_selection(AgentChatSelection {
         provider: AgentChatProvider::Codex,
         model: "gpt-5.6".into(),
@@ -231,7 +237,9 @@ fn login_uses_the_selected_public_provider_without_leaving_the_terminal_state() 
 
 #[test]
 fn local_gent_login_is_a_clear_noop() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/login".chars() {
         state.apply(UiCommand::Insert(character));
     }
@@ -244,7 +252,9 @@ fn local_gent_login_is_a_clear_noop() {
 
 #[test]
 fn multiline_input_is_preserved_until_plain_enter_sends() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     state.apply(UiCommand::Insert('a'));
     state.apply(UiCommand::InsertNewline);
     state.apply(UiCommand::Insert('b'));
@@ -269,6 +279,7 @@ fn automation_picker_runs_the_selected_enabled_automation() {
     );
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_metadata(metadata);
     for character in "/automation".chars() {
         state.apply(UiCommand::Insert(character));
@@ -292,7 +303,9 @@ fn pasted_escaped_file_path_attaches_and_is_sent_with_the_prompt() {
     let path = directory.path().join("notes.txt");
     std::fs::write(&path, "attached").unwrap();
     let escaped = path.to_string_lossy().replace(' ', "\\ ");
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     assert_eq!(state.apply(UiCommand::Paste(escaped)), UiEffect::Continue);
     assert_eq!(state.attachment_count(), 1);
     for character in "read this".chars() {
@@ -317,7 +330,9 @@ fn pasted_file_url_attaches_the_local_file() {
     let path = directory.path().join("notes with spaces.txt");
     std::fs::write(&path, "attached").unwrap();
     let url = format!("file://{}", path.to_string_lossy().replace(' ', "%20"));
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     assert_eq!(state.apply(UiCommand::Paste(url)), UiEffect::Continue);
     assert_eq!(state.attachment_count(), 1);
     assert_eq!(
@@ -327,31 +342,23 @@ fn pasted_file_url_attaches_the_local_file() {
 }
 
 #[test]
-fn slash_goal_is_bound_to_the_selected_conversation_and_exact_current_run() {
-    let status = ConversationStatus {
-        conversation_id: "one".into(),
-        runs: vec![ConversationRunStatus {
-            run_id: "run-one".into(),
-            parent_run_id: None,
-            provider: "codex".into(),
-            active_turn_id: None,
-            live_status: None,
-        }],
-    };
+fn slash_goal_is_invoked_through_the_catalog_for_the_selected_conversation() {
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
-        .with_status(Some(status));
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/goal finish switching safely".chars() {
         state.apply(UiCommand::Insert(character));
     }
     assert_eq!(
         state.apply(UiCommand::SubmitPrompt),
-        UiEffect::Request(UiRequest::Goal {
-            conversation_id: "one".into(),
-            run_id: "run-one".into(),
-            summary: "finish switching safely".into(),
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "goal".into(),
+            arguments: "finish switching safely".into(),
+            session_id: None,
         })
     );
+    assert_eq!(state.input(), "/goal finish switching safely");
 }
 
 #[test]
@@ -368,6 +375,7 @@ fn slash_git_reads_the_selected_workspace_projection() {
     );
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_metadata(metadata);
     for character in "/git".chars() {
         state.apply(UiCommand::Insert(character));
@@ -380,64 +388,64 @@ fn slash_git_reads_the_selected_workspace_projection() {
 }
 
 #[test]
-fn slash_goal_never_guesses_a_run_binding() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
-    for character in "/goal keep going".chars() {
-        state.apply(UiCommand::Insert(character));
-    }
-    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
-    assert_eq!(
-        state.notice(),
-        Some("Run status is unavailable; refusing to guess a /goal binding.")
-    );
-    assert_eq!(state.input(), "/goal keep going");
-}
-
-#[test]
-fn empty_slash_goal_is_not_sent_as_a_provider_prompt() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+fn empty_slash_goal_is_invoked_for_gentd_to_reject_and_never_sent_as_a_prompt() {
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/goal ".chars() {
         state.apply(UiCommand::Insert(character));
     }
-    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
     assert_eq!(
-        state.notice(),
-        Some("`/goal` requires a concise summary; no provider work was started")
+        state.apply(UiCommand::SubmitPrompt),
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "goal".into(),
+            arguments: String::new(),
+            session_id: None,
+        })
     );
 }
 
 #[test]
-fn slash_resume_reuses_the_selected_conversation_and_requires_no_provider_protocol() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+fn slash_resume_names_an_unlisted_conversation_without_sending_a_prompt() {
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/resume continue after restart".chars() {
         state.apply(UiCommand::Insert(character));
     }
+    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
     assert_eq!(
-        state.apply(UiCommand::SubmitPrompt),
-        UiEffect::Request(UiRequest::Send {
-            conversation_id: "one".into(),
-            text: "continue after restart".into(),
-            attachments: Vec::new(),
-        })
+        state.notice(),
+        Some("No conversation continue is listed; use /resume to choose one.")
     );
-    assert!(state.input().is_empty());
 }
 
 #[test]
-fn slash_resume_without_text_refreshes_the_selected_conversation() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+fn slash_resume_without_text_opens_the_conversation_picker() {
+    let mut state = UiState::new(vec![item("one"), item("two")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/resume".chars() {
         state.apply(UiCommand::Insert(character));
     }
+    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
+    assert_eq!(state.conversation_picker(), Some(0));
+    assert_eq!(state.apply(UiCommand::SelectNext), UiEffect::Continue);
+    assert_eq!(state.selected().unwrap().conversation_id, "one");
     assert_eq!(
         state.apply(UiCommand::SubmitPrompt),
-        UiEffect::Refresh("one".into())
+        UiEffect::Refresh("two".into())
     );
+    assert_eq!(state.conversation_picker(), None);
+    assert_eq!(state.selected().unwrap().conversation_id, "two");
 }
 
 #[test]
 fn slash_resume_can_select_a_named_conversation_or_send_to_it() {
-    let mut state = UiState::new(vec![item("one"), item("two")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one"), item("two")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/resume two".chars() {
         state.apply(UiCommand::Insert(character));
     }
@@ -460,86 +468,67 @@ fn slash_resume_can_select_a_named_conversation_or_send_to_it() {
 }
 
 #[test]
-fn slash_selection_commands_update_provider_neutral_controls_without_sending_prompts() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
-    for character in "/provider claurst".chars() {
+fn slash_selection_commands_are_gentd_intents_not_local_state() {
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
+    for character in "/provider gent".chars() {
         state.apply(UiCommand::Insert(character));
     }
-    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
     assert_eq!(
-        state.selection().provider,
-        gent_types::AgentChatProvider::Claurst
+        state.apply(UiCommand::SubmitPrompt),
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "provider".into(),
+            arguments: "gent".into(),
+            session_id: None,
+        })
     );
-    assert_eq!(
-        state.selection().model,
-        gent_protocol::DEFAULT_LOCAL_MODEL_ID
-    );
-    for character in "/model qwen3-8b-q4-k-m".chars() {
-        state.apply(UiCommand::Insert(character));
-    }
-    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
-    assert_eq!(
-        state.selection().model,
-        gent_protocol::DEFAULT_LOCAL_MODEL_ID
-    );
-    assert!(state.notice().unwrap().contains("not available"));
-    assert!(state.input().is_empty());
+    state.clear_sent_prompt();
     for character in "/plan".chars() {
         state.apply(UiCommand::Insert(character));
     }
-    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
-    assert_eq!(state.selection().mode, gent_types::AgentChatMode::Plan);
+    assert_eq!(
+        state.apply(UiCommand::SubmitPrompt),
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "plan".into(),
+            arguments: String::new(),
+            session_id: None,
+        })
+    );
+    assert_eq!(state.selection().mode, gent_types::AgentChatMode::Agent);
 }
 
 #[test]
-fn slash_model_switch_creates_the_selected_child_run() {
-    let status = ConversationStatus {
-        conversation_id: "one".into(),
-        runs: vec![ConversationRunStatus {
-            run_id: "parent".into(),
-            parent_run_id: None,
-            provider: "claurst".into(),
-            active_turn_id: None,
-            live_status: None,
-        }],
-    };
+fn slash_model_is_invoked_through_gentd() {
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
-        .with_local_model_ids(vec![
-            gent_protocol::DEFAULT_LOCAL_MODEL_ID.into(),
-            "qwen3-8b-q4-k-m".into(),
-        ])
-        .with_status(Some(status));
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
+        .with_model_catalog(Some(crate::terminal::selection::tests::catalog()));
     for character in "/model qwen3-8b-q4-k-m".chars() {
         state.apply(UiCommand::Insert(character));
     }
-    let UiEffect::Request(UiRequest::Switch {
-        parent_run_id,
-        selection,
-        context_policy,
-        ..
-    }) = state.apply(UiCommand::SubmitPrompt)
-    else {
-        panic!("slash model must create the selected child run");
-    };
-    assert_eq!(parent_run_id, "parent");
-    assert_eq!(selection.model, "qwen3-8b-q4-k-m");
-    assert_eq!(context_policy, ContextPolicy::Preserve);
+    assert_eq!(
+        state.apply(UiCommand::SubmitPrompt),
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "model".into(),
+            arguments: "qwen3-8b-q4-k-m".into(),
+            session_id: None,
+        })
+    );
 }
 
 #[test]
 fn claurst_model_picker_uses_the_daemon_catalogue() {
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
-        .with_local_model_ids(vec!["gent-small".into(), "gent-large".into()]);
-    for character in "/provider claurst".chars() {
-        state.apply(UiCommand::Insert(character));
-    }
-    state.apply(UiCommand::SubmitPrompt);
+        .with_model_catalog(Some(crate::terminal::selection::tests::catalog()));
     state.apply(UiCommand::CycleModel);
     state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SubmitPrompt);
-    assert_eq!(state.selection().model, "gent-large");
+    assert_eq!(state.selection().model, "qwen3-8b-q4-k-m");
 }
 
 #[test]
@@ -554,6 +543,7 @@ fn permission_posture_is_a_workspace_setting_not_a_chat_mode() {
     );
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_metadata(metadata);
     for character in "/permissions edits".chars() {
         state.apply(UiCommand::Insert(character));
@@ -580,9 +570,9 @@ fn permission_picker_saves_a_workspace_posture_without_switching_chat_mode() {
     );
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_metadata(metadata);
     state.apply(UiCommand::CyclePermission);
-    state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SelectNext);
     assert!(matches!(
         state.apply(UiCommand::SubmitPrompt),
@@ -606,9 +596,10 @@ fn permission_picker_requires_an_explicit_enter_for_bypass() {
     );
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_metadata(metadata);
     state.apply(UiCommand::CyclePermission);
-    for _ in 0..4 {
+    for _ in 0..3 {
         state.apply(UiCommand::SelectNext);
     }
     assert!(matches!(
@@ -622,69 +613,84 @@ fn permission_picker_requires_an_explicit_enter_for_bypass() {
 }
 
 #[test]
-fn fork_uses_the_same_context_preserving_child_run_path_as_a_selection_switch() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+fn fork_is_a_gentd_fork_not_a_selection_switch() {
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     state.parent_run_id = Some("run-one".into());
     for character in "/fork".chars() {
         state.apply(UiCommand::Insert(character));
     }
-    assert!(matches!(
+    assert_eq!(
         state.apply(UiCommand::SubmitPrompt),
-        UiEffect::Request(UiRequest::Switch {
-            context_policy: gent_types::ContextPolicy::Preserve,
-            ..
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "fork".into(),
+            arguments: String::new(),
+            session_id: None,
         })
-    ));
+    );
 }
 
 #[test]
-fn model_picker_includes_the_native_claude_and_codex_catalogues() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+fn model_picker_lists_each_providers_gentd_catalog_models() {
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
+        .with_model_catalog(Some(crate::terminal::selection::tests::catalog()));
     state.apply(UiCommand::CycleProvider);
     state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SubmitPrompt);
-    state.apply(UiCommand::CycleModel);
-    for _ in 0..3 {
-        state.apply(UiCommand::SelectNext);
-    }
-    state.apply(UiCommand::SubmitPrompt);
-    assert_eq!(state.selection().model, "opus");
+    assert_eq!(state.selection().model, "default");
     state.apply(UiCommand::CycleProvider);
     state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SubmitPrompt);
+    assert_eq!(state.selection().model, "gpt-6-astra");
     state.apply(UiCommand::CycleModel);
-    for _ in 0..8 {
-        state.apply(UiCommand::SelectNext);
-    }
+    state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SubmitPrompt);
-    assert_eq!(state.selection().model, "gpt-5.3-codex-spark");
+    assert_eq!(state.selection().model, "gpt-5.6-luna");
 }
 
 #[test]
-fn codex_effort_picker_includes_ultra() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+fn codex_effort_picker_offers_the_efforts_gentd_lists_for_the_model() {
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
+        .with_model_catalog(Some(crate::terminal::selection::tests::catalog()));
     state.apply(UiCommand::CycleProvider);
     state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SubmitPrompt);
     state.apply(UiCommand::CycleEffort);
-    for _ in 0..4 {
-        state.apply(UiCommand::SelectNext);
-    }
+    state.apply(UiCommand::SelectNext);
     state.apply(UiCommand::SubmitPrompt);
     assert_eq!(state.selection().effort, AgentChatEffort::Ultra);
 }
 
 #[test]
-fn slash_new_creates_a_conversation_with_the_current_selection() {
-    let mut state = UiState::new(Vec::new()).with_chat_input(true);
+fn slash_new_is_a_gentd_create_intent_even_without_a_conversation() {
+    let mut state = UiState::new(Vec::new())
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/new".chars() {
         state.apply(UiCommand::Insert(character));
     }
-    assert!(matches!(
+    assert_eq!(
         state.apply(UiCommand::SubmitPrompt),
-        UiEffect::Request(UiRequest::Create { .. })
-    ));
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: None,
+            name: "new".into(),
+            arguments: String::new(),
+            session_id: None,
+        })
+    );
+    state.clear_sent_prompt();
+    for character in "/model opus".chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
+    assert_eq!(state.notice(), Some("/model needs a conversation"));
 }
 
 #[test]
@@ -699,6 +705,7 @@ fn document_picker_uses_the_selected_conversation_workspace() {
     );
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_metadata(metadata);
     for character in "/documents".chars() {
         state.apply(UiCommand::Insert(character));
@@ -710,19 +717,88 @@ fn document_picker_uses_the_selected_conversation_workspace() {
 }
 
 #[test]
-fn unknown_slash_commands_remain_provider_prompts() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+fn unknown_unsupported_and_uncataloged_slash_commands_are_never_sent_as_prompts() {
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     for character in "/provider-specific value".chars() {
         state.apply(UiCommand::Insert(character));
     }
+    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
     assert_eq!(
-        state.apply(UiCommand::SubmitPrompt),
-        UiEffect::Request(UiRequest::Send {
-            conversation_id: "one".into(),
-            text: "/provider-specific value".into(),
-            attachments: Vec::new(),
+        state.notice(),
+        Some(
+            "/provider-specific is not a command in this conversation's catalog. Type / to list commands."
+        )
+    );
+    let mut local = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog_for(Some(
+            gent_types::AgentChatProvider::Claurst,
+        ))));
+    assert_eq!(
+        type_prompt(&mut local, "/compact"),
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "compact".into(),
+            arguments: String::new(),
+            session_id: None,
         })
     );
+    let mut provider = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(
+            crate::terminal::commands::tests::catalog_with_unsupported(),
+        ));
+    assert_eq!(type_prompt(&mut provider, "/mcp add"), UiEffect::Continue);
+    assert_eq!(
+        provider.notice(),
+        Some(
+            "/mcp is not supported by Gent: MCP servers are configured through Gent. Use /tools instead."
+        )
+    );
+    assert_eq!(
+        type_prompt(&mut state, "/compact"),
+        UiEffect::Request(UiRequest::InvokeCommand {
+            conversation_id: Some("one".into()),
+            name: "compact".into(),
+            arguments: String::new(),
+            session_id: None,
+        })
+    );
+    state.clear_sent_prompt();
+    for character in "/btw why".chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
+    assert_eq!(
+        state.notice(),
+        Some("/btw is not available in the terminal.")
+    );
+    let mut uncataloged = UiState::new(vec![item("one")]).with_chat_input(true);
+    for character in "/context".chars() {
+        uncataloged.apply(UiCommand::Insert(character));
+    }
+    assert_eq!(
+        uncataloged.apply(UiCommand::SubmitPrompt),
+        UiEffect::Continue
+    );
+    assert_eq!(
+        uncataloged.notice(),
+        Some("Gentd has not listed this conversation's commands yet.")
+    );
+    assert!(matches!(
+        type_prompt(&mut uncataloged, "/Users/me/notes.md explain"),
+        UiEffect::Request(UiRequest::Send { .. })
+    ));
+}
+
+fn type_prompt(state: &mut UiState, text: &str) -> UiEffect {
+    state.clear_sent_prompt();
+    for character in text.chars() {
+        state.apply(UiCommand::Insert(character));
+    }
+    state.apply(UiCommand::SubmitPrompt)
 }
 
 #[test]
@@ -739,6 +815,8 @@ fn selection_switch_is_parent_bound_and_carries_each_control() {
     };
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
+        .with_model_catalog(Some(crate::terminal::selection::tests::catalog()))
         .with_status(Some(status));
     state.apply(UiCommand::CycleProvider);
     state.apply(UiCommand::SelectNext);
@@ -765,7 +843,7 @@ fn selection_switch_is_parent_bound_and_carries_each_control() {
     };
     assert_eq!(conversation_id, "one");
     assert_eq!(parent_run_id, "parent");
-    assert_eq!(selection.model, "gpt-5.6");
+    assert_eq!(selection.model, "gpt-5.6-luna");
     assert_eq!(context_policy, ContextPolicy::Clear);
 }
 
@@ -783,6 +861,8 @@ fn picker_selection_applies_a_context_preserving_switch_immediately() {
     };
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
+        .with_model_catalog(Some(crate::terminal::selection::tests::catalog()))
         .with_status(Some(status));
     state.apply(UiCommand::CycleProvider);
     state.apply(UiCommand::SelectNext);
@@ -803,7 +883,9 @@ fn picker_selection_applies_a_context_preserving_switch_immediately() {
 
 #[test]
 fn selection_switch_refuses_to_guess_an_unknown_parent() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     assert_eq!(state.apply(UiCommand::SwitchSelection), UiEffect::Continue);
     assert_eq!(
         state.notice(),
@@ -815,6 +897,7 @@ fn selection_switch_refuses_to_guess_an_unknown_parent() {
 fn selection_switch_refuses_an_ambiguous_status_hierarchy() {
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_status(Some(ConversationStatus {
             conversation_id: "one".into(),
             runs: vec![
@@ -842,6 +925,7 @@ fn selection_switch_refuses_an_ambiguous_status_hierarchy() {
 fn selection_switch_uses_the_daemon_current_run_after_a_prior_switch() {
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_view(Some(
             ConversationView::new("one", None, None)
                 .with_current_run_id(Some("codex-child".into())),
@@ -900,6 +984,8 @@ fn settled_response_clears_the_live_thinking_notice() {
                 kind: NormalizedTranscriptKind::AssistantMessage,
                 text: "Done".into(),
                 is_partial: false,
+                origin: None,
+                attachments: Vec::new(),
             }],
             next_after_cursor: None,
         }),
@@ -931,7 +1017,9 @@ fn loading_a_conversation_restores_its_durable_selection_before_switching() {
     )
     .with_current_run_id(Some("run-one".into()))
     .with_selection(Some(selection.clone()));
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
     state.apply_view(view);
     assert_eq!(state.selection(), &selection);
     assert_eq!(state.parent_run_id.as_deref(), Some("run-one"));
@@ -953,6 +1041,7 @@ fn refreshed_view_replaces_a_previous_selection_with_the_durable_switched_run() 
     };
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
         .with_view(Some(
             ConversationView::new("one", None, None).with_selection(Some(original)),
         ));
@@ -982,10 +1071,19 @@ fn initial_conversation_view_restores_its_durable_selection() {
 
 #[test]
 fn page_navigation_moves_through_transcript_history_without_changing_conversation() {
-    let mut state = UiState::new(vec![item("one")]).with_chat_input(true);
+    let mut state = UiState::new(vec![item("one")])
+        .with_chat_input(true)
+        .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));
+    state.transcript_top(20);
     assert_eq!(state.apply(UiCommand::ScrollOlder), UiEffect::Continue);
-    assert_eq!(state.scroll_offset(), 8);
+    assert_eq!(
+        state.scroll(),
+        crate::terminal::state::TranscriptScroll::Pinned(12)
+    );
     assert_eq!(state.apply(UiCommand::ScrollNewer), UiEffect::Continue);
-    assert_eq!(state.scroll_offset(), 0);
+    assert_eq!(
+        state.scroll(),
+        crate::terminal::state::TranscriptScroll::Follow
+    );
     assert_eq!(state.selected().unwrap().conversation_id, "one");
 }

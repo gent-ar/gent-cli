@@ -2,10 +2,18 @@
 
 use gent_types::{
     AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, DurableTurnPhase, Event,
-    HostEpoch, ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding, Receipt,
+    HostEpoch, PromptHoldReason, ProviderPromptReadinessBinding,
+    ProviderPromptReadinessFailureBinding, Receipt, ReceiptId,
 };
 
 use crate::LedgerError;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PromptAdmission {
+    Held,
+    Installing,
+    Admitted,
+}
 
 /// Reads and transitions the durable outbox populated only for `SendPrompt` requests.
 pub trait AgentChatPromptDispatchLedger: Send + Sync {
@@ -25,6 +33,23 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
     ) -> Result<Receipt, LedgerError> {
         Err(LedgerError::Invariant(
             "verified agent chat prompt readiness release is unavailable".into(),
+        ))
+    }
+
+    fn hold_agent_chat_prompt_for_admission(
+        &self,
+        _: &ReceiptId,
+        _: HostEpoch,
+        _: PromptHoldReason,
+    ) -> Result<(), LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat prompt admission hold is unavailable".into(),
+        ))
+    }
+
+    fn agent_chat_prompt_admission(&self, _: &ReceiptId) -> Result<PromptAdmission, LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat prompt admission state is unavailable".into(),
         ))
     }
 
@@ -146,6 +171,40 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
+
+    fn claim_steered_agent_chat_prompt(
+        &self,
+        _: &str,
+        _: HostEpoch,
+        _: &AgentChatRunId,
+    ) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat steered prompt claim is unavailable".into(),
+        ))
+    }
+
+    fn deliver_steered_agent_chat_prompt(
+        &self,
+        _: &str,
+        _: &str,
+        _: HostEpoch,
+        _: &str,
+    ) -> Result<(), LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat steered prompt delivery is unavailable".into(),
+        ))
+    }
+
+    fn start_steered_agent_chat_prompt_turn(
+        &self,
+        _: &str,
+        _: &str,
+        _: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat steered prompt turn start is unavailable".into(),
+        ))
+    }
 
     /// Retires an ambiguous launch without permitting automatic replay.
     /// # Errors

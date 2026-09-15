@@ -66,7 +66,7 @@ impl<R: RuntimeApi> TranscriptPort for R {
         &self,
         frame: AgentChatTranscriptFrame,
     ) -> Result<AgentChatTranscriptFrame, String> {
-        self.agent_chat_transcript(frame)
+        self.agent_chat_transcript(frame).map_err(String::from)
     }
 }
 
@@ -241,6 +241,8 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "normalized".into(),
             is_partial: false,
+            origin: None,
+            attachments: Vec::new(),
         }
     }
 }

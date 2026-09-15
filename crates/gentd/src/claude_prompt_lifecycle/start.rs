@@ -41,10 +41,94 @@ where
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
+    let fresh_context = runtime.launch_context(&prompt.message)?;
+    let start = prompt_start(runtime, &prompt, fresh_context)?;
+    if runner.has_claude_session(&run_id) {
+        return submit(
+            runtime,
+            runner,
+            coordinator_id,
+            active,
+            prompt,
+            host_epoch,
+            start.prompt,
+            start.goal,
+            start.content,
+        );
+    }
+    runner.prepare_claude_prompt(run_id.clone(), start)?;
+    if let Err(error) = runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch) {
+        runner.cancel_claude_prompt(&run_id);
+        return Err(error);
+    }
+    match runtime
+        .runs()
+        .start_or_resume(request(&run_id, coordinator_id, host_epoch))
+    {
+        Err(error) => {
+            runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+            Err(error)
+        }
+        Ok(response) => match response.outcome {
+            PublicRunOutcome::Started | PublicRunOutcome::Resumed => {
+                if let Err(error) =
+                    runtime.confirm_prompt_started(&message_id, coordinator_id, host_epoch)
+                {
+                    let _ = runner.interrupt(&run_id);
+                    runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+                    return Err(error);
+                }
+                active.insert(
+                    run_id.clone(),
+                    Binding {
+                        prompt,
+                        sequence: 0,
+                        settled: false,
+                        interrupt_requested: false,
+                        steers: Vec::new(),
+                        session_recovery: super::SessionRecovery::NotNeeded,
+                    },
+                );
+                Ok(ClaudePromptDispatchOutcome::Started { run_id })
+            }
+            PublicRunOutcome::Denied | PublicRunOutcome::LeaseContended => {
+                runner.cancel_claude_prompt(&run_id);
+                runtime.release_unstarted_prompt_launch(&message_id, coordinator_id, host_epoch)?;
+                Ok(ClaudePromptDispatchOutcome::Empty)
+            }
+            PublicRunOutcome::Interrupted => {
+                runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+                Ok(ClaudePromptDispatchOutcome::Unprovable { run_id })
+            }
+        },
+    }
+}
+
+pub(super) fn prompt_start<L, D, R>(
+    runtime: &PublicDriversRuntime<L, D, R>,
+    prompt: &AgentChatPromptSaved,
+    fresh_context: Option<gent_types::FrozenConversationContext>,
+) -> Result<ClaudePromptStart, RuntimeError>
+where
+    L: Clone
+        + Ledger
+        + gent_ports::RunLifecycleFactLedger
+        + ConversationActivityLedger
+        + TranscriptLedger
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AgentChatReadLedger
+        + AgentChatRunContextReader
+        + ConversationContentReader
+        + gent_ports::AgentChatWorkspaceLedger
+        + gent_ports::PolicyLedger
+        + gent_ports::ToolSourceLedger
+        + gent_ports::AttachmentLedger
+        + gent_ports::AgentChatConversationConfigLedger,
+    D: ClaudePromptExecution + Clone,
+    R: PublicProviderResolver,
+{
+    let run_id = prompt.run_id.0.clone();
     let workspace = runtime.workspace_for_run(&prompt.message.conversation_id, &run_id)?;
-    let fresh_context = runtime
-        .contexts
-        .fresh_context_for_child(&prompt.message.conversation_id, &run_id)?;
     let selection = runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?;
     let selected_sources = runtime.validate_tool_sources_for_run(
         &prompt.message.conversation_id,
@@ -56,7 +140,8 @@ where
         .map(|source| source.source_name.clone())
         .collect::<Vec<_>>();
     if !selected_mcp_source_names.is_empty() {
-        selected_mcp_source_names.extend(["gent-automations".into(), "gent-forge".into()]);
+        selected_mcp_source_names
+            .extend(crate::standalone_mcp_config::INTERNAL_SERVER_NAMES.map(str::to_owned));
     }
     let permission =
         crate::permission_workspace::policy_for(&runtime.ledger(), &workspace.workspace_id)?;
@@ -84,10 +169,39 @@ where
                 .map(|config| config.disallowed_tools)
                 .unwrap_or_default(),
         );
-    let goal = runtime.active_goal_for(&prompt.message.conversation_id, &run_id)?;
+    let goal = runtime.active_goal_for(&prompt.message.conversation_id)?;
+    let (prompt_text, content) = provider_input(runtime, &prompt.message)?;
+    Ok(ClaudePromptStart {
+        workspace_root: workspace.canonical_path.into(),
+        workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(selection.mode),
+        prompt: prompt_text,
+        turn_options,
+        goal,
+        fresh_context,
+        content,
+        selected_mcp_source_names,
+        recreate_session: false,
+    })
+}
+
+pub(super) fn provider_input<L, D, R>(
+    runtime: &PublicDriversRuntime<L, D, R>,
+    message: &gent_types::ConversationMessage,
+) -> Result<(String, Vec<serde_json::Value>), RuntimeError>
+where
+    L: Clone
+        + Ledger
+        + gent_ports::RunLifecycleFactLedger
+        + ConversationActivityLedger
+        + TranscriptLedger
+        + AgentChatPromptDispatchLedger
+        + gent_ports::AttachmentLedger,
+    D: ClaudePromptExecution + Clone,
+    R: PublicProviderResolver,
+{
     let attachment_metadata = runtime
         .ledger()
-        .turn_attachments(&prompt.message.turn_id)
+        .turn_attachments(&message.turn_id)
         .map_err(|error| {
             gent_ports::PublicProviderRunError::Failed(format!(
                 "turn attachments are unavailable: {error}"
@@ -104,92 +218,14 @@ where
                     "provider attachment storage is unavailable".into(),
                 )
             })?,
-            &prompt.message.turn_id,
+            &message.turn_id,
         )
         .map_err(gent_ports::PublicProviderRunError::Failed)?
     };
-    // The CLI stream owns the live provider conversation.  A settled binding
-    // must receive its next JSONL user frame on that stream, not a new process
-    // (or a `--resume` recovery process) for each user turn.
-    if runner.has_claude_session(&run_id) {
-        let prompt_text =
-            crate::provider_attachments::prompt_with_files(&prompt.message.text, &attachments);
-        let content = crate::provider_attachments::claude_content(&attachments);
-        return submit(
-            runtime,
-            runner,
-            coordinator_id,
-            active,
-            prompt,
-            host_epoch,
-            prompt_text,
-            goal,
-            content,
-        );
-    }
-    if let Err(error) = runner.prepare_claude_prompt(
-        run_id.clone(),
-        ClaudePromptStart {
-            workspace_root: workspace.canonical_path.into(),
-            workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(selection.mode),
-            prompt: crate::provider_attachments::prompt_with_files(
-                &prompt.message.text,
-                &attachments,
-            ),
-            turn_options,
-            goal,
-            fresh_context: fresh_context.clone(),
-            content: crate::provider_attachments::claude_content(&attachments),
-            selected_mcp_source_names,
-        },
-    ) {
-        runtime.release_prompt_claim(&message_id, coordinator_id, host_epoch)?;
-        return Err(error.into());
-    }
-    if let Err(error) = runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch) {
-        runner.cancel_claude_prompt(&run_id);
-        return Err(error);
-    }
-    let request = request(&run_id, coordinator_id, host_epoch);
-    match if fresh_context.is_some() {
-        runtime.runs().start(request)
-    } else {
-        runtime.runs().start_or_resume(request)
-    } {
-        Err(error) => {
-            runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-            Err(error)
-        }
-        Ok(response) => match response.outcome {
-            PublicRunOutcome::Started | PublicRunOutcome::Resumed => {
-                if let Err(error) =
-                    runtime.confirm_prompt_started(&message_id, coordinator_id, host_epoch)
-                {
-                    let _ = runner.interrupt(&run_id);
-                    runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-                    return Err(error);
-                }
-                active.insert(
-                    run_id.clone(),
-                    Binding {
-                        prompt,
-                        sequence: 0,
-                        settled: false,
-                    },
-                );
-                Ok(ClaudePromptDispatchOutcome::Started { run_id })
-            }
-            PublicRunOutcome::Denied | PublicRunOutcome::LeaseContended => {
-                runner.cancel_claude_prompt(&run_id);
-                runtime.release_unstarted_prompt_launch(&message_id, coordinator_id, host_epoch)?;
-                Ok(ClaudePromptDispatchOutcome::Empty)
-            }
-            PublicRunOutcome::ProviderChanged | PublicRunOutcome::Interrupted => {
-                runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-                Ok(ClaudePromptDispatchOutcome::Unprovable { run_id })
-            }
-        },
-    }
+    Ok((
+        crate::provider_attachments::prompt_with_files(&message.text, &attachments),
+        crate::provider_attachments::claude_content(&attachments),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -51,6 +51,7 @@ async fn resume_submits_to_the_existing_gent_conversation() {
                 conversation_id,
                 run_id: gent_types::AgentChatRunId("run-2".into()),
                 turn_id: "turn-2".into(),
+                message_id: "message-2".into(),
                 delivery: AgentChatPromptDelivery::AwaitingProvider,
             },
         )
@@ -66,6 +67,7 @@ async fn resume_submits_to_the_existing_gent_conversation() {
             request_id: Some("request-1".into()),
             receipt_id: Some("receipt-1".into()),
             attachments: Vec::new(),
+            json: false,
         }),
     )
     .await

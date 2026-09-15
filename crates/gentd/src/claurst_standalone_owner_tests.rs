@@ -14,8 +14,9 @@ use gent_types::{AgentChatConversationId, FrozenConversationContext};
 
 use super::{
     ClaurstAcpStdio, ClaurstLocalReadinessService, ClaurstLocalRuntimeRequest,
-    ClaurstStandaloneLauncher, ClaurstStandaloneOwner, ClaurstStandaloneStartError,
-    LlamaServerReadiness, LocalProcessLaunch, LocalRuntimeProcess, PrivateSettingsStore,
+    ClaurstStandaloneLauncher, ClaurstStandaloneOwner, ClaurstStandaloneRuntime,
+    ClaurstStandaloneStartError, LlamaServerReadiness, LocalProcessLaunch, LocalRuntimeProcess,
+    PrivateSettingsStore,
 };
 
 #[derive(Clone, Default)]
@@ -28,6 +29,33 @@ impl PrivateSettingsStore for Store {
             .push(format!("settings:{}", path.display()));
         Ok(())
     }
+}
+
+#[test]
+fn runtime_health_reports_an_exited_acp_before_reuse() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let bridge = Arc::new(crate::claurst_acp_bridge::ClaurstAcpBridge::new(
+        PathBuf::from("/workspace"),
+        Acp {
+            events: Arc::clone(&events),
+            reads: VecDeque::new(),
+            exit: Some("ACP exited".into()),
+        },
+        Vec::new(),
+    ));
+    let mut runtime = ClaurstStandaloneRuntime {
+        llama: Llama(events),
+        bridge,
+        summarizer: Arc::new(crate::claurst_runtime_factory::LlamaContextSummarizer::new(
+            crate::claurst_runtime_factory::LlamaSummaryEndpoint {
+                server_url: "http://127.0.0.1:1".into(),
+                model: "model".into(),
+                context_tokens: 32_768,
+                history_input_bytes: 81_888,
+            },
+        )),
+    };
+    assert_eq!(runtime.exited().unwrap(), Some("ACP exited".into()));
 }
 
 struct Llama(Arc<Mutex<Vec<String>>>);
@@ -44,6 +72,7 @@ impl LocalRuntimeProcess for Llama {
 struct Acp {
     events: Arc<Mutex<Vec<String>>>,
     reads: VecDeque<Vec<u8>>,
+    exit: Option<String>,
 }
 impl ClaurstAcpStdio for Acp {
     fn write_frame(&mut self, frame: &[u8]) -> Result<(), String> {
@@ -56,6 +85,9 @@ impl ClaurstAcpStdio for Acp {
     fn try_read_frame(&mut self, _: usize) -> Result<Option<Vec<u8>>, String> {
         Ok(self.reads.pop_front())
     }
+    fn exited(&mut self) -> Result<Option<String>, String> {
+        Ok(self.exit.clone())
+    }
 }
 
 #[derive(Clone)]
@@ -67,8 +99,14 @@ impl ClaurstStandaloneLauncher for Launcher {
         self.0.lock().unwrap().push("llama".into());
         Ok(Llama(Arc::clone(&self.0)))
     }
-    fn launch_acp(&self, _: &LocalProcessLaunch) -> Result<Acp, String> {
-        self.0.lock().unwrap().push("acp".into());
+    fn launch_acp(&self, launch: &LocalProcessLaunch) -> Result<Acp, String> {
+        self.0
+            .lock()
+            .unwrap()
+            .push(match &launch.working_directory {
+                Some(directory) => format!("acp:{}", directory.display()),
+                None => "acp".into(),
+            });
         Ok(Acp {
             events: Arc::clone(&self.0),
             reads: VecDeque::from([
@@ -76,6 +114,7 @@ impl ClaurstStandaloneLauncher for Launcher {
                 serde_json::to_vec(&serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}}))
                     .unwrap(),
             ]),
+            exit: None,
         })
     }
 }
@@ -97,7 +136,7 @@ fn request() -> ClaurstLocalRuntimeRequest {
         claurst_home: PathBuf::from("/gent/claurst"),
         effort: gent_types::AgentChatEffort::Medium,
         mode: gent_types::AgentChatMode::Agent,
-        permission_mode: gent_types::PermissionMode::Default,
+        permission_mode: gent_types::PermissionMode::AskEveryTime,
         mcp_servers: Vec::new(),
     }
 }
@@ -117,7 +156,7 @@ fn owner(
 
 fn catalog() -> LocalModelCatalog {
     LocalModelCatalog::from_json(
-        r#"{"models":[{"id":"qwen2-5-coder-7b-instruct-q4-k-m","label":"Model","huggingface_url":"https://huggingface.co/gent/model/resolve/0123456789abcdef0123456789abcdef01234567/model.gguf","local_filename":"model.gguf","provider_model_id":"model","size_bytes":5,"sha256":"36bbe50ed96841d10443bcb670d6554f0a34b761be67ec9c4a8ad2c0c44ca42c"}]}"#,
+        r#"{"models":[{"id":"qwen2-5-coder-7b-instruct-q4-k-m","label":"Model","huggingface_url":"https://huggingface.co/gent/model/resolve/0123456789abcdef0123456789abcdef01234567/model.gguf","local_filename":"model.gguf","provider_model_id":"model","size_bytes":5,"sha256":"36bbe50ed96841d10443bcb670d6554f0a34b761be67ec9c4a8ad2c0c44ca42c","context_tokens":8192,"runtime_memory_bytes":4096,"agent_profile":"full"}]}"#,
     )
     .unwrap()
 }
@@ -179,7 +218,7 @@ async fn ready_model_starts_llama_then_acp_and_delivers_the_first_durable_prompt
             "settings:/gent/claurst/.claurst/settings.json",
             "llama",
             "ready",
-            "acp"
+            "acp:/workspace"
         ]
     );
     assert!(
@@ -238,7 +277,7 @@ while IFS= read -r _; do :; done
                 claurst_home: root.path().join("claurst-home"),
                 effort: gent_types::AgentChatEffort::Medium,
                 mode: gent_types::AgentChatMode::Agent,
-                permission_mode: gent_types::PermissionMode::Default,
+                permission_mode: gent_types::PermissionMode::AskEveryTime,
                 mcp_servers: Vec::new(),
             },
             root.path(),

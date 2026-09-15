@@ -3,7 +3,23 @@ use gent_protocol::{LocalModelDownloadFailure, LocalModelFrame};
 use gent_store::SqliteLedger;
 use gent_types::{Event, HostEpoch, ReceiptId};
 
-pub(crate) fn publish(
+#[derive(Clone, Debug)]
+pub(crate) struct LocalModelEvents {
+    ledger: SqliteLedger,
+    host_epoch: HostEpoch,
+}
+
+impl LocalModelEvents {
+    pub(crate) const fn new(ledger: SqliteLedger, host_epoch: HostEpoch) -> Self {
+        Self { ledger, host_epoch }
+    }
+
+    pub(crate) fn publish(&self, frame: LocalModelFrame) -> Result<(), String> {
+        publish(&self.ledger, self.host_epoch, frame)
+    }
+}
+
+fn publish(
     ledger: &SqliteLedger,
     host_epoch: HostEpoch,
     frame: LocalModelFrame,

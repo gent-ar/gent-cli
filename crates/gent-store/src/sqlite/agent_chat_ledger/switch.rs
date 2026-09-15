@@ -2,8 +2,8 @@
 
 use gent_ports::{AgentChatSelectionLedger, IngressMode, LedgerError};
 use gent_types::{
-    AgentChatSelection, AgentChatSelectionSwitch, AgentChatSelectionSwitched, Command, Receipt,
-    ReceiptStatus,
+    AgentChatRejection, AgentChatSelection, AgentChatSelectionSwitch, AgentChatSelectionSwitched,
+    Command, Receipt, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::json;
@@ -84,12 +84,12 @@ fn reject_provisioning_parent(
         )
         .optional()
         .map_err(storage_error)?;
-    provisioning.is_none().then_some(()).ok_or_else(|| {
-        LedgerError::Invariant(
-            "agent chat selection cannot change while provider prompt provisioning is reserved"
-                .into(),
-        )
-    })
+    provisioning
+        .is_none()
+        .then_some(())
+        .ok_or(LedgerError::Rejected(
+            AgentChatRejection::SelectionSwitchBlockedByProvisioning,
+        ))
 }
 
 fn validate(switch: &AgentChatSelectionSwitch) -> Result<(), LedgerError> {
@@ -199,9 +199,9 @@ fn require_current_parent(
     let current = transaction.query_row("SELECT q.run_id FROM agent_chat_conversations c JOIN agent_chat_run_selections q JOIN runs r ON r.run_id = q.run_id WHERE c.conversation_id = ?1 AND r.conversation_id = c.conversation_id ORDER BY r.rowid DESC LIMIT 1", [&switch.conversation_id.0], |row| row.get::<_, String>(0)).optional().map_err(storage_error)?;
     (current.as_deref() == Some(&switch.parent_run_id.0))
         .then_some(())
-        .ok_or_else(|| {
-            LedgerError::Invariant("agent chat switch parent is not the durable current run".into())
-        })
+        .ok_or(LedgerError::Rejected(
+            AgentChatRejection::SelectionSwitchParentNotCurrent,
+        ))
 }
 
 fn context_boundary(

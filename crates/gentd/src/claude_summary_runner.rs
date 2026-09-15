@@ -1,5 +1,6 @@
 use std::{
     path::PathBuf,
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
@@ -13,31 +14,34 @@ use gent_drivers::{
     message_encoding::{PublicSession, encode_user_message},
     supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess},
 };
-use gent_ports::{ConversationSummaryRunner, PortError};
+use gent_ports::{ConversationSummaryRunner, PortError, PublicProviderResolver};
 use gent_runtime::conversation_summary_scheduler::ConversationSummaryScheduler;
-use gent_types::{Command, HostEpoch, ReceiptId, RunVersionLock, SandboxWorkspaceAccess};
+use gent_types::{Command, HostEpoch, ReceiptId, SandboxWorkspaceAccess};
 
 const MAX_PROMPT_BYTES: usize = 24 * 1024;
 const MAX_OUTPUT_BYTES: usize = 16 * 1024;
-const MAX_RUNTIME: Duration = Duration::from_secs(30);
+const MAX_RUNTIME: Duration = crate::provider_launch_budget::launch_budget(Duration::from_secs(30));
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct ClaudeSummaryRunner {
     launcher: SystemLauncher,
-    lock: RunVersionLock,
+    resolver: Arc<dyn PublicProviderResolver>,
+}
+
+impl std::fmt::Debug for ClaudeSummaryRunner {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ClaudeSummaryRunner")
+            .finish_non_exhaustive()
+    }
 }
 
 impl ClaudeSummaryRunner {
-    pub(crate) fn new(lock: RunVersionLock) -> Result<Self, PortError> {
-        if lock.provider != "claude" || lock.canonical_path.trim().is_empty() {
-            return Err(PortError::Unavailable(
-                "Claude summary lock is invalid".into(),
-            ));
+    pub(crate) fn new(resolver: Arc<dyn PublicProviderResolver>) -> Self {
+        Self {
+            launcher: crate::node_runtime_lock::standalone_provider_launcher(MAX_OUTPUT_BYTES),
+            resolver,
         }
-        Ok(Self {
-            launcher: SystemLauncher::new(MAX_OUTPUT_BYTES),
-            lock,
-        })
     }
 }
 
@@ -63,10 +67,14 @@ impl ConversationSummaryRunner for ClaudeSummaryRunner {
         ClaudeTurnOptions::summary(model_version)
             .map_err(|error| PortError::Provider(error.to_string()))?
             .append_arguments(&mut launch_arguments);
+        let lock = self
+            .resolver
+            .resolve("claude")
+            .map_err(|error| PortError::Unavailable(error.to_string()))?;
         let launch = ProviderLaunch {
-            lock: self.lock.clone(),
+            executable: PathBuf::from(&lock.canonical_path),
+            lock,
             provider: "claude".into(),
-            executable: PathBuf::from(&self.lock.canonical_path),
             arguments: launch_arguments,
             intent: LaunchIntent::Start,
             workspace_root: None,

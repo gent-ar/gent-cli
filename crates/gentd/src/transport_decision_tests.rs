@@ -7,8 +7,8 @@ use gent_protocol::{
 use gent_types::HostEpoch;
 use tokio::io::duplex;
 
+use super::tests::{FakeRuntime, hello};
 use crate::transport::serve_connection;
-use crate::transport_tests::{FakeRuntime, hello};
 
 #[tokio::test]
 async fn decision_recovery_and_provider_lifecycle_are_routed_after_handshake() {
@@ -60,5 +60,5 @@ async fn decision_recovery_and_provider_lifecycle_are_routed_after_handshake() {
         WireFrame::PublicRunResponse(response) if response.outcome == PublicRunOutcome::Denied
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }

@@ -30,8 +30,8 @@ pub(crate) async fn stage(
         return Err("daemon does not support attachment staging".into());
     }
     let mut ids = Vec::with_capacity(paths.len());
-    for (index, path) in paths.iter().enumerate() {
-        ids.push(stage_one(&mut stream, path, index).await?);
+    for path in paths {
+        ids.push(stage_one(&mut stream, path).await?);
     }
     Ok(ids)
 }
@@ -39,9 +39,9 @@ pub(crate) async fn stage(
 async fn stage_one(
     stream: &mut LocalStream,
     path: &Path,
-    index: usize,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let bytes = std::fs::read(path)?;
+    let bytes = std::fs::read(path)
+        .map_err(|error| format!("could not read attachment {}: {error}", path.display()))?;
     if bytes.is_empty() || u64::try_from(bytes.len())? > MAX_ATTACHMENT_BYTES {
         return Err(format!(
             "attachment {} must be between 1 byte and 64 MiB",
@@ -50,7 +50,7 @@ async fn stage_one(
         .into());
     }
     let digest = format!("{:x}", Sha256::digest(&bytes));
-    let attachment_id = format!("attachment-{digest}-{index}");
+    let attachment_id = format!("attachment-{}", uuid::Uuid::new_v4());
     let display_name = path
         .file_name()
         .and_then(|value| value.to_str())
@@ -113,7 +113,9 @@ async fn round_trip(
     write_json_frame(stream, &frame).await?;
     match read_json_frame::<_, AttachmentFrame>(stream).await? {
         AttachmentFrame::Transfer { transfer } => Ok(transfer),
-        AttachmentFrame::Error { message, .. } => Err(message.into()),
+        AttachmentFrame::Error { code, message } => {
+            Err(crate::cli_error::CliError::daemon(code, message).into())
+        }
         _ => Err("daemon returned an invalid attachment response".into()),
     }
 }
@@ -151,3 +153,7 @@ fn media_type(path: &Path) -> String {
     }
     .into()
 }
+
+#[cfg(all(test, unix))]
+#[path = "attachments_tests.rs"]
+mod tests;

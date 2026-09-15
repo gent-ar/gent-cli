@@ -5,10 +5,9 @@ use gent_ports::{
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRunId, AgentChatSelection, CrossReviewRequest, FanoutRequest,
-    GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord, GoalStatus, HarnessProfileRef, HostEpoch,
-    PermissionMode, PolicyRecord, PolicyScope, ReceiptId, RepositoryRecord, ReviewCandidate,
-    TaskGraph, TaskGraphBinding, TaskGraphFactKind, TaskNode, TaskNodeSpec, TaskNodeStatus,
-    TaskRole, WorkspaceRecord, WorktreePolicy,
+    HarnessProfileRef, HostEpoch, PermissionMode, PolicyRecord, PolicyScope, ReceiptId,
+    RepositoryRecord, ReviewCandidate, TaskGraph, TaskGraphBinding, TaskGraphFactKind, TaskNode,
+    TaskNodeSpec, TaskNodeStatus, TaskRole, WorkspaceRecord, WorktreePolicy,
 };
 
 use super::SqliteLedger;
@@ -44,24 +43,23 @@ fn ledger() -> SqliteLedger {
             workspace_id: "workspace-1".into(),
             scope: PolicyScope::ProviderPermissions,
             revision: 1,
-            mode: PermissionMode::Default,
+            mode: PermissionMode::AskEveryTime,
             allowed_tools: vec![],
             allowed_categories: vec![],
         })
         .unwrap();
-    ledger
-        .create_goal(&GoalRecord {
-            schema_version: GOAL_SCHEMA_VERSION,
-            binding: GoalBinding {
-                goal_id: "goal-1".into(),
-                conversation_id: AgentChatConversationId("conversation-1".into()),
-                run_id: AgentChatRunId("run-1".into()),
-            },
-            revision: 1,
-            status: GoalStatus::Active,
-            summary: "Finish safely".into(),
-        })
-        .unwrap();
+    let goal = gent_core::create_goal(
+        gent_core::GoalDraft {
+            goal_id: "goal-1".into(),
+            conversation_id: AgentChatConversationId("conversation-1".into()),
+            objective: "Finish safely".into(),
+            token_budget: None,
+            accounted_through_ordinal: 0,
+        },
+        1,
+    )
+    .unwrap();
+    ledger.create_goal(None, None, &goal, HostEpoch(1)).unwrap();
     ledger
 }
 fn selection(provider: AgentChatProvider) -> AgentChatSelection {

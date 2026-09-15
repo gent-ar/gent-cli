@@ -1,28 +1,21 @@
 //! `gentd` composition root. Product domains are assembled only behind typed ports.
 
 mod activity_transport;
-#[cfg(test)]
-mod activity_transport_tests;
 mod agent_chat_api;
-#[cfg(test)]
-mod agent_chat_api_tests;
 mod agent_chat_checkpoint_api;
 mod agent_chat_checkpoint_transport;
+mod agent_chat_command_transport;
 mod agent_chat_conversation_config_api;
 mod agent_chat_conversation_config_transport;
+mod agent_chat_intent_error;
 mod agent_chat_permission_api;
 mod agent_chat_permission_transport;
-#[cfg(test)]
-mod agent_chat_permission_transport_tests;
+mod agent_chat_projection_transport;
 mod agent_chat_read_transport;
 mod agent_chat_sessions_api;
 mod agent_chat_sessions_transport;
 mod agent_chat_side_question_api;
-#[cfg(test)]
-mod agent_chat_side_question_api_tests;
 mod agent_chat_side_question_runners;
-#[cfg(test)]
-mod agent_chat_side_question_runners_tests;
 mod agent_chat_side_question_transport;
 mod agent_chat_side_question_worker;
 mod agent_chat_subscription;
@@ -77,6 +70,8 @@ mod claurst_local_runtime;
 mod claurst_local_runtime_owner;
 #[cfg(test)]
 mod claurst_local_runtime_owner_tests;
+mod claurst_metadata_summary;
+mod claurst_permission_policy;
 mod claurst_prompt_lifecycle;
 mod claurst_runtime_factory;
 #[allow(dead_code)]
@@ -111,8 +106,6 @@ mod daemon_bootstrap;
 mod decision_mapping;
 mod dependency_actions;
 mod dependency_catalog;
-#[cfg(test)]
-mod dependency_catalog_tests;
 mod event_stream;
 mod forge_api;
 mod forge_transport;
@@ -120,17 +113,15 @@ mod forge_transport;
 mod fresh_compatibility_authorizer;
 mod git_status_runtime;
 mod goal_api;
+mod goal_pursuit_host;
 mod goal_transport;
-#[cfg(test)]
-mod goal_transport_tests;
 mod host_lock;
 mod local_model_catalog;
 #[allow(dead_code)]
 mod local_model_download;
-#[cfg(test)]
-mod local_model_download_tests;
 mod local_model_events;
 mod local_model_integrity;
+mod local_model_jobs;
 #[allow(dead_code)]
 mod local_model_provisioning;
 mod local_model_transport;
@@ -143,6 +134,7 @@ mod orchestration_api;
 mod orchestration_transport;
 #[cfg(test)]
 mod orchestration_transport_tests;
+mod ordinary_authority_release;
 #[allow(dead_code)]
 mod ordinary_lifecycle_cadence;
 #[allow(dead_code)]
@@ -151,8 +143,6 @@ mod ordinary_lifecycle_control;
 mod ordinary_lifecycle_host;
 #[allow(dead_code)]
 mod ordinary_lifecycle_router;
-#[cfg(test)]
-mod ordinary_lifecycle_router_tests;
 mod packaged_claurst_runtime;
 mod permission_category;
 mod permission_policy_api;
@@ -163,8 +153,6 @@ mod permission_workspace;
 mod private_claurst_goal_tests;
 #[allow(dead_code)]
 mod private_claurst_ingress;
-#[cfg(test)]
-mod private_claurst_ingress_projection_tests;
 #[cfg(test)]
 mod private_claurst_ingress_tests;
 #[allow(dead_code)]
@@ -187,6 +175,7 @@ mod private_provider_provisioning_error;
 mod private_provider_provisioning_sqlite;
 #[allow(dead_code)]
 mod private_provider_readiness;
+mod private_provider_review;
 #[allow(dead_code)]
 mod private_provider_verifier;
 #[allow(dead_code)]
@@ -195,25 +184,25 @@ mod private_provision_settlement;
 mod private_session_atomic_port;
 #[allow(dead_code)]
 mod private_session_driver;
+mod prompt_provider_provision_boundary;
 mod prompt_provider_provision_transport;
 mod prompt_readiness_admission;
 mod prompt_template_transport;
 mod provider_attachments;
+mod provider_auth_api;
 mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;
 mod provider_effects;
+mod provider_executables;
+mod provider_launch_budget;
 #[allow(dead_code)]
 mod provider_lifecycle_host;
 mod provider_readiness_boundary;
 mod provider_readiness_transport;
 mod provider_resolver;
-#[cfg(test)]
-mod provider_resolver_tests;
 #[allow(dead_code)]
 mod public_driver_runtime;
-#[cfg(test)]
-mod public_driver_runtime_tests;
 mod public_runs;
 #[cfg(test)]
 mod readiness_test_support;
@@ -231,26 +220,17 @@ mod runtime_update_transport;
 mod standalone_authority_bootstrap;
 #[allow(dead_code)]
 mod standalone_authority_composition;
+mod standalone_authority_release;
 #[allow(dead_code)]
 mod standalone_claurst_runtime_factory;
 mod standalone_mcp_config;
+mod standalone_provider_provision;
+mod standalone_provider_readiness;
 mod standalone_provider_setup;
 mod startup;
 mod transport;
-#[cfg(test)]
-mod transport_decision_tests;
 #[allow(dead_code)]
 mod transport_shutdown;
-#[cfg(all(test, unix))]
-mod transport_shutdown_tests;
-#[cfg(test)]
-mod transport_stream_tests;
-#[cfg(test)]
-mod transport_tests;
-#[cfg(test)]
-mod transport_timeline_tests;
-#[cfg(test)]
-mod transport_turn_follow_tests;
 #[cfg(windows)]
 mod transport_windows;
 #[cfg(all(test, windows))]
@@ -260,12 +240,9 @@ mod workspace_documents_transport;
 mod workspace_git_api;
 #[cfg(test)]
 mod workspace_git_api_tests;
-mod workspace_git_sub_repos;
 mod workspace_git_transport;
 #[allow(dead_code)]
 mod workspace_identity;
-#[cfg(test)]
-mod workspace_identity_tests;
 
 #[cfg(test)]
 pub(crate) use compatibility_assessment::CompatibilityAssessment;

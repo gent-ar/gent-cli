@@ -52,11 +52,12 @@ where
             ledger.agent_chat_workspace_for_run(&binding.prompt.message.conversation_id, run_id)?;
         let policy = crate::permission_workspace::policy_for(&ledger, &workspace.workspace_id)?;
         let category = crate::permission_category::for_tool(&request.tool_name);
-        let normalized = PermissionRequest {
-            tool_name: request.tool_name.clone(),
+        let normalized = PermissionRequest::new(
+            request.tool_name.clone(),
             category,
-            input: request.input.clone(),
-        };
+            request.input.clone(),
+            None,
+        );
         match crate::permission_preflight::evaluate(&policy, &normalized) {
             crate::permission_preflight::PermissionPreflight::Allow => {
                 self.runner
@@ -76,6 +77,7 @@ where
                             tool_name: request.tool_name,
                             phase: ToolPhase::Started,
                             output_digest: None,
+                            parent_tool_use_id: None,
                         },
                     }),
                 )?;
@@ -99,6 +101,7 @@ where
                             tool_name: request.tool_name,
                             phase: ToolPhase::Failed,
                             output_digest: None,
+                            parent_tool_use_id: None,
                         },
                     }),
                 )?;
@@ -112,7 +115,11 @@ where
         ledger.save_pending_permission(&PermissionDecisionRequest {
             binding: PermissionDecisionBinding {
                 decision_id: AgentChatDecisionId(request.request_key.clone()),
-                request_idempotency_key: format!("codex:{}", request.request_key),
+                request_idempotency_key: permission_idempotency_key(
+                    run_id,
+                    &binding.prompt.message.turn_id,
+                    &request.request_key,
+                ),
                 conversation_id: AgentChatConversationId(
                     binding.prompt.message.conversation_id.clone(),
                 ),
@@ -138,6 +145,7 @@ where
                     tool_name: request.tool_name,
                     phase: ToolPhase::WaitingPermission,
                     output_digest: None,
+                    parent_tool_use_id: None,
                 },
             }),
         ] {
@@ -159,5 +167,26 @@ where
         self.runner
             .respond_codex_control(run_id, request_id, decision, answers)
             .map_err(RuntimeError::from)
+    }
+}
+
+fn permission_idempotency_key(run_id: &str, turn_id: &str, request_key: &str) -> String {
+    format!("codex:{run_id}:{turn_id}:{request_key}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::permission_idempotency_key;
+
+    #[test]
+    fn request_keys_are_scoped_to_their_run_and_turn() {
+        assert_ne!(
+            permission_idempotency_key("run-a", "turn-1", "0"),
+            permission_idempotency_key("run-b", "turn-1", "0")
+        );
+        assert_ne!(
+            permission_idempotency_key("run-a", "turn-1", "0"),
+            permission_idempotency_key("run-a", "turn-2", "0")
+        );
     }
 }

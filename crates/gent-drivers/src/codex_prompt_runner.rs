@@ -34,6 +34,7 @@ pub struct CodexPromptStart {
     pub turn_options: CodexTurnOptions,
     pub attachments: Vec<serde_json::Value>,
     pub selected_mcp_source_names: Vec<String>,
+    pub interrupted_reply: Option<String>,
 }
 
 /// Bridges durable run reservation to the bounded Codex app-server runner.
@@ -114,40 +115,41 @@ where
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError> {
         lock(&self.runner).poll(run_id).map_err(map_error)
     }
-    /// Submits a later prompt with a freshly ledger-resolved goal on the ready Codex session.
-    ///
-    /// The daemon must durably mark its dispatch boundary before calling this method. It cannot
-    /// launch, select a session, or replace the process.
-    ///
-    /// # Errors
-    /// Returns a controlled failure when no ready owned session can accept the prompt.
     pub fn submit(
         &self,
         run_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
         attachments: &[serde_json::Value],
+        interrupted_reply: Option<&str>,
     ) -> Result<(), PublicProviderRunError> {
         lock(&self.runner)
-            .submit_turn(run_id, prompt, goal, attachments)
+            .submit_turn(run_id, prompt, goal, attachments, interrupted_reply)
             .map_err(map_error)
     }
-    /// Reports whether the daemon-owned runner still owns the named Codex native session.
     #[must_use]
     pub fn owns(&self, run_id: &str) -> bool {
         lock(&self.runner).owns(run_id)
     }
 
-    /// Sends one daemon-chosen signal to an owned Codex process tree.
-    ///
-    /// # Errors
-    /// Returns an error when the run is absent or the process tree cannot be signaled.
     pub fn signal_process(
         &self,
         run_id: &str,
         signal: crate::interrupt::ProcessTreeSignal,
     ) -> Result<(), PublicProviderRunError> {
         lock(&self.runner).signal(run_id, signal).map_err(map_error)
+    }
+
+    pub fn steer_turn(
+        &self,
+        run_id: &str,
+        message_id: &str,
+        prompt: &str,
+        attachments: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError> {
+        lock(&self.runner)
+            .steer_turn(run_id, message_id, prompt, attachments)
+            .map_err(map_error)
     }
 
     pub fn interrupt_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
@@ -165,8 +167,12 @@ where
         {
             return Ok(false);
         }
-        lock(&self.runner).terminate(run_id).map_err(map_error)?;
         digests.remove(run_id);
+        let mut runner = lock(&self.runner);
+        if !runner.owns(run_id) {
+            return Ok(false);
+        }
+        runner.terminate(run_id).map_err(map_error)?;
         Ok(true)
     }
 
@@ -215,11 +221,6 @@ where
             },
         )?;
         let mcp = self.selected_mcp_servers(&prompt.selected_mcp_source_names)?;
-        // `selected_mcp_servers` fingerprints the per-turn subset, whereas refresh
-        // observes the complete config file.  Persist the latter here so an
-        // unchanged file keeps the owned native session alive for the next turn.
-        // Comparing different representations made every follow-up look like a
-        // configuration change and replaced its immutable provider session.
         if let Some((_, digest)) = self.current_mcp_servers()? {
             lock(&self.mcp_digests).insert(run_id.into(), digest);
         }
@@ -238,6 +239,7 @@ where
                 prompt: rendered_prompt,
                 goal: prompt.goal,
                 attachments: prompt.attachments,
+                interrupted_reply: prompt.interrupted_reply,
             })
             .map_err(map_error)
     }

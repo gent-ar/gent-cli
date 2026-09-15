@@ -2,7 +2,35 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AgentChatConversationId, AgentChatProvider, AgentChatRunId, ReceiptId};
+use crate::{
+    AgentChatConversationId, AgentChatProvider, AgentChatRunId, DurableTurnPhase, ReceiptId,
+};
+
+/// Why a held prompt left the readiness hold without ever reaching a provider.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum PromptAdmissionExit {
+    Failed,
+    Cancelled,
+}
+
+impl PromptAdmissionExit {
+    #[must_use]
+    pub const fn turn_phase(self) -> DurableTurnPhase {
+        match self {
+            Self::Failed => DurableTurnPhase::Failed,
+            Self::Cancelled => DurableTurnPhase::Cancelled,
+        }
+    }
+
+    #[must_use]
+    pub const fn notice(self) -> &'static str {
+        match self {
+            Self::Failed => "provider readiness failed",
+            Self::Cancelled => "prompt cancelled before delivery",
+        }
+    }
+}
 
 /// Daemon-derived identity of one held prompt whose selected provider is verified ready.
 ///
@@ -24,6 +52,7 @@ pub struct ProviderPromptReadinessFailureBinding {
     pub conversation_id: AgentChatConversationId,
     pub run_id: AgentChatRunId,
     pub provider: AgentChatProvider,
+    pub exit: PromptAdmissionExit,
     pub reason: String,
 }
 
@@ -61,8 +90,12 @@ impl ProviderPromptReadinessBinding {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding};
-    use crate::{AgentChatConversationId, AgentChatProvider, AgentChatRunId, ReceiptId};
+    use super::{
+        PromptAdmissionExit, ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding,
+    };
+    use crate::{
+        AgentChatConversationId, AgentChatProvider, AgentChatRunId, DurableTurnPhase, ReceiptId,
+    };
 
     #[test]
     fn readiness_binding_requires_nonempty_durable_identity() {
@@ -89,9 +122,26 @@ mod tests {
             conversation_id: AgentChatConversationId("conversation".into()),
             run_id: AgentChatRunId("run".into()),
             provider: AgentChatProvider::Claurst,
+            exit: PromptAdmissionExit::Failed,
             reason: "transport failed".into(),
         };
         assert!(binding.is_valid());
+        assert_eq!(
+            PromptAdmissionExit::Failed.turn_phase(),
+            DurableTurnPhase::Failed
+        );
+        assert_eq!(
+            PromptAdmissionExit::Cancelled.turn_phase(),
+            DurableTurnPhase::Cancelled
+        );
+        assert_eq!(
+            serde_json::to_value(DurableTurnPhase::Cancelled).unwrap(),
+            serde_json::json!("cancelled")
+        );
+        assert_eq!(
+            serde_json::to_value(crate::TurnPhase::Cancelled).unwrap(),
+            serde_json::json!("cancelled")
+        );
         assert!(
             !ProviderPromptReadinessFailureBinding {
                 reason: " ".into(),

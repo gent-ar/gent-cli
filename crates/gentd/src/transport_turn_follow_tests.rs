@@ -10,8 +10,8 @@ use gent_types::{
 };
 use tokio::io::duplex;
 
+use super::tests::FakeRuntime;
 use crate::transport::serve_connection;
-use crate::transport_tests::FakeRuntime;
 
 pub(crate) fn read() -> TurnFollowRead {
     TurnFollowRead {
@@ -24,6 +24,8 @@ pub(crate) fn read() -> TurnFollowRead {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "normalized".into(),
             is_partial: false,
+            origin: None,
+            attachments: Vec::new(),
         }],
         next_after_cursor: None,
         terminal: Some(TurnTerminal {

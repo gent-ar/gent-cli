@@ -65,10 +65,22 @@ def release(directory: Path, target: str, version: str) -> None:
         path = claurst_runtime / name
         path.write_text("runtime", encoding="utf-8")
         path.chmod(0o755)
+    authority = directory / "authority-inputs"
+    authority.mkdir()
+    (authority / "ordinary-authority.json").write_text(
+        json.dumps({"key_id": "fixture", "payload": {}, "signature_hex": "00" * 64}),
+        encoding="utf-8",
+    )
+    (authority / "root-keys.json").write_text(
+        json.dumps({"version": 1, "keys": [f"fixture:{'01' * 32}"]}),
+        encoding="utf-8",
+    )
     command(
         sys.executable, ROOT / "tools/package-release.py", "--target-dir", ROOT / "target/debug",
         "--out-dir", directory, "--version", version, "--target", target, "--format", "tar.gz",
         "--node-runtime-dir", node_runtime, "--claurst-runtime-dir", claurst_runtime,
+        "--authority-release", authority / "ordinary-authority.json",
+        "--authority-root-keys", authority / "root-keys.json",
     )
     key = directory / "release-private.pem"
     generated = subprocess.run(

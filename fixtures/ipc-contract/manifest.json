@@ -8,6 +8,12 @@
     { "name": "agent-chat-conversations", "path": "agent-chat-conversations.json" },
     { "name": "agent-chat-transcript", "path": "agent-chat-transcript.json" },
     { "name": "agent-chat-intents", "path": "agent-chat-intents.json" },
-    { "name": "permission-policy", "path": "permission-policy.json" }
+    { "name": "permission-policy", "path": "permission-policy.json" },
+    { "name": "model-catalog", "path": "model-catalog.json" },
+    { "name": "goal", "path": "goal.json" },
+    { "name": "agent-chat-projection", "path": "agent-chat-projection.json" },
+    { "name": "agent-chat-rejections", "path": "agent-chat-rejections.json" },
+    { "name": "provider-auth", "path": "provider-auth.json" },
+    { "name": "agent-chat-commands", "path": "agent-chat-commands.json" }
   ]
 }

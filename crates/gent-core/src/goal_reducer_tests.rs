@@ -1,242 +1,198 @@
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord,
-    GoalStatus, GoalTransition, HostEpoch,
+    DurableTurnPhase, GoalDispatchState, GoalStatus, GoalStatusReason, GoalTurnObservation,
+    ProviderFailureClassification,
 };
 
-use super::{
-    ActiveGoalSelection, GoalControlContext, GoalControlEffect, GoalControlEvent,
-    GoalControlRejection, GoalControlState, reduce_goal_control, select_active_goal,
+use crate::goal_tests::active;
+use crate::{
+    GoalPursuitStep, GoalUserCommand, MAX_CONTINUATIONS_WITHOUT_PROGRESS, accounted_goal,
+    apply_user_command, next_pursuit_step,
 };
 
-fn context() -> GoalControlContext {
-    GoalControlContext {
-        conversation_id: "conversation-1".into(),
+fn turn(ordinal: u64, phase: DurableTurnPhase) -> GoalTurnObservation {
+    GoalTurnObservation {
+        ordinal,
+        message_id: format!("message-{ordinal}"),
         run_id: "run-1".into(),
-        host_epoch: HostEpoch(2),
+        receipt_id: format!("receipt-{ordinal}"),
+        turn_id: format!("turn-{ordinal}"),
+        phase,
+        dispatch: if phase.is_terminal() {
+            GoalDispatchState::Settled
+        } else {
+            GoalDispatchState::InFlight
+        },
+        continuation_of: None,
+        held: false,
+        tokens: 0,
+        tool_calls: 0,
+        failure: None,
     }
 }
 
-fn binding() -> GoalBinding {
-    GoalBinding {
-        goal_id: "goal-1".into(),
-        conversation_id: AgentChatConversationId("conversation-1".into()),
-        run_id: AgentChatRunId("run-1".into()),
-    }
-}
-
-fn record() -> GoalRecord {
-    GoalRecord {
-        schema_version: GOAL_SCHEMA_VERSION,
-        binding: binding(),
-        revision: 1,
-        status: GoalStatus::Active,
-        summary: "Finish the terminal implementation".into(),
-    }
-}
-
-fn transition(binding: GoalBinding, revision: u64, status: GoalStatus) -> GoalTransition {
-    GoalTransition {
-        binding,
-        expected_revision: revision,
-        host_epoch: HostEpoch(2),
-        next_status: status,
+fn continuation(ordinal: u64, phase: DurableTurnPhase) -> GoalTurnObservation {
+    GoalTurnObservation {
+        continuation_of: Some("goal-1".into()),
+        ..turn(ordinal, phase)
     }
 }
 
 #[test]
-fn empty_state_exposes_no_goal_and_selects_no_active_goal() {
-    let state = GoalControlState::default();
-    assert_eq!(state.goal(), None);
-    assert_eq!(
-        select_active_goal(&[], "conversation-1", "run-1"),
-        ActiveGoalSelection::None
-    );
+fn accounting_adds_tokens_and_advances_through_the_terminal_prefix() {
+    let goal = active(100);
+    let turns = [
+        GoalTurnObservation {
+            tokens: 40,
+            tool_calls: 2,
+            ..continuation(3, DurableTurnPhase::Completed)
+        },
+        turn(4, DurableTurnPhase::Active),
+        GoalTurnObservation {
+            tokens: 900,
+            ..turn(5, DurableTurnPhase::Completed)
+        },
+    ];
+    let next = accounted_goal(&goal, &turns, 120);
+    assert_eq!(next.accounted_through_ordinal, 3);
+    assert_eq!(next.tokens_used, 40);
+    assert_eq!(next.revision, 2);
+    assert_eq!(accounted_goal(&next, &turns, 130), next);
 }
 
 #[test]
-fn creation_rejects_malformed_stale_and_non_initial_goals() {
-    let invalid = GoalRecord {
-        summary: String::new(),
-        ..record()
-    };
-    let (_, effect) = reduce_goal_control(
-        GoalControlState::default(),
-        &context(),
-        GoalControlEvent::Create(invalid),
-    );
-    assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::InvalidRecord)
-    );
-
-    let stale_conversation = GoalRecord {
-        binding: GoalBinding {
-            conversation_id: AgentChatConversationId("conversation-2".into()),
-            ..binding()
-        },
-        ..record()
-    };
-    let (_, effect) = reduce_goal_control(
-        GoalControlState::default(),
-        &context(),
-        GoalControlEvent::Create(stale_conversation),
-    );
-    assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::StaleConversation)
-    );
-
-    let stale_run = GoalRecord {
-        binding: GoalBinding {
-            run_id: AgentChatRunId("run-2".into()),
-            ..binding()
-        },
-        ..record()
-    };
-    let (_, effect) = reduce_goal_control(
-        GoalControlState::default(),
-        &context(),
-        GoalControlEvent::Create(stale_run),
-    );
-    assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::StaleRun)
-    );
-
-    for invalid_initial in [
-        GoalRecord {
-            revision: 2,
-            ..record()
-        },
-        GoalRecord {
-            status: GoalStatus::Completed,
-            ..record()
-        },
-    ] {
-        let (_, effect) = reduce_goal_control(
-            GoalControlState::default(),
-            &context(),
-            GoalControlEvent::Create(invalid_initial),
+fn continuation_turns_without_tool_work_count_toward_the_progress_ceiling() {
+    let mut goal = active(100);
+    for ordinal in 3..3 + u64::from(MAX_CONTINUATIONS_WITHOUT_PROGRESS) {
+        goal = accounted_goal(
+            &goal,
+            &[continuation(ordinal, DurableTurnPhase::Completed)],
+            110,
         );
-        assert_eq!(
-            effect,
-            GoalControlEffect::Rejected(GoalControlRejection::ActiveStatusRequired)
-        );
+        if goal.turns_without_progress < MAX_CONTINUATIONS_WITHOUT_PROGRESS {
+            assert_eq!(next_pursuit_step(&goal, &[], 111), GoalPursuitStep::Admit);
+        }
     }
+    let GoalPursuitStep::Settle(blocked) = next_pursuit_step(&goal, &[], 120) else {
+        panic!("a goal past its progress ceiling must settle");
+    };
+    assert_eq!(blocked.status, GoalStatus::Blocked);
+    assert_eq!(blocked.reason, GoalStatusReason::NoProgressLimit);
+    let user_turn = accounted_goal(&goal, &[turn(20, DurableTurnPhase::Completed)], 130);
+    assert_eq!(user_turn.turns_without_progress, 0);
 }
 
 #[test]
-fn identical_create_is_idempotent_and_conflicting_create_is_rejected() {
-    let existing = record();
-    let state = GoalControlState::new(Some(existing.clone()));
-    let (unchanged_state, effect) = reduce_goal_control(
-        state.clone(),
-        &context(),
-        GoalControlEvent::Create(existing.clone()),
-    );
-    assert_eq!(unchanged_state, state);
-    assert_eq!(effect, GoalControlEffect::Unchanged(existing));
-
-    let conflicting = GoalRecord {
-        summary: "A different user goal".into(),
-        ..record()
+fn provider_failures_settle_with_typed_reasons_but_restart_loss_does_not() {
+    let goal = active(100);
+    let cases = [
+        (
+            Some(ProviderFailureClassification::Authentication),
+            GoalStatus::Blocked,
+            GoalStatusReason::ProviderAuthentication,
+        ),
+        (
+            Some(ProviderFailureClassification::RateLimited),
+            GoalStatus::UsageLimited,
+            GoalStatusReason::ProviderUsageLimit,
+        ),
+        (None, GoalStatus::Blocked, GoalStatusReason::ProviderFailed),
+    ];
+    for (failure, status, reason) in cases {
+        let failed = GoalTurnObservation {
+            failure,
+            ..continuation(3, DurableTurnPhase::Failed)
+        };
+        let next = accounted_goal(&goal, &[failed], 150);
+        assert_eq!((next.status, next.reason), (status, reason));
+        assert_eq!((next.time_used_seconds, next.active_since), (50, None));
+        assert_eq!(next_pursuit_step(&next, &[], 151), GoalPursuitStep::Idle);
+    }
+    let unprovable = GoalTurnObservation {
+        dispatch: GoalDispatchState::Unprovable,
+        ..continuation(3, DurableTurnPhase::Failed)
     };
-    let (_, effect) = reduce_goal_control(state, &context(), GoalControlEvent::Create(conflicting));
+    let recovered = accounted_goal(&goal, &[unprovable], 150);
+    assert_eq!(recovered.status, GoalStatus::Active);
     assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::GoalAlreadyExists)
-    );
-}
-
-#[test]
-fn transitions_reject_invalid_stale_and_missing_goals() {
-    let invalid = GoalTransition {
-        expected_revision: 0,
-        ..transition(binding(), 1, GoalStatus::Completed)
-    };
-    let (_, effect) = reduce_goal_control(
-        GoalControlState::default(),
-        &context(),
-        GoalControlEvent::Transition(invalid),
-    );
-    assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::InvalidTransition)
-    );
-
-    let stale_conversation = GoalBinding {
-        conversation_id: AgentChatConversationId("conversation-2".into()),
-        ..binding()
-    };
-    let (_, effect) = reduce_goal_control(
-        GoalControlState::default(),
-        &context(),
-        GoalControlEvent::Transition(transition(stale_conversation, 1, GoalStatus::Completed)),
-    );
-    assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::StaleConversation)
-    );
-
-    let stale_run = GoalBinding {
-        run_id: AgentChatRunId("run-2".into()),
-        ..binding()
-    };
-    let (_, effect) = reduce_goal_control(
-        GoalControlState::default(),
-        &context(),
-        GoalControlEvent::Transition(transition(stale_run, 1, GoalStatus::Completed)),
-    );
-    assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::StaleRun)
-    );
-
-    let (_, effect) = reduce_goal_control(
-        GoalControlState::default(),
-        &context(),
-        GoalControlEvent::Transition(transition(binding(), 1, GoalStatus::Completed)),
-    );
-    assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::GoalMissing)
+        next_pursuit_step(&recovered, &[], 151),
+        GoalPursuitStep::Admit
     );
 }
 
 #[test]
-fn transitions_fence_binding_revision_and_active_status_before_persisting() {
-    let state = GoalControlState::new(Some(record()));
-    let other_binding = GoalBinding {
-        goal_id: "goal-2".into(),
-        ..binding()
+fn interrupted_turns_neither_pause_nor_count_against_the_goal() {
+    let goal = active(100);
+    let next = accounted_goal(
+        &goal,
+        &[continuation(3, DurableTurnPhase::Interrupted)],
+        120,
+    );
+    assert_eq!(next.status, GoalStatus::Active);
+    assert_eq!(next.turns_without_progress, 0);
+}
+
+#[test]
+fn a_waiting_user_prompt_always_runs_before_the_next_continuation() {
+    let goal = active(100);
+    let queued = GoalTurnObservation {
+        dispatch: GoalDispatchState::Pending,
+        ..turn(3, DurableTurnPhase::Active)
     };
-    let (_, effect) = reduce_goal_control(
-        state.clone(),
-        &context(),
-        GoalControlEvent::Transition(transition(other_binding, 1, GoalStatus::Completed)),
-    );
     assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::BindingMismatch)
+        next_pursuit_step(&goal, &[queued], 110),
+        GoalPursuitStep::Wait
     );
+}
 
-    let (_, effect) = reduce_goal_control(
-        state.clone(),
-        &context(),
-        GoalControlEvent::Transition(transition(binding(), 2, GoalStatus::Completed)),
-    );
+#[test]
+fn a_held_continuation_blocks_instead_of_spinning() {
+    let goal = active(100);
+    let held = GoalTurnObservation {
+        dispatch: GoalDispatchState::AwaitingReadiness,
+        held: true,
+        ..continuation(3, DurableTurnPhase::Active)
+    };
+    let GoalPursuitStep::Settle(blocked) = next_pursuit_step(&goal, &[held], 110) else {
+        panic!("held continuation must settle the goal");
+    };
+    assert_eq!(blocked.reason, GoalStatusReason::AdmissionHeld);
+    let unreleased = GoalTurnObservation {
+        dispatch: GoalDispatchState::AwaitingReadiness,
+        ..continuation(3, DurableTurnPhase::Active)
+    };
     assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::RevisionMismatch)
+        next_pursuit_step(&goal, &[unreleased], 110),
+        GoalPursuitStep::Rewake {
+            message_id: "message-3".into()
+        }
     );
+}
 
-    let (_, effect) = reduce_goal_control(
-        state,
-        &context(),
-        GoalControlEvent::Transition(transition(binding(), 1, GoalStatus::Active)),
+#[test]
+fn an_exhausted_budget_settles_before_another_continuation() {
+    let goal = active(100);
+    let spent = accounted_goal(
+        &goal,
+        &[GoalTurnObservation {
+            tokens: 1_000,
+            tool_calls: 1,
+            ..continuation(3, DurableTurnPhase::Completed)
+        }],
+        110,
     );
+    let GoalPursuitStep::Settle(limited) = next_pursuit_step(&spent, &[], 111) else {
+        panic!("spent budget must settle the goal");
+    };
+    assert_eq!(limited.status, GoalStatus::BudgetLimited);
+    assert_eq!(limited.reason, GoalStatusReason::TokenBudgetExhausted);
+}
+
+#[test]
+fn a_paused_goal_does_not_schedule_but_its_running_turn_is_left_alone() {
+    let paused = apply_user_command(&active(100), 1, GoalUserCommand::Pause, 110).unwrap();
+    let running = continuation(3, DurableTurnPhase::Active);
     assert_eq!(
-        effect,
-        GoalControlEffect::Rejected(GoalControlRejection::ActiveStatusRequired)
+        next_pursuit_step(&paused, &[running], 120),
+        GoalPursuitStep::Idle
     );
 }

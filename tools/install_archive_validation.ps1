@@ -8,11 +8,13 @@ function Assert-Archive([string]$Archive, [string]$ManifestPath, [string]$Checks
     $expectedBinaries = @("gent.exe", "gentd.exe", "gent-launcher.exe" | Sort-Object)
     if (($binaries -join ',') -ne ($expectedBinaries -join ',')) { Fail "release manifest has invalid binaries" }
     if ((@($manifest.runtimes) -join ',') -ne "runtime/node,runtime/claurst") { Fail "release manifest has invalid runtimes" }
+    $requiredCapabilities = @("agent-chat-conversations-v1", "agent-chat-intents-v1", "agent-chat-transcript-import-v1", "agent-chat-projection-v1", "agent-chat-transcript-v1", "agent-chat-turn-follow-v1", "agent-chat-permissions-v1", "attachments-v1", "local-models-v1", "workspace-git-v1", "agent-chat-conversation-config-v1", "agent-chat-checkpoint-v1", "agent-chat-side-question-v1", "provider-auth-v1", "provider-readiness-v2", "permission-policy-v2", "prompt-provider-provision-v1")
+    foreach ($capability in $requiredCapabilities) { if ($capability -notin @($manifest.capabilities)) { Fail "release manifest has incomplete capabilities" } }
 }
 function Assert-ZipMembers([string]$Archive, [string]$ReleaseVersion) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $root = "gent-$ReleaseVersion-$Target"
-    $required = @("$root/gent.exe", "$root/gentd.exe", "$root/gent-launcher.exe", "$root/runtime/node/bin/node.exe", "$root/runtime/node/bin/npm.cmd", "$root/runtime/node/lib/node_modules/npm/bin/npm-cli.js", "$root/runtime/claurst/claurst.exe", "$root/runtime/claurst/llama/llama-server.exe")
+    $required = @("$root/gent.exe", "$root/gentd.exe", "$root/gent-launcher.exe", "$root/runtime/node/bin/node.exe", "$root/runtime/node/bin/npm.cmd", "$root/runtime/node/lib/node_modules/npm/bin/npm-cli.js", "$root/runtime/claurst/claurst.exe", "$root/runtime/claurst/llama/llama-server.exe", "$root/authority/ordinary-authority.json", "$root/authority/root-keys.json")
     $zip = [System.IO.Compression.ZipFile]::OpenRead($Archive)
     try {
         $members = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
@@ -25,6 +27,6 @@ function Assert-ZipMembers([string]$Archive, [string]$ReleaseVersion) {
     } finally { $zip.Dispose() }
 }
 function Assert-PackagedRuntime([string]$ReleasePath) {
-    foreach ($name in @("runtime/node/bin/node.exe", "runtime/node/bin/npm.cmd", "runtime/node/lib/node_modules/npm/bin/npm-cli.js", "runtime/claurst/claurst.exe", "runtime/claurst/llama/llama-server.exe")) { Assert-PlainFile (Join-Path $ReleasePath $name) "packaged runtime $name" }
+    foreach ($name in @("runtime/node/bin/node.exe", "runtime/node/bin/npm.cmd", "runtime/node/lib/node_modules/npm/bin/npm-cli.js", "runtime/claurst/claurst.exe", "runtime/claurst/llama/llama-server.exe", "authority/ordinary-authority.json", "authority/root-keys.json")) { Assert-PlainFile (Join-Path $ReleasePath $name) "packaged runtime $name" }
     Get-ChildItem -LiteralPath (Join-Path $ReleasePath "runtime") -Force -Recurse | ForEach-Object { if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) { Fail "packaged runtime cannot contain a reparse point" } }
 }

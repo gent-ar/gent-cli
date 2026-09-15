@@ -7,6 +7,7 @@ use crate::ndjson::{NdjsonError, NdjsonFramer};
 
 /// A fixed maximum for one operating-system stdout read before the pump rejects it.
 pub const MAX_OUTPUT_CHUNK_BYTES: usize = 4096;
+pub const MAX_PROVIDER_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 /// Owns stdout framing and the backpressure boundary between process I/O and session reduction.
 #[derive(Debug)]
@@ -63,13 +64,8 @@ impl ProviderOutputPump {
             });
         }
         for &byte in chunk {
-            match self.framer.push_byte(byte) {
-                Ok(Some(frame)) => self.pending.push_back(frame),
-                Ok(None) => {}
-                Err(error) => {
-                    let _ = self.flush_pending()?;
-                    return Err(error.into());
-                }
+            if let Some(frame) = self.framer.push_byte(byte) {
+                self.pending.push_back(frame);
             }
         }
         self.flush_pending()
@@ -97,6 +93,10 @@ impl ProviderOutputPump {
             other => other,
         };
         (frame, directive)
+    }
+
+    pub fn take_skipped_frames(&mut self) -> usize {
+        self.framer.take_skipped_frames()
     }
 
     /// Returns all complete frames retained across the active buffer and pending suffix.
@@ -189,19 +189,17 @@ mod tests {
     }
 
     #[test]
-    fn malformed_size_never_reuses_the_rejected_partial_line() {
+    fn an_oversized_frame_is_skipped_without_failing_the_stream() {
         let mut pump = ProviderOutputPump::new(
             MAX_OUTPUT_CHUNK_BYTES,
             3,
             BufferPolicy::new(2, 8, 0, 0).unwrap(),
         )
         .unwrap();
-        assert!(matches!(
-            pump.accept_chunk(b"abcd"),
-            Err(OutputPumpError::Ndjson(_))
-        ));
-        assert_eq!(pump.accept_chunk(b"ok\n"), Ok(ReadDirective::Continue));
+        assert_eq!(pump.accept_chunk(b"abcd"), Ok(ReadDirective::Continue));
+        assert_eq!(pump.accept_chunk(b"e\nok\n"), Ok(ReadDirective::Continue));
         assert_eq!(pump.take_frame().0.unwrap(), b"ok");
+        assert_eq!(pump.queued_frames(), 0);
     }
 
     #[test]
@@ -232,13 +230,10 @@ mod tests {
     #[test]
     fn complete_frames_before_a_malformed_line_remain_available() {
         let mut pump = pump(2);
-        let malformed = vec![b'x'; 65];
         let mut chunk = b"first\n".to_vec();
-        chunk.extend(malformed);
-        assert!(matches!(
-            pump.accept_chunk(&chunk),
-            Err(OutputPumpError::Ndjson(_))
-        ));
+        chunk.extend(vec![b'x'; 65]);
+        chunk.push(b'\n');
+        assert_eq!(pump.accept_chunk(&chunk), Ok(ReadDirective::Continue));
         assert_eq!(pump.queued_frames(), 1);
         assert_eq!(pump.take_frame().0.unwrap(), b"first");
         assert_eq!(pump.accept_chunk(b"next\n"), Ok(ReadDirective::Continue));

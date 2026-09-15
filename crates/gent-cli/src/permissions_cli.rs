@@ -1,63 +1,112 @@
-//! Protocol-only terminal commands for durable permission preferences.
-
 use clap::{Args, Subcommand, ValueEnum};
 use gent_protocol::{
-    PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame, WireFrame, read_json_frame,
-    write_json_frame,
+    PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame, read_json_frame, write_json_frame,
 };
 use gent_types::{PermissionCategory, PermissionMode, PolicyRecord, PolicyScope};
 use serde_json::Value;
 use std::path::PathBuf;
 
+use crate::cli_error::{CliError, Failure};
 use crate::local_ipc::connect_and_negotiate;
 
 pub(crate) mod agent_chat;
+mod conversions;
 mod mode;
+mod workspace;
+use conversions::valid_reply;
 pub(crate) use mode::set_mode;
-
-/// The daemon-owned local settings namespace; it is not a Git workspace selector.
-const SETTINGS_WORKSPACE_ID: &str = "gent-local-settings";
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PermissionCommand {
-    /// Print the current durable permission mode and approvals.
-    Show,
-    /// Append a new permission-policy revision. Existing approvals are replaced deliberately.
+    #[command(about = "Print the permission policy that gates chats in a workspace")]
+    Show(PermissionShowArgs),
+    #[command(about = "Save a new permission-policy revision for a workspace")]
     Set(PermissionSetArgs),
+    #[command(about = "Print the permission request a conversation run is waiting on")]
+    Pending(PermissionPendingArgs),
+    #[command(about = "Answer the permission request a conversation run is waiting on")]
     Respond(PermissionRespondArgs),
 }
 
 #[derive(Debug, Args)]
+pub(crate) struct PermissionWorkspaceArgs {
+    #[arg(
+        long,
+        help = "Workspace directory whose policy applies; defaults to the current directory"
+    )]
+    pub(crate) workspace: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PermissionShowArgs {
+    #[command(flatten)]
+    pub(crate) workspace: PermissionWorkspaceArgs,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PermissionPendingArgs {
+    #[arg(long, help = "Conversation whose run is waiting on a permission")]
+    pub(crate) conversation_id: String,
+    #[arg(long, help = "Run that is waiting on a permission")]
+    pub(crate) run_id: String,
+}
+
+#[derive(Debug, Args)]
 pub(crate) struct PermissionSetArgs {
-    #[arg(long, value_enum)]
+    #[command(flatten)]
+    pub(crate) workspace: PermissionWorkspaceArgs,
+    #[arg(
+        long,
+        value_enum,
+        help = "Permission posture for every chat in the workspace"
+    )]
     pub(crate) mode: PermissionModeArgument,
-    /// Approve one exact, provider-neutral tool name without widening a category.
-    #[arg(long = "allow-tool")]
+    #[arg(
+        long = "allow-tool",
+        help = "Approve one exact, provider-neutral tool name without widening a category"
+    )]
     pub(crate) allowed_tools: Vec<String>,
-    /// Approve a complete typed category, such as `read` or `network`.
-    #[arg(long = "allow-category", value_enum)]
+    #[arg(
+        long = "allow-category",
+        value_enum,
+        help = "Approve a complete typed category, such as read or network"
+    )]
     pub(crate) allowed_categories: Vec<PermissionCategoryArgument>,
-    /// One-time confirmation required only when changing into the broad bypass mode.
-    /// A persisted bypass policy applies to later normal `gent` and app connections.
-    #[arg(long)]
+    #[arg(long, help = "Confirm the one-time change into the broad bypass mode")]
     pub(crate) consent_bypass: bool,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct PermissionRespondArgs {
-    #[arg(long)]
-    pub(crate) response_json: String,
-    #[arg(long)]
+    #[arg(long, help = "Conversation whose run is waiting on a permission")]
+    pub(crate) conversation_id: String,
+    #[arg(long, help = "Run that is waiting on a permission")]
+    pub(crate) run_id: String,
+    #[arg(
+        long,
+        help = "Decision id of the pending request, from `gent permissions pending`"
+    )]
+    pub(crate) decision_id: String,
+    #[arg(long, value_enum, help = "Answer to send to the provider")]
+    pub(crate) decision: PermissionDecisionArgument,
+    #[arg(long, help = "Receipt id to reuse when retrying the same answer")]
     pub(crate) receipt_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub(crate) enum PermissionModeArgument {
-    Default,
-    Plan,
+    AskEveryTime,
     AutoAcceptEdits,
     Autonomous,
     Bypass,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub(crate) enum PermissionDecisionArgument {
+    Deny,
+    ApproveOnce,
+    ApproveExactTool,
+    ApproveCategory,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -69,22 +118,37 @@ pub(crate) enum PermissionCategoryArgument {
     Provider,
 }
 
-/// Executes one negotiated permission-policy command and returns the durable representation.
 pub(crate) async fn execute(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     command: PermissionCommand,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     match command {
-        PermissionCommand::Show => Ok(serde_json::to_value(
-            current(data_dir, no_autostart).await?,
-        )?),
+        PermissionCommand::Show(args) => {
+            let workspace_id =
+                workspace::resolve(data_dir.clone(), no_autostart, args.workspace.workspace)
+                    .await?;
+            Ok(serde_json::to_value(
+                current_for(data_dir, no_autostart, workspace_id).await?,
+            )?)
+        }
         PermissionCommand::Set(args) => Ok(serde_json::to_value(
             save(data_dir, no_autostart, args).await?,
         )?),
+        PermissionCommand::Pending(args) => Ok(serde_json::to_value(
+            agent_chat::pending(data_dir, no_autostart, args.conversation_id, args.run_id).await?,
+        )?),
         PermissionCommand::Respond(args) => {
-            agent_chat::respond_json(data_dir, no_autostart, args.response_json, args.receipt_id)
-                .await
+            agent_chat::respond_decision(
+                data_dir,
+                no_autostart,
+                args.conversation_id,
+                args.run_id,
+                args.decision_id,
+                args.decision.into(),
+                args.receipt_id,
+            )
+            .await
         }
     }
 }
@@ -96,9 +160,15 @@ async fn save(
 ) -> Result<PolicyRecord, Box<dyn std::error::Error>> {
     let mode: PermissionMode = args.mode.into();
     if mode == PermissionMode::Bypass && !args.consent_bypass {
-        return Err("changing to bypass mode requires --consent-bypass".into());
+        return Err(CliError::new(
+            Failure::ConsentRequired,
+            "changing to bypass mode requires --consent-bypass",
+        )
+        .into());
     }
-    let current = current(data_dir.clone(), no_autostart).await?;
+    let workspace_id =
+        workspace::resolve(data_dir.clone(), no_autostart, args.workspace.workspace).await?;
+    let current = current_for(data_dir.clone(), no_autostart, workspace_id.clone()).await?;
     let revision = current.as_ref().map_or(1, |policy| policy.revision + 1);
     let mut allowed_tools = args.allowed_tools;
     allowed_tools.sort();
@@ -111,7 +181,7 @@ async fn save(
     allowed_categories.sort();
     allowed_categories.dedup();
     let policy = policy(
-        SETTINGS_WORKSPACE_ID,
+        &workspace_id,
         revision,
         mode,
         allowed_tools,
@@ -131,13 +201,6 @@ async fn save(
         PermissionPolicyFrame::Saved { policy, .. } => Ok(policy),
         _ => Err("daemon did not save a permission policy".into()),
     })
-}
-
-async fn current(
-    data_dir: Option<PathBuf>,
-    no_autostart: bool,
-) -> Result<Option<PolicyRecord>, Box<dyn std::error::Error>> {
-    current_for(data_dir, no_autostart, SETTINGS_WORKSPACE_ID.into()).await
 }
 
 pub(crate) async fn current_for(
@@ -193,8 +256,8 @@ pub(super) async fn exchange(
     }
     write_json_frame(&mut stream, &request).await?;
     let raw: Value = read_json_frame(&mut stream).await?;
-    if let Ok(WireFrame::Error { message, .. }) = serde_json::from_value(raw.clone()) {
-        return Err(message.into());
+    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
+        return Err(error.into());
     }
     let response = serde_json::from_value(raw)
         .map_err(|_| "daemon did not return a permission policy frame")?;
@@ -203,61 +266,6 @@ pub(super) async fn exchange(
         .ok_or_else(|| {
             "daemon returned a permission policy response with a different request".into()
         })
-}
-
-fn valid_reply(request: &PermissionPolicyFrame, response: &PermissionPolicyFrame) -> bool {
-    match (request, response) {
-        (
-            PermissionPolicyFrame::Current {
-                request_id,
-                workspace_id,
-            },
-            PermissionPolicyFrame::CurrentPolicy {
-                request_id: reply,
-                policy,
-            },
-        ) => {
-            reply == request_id
-                && policy.as_ref().is_none_or(|policy| {
-                    policy.workspace_id == *workspace_id
-                        && policy.scope == PolicyScope::ProviderPermissions
-                })
-        }
-        (
-            PermissionPolicyFrame::Save {
-                request_id, policy, ..
-            },
-            PermissionPolicyFrame::Saved {
-                request_id: reply,
-                policy: saved,
-            },
-        ) => reply == request_id && saved == policy,
-        _ => false,
-    }
-}
-
-impl From<PermissionModeArgument> for PermissionMode {
-    fn from(value: PermissionModeArgument) -> Self {
-        match value {
-            PermissionModeArgument::Default => Self::Default,
-            PermissionModeArgument::Plan => Self::Plan,
-            PermissionModeArgument::AutoAcceptEdits => Self::AutoAcceptEdits,
-            PermissionModeArgument::Autonomous => Self::Autonomous,
-            PermissionModeArgument::Bypass => Self::Bypass,
-        }
-    }
-}
-
-impl From<PermissionCategoryArgument> for PermissionCategory {
-    fn from(value: PermissionCategoryArgument) -> Self {
-        match value {
-            PermissionCategoryArgument::Read => Self::Read,
-            PermissionCategoryArgument::Edit => Self::Edit,
-            PermissionCategoryArgument::Command => Self::Command,
-            PermissionCategoryArgument::Network => Self::Network,
-            PermissionCategoryArgument::Provider => Self::Provider,
-        }
-    }
 }
 
 #[cfg(test)]

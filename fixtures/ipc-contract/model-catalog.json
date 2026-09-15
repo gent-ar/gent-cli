@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "state": "reserved",
+  "capability": "model-catalog-v1",
+  "frames": [
+    {
+      "frame": {
+        "type": "readModelCatalog",
+        "body": {
+          "requestId": "catalog-1",
+          "refresh": true
+        }
+      },
+      "wireHex": "0000004b7b2274797065223a22726561644d6f64656c436174616c6f67222c22626f6479223a7b22726571756573744964223a22636174616c6f672d31222c2272656672657368223a747275657d7d"
+    },
+    {
+      "frame": {
+        "type": "modelCatalog",
+        "body": {
+          "requestId": "catalog-1",
+          "catalog": {
+            "defaultSelection": {
+              "provider": "claurst",
+              "model": "qwen3-1-7b-q4-k-m"
+            },
+            "providers": [
+              {
+                "provider": "claurst",
+                "label": "Gent",
+                "availability": {
+                  "state": "ready"
+                },
+                "listing": {
+                  "state": "ready"
+                },
+                "models": [
+                  {
+                    "id": "qwen3-1-7b-q4-k-m",
+                    "label": "Qwen3 1.7B (Q4_K_M)",
+                    "description": null,
+                    "isDefault": true,
+                    "efforts": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xHigh",
+                      "max",
+                      "ultra"
+                    ],
+                    "defaultEffort": "medium",
+                    "local": {
+                      "sizeBytes": 1282439264,
+                      "install": {
+                        "state": "downloading",
+                        "downloaded_bytes": 641219632,
+                        "total_bytes": 1282439264
+                      }
+                    }
+                  },
+                  {
+                    "id": "qwen3-8b-q4-k-m",
+                    "label": "Qwen3 8B (Q4_K_M)",
+                    "description": null,
+                    "isDefault": false,
+                    "efforts": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xHigh",
+                      "max",
+                      "ultra"
+                    ],
+                    "defaultEffort": "medium",
+                    "local": {
+                      "sizeBytes": 5027783488,
+                      "install": {
+                        "state": "notInstalled"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "provider": "claude",
+                "label": "Claude",
+                "availability": {
+                  "state": "signedOut"
+                },
+                "listing": {
+                  "state": "ready"
+                },
+                "models": [
+                  {
+                    "id": "default",
+                    "label": "Default (recommended)",
+                    "description": "Opus 5 with 1M context",
+                    "isDefault": true,
+                    "efforts": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xHigh",
+                      "max"
+                    ],
+                    "defaultEffort": "medium",
+                    "local": null
+                  },
+                  {
+                    "id": "haiku",
+                    "label": "Haiku",
+                    "description": "Haiku 4.5",
+                    "isDefault": false,
+                    "efforts": [],
+                    "defaultEffort": null,
+                    "local": null
+                  }
+                ]
+              },
+              {
+                "provider": "codex",
+                "label": "Codex",
+                "availability": {
+                  "state": "checking"
+                },
+                "listing": {
+                  "state": "failed",
+                  "message": "codex did not list its models in time"
+                },
+                "models": []
+              }
+            ]
+          }
+        }
+      },
+      "wireHex": "0000056c7b2274797065223a226d6f64656c436174616c6f67222c22626f6479223a7b22726571756573744964223a22636174616c6f672d31222c22636174616c6f67223a7b2264656661756c7453656c656374696f6e223a7b2270726f7669646572223a22636c6175727374222c226d6f64656c223a227177656e332d312d37622d71342d6b2d6d227d2c2270726f766964657273223a5b7b2270726f7669646572223a22636c6175727374222c226c6162656c223a2247656e74222c22617661696c6162696c697479223a7b227374617465223a227265616479227d2c226c697374696e67223a7b227374617465223a227265616479227d2c226d6f64656c73223a5b7b226964223a227177656e332d312d37622d71342d6b2d6d222c226c6162656c223a225177656e3320312e3742202851345f4b5f4d29222c226465736372697074696f6e223a6e756c6c2c22697344656661756c74223a747275652c226566666f727473223a5b226c6f77222c226d656469756d222c2268696768222c227848696768222c226d6178222c22756c747261225d2c2264656661756c744566666f7274223a226d656469756d222c226c6f63616c223a7b2273697a654279746573223a313238323433393236342c22696e7374616c6c223a7b227374617465223a22646f776e6c6f6164696e67222c22646f776e6c6f616465645f6279746573223a3634313231393633322c22746f74616c5f6279746573223a313238323433393236347d7d7d2c7b226964223a227177656e332d38622d71342d6b2d6d222c226c6162656c223a225177656e33203842202851345f4b5f4d29222c226465736372697074696f6e223a6e756c6c2c22697344656661756c74223a66616c73652c226566666f727473223a5b226c6f77222c226d656469756d222c2268696768222c227848696768222c226d6178222c22756c747261225d2c2264656661756c744566666f7274223a226d656469756d222c226c6f63616c223a7b2273697a654279746573223a353032373738333438382c22696e7374616c6c223a7b227374617465223a226e6f74496e7374616c6c6564227d7d7d5d7d2c7b2270726f7669646572223a22636c61756465222c226c6162656c223a22436c61756465222c22617661696c6162696c697479223a7b227374617465223a227369676e65644f7574227d2c226c697374696e67223a7b227374617465223a227265616479227d2c226d6f64656c73223a5b7b226964223a2264656661756c74222c226c6162656c223a2244656661756c7420287265636f6d6d656e64656429222c226465736372697074696f6e223a224f7075732035207769746820314d20636f6e74657874222c22697344656661756c74223a747275652c226566666f727473223a5b226c6f77222c226d656469756d222c2268696768222c227848696768222c226d6178225d2c2264656661756c744566666f7274223a226d656469756d222c226c6f63616c223a6e756c6c7d2c7b226964223a226861696b75222c226c6162656c223a224861696b75222c226465736372697074696f6e223a224861696b7520342e35222c22697344656661756c74223a66616c73652c226566666f727473223a5b5d2c2264656661756c744566666f7274223a6e756c6c2c226c6f63616c223a6e756c6c7d5d7d2c7b2270726f7669646572223a22636f646578222c226c6162656c223a22436f646578222c22617661696c6162696c697479223a7b227374617465223a22636865636b696e67227d2c226c697374696e67223a7b227374617465223a226661696c6564222c226d657373616765223a22636f64657820646964206e6f74206c69737420697473206d6f64656c7320696e2074696d65227d2c226d6f64656c73223a5b5d7d5d7d7d7d"
+    },
+    {
+      "frame": {
+        "type": "setDefaultModel",
+        "body": {
+          "requestId": "default-1",
+          "selection": {
+            "provider": "claude",
+            "model": "default"
+          }
+        }
+      },
+      "wireHex": "0000006f7b2274797065223a2273657444656661756c744d6f64656c222c22626f6479223a7b22726571756573744964223a2264656661756c742d31222c2273656c656374696f6e223a7b2270726f7669646572223a22636c61756465222c226d6f64656c223a2264656661756c74227d7d7d"
+    },
+    {
+      "frame": {
+        "type": "startModelDownload",
+        "body": {
+          "requestId": "download-1",
+          "modelId": "qwen3-8b-q4-k-m"
+        }
+      },
+      "wireHex": "0000005b7b2274797065223a2273746172744d6f64656c446f776e6c6f6164222c22626f6479223a7b22726571756573744964223a22646f776e6c6f61642d31222c226d6f64656c4964223a227177656e332d38622d71342d6b2d6d227d7d"
+    },
+    {
+      "frame": {
+        "type": "cancelModelDownload",
+        "body": {
+          "requestId": "download-2",
+          "modelId": "qwen3-8b-q4-k-m"
+        }
+      },
+      "wireHex": "0000005c7b2274797065223a2263616e63656c4d6f64656c446f776e6c6f6164222c22626f6479223a7b22726571756573744964223a22646f776e6c6f61642d32222c226d6f64656c4964223a227177656e332d38622d71342d6b2d6d227d7d"
+    }
+  ]
+}

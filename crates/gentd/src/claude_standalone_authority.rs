@@ -5,8 +5,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use gent_drivers::{PublicProvider, buffering::BufferPolicy, supervisor::ProcessLauncher};
-use gent_ports::PublicProviderResolver;
+use gent_drivers::{buffering::BufferPolicy, supervisor::ProcessLauncher};
 use gent_runtime::{Coordinator, GoalAuthority, GoalService};
 use gent_store::SqliteLedger;
 use gent_types::HostEpoch;
@@ -28,17 +27,17 @@ use crate::{
 };
 
 const BUFFERED_FRAMES: usize = 16;
-const BUFFERED_BYTES: usize = 256 * 1024;
+const BUFFERED_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 const MAX_ACTIVE_CLAUDE_RUNS: usize = 4;
 const STANDALONE_EVIDENCE_REFERENCE: &str = "standalone-local-claude-v1";
 
 /// Explicit local inputs for the standalone Claude provider host.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct StandaloneClaudeConfig {
     pub(crate) data_dir: PathBuf,
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
-    pub(crate) executable: PathBuf,
+    pub(crate) executables: crate::provider_executables::ProviderExecutables,
     pub(crate) mcp_config: Option<PathBuf>,
 }
 
@@ -162,8 +161,6 @@ pub(crate) enum StandaloneClaudeError {
     Profile(#[from] AuthorityProfileError),
     #[error(transparent)]
     Runtime(#[from] PublicDriversRuntimeError),
-    #[error("Claude summary runner is unavailable: {0}")]
-    Summary(String),
 }
 
 /// Composes the real Claude lifecycle from a selected local executable.
@@ -180,15 +177,12 @@ where
     L: ProcessLauncher + 'static,
 {
     validate(config)?;
-    let resolver =
-        LocalProviderLocks::capture([(PublicProvider::Claude, config.executable.clone())])?;
-    let summary_lock = resolver
-        .resolve("claude")
-        .map_err(|error| StandaloneClaudeError::Summary(error.to_string()))?;
+    let resolver = config
+        .executables
+        .locks(gent_types::AgentChatProvider::Claude)?;
     let summary_hook = Arc::new(ClaudeSummarySchedulerHook::new(
         ledger.clone(),
-        ClaudeSummaryRunner::new(summary_lock)
-            .map_err(|error| StandaloneClaudeError::Summary(error.to_string()))?,
+        ClaudeSummaryRunner::new(Arc::new(resolver.clone())),
     ));
     let runner = ClaudePromptRunner::new(
         launcher,
@@ -238,6 +232,27 @@ fn profile() -> Result<ValidatedAuthorityProfile, StandaloneClaudeError> {
     .map_err(StandaloneClaudeError::from)
 }
 
+#[cfg(all(test, unix))]
+#[path = "claude_background_subagent_tests.rs"]
+mod background_subagent_tests;
+#[cfg(all(test, unix))]
+#[path = "claude_fake_cli_harness.rs"]
+mod fake_cli;
+#[cfg(all(test, unix))]
+#[path = "claude_goal_pursuit_tests.rs"]
+mod goal_pursuit_tests;
+#[cfg(all(test, unix))]
+#[path = "claude_plan_review_tests.rs"]
+mod plan_review_tests;
+#[cfg(all(test, unix))]
+#[path = "claude_session_continuity_tests.rs"]
+mod session_continuity_tests;
+#[cfg(all(test, unix))]
+#[path = "claude_session_recovery_tests.rs"]
+mod session_recovery_tests;
+#[cfg(all(test, unix))]
+#[path = "claude_steer_tests.rs"]
+mod steer_tests;
 #[cfg(test)]
 #[path = "claude_standalone_authority_tests.rs"]
 mod tests;

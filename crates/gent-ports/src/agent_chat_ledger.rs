@@ -8,8 +8,8 @@ mod prompt;
 mod prompt_dispatch;
 mod read;
 mod switch;
-pub use prompt::AgentChatPromptLedger;
-pub use prompt_dispatch::AgentChatPromptDispatchLedger;
+pub use prompt::{AgentChatPromptLedger, AgentChatQueuedPromptLedger};
+pub use prompt_dispatch::{AgentChatPromptDispatchLedger, PromptAdmission};
 pub use read::AgentChatReadLedger;
 pub use switch::AgentChatSelectionLedger;
 

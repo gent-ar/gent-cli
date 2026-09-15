@@ -17,7 +17,6 @@ use probe::{LockedNodeVersionProbe, PrivateVersionProbe};
 
 const VERSION_ARGUMENT: &str = "--version";
 
-/// Verifies only the canonical `bin/claude` or `bin/codex` executable below one Gent prefix.
 #[derive(Clone, Debug)]
 pub(crate) struct PrivatePrefixProvisionedProviderVerifier<P = LockedNodeVersionProbe> {
     probe: P,
@@ -78,23 +77,13 @@ fn canonical_prefix(prefix: &Path) -> Result<PathBuf, String> {
 }
 
 fn private_executable(provider: DependencyProvider, prefix: &Path) -> Result<PathBuf, String> {
-    let candidate = prefix.join("bin").join(binary_name(provider));
-    let executable = candidate
+    let executable = crate::standalone_provider_setup::provider_executable(prefix, provider)
+        .ok_or_else(|| "private provider executable is unavailable".to_owned())?
         .canonicalize()
         .map_err(|_| "private provider executable is unavailable".to_owned())?;
     (executable.starts_with(prefix) && executable.is_file())
         .then_some(executable)
         .ok_or_else(|| "private provider executable escapes Gent prefix".to_owned())
-}
-
-#[cfg(windows)]
-fn binary_name(provider: DependencyProvider) -> String {
-    format!("{}.cmd", provider.as_str())
-}
-
-#[cfg(not(windows))]
-fn binary_name(provider: DependencyProvider) -> String {
-    provider.as_str().into()
 }
 
 fn valid_version(version: &str) -> Result<(), String> {
@@ -164,28 +153,17 @@ mod tests {
     }
 
     #[test]
-    fn provider_binaries_are_fixed_to_claude_or_codex_under_the_private_prefix() {
-        assert_eq!(
-            super::binary_name(DependencyProvider::Claude),
-            expected("claude")
-        );
-        assert_eq!(
-            super::binary_name(DependencyProvider::Codex),
-            expected("codex")
-        );
-    }
-
-    #[test]
     fn rejects_prefix_escape_and_invalid_version_output() {
         let root = tempfile::tempdir().unwrap();
         let escaped_prefix = root.path().join("npm-global");
-        fs::create_dir_all(escaped_prefix.join("bin")).unwrap();
+        let escaped = codex_path(&escaped_prefix);
+        fs::create_dir_all(escaped.parent().unwrap()).unwrap();
         let outside = root.path().join("outside");
         fs::write(&outside, "outside").unwrap();
         #[cfg(unix)]
-        std::os::unix::fs::symlink(&outside, escaped_prefix.join("bin/codex")).unwrap();
+        std::os::unix::fs::symlink(&outside, &escaped).unwrap();
         #[cfg(not(unix))]
-        fs::write(escaped_prefix.join("bin/codex"), "outside").unwrap();
+        fs::write(&escaped, "outside").unwrap();
         assert!(
             verifier(Ok("1.2.3".into()))
                 .lock(DependencyProvider::Codex, &escaped_prefix)
@@ -218,7 +196,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn production_probe_resolves_a_provider_shim_through_only_locked_node() {
+    fn production_probe_runs_the_provider_executable_through_only_locked_node() {
         use std::os::unix::fs::PermissionsExt;
 
         let root = tempfile::tempdir().unwrap();
@@ -235,8 +213,8 @@ mod tests {
         fs::create_dir_all(&npm_cli).unwrap();
         fs::write(npm_cli.join("npm-cli.js"), "npm cli").unwrap();
         let prefix = root.path().join("npm-global");
-        fs::create_dir_all(prefix.join("bin")).unwrap();
-        let provider = prefix.join("bin/codex");
+        let provider = codex_path(&prefix);
+        fs::create_dir_all(provider.parent().unwrap()).unwrap();
         fs::write(&provider, "#!/bin/sh\ncommand -v node\n").unwrap();
         fs::set_permissions(&provider, fs::Permissions::from_mode(0o700)).unwrap();
 
@@ -273,19 +251,14 @@ mod tests {
 
     fn prefix(root: &Path) -> std::path::PathBuf {
         let prefix = root.join("npm-global");
-        let bin = prefix.join("bin");
-        fs::create_dir_all(&bin).unwrap();
-        fs::write(bin.join("codex"), "codex provider").unwrap();
+        let codex = codex_path(&prefix);
+        fs::create_dir_all(codex.parent().unwrap()).unwrap();
+        fs::write(codex, "codex provider").unwrap();
         prefix
     }
 
-    #[cfg(windows)]
-    fn expected(name: &str) -> String {
-        format!("{name}.cmd")
-    }
-
-    #[cfg(not(windows))]
-    fn expected(name: &str) -> String {
-        name.into()
+    fn codex_path(prefix: &Path) -> std::path::PathBuf {
+        crate::standalone_provider_setup::provider_executable(prefix, DependencyProvider::Codex)
+            .unwrap()
     }
 }

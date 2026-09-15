@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import http.server
+import json
 import os
 import platform
 import shutil
@@ -61,6 +62,16 @@ def create_release(root: Path, version: str, runtime_target: str, include_superv
         path = claurst_runtime / name
         path.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
         path.chmod(0o755)
+    authority = source / "authority-inputs"
+    authority.mkdir()
+    (authority / "ordinary-authority.json").write_text(
+        json.dumps({"key_id": "fixture", "payload": {}, "signature_hex": "00" * 64}),
+        encoding="utf-8",
+    )
+    (authority / "root-keys.json").write_text(
+        json.dumps({"version": 1, "keys": [f"fixture:{'01' * 32}"]}),
+        encoding="utf-8",
+    )
     subprocess.run(
         [
             sys.executable,
@@ -79,6 +90,10 @@ def create_release(root: Path, version: str, runtime_target: str, include_superv
             str(node_runtime),
             "--claurst-runtime-dir",
             str(claurst_runtime),
+            "--authority-release",
+            str(authority / "ordinary-authority.json"),
+            "--authority-root-keys",
+            str(authority / "root-keys.json"),
         ],
         check=True,
     )

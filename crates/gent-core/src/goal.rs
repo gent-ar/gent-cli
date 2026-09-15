@@ -1,231 +1,171 @@
 //! Pure state reduction for one durable, provider-neutral user goal.
 
-use gent_types::{GoalBinding, GoalProjection, GoalRecord, GoalStatus, GoalTransition};
+use gent_types::{
+    AgentChatConversationId, GOAL_SCHEMA_VERSION, GoalBinding, GoalRecord, GoalReportOutcome,
+    GoalStatus, GoalStatusReason,
+};
 
-/// Trusted active scope supplied by a future daemon composition root.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GoalControlContext {
-    pub conversation_id: String,
-    pub run_id: String,
-    pub host_epoch: gent_types::HostEpoch,
-}
-
-/// In-memory state reconstructed from a durable goal record.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct GoalControlState {
-    goal: Option<GoalRecord>,
-}
-
-impl GoalControlState {
-    /// Reconstructs a goal state from an optional durable record.
-    #[must_use]
-    pub const fn new(goal: Option<GoalRecord>) -> Self {
-        Self { goal }
-    }
-
-    /// Returns the current goal record, if one has been established.
-    #[must_use]
-    pub fn goal(&self) -> Option<&GoalRecord> {
-        self.goal.as_ref()
-    }
-}
-
-/// Closed input accepted by the pure goal reducer.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum GoalControlEvent {
-    Create(GoalRecord),
-    Transition(GoalTransition),
-}
-
-/// A durable write candidate or an explicit no-write outcome.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum GoalControlEffect {
-    Persist(GoalRecord),
-    Unchanged(GoalRecord),
-    Rejected(GoalControlRejection),
-}
-
-/// Closed rejection reasons that reveal no provider or process state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GoalControlRejection {
-    InvalidRecord,
-    InvalidTransition,
-    GoalAlreadyExists,
-    GoalMissing,
-    StaleConversation,
-    StaleRun,
-    StaleHostEpoch,
-    BindingMismatch,
+pub enum GoalRejection {
+    InvalidValue,
+    Missing,
     RevisionMismatch,
-    TerminalGoal,
-    ActiveStatusRequired,
+    NotActive,
+    NotResumable,
+    BudgetExhausted,
+    NoActiveTurn,
 }
 
-/// Closed result of selecting the one active goal that can reach an adapter turn.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ActiveGoalSelection {
-    None,
-    Goal(GoalProjection),
-    Rejected(ActiveGoalRejection),
+pub struct GoalDraft {
+    pub goal_id: String,
+    pub conversation_id: AgentChatConversationId,
+    pub objective: String,
+    pub token_budget: Option<u64>,
+    pub accounted_through_ordinal: u64,
 }
 
-/// Fail-closed reasons for an unsafe active-goal candidate set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ActiveGoalRejection {
-    InvalidActiveGoal,
-    AmbiguousActiveGoals,
+pub enum GoalUserCommand {
+    Pause,
+    Resume { accounted_through_ordinal: u64 },
+    Clear,
 }
 
-/// Selects one valid active goal for the exact durable conversation and run.
-///
-/// Terminal, stale-run, and other-conversation records are intentionally omitted. Multiple active
-/// records or a malformed matching active record fail closed rather than selecting arbitrarily.
-#[must_use]
-pub fn select_active_goal(
-    records: &[GoalRecord],
-    conversation_id: &str,
-    run_id: &str,
-) -> ActiveGoalSelection {
-    let mut selected = None;
-    for record in records {
-        if record.binding.conversation_id.0 != conversation_id || record.binding.run_id.0 != run_id
-        {
-            continue;
-        }
-        if record.status.is_terminal() {
-            continue;
-        }
-        let Ok(projection) = GoalProjection::from_active(record) else {
-            return ActiveGoalSelection::Rejected(ActiveGoalRejection::InvalidActiveGoal);
-        };
-        if selected.replace(projection).is_some() {
-            return ActiveGoalSelection::Rejected(ActiveGoalRejection::AmbiguousActiveGoals);
-        }
-    }
-    selected.map_or(ActiveGoalSelection::None, ActiveGoalSelection::Goal)
-}
-
-/// Reduces one user-owned goal command without I/O, clocks, or provider access.
-#[must_use]
-pub fn reduce_goal_control(
-    state: GoalControlState,
-    context: &GoalControlContext,
-    event: GoalControlEvent,
-) -> (GoalControlState, GoalControlEffect) {
-    match event {
-        GoalControlEvent::Create(goal) => create_goal(state, context, goal),
-        GoalControlEvent::Transition(transition) => transition_goal(state, context, &transition),
-    }
-}
-
-fn create_goal(
-    state: GoalControlState,
-    context: &GoalControlContext,
-    goal: GoalRecord,
-) -> (GoalControlState, GoalControlEffect) {
-    if goal.validate().is_err() {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::InvalidRecord),
-        );
-    }
-    if let Err(rejection) = validate_binding(&goal.binding, context) {
-        return (state, GoalControlEffect::Rejected(rejection));
-    }
-    if goal.revision != 1 || goal.status != GoalStatus::Active {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::ActiveStatusRequired),
-        );
-    }
-    match state.goal.as_ref() {
-        None => {
-            let mut next = state;
-            next.goal = Some(goal.clone());
-            (next, GoalControlEffect::Persist(goal))
-        }
-        Some(existing) if existing == &goal => (state, GoalControlEffect::Unchanged(goal)),
-        Some(_) => (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::GoalAlreadyExists),
-        ),
-    }
-}
-
-fn transition_goal(
-    state: GoalControlState,
-    context: &GoalControlContext,
-    transition: &GoalTransition,
-) -> (GoalControlState, GoalControlEffect) {
-    if transition.validate().is_err() {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::InvalidTransition),
-        );
-    }
-    if let Err(rejection) = validate_transition(transition, context) {
-        return (state, GoalControlEffect::Rejected(rejection));
-    }
-    let Some(current) = state.goal.as_ref() else {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::GoalMissing),
-        );
+pub fn create_goal(draft: GoalDraft, now: u64) -> Result<GoalRecord, GoalRejection> {
+    let goal = GoalRecord {
+        schema_version: GOAL_SCHEMA_VERSION,
+        binding: GoalBinding {
+            goal_id: draft.goal_id,
+            conversation_id: draft.conversation_id,
+        },
+        revision: 1,
+        status: GoalStatus::Active,
+        reason: GoalStatusReason::UserSet,
+        objective: draft.objective,
+        note: None,
+        time_used_seconds: 0,
+        active_since: Some(now),
+        tokens_used: 0,
+        token_budget: draft.token_budget,
+        turns_without_progress: 0,
+        accounted_through_ordinal: draft.accounted_through_ordinal,
+        created_at: now,
+        updated_at: now,
     };
-    if current.binding != transition.binding {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::BindingMismatch),
-        );
+    goal.validate().map_err(|_| GoalRejection::InvalidValue)?;
+    Ok(goal)
+}
+
+#[must_use]
+pub fn replaced_goal(current: &GoalRecord, now: u64) -> Option<GoalRecord> {
+    (!current.status.is_terminal()).then(|| {
+        transition(
+            current,
+            GoalStatus::Cleared,
+            GoalStatusReason::UserReplaced,
+            now,
+        )
+    })
+}
+
+pub fn apply_user_command(
+    current: &GoalRecord,
+    expected_revision: u64,
+    command: GoalUserCommand,
+    now: u64,
+) -> Result<GoalRecord, GoalRejection> {
+    if current.revision != expected_revision {
+        return Err(GoalRejection::RevisionMismatch);
     }
-    if current.revision != transition.expected_revision {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::RevisionMismatch),
-        );
+    match command {
+        GoalUserCommand::Pause if current.status == GoalStatus::Active => Ok(transition(
+            current,
+            GoalStatus::Paused,
+            GoalStatusReason::UserPaused,
+            now,
+        )),
+        GoalUserCommand::Pause => Err(GoalRejection::NotActive),
+        GoalUserCommand::Resume { .. } if !current.status.is_resumable() => {
+            Err(GoalRejection::NotResumable)
+        }
+        GoalUserCommand::Resume { .. } if current.budget_exhausted() => {
+            Err(GoalRejection::BudgetExhausted)
+        }
+        GoalUserCommand::Resume {
+            accounted_through_ordinal,
+        } => {
+            let mut next = transition(
+                current,
+                GoalStatus::Active,
+                GoalStatusReason::UserResumed,
+                now,
+            );
+            next.turns_without_progress = 0;
+            next.note = None;
+            next.accounted_through_ordinal = accounted_through_ordinal;
+            Ok(next)
+        }
+        GoalUserCommand::Clear if current.status == GoalStatus::Cleared => {
+            Err(GoalRejection::NotActive)
+        }
+        GoalUserCommand::Clear => Ok(transition(
+            current,
+            GoalStatus::Cleared,
+            GoalStatusReason::UserCleared,
+            now,
+        )),
     }
-    if current.status.is_terminal() {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::TerminalGoal),
-        );
+}
+
+#[must_use]
+pub fn stopped_goal(current: &GoalRecord, now: u64) -> Option<GoalRecord> {
+    (current.status == GoalStatus::Active).then(|| {
+        transition(
+            current,
+            GoalStatus::Paused,
+            GoalStatusReason::UserStopped,
+            now,
+        )
+    })
+}
+
+pub fn reported_goal(
+    current: &GoalRecord,
+    outcome: GoalReportOutcome,
+    note: Option<String>,
+    now: u64,
+) -> Result<GoalRecord, GoalRejection> {
+    if current.status != GoalStatus::Active {
+        return Err(GoalRejection::NotActive);
     }
-    if transition.next_status == GoalStatus::Active {
-        return (
-            state,
-            GoalControlEffect::Rejected(GoalControlRejection::ActiveStatusRequired),
-        );
-    }
-    let next = GoalRecord {
-        revision: current.revision.saturating_add(1),
-        status: transition.next_status,
-        ..current.clone()
+    let (status, reason) = match outcome {
+        GoalReportOutcome::Complete => (GoalStatus::Complete, GoalStatusReason::ModelCompleted),
+        GoalReportOutcome::Blocked => (GoalStatus::Blocked, GoalStatusReason::ModelBlocked),
     };
-    let mut next_state = state;
-    next_state.goal = Some(next.clone());
-    (next_state, GoalControlEffect::Persist(next))
+    let mut next = transition(current, status, reason, now);
+    next.note = note;
+    next.validate().map_err(|_| GoalRejection::InvalidValue)?;
+    Ok(next)
 }
 
-fn validate_binding(
-    binding: &GoalBinding,
-    context: &GoalControlContext,
-) -> Result<(), GoalControlRejection> {
-    if binding.conversation_id.0 != context.conversation_id {
-        return Err(GoalControlRejection::StaleConversation);
+pub(crate) fn transition(
+    current: &GoalRecord,
+    status: GoalStatus,
+    reason: GoalStatusReason,
+    now: u64,
+) -> GoalRecord {
+    let now = now.max(current.updated_at);
+    let mut next = current.clone();
+    next.revision = current.revision.saturating_add(1);
+    next.status = status;
+    next.reason = reason;
+    next.updated_at = now;
+    if status == GoalStatus::Active {
+        next.active_since = current.active_since.or(Some(now));
+    } else {
+        next.time_used_seconds = current.time_used_at(now);
+        next.active_since = None;
     }
-    if binding.run_id.0 != context.run_id {
-        return Err(GoalControlRejection::StaleRun);
-    }
-    Ok(())
-}
-
-fn validate_transition(
-    transition: &GoalTransition,
-    context: &GoalControlContext,
-) -> Result<(), GoalControlRejection> {
-    validate_binding(&transition.binding, context)?;
-    if transition.host_epoch != context.host_epoch {
-        return Err(GoalControlRejection::StaleHostEpoch);
-    }
-    Ok(())
+    next
 }

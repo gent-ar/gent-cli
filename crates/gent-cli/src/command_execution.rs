@@ -1,18 +1,20 @@
+use crate::cli_error::{CliError, Failure};
 use crate::decision::decision_frame;
 use crate::local_ipc::{default_data_dir, request};
 use crate::{
-    Args, CommandLine, ConversationCommand, DependencyCommand, RuntimeCommand,
-    conversation_activity, conversation_content, conversation_index, conversation_status,
-    conversation_timeline, event_stream, local_models_cli, orchestration_cli, permissions_cli,
-    prompt_templates_cli, provider_auth_cli, provider_lifecycle_cli, reviewed_plan_cli,
-    side_question_cli, terminal_browser, workspace_documents_cli, workspace_git_cli,
+    Args, CommandLine, ConversationCommand, RuntimeCommand, conversation_activity,
+    conversation_content, conversation_index, conversation_status, conversation_timeline,
+    event_stream, local_models_cli, orchestration_cli, permissions_cli, prompt_templates_cli,
+    provider_auth_cli, provider_lifecycle_cli, reviewed_plan_cli, side_question_cli,
+    terminal_browser, workspace_documents_cli, workspace_git_cli,
 };
-use gent_protocol::{DependencyAction, WireFrame};
+use gent_protocol::WireFrame;
 use gent_types::{Command, ReceiptId};
 use serde_json::Value;
 #[path = "dependency_actions.rs"]
 mod dependency_actions;
-use dependency_actions::dependency_action;
+use dependency_actions::dependency;
+#[cfg(test)]
 pub(crate) use dependency_actions::dependency_plan_frame;
 pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let Args {
@@ -31,7 +33,7 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         return Ok(());
     }
     if conversations || command.is_none() {
-        return terminal_browser::open(data_dir, no_autostart).await;
+        return terminal_browser::open(data_dir, no_autostart, conversations).await;
     }
     let command = command.expect("conversation browser handles no-subcommand invocation");
     match command {
@@ -93,12 +95,15 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Permissions { action } => {
             print(permissions_cli::execute(data_dir, no_autostart, action).await?)?;
         }
-        CommandLine::Auth {
-            action: provider_auth_cli::ProviderAuthCommand::Login { provider },
-        } => println!(
-            "{}",
-            provider_auth_cli::login_interactive(data_dir, provider)?
-        ),
+        CommandLine::Auth { action } => match action {
+            provider_auth_cli::ProviderAuthCommand::Status { provider, wait } => {
+                print(provider_auth_cli::status(data_dir, no_autostart, provider, wait).await?)?;
+            }
+            provider_auth_cli::ProviderAuthCommand::Login { provider } => println!(
+                "{}",
+                provider_auth_cli::login_interactive(data_dir, no_autostart, provider).await?
+            ),
+        },
         CommandLine::Forge { action } => {
             print(crate::forge_cli::execute(data_dir, no_autostart, action).await?)?;
         }
@@ -167,6 +172,14 @@ async fn models(
         local_models_cli::LocalModelsCommand::Download { model_id } => {
             local_models_cli::download_to_stdout(data_dir, no_autostart, model_id).await
         }
+        local_models_cli::LocalModelsCommand::List { json: false } => {
+            use std::io::Write;
+            let catalog = local_models_cli::list(data_dir, no_autostart).await?;
+            let mut stdout = std::io::stdout().lock();
+            write!(stdout, "{}", local_models_cli::render_catalog(&catalog))?;
+            stdout.flush()?;
+            Ok(())
+        }
         action => print(local_models_cli::execute(data_dir, no_autostart, action).await?),
     }
 }
@@ -180,7 +193,17 @@ async fn conversation(
             print(conversation_index::request(data_dir, no_autostart).await?)?;
         }
         ConversationCommand::Status { conversation_id } => {
-            print(conversation_status::request(data_dir, no_autostart, conversation_id).await?)?;
+            let status =
+                conversation_status::request(data_dir, no_autostart, conversation_id.clone())
+                    .await?;
+            if status.runs.is_empty() {
+                return Err(CliError::new(
+                    Failure::NotFound,
+                    format!("no conversation has the id {conversation_id}"),
+                )
+                .into());
+            }
+            print(status)?;
         }
         ConversationCommand::Timeline { conversation_id } => {
             print(conversation_timeline::request(data_dir, no_autostart, conversation_id).await?)?;
@@ -246,50 +269,4 @@ pub(crate) fn print(value: impl serde::Serialize) -> Result<(), Box<dyn std::err
     writeln!(stdout, "{}", serde_json::to_string_pretty(&value)?)?;
     stdout.flush()?;
     Ok(())
-}
-async fn dependency(
-    data_dir: Option<std::path::PathBuf>,
-    no_autostart: bool,
-    command: DependencyCommand,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match command {
-        DependencyCommand::Plan { action, provider } => print(
-            request(
-                data_dir,
-                no_autostart,
-                dependency_plan_frame(provider, action),
-            )
-            .await?,
-        ),
-        DependencyCommand::Install {
-            provider,
-            consent,
-            idempotency_key,
-        } => {
-            dependency_action(
-                data_dir,
-                no_autostart,
-                provider,
-                DependencyAction::Install,
-                consent,
-                idempotency_key,
-            )
-            .await
-        }
-        DependencyCommand::Update {
-            provider,
-            consent,
-            idempotency_key,
-        } => {
-            dependency_action(
-                data_dir,
-                no_autostart,
-                provider,
-                DependencyAction::Update,
-                consent,
-                idempotency_key,
-            )
-            .await
-        }
-    }
 }

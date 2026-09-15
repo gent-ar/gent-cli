@@ -1,10 +1,11 @@
 //! Maps supported agent-chat intent frames onto authority-gated runtime services.
 
 use gent_protocol::AgentChatIntentFrame;
+
+use crate::agent_chat_intent_error::AgentChatIntentError;
 use gent_runtime::{
     AgentChatConversationService, AgentChatForkService, AgentChatPromptService,
-    AgentChatSelectionGate, AgentChatSelectionSwitchRequest, AgentChatSelectionSwitchResult,
-    AgentChatSelectionSwitchService,
+    AgentChatSelectionGate, AgentChatSelectionSwitchService,
 };
 use gent_types::{
     AgentChatConversationId, AgentChatPromptDisposition, AgentChatRunId, HostEpoch, ReceiptId,
@@ -18,6 +19,9 @@ use fork::fork;
 #[path = "agent_chat_api_prompt.rs"]
 mod prompt;
 use prompt::prompt;
+#[path = "agent_chat_api_switch.rs"]
+mod switch;
+use switch::{SwitchInput, switch};
 
 /// Daemon-composition notification issued only after a prompt transaction commits.
 ///
@@ -64,7 +68,7 @@ pub(crate) fn exchange<L, C, S>(
     forks: &AgentChatForkService<L>,
     host_epoch: HostEpoch,
     frame: AgentChatIntentFrame,
-) -> Result<Vec<AgentChatIntentFrame>, String>
+) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError>
 where
     L: gent_ports::AgentChatLedger
         + gent_ports::AgentChatWorkspaceLedger
@@ -97,7 +101,7 @@ pub(crate) fn exchange_with_wake<L, C, S, W>(
     host_epoch: HostEpoch,
     frame: AgentChatIntentFrame,
     wake: &mut W,
-) -> Result<Vec<AgentChatIntentFrame>, String>
+) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError>
 where
     L: gent_ports::AgentChatLedger
         + gent_ports::AgentChatWorkspaceLedger
@@ -120,7 +124,7 @@ where
             request_id,
             receipt_id,
             &workspace_path,
-            selection,
+            selection.ok_or("agent-chat conversation creation requires a model selection")?,
         ),
         AgentChatIntentFrame::SendPrompt {
             request_id,
@@ -246,15 +250,6 @@ where
     }
 }
 
-struct SwitchInput {
-    request_id: gent_types::AgentChatRequestId,
-    receipt_id: gent_types::ReceiptId,
-    conversation_id: gent_types::AgentChatConversationId,
-    parent_run_id: gent_types::AgentChatRunId,
-    selection: gent_types::AgentChatSelection,
-    context_policy: gent_types::ContextPolicy,
-}
-
 struct PromptInput {
     request_id: gent_types::AgentChatRequestId,
     receipt_id: gent_types::ReceiptId,
@@ -265,40 +260,6 @@ struct PromptInput {
     tool_source_ids: Vec<String>,
 }
 
-fn switch<L, G>(
-    service: &AgentChatSelectionSwitchService<L, G>,
-    host_epoch: HostEpoch,
-    input: SwitchInput,
-) -> Result<Vec<AgentChatIntentFrame>, String>
-where
-    L: gent_ports::AgentChatSelectionLedger,
-    G: AgentChatSelectionGate,
-{
-    match service
-        .switch(&AgentChatSelectionSwitchRequest {
-            request_id: input.request_id.clone(),
-            receipt_id: input.receipt_id,
-            host_epoch,
-            conversation_id: input.conversation_id.clone(),
-            parent_run_id: input.parent_run_id,
-            selection: input.selection,
-            context_policy: input.context_policy,
-        })
-        .map_err(|error| error.to_string())?
-    {
-        AgentChatSelectionSwitchResult::Switched(switched) => {
-            Ok(vec![AgentChatIntentFrame::Switched {
-                request_id: input.request_id,
-                receipt: switched.receipt,
-                conversation_id: switched.conversation_id,
-                parent_run_id: switched.parent_run_id,
-                run_id: switched.run_id,
-                context_policy: switched.context_policy,
-                context_through_ordinal: switched.context_through_ordinal,
-            }])
-        }
-        AgentChatSelectionSwitchResult::DeniedObserver => {
-            Err("agent-chat authority is disabled".into())
-        }
-    }
-}
+#[cfg(test)]
+#[path = "agent_chat_api_tests.rs"]
+mod tests;

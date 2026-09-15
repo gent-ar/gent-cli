@@ -199,8 +199,13 @@ fn status_never_exposes_provider_sessions_and_keeps_projection_identity() {
             event_id: "status-source".into(),
             receipt_id: ReceiptId("status-receipt".into()),
             host_epoch: HostEpoch(3),
-            kind: "normalizedSessionLifecycle".into(),
-            payload: serde_json::json!({ "runId": "run-root", "lifecycle": lifecycle }),
+            kind: "providerLifecycle".into(),
+            payload: serde_json::json!({
+                "runId": "run-root",
+                "event": NormalizedProviderEvent::TurnStarted {
+                    turn_id: "turn-1".into(),
+                }
+            }),
         })
         .unwrap();
     ledger

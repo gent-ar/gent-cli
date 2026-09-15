@@ -4,7 +4,9 @@ pub(crate) enum UiCommand {
     SelectPrevious,
     ScrollOlder,
     ScrollNewer,
+    FollowLatest,
     Quit,
+    Dismiss,
     Insert(char),
     Paste(String),
     DeleteInput,
@@ -23,4 +25,6 @@ pub(crate) enum UiCommand {
     ToggleActivity,
     ToggleThinking,
     Interrupt,
+    SteerQueued,
+    CancelQueued,
 }

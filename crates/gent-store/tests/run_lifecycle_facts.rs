@@ -5,14 +5,22 @@ use gent_types::{
 };
 
 fn source(ledger: &SqliteLedger, event_id: &str, lifecycle: &NormalizedSessionLifecycle) -> u64 {
+    let payload = match lifecycle {
+        NormalizedSessionLifecycle::Event { event } => {
+            serde_json::json!({ "runId": "run-a", "event": event })
+        }
+        NormalizedSessionLifecycle::Signal { signal } => {
+            serde_json::json!({ "runId": "run-a", "signal": signal })
+        }
+    };
     ledger
         .append_event(&gent_types::Event {
             cursor: 0,
             event_id: event_id.into(),
             receipt_id: gent_types::ReceiptId("receipt-a".into()),
             host_epoch: HostEpoch(1),
-            kind: "normalizedSessionLifecycle".into(),
-            payload: serde_json::json!({ "runId": "run-a", "lifecycle": lifecycle }),
+            kind: "providerLifecycle".into(),
+            payload,
         })
         .unwrap()
         .cursor

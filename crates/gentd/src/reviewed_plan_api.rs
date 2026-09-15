@@ -14,7 +14,7 @@ pub(crate) fn exchange<L: ReviewedPlanLedger>(
             conversation_id,
             plan_id,
         } => match service
-            .review(&conversation_id.0, &plan_id)
+            .review(&conversation_id.0, plan_id.as_ref())
             .map_err(|error| error.to_string())?
         {
             ReviewedPlanResult::Plan(plan) => Ok(ReviewedPlanFrame::Review { request_id, plan }),

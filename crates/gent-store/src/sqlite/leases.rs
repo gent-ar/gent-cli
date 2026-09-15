@@ -1,13 +1,14 @@
 use gent_ports::{
-    IngressMode, LeaseClaim, LedgerError, RunLease, RunLeaseClaim, RunRecord, WorktreeLease,
+    IngressMode, LeaseClaim, LedgerError, RunLease, RunLeaseClaim, RunRecord, RunSessionBinding,
+    WorktreeLease,
 };
-use gent_types::RunVersionLock;
+use gent_types::{Event, HostEpoch, ReceiptId, RunVersionLock};
 use rusqlite::TransactionBehavior;
 
-use super::queries::{find_lease, insert_lease, replace_lease};
+use super::queries::{append_event, find_lease, insert_lease, replace_lease};
 use super::queries::{
-    find_run, find_run_lease, find_run_version_lock, insert_run_lease, replace_run_lease,
-    save_run_version_lock, storage_error,
+    find_run, find_run_lease, find_run_session_binding, find_run_version_lock, insert_run_lease,
+    replace_run_lease, save_run_version_lock, storage_error,
 };
 use super::{SqliteLedger, epoch::require_epoch, host_ingress};
 
@@ -125,7 +126,6 @@ pub(super) fn reserve_run_start(
     transaction.commit().map_err(storage_error)
 }
 
-/// Atomically attaches a lock and lease to a run created by a durable chat transaction.
 pub(super) fn activate_existing_run_start(
     ledger: &SqliteLedger,
     lock: &RunVersionLock,
@@ -149,15 +149,6 @@ pub(super) fn activate_existing_run_start(
             "activation run and executable provider must agree".into(),
         ));
     }
-    match find_run_version_lock(&transaction, &lease.run_id)? {
-        Some(existing) if existing != *lock => {
-            return Err(LedgerError::Invariant(
-                "activation cannot replace an immutable run lock".into(),
-            ));
-        }
-        None => save_run_version_lock(&transaction, &lease.run_id, lock)?,
-        Some(_) => {}
-    }
     let claim = match find_run_lease(&transaction, &lease.run_id)? {
         None => {
             insert_run_lease(&transaction, lease)?;
@@ -165,7 +156,7 @@ pub(super) fn activate_existing_run_start(
         }
         Some(existing) if existing == *lease => RunLeaseClaim::Acquired(existing),
         Some(existing) if existing.host_epoch == ingress.epoch => {
-            RunLeaseClaim::Contended(existing)
+            return Ok(RunLeaseClaim::Contended(existing));
         }
         Some(previous) => {
             replace_run_lease(&transaction, lease)?;
@@ -175,6 +166,91 @@ pub(super) fn activate_existing_run_start(
             }
         }
     };
+    match find_run_version_lock(&transaction, &lease.run_id)? {
+        None => save_run_version_lock(&transaction, &lease.run_id, lock)?,
+        Some(previous) if previous != *lock => {
+            rebind_run_version_lock(&transaction, lease, &previous, lock)?;
+        }
+        Some(_) => {}
+    }
     transaction.commit().map_err(storage_error)?;
     Ok(claim)
+}
+
+fn rebind_run_version_lock(
+    transaction: &rusqlite::Transaction<'_>,
+    lease: &RunLease,
+    previous: &RunVersionLock,
+    current: &RunVersionLock,
+) -> Result<(), LedgerError> {
+    transaction
+        .execute(
+            "UPDATE run_version_locks SET canonical_path = ?2, file_identity = ?3, digest_sha256 = ?4, version = ?5, compatibility_entry = ?6 WHERE run_id = ?1",
+            rusqlite::params![lease.run_id, current.canonical_path, current.file_identity, current.digest_sha256, current.version, current.compatibility_entry],
+        )
+        .map_err(storage_error)?;
+    append_event(
+        transaction,
+        &Event {
+            cursor: 0,
+            event_id: format!(
+                "run-executable-rebound:{}:{}:{}",
+                lease.run_id, previous.file_identity, current.file_identity
+            ),
+            receipt_id: ReceiptId(format!("run-executable-rebound:{}", lease.run_id)),
+            host_epoch: lease.host_epoch,
+            kind: "runExecutableRebound".into(),
+            payload: serde_json::json!({
+                "runId": lease.run_id,
+                "previous": previous,
+                "current": current,
+            }),
+        },
+    )
+    .map(|_| ())
+}
+
+pub(super) fn retire_run_session_binding(
+    ledger: &SqliteLedger,
+    binding: &RunSessionBinding,
+    host_epoch: HostEpoch,
+) -> Result<(), LedgerError> {
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    require_epoch(host_epoch, host_ingress(&transaction)?.epoch)?;
+    match find_run_session_binding(&transaction, &binding.run_id)? {
+        None => return Ok(()),
+        Some(current) if current != *binding => {
+            return Err(LedgerError::Invariant(
+                "a different provider session is bound to the run".into(),
+            ));
+        }
+        Some(_) => {}
+    }
+    transaction
+        .execute(
+            "DELETE FROM run_session_bindings WHERE run_id = ?1",
+            [&binding.run_id],
+        )
+        .map_err(storage_error)?;
+    append_event(
+        &transaction,
+        &Event {
+            cursor: 0,
+            event_id: format!(
+                "run-session-retired:{}:{}",
+                binding.run_id, binding.provider_session_id
+            ),
+            receipt_id: ReceiptId(format!("run-session-retired:{}", binding.run_id)),
+            host_epoch,
+            kind: "runSessionRetired".into(),
+            payload: serde_json::json!({
+                "runId": binding.run_id,
+                "providerSessionId": binding.provider_session_id,
+            }),
+        },
+    )?;
+    transaction.commit().map_err(storage_error)
 }

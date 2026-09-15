@@ -217,7 +217,7 @@ async fn attach_is_rejected_without_the_negotiated_stream_capability() {
         WireFrame::Error { code, .. } if code == "invalidCommand"
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }
 
 #[tokio::test]

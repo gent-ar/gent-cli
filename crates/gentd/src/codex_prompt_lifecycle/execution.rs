@@ -28,6 +28,7 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         prompt: &str,
         goal: Option<&GoalProjection>,
         attachments: &[serde_json::Value],
+        interrupted_reply: Option<&str>,
     ) -> Result<(), PublicProviderRunError>;
     fn signal_codex_process(
         &self,
@@ -35,6 +36,13 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         signal: ProcessTreeSignal,
     ) -> Result<(), PublicProviderRunError>;
     fn interrupt_codex_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
+    fn steer_codex_turn(
+        &self,
+        run_id: &str,
+        message_id: &str,
+        prompt: &str,
+        attachments: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError>;
     fn respond_codex_control(
         &self,
         run_id: &str,
@@ -86,8 +94,9 @@ where
         prompt: &str,
         goal: Option<&GoalProjection>,
         attachments: &[serde_json::Value],
+        interrupted_reply: Option<&str>,
     ) -> Result<(), PublicProviderRunError> {
-        self.submit(run_id, prompt, goal, attachments)
+        self.submit(run_id, prompt, goal, attachments, interrupted_reply)
     }
 
     fn signal_codex_process(
@@ -100,6 +109,16 @@ where
 
     fn interrupt_codex_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
         self.interrupt_turn(run_id)
+    }
+
+    fn steer_codex_turn(
+        &self,
+        run_id: &str,
+        message_id: &str,
+        prompt: &str,
+        attachments: &[serde_json::Value],
+    ) -> Result<(), PublicProviderRunError> {
+        self.steer_turn(run_id, message_id, prompt, attachments)
     }
 
     fn respond_codex_control(

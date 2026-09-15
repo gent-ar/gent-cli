@@ -17,10 +17,7 @@ fn challenge() -> ProviderAuthChallenge {
             digest_sha256: "a".repeat(64),
             version: "1.2.3".into(),
         },
-        methods: vec![
-            ProviderAuthMethod::AccountBrowser,
-            ProviderAuthMethod::DeviceCode,
-        ],
+        methods: vec![ProviderAuthMethod::AccountBrowser],
         expires_at_unix_seconds: 20,
     }
 }
@@ -58,7 +55,7 @@ fn exact_offered_selection_starts_login_once() {
     let event = ProviderAuthEvent::SelectMethod {
         selection: ProviderAuthMethodSelection {
             challenge_id: "challenge-1".into(),
-            method: ProviderAuthMethod::DeviceCode,
+            method: ProviderAuthMethod::AccountBrowser,
         },
         now: 10,
     };
@@ -66,7 +63,7 @@ fn exact_offered_selection_starts_login_once() {
     assert!(matches!(
         effect,
         ProviderAuthEffect::BeginLogin {
-            method: ProviderAuthMethod::DeviceCode,
+            method: ProviderAuthMethod::AccountBrowser,
             ..
         }
     ));
@@ -139,7 +136,7 @@ fn invalid_selection_never_starts_login() {
         ProviderAuthEvent::SelectMethod {
             selection: ProviderAuthMethodSelection {
                 challenge_id: "other".into(),
-                method: ProviderAuthMethod::ApiKey,
+                method: ProviderAuthMethod::AccountBrowser,
             },
             now: 1,
         },
@@ -151,7 +148,7 @@ fn invalid_selection_never_starts_login() {
 }
 
 #[test]
-fn malformed_challenges_and_unoffered_methods_are_rejected() {
+fn malformed_challenges_are_rejected() {
     let mut malformed = challenge();
     malformed.binary_lock.digest_sha256 = "bad".into();
     assert_eq!(
@@ -163,20 +160,6 @@ fn malformed_challenges_and_unoffered_methods_are_rejected() {
         )
         .1,
         ProviderAuthEffect::Rejected(ProviderAuthRejection::InvalidChallenge)
-    );
-    let (_, effect) = reduce_provider_auth(
-        unauthenticated_state(),
-        ProviderAuthEvent::SelectMethod {
-            selection: ProviderAuthMethodSelection {
-                challenge_id: "challenge-1".into(),
-                method: ProviderAuthMethod::ApiKey,
-            },
-            now: 1,
-        },
-    );
-    assert_eq!(
-        effect,
-        ProviderAuthEffect::Rejected(ProviderAuthRejection::MethodNotOffered)
     );
 }
 
@@ -227,7 +210,7 @@ fn authentication_settlement_and_expired_or_wrong_cancellation_are_closed() {
         ProviderAuthEvent::SelectMethod {
             selection: ProviderAuthMethodSelection {
                 challenge_id: "challenge-1".into(),
-                method: ProviderAuthMethod::DeviceCode,
+                method: ProviderAuthMethod::AccountBrowser,
             },
             now: 20,
         },

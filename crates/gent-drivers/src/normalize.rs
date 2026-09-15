@@ -73,6 +73,7 @@ pub fn normalize_lifecycle(frame: &Value) -> Option<NormalizedLifecycleSignal> {
                 tool_name: field(frame, "tool_name")?.into(),
                 phase: tool_phase(field(frame, "phase"))?,
                 output_digest: field(frame, "output_digest").map(Into::into),
+                parent_tool_use_id: None,
             },
         }),
         Some("decision_requested") => Some(NormalizedLifecycleSignal::AttentionRequired),
@@ -238,6 +239,7 @@ mod tests {
                     tool_name: "read_file".into(),
                     phase: ToolPhase::Completed,
                     output_digest: Some("sha256:abc".into()),
+                    parent_tool_use_id: None,
                 }
             })
         );

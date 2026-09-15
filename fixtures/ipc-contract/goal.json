@@ -1,0 +1,117 @@
+{
+  "capability": "goal-v1",
+  "frames": [
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "objective": "Ship the release",
+          "requestId": "request-1",
+          "tokenBudget": 200000
+        },
+        "type": "set"
+      },
+      "wireHex": "000000857b2274797065223a22736574222c22626f6479223a7b22726571756573744964223a22726571756573742d31222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c226f626a656374697665223a2253686970207468652072656c65617365222c22746f6b656e427564676574223a3230303030307d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "goal": {
+            "accountedThroughOrdinal": 4,
+            "activeSince": 1767225600,
+            "binding": {
+              "conversationId": "conversation-1",
+              "goalId": "goal-1"
+            },
+            "createdAt": 1767225600,
+            "note": null,
+            "objective": "Ship the release",
+            "reason": "userSet",
+            "revision": 1,
+            "schemaVersion": 2,
+            "status": "active",
+            "timeUsedSeconds": 0,
+            "tokenBudget": 200000,
+            "tokensUsed": 0,
+            "turnsWithoutProgress": 0,
+            "updatedAt": 1767225600
+          },
+          "requestId": "request-1"
+        },
+        "type": "goal"
+      },
+      "wireHex": "000001be7b2274797065223a22676f616c222c22626f6479223a7b22726571756573744964223a22726571756573742d31222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c22676f616c223a7b22736368656d6156657273696f6e223a322c2262696e64696e67223a7b22676f616c4964223a22676f616c2d31222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31227d2c227265766973696f6e223a312c22737461747573223a22616374697665222c22726561736f6e223a2275736572536574222c226f626a656374697665223a2253686970207468652072656c65617365222c226e6f7465223a6e756c6c2c2274696d65557365645365636f6e6473223a302c2261637469766553696e6365223a313736373232353630302c22746f6b656e7355736564223a302c22746f6b656e427564676574223a3230303030302c227475726e73576974686f757450726f6772657373223a302c226163636f756e7465645468726f7567684f7264696e616c223a342c22637265617465644174223a313736373232353630302c22757064617465644174223a313736373232353630307d7d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "expectedRevision": 1,
+          "goalId": "goal-1",
+          "requestId": "request-2"
+        },
+        "type": "pause"
+      },
+      "wireHex": "0000007a7b2274797065223a227061757365222c22626f6479223a7b22726571756573744964223a22726571756573742d32222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c22676f616c4964223a22676f616c2d31222c2265787065637465645265766973696f6e223a317d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "expectedRevision": 2,
+          "goalId": "goal-1",
+          "requestId": "request-3"
+        },
+        "type": "resume"
+      },
+      "wireHex": "0000007b7b2274797065223a22726573756d65222c22626f6479223a7b22726571756573744964223a22726571756573742d33222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c22676f616c4964223a22676f616c2d31222c2265787065637465645265766973696f6e223a327d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "expectedRevision": 3,
+          "goalId": "goal-1",
+          "requestId": "request-4"
+        },
+        "type": "clear"
+      },
+      "wireHex": "0000007a7b2274797065223a22636c656172222c22626f6479223a7b22726571756573744964223a22726571756573742d34222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31222c22676f616c4964223a22676f616c2d31222c2265787065637465645265766973696f6e223a337d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "conversationId": "conversation-1",
+          "requestId": "request-5"
+        },
+        "type": "read"
+      },
+      "wireHex": "000000527b2274797065223a2272656164222c22626f6479223a7b22726571756573744964223a22726571756573742d35222c22636f6e766572736174696f6e4964223a22636f6e766572736174696f6e2d31227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "goalId": "goal-1",
+          "note": "Released and verified",
+          "outcome": "complete",
+          "requestId": "request-6"
+        },
+        "type": "report"
+      },
+      "wireHex": "000000787b2274797065223a227265706f7274222c22626f6479223a7b22726571756573744964223a22726571756573742d36222c22676f616c4964223a22676f616c2d31222c226f7574636f6d65223a22636f6d706c657465222c226e6f7465223a2252656c656173656420616e64207665726966696564227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "goalNoActiveTurn",
+          "requestId": "request-6"
+        },
+        "type": "rejected"
+      },
+      "wireHex": "0000004e7b2274797065223a2272656a6563746564222c22626f6479223a7b22726571756573744964223a22726571756573742d36222c22636f6465223a22676f616c4e6f4163746976655475726e227d7d"
+    }
+  ],
+  "schemaVersion": 1,
+  "state": "reserved"
+}

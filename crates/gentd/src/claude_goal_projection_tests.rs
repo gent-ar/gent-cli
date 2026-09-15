@@ -25,9 +25,8 @@ impl ActiveGoalResolver for Goal {
     fn resolve_active_goal(
         &self,
         conversation_id: &str,
-        run_id: &str,
     ) -> Result<Option<GoalProjection>, LedgerError> {
-        (conversation_id == "conversation-a" && run_id == "run-a")
+        (conversation_id == "conversation-a")
             .then(|| self.0.clone())
             .ok_or_else(|| LedgerError::Invariant("goal resolver received another run".into()))
             .map(Some)
@@ -96,11 +95,20 @@ fn projection() -> GoalProjection {
         binding: GoalBinding {
             goal_id: "goal-1".into(),
             conversation_id: AgentChatConversationId("conversation-a".into()),
-            run_id: AgentChatRunId("run-a".into()),
         },
         revision: 4,
         status: GoalStatus::Active,
-        summary: "Finish safely".into(),
+        reason: gent_types::GoalStatusReason::UserSet,
+        objective: "Finish safely".into(),
+        note: None,
+        time_used_seconds: 0,
+        active_since: Some(1),
+        tokens_used: 0,
+        token_budget: None,
+        turns_without_progress: 0,
+        accounted_through_ordinal: 0,
+        created_at: 1,
+        updated_at: 1,
     })
     .unwrap()
 }

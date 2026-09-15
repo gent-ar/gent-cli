@@ -11,7 +11,7 @@ use gent_types::{
 use tokio::net::UnixListener;
 use tokio::time::{Duration, timeout};
 
-use crate::chat_cli::{ChatCommand, Effort, Mode, Provider, execute, switch};
+use crate::chat_cli::{ChatCommand, Mode, Provider, execute, switch};
 
 #[tokio::test]
 async fn switch_without_parent_resolves_the_durable_current_run_before_creating_a_child() {
@@ -60,12 +60,16 @@ async fn switch_without_parent_resolves_the_durable_current_run_before_creating_
             conversation_id,
             parent_run_id,
             context_policy,
-            ..
+            selection,
         } = read_json_frame(&mut switch_stream).await.unwrap()
         else {
             panic!("expected switch")
         };
         assert_eq!(parent_run_id.0, "run-current");
+        assert_eq!(
+            (selection.effort, selection.mode),
+            (AgentChatEffort::High, AgentChatMode::Agent)
+        );
         write_json_frame(
             &mut switch_stream,
             &AgentChatIntentFrame::Switched {
@@ -92,10 +96,12 @@ async fn switch_without_parent_resolves_the_durable_current_run_before_creating_
         ChatCommand::Switch(switch::SwitchArgs {
             conversation_id: "conversation-1".into(),
             parent_run_id: None,
-            provider: Provider::Claurst,
-            model: "qwen2-5-coder-7b-instruct-q4-k-m".into(),
-            effort: Effort::Medium,
-            mode: Mode::Agent,
+            selection: crate::chat_cli::SelectionArgs {
+                provider: Some(Provider::Gent),
+                model: Some("qwen2-5-coder-7b-instruct-q4-k-m".into()),
+                effort: Some(AgentChatEffort::High),
+                mode: None,
+            },
             context: switch::Context::Preserve,
             request_id: Some("switch-current".into()),
             receipt_id: Some("receipt-current".into()),
@@ -148,10 +154,12 @@ async fn switch_without_parent_refuses_an_unknown_durable_current_run_before_emi
         ChatCommand::Switch(switch::SwitchArgs {
             conversation_id: "conversation-1".into(),
             parent_run_id: None,
-            provider: Provider::Claude,
-            model: "sonnet".into(),
-            effort: Effort::Medium,
-            mode: Mode::Agent,
+            selection: crate::chat_cli::SelectionArgs {
+                provider: Some(Provider::Claude),
+                model: Some("sonnet".into()),
+                effort: Some(gent_types::AgentChatEffort::Medium),
+                mode: Some(Mode::Agent),
+            },
             context: switch::Context::Preserve,
             request_id: Some("switch-invalid-current".into()),
             receipt_id: Some("receipt-invalid-current".into()),
@@ -171,7 +179,7 @@ fn detail() -> AgentChatConversationDetail {
     let selection = AgentChatSelection {
         provider: AgentChatProvider::Codex,
         model: "gpt-5.6".into(),
-        effort: AgentChatEffort::Medium,
+        effort: AgentChatEffort::High,
         mode: AgentChatMode::Agent,
     };
     AgentChatConversationDetail {

@@ -73,7 +73,7 @@ pub(super) fn ensure_default_provider_permission_policy(
         workspace_id: workspace_id.into(),
         scope: PolicyScope::ProviderPermissions,
         revision: 1,
-        mode: PermissionMode::Default,
+        mode: PermissionMode::AskEveryTime,
         allowed_tools: Vec::new(),
         allowed_categories: Vec::new(),
     };
@@ -165,8 +165,7 @@ fn encode_scope(scope: PolicyScope) -> &'static str {
 
 const fn encode_mode(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::Default => "default",
-        PermissionMode::Plan => "plan",
+        PermissionMode::AskEveryTime => "askEveryTime",
         PermissionMode::AutoAcceptEdits => "autoAcceptEdits",
         PermissionMode::Autonomous => "autonomous",
         PermissionMode::Bypass => "bypass",
@@ -190,8 +189,7 @@ fn decode_policy(row: &rusqlite::Row<'_>) -> rusqlite::Result<PolicyRecord> {
 
 fn decode_mode(mode: &str) -> rusqlite::Result<PermissionMode> {
     match mode {
-        "default" => Ok(PermissionMode::Default),
-        "plan" => Ok(PermissionMode::Plan),
+        "askEveryTime" => Ok(PermissionMode::AskEveryTime),
         "autoAcceptEdits" => Ok(PermissionMode::AutoAcceptEdits),
         "autonomous" => Ok(PermissionMode::Autonomous),
         "bypass" => Ok(PermissionMode::Bypass),

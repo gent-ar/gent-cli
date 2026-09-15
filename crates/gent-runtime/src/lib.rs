@@ -17,13 +17,17 @@ mod attachments;
 mod automations;
 pub mod catalog;
 mod command_receipts;
+mod command_submission;
 mod conversation_activity;
 mod conversation_content;
 mod conversation_context;
 #[cfg(test)]
+mod conversation_context_bounds_tests;
+#[cfg(test)]
 mod conversation_context_pagination_tests;
 #[cfg(test)]
 mod conversation_context_tests;
+mod conversation_context_window;
 mod conversation_prompts;
 pub mod conversation_summary;
 pub mod conversation_summary_scheduler;
@@ -38,8 +42,7 @@ mod forge_connectors;
 mod git_operations;
 mod git_status;
 mod git_status_events;
-#[cfg(test)]
-mod goal_projection_tests;
+mod goal_pursuit;
 mod goals;
 mod mcp_connectors;
 mod orchestration;
@@ -94,7 +97,10 @@ pub use conversation_activity::{
     ConversationActivityAuthority, ConversationActivityRead, ConversationActivityResult,
     ConversationActivityService,
 };
-pub use conversation_context::{ConversationContextArtifactService, ConversationContextRequest};
+pub use conversation_context::{
+    ContextCompactionBudget, ContextCompactionDecision, ConversationContextArtifactService,
+    ConversationContextRequest,
+};
 pub use conversation_prompts::*;
 pub use dependency_action_receipts::{
     DependencyActionReceiptClaim, DependencyActionReceiptReservation,
@@ -104,17 +110,16 @@ pub use exports::*;
 pub use forge_connectors::*;
 use gent_core::{Run, switch_provider};
 use gent_ports::{
-    HostIngress, LeaseClaim, Ledger, LedgerError, ReceiptClaim, RunLease, RunLeaseClaim, RunRecord,
-    WorktreeLease,
+    HostIngress, LeaseClaim, Ledger, LedgerError, RunLease, RunLeaseClaim, RunRecord, WorktreeLease,
 };
-use gent_types::{
-    CapabilitySet, Command, Event, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, Receipt, ReceiptStatus,
-    RunVersionLock,
-};
+use gent_types::{CapabilitySet, HostStatus, PROTOCOL_MAX, PROTOCOL_MIN, RunVersionLock};
 pub use git_status::{
     GitStatusAuthority, GitStatusRequest, GitStatusResult, GitStatusService, GitStatusState,
 };
-pub use goals::{GoalAuthority, GoalResult, GoalService};
+pub use goal_pursuit::{
+    GoalContinuationAdmission, GoalContinuationWake, GoalPursuitService, GoalPursuitTick,
+};
+pub use goals::{GoalAuthority, GoalControl, GoalResult, GoalService};
 pub use mcp_connectors::*;
 pub use orchestration::{OrchestrationAuthority, OrchestrationResult, OrchestrationService};
 pub use prompt_provider_provision_command::prompt_provider_provision_command;
@@ -178,45 +183,14 @@ impl<L: Ledger> Coordinator<L> {
             capabilities,
         }
     }
-    /// # Errors
-    /// Returns an error when the durable host state cannot be read.
     pub fn status(&self) -> Result<HostStatus, RuntimeError> {
         Ok(HostStatus {
             host_epoch: self.ledger.host_ingress()?.epoch,
             protocol_min: PROTOCOL_MIN,
             protocol_max: PROTOCOL_MAX,
             capabilities: self.capabilities.clone(),
+            executable_digest_sha256: None,
         })
-    }
-    /// # Errors
-    /// Returns an error when the host fence rejects ingress or durable persistence fails.
-    pub fn submit(&self, command: &Command) -> Result<Receipt, RuntimeError> {
-        let accepted = Event {
-            cursor: 0,
-            event_id: format!("{}:accepted", command.receipt_id.0),
-            receipt_id: command.receipt_id.clone(),
-            host_epoch: command.host_epoch,
-            kind: "commandAccepted".into(),
-            payload: command.payload.clone(),
-        };
-        // A concurrent retry can observe the short accepted-to-terminal window. Both callers
-        // then settle the same receipt; the ledger atomically lets one append the terminal event
-        // and returns that terminal receipt to the other.
-        let receipt = match self.ledger.claim_command(command, &accepted)? {
-            ReceiptClaim::Existing(receipt) | ReceiptClaim::Accepted(receipt) => receipt,
-        };
-        let status = terminal_status(&command.kind);
-        let terminal = Event {
-            cursor: 0,
-            event_id: format!("{}:terminal", receipt.receipt_id.0),
-            receipt_id: receipt.receipt_id.clone(),
-            host_epoch: receipt.host_epoch,
-            kind: terminal_kind(&status).into(),
-            payload: serde_json::json!({ "status": status }),
-        };
-        Ok(self
-            .ledger
-            .settle_receipt(&receipt.idempotency_key, status, &terminal)?)
     }
     /// Closes mutation ingress as the first half of an authority transfer.
     /// # Errors
@@ -279,20 +253,6 @@ impl<L: Ledger> Coordinator<L> {
     /// Returns an error when the request has a stale epoch or its run is unknown.
     pub fn claim_worktree_lease(&self, lease: &WorktreeLease) -> Result<LeaseClaim, RuntimeError> {
         Ok(self.ledger.claim_worktree_lease(lease)?)
-    }
-}
-fn terminal_status(kind: &str) -> ReceiptStatus {
-    if kind == "decision" {
-        ReceiptStatus::Unprovable
-    } else {
-        ReceiptStatus::Settled
-    }
-}
-fn terminal_kind(status: &ReceiptStatus) -> &'static str {
-    if *status == ReceiptStatus::Unprovable {
-        "decisionUnprovable"
-    } else {
-        "commandSettled"
     }
 }
 pub(crate) fn to_record(run: &Run) -> RunRecord {

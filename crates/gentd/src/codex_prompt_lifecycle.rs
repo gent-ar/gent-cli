@@ -1,22 +1,26 @@
 use crate::public_driver_runtime::PublicDriversRuntime;
-use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
     NormalizedSessionBatchLedger, PendingPermissionLedger, PolicyLedger, PublicProviderResolver,
-    PublicProviderRunError, TranscriptLedger,
+    TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
 use gent_types::{AgentChatPromptSaved, DurableTurnPhase, HostEpoch};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+mod containment;
 mod execution;
 mod interrupt;
+mod launch;
 mod permission;
 #[path = "codex_prompt_lifecycle_phase.rs"]
 mod phase;
+mod poll;
 mod record;
+mod recovery;
 mod scheduler;
 mod start;
+mod steer;
 mod summary;
 pub(crate) use execution::CodexPromptExecution;
 pub(crate) use summary::CodexSummaryHook;
@@ -39,6 +43,13 @@ pub(super) struct Binding {
     sequence: u64,
     settled: bool,
     releasing: bool,
+    steers: Vec<AgentChatPromptSaved>,
+    upgraded: bool,
+}
+impl Binding {
+    fn idle(&self) -> bool {
+        self.settled && !self.releasing && self.steers.is_empty()
+    }
 }
 #[derive(Debug)]
 pub(crate) struct CodexPromptLifecycle<L, D, R> {
@@ -47,6 +58,7 @@ pub(crate) struct CodexPromptLifecycle<L, D, R> {
     coordinator_id: String,
     active: BTreeMap<String, Binding>,
     summary_hook: Option<Arc<dyn CodexSummaryHook>>,
+    compaction_notices: std::collections::BTreeSet<String>,
 }
 impl<L, D, R> CodexPromptLifecycle<L, D, R>
 where
@@ -78,6 +90,7 @@ where
             coordinator_id,
             active: BTreeMap::new(),
             summary_hook: None,
+            compaction_notices: std::collections::BTreeSet::new(),
         }
     }
 
@@ -95,7 +108,7 @@ where
             .filter(|run_id| {
                 self.active
                     .get(*run_id)
-                    .is_some_and(|binding| !binding.settled || binding.releasing)
+                    .is_some_and(|binding| !binding.idle())
             })
             .cloned()
             .map(gent_types::AgentChatRunId)
@@ -109,12 +122,15 @@ where
             AgentChatPromptDispatchResult::DeniedObserver => Ok(CodexPromptDispatchOutcome::Denied),
             AgentChatPromptDispatchResult::Empty => Ok(CodexPromptDispatchOutcome::Empty),
             AgentChatPromptDispatchResult::Claimed(prompt) => {
-                let refresh = self
-                    .runner
-                    .refresh_codex_mcp_config(&prompt.run_id.0)
-                    .map_err(RuntimeError::from)?;
-                if refresh {
-                    self.active.remove(&prompt.run_id.0);
+                match self.runner.refresh_codex_mcp_config(&prompt.run_id.0) {
+                    Ok(true) => {
+                        self.active.remove(&prompt.run_id.0);
+                    }
+                    Ok(false) => {}
+                    Err(error) => return self.fail_dispatch(&prompt, host_epoch, error.into()),
+                }
+                if let Err(error) = self.release_outdated_session(&prompt.run_id.0) {
+                    return self.fail_dispatch(&prompt, host_epoch, error);
                 }
                 let active_run = self.active.get(&prompt.run_id.0);
                 let reuses_settled_session = active_run.is_some_and(|binding| binding.settled)
@@ -124,8 +140,7 @@ where
                     .iter()
                     .filter(|(run_id, binding)| {
                         run_id.as_str() != prompt.run_id.0.as_str()
-                            && binding.settled
-                            && !binding.releasing
+                            && binding.idle()
                             && self.runner.has_codex_session(run_id)
                     })
                     .map(|(run_id, _)| run_id.clone())
@@ -147,74 +162,17 @@ where
                     &self.runner,
                     &self.coordinator_id,
                     &mut self.active,
-                    *prompt,
+                    (*prompt).clone(),
                     host_epoch,
-                    refresh,
                 )
+                .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error))
             }
         }
     }
     pub(crate) fn has_settled_session(&self) -> bool {
-        self.active.iter().any(|(run_id, binding)| {
-            binding.settled && !binding.releasing && self.runner.has_codex_session(run_id)
-        })
-    }
-
-    pub(crate) fn poll(
-        &mut self,
-        run_id: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<Option<CodexPromptPoll>, RuntimeError> {
-        let effects = self.runner.poll_codex_prompt(run_id).map_err(|_| {
-            RuntimeError::ProviderRun(PublicProviderRunError::Failed(
-                "provider poll unavailable".into(),
-            ))
-        })?;
-        let Some(effects) = effects else {
-            return Ok(None);
-        };
-        let mut facts: u16 = 0;
-        let mut terminal = None;
-        for effect in effects {
-            match effect {
-                CodexRunnerEffect::Fact(fact) => {
-                    terminal = terminal.or_else(|| phase::terminal(&fact));
-                    self.record_wire(run_id, host_epoch, &fact)?;
-                    facts += 1;
-                }
-                CodexRunnerEffect::ControlRequest(request) => {
-                    facts = facts.saturating_add(
-                        self.record_permission_request(run_id, host_epoch, request)?,
-                    );
-                }
-                CodexRunnerEffect::Exited { code } => {
-                    self.record_exit(run_id, host_epoch, code)?;
-                    self.settle_if_open(run_id, host_epoch, DurableTurnPhase::Failed)?;
-                    self.active.remove(run_id);
-                    return Ok(Some(CodexPromptPoll {
-                        facts,
-                        exited: true,
-                    }));
-                }
-            }
-        }
-        if let Some(phase) = terminal {
-            self.settle_if_open(run_id, host_epoch, phase)?;
-            if phase == DurableTurnPhase::Completed {
-                if let Some(binding) = self.active.get(run_id) {
-                    if let Some(hook) = &self.summary_hook {
-                        let _ = hook.schedule(&binding.prompt.message.conversation_id);
-                    }
-                }
-            }
-            if phase != DurableTurnPhase::Completed {
-                self.release_failed_session(run_id)?;
-            }
-        }
-        Ok(Some(CodexPromptPoll {
-            facts,
-            exited: false,
-        }))
+        self.active
+            .iter()
+            .any(|(run_id, binding)| binding.idle() && self.runner.has_codex_session(run_id))
     }
 
     fn settle_if_open(

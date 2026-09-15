@@ -54,6 +54,38 @@ where
                     *is_partial,
                 ))
             }
+            ClaurstFactValue::Event(NormalizedProviderEvent::ToolOutputDelta { text, .. }) => {
+                Some(transcript(
+                    binding,
+                    turn_id,
+                    fact.cursor,
+                    NormalizedTranscriptKind::ToolActivity,
+                    text,
+                    false,
+                ))
+            }
+            ClaurstFactValue::Event(NormalizedProviderEvent::TransportDiagnostic {
+                classification,
+            }) if classification == gent_types::OVERSIZED_PROVIDER_FRAME_DIAGNOSTIC => {
+                Some(transcript(
+                    binding,
+                    turn_id,
+                    fact.cursor,
+                    NormalizedTranscriptKind::Notice,
+                    gent_types::OVERSIZED_PROVIDER_FRAME_NOTICE,
+                    false,
+                ))
+            }
+            ClaurstFactValue::Event(NormalizedProviderEvent::ProviderFailure {
+                message, ..
+            }) => Some(transcript(
+                binding,
+                turn_id,
+                fact.cursor,
+                NormalizedTranscriptKind::Notice,
+                message,
+                false,
+            )),
             ClaurstFactValue::Event(NormalizedProviderEvent::Thinking { text, is_partial }) => {
                 Some(transcript(
                     binding,
@@ -128,7 +160,11 @@ fn transcript(
         run_id: binding.run_id.clone(),
         turn_id: turn_id.into(),
         kind,
-        text: text.into(),
+        text: gent_types::bounded_text(text, gent_types::MAX_TRANSCRIPT_TEXT_BYTES).into_owned(),
         is_partial,
     }
 }
+
+#[cfg(test)]
+#[path = "private_claurst_ingress_projection_tests.rs"]
+mod tests;

@@ -57,3 +57,7 @@ fn workspace_id(canonical_path: &str) -> String {
     digest.update(canonical_path.as_bytes());
     format!("workspace-{:x}", digest.finalize())
 }
+
+#[cfg(test)]
+#[path = "workspace_identity_tests.rs"]
+mod tests;

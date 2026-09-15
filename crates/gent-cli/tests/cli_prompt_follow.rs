@@ -9,24 +9,27 @@ use gent_protocol::{
 };
 use gent_types::{
     AgentChatConversationId, AgentChatPromptDelivery, AgentChatRunId, CapabilitySet,
-    DurableTurnPhase, HostEpoch, PROTOCOL_MAX, Receipt, ReceiptStatus, TurnTerminal,
+    DurableTurnPhase, HostEpoch, NormalizedTranscriptEvent, NormalizedTranscriptKind, PROTOCOL_MAX,
+    Receipt, ReceiptStatus, TurnTerminal,
 };
 use tokio::net::UnixListener;
 
+fn run_prompt(directory: &tempfile::TempDir, extra: &[&str]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_gent"));
+    command.args([
+        "--data-dir",
+        directory.path().to_str().unwrap(),
+        "--no-autostart",
+    ]);
+    command.args(extra).output().unwrap()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn direct_prompt_follows_a_negotiated_live_turn() {
+async fn direct_prompt_json_mode_prints_every_frame_of_a_live_turn() {
     let directory = tempfile::tempdir().unwrap();
     let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
-    tokio::spawn(serve(listener));
-    let output = Command::new(env!("CARGO_BIN_EXE_gent"))
-        .args([
-            "--data-dir",
-            directory.path().to_str().unwrap(),
-            "--no-autostart",
-            "reply briefly",
-        ])
-        .output()
-        .unwrap();
+    tokio::spawn(serve(listener, Vec::new(), DurableTurnPhase::Completed));
+    let output = run_prompt(&directory, &["--json", "reply briefly"]);
     assert!(
         output.status.success(),
         "{}",
@@ -36,7 +39,48 @@ async fn direct_prompt_follows_a_negotiated_live_turn() {
     assert!(stdout.contains("conversation-1") && stdout.contains("completed"));
 }
 
-async fn serve(listener: UnixListener) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn direct_prompt_streams_readable_text_and_explains_how_to_continue() {
+    let directory = tempfile::tempdir().unwrap();
+    let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+    tokio::spawn(serve(
+        listener,
+        vec![("PINE", true), ("APPLE", true), ("PINEAPPLE", false)],
+        DurableTurnPhase::Completed,
+    ));
+    let output = run_prompt(&directory, &["reply briefly"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "PINEAPPLE\n");
+    assert!(
+        stderr.contains("--conversation-id conversation-1"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains('{'), "{stderr}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_turn_exits_with_the_turn_failed_code_and_no_debug_output() {
+    let directory = tempfile::tempdir().unwrap();
+    let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+    tokio::spawn(serve(listener, Vec::new(), DurableTurnPhase::Failed));
+    let output = run_prompt(&directory, &["reply briefly"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(6), "{stderr}");
+    assert!(stderr.starts_with("gent: the turn failed"), "{stderr}");
+    assert!(!stderr.contains("Error:"), "{stderr}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_interrupted_json_turn_still_exits_non_zero() {
+    let directory = tempfile::tempdir().unwrap();
+    let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
+    tokio::spawn(serve(listener, Vec::new(), DurableTurnPhase::Cancelled));
+    let output = run_prompt(&directory, &["--json", "reply briefly"]);
+    assert_eq!(output.status.code(), Some(7));
+}
+
+async fn serve(listener: UnixListener, events: Vec<(&str, bool)>, phase: DurableTurnPhase) {
     for index in 0..5 {
         let (mut stream, _) = listener.accept().await.unwrap();
         assert!(matches!(
@@ -99,6 +143,7 @@ async fn serve(listener: UnixListener) {
                     conversation_id: AgentChatConversationId("conversation-1".into()),
                     run_id: AgentChatRunId("run-1".into()),
                     turn_id: "turn-1".into(),
+                    message_id: "message-1".into(),
                     delivery: AgentChatPromptDelivery::AwaitingProvider,
                 },
             )
@@ -110,6 +155,29 @@ async fn serve(listener: UnixListener) {
             else {
                 panic!("expected turn follow");
             };
+            let mut cursor = 0;
+            for (text, is_partial) in &events {
+                cursor += 1;
+                write_json_frame(
+                    &mut stream,
+                    &AgentChatTurnFollowFrame::Event {
+                        request_id: request_id.clone(),
+                        event: NormalizedTranscriptEvent {
+                            cursor,
+                            event_id: format!("event-{cursor}"),
+                            turn_id: "turn-1".into(),
+                            run_id: "run-1".into(),
+                            kind: NormalizedTranscriptKind::AssistantMessage,
+                            text: (*text).into(),
+                            is_partial: *is_partial,
+                            origin: None,
+                            attachments: Vec::new(),
+                        },
+                    },
+                )
+                .await
+                .unwrap();
+            }
             write_json_frame(
                 &mut stream,
                 &AgentChatTurnFollowFrame::Terminal {
@@ -118,8 +186,8 @@ async fn serve(listener: UnixListener) {
                         conversation_id: "conversation-1".into(),
                         run_id: "run-1".into(),
                         turn_id: "turn-1".into(),
-                        phase: DurableTurnPhase::Completed,
-                        cursor: 0,
+                        phase,
+                        cursor,
                     },
                 },
             )

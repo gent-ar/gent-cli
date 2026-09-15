@@ -51,3 +51,7 @@ where
     }
     Ok(true)
 }
+
+#[cfg(test)]
+#[path = "activity_transport_tests.rs"]
+mod tests;

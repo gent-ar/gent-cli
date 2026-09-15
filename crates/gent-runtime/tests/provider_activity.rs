@@ -1,5 +1,5 @@
 use gent_ports::{
-    ConversationActivityLedger, ConversationLedger, Ledger, RunLease, RunRecord, RunSessionBinding,
+    AgentChatWorkspaceLedger, ConversationActivityLedger, Ledger, RunLease, RunSessionBinding,
 };
 use gent_runtime::{
     ConversationActivityAuthority, ConversationActivityResult, ConversationActivityService,
@@ -7,8 +7,9 @@ use gent_runtime::{
 };
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, ConversationActivityFact, ConversationActivityScope, ConversationRecord,
-    HostEpoch,
+    AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
+    AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet, ConversationActivityFact,
+    ConversationActivityScope, HostEpoch, ReceiptId, WorkspaceRecord,
 };
 
 fn fact(event_id: &str) -> ProviderActivityFact {
@@ -28,14 +29,23 @@ fn fact(event_id: &str) -> ProviderActivityFact {
 
 fn prepare(ledger: &SqliteLedger) {
     ledger
-        .create_conversation_run(
-            &ConversationRecord {
-                conversation_id: "conversation-a".into(),
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-a".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "claude-sonnet".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
             },
-            &RunRecord {
-                run_id: "run-a".into(),
-                parent_run_id: None,
-                provider: "claude".into(),
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace-a".into(),
             },
         )
         .unwrap();

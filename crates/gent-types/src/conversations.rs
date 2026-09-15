@@ -28,6 +28,7 @@ pub enum DurableTurnPhase {
     WaitingQuestion,
     Completed,
     Interrupted,
+    Cancelled,
     Failed,
 }
 
@@ -35,7 +36,10 @@ impl DurableTurnPhase {
     /// Whether the phase has no valid successor.
     #[must_use]
     pub const fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Interrupted | Self::Failed)
+        matches!(
+            self,
+            Self::Completed | Self::Interrupted | Self::Cancelled | Self::Failed
+        )
     }
 }
 

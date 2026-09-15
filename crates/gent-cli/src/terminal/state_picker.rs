@@ -1,10 +1,14 @@
-use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider};
+use gent_types::{AgentChatEffort, AgentChatMode};
 
 use super::{SelectionPicker, UiState};
-use crate::terminal::selection::default_model;
+use crate::terminal::selection::{default_model, efforts, models, providers};
 
 impl UiState {
     pub(super) fn open_picker(&mut self, picker: SelectionPicker) {
+        if options(self, picker).is_empty() {
+            self.notice = Some("Gentd has not listed any choices for this yet.".into());
+            return;
+        }
         self.selection_picker_index = current(self, picker);
         self.selection_picker = Some(picker);
         self.notice = Some(match picker {
@@ -36,25 +40,28 @@ impl UiState {
             return Some(permission_request(self, self.selection_picker_index));
         };
         match (picker, self.selection_picker_index) {
-            (SelectionPicker::Provider, 0) => self.selection.provider = AgentChatProvider::Claurst,
-            (SelectionPicker::Provider, 1) => self.selection.provider = AgentChatProvider::Claude,
-            (SelectionPicker::Provider, _) => self.selection.provider = AgentChatProvider::Codex,
+            (SelectionPicker::Provider, index) => {
+                self.selection.provider = providers(self.model_catalog.as_ref())[index].0;
+            }
             (SelectionPicker::Model, index) => {
                 self.selection.model = options(self, picker)[index].clone()
             }
             (SelectionPicker::Effort, index) => {
-                self.selection.effort = effort(options(self, picker)[index].as_str())
+                self.selection.effort =
+                    efforts(self.model_catalog.as_ref(), &self.selection)[index];
             }
             (SelectionPicker::Mode, 0) => self.selection.mode = AgentChatMode::Ask,
             (SelectionPicker::Mode, 1) => self.selection.mode = AgentChatMode::Plan,
             (SelectionPicker::Mode, _) => self.selection.mode = AgentChatMode::Agent,
             (SelectionPicker::Permission, _) => unreachable!(),
         }
-        if picker == SelectionPicker::Provider {
-            self.selection.model = model_options(self)
-                .into_iter()
-                .next()
-                .unwrap_or_else(|| default_model(self.selection.provider).into());
+        if picker == SelectionPicker::Provider
+            && let Some(model) = default_model(self.model_catalog.as_ref(), self.selection.provider)
+        {
+            self.selection.model = model;
+        }
+        if matches!(picker, SelectionPicker::Provider | SelectionPicker::Model) {
+            super::selection_commands::fit_effort(self);
         }
         match super::super::state_switch::request(
             self.selected().map(|item| item.conversation_id.clone()),
@@ -64,6 +71,7 @@ impl UiState {
         ) {
             Ok(effect) => Some(effect),
             Err(_) => {
+                self.new_conversation_selection = Some(self.selection.clone());
                 self.notice = Some("Selection is ready for the next new conversation.".into());
                 None
             }
@@ -98,13 +106,15 @@ impl UiState {
 
 fn options(state: &UiState, picker: SelectionPicker) -> Vec<String> {
     match picker {
-        SelectionPicker::Provider => names(["Gent (Claurst)", "Claude", "Codex"]),
+        SelectionPicker::Provider => providers(state.model_catalog.as_ref())
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect(),
         SelectionPicker::Model => model_options(state),
         SelectionPicker::Effort => effort_options(state),
         SelectionPicker::Mode => names(["Ask", "Plan", "Agent"]),
         SelectionPicker::Permission => names([
-            "Ask every action",
-            "Read-only",
+            "Ask every time",
             "Auto-approve edits",
             "Autonomous",
             "Bypass all permissions",
@@ -113,22 +123,10 @@ fn options(state: &UiState, picker: SelectionPicker) -> Vec<String> {
 }
 
 pub(super) fn effort_options(state: &UiState) -> Vec<String> {
-    match state.selection.provider {
-        AgentChatProvider::Codex => names(["Low", "Medium", "High", "XHigh", "Max", "Ultra"]),
-        AgentChatProvider::Claude | AgentChatProvider::Claurst => names(["Low", "Medium", "High"]),
-    }
-}
-
-fn effort(value: &str) -> AgentChatEffort {
-    match value {
-        "Low" => AgentChatEffort::Low,
-        "Medium" => AgentChatEffort::Medium,
-        "High" => AgentChatEffort::High,
-        "XHigh" => AgentChatEffort::XHigh,
-        "Max" => AgentChatEffort::Max,
-        "Ultra" => AgentChatEffort::Ultra,
-        _ => AgentChatEffort::Medium,
-    }
+    efforts(state.model_catalog.as_ref(), &state.selection)
+        .into_iter()
+        .map(|value| effort_name(value).to_owned())
+        .collect()
 }
 
 fn names<const N: usize>(values: [&str; N]) -> Vec<String> {
@@ -136,39 +134,16 @@ fn names<const N: usize>(values: [&str; N]) -> Vec<String> {
 }
 
 pub(super) fn model_options(state: &UiState) -> Vec<String> {
-    match state.selection.provider {
-        AgentChatProvider::Claude => names(["haiku", "sonnet", "claude-fable-5", "opus"]),
-        AgentChatProvider::Codex => names([
-            "default",
-            "gpt-5.6",
-            "gpt-5.6-sol",
-            "gpt-5.6-terra",
-            "gpt-5.6-luna",
-            "gpt-5.5",
-            "gpt-5.4",
-            "gpt-5.4-mini",
-            "gpt-5.3-codex-spark",
-        ]),
-        AgentChatProvider::Claurst if !state.local_model_ids.is_empty() => {
-            state.local_model_ids.clone()
-        }
-        AgentChatProvider::Claurst => vec![default_model(AgentChatProvider::Claurst).into()],
-    }
+    models(state.model_catalog.as_ref(), state.selection.provider)
 }
 
 fn current(state: &UiState, picker: SelectionPicker) -> usize {
     options(state, picker)
         .iter()
         .position(|value| match picker {
-            SelectionPicker::Provider => {
-                let provider = match state.selection.provider {
-                    AgentChatProvider::Claude => "claude",
-                    AgentChatProvider::Codex => "codex",
-                    AgentChatProvider::Claurst => "claurst",
-                };
-                value.eq_ignore_ascii_case(provider)
-                    || value.to_ascii_lowercase().contains(provider)
-            }
+            SelectionPicker::Provider => providers(state.model_catalog.as_ref())
+                .iter()
+                .any(|(provider, label)| *provider == state.selection.provider && label == value),
             SelectionPicker::Model => value == &state.selection.model,
             SelectionPicker::Effort => {
                 value.eq_ignore_ascii_case(effort_name(state.selection.effort))
@@ -206,10 +181,9 @@ fn title(picker: SelectionPicker) -> &'static str {
 
 fn permission_request(state: &mut UiState, index: usize) -> super::UiEffect {
     let mode = match index {
-        0 => gent_types::PermissionMode::Default,
-        1 => gent_types::PermissionMode::Plan,
-        2 => gent_types::PermissionMode::AutoAcceptEdits,
-        3 => gent_types::PermissionMode::Autonomous,
+        0 => gent_types::PermissionMode::AskEveryTime,
+        1 => gent_types::PermissionMode::AutoAcceptEdits,
+        2 => gent_types::PermissionMode::Autonomous,
         _ => gent_types::PermissionMode::Bypass,
     };
     let Some(conversation_id) = state.selected().map(|item| item.conversation_id.clone()) else {
@@ -231,8 +205,7 @@ fn permission_request(state: &mut UiState, index: usize) -> super::UiEffect {
 
 fn permission_name(mode: gent_types::PermissionMode) -> &'static str {
     match mode {
-        gent_types::PermissionMode::Default => "Ask every action",
-        gent_types::PermissionMode::Plan => "Read-only",
+        gent_types::PermissionMode::AskEveryTime => "Ask every time",
         gent_types::PermissionMode::AutoAcceptEdits => "Auto-approve edits",
         gent_types::PermissionMode::Autonomous => "Autonomous",
         gent_types::PermissionMode::Bypass => "Bypass all permissions",

@@ -17,7 +17,7 @@ fn coordinator_exposes_only_current_secret_free_policy_revision() {
         workspace_id: "workspace-a".into(),
         scope: PolicyScope::ProviderPermissions,
         revision: 1,
-        mode: PermissionMode::Plan,
+        mode: PermissionMode::AskEveryTime,
         allowed_tools: vec!["git:status".into()],
         allowed_categories: Vec::new(),
     };

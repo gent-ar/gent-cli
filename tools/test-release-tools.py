@@ -25,10 +25,22 @@ VERIFIER = ROOT / "tools/verify-release.py"
 
 def package(target: Path, output: Path, runtime: Path, claurst: Path, archive_format: str, suffix: str = "") -> Path:
     environment = {**os.environ, "SOURCE_DATE_EPOCH": "1700000000"}
+    authority = target.parent / "authority"
+    authority.mkdir(exist_ok=True)
+    (authority / "ordinary-authority.json").write_text(
+        json.dumps({"key_id": "fixture", "payload": {}, "signature_hex": "00" * 64}),
+        encoding="utf-8",
+    )
+    (authority / "root-keys.json").write_text(
+        json.dumps({"version": 1, "keys": [f"fixture:{'01' * 32}"]}),
+        encoding="utf-8",
+    )
     subprocess.run(
         [sys.executable, str(PACKAGER), "--target-dir", str(target), "--out-dir", str(output),
          "--version", "0.1.0", "--target", "fixture-target", "--format", archive_format,
-         "--suffix", suffix, "--node-runtime-dir", str(runtime), "--claurst-runtime-dir", str(claurst)], check=True, env=environment)
+         "--suffix", suffix, "--node-runtime-dir", str(runtime), "--claurst-runtime-dir", str(claurst),
+         "--authority-release", str(authority / "ordinary-authority.json"),
+         "--authority-root-keys", str(authority / "root-keys.json")], check=True, env=environment)
     return output / f"gent-0.1.0-fixture-target.{archive_format}"
 
 
@@ -138,7 +150,9 @@ def main() -> None:
         assert "agent-chat-conversation-config-v1" in manifest["capabilities"]
         assert "agent-chat-checkpoint-v1" in manifest["capabilities"]
         assert "agent-chat-side-question-v1" in manifest["capabilities"]
-        assert "permission-policy-v1" in manifest["capabilities"]
+        assert "provider-auth-v1" in manifest["capabilities"]
+        assert "provider-readiness-v2" in manifest["capabilities"]
+        assert "permission-policy-v2" in manifest["capabilities"]
         assert "prompt-provider-provision-v1" in manifest["capabilities"]
         assert manifest["runtimes"] == ["runtime/node", "runtime/claurst"]
         rejects(first, "--version", "0.2.0")

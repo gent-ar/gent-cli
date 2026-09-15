@@ -1,0 +1,70 @@
+{
+ "default": {
+  "efforts": [
+   "high",
+   "low",
+   "max",
+   "medium",
+   "xhigh"
+  ],
+  "keys": [
+   "description",
+   "displayName",
+   "resolvedModel",
+   "supportedEffortLevels",
+   "supportsAdaptiveThinking",
+   "supportsAutoMode",
+   "supportsEffort",
+   "supportsFastMode",
+   "value"
+  ]
+ },
+ "haiku": {
+  "efforts": [],
+  "keys": [
+   "description",
+   "displayName",
+   "resolvedModel",
+   "value"
+  ]
+ },
+ "opus[1m]": {
+  "efforts": [
+   "high",
+   "low",
+   "max",
+   "medium",
+   "xhigh"
+  ],
+  "keys": [
+   "description",
+   "displayName",
+   "resolvedModel",
+   "supportedEffortLevels",
+   "supportsAdaptiveThinking",
+   "supportsAutoMode",
+   "supportsEffort",
+   "supportsFastMode",
+   "value"
+  ]
+ },
+ "sonnet": {
+  "efforts": [
+   "high",
+   "low",
+   "max",
+   "medium",
+   "xhigh"
+  ],
+  "keys": [
+   "description",
+   "displayName",
+   "resolvedModel",
+   "supportedEffortLevels",
+   "supportsAdaptiveThinking",
+   "supportsAutoMode",
+   "supportsEffort",
+   "value"
+  ]
+ }
+}

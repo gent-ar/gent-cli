@@ -6,7 +6,7 @@
 
 use crate::{
     local_model_catalog::{LocalModelCatalog, LocalModelRecord},
-    local_model_integrity::matches_sha256,
+    local_model_integrity::matches_verified_sha256,
 };
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -104,7 +104,7 @@ impl LocalModelProvisioner {
         let plan = self.plan(model_id)?;
         if let Some(size) = regular_file_size(&plan.destination)? {
             if size == plan.expected_bytes {
-                if !matches_sha256(&plan.destination, &plan.expected_sha256)
+                if !matches_verified_sha256(&plan.destination, &plan.expected_sha256)
                     .map_err(|error| io_error(&error))?
                 {
                     return Err(LocalModelProvisioningError::UnexpectedFileDigest {

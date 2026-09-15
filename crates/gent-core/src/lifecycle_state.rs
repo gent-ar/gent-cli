@@ -91,7 +91,11 @@ pub fn live_status(state: &LifecycleState, cursor: u64) -> ConversationLiveStatu
         },
         subagent_work,
         command_work,
-        attention: if state.needs_attention {
+        attention: if state.needs_attention
+            || matches!(
+                state.root_phase,
+                TurnPhase::WaitingPermission | TurnPhase::WaitingQuestion
+            ) {
             ConversationAttentionStatus::Required
         } else {
             ConversationAttentionStatus::default()
@@ -183,5 +187,14 @@ mod tests {
         assert!(status.is_processing());
         assert!(!status.is_waiting_for_subagents());
         assert!(!status.is_waiting_for_command());
+    }
+
+    #[test]
+    fn waiting_root_phase_requires_attention_without_an_adapter_hint() {
+        for phase in [TurnPhase::WaitingPermission, TurnPhase::WaitingQuestion] {
+            let waiting =
+                reduce_lifecycle(LifecycleState::default(), LifecycleEvent::RootPhase(phase));
+            assert!(live_status(&waiting, 1).needs_attention());
+        }
     }
 }

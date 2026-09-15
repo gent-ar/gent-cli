@@ -1,0 +1,108 @@
+{
+  "schema_version": 2,
+  "reconciliation": {
+    "state": "ownerReconciliationRequired",
+    "verified": "2026-09-15 live on macos-arm64",
+    "required": [
+      "Claude moved from 2.1.270 to 2.1.271 (compatibility entry claude-2.1.271-darwin-arm64, native digest 87d119eb46782a1369d79d6e8cc00557f1b51bc9db7a51bd01fa2f909d8fe3dc). The owner must re-sign the ordinary-authority payload with the 2.1.271 compatibility and package-policy entries before a release can authorize it.",
+      "Compare every provider entry with the signed ordinary-authority payload decoded from GENT_ORDINARY_AUTHORITY_RELEASE_BASE64 and change whichever side is wrong before the next signed release.",
+      "The local stream A authority payload pinned codex 0.154.0 with digest 61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70, which is the version-independent bin/codex.js npm shim; Gentd now installs and executes the native platform tarball binary, so that entry can no longer authorize a launch.",
+      "Only darwin-arm64 targets are verified. Before signing a multi-platform release, add each remaining target's platform tarball integrity and the sha256 of its executed native binary: claude-code-{darwin-x64,linux-arm64,linux-x64,win32-arm64,win32-x64} and @openai/codex@<version>-{darwin-x64,linux-arm64,linux-x64,win32-arm64,win32-x64}."
+    ]
+  },
+  "providers": {
+    "claude": {
+      "version": "2.1.271",
+      "version_output": "2.1.271 (Claude Code)",
+      "targets": {
+        "darwin-arm64": {
+          "package": {
+            "name": "@anthropic-ai/claude-code-darwin-arm64",
+            "version": "2.1.271",
+            "integrity": "sha512-meCDp4DnH8dYLdxnGKvbEEi1IrUUVOoA1mqYjNcqs6Dz2rx7l7NwuByReT6EtCZWdDc8Haml9rql1nfDHniS/A=="
+          },
+          "executable": "@anthropic-ai/claude-code-darwin-arm64/claude",
+          "executable_sha256": "87d119eb46782a1369d79d6e8cc00557f1b51bc9db7a51bd01fa2f909d8fe3dc"
+        }
+      }
+    },
+    "codex": {
+      "version": "0.153.4",
+      "version_output": "codex-cli 0.153.4",
+      "targets": {
+        "darwin-arm64": {
+          "package": {
+            "name": "@openai/codex",
+            "version": "0.153.4-darwin-arm64",
+            "integrity": "sha512-B1qhN3fa1ay0R0wGziXqgwSkB5icpYChNKHhtBHff/0UtSTC7z+l8aTtvMlGjH3E8HEvY3+njIJelM9CAAoVWg=="
+          },
+          "executable": "@openai/codex/vendor/aarch64-apple-darwin/bin/codex",
+          "executable_sha256": "b973d440acac501fd2594a43e7ca9ce41e0a65b9dfb28d0d7a7837c99e1261e3"
+        }
+      }
+    },
+    "claurst": {
+      "version": "0.1.7",
+      "release_tag": "v0.1.7",
+      "artifacts": {
+        "aarch64-apple-darwin": {
+          "url": "https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-macos-aarch64.tar.gz",
+          "sha256": "ae0ca9c49321f3ff10db03083899d2b2427896eb9b7f4f8b024c02c3c5f7f97b",
+          "binary": "claurst"
+        },
+        "x86_64-apple-darwin": {
+          "url": "https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-macos-x86_64.tar.gz",
+          "sha256": "bf3bd32b8b34a3f53e092657deffec78041c8b3e300e2fd2f7328ba4687ff969",
+          "binary": "claurst"
+        },
+        "x86_64-unknown-linux-gnu": {
+          "url": "https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-linux-x86_64.tar.gz",
+          "sha256": "0f7decc0e151ee4023c3bda26f14e564e1b3685fdbc892d623d01c508fa71f22",
+          "binary": "claurst"
+        },
+        "aarch64-unknown-linux-gnu": {
+          "url": "https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-linux-aarch64.tar.gz",
+          "sha256": "365205ab3e92758a97be291965732faa7c8f3b114b20d9bbc9be1769c338e86d",
+          "binary": "claurst"
+        },
+        "x86_64-pc-windows-msvc": {
+          "url": "https://github.com/Kuberwastaken/claurst/releases/download/v0.1.7/claurst-windows-x86_64.zip",
+          "sha256": "1de3b45200a35b42ef0e8712340942d54d05c8f1a5d6f709e733b46097af3f45",
+          "binary": "claurst.exe"
+        }
+      }
+    }
+  },
+  "runtimes": {
+    "llama_cpp": {
+      "release_tag": "b10545",
+      "artifacts": {
+        "aarch64-apple-darwin": {
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-macos-arm64.tar.gz",
+          "sha256": "c94b6cf341c23e2aff57cc0539aa9e32966d59f0ae2f723636e9e4379804c25a",
+          "binary": "llama-server"
+        },
+        "x86_64-apple-darwin": {
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-macos-x64.tar.gz",
+          "sha256": "0fa8f0d038f3084ccea60b6541139350f5bbfdc4d2f14ee708398baf169a32f0",
+          "binary": "llama-server"
+        },
+        "x86_64-unknown-linux-gnu": {
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-ubuntu-x64.tar.gz",
+          "sha256": "bc128b83e13e9dac47ebc4b6a2030ba2ff7629bd08a12cb0a680a2f0eb0093fc",
+          "binary": "llama-server"
+        },
+        "aarch64-unknown-linux-gnu": {
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-ubuntu-arm64.tar.gz",
+          "sha256": "63a3b27c3d677134bd09ab5fd992a80e141574903c932cae4159bfb3b5d7aece",
+          "binary": "llama-server"
+        },
+        "x86_64-pc-windows-msvc": {
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-win-cpu-x64.zip",
+          "sha256": "475e2720a6dec6e0e10c58b37461c140cf9523f4efb373cb5b65ae7e4ff6b4cf",
+          "binary": "llama-server.exe"
+        }
+      }
+    }
+  }
+}

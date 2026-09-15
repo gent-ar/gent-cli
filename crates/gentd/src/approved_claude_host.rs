@@ -97,7 +97,7 @@ where
         self.lifecycle.signal_active(signal)
     }
 
-    pub(crate) fn interrupt(&self, run_id: &str) -> Result<(), RuntimeError> {
+    pub(crate) fn interrupt(&mut self, run_id: &str) -> Result<(), RuntimeError> {
         self.lifecycle.interrupt(run_id)
     }
 

@@ -4,6 +4,7 @@ use gent_ports::PackageInstallPolicy;
 use super::{
     PackagePolicy, PackagePolicyEntry, PackagePolicyError, SignedPackagePolicy, TrustedKeySet,
 };
+use crate::provider_platform::{PLATFORMS, host_platform};
 
 const NODE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -23,12 +24,13 @@ fn signed(key: &SigningKey, entry: PackagePolicyEntry) -> SignedPackagePolicy {
 fn entry(provider: &str) -> PackagePolicyEntry {
     PackagePolicyEntry {
         provider: provider.into(),
-        package_name: match provider {
-            "claude" => "@anthropic-ai/claude-code",
-            _ => "@openai/codex",
-        }
-        .into(),
-        version: "0.147.0".into(),
+        package_name: host_platform()
+            .and_then(|platform| platform.package_name(provider))
+            .unwrap_or_else(|| provider.into()),
+        version: match provider {
+            "codex" => format!("0.147.0-{}", host_platform().unwrap().npm),
+            _ => "0.147.0".into(),
+        },
         integrity: format!("sha512-{}==", "A".repeat(86)),
         node_runtime_digest_sha256: NODE.into(),
         terms_version: "2026-01".into(),
@@ -49,7 +51,7 @@ fn verified_policy_selects_only_exact_nonrevoked_runtime_bound_package() {
     let verified = signed.verify(&keys(&key), 100, NODE).unwrap();
     assert_eq!(
         verified.approved_package("codex", 100).unwrap().selector(),
-        "@openai/codex@0.147.0"
+        format!("@openai/codex@0.147.0-{}", host_platform().unwrap().npm)
     );
     assert!(verified.approved_package("claude", 100).is_err());
     assert!(
@@ -104,4 +106,54 @@ fn strict_deserialization_rejects_unknown_data_and_bad_signatures() {
         policy.verify_envelope(&keys(&key), 1),
         Err(PackagePolicyError::InvalidShape)
     );
+}
+
+#[test]
+fn claude_is_approved_only_as_this_platforms_native_binary_package() {
+    let key = SigningKey::from_bytes(&[7; 32]);
+    let native = signed(&key, entry("claude"));
+    let verified = native.verify(&keys(&key), 100, NODE).unwrap();
+    assert_eq!(
+        verified
+            .approved_package("claude", 100)
+            .unwrap()
+            .package_name,
+        host_platform().unwrap().package_name("claude").unwrap()
+    );
+    let mut wrapper = entry("claude");
+    wrapper.package_name = "@anthropic-ai/claude-code".into();
+    assert_eq!(
+        signed(&key, wrapper).verify_envelope(&keys(&key), 1),
+        Err(PackagePolicyError::InvalidShape)
+    );
+    let mut other = entry("claude");
+    other.package_name = foreign_platform().package_name("claude").unwrap();
+    let other = signed(&key, other).verify(&keys(&key), 100, NODE).unwrap();
+    assert!(other.approved_package("claude", 100).is_err());
+}
+
+fn foreign_platform() -> crate::provider_platform::ProviderPlatform {
+    *PLATFORMS
+        .iter()
+        .find(|platform| Some(**platform) != host_platform())
+        .unwrap()
+}
+
+#[test]
+fn codex_is_approved_only_as_this_platforms_native_tarball() {
+    let key = SigningKey::from_bytes(&[8; 32]);
+    let native = signed(&key, entry("codex"))
+        .verify(&keys(&key), 100, NODE)
+        .unwrap();
+    assert!(native.approved_package("codex", 100).is_ok());
+    let mut shim = entry("codex");
+    shim.version = "0.147.0".into();
+    assert_eq!(
+        signed(&key, shim).verify_envelope(&keys(&key), 1),
+        Err(PackagePolicyError::InvalidShape)
+    );
+    let mut other = entry("codex");
+    other.version = format!("0.147.0-{}", foreign_platform().npm);
+    let other = signed(&key, other).verify(&keys(&key), 100, NODE).unwrap();
+    assert!(other.approved_package("codex", 100).is_err());
 }

@@ -1,0 +1,69 @@
+{
+ "emittedSessionUpdates": [
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update"
+ ],
+ "initialize": {
+  "loadSession": false,
+  "promptCapabilities": []
+ },
+ "rejectedRequests": [
+  "session/load"
+ ],
+ "schemaAgentMethods": [
+  "authenticate",
+  "initialize",
+  "logout",
+  "providers/disable",
+  "providers/list",
+  "providers/set",
+  "session/cancel",
+  "session/close",
+  "session/fork",
+  "session/list",
+  "session/load",
+  "session/new",
+  "session/prompt",
+  "session/resume",
+  "session/set_config_option",
+  "session/set_mode",
+  "session/set_model"
+ ],
+ "schemaClientMethods": [
+  "elicitation/complete",
+  "elicitation/create",
+  "fs/read_text_file",
+  "fs/write_text_file",
+  "session/request_permission",
+  "session/update",
+  "terminal/create",
+  "terminal/kill",
+  "terminal/output",
+  "terminal/release",
+  "terminal/wait_for_exit"
+ ],
+ "schemaSessionUpdates": [
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "available_commands_update",
+  "config_option_update",
+  "current_mode_update",
+  "plan",
+  "session_info_update",
+  "tool_call",
+  "tool_call_update",
+  "usage_update",
+  "user_message_chunk"
+ ],
+ "servedNotifications": [
+  "session/cancel"
+ ],
+ "servedRequests": [
+  "authenticate",
+  "initialize",
+  "session/new",
+  "session/prompt"
+ ]
+}

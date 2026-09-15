@@ -1,0 +1,11 @@
+{
+ "acp_schema": "agent-client-protocol-schema-0.13.0",
+ "captured_at": "2026-09-14T20:10:38+00:00",
+ "commit": "00db2b642469189bca46318cbf4efd1d216ad0cd",
+ "evidence": "sourceCheckout",
+ "pinned_release_binary_verified": false,
+ "platform": "darwin-arm64",
+ "provider": "claurst",
+ "tool": "provider-contract-snapshot/1",
+ "version": "0.1.7"
+}

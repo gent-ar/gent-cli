@@ -36,6 +36,8 @@ pub struct GitStatusSummary {
 pub enum GitExecutorError {
     #[error("Git worktree path is invalid")]
     InvalidWorktree,
+    #[error("Directory is not inside a Git repository")]
+    NotRepository,
     #[error("Git could not be started")]
     SpawnFailed,
     #[error("Git status output exceeded the configured bound")]

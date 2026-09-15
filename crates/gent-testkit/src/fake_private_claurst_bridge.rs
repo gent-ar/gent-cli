@@ -1,13 +1,13 @@
 //! Scriptable fake for the private Claurst normalized-fact boundary.
-#![allow(clippy::missing_panics_doc)] // Test fakes fail fast on poisoned state.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
 use gent_ports::{
-    ClaurstDrainBatch, ClaurstDrainRequest, ClaurstNormalizedFact, ClaurstSessionBinding,
-    ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, PortError, PrivateClaurstBridge,
+    ClaurstDrainBatch, ClaurstDrainRequest, ClaurstNormalizedFact, ClaurstPermissionReply,
+    ClaurstSessionBinding, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, PortError,
+    PrivateClaurstBridge,
 };
 
 #[derive(Debug, Default)]
@@ -20,6 +20,7 @@ struct BridgeState {
     requests: Vec<ClaurstDrainRequest>,
     batches: VecDeque<Result<ClaurstDrainBatch, String>>,
     settled: BTreeSet<ClaurstSourceId>,
+    permission_replies: Vec<(String, ClaurstPermissionReply)>,
 }
 
 /// Deterministic fake that enforces the private bridge's ordering and secrecy contract.
@@ -29,82 +30,64 @@ pub struct FakePrivateClaurstBridge {
 }
 
 impl FakePrivateClaurstBridge {
-    /// Queues the private session binding returned for the next valid daemon-owned start.
-    pub fn push_start_binding(&self, binding: ClaurstSessionBinding) {
+    fn state(&self) -> MutexGuard<'_, BridgeState> {
         self.state
             .lock()
             .expect("private bridge fake mutex poisoned")
-            .start_bindings
-            .push_back(Ok(binding));
+    }
+
+    /// Queues the private session binding returned for the next valid daemon-owned start.
+    pub fn push_start_binding(&self, binding: ClaurstSessionBinding) {
+        self.state().start_bindings.push_back(Ok(binding));
     }
 
     /// Queues one result for the next valid drain request.
     pub fn push_batch(&self, batch: ClaurstDrainBatch) {
-        self.state
-            .lock()
-            .expect("private bridge fake mutex poisoned")
-            .batches
-            .push_back(Ok(batch));
+        self.state().batches.push_back(Ok(batch));
     }
 
     /// Queues one controlled bridge failure for the next valid drain request.
     pub fn fail_next_drain(&self, message: impl Into<String>) {
-        self.state
-            .lock()
-            .expect("private bridge fake mutex poisoned")
-            .batches
-            .push_back(Err(message.into()));
+        self.state().batches.push_back(Err(message.into()));
     }
 
     /// Returns every daemon-owned session binding the fake observed.
     #[must_use]
     pub fn bindings(&self) -> Vec<ClaurstSessionBinding> {
-        self.state
-            .lock()
-            .expect("private bridge fake mutex poisoned")
-            .bindings
-            .values()
-            .cloned()
-            .collect()
+        self.state().bindings.values().cloned().collect()
     }
 
     /// Returns normalized start input the daemon supplied, never provider configuration.
     #[must_use]
     pub fn starts(&self) -> Vec<ClaurstStartRequest> {
-        self.state
-            .lock()
-            .expect("private bridge fake mutex poisoned")
-            .starts
-            .clone()
+        self.state().starts.clone()
     }
 
     /// Returns follow-up inputs accepted for an already bound private source.
     #[must_use]
     pub fn submissions(&self) -> Vec<ClaurstSubmitRequest> {
-        self.state
-            .lock()
-            .expect("private bridge fake mutex poisoned")
-            .submissions
-            .clone()
+        self.state().submissions.clone()
     }
 
     #[must_use]
     pub fn cancellations(&self) -> Vec<ClaurstSessionBinding> {
-        self.state
-            .lock()
-            .expect("private bridge fake mutex poisoned")
-            .cancellations
-            .clone()
+        self.state().cancellations.clone()
     }
 
     /// Returns drain requests in the order a daemon would have issued them.
     #[must_use]
     pub fn requests(&self) -> Vec<ClaurstDrainRequest> {
-        self.state
-            .lock()
-            .expect("private bridge fake mutex poisoned")
-            .requests
-            .clone()
+        self.state().requests.clone()
+    }
+
+    /// Returns whether a scripted drain result has not been consumed yet.
+    pub fn has_pending_batches(&self) -> bool {
+        !self.state().batches.is_empty()
+    }
+
+    /// Returns every permission reply the daemon relayed, in order.
+    pub fn permission_replies(&self) -> Vec<(String, ClaurstPermissionReply)> {
+        self.state().permission_replies.clone()
     }
 }
 
@@ -117,10 +100,7 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         request
             .validate()
             .map_err(|_| contract_error("start input is invalid"))?;
-        let mut state = self
-            .state
-            .lock()
-            .expect("private bridge fake mutex poisoned");
+        let mut state = self.state();
         state.starts.push(request.clone());
         let binding = state
             .start_bindings
@@ -139,10 +119,7 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         {
             return Err(contract_error("session binding is incomplete"));
         }
-        let mut state = self
-            .state
-            .lock()
-            .expect("private bridge fake mutex poisoned");
+        let mut state = self.state();
         match state.bindings.get(&binding.source_id) {
             Some(existing) if existing != &binding => {
                 Err(contract_error("source is already bound to another session"))
@@ -158,10 +135,7 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         request
             .validate()
             .map_err(|_| contract_error("submit input is invalid"))?;
-        let mut state = self
-            .state
-            .lock()
-            .expect("private bridge fake mutex poisoned");
+        let mut state = self.state();
         (state.bindings.get(&request.binding.source_id) == Some(&request.binding))
             .then_some(())
             .ok_or_else(|| contract_error("submit source has no matching session"))?;
@@ -170,10 +144,7 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
     }
 
     async fn cancel(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("private bridge fake mutex poisoned");
+        let mut state = self.state();
         (state.bindings.get(&binding.source_id) == Some(&binding)
             && !state.settled.contains(&binding.source_id))
         .then_some(())
@@ -182,14 +153,23 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         Ok(())
     }
 
+    async fn respond_permission(
+        &self,
+        _binding: ClaurstSessionBinding,
+        request_id: &str,
+        reply: ClaurstPermissionReply,
+    ) -> Result<(), PortError> {
+        self.state()
+            .permission_replies
+            .push((request_id.into(), reply));
+        Ok(())
+    }
+
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
         if !request.is_bounded() {
             return Err(contract_error("drain exceeds bounded contract"));
         }
-        let mut state = self
-            .state
-            .lock()
-            .expect("private bridge fake mutex poisoned");
+        let mut state = self.state();
         let binding = state
             .bindings
             .get(&request.source_id)

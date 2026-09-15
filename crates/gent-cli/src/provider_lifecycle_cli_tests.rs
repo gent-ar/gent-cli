@@ -211,5 +211,6 @@ fn status() -> HostStatus {
         protocol_min: PROTOCOL_MAX,
         protocol_max: PROTOCOL_MAX,
         capabilities: CapabilitySet::default(),
+        executable_digest_sha256: None,
     }
 }

@@ -15,9 +15,6 @@ pub enum ProviderAuthProvider {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ProviderAuthMethod {
     AccountBrowser,
-    DeviceCode,
-    ApiKey,
-    AccessToken,
 }
 
 /// A digest-bound executable identity, captured before login is started.
@@ -34,18 +31,17 @@ pub struct ProviderAuthBinaryLock {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum ProviderAuthLifecycle {
-    Unknown,
+    NotInstalled,
+    Checking,
     Unauthenticated,
     ChallengeOffered,
-    OpeningBrowser,
-    AwaitingDeviceApproval,
     Verifying,
     Authenticated,
     Expired,
     Cancelled,
     TimedOut,
-    ProviderChanged,
     Failed,
+    ProviderChanged,
 }
 
 /// A bounded prompt for a terminal or native client to render as an `askTool` choice.
@@ -75,7 +71,7 @@ pub struct ProviderAuthMethodSelection {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderAuthStatus {
     pub provider: ProviderAuthProvider,
-    pub binary_lock: ProviderAuthBinaryLock,
+    pub binary_lock: Option<ProviderAuthBinaryLock>,
     pub lifecycle: ProviderAuthLifecycle,
     pub selected_method: Option<ProviderAuthMethod>,
     pub expires_at_unix_seconds: Option<u64>,

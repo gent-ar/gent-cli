@@ -1,0 +1,18 @@
+{
+ "appServer": {
+  "argv": [
+   "app-server",
+   "-c",
+   "check_for_update_on_startup=false"
+  ],
+  "handshake": "success",
+  "result": {
+   "/": "object",
+   "/codexHome": "str",
+   "/platformFamily": "str",
+   "/platformOs": "str",
+   "/userAgent": "str"
+  },
+  "stderr": ""
+ }
+}

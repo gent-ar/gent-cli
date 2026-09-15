@@ -86,6 +86,7 @@ fn decision(
 fn failure_decision(
     saved: &gent_types::AgentChatPromptSaved,
     provider: AgentChatProvider,
+    exit: gent_types::PromptAdmissionExit,
     reason: &str,
 ) -> (ProviderPromptReadinessFailureBinding, Command, Event) {
     let binding = ProviderPromptReadinessFailureBinding {
@@ -93,6 +94,7 @@ fn failure_decision(
         conversation_id: AgentChatConversationId(saved.message.conversation_id.clone()),
         run_id: saved.run_id.clone(),
         provider,
+        exit,
         reason: reason.into(),
     };
     let payload = serde_json::to_value(&binding).unwrap();
@@ -146,8 +148,12 @@ fn verified_readiness_is_atomic_idempotent_and_only_makes_the_prompt_claimable()
 #[test]
 fn readiness_failure_terminalizes_the_exact_prompt_and_is_idempotent() {
     let (ledger, saved) = seeded();
-    let (binding, command, terminal) =
-        failure_decision(&saved, AgentChatProvider::Codex, "transport failed");
+    let (binding, command, terminal) = failure_decision(
+        &saved,
+        AgentChatProvider::Codex,
+        gent_types::PromptAdmissionExit::Failed,
+        "transport failed",
+    );
     let receipt = ledger
         .fail_verified_agent_chat_prompt_after_readiness(&command, &terminal, &binding)
         .unwrap();
@@ -175,13 +181,13 @@ fn readiness_failure_terminalizes_the_exact_prompt_and_is_idempotent() {
     let transcript = ledger
         .normalized_transcript_page(&AgentChatConversationId("conversation".into()), 0, 10)
         .unwrap();
-    assert_eq!(transcript.events.len(), 1);
+    assert_eq!(transcript.events.len(), 2);
     assert_eq!(
-        transcript.events[0].kind,
+        transcript.events[1].kind,
         gent_types::NormalizedTranscriptKind::Notice
     );
     assert_eq!(
-        transcript.events[0].text,
+        transcript.events[1].text,
         "provider readiness failed: transport failed"
     );
     assert_eq!(
@@ -199,8 +205,12 @@ fn readiness_failure_terminalizes_the_exact_prompt_and_is_idempotent() {
 #[test]
 fn readiness_failure_rejects_wrong_provider_and_conflicting_retry() {
     let (ledger, saved) = seeded();
-    let (wrong_binding, wrong_command, wrong_terminal) =
-        failure_decision(&saved, AgentChatProvider::Claude, "transport failed");
+    let (wrong_binding, wrong_command, wrong_terminal) = failure_decision(
+        &saved,
+        AgentChatProvider::Claude,
+        gent_types::PromptAdmissionExit::Failed,
+        "transport failed",
+    );
     assert!(
         ledger
             .fail_verified_agent_chat_prompt_after_readiness(
@@ -210,8 +220,12 @@ fn readiness_failure_rejects_wrong_provider_and_conflicting_retry() {
             )
             .is_err()
     );
-    let (binding, command, terminal) =
-        failure_decision(&saved, AgentChatProvider::Codex, "transport failed");
+    let (binding, command, terminal) = failure_decision(
+        &saved,
+        AgentChatProvider::Codex,
+        gent_types::PromptAdmissionExit::Failed,
+        "transport failed",
+    );
     ledger
         .fail_verified_agent_chat_prompt_after_readiness(&command, &terminal, &binding)
         .unwrap();

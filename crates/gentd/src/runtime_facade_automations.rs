@@ -21,7 +21,20 @@ use gent_types::{
 use crate::runtime_facade::RuntimeFacade;
 
 impl RuntimeFacade {
-    pub(crate) fn run_automation(
+    pub(super) fn exchange_automation(
+        &self,
+        frame: AutomationFrame,
+    ) -> Result<AutomationFrame, String> {
+        match frame {
+            AutomationFrame::RunRequest {
+                request_id,
+                automation_id,
+            } => self.run_automation(request_id, automation_id),
+            frame => crate::automation_api::exchange(&self.automations, frame),
+        }
+    }
+
+    fn run_automation(
         &self,
         request_id: String,
         automation_id: AutomationId,
@@ -47,7 +60,7 @@ impl RuntimeFacade {
             request_id: AgentChatRequestId(create_request),
             receipt_id: ReceiptId(format!("automation-receipt-create-{request_id}")),
             workspace_path: definition.working_directory.clone(),
-            selection: definition.selection.clone(),
+            selection: Some(definition.selection.clone()),
         })?;
         let AgentChatIntentFrame::Created {
             conversation_id,

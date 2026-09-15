@@ -153,7 +153,7 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
         let released = transaction
             .execute(
                 "UPDATE agent_chat_prompt_dispatches SET state = 'pending' WHERE message_id = ?1 AND state = 'provisioning'",
-                [message_id],
+                [&message_id],
             )
             .map_err(storage_error)?;
         if released != 1 {
@@ -161,6 +161,12 @@ impl PrivateProviderPromptProvisionLedger for SqliteLedger {
                 "prompt provision held dispatch changed before settlement".into(),
             ));
         }
+        super::agent_chat_ledger::prompt_admission_hold::clear(
+            &transaction,
+            &message_id,
+            receipt.host_epoch,
+            super::agent_chat_ledger::prompt_admission_hold::HoldExit::Released,
+        )?;
         transaction.commit().map_err(storage_error)?;
         Ok(Receipt {
             status: ReceiptStatus::Settled,
@@ -238,6 +244,9 @@ fn reserve(
     transaction.commit().map_err(storage_error)
 }
 
+#[cfg(test)]
+#[path = "private_provider_prompt_provision_admission_tests.rs"]
+mod admission_tests;
 #[cfg(test)]
 #[path = "private_provider_prompt_provision_failure_tests.rs"]
 mod failure_tests;

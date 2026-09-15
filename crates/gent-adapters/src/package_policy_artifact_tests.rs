@@ -95,7 +95,10 @@ fn policy(key: &SigningKey) -> SignedPackagePolicy {
         entries: vec![PackagePolicyEntry {
             provider: "codex".into(),
             package_name: "@openai/codex".into(),
-            version: "0.147.0".into(),
+            version: format!(
+                "0.147.0-{}",
+                crate::provider_platform::host_platform().unwrap().npm
+            ),
             integrity: format!("sha512-{}==", "A".repeat(86)),
             node_runtime_digest_sha256: NODE.into(),
             terms_version: "2026-01".into(),

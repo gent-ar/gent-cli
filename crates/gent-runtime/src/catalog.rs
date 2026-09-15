@@ -4,13 +4,14 @@ use gent_protocol::{
     AGENT_CHAT_CHECKPOINT_CAPABILITY, AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY,
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
     AGENT_CHAT_SESSIONS_CAPABILITY, AGENT_CHAT_SIDE_QUESTION_CAPABILITY,
-    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY,
-    AUTOMATIONS_CAPABILITY, CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_CONTENT_CAPABILITY,
+    AGENT_CHAT_TRANSCRIPT_CAPABILITY, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY,
+    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, ATTACHMENTS_CAPABILITY, AUTOMATIONS_CAPABILITY,
+    CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_CONTENT_CAPABILITY,
     CONVERSATION_INDEX_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY, EVENT_STREAM_CAPABILITY, FORGE_CONNECTORS_CAPABILITY,
     GOAL_CAPABILITY, LOCAL_MODELS_CAPABILITY, ORCHESTRATION_CAPABILITY,
-    PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_READINESS_CAPABILITY, REVIEWED_PLAN_CAPABILITY,
-    RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
+    PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_AUTH_CAPABILITY, PROVIDER_READINESS_CAPABILITY,
+    REVIEWED_PLAN_CAPABILITY, RUNTIME_MAINTENANCE_CAPABILITY, RUNTIME_UPDATE_CHECK_CAPABILITY,
 };
 use gent_types::CapabilitySet;
 
@@ -51,103 +52,6 @@ const DECLARED: [RuntimeCapability; 7] = [
     RuntimeCapability::PermissionPolicies,
     RuntimeCapability::Receipts,
 ];
-
-/// One concrete handler eligible for an authority profile's wire advertisement.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RuntimeCapabilityFeature {
-    AgentChat,
-    ConversationActivity,
-    AgentChatPermissions,
-    TurnFollow,
-    ReviewedPlans,
-    ProviderReadiness,
-    PromptProviderProvision,
-    RuntimeUpdateCheck,
-    RuntimeMaintenance,
-    LocalModels,
-    PromptTemplates,
-    WorkspaceDocuments,
-    WorkspaceGit,
-}
-
-/// Concrete runtime handlers eligible for one authority profile's wire advertisement.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RuntimeCapabilityProfile {
-    features: Vec<RuntimeCapabilityFeature>,
-}
-
-impl RuntimeCapabilityProfile {
-    /// Builds a stable deduplicated profile from concrete handler observations.
-    #[must_use]
-    pub fn new(features: impl IntoIterator<Item = RuntimeCapabilityFeature>) -> Self {
-        let mut unique = Vec::new();
-        for feature in features {
-            if !unique.contains(&feature) {
-                unique.push(feature);
-            }
-        }
-        Self { features: unique }
-    }
-
-    fn has(&self, feature: RuntimeCapabilityFeature) -> bool {
-        self.features.contains(&feature)
-    }
-
-    #[must_use]
-    pub fn agent_chat_enabled(&self) -> bool {
-        self.has(RuntimeCapabilityFeature::AgentChat)
-    }
-
-    #[must_use]
-    pub fn agent_chat_permissions_enabled(&self) -> bool {
-        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::AgentChatPermissions)
-    }
-
-    #[must_use]
-    pub fn conversation_activity_enabled(&self) -> bool {
-        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ConversationActivity)
-    }
-
-    #[must_use]
-    pub fn turn_follow_enabled(&self) -> bool {
-        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::TurnFollow)
-    }
-
-    #[must_use]
-    pub fn reviewed_plans_enabled(&self) -> bool {
-        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ReviewedPlans)
-    }
-
-    #[must_use]
-    pub fn provider_readiness_enabled(&self) -> bool {
-        self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ProviderReadiness)
-    }
-
-    #[must_use]
-    pub fn prompt_provider_provision_enabled(&self) -> bool {
-        self.provider_readiness_enabled()
-            && self.has(RuntimeCapabilityFeature::PromptProviderProvision)
-    }
-
-    #[must_use]
-    pub fn runtime_update_check_enabled(&self) -> bool {
-        self.has(RuntimeCapabilityFeature::RuntimeUpdateCheck)
-    }
-
-    #[must_use]
-    pub fn runtime_maintenance_enabled(&self) -> bool {
-        self.has(RuntimeCapabilityFeature::RuntimeMaintenance)
-    }
-
-    #[must_use]
-    pub fn local_models_enabled(&self) -> bool {
-        self.has(RuntimeCapabilityFeature::LocalModels)
-    }
-
-    pub fn prompt_templates_enabled(&self) -> bool {
-        self.has(RuntimeCapabilityFeature::PromptTemplates)
-    }
-}
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum CatalogError {
@@ -193,102 +97,87 @@ pub fn declared_capabilities_with_agent_chat(agent_chat_enabled: bool) -> Capabi
 /// Returns the catalog for explicit authority profiles that have concrete handlers.
 #[must_use]
 pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -> CapabilitySet {
+    let agent_chat = profile.agent_chat_enabled();
+    let profiled = [
+        (agent_chat, RuntimeCapability::AgentChatIntents.wire_name()),
+        (agent_chat, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY),
+        (agent_chat, AGENT_CHAT_CONVERSATIONS_CAPABILITY),
+        (agent_chat, AGENT_CHAT_TRANSCRIPT_CAPABILITY),
+        (agent_chat, AGENT_CHAT_SESSIONS_CAPABILITY),
+        (agent_chat, GOAL_CAPABILITY),
+        (agent_chat, ORCHESTRATION_CAPABILITY),
+        (agent_chat, AUTOMATIONS_CAPABILITY),
+        (agent_chat, FORGE_CONNECTORS_CAPABILITY),
+        (agent_chat, AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY),
+        (agent_chat, AGENT_CHAT_CHECKPOINT_CAPABILITY),
+        (agent_chat, AGENT_CHAT_SIDE_QUESTION_CAPABILITY),
+        (
+            agent_chat,
+            gent_protocol::agent_chat_commands::AGENT_CHAT_COMMANDS_CAPABILITY,
+        ),
+        (
+            agent_chat && profile.prompt_templates_enabled(),
+            gent_protocol::PROMPT_TEMPLATES_CAPABILITY,
+        ),
+        (
+            agent_chat && profile.has(RuntimeCapabilityFeature::WorkspaceDocuments),
+            gent_protocol::WORKSPACE_DOCUMENTS_CAPABILITY,
+        ),
+        (
+            agent_chat && profile.has(RuntimeCapabilityFeature::WorkspaceGit),
+            gent_protocol::WORKSPACE_GIT_CAPABILITY,
+        ),
+        (
+            profile.turn_follow_enabled(),
+            AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
+        ),
+        (
+            profile.agent_chat_permissions_enabled(),
+            gent_protocol::AGENT_CHAT_PERMISSIONS_CAPABILITY,
+        ),
+        (
+            profile.conversation_activity_enabled(),
+            CONVERSATION_ACTIVITY_CAPABILITY,
+        ),
+        (
+            profile.agent_chat_projection_enabled(),
+            gent_protocol::AGENT_CHAT_PROJECTION_CAPABILITY,
+        ),
+        (profile.reviewed_plans_enabled(), REVIEWED_PLAN_CAPABILITY),
+        (
+            profile.provider_readiness_enabled(),
+            PROVIDER_READINESS_CAPABILITY,
+        ),
+        (profile.provider_auth_enabled(), PROVIDER_AUTH_CAPABILITY),
+        (
+            profile.prompt_provider_provision_enabled(),
+            PROMPT_PROVIDER_PROVISION_CAPABILITY,
+        ),
+        (
+            profile.runtime_update_check_enabled(),
+            RUNTIME_UPDATE_CHECK_CAPABILITY,
+        ),
+        (
+            profile.runtime_maintenance_enabled(),
+            RUNTIME_MAINTENANCE_CAPABILITY,
+        ),
+        (profile.local_models_enabled(), LOCAL_MODELS_CAPABILITY),
+        (
+            profile.local_models_enabled(),
+            gent_protocol::model_catalog::MODEL_CATALOG_CAPABILITY,
+        ),
+        (true, CONVERSATION_STATUS_CAPABILITY),
+        (true, CONVERSATION_INDEX_CAPABILITY),
+        (true, CONVERSATION_TIMELINE_CAPABILITY),
+        (true, CONVERSATION_CONTENT_CAPABILITY),
+    ];
     let mut capabilities = capability_set(DECLARED);
-    if profile.agent_chat_enabled() {
-        capabilities
-            .0
-            .push(RuntimeCapability::AgentChatIntents.wire_name().into());
-        capabilities
-            .0
-            .push(AGENT_CHAT_CONVERSATIONS_CAPABILITY.to_owned());
-        capabilities
-            .0
-            .push(AGENT_CHAT_TRANSCRIPT_CAPABILITY.to_owned());
-        capabilities
-            .0
-            .push(AGENT_CHAT_SESSIONS_CAPABILITY.to_owned());
-        capabilities.0.push(GOAL_CAPABILITY.to_owned());
-        capabilities.0.push(ORCHESTRATION_CAPABILITY.to_owned());
-        capabilities.0.push(AUTOMATIONS_CAPABILITY.to_owned());
-        capabilities.0.push(FORGE_CONNECTORS_CAPABILITY.to_owned());
-        capabilities
-            .0
-            .push(AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY.to_owned());
-        capabilities
-            .0
-            .push(AGENT_CHAT_CHECKPOINT_CAPABILITY.to_owned());
-        capabilities
-            .0
-            .push(AGENT_CHAT_SIDE_QUESTION_CAPABILITY.to_owned());
-        if profile.prompt_templates_enabled() {
-            capabilities
-                .0
-                .push(gent_protocol::PROMPT_TEMPLATES_CAPABILITY.to_owned());
-        }
-        if profile.has(RuntimeCapabilityFeature::WorkspaceDocuments) {
-            capabilities
-                .0
-                .push(gent_protocol::WORKSPACE_DOCUMENTS_CAPABILITY.to_owned());
-        }
-        if profile.has(RuntimeCapabilityFeature::WorkspaceGit) {
-            capabilities
-                .0
-                .push(gent_protocol::WORKSPACE_GIT_CAPABILITY.to_owned());
-        }
-        if profile.turn_follow_enabled() {
-            capabilities
-                .0
-                .push(AGENT_CHAT_TURN_FOLLOW_CAPABILITY.to_owned());
-        }
-        if profile.agent_chat_permissions_enabled() {
-            capabilities
-                .0
-                .push(gent_protocol::AGENT_CHAT_PERMISSIONS_CAPABILITY.to_owned());
-        }
-        if profile.conversation_activity_enabled() {
-            capabilities
-                .0
-                .push(CONVERSATION_ACTIVITY_CAPABILITY.to_owned());
-        }
-    }
-    if profile.reviewed_plans_enabled() {
-        capabilities.0.push(REVIEWED_PLAN_CAPABILITY.to_owned());
-    }
-    if profile.provider_readiness_enabled() {
-        capabilities
-            .0
-            .push(PROVIDER_READINESS_CAPABILITY.to_owned());
-    }
-    if profile.prompt_provider_provision_enabled() {
-        capabilities
-            .0
-            .push(PROMPT_PROVIDER_PROVISION_CAPABILITY.to_owned());
-    }
-    if profile.runtime_update_check_enabled() {
-        capabilities
-            .0
-            .push(RUNTIME_UPDATE_CHECK_CAPABILITY.to_owned());
-    }
-    if profile.runtime_maintenance_enabled() {
-        capabilities
-            .0
-            .push(RUNTIME_MAINTENANCE_CAPABILITY.to_owned());
-    }
-    if profile.local_models_enabled() {
-        capabilities.0.push(LOCAL_MODELS_CAPABILITY.to_owned());
-    }
-    capabilities
-        .0
-        .push(CONVERSATION_STATUS_CAPABILITY.to_owned());
-    capabilities
-        .0
-        .push(CONVERSATION_INDEX_CAPABILITY.to_owned());
-    capabilities
-        .0
-        .push(CONVERSATION_TIMELINE_CAPABILITY.to_owned());
-    capabilities
-        .0
-        .push(CONVERSATION_CONTENT_CAPABILITY.to_owned());
+    capabilities.0.extend(
+        profiled
+            .into_iter()
+            .filter(|(enabled, _)| *enabled)
+            .map(|(_, capability)| capability.to_owned()),
+    );
     capabilities
 }
 
@@ -302,6 +191,9 @@ pub fn capability_set(observed: impl IntoIterator<Item = RuntimeCapability>) -> 
             .collect(),
     )
 }
+#[path = "catalog_profile.rs"]
+mod profile;
+pub use profile::{RuntimeCapabilityFeature, RuntimeCapabilityProfile};
 #[path = "catalog_reconciliation.rs"]
 mod reconciliation;
 pub use reconciliation::validate_observed_capabilities;

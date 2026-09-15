@@ -22,6 +22,9 @@ use crate::{
 #[path = "claurst_local_runtime_owner_process_io.rs"]
 mod process_io;
 use process_io::{bounded_frame, relay_acp_frames};
+#[path = "claurst_local_runtime_owner_process_tree.rs"]
+mod process_tree;
+use process_tree::{configure_process_tree, shutdown_process_tree};
 
 /// The private filesystem effect needed before `claurst acp` starts.
 pub(crate) trait PrivateSettingsStore {
@@ -96,6 +99,7 @@ pub(crate) struct SystemLocalRuntimeLauncher;
 
 pub(crate) struct SystemLocalRuntimeProcess {
     child: Child,
+    tree_stopped: bool,
 }
 
 pub(crate) struct SystemClaurstAcpStdio {
@@ -118,6 +122,7 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        configure_process_tree(&mut command);
         for key in [
             "CLAURST_BRIDGE_URL",
             "CLAURST_BRIDGE_TOKEN",
@@ -130,7 +135,11 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
         }
         command.envs(&launch.environment);
         let child = command.spawn().map_err(|error| error.to_string())?;
-        Ok(SystemLocalRuntimeProcess { child })
+        gent_drivers::process::groups::spawned(child.id());
+        Ok(SystemLocalRuntimeProcess {
+            child,
+            tree_stopped: false,
+        })
     }
 }
 
@@ -148,7 +157,9 @@ impl ClaurstStandaloneLauncher for SystemClaurstStandaloneLauncher {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        configure_process_tree(&mut command);
         let mut child = command.spawn().map_err(|error| error.to_string())?;
+        gent_drivers::process::groups::spawned(child.id());
         let stdin = child
             .stdin
             .take()
@@ -204,6 +215,13 @@ impl ClaurstAcpStdio for SystemClaurstAcpStdio {
             },
         }
     }
+
+    fn exited(&mut self) -> Result<Option<String>, String> {
+        self.child
+            .try_wait()
+            .map_err(|error| error.to_string())
+            .map(|status| status.map(|status| acp_exit_error(status, &self.stderr)))
+    }
 }
 
 #[path = "claurst_local_runtime_owner_diagnostics.rs"]
@@ -213,16 +231,16 @@ use diagnostics::{acp_exit_error, capture_acp_stderr};
 impl Drop for SystemClaurstAcpStdio {
     fn drop(&mut self) {
         let _ = self.stdin.flush();
-        if self.child.try_wait().ok().flatten().is_none() {
-            let _ = self.child.kill();
-        }
-        let _ = self.child.wait();
+        let _ = shutdown_process_tree(&mut self.child);
     }
 }
 
 fn local_command(launch: &LocalProcessLaunch) -> Command {
     let mut command = Command::new(&launch.executable);
     command.args(&launch.arguments);
+    if let Some(directory) = &launch.working_directory {
+        command.current_dir(directory);
+    }
     for key in [
         "CLAURST_BRIDGE_URL",
         "CLAURST_BRIDGE_TOKEN",
@@ -261,18 +279,20 @@ impl LocalRuntimeProcess for SystemLocalRuntimeProcess {
     }
 
     fn shutdown(&mut self) -> Result<(), String> {
-        if self
-            .child
-            .try_wait()
-            .map_err(|error| error.to_string())?
-            .is_none()
-        {
-            self.child.kill().map_err(|error| error.to_string())?;
+        if self.tree_stopped {
+            return Ok(());
         }
-        self.child
-            .wait()
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+        shutdown_process_tree(&mut self.child)?;
+        self.tree_stopped = true;
+        Ok(())
+    }
+}
+
+impl Drop for SystemLocalRuntimeProcess {
+    fn drop(&mut self) {
+        if !self.tree_stopped {
+            let _ = shutdown_process_tree(&mut self.child);
+        }
     }
 }
 

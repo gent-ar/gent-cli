@@ -36,18 +36,6 @@ pub(super) fn completed(frame: &Value) -> Vec<PublicWireFact> {
     terminal(turn_id(frame), phase.clone(), failure(frame, &phase))
 }
 
-pub(super) fn aborted(frame: &Value) -> Vec<PublicWireFact> {
-    terminal(turn_id(frame), TurnPhase::Interrupted, None)
-}
-
-pub(super) fn failed(frame: &Value) -> Vec<PublicWireFact> {
-    terminal(
-        turn_id(frame),
-        TurnPhase::Failed,
-        failure(frame, &TurnPhase::Failed),
-    )
-}
-
 fn terminal(
     turn_id: Option<&str>,
     phase: TurnPhase,
@@ -84,41 +72,10 @@ fn failure(
     if *phase != TurnPhase::Failed {
         return None;
     }
-    let hint = [
-        frame.pointer("/params/turn/error/code"),
-        frame.pointer("/params/turn/error/type"),
-        frame.pointer("/params/error/code"),
-        frame.pointer("/params/error/type"),
-        frame.pointer("/params/error/codexErrorInfo"),
-        frame.pointer("/params/error/codex_error_info"),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(Value::as_str)
-    .collect::<Vec<_>>()
-    .join(" ")
-    .to_ascii_lowercase();
-    if hint.contains("unauthor") || hint.contains("auth") {
-        Some((
-            ProviderFailureClassification::Authentication,
-            "Codex authentication failed.",
-        ))
-    } else if hint.contains("rate") || hint.contains("limit") && hint.contains("request") {
-        Some((
-            ProviderFailureClassification::RateLimited,
-            "Codex rate limit reached.",
-        ))
-    } else if hint.contains("context") || hint.contains("token limit") {
-        Some((
-            ProviderFailureClassification::ContextLimit,
-            "Codex context limit reached.",
-        ))
-    } else {
-        Some((
-            ProviderFailureClassification::Provider,
-            "Codex ended the turn with an error.",
-        ))
-    }
+    Some(super::failure::classify(
+        frame.pointer("/params/turn/error"),
+        "Codex ended the turn with an error.",
+    ))
 }
 
 fn turn_id(frame: &Value) -> Option<&str> {

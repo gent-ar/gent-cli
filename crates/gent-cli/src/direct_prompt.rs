@@ -3,13 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use gent_protocol::OrchestrationFrame;
-use gent_types::{AgentChatConversationId, AgentChatSelection, GoalRecord};
+use gent_types::AgentChatConversationId;
 use serde::Serialize;
 
-use crate::{
-    chat_cli::{self, DirectPromptArgs, effort, mode, model, provider},
-    goal_cli,
-};
+use crate::chat_cli::{self, DirectPromptArgs};
 
 /// Public terminal result after durable prompt submission; it never claims provider execution.
 #[derive(Debug, Serialize)]
@@ -22,8 +19,9 @@ pub(crate) enum DirectPromptResult {
         prompt_receipt_id: String,
         delivery: gent_types::AgentChatPromptDelivery,
     },
-    Goal {
-        goal: GoalRecord,
+    Command {
+        conversation_id: Option<String>,
+        outcome: gent_protocol::agent_chat_commands::CommandOutcome,
     },
     Orchestration {
         result: Box<OrchestrationFrame>,
@@ -37,13 +35,10 @@ pub(crate) async fn execute(
     args: DirectPromptArgs,
 ) -> Result<Option<DirectPromptResult>, Box<dyn std::error::Error>> {
     let Some(text) = args.prompt else {
-        if args.run_id.is_some() {
-            return Err("--run-id requires a positional prompt".into());
-        }
         return Ok(None);
     };
     if let Some(command) = orchestration_shorthand(&text)? {
-        if args.conversation_id.is_some() || args.run_id.is_some() {
+        if args.conversation_id.is_some() {
             return Err(
                 "`/fanout` and `/cross-review` do not accept conversation or run bindings; no worker was started"
                     .into(),
@@ -61,35 +56,24 @@ pub(crate) async fn execute(
             result: Box::new(result),
         }));
     }
-    if let Some(summary) = goal_summary(&text)? {
-        let (Some(conversation_id), Some(run_id)) = (args.conversation_id, args.run_id) else {
-            return Err(
-                "`/goal <summary>` requires --conversation-id and --run-id; no provider work was started"
-                    .into(),
-            );
-        };
-        return goal_cli::create_shorthand(
-            data_dir,
-            no_autostart,
-            conversation_id,
-            run_id,
-            summary,
-        )
-        .await
-        .map(|goal| Some(DirectPromptResult::Goal { goal }));
-    }
-    if args.run_id.is_some() {
-        return Err("--run-id is only valid with positional `/goal <summary>`".into());
+    if let Some(reply) = crate::direct_prompt_execution::command(
+        data_dir.clone(),
+        no_autostart,
+        args.conversation_id.clone(),
+        None,
+        &text,
+        &args.attachments,
+    )
+    .await?
+    {
+        return Ok(Some(reply));
     }
     let conversation_id = if let Some(conversation_id) = args.conversation_id {
         AgentChatConversationId(conversation_id)
     } else {
-        let selection = AgentChatSelection {
-            provider: provider(args.provider),
-            model: model(args.provider, args.model),
-            effort: effort(args.effort),
-            mode: mode(args.mode),
-        };
+        let selection =
+            chat_cli::new_selection(data_dir.clone(), no_autostart, args.selection.request())
+                .await?;
         let (conversation_id, _) =
             chat_cli::create(data_dir.clone(), no_autostart, selection, args.workspace).await?;
         conversation_id
@@ -100,7 +84,7 @@ pub(crate) async fn execute(
         conversation_id.0,
         text,
         args.attachments,
-        Vec::new(),
+        false,
     )
     .await?;
     Ok(Some(DirectPromptResult::Prompt {
@@ -146,23 +130,6 @@ fn shorthand_path(
     }
 }
 
-fn goal_summary(text: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let Some(summary) = text.strip_prefix("/goal") else {
-        return Ok(None);
-    };
-    if summary.is_empty() {
-        return Err("`/goal` requires a concise summary; no provider work was started".into());
-    }
-    if !summary.chars().next().is_some_and(char::is_whitespace) {
-        return Ok(None);
-    }
-    let summary = summary.trim();
-    if summary.is_empty() {
-        return Err("`/goal` requires a concise summary; no provider work was started".into());
-    }
-    Ok(Some(summary.to_owned()))
-}
-
 #[cfg(test)]
 mod tests {
     use gent_protocol::{
@@ -176,20 +143,7 @@ mod tests {
     };
     use tokio::net::UnixListener;
 
-    use super::{DirectPromptArgs, execute, goal_summary, orchestration_shorthand};
-
-    use crate::chat_cli::{Effort, Mode, Provider};
-
-    #[test]
-    fn only_the_exact_goal_slash_command_is_recognized() {
-        assert_eq!(goal_summary("/goals list").unwrap(), None);
-        assert_eq!(goal_summary("normal prompt").unwrap(), None);
-        assert_eq!(
-            goal_summary("/goal ship it").unwrap(),
-            Some("ship it".into())
-        );
-        assert!(goal_summary("/goal").is_err());
-    }
+    use super::{DirectPromptArgs, execute, orchestration_shorthand};
 
     #[test]
     fn slash_orchestration_requires_one_exact_path() {
@@ -244,13 +198,10 @@ mod tests {
             DirectPromptArgs {
                 prompt: Some(format!("/fanout {}", request_path.display())),
                 conversation_id: None,
-                run_id: None,
                 workspace: None,
-                provider: Provider::Codex,
-                model: "unused".into(),
-                effort: Effort::Medium,
-                mode: Mode::Agent,
+                selection: crate::chat_cli::SelectionArgs::default(),
                 attachments: Vec::new(),
+                json: false,
             },
         )
         .await

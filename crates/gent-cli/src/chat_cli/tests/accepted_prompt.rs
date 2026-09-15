@@ -26,6 +26,7 @@ fn accepted_prompt_must_retain_the_requested_conversation_identity() {
         conversation_id: AgentChatConversationId("other-conversation".into()),
         run_id: AgentChatRunId("run-1".into()),
         turn_id: "turn-1".into(),
+        message_id: "message-1".into(),
         delivery: AgentChatPromptDelivery::AwaitingProvider,
     };
     assert!(!valid_reply(&request, &reply));

@@ -13,7 +13,7 @@ use crate::{
     api::RuntimeApi,
     build_runtime,
     transport::serve_connection,
-    transport_tests::{FakeRuntime, hello},
+    transport::tests::{FakeRuntime, hello},
 };
 
 #[test]
@@ -70,5 +70,5 @@ async fn observer_rejects_provider_auth_before_any_login_handler_can_run() {
         WireFrame::Error { code, .. } if code == "invalidCommand"
     ));
     drop(client);
-    assert!(task.await.unwrap().is_err());
+    assert!(task.await.unwrap().is_ok());
 }

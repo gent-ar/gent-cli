@@ -71,9 +71,14 @@ async fn absent_capability_refuses_before_sending_a_follow_frame() {
         );
     });
     assert!(
-        run(Some(directory.path().into()), true, args())
-            .await
-            .is_err()
+        run(
+            Some(directory.path().into()),
+            true,
+            args(),
+            &mut |_: super::FollowItem<'_>| Ok(())
+        )
+        .await
+        .is_err()
     );
     server.await.unwrap();
 }
@@ -97,5 +102,7 @@ fn event(cursor: u64) -> NormalizedTranscriptEvent {
         kind: NormalizedTranscriptKind::AssistantMessage,
         text: "normalized".into(),
         is_partial: false,
+        origin: None,
+        attachments: Vec::new(),
     }
 }

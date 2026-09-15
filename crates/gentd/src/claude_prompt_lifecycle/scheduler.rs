@@ -61,9 +61,16 @@ where
             .collect::<Vec<_>>();
         let mut batch = ClaudePollBatch::default();
         for run_id in &run_ids {
-            if let Some(ClaudePromptPoll { facts, exited }) = self.poll(run_id, host_epoch)? {
-                batch.facts = batch.facts.saturating_add(facts);
-                batch.exited_runs += u16::from(exited);
+            match self.poll(run_id, host_epoch) {
+                Ok(Some(ClaudePromptPoll { facts, exited })) => {
+                    batch.facts = batch.facts.saturating_add(facts);
+                    batch.exited_runs += u16::from(exited);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    self.fail_run(run_id, host_epoch, error)?;
+                    batch.exited_runs += 1;
+                }
             }
         }
         batch.polled_runs = u16::try_from(run_ids.len()).expect("bounded poll count fits u16");
@@ -88,10 +95,14 @@ where
         maximum: usize,
     ) -> Result<ClaudeLifecycleTick, RuntimeError> {
         let batch = self.poll_active(host_epoch, maximum)?;
+        self.steer_active(host_epoch)?;
         // A settled stream consumes no turn slot. It must be offered its next
         // queued prompt even when this daemon has reached its process bound.
         let dispatch = (self.active_len() < maximum
-            || self.active.values().any(|binding| binding.settled))
+            || self
+                .active
+                .values()
+                .any(|binding| binding.settled && !binding.interrupt_requested))
         .then(|| self.dispatch_next(host_epoch))
         .transpose()?;
         Ok(ClaudeLifecycleTick { dispatch, batch })
