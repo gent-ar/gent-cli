@@ -63,7 +63,13 @@ fn unknown_data_and_changed_node_fail_before_authority_is_returned() {
         Err(OrdinaryAuthorityReleaseError::Malformed)
     ));
     fs::write(&path, serde_json::to_vec(&release).unwrap()).unwrap();
-    fs::write(root.path().join("node/bin/node"), "changed").unwrap();
+    fs::write(
+        root.path()
+            .join("node/bin")
+            .join(crate::node_runtime_lock::node_name()),
+        "changed",
+    )
+    .unwrap();
     assert!(matches!(
         SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10),
         Err(OrdinaryAuthorityReleaseError::RuntimeUnverified)

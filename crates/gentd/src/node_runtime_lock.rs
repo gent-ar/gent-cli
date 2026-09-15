@@ -137,12 +137,12 @@ fn packaged_node_from_executable(executable: &Path) -> PathBuf {
 }
 
 #[cfg(windows)]
-const fn node_name() -> &'static str {
+pub(crate) const fn node_name() -> &'static str {
     "node.exe"
 }
 
 #[cfg(not(windows))]
-const fn node_name() -> &'static str {
+pub(crate) const fn node_name() -> &'static str {
     "node"
 }
 

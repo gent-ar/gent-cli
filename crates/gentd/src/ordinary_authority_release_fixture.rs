@@ -233,7 +233,7 @@ pub(crate) fn digest(manifest: &SignedCompatibilityManifest) -> String {
 pub(crate) fn runtime(root: &Path) -> AppNodeRuntimeLock {
     let bin = root.join("node/bin");
     fs::create_dir_all(&bin).unwrap();
-    let node = bin.join("node");
+    let node = bin.join(crate::node_runtime_lock::node_name());
     fs::write(&node, "node").unwrap();
     fs::write(
         bin.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
