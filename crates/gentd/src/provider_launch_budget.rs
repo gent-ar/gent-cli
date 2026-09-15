@@ -41,11 +41,22 @@ impl From<String> for ProviderLaunchError {
 
 #[cfg(test)]
 pub(crate) fn warm_first_execution(executable: &std::path::Path) {
-    std::process::Command::new(executable)
-        .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .unwrap();
+    for _ in 0..200 {
+        match std::process::Command::new(executable)
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+        {
+            Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            status => {
+                status.unwrap();
+                return;
+            }
+        }
+    }
+    panic!("{} stayed busy after it was written", executable.display());
 }

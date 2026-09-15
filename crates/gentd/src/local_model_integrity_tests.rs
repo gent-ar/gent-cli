@@ -1,5 +1,5 @@
 use super::{file_sha256, matches_verified_sha256, remember_sha256, verification_path};
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, time::Duration};
 
 fn model(bytes: &[u8]) -> (tempfile::TempDir, PathBuf, String) {
     let directory = tempfile::tempdir().unwrap();
@@ -42,7 +42,14 @@ fn a_truncated_file_is_rejected_and_its_stale_proof_is_discarded() {
 fn a_same_size_tampered_file_is_rejected_even_though_a_proof_was_retained() {
     let (_directory, path, digest) = model(b"curated weights");
     assert!(matches_verified_sha256(&path, &digest).unwrap());
+    let verified_at = fs::metadata(&path).unwrap().modified().unwrap();
     fs::write(&path, b"tampered wights").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(verified_at + Duration::from_secs(1))
+        .unwrap();
     assert!(!matches_verified_sha256(&path, &digest).unwrap());
 }
 
