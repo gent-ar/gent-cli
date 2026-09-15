@@ -22,7 +22,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from public_driver_capture_stream import capture, capture_interrupt, capture_steer
+from public_driver_capture_stream import capture, capture_compaction, capture_interrupt, capture_steer
 from public_driver_resume_capture import capture_codex_resume, normalized_frames as resume_frames
 from public_driver_probes import MARKERS, PROBES, command, executable, executable_digest, version
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,6 +83,15 @@ def normalized_frames(vendor: str, scenario: str) -> list[dict[str, object]]:
              "expectFields": {"tool": "Bash"}},
             {"in": {"nativeType": "result", "subtype": "error_during_execution", "isError": True},
              "expect": "interrupted", "expectFields": {"terminal": True, "reason": "interrupted"}},
+        ]
+    if scenario == "compaction":
+        return [
+            {"in": {"nativeType": "system.status", "status": "compacting"}, "expect": "compaction_started",
+             "expectFields": {"compaction": "started"}},
+            {"in": {"nativeType": "system.compact_boundary", "trigger": "manual"},
+             "expect": "compaction_completed", "expectFields": {"compaction": "completed"}},
+            {"in": {"nativeType": "result", "subtype": "success"}, "expect": "completed_turn",
+             "expectFields": {"terminal": True}},
         ]
     if scenario == "steer":
         return [
@@ -199,9 +208,9 @@ def manifest_update(args: argparse.Namespace, replace: bool) -> tuple[Path, str]
 
 def main() -> int:
     args = parse_args()
-    if args.vendor == "codex" and args.scenario in {"interrupt", "steer"}:
+    if args.vendor == "codex" and args.scenario in {"interrupt", "steer", "compaction"}:
         raise ValueError(
-            "Codex interrupt and steering require the app-server JSON-RPC capture path; "
+            "Codex interrupt, steering and compaction require the app-server JSON-RPC capture path; "
             "this one-shot exec helper cannot record them"
         )
     plan = dry_run_plan(args)
@@ -221,6 +230,8 @@ def main() -> int:
             raise ValueError("only Codex resume uses the isolated public capture path")
         capture_codex_resume(binary, args.model, MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
         raw = ""
+    elif args.scenario == "compaction":
+        raw = capture_compaction(probe, PROBES["compaction"], MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
     elif args.scenario == "steer":
         capture_steer(probe, PROBES["steer"], "Stop the in-progress request now. Reply with the exact text GENT_STEER_CAPTURE_OK and nothing else.", MARKERS["steer"], MAX_CAPTURE_BYTES, CAPTURE_TIMEOUT_SECONDS)
         raw = ""
@@ -232,7 +243,7 @@ def main() -> int:
     if args.scenario != "resume" and not scenario_was_observed(args.vendor, args.scenario, raw):
         raise ValueError("required normalized scenario signal was absent; no fixture was written")
     frames = normalized_frames(args.vendor, args.scenario)
-    transport = "stream_json_bidirectional" if args.scenario == "steer" else "stream_json"
+    transport = "stream_json_bidirectional" if args.scenario in {"steer", "compaction"} else "stream_json"
     write_fixture(output, metadata(args, binary, transport, frames), frames, args.replace_existing)
     if manifest is not None:
         atomic_write(*manifest)

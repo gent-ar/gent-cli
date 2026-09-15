@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import public_driver_resume_capture as RESUME
+from public_driver_capture_stream import CompactionReader
+from public_driver_probes import command as probe_command
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -107,6 +110,36 @@ def test_interrupt_capture_requires_a_tool_request_and_cancellation_result() -> 
     assert not MODULE.scenario_was_observed("claude", "interrupt", stream.rsplit("\n", 1)[0])
 
 
+def compaction_stream(*events: dict[str, object]) -> CompactionReader:
+    reader = CompactionReader(1 << 20)
+    reader.drain(io.BytesIO("".join(json.dumps(event) + "\n" for event in events).encode()))
+    return reader
+
+
+def test_compaction_capture_requires_a_boundary_after_compacting_in_a_second_turn() -> None:
+    seed = {"type": "result", "subtype": "success", "is_error": False}
+    compacting = {"type": "system", "subtype": "status", "status": "compacting"}
+    boundary = {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual"}}
+    init = {"type": "system", "subtype": "init", "tools": []}
+    reader = compaction_stream(init, seed, compacting, boundary, seed)
+    assert reader.tool_free and reader.seeded.is_set() and reader.terminal.is_set()
+    assert reader.boundary.is_set() and not reader.failed
+    assert not compaction_stream(seed, boundary, seed).boundary.is_set()
+    assert not compaction_stream({**init, "tools": ["Bash"]}, seed).tool_free
+    failed = {"type": "system", "subtype": "status", "status": None, "compact_result": "failed"}
+    assert compaction_stream(seed, compacting, failed, seed).failed
+
+
+def test_compaction_probe_is_tool_free_bidirectional_and_codex_refuses_exec() -> None:
+    argv = probe_command(Path("<claude>"), "claude", "compaction", "haiku")
+    assert argv[argv.index("--tools") + 1] == ""
+    assert argv[-2:] == ["--input-format", "stream-json"]
+    assert MODULE.normalized_frames("claude", "compaction")[1]["expect"] == "compaction_completed"
+    result = command("codex", "compaction", "--model", "gpt-5.6-luna", "--output", output("x.jsonl"), "--dry-run")
+    assert result.returncode == 2
+    assert "app-server JSON-RPC" in result.stderr
+
+
 def test_manifest_replacement_is_prepared_without_writing() -> None:
     args = type("Args", (), {"vendor": "claude", "scenario": "permission_prompt", "output": Path(output("candidate.jsonl"))})()
     manifest, updated = MODULE.manifest_update(args, True)
@@ -124,6 +157,8 @@ def main() -> None:
     test_codex_resume_requires_native_same_thread_start_and_completed_turn()
     test_permission_capture_requires_a_manual_request_and_denial()
     test_interrupt_capture_requires_a_tool_request_and_cancellation_result()
+    test_compaction_capture_requires_a_boundary_after_compacting_in_a_second_turn()
+    test_compaction_probe_is_tool_free_bidirectional_and_codex_refuses_exec()
     test_manifest_replacement_is_prepared_without_writing()
     print("public-driver capture tool checks passed")
 

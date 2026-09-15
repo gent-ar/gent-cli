@@ -28,11 +28,18 @@ def run(*arguments: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_gap_reports_external_prerequisite_without_a_live_call() -> None:
-    result = run("--vendor", "claude", "--scenario", "compaction")
+    result = run("--vendor", "claude", "--scenario", "malformed_tolerance")
     assert result.returncode == 1
     assert "Capture prerequisites:" in result.stdout
-    assert "documented Claude compaction signal" in result.stdout
+    assert "vendor-documented bounded output-fault control" in result.stdout
     assert "confirm-live-capture" not in result.stdout
+
+
+def test_claude_compaction_has_a_bounded_capture_command() -> None:
+    command = MODULE.command_for("claude", "compaction", "haiku")
+    assert command is not None
+    assert "tools/capture-public-driver-transcript.py" in command
+    assert command[command.index("--model") + 1] == "haiku"
 
 
 def test_run_rejects_mixed_unsupported_request_before_any_capture() -> None:
@@ -73,6 +80,7 @@ def main() -> None:
     test_gap_reports_external_prerequisite_without_a_live_call()
     test_run_rejects_mixed_unsupported_request_before_any_capture()
     test_recorded_mcp_cell_is_not_replayed_without_a_new_gap()
+    test_claude_compaction_has_a_bounded_capture_command()
     test_codex_subagent_has_a_documented_bounded_capture_command()
     test_malformed_cells_explain_the_exact_safe_future_boundary()
     print("transcript refresh planning checks passed")

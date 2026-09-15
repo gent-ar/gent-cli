@@ -20,10 +20,6 @@ CAPTURE_PREREQUISITES = {
         "confirms an identical disposable command runs a second time with no "
         "further prompt; never an always-allow permission mode."
     ),
-    ("claude", "compaction"): (
-        "requires a documented Claude compaction signal or control; do not induce "
-        "an unbounded context-overflow capture."
-    ),
     ("claude", "malformed_tolerance"): (
         "requires a vendor-documented bounded output-fault control during an "
         "attended read-only/tool-free run; never inject or proxy output. Validate "
@@ -79,6 +75,7 @@ def command_for(vendor: str, scenario: str, model: str, run_capture: bool = Fals
         "interrupt",
         "steer",
         "usage_cost",
+        "compaction",
     }:
         return [
             "python3",

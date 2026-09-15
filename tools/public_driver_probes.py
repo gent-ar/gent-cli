@@ -23,6 +23,7 @@ PROBES = {
     "resume": "Two fixed safe prompts are used: GENT_RESUME_SEED_OK then GENT_RESUME_OK. Neither provider response nor session identity is retained.",
     "interrupt": "Run the command sleep 30 exactly once using the available tool. Do not use any other tool. After it completes, reply exactly GENT_STOP_CAPTURE_OK.",
     "steer": "Run the command sleep 15 exactly once using Bash. Do not use any other tool. Wait for further instructions after it starts.",
+    "compaction": "Reply with the exact text GENT_COMPACTION_SEED_OK and nothing else.",
 }
 
 MARKERS = {
@@ -32,6 +33,7 @@ MARKERS = {
     "tool_error": "GENT_TOOL_ERROR_CAPTURE_OK",
     "permission_prompt": "GENT_PERMISSION_CAPTURE_OK",
     "steer": "GENT_STEER_CAPTURE_OK",
+    "compaction": "GENT_COMPACTION_SEED_OK",
 }
 
 # Scenarios usable through the one-shot stream-json capture path in this module.
@@ -61,13 +63,15 @@ def command(binary: Path, vendor: str, scenario: str, model: str) -> list[str]:
         if scenario == "steer":
             allowed = ["--tools", "Bash", "--allowedTools", "Bash(sleep 15)"]
         permission_mode = "manual" if scenario == "permission_prompt" else "dontAsk"
-        tools = ["--tools", "Bash"] if scenario == "permission_prompt" else []
+        tools = {"permission_prompt": ["--tools", "Bash"], "compaction": ["--tools", ""]}.get(scenario, [])
         base = [str(binary), "--safe-mode", "--strict-mcp-config", *tools, *allowed,
                 "--permission-mode", permission_mode, "--print", "--model", model,
                 "--max-budget-usd", "0.05", "--no-session-persistence",
                 "--output-format", "stream-json", "--verbose"]
         if scenario == "steer":
             return [*base, "--input-format", "stream-json", "--replay-user-messages"]
+        if scenario == "compaction":
+            return [*base, "--input-format", "stream-json"]
         return [*base, prompt]
     return [str(binary), "exec", "--ephemeral", "--model", model,
             "--sandbox", "read-only", "--json", "--color", "never", prompt]
