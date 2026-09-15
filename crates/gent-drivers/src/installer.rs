@@ -192,7 +192,7 @@ mod tests {
             package_policy_digest_sha256: "a".repeat(64),
         };
         let packed = npm.pack(&package, std::path::Path::new("/private/staging"));
-        assert!(packed.executable.ends_with("bin/node"));
+        assert!(Path::new(&packed.executable).ends_with("bin/node"));
         assert_eq!(packed.arguments[0], npm_cli(root.path()).to_string_lossy());
         assert_eq!(packed.arguments[1], "pack");
         assert_eq!(packed.arguments[2], "--ignore-scripts");

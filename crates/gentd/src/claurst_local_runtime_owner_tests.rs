@@ -1,4 +1,6 @@
-use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+
+use gent_testkit::host_absolute_path;
 
 use crate::{
     claurst_local_runtime::{
@@ -78,10 +80,10 @@ fn plan() -> ClaurstLocalRuntimePlan {
     let catalog = LocalModelCatalog::shipped().unwrap();
     ClaurstLocalRuntimePlan::build(
         ClaurstLocalRuntimeRequest {
-            claurst_executable: PathBuf::from("/opt/gent/bin/claurst"),
-            llama_server_executable: PathBuf::from("/opt/gent/bin/llama-server"),
-            model_path: PathBuf::from("/opt/gent/models/model.gguf"),
-            claurst_home: PathBuf::from("/opt/gent/claurst"),
+            claurst_executable: host_absolute_path("/opt/gent/bin/claurst"),
+            llama_server_executable: host_absolute_path("/opt/gent/bin/llama-server"),
+            model_path: host_absolute_path("/opt/gent/models/model.gguf"),
+            claurst_home: host_absolute_path("/opt/gent/claurst"),
             effort: gent_types::AgentChatEffort::Medium,
             mode: gent_types::AgentChatMode::Agent,
             permission_mode: gent_types::PermissionMode::AskEveryTime,
@@ -91,6 +93,12 @@ fn plan() -> ClaurstLocalRuntimePlan {
         18_080,
     )
     .unwrap()
+}
+fn llama_launch() -> String {
+    format!(
+        "launch:-m {} --host 127.0.0.1 --port 18080 --jinja --ctx-size 32768 --cache-type-k q8_0 --cache-type-v q8_0 --parallel 1",
+        host_absolute_path("/opt/gent/models/model.gguf").display()
+    )
 }
 fn owner(
     events: Events,
@@ -119,15 +127,16 @@ fn owner(
 fn materializes_then_starts_llama_waits_and_starts_acp_before_orderly_shutdown() {
     let events = Events::default();
     let mut owner = owner(events.clone(), vec![Ok("llama"), Ok("acp")], Ok(()));
-    owner.start(&plan()).unwrap();
+    let plan = plan();
+    owner.start(&plan).unwrap();
     owner.shutdown().unwrap();
     owner.shutdown().unwrap();
     let events = events.0.borrow();
-    assert!(events[0].starts_with("settings:/opt/gent/claurst/.claurst/settings.json:"));
+    assert!(events[0].starts_with(&format!("settings:{}:", plan.settings_path.display())));
     assert_eq!(
         &events[1..],
         [
-            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 32768 --cache-type-k q8_0 --cache-type-v q8_0 --parallel 1",
+            llama_launch().as_str(),
             "ready:http://127.0.0.1:18080",
             "launch:acp",
             "stop:acp",
@@ -143,7 +152,7 @@ fn readiness_failure_stops_llama_and_never_starts_acp() {
     assert_eq!(
         events.0.borrow()[1..],
         [
-            "launch:-m /opt/gent/models/model.gguf --host 127.0.0.1 --port 18080 --jinja --ctx-size 32768 --cache-type-k q8_0 --cache-type-v q8_0 --parallel 1",
+            llama_launch().as_str(),
             "ready:http://127.0.0.1:18080",
             "stop:llama",
         ]

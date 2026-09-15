@@ -67,7 +67,11 @@ fn a_repository_with_nested_repositories_lists_itself_first_then_each_nested_rep
             "submodule",
             "add",
             "--quiet",
-            &canonical(&directory.path().join("library")),
+            &directory
+                .path()
+                .join("library")
+                .to_string_lossy()
+                .replace('\\', "/"),
             "vendor/library",
         ],
     );
@@ -94,7 +98,10 @@ fn a_repository_with_nested_repositories_lists_itself_first_then_each_nested_rep
     let reported = workspace_repositories(&root).unwrap();
 
     let mut expected = git_reported_nested(&root);
-    expected.retain(|path| !path.ends_with("/linked") && !path.contains("/.hidden/"));
+    expected.retain(|path| {
+        let path = Path::new(path);
+        !path.ends_with("linked") && !path.components().any(|part| part.as_os_str() == ".hidden")
+    });
     expected.insert(0, canonical(&root));
     assert_eq!(reported, expected);
     assert_eq!(

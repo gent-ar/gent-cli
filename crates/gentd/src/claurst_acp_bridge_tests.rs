@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, path::PathBuf};
+use std::collections::VecDeque;
 
 use gent_ports::{
     ClaurstDrainRequest, ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest,
@@ -39,7 +39,7 @@ fn request() -> ClaurstStartRequest {
 #[tokio::test]
 async fn starts_prompts_and_drains_cursor_sealed_normalized_facts() {
     let bridge = ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        gent_testkit::host_absolute_path("/workspace"),
         Fake {
             writes: vec![],
             reads: VecDeque::from([
@@ -91,7 +91,7 @@ async fn starts_prompts_and_drains_cursor_sealed_normalized_facts() {
 #[tokio::test]
 async fn rejects_cross_session_and_overlapping_follow_up_prompts() {
     let bridge = ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        gent_testkit::host_absolute_path("/workspace"),
         Fake {
             writes: vec![],
             reads: VecDeque::from([
@@ -133,7 +133,7 @@ async fn rejects_cross_session_and_overlapping_follow_up_prompts() {
 #[tokio::test]
 async fn cancels_only_the_exact_active_binding_without_settling_it() {
     let bridge = ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        gent_testkit::host_absolute_path("/workspace"),
         Fake {
             writes: vec![],
             reads: VecDeque::from([
@@ -199,7 +199,7 @@ async fn a_user_prompt_carries_the_gent_resolved_active_goal_like_claude_and_cod
     };
     let writes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let bridge = ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        gent_testkit::host_absolute_path("/workspace"),
         Recording {
             writes: std::sync::Arc::clone(&writes),
             reads: VecDeque::from([
@@ -272,7 +272,7 @@ async fn a_start_renders_history_within_the_local_model_budget() {
         }
     };
     let bridge = ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        gent_testkit::host_absolute_path("/workspace"),
         Fake {
             writes: vec![],
             reads: VecDeque::from([
@@ -321,7 +321,7 @@ async fn later_turns_of_one_run_continue_its_claurst_session_until_a_failure() {
     };
     let writes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let bridge = ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        gent_testkit::host_absolute_path("/workspace"),
         SharedFake {
             writes: std::sync::Arc::clone(&writes),
             reads: VecDeque::from([
@@ -423,7 +423,7 @@ async fn a_new_summary_or_a_truncated_history_starts_a_fresh_seeded_session() {
         |id: u64, name: &str| frame(serde_json::json!({"id": id, "result": {"sessionId": name}}));
     let writes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let bridge = ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        gent_testkit::host_absolute_path("/workspace"),
         SharedFake {
             writes: std::sync::Arc::clone(&writes),
             reads: VecDeque::from([

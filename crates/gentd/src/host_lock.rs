@@ -99,6 +99,7 @@ mod tests {
         assert!(acquire(directory.path()).is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_conflicting_acquire_names_the_current_process_as_owner() {
         let directory = tempfile::tempdir().unwrap();

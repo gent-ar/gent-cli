@@ -185,10 +185,15 @@ mod tests {
             .rechecked_npm_prefix()
             .unwrap()
             .install_archive(std::path::Path::new("/private/verified.tgz"));
-        assert!(install.executable.ends_with("bin/node"));
+        assert!(
+            std::path::Path::new(&install.executable)
+                .ends_with(std::path::Path::new("bin").join(super::node_name()))
+        );
         assert!(install.arguments[0].ends_with("npm-cli.js"));
         assert_eq!(install.arguments[4], "--prefix");
-        assert!(install.arguments[5].ends_with("gentd/providers/npm-global"));
+        assert!(
+            std::path::Path::new(&install.arguments[5]).ends_with("gentd/providers/npm-global")
+        );
         runtime.recheck().unwrap();
     }
 

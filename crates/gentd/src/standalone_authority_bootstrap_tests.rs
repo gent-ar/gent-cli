@@ -13,6 +13,8 @@ use super::{
 };
 use crate::standalone_authority_release::{authority_source, packaged::PackagedAuthority};
 
+const EXISTING_FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+
 fn args(extra: &[&str]) -> Args {
     let mut values = vec![
         "gentd",
@@ -126,9 +128,9 @@ fn omitted_local_runtime_does_not_block_claude_or_codex_standalone_bootstrap() {
 fn paired_local_runtime_paths_create_the_private_lazy_factory_config() {
     let args = args(&[
         "--standalone-claurst-executable",
-        "/bin/sh",
+        EXISTING_FILE,
         "--standalone-llama-server-executable",
-        "/bin/sh",
+        EXISTING_FILE,
     ]);
     validate(&args).unwrap();
     let config = claurst_runtime_config(&args, std::path::Path::new("/tmp/gent"), None)
@@ -146,14 +148,14 @@ fn provided_local_runtime_path_must_be_a_file() {
         "--standalone-claurst-executable",
         "/missing/claurst",
         "--standalone-llama-server-executable",
-        "/bin/sh",
+        EXISTING_FILE,
     ]);
     assert!(validate(&args).unwrap_err().contains("Claurst"));
 }
 
 #[test]
 fn local_runtime_paths_must_be_paired() {
-    let args = args(&["--standalone-claurst-executable", "/bin/sh"]);
+    let args = args(&["--standalone-claurst-executable", EXISTING_FILE]);
     assert!(
         validate(&args)
             .unwrap_err()

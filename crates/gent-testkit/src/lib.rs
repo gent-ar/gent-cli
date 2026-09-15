@@ -6,6 +6,7 @@
 
 mod fake_private_claurst_bridge;
 mod fake_process;
+mod host_path;
 mod ipc_fixture;
 mod transcript;
 mod transcript_catalog;
@@ -15,6 +16,7 @@ mod transcript_provenance;
 
 pub use fake_private_claurst_bridge::FakePrivateClaurstBridge;
 pub use fake_process::{FakeProcess, FakeProcessSignal};
+pub use host_path::host_absolute_path;
 pub use ipc_fixture::validate_ipc_fixture_manifest;
 pub use transcript::{
     PublicDriverFixture, PublicDriverFrame, TranscriptError, load_public_driver_fixture,

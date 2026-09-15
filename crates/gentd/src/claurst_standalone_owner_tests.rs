@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex},
 };
 
@@ -10,6 +10,7 @@ use crate::{
     local_model_provisioning::LocalModelProvisioner,
 };
 use gent_ports::{ClaurstSourceId, ClaurstStartRequest, PrivateClaurstBridge};
+use gent_testkit::host_absolute_path;
 use gent_types::{AgentChatConversationId, FrozenConversationContext};
 
 use super::{
@@ -35,7 +36,7 @@ impl PrivateSettingsStore for Store {
 fn runtime_health_reports_an_exited_acp_before_reuse() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let bridge = Arc::new(crate::claurst_acp_bridge::ClaurstAcpBridge::new(
-        PathBuf::from("/workspace"),
+        host_absolute_path("/workspace"),
         Acp {
             events: Arc::clone(&events),
             reads: VecDeque::new(),
@@ -130,10 +131,10 @@ impl LlamaServerReadiness for Ready {
 
 fn request() -> ClaurstLocalRuntimeRequest {
     ClaurstLocalRuntimeRequest {
-        claurst_executable: PathBuf::from("/bin/claurst"),
-        llama_server_executable: PathBuf::from("/bin/llama-server"),
-        model_path: PathBuf::from("/ignored"),
-        claurst_home: PathBuf::from("/gent/claurst"),
+        claurst_executable: host_absolute_path("/bin/claurst"),
+        llama_server_executable: host_absolute_path("/bin/llama-server"),
+        model_path: host_absolute_path("/ignored"),
+        claurst_home: host_absolute_path("/gent/claurst"),
         effort: gent_types::AgentChatEffort::Medium,
         mode: gent_types::AgentChatMode::Agent,
         permission_mode: gent_types::PermissionMode::AskEveryTime,
@@ -169,7 +170,7 @@ fn missing_model_never_materializes_settings_or_starts_a_process() {
         owner(Arc::clone(&events), root.path()).start(
             "qwen2-5-coder-7b-instruct-q4-k-m",
             request(),
-            Path::new("/workspace")
+            &host_absolute_path("/workspace")
         ),
         Err(ClaurstStandaloneStartError::DownloadRequired {
             model_id,
@@ -194,7 +195,7 @@ async fn ready_model_starts_llama_then_acp_and_delivers_the_first_durable_prompt
         .start(
             "qwen2-5-coder-7b-instruct-q4-k-m",
             request(),
-            Path::new("/workspace"),
+            &host_absolute_path("/workspace"),
         )
         .unwrap();
     let bridge = runtime.bridge();
@@ -215,10 +216,15 @@ async fn ready_model_starts_llama_then_acp_and_delivers_the_first_durable_prompt
     assert_eq!(
         &events[..4],
         [
-            "settings:/gent/claurst/.claurst/settings.json",
-            "llama",
-            "ready",
-            "acp:/workspace"
+            format!(
+                "settings:{}",
+                host_absolute_path("/gent/claurst")
+                    .join(".claurst/settings.json")
+                    .display()
+            ),
+            "llama".into(),
+            "ready".into(),
+            format!("acp:{}", host_absolute_path("/workspace").display()),
         ]
     );
     assert!(

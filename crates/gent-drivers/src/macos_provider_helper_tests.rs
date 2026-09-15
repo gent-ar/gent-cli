@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use gent_types::{RunVersionLock, SandboxLaunchProfile, SandboxResourceLimits};
@@ -37,8 +36,8 @@ fn request() -> SandboxedLaunchRequest {
             compatibility_entry: "codex-1".into(),
         },
         profile: SandboxLaunchProfile::new(
-            std::path::Path::new("/workspace"),
-            &[PathBuf::from("/workspace")],
+            &gent_testkit::host_absolute_path("/workspace"),
+            &[gent_testkit::host_absolute_path("/workspace")],
             &[],
             vec![],
             SandboxNetworkPolicy::Disabled,

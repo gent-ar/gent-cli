@@ -1,15 +1,23 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{
     RunVersionLock, SandboxBackendId, SandboxEnforcement, SandboxLaunchContractError,
     SandboxLaunchProfile, SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
 };
 
+pub(crate) fn host_absolute_path(posix: &str) -> PathBuf {
+    if cfg!(windows) {
+        Path::new("C:\\").join(posix.trim_start_matches('/'))
+    } else {
+        PathBuf::from(posix)
+    }
+}
+
 fn profile() -> SandboxLaunchProfile {
     SandboxLaunchProfile::new(
-        &PathBuf::from("/workspace"),
-        &[PathBuf::from("/workspace")],
-        &[PathBuf::from("/workspace/project")],
+        &host_absolute_path("/workspace"),
+        &[host_absolute_path("/workspace")],
+        &[host_absolute_path("/workspace/project")],
         vec!["TERM".into(), "LANG".into()],
         SandboxNetworkPolicy::Disabled,
         SandboxResourceLimits {
@@ -36,9 +44,9 @@ fn lock() -> RunVersionLock {
 fn profile_is_deterministic_and_rejects_ambient_credentials() {
     let first = profile();
     let reordered = SandboxLaunchProfile::new(
-        &PathBuf::from("/workspace"),
-        &[PathBuf::from("/workspace")],
-        &[PathBuf::from("/workspace/project")],
+        &host_absolute_path("/workspace"),
+        &[host_absolute_path("/workspace")],
+        &[host_absolute_path("/workspace/project")],
         vec!["LANG".into(), "TERM".into(), "TERM".into()],
         SandboxNetworkPolicy::Disabled,
         SandboxResourceLimits {
@@ -51,8 +59,8 @@ fn profile_is_deterministic_and_rejects_ambient_credentials() {
     assert_eq!(first.digest_sha256(), reordered.digest_sha256());
     assert!(matches!(
         SandboxLaunchProfile::new(
-            &PathBuf::from("/workspace"),
-            &[PathBuf::from("/workspace")],
+            &host_absolute_path("/workspace"),
+            &[host_absolute_path("/workspace")],
             &[],
             vec!["AWS_SECRET_ACCESS_KEY".into()],
             SandboxNetworkPolicy::Disabled,
@@ -101,8 +109,11 @@ fn preflight_attestation_requires_enforcement_and_an_exact_lock_recheck() {
 fn profile_rejects_outside_workspace_and_unreviewed_egress() {
     assert!(matches!(
         SandboxLaunchProfile::new(
-            &PathBuf::from("/workspace"),
-            &[PathBuf::from("/workspace"), PathBuf::from("/other")],
+            &host_absolute_path("/workspace"),
+            &[
+                host_absolute_path("/workspace"),
+                host_absolute_path("/other")
+            ],
             &[],
             vec![],
             SandboxNetworkPolicy::Disabled,
@@ -116,8 +127,8 @@ fn profile_rejects_outside_workspace_and_unreviewed_egress() {
     ));
     assert!(matches!(
         SandboxLaunchProfile::new(
-            &PathBuf::from("/workspace"),
-            &[PathBuf::from("/workspace")],
+            &host_absolute_path("/workspace"),
+            &[host_absolute_path("/workspace")],
             &[],
             vec![],
             SandboxNetworkPolicy::ReviewedEgress {

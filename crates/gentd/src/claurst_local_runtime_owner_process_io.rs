@@ -1,9 +1,8 @@
-use std::{io::Read, process::ChildStdout, sync::mpsc::SyncSender};
+use std::{io::Read, sync::mpsc::SyncSender};
 
 use gent_drivers::ndjson::NdjsonFramer;
 
-pub(super) fn relay_acp_frames(stdout: ChildStdout, sender: SyncSender<Result<Vec<u8>, String>>) {
-    let mut reader = stdout;
+pub(super) fn relay_acp_frames(mut reader: impl Read, sender: SyncSender<Result<Vec<u8>, String>>) {
     let mut framer = NdjsonFramer::new(gent_drivers::MAX_PROVIDER_FRAME_BYTES)
         .expect("the provider frame ceiling is non-zero");
     let mut chunk = [0_u8; 64 * 1024];

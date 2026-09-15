@@ -183,7 +183,7 @@ mod tests {
             },
             profile: policy()
                 .profile_for_workspace(
-                    std::path::Path::new("/workspace"),
+                    &gent_testkit::host_absolute_path("/workspace"),
                     SandboxWorkspaceAccess::ReadOnly,
                 )
                 .unwrap(),
@@ -197,7 +197,7 @@ mod tests {
             executable: executable.into(),
             arguments: vec![],
             intent: LaunchIntent::Start,
-            workspace_root: Some(PathBuf::from("/workspace")),
+            workspace_root: Some(gent_testkit::host_absolute_path("/workspace")),
             workspace_access: SandboxWorkspaceAccess::ReadOnly,
         }
     }
@@ -230,9 +230,9 @@ mod tests {
         let port = LaunchPort::default();
         let launcher = SandboxedLauncher::new(policy(), port);
         let mut first = launch("codex", "/private/codex");
-        first.workspace_root = Some(PathBuf::from("/workspace-a"));
+        first.workspace_root = Some(gent_testkit::host_absolute_path("/workspace-a"));
         let mut second = first.clone();
-        second.workspace_root = Some(PathBuf::from("/workspace-b"));
+        second.workspace_root = Some(gent_testkit::host_absolute_path("/workspace-b"));
         second.workspace_access = SandboxWorkspaceAccess::ReadWrite;
         launcher.launch(&first).unwrap();
         launcher.launch(&second).unwrap();

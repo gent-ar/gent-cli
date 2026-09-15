@@ -71,7 +71,9 @@ impl ClaurstLocalReadinessService {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf};
+    use std::fs;
+
+    use gent_testkit::host_absolute_path;
 
     use super::{ClaurstLocalReadiness, ClaurstLocalReadinessService};
     use crate::{
@@ -81,10 +83,10 @@ mod tests {
 
     fn request() -> ClaurstLocalRuntimeRequest {
         ClaurstLocalRuntimeRequest {
-            claurst_executable: PathBuf::from("/opt/gent/bin/claurst"),
-            llama_server_executable: PathBuf::from("/opt/gent/bin/llama-server"),
-            model_path: PathBuf::from("/untrusted/model.gguf"),
-            claurst_home: PathBuf::from("/opt/gent/claurst"),
+            claurst_executable: host_absolute_path("/opt/gent/bin/claurst"),
+            llama_server_executable: host_absolute_path("/opt/gent/bin/llama-server"),
+            model_path: host_absolute_path("/untrusted/model.gguf"),
+            claurst_home: host_absolute_path("/opt/gent/claurst"),
             effort: gent_types::AgentChatEffort::Medium,
             mode: gent_types::AgentChatMode::Agent,
             permission_mode: gent_types::PermissionMode::AskEveryTime,
@@ -156,10 +158,11 @@ mod tests {
                 .contains(&runtime.model_path.display().to_string())
         );
         assert!(
-            !runtime
-                .llama_server
-                .arguments
-                .contains(&"/untrusted/model.gguf".into())
+            !runtime.llama_server.arguments.contains(
+                &host_absolute_path("/untrusted/model.gguf")
+                    .display()
+                    .to_string()
+            )
         );
     }
 }

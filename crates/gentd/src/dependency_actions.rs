@@ -121,7 +121,7 @@ mod tests {
                 },
                 std::path::Path::new("/private/staging"),
             );
-            assert!(command.executable.ends_with("bin/node"));
+            assert!(std::path::Path::new(&command.executable).ends_with("bin/node"));
             assert!(command.arguments[0].ends_with("npm-cli.js"));
             assert_eq!(command.arguments[6], format!("{package}@1.2.3"));
         }

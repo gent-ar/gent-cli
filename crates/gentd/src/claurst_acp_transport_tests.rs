@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, path::Path, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
 use gent_types::{
     NormalizedLifecycleSignal, NormalizedProviderEvent, PermissionCategory, ToolActivity, ToolPhase,
@@ -56,7 +56,7 @@ fn frames_upstream_handshake_prompt_stream_and_terminal_without_blocking() {
     })]);
     assert_eq!(
         transport
-            .initialize_session(Path::new("/workspace"))
+            .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
             .unwrap(),
         "acp-1"
     );
@@ -92,7 +92,7 @@ fn retains_the_exact_prompt_error_before_terminal_failure() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     transport.prompt("acp-1", "hi").unwrap();
     let drain = transport.drain(64).unwrap();
@@ -119,7 +119,7 @@ fn output_limit_is_an_explicit_failure_instead_of_a_false_completion() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     transport.prompt("acp-1", "hi").unwrap();
     let drain = transport.drain(64).unwrap();
@@ -150,7 +150,7 @@ fn claurst_no_response_placeholder_settles_as_a_typed_output_limit_failure() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     transport.prompt("acp-1", "hi").unwrap();
     let drain = transport.drain(64).unwrap();
@@ -181,7 +181,7 @@ fn thinking_only_end_turn_is_an_explicit_failure() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     transport.prompt("acp-1", "hi").unwrap();
     let drain = transport.drain(64).unwrap();
@@ -211,7 +211,7 @@ fn permission_request_is_held_then_relays_only_a_closed_gent_reply() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     let drain = transport.drain(1).unwrap();
     assert_eq!(drain.facts.len(), 0);
@@ -269,7 +269,7 @@ fn a_claurst_permission_names_the_tool_call_it_gates_with_its_input_and_category
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     let mut permissions = Vec::new();
     for _ in 0..4 {
@@ -342,7 +342,7 @@ fn permission_category_follows_the_acp_tool_kind() {
         };
         let mut transport = ClaurstAcpTransport::new(fake);
         transport
-            .initialize_session(Path::new("/workspace"))
+            .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
             .unwrap();
         let drain = transport.drain(1).unwrap();
         assert_eq!(drain.permissions[0].category, category, "{kind}");
@@ -363,7 +363,7 @@ fn permission_denial_uses_the_nested_acp_outcome_shape() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     assert_eq!(transport.drain(1).unwrap().permissions.len(), 1);
     transport
@@ -396,7 +396,7 @@ fn overlapping_permission_requests_are_held_and_presented_in_order() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     let writes_before = transport.stdio.writes.len();
     let first = transport.drain(8).unwrap().permissions;
@@ -461,7 +461,7 @@ fn cancelling_a_turn_settles_every_held_permission_request() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     let session = transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     assert_eq!(transport.drain(8).unwrap().permissions.len(), 1);
     assert!(transport.drain(8).unwrap().permissions.is_empty());
@@ -495,7 +495,7 @@ fn projects_upstream_tool_call_lifecycle_and_keeps_its_output_for_later_provider
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     let drain = transport.drain(8).unwrap();
     assert_eq!(
@@ -549,7 +549,7 @@ fn claurst_flattened_tool_call_update_carries_its_content_text() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     let facts = transport.drain(8).unwrap().facts;
     assert!(matches!(
@@ -587,7 +587,7 @@ fn textual_tool_call_content_does_not_satisfy_structured_tool_call_gate() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     let drain = transport.drain(8).unwrap();
     assert!(drain.permissions.is_empty());
@@ -617,7 +617,7 @@ fn retains_the_negotiated_image_capability_for_prompt_delivery() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     assert!(transport.supports_images());
     transport
@@ -642,7 +642,7 @@ fn cancels_only_the_requested_session_without_inventing_a_prompt_terminal() {
     };
     let mut transport = ClaurstAcpTransport::new(fake);
     transport
-        .initialize_session(Path::new("/workspace"))
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
         .unwrap();
     transport.cancel("acp-1").unwrap();
     let cancel: serde_json::Value =

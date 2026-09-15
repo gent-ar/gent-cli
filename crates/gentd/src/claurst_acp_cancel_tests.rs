@@ -188,14 +188,16 @@ async fn interrupt_with_a_pending_permission_cancels_it_and_settles_the_turn() {
             },
             &WorkspaceRecord {
                 workspace_id: "workspace-a".into(),
-                canonical_path: "/workspace-a".into(),
+                canonical_path: gent_testkit::host_absolute_path("/workspace-a")
+                    .display()
+                    .to_string(),
             },
         )
         .unwrap();
     let peer = ClaurstPeer::default();
     let written = Arc::clone(&peer.written);
     let bridge = ClaurstBridgeHandle::new(Arc::new(ClaurstAcpBridge::new(
-        "/workspace-a".into(),
+        gent_testkit::host_absolute_path("/workspace-a"),
         peer,
         vec![],
     )));

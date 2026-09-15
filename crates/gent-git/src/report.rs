@@ -106,7 +106,19 @@ fn tracking_count(value: &str, label: &str) -> u32 {
 pub(crate) fn list_worktrees(root: &Path) -> Result<Vec<WorkspaceGitWorktree>, GitExecutorError> {
     let output = git_output(root, &["worktree", "list", "--porcelain"])?;
     let text = String::from_utf8(output).map_err(|_| GitExecutorError::InvalidOutput)?;
-    parse_worktree_list(&text)
+    Ok(parse_worktree_list(&text)?
+        .into_iter()
+        .map(|worktree| WorkspaceGitWorktree {
+            canonical_path: canonical_worktree_path(worktree.canonical_path),
+            ..worktree
+        })
+        .collect())
+}
+
+fn canonical_worktree_path(reported: String) -> String {
+    Path::new(&reported)
+        .canonicalize()
+        .map_or(reported, |path| path.display().to_string())
 }
 
 fn parse_worktree_list(text: &str) -> Result<Vec<WorkspaceGitWorktree>, GitExecutorError> {

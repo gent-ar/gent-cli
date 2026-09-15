@@ -329,7 +329,15 @@ fn pasted_file_url_attaches_the_local_file() {
         .unwrap();
     let path = directory.path().join("notes with spaces.txt");
     std::fs::write(&path, "attached").unwrap();
-    let url = format!("file://{}", path.to_string_lossy().replace(' ', "%20"));
+    let rendered = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace(' ', "%20");
+    let url = if rendered.starts_with('/') {
+        format!("file://{rendered}")
+    } else {
+        format!("file:///{rendered}")
+    };
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
         .with_command_catalog(Some(crate::terminal::commands::tests::catalog()));

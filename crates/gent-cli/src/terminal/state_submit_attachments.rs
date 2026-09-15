@@ -64,7 +64,21 @@ fn file_url_path(value: &str) -> Option<String> {
             index += 1;
         }
     }
-    String::from_utf8(bytes).ok()
+    String::from_utf8(bytes).ok().map(native_path)
+}
+
+fn native_path(path: String) -> String {
+    let bytes = path.as_bytes();
+    if cfg!(windows)
+        && bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b':'
+    {
+        path[1..].to_owned()
+    } else {
+        path
+    }
 }
 
 const fn hex(value: u8) -> Option<u8> {

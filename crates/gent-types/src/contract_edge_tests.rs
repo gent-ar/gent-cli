@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use crate::{
@@ -141,8 +139,10 @@ fn sandbox_profile_rejects_missing_limits_and_invalid_backend_names() {
         Err(SandboxLaunchContractError::InvalidBackend)
     );
     let result = SandboxLaunchProfile::new(
-        &PathBuf::from("/workspace"),
-        &[PathBuf::from("/workspace")],
+        &crate::sandbox_launch_tests::host_absolute_path("/workspace"),
+        &[crate::sandbox_launch_tests::host_absolute_path(
+            "/workspace",
+        )],
         &[],
         vec![],
         SandboxNetworkPolicy::Disabled,

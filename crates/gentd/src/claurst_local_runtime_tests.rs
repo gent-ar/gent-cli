@@ -1,14 +1,19 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use gent_testkit::host_absolute_path;
 
 use super::{ClaurstLocalRuntimePlan, ClaurstLocalRuntimePlanError, ClaurstLocalRuntimeRequest};
 use crate::local_model_catalog::LocalModelCatalog;
 
+const MODEL: &str = "/opt/gent/models/qwen3-1-7b-q4-k-m/qwen3-1-7b-q4-k-m.gguf";
+const TEMPLATE: &str = "/opt/gent/claurst/.claurst/templates/qwen3-tool-use.jinja";
+
 fn request() -> ClaurstLocalRuntimeRequest {
     ClaurstLocalRuntimeRequest {
-        claurst_executable: PathBuf::from("/opt/gent/bin/claurst"),
-        llama_server_executable: PathBuf::from("/opt/gent/bin/llama-server"),
-        model_path: PathBuf::from("/opt/gent/models/qwen3-1-7b-q4-k-m/qwen3-1-7b-q4-k-m.gguf"),
-        claurst_home: PathBuf::from("/opt/gent/claurst"),
+        claurst_executable: host_absolute_path("/opt/gent/bin/claurst"),
+        llama_server_executable: host_absolute_path("/opt/gent/bin/llama-server"),
+        model_path: host_absolute_path(MODEL),
+        claurst_home: host_absolute_path("/opt/gent/claurst"),
         effort: gent_types::AgentChatEffort::Medium,
         mode: gent_types::AgentChatMode::Agent,
         permission_mode: gent_types::PermissionMode::AskEveryTime,
@@ -26,14 +31,11 @@ fn builds_an_isolated_llama_cpp_acp_plan_for_the_curated_model() {
     )
     .unwrap();
 
-    assert_eq!(
-        plan.model_path,
-        PathBuf::from("/opt/gent/models/qwen3-1-7b-q4-k-m/qwen3-1-7b-q4-k-m.gguf",)
-    );
+    assert_eq!(plan.model_path, host_absolute_path(MODEL));
     assert_eq!(plan.server_url, "http://127.0.0.1:18080");
     assert_eq!(
         plan.settings_path,
-        PathBuf::from("/opt/gent/claurst/.claurst/settings.json")
+        host_absolute_path("/opt/gent/claurst/.claurst/settings.json")
     );
     let settings: serde_json::Value = serde_json::from_str(&plan.settings_json).unwrap();
     assert_eq!(settings["provider"], "llama-cpp");
@@ -60,7 +62,7 @@ fn builds_an_isolated_llama_cpp_acp_plan_for_the_curated_model() {
         plan.llama_server.arguments,
         vec![
             "-m",
-            "/opt/gent/models/qwen3-1-7b-q4-k-m/qwen3-1-7b-q4-k-m.gguf",
+            &host_absolute_path(MODEL).display().to_string(),
             "--host",
             "127.0.0.1",
             "--port",
@@ -79,17 +81,17 @@ fn builds_an_isolated_llama_cpp_acp_plan_for_the_curated_model() {
             "--reasoning-budget",
             "0",
             "--chat-template-file",
-            "/opt/gent/claurst/.claurst/templates/qwen3-tool-use.jinja",
+            &plan
+                .chat_template_path
+                .as_ref()
+                .unwrap()
+                .display()
+                .to_string(),
             "--chat-template-kwargs",
             &kwargs(&plan).to_string(),
         ]
     );
-    assert_eq!(
-        plan.chat_template_path,
-        Some(PathBuf::from(
-            "/opt/gent/claurst/.claurst/templates/qwen3-tool-use.jinja"
-        ))
-    );
+    assert_eq!(plan.chat_template_path, Some(host_absolute_path(TEMPLATE)));
     assert!(
         plan.chat_template_contents
             .as_deref()
@@ -102,12 +104,15 @@ fn builds_an_isolated_llama_cpp_acp_plan_for_the_curated_model() {
         Some(&"http://127.0.0.1:18080".to_string())
     );
     assert_eq!(
-        plan.claurst_acp.environment.get("HOME"),
-        Some(&"/opt/gent/claurst".to_string())
+        plan.claurst_acp.environment.get("HOME").map(Path::new),
+        Some(host_absolute_path("/opt/gent/claurst").as_path())
     );
     assert_eq!(
-        plan.claurst_acp.environment.get("CLAURST_HOME"),
-        Some(&"/opt/gent/claurst/.claurst".to_string())
+        plan.claurst_acp
+            .environment
+            .get("CLAURST_HOME")
+            .map(Path::new),
+        Some(host_absolute_path("/opt/gent/claurst/.claurst").as_path())
     );
 }
 

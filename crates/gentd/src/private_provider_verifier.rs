@@ -126,7 +126,7 @@ mod tests {
             argument: &str,
         ) -> Result<String, String> {
             assert_eq!(argument, "--version");
-            assert!(executable.ends_with("codex"));
+            assert_eq!(executable.file_stem(), Some("codex".as_ref()));
             if self.replace_binary {
                 fs::write(executable, "changed provider").unwrap();
             }

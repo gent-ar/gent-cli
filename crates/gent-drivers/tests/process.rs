@@ -7,15 +7,25 @@ use gent_drivers::{
 #[cfg(unix)]
 use gent_drivers::ProviderProcess;
 
+#[cfg(unix)]
 fn shell_launch(script: &str) -> ProviderLaunch {
-    let lock =
-        gent_drivers::lock::capture("claude", std::path::Path::new("/bin/sh"), "test", "test")
-            .unwrap();
+    launch(
+        std::path::Path::new("/bin/sh"),
+        vec!["-c".into(), script.into()],
+    )
+}
+
+fn refused_launch() -> ProviderLaunch {
+    launch(&std::env::current_exe().unwrap(), Vec::new())
+}
+
+fn launch(executable: &std::path::Path, arguments: Vec<String>) -> ProviderLaunch {
+    let lock = gent_drivers::lock::capture("claude", executable, "test", "test").unwrap();
     ProviderLaunch {
         executable: lock.canonical_path.clone().into(),
         lock,
         provider: "claude".into(),
-        arguments: vec!["-c".into(), script.into()],
+        arguments,
         intent: LaunchIntent::Start,
         workspace_root: None,
         workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
@@ -53,7 +63,7 @@ fn direct_wait_drains_a_full_stdout_delivery_queue() {
 
 #[test]
 fn public_launcher_refuses_private_provider_names() {
-    let mut launch = shell_launch("exit 0");
+    let mut launch = refused_launch();
     launch.provider = "claurst".into();
 
     assert!(matches!(
@@ -64,7 +74,7 @@ fn public_launcher_refuses_private_provider_names() {
 
 #[test]
 fn system_launcher_rechecks_the_exact_launch_lock() {
-    let mut launch = shell_launch("exit 0");
+    let mut launch = refused_launch();
     launch.lock.digest_sha256 = "0".repeat(64);
     assert!(matches!(
         SystemLauncher::new(1).launch(&launch),

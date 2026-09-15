@@ -235,7 +235,11 @@ pub(crate) fn runtime(root: &Path) -> AppNodeRuntimeLock {
     fs::create_dir_all(&bin).unwrap();
     let node = bin.join("node");
     fs::write(&node, "node").unwrap();
-    fs::write(bin.join("npm"), "npm").unwrap();
+    fs::write(
+        bin.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
+        "npm",
+    )
+    .unwrap();
     let cli = root.join("node/lib/node_modules/npm/bin");
     fs::create_dir_all(&cli).unwrap();
     fs::write(cli.join("npm-cli.js"), "npm cli").unwrap();
