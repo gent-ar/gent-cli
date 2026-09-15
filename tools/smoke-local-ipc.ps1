@@ -6,8 +6,7 @@ $dataDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gent-smoke-" + [guid]::
 $daemon = $null
 $defaultDaemon = $null
 $gent = $null
-$originalHome = $env:HOME
-$originalUserProfile = $env:USERPROFILE
+$originalDataDir = $env:GENT_DATA_DIR
 
 function Assert-Equal([object]$actual, [object]$expected, [string]$label) {
     if ($actual -ne $expected) {
@@ -64,11 +63,9 @@ try {
     cargo build --quiet -p gentd -p gent-cli
     $gentd = Join-Path $root "target\debug\gentd.exe"
     $gent = Join-Path $root "target\debug\gent.exe"
-    $defaultHome = Join-Path $dataDir "home"
-    New-Item -ItemType Directory -Path $defaultHome | Out-Null
-    Deny-DefaultModelDownload (Join-Path $defaultHome ".gentd")
-    $env:HOME = $defaultHome
-    $env:USERPROFILE = $defaultHome
+    $defaultDataDir = Join-Path $dataDir "default"
+    Deny-DefaultModelDownload $defaultDataDir
+    $env:GENT_DATA_DIR = $defaultDataDir
     $defaultDaemon = Start-Process -FilePath $gentd -ArgumentList @("--standalone-authority") -PassThru `
         -RedirectStandardOutput (Join-Path $dataDir "default-gentd.stdout") `
         -RedirectStandardError (Join-Path $dataDir "default-gentd.stderr")
@@ -83,12 +80,11 @@ try {
     }
     $defaultStatus = $defaultStatusJson | ConvertFrom-Json
     Assert-Equal $defaultStatus.type "status" "default status frame"
-    Assert-NoModelDownload "default" @() (Join-Path $defaultHome ".gentd")
+    Assert-NoModelDownload "default" @() $defaultDataDir
     Stop-Process -Id $defaultDaemon.Id -Force
     $null = $defaultDaemon.WaitForExit(5000)
     $defaultDaemon = $null
-    $env:HOME = $originalHome
-    $env:USERPROFILE = $originalUserProfile
+    $env:GENT_DATA_DIR = $originalDataDir
     Deny-DefaultModelDownload $dataDir
     $daemon = Start-Process -FilePath $gentd -ArgumentList @("--data-dir", $dataDir, "--standalone-authority") -PassThru `
         -RedirectStandardOutput (Join-Path $dataDir "gentd.stdout") `
@@ -133,8 +129,7 @@ finally {
         Stop-Process -Id $defaultDaemon.Id -Force
         $null = $defaultDaemon.WaitForExit(5000)
     }
-    $env:HOME = $originalHome
-    $env:USERPROFILE = $originalUserProfile
+    $env:GENT_DATA_DIR = $originalDataDir
     if (Test-Path $dataDir) {
         try {
             Remove-Item -Recurse -Force $dataDir
