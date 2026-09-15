@@ -63,13 +63,14 @@ reported as `timedOut`.
 
 ## Bundled-Node provider provisioning
 
-The native app distributes a supported Node runtime with its installed Gent
-pair, but it never distributes a Claude Code or Codex executable. It passes the
-bundled executable through `GENT_NODE_BINARY` at host bootstrap. Gent
-canonicalizes and identity-locks the explicit Node, sibling `npm`, and npm CLI
-module. It executes that module through the locked Node binary, never through a
-host `node` found on `PATH`. It does not discover a bundle path or infer an app
-runtime root, and owns every subsequent process.
+The native app ships the Gent release archive intact, including `runtime/node`
+beside `gentd`, but never a Claude Code or Codex executable. A release `gentd`
+always uses that packaged Node, the one its signed package policy binds;
+`GENT_NODE_BINARY` is honored only by development builds. Gent canonicalizes and
+identity-locks the Node, sibling `npm`, and npm CLI module, and executes that
+module through the locked Node binary, never through a host `node` found on
+`PATH`. A missing or unapproved Node never stops `gentd`: Claude and Codex
+readiness reports `runtimeUnverified` while everything else keeps working.
 
 On the first prompt selecting a missing public provider, an approved Gent
 authority may perform exactly one receipt-backed provisioning transaction using

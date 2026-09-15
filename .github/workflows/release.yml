@@ -182,7 +182,7 @@ jobs:
         shell: bash
         env:
           GENTD_VERIFIER: target/release/gentd${{ matrix.suffix }}
-          NODE_BINARY: dist-runtime/node/bin/node${{ matrix.suffix }}
+          NODE_RUNTIME_DIR: dist-runtime/node
         run: python tools/verify-staged-authority.py
       - name: Package binaries
         run: >-

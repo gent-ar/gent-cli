@@ -15,7 +15,7 @@ use crate::{
 pub(crate) struct StandaloneAuthorityRelease {
     path: PathBuf,
     root_keys: BTreeMap<String, VerifyingKey>,
-    runtime: AppNodeRuntimeLock,
+    runtime: Option<AppNodeRuntimeLock>,
 }
 
 impl StandaloneAuthorityRelease {
@@ -32,11 +32,14 @@ impl StandaloneAuthorityRelease {
         else {
             return Ok(None);
         };
-        let runtime = AppNodeRuntimeLock::from_standalone_environment(data_dir)
-            .map_err(|error| error.to_string())?;
-        Self::configured(authority.release, &authority.root_keys, runtime).map(Some)
+        Ok(Some(Self {
+            path: authority.release,
+            root_keys: parse_keys(&authority.root_keys)?,
+            runtime: AppNodeRuntimeLock::from_standalone_environment(data_dir).ok(),
+        }))
     }
 
+    #[cfg(test)]
     pub(crate) fn configured(
         path: PathBuf,
         key_specs: &[String],
@@ -45,7 +48,7 @@ impl StandaloneAuthorityRelease {
         Ok(Self {
             path,
             root_keys: parse_keys(key_specs)?,
-            runtime,
+            runtime: Some(runtime),
         })
     }
 
@@ -53,11 +56,15 @@ impl StandaloneAuthorityRelease {
         &self,
         now: u64,
     ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
-        SignedOrdinaryAuthorityRelease::load_bound(&self.path, &self.root_keys, &self.runtime, now)
+        let runtime = self
+            .runtime
+            .as_ref()
+            .ok_or(OrdinaryAuthorityReleaseError::RuntimeUnverified)?;
+        SignedOrdinaryAuthorityRelease::load_bound(&self.path, &self.root_keys, runtime, now)
     }
 
-    pub(crate) fn runtime(&self) -> &AppNodeRuntimeLock {
-        &self.runtime
+    pub(crate) fn runtime(&self) -> Option<&AppNodeRuntimeLock> {
+        self.runtime.as_ref()
     }
 
     pub(crate) fn provision_config(

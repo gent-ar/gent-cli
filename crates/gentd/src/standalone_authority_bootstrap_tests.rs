@@ -222,7 +222,56 @@ async fn fresh_standalone_bootstrap_binds_after_recovery_is_ready() {
         "--standalone-llama-server-executable",
         "/bin/sh",
     ]);
+    assert_serves(args, &socket).await;
+}
 
+#[cfg(unix)]
+#[tokio::test]
+async fn an_authority_that_does_not_approve_gents_node_leaves_gentd_serving() {
+    let directory = tempfile::tempdir().unwrap();
+    let signer = ed25519_dalek::SigningKey::from_bytes(&[12; 32]);
+    let release = directory.path().join("ordinary-authority.json");
+    let envelope = crate::ordinary_authority_release::fixture::release(&signer, &"e".repeat(64));
+    std::fs::write(&release, serde_json::to_vec(&envelope).unwrap()).unwrap();
+    let key = format!("root:{}", hex::encode(signer.verifying_key().as_bytes()));
+    let data_dir = directory.path().join("data");
+    let socket = data_dir.join("gentd.sock");
+    let arguments = |extra: &[&str]| {
+        let mut values = vec![
+            "gentd".to_owned(),
+            "--standalone-authority".into(),
+            "--standalone-authority-release".into(),
+            release.display().to_string(),
+            "--standalone-authority-key".into(),
+            key.clone(),
+            "--data-dir".into(),
+            data_dir.display().to_string(),
+        ];
+        values.extend(extra.iter().map(|value| (*value).to_owned()));
+        Args::try_parse_from(values).unwrap()
+    };
+
+    assert!(
+        super::run(arguments(&["--verify-standalone-authority-release"]))
+            .await
+            .is_err()
+    );
+    assert_serves(
+        arguments(&[
+            "--socket",
+            &socket.display().to_string(),
+            "--standalone-claurst-executable",
+            "/bin/sh",
+            "--standalone-llama-server-executable",
+            "/bin/sh",
+        ]),
+        &socket,
+    )
+    .await;
+}
+
+#[cfg(unix)]
+async fn assert_serves(args: Args, socket: &std::path::Path) {
     tokio::task::LocalSet::new()
         .run_until(async {
             let mut task = tokio::task::spawn_local(super::run(args));
@@ -234,7 +283,7 @@ async fn fresh_standalone_bootstrap_binds_after_recovery_is_ready() {
                 }
                 }) => result.unwrap(),
             }
-            assert!(tokio::net::UnixStream::connect(&socket).await.is_ok());
+            assert!(tokio::net::UnixStream::connect(socket).await.is_ok());
             task.abort();
         })
         .await;

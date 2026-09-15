@@ -98,7 +98,12 @@ impl Scenario {
     }
 
     fn sign(&self, digest: &str, revoked: bool) {
-        let node = self.release.runtime().node_digest_sha256().to_owned();
+        let node = self
+            .release
+            .runtime()
+            .unwrap()
+            .node_digest_sha256()
+            .to_owned();
         let release = if revoked {
             fixture::revoked_release(&self.signer, &node)
         } else {

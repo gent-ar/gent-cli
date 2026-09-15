@@ -15,6 +15,7 @@ pub const PROVIDER_READINESS_CAPABILITY: &str = "provider-readiness-v2";
 #[serde(rename_all = "camelCase")]
 pub enum ProviderReadinessUnavailable {
     ProvenanceUnreadable,
+    RuntimeUnverified,
 }
 
 /// Server-owned classification for a daemon-generated install review.

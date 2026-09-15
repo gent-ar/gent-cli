@@ -202,7 +202,12 @@ impl InstalledProvider {
     }
 
     fn sign(&self, version: &str, digest: &str) {
-        let node = self.release.runtime().node_digest_sha256().to_owned();
+        let node = self
+            .release
+            .runtime()
+            .unwrap()
+            .node_digest_sha256()
+            .to_owned();
         let signed = fixture::release_for_provider(
             &self.signer,
             &node,
@@ -493,3 +498,6 @@ fn an_installed_codex_launches_its_native_binary_and_a_tampered_one_is_held_for_
 
 #[path = "standalone_authority_provider_upgrade_tests.rs"]
 mod upgrade;
+
+#[path = "standalone_authority_installed_steer_tests.rs"]
+mod steer;

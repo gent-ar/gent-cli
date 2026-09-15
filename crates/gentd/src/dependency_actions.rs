@@ -59,7 +59,7 @@ impl<I: DependencyInstaller, P: PackageInstallPolicy> DependencyActionExecutor
             .npm
             .as_ref()
             .ok_or_else(|| DependencyActionExecutorError {
-                message: "bundled Node runtime is unavailable; set GENT_NODE_BINARY".into(),
+                message: "Gent's packaged Node runtime is unavailable; reinstall Gent".into(),
             })?;
         self.installer
             .install(npm, &package)

@@ -7,6 +7,7 @@ use gent_store::SqliteLedger;
 use gent_types::AgentChatProvider;
 
 use crate::{
+    ordinary_authority_release::OrdinaryAuthorityReleaseError,
     private_provider_readiness::PrivateProviderReadiness,
     provider_executables::ProviderExecutables, provider_readiness_boundary::ProviderReadinessPort,
     standalone_authority_composition::StandaloneClaurstModels,
@@ -43,6 +44,20 @@ impl StandaloneProviderReadinessAuthority {
         self.executables
             .explicit_path(provider)
             .map(std::path::Path::is_file)
+    }
+
+    fn release_unavailable(&self) -> Option<ProviderReadinessUnavailable> {
+        let error = self
+            .executables
+            .release()?
+            .load(crate::startup::unix_seconds())
+            .err()?;
+        Some(match error {
+            OrdinaryAuthorityReleaseError::RuntimeUnverified => {
+                ProviderReadinessUnavailable::RuntimeUnverified
+            }
+            _ => ProviderReadinessUnavailable::ProvenanceUnreadable,
+        })
     }
 
     fn review(
@@ -132,6 +147,16 @@ impl ProviderReadinessPort for StandaloneProviderReadinessAuthority {
                     conversation_id,
                     run_id,
                     provider,
+                }
+            } else if let Some(reason) = explicit
+                .is_none()
+                .then(|| self.release_unavailable())
+                .flatten()
+            {
+                ProviderReadinessFrame::Unavailable {
+                    conversation_id,
+                    run_id,
+                    reason,
                 }
             } else if self.executables.release().is_some()
                 && (explicit == Some(false)

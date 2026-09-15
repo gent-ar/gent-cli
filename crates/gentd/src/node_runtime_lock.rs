@@ -18,7 +18,6 @@ use gent_drivers::{
 
 const NODE_BINARY_ENV: &str = "GENT_NODE_BINARY";
 
-/// Immutable app runtime identity plus Gent's private installation prefix.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AppNodeRuntimeLock {
     lock: NodeRuntimeLock,
@@ -27,43 +26,20 @@ pub(crate) struct AppNodeRuntimeLock {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AppNodeRuntimeLockError {
-    #[error("Node runtime is unavailable; set GENT_NODE_BINARY or install Gent's packaged runtime")]
+    #[error("Gent's packaged Node runtime is missing; reinstall Gent")]
     MissingNode,
     #[error(transparent)]
     Runtime(#[from] NodeRuntimeLockError),
 }
 
 impl AppNodeRuntimeLock {
-    /// Captures the app-supplied Node/npm identity using `GENT_NODE_BINARY`.
-    ///
-    /// # Errors
-    /// Returns an error when the app runtime is absent or cannot be locked.
-    pub(crate) fn from_environment(data_dir: &Path) -> Result<Self, AppNodeRuntimeLockError> {
-        Self::capture(env::var_os(NODE_BINARY_ENV), data_dir)
-    }
-
     pub(crate) fn from_standalone_environment(
         data_dir: &Path,
     ) -> Result<Self, AppNodeRuntimeLockError> {
-        Self::capture_standalone(standalone_node_binary(), data_dir)
+        Self::capture(standalone_node_binary(), data_dir)
     }
 
-    /// Captures a caller-supplied app runtime for a private, uncomposed authority seam.
-    ///
-    /// # Errors
-    /// Returns an error when the supplied runtime cannot be locked.
     pub(crate) fn capture(
-        node: Option<OsString>,
-        data_dir: &Path,
-    ) -> Result<Self, AppNodeRuntimeLockError> {
-        let node = node.ok_or(AppNodeRuntimeLockError::MissingNode)?;
-        Ok(Self {
-            lock: NodeRuntimeLock::capture(Path::new(&node))?,
-            private_prefix: data_dir.join("providers").join("npm-global"),
-        })
-    }
-
-    pub(crate) fn capture_standalone(
         node: Option<PathBuf>,
         data_dir: &Path,
     ) -> Result<Self, AppNodeRuntimeLockError> {
@@ -131,6 +107,7 @@ fn provider_launcher_from(node: Option<PathBuf>, output_limit: usize) -> SystemL
 
 pub(crate) fn standalone_node_binary() -> Option<PathBuf> {
     node_binary_from(
+        cfg!(debug_assertions),
         env::var_os(NODE_BINARY_ENV),
         env::current_exe()
             .and_then(std::fs::canonicalize)
@@ -140,10 +117,12 @@ pub(crate) fn standalone_node_binary() -> Option<PathBuf> {
 }
 
 fn node_binary_from(
-    explicit: Option<OsString>,
+    development_build: bool,
+    development_override: Option<OsString>,
     gentd_executable: Option<&Path>,
 ) -> Option<PathBuf> {
-    explicit
+    development_override
+        .filter(|_| development_build)
         .map(PathBuf::from)
         .or_else(|| gentd_executable.map(packaged_node_from_executable))
         .filter(|node| node.is_file())
@@ -177,9 +156,7 @@ mod tests {
     fn app_runtime_binds_policy_digest_and_private_prefix() {
         let root = tempfile::tempdir().unwrap();
         let node = write_pair(root.path());
-        let runtime =
-            AppNodeRuntimeLock::capture(Some(node.into_os_string()), &root.path().join("gentd"))
-                .unwrap();
+        let runtime = AppNodeRuntimeLock::capture(Some(node), &root.path().join("gentd")).unwrap();
         assert_eq!(runtime.node_digest_sha256().len(), 64);
         let install = runtime
             .rechecked_npm_prefix()
@@ -201,8 +178,7 @@ mod tests {
     fn changed_app_runtime_is_refused() {
         let root = tempfile::tempdir().unwrap();
         let node = write_pair(root.path());
-        let runtime =
-            AppNodeRuntimeLock::capture(Some(node.clone().into_os_string()), root.path()).unwrap();
+        let runtime = AppNodeRuntimeLock::capture(Some(node.clone()), root.path()).unwrap();
         fs::write(node, "replacement").unwrap();
         assert!(matches!(
             runtime.rechecked_npm_prefix(),
@@ -214,8 +190,7 @@ mod tests {
     fn changed_app_runtime_cannot_create_a_read_only_provider_launcher() {
         let root = tempfile::tempdir().unwrap();
         let node = write_pair(root.path());
-        let runtime =
-            AppNodeRuntimeLock::capture(Some(node.clone().into_os_string()), root.path()).unwrap();
+        let runtime = AppNodeRuntimeLock::capture(Some(node.clone()), root.path()).unwrap();
         fs::write(node, "replacement").unwrap();
         assert!(matches!(
             runtime.rechecked_read_only_launcher(1024),
@@ -224,22 +199,85 @@ mod tests {
     }
 
     #[test]
-    fn standalone_runtime_prefers_the_explicit_binary() {
+    fn development_builds_prefer_the_node_override() {
         let root = tempfile::tempdir().unwrap();
         let explicit = write_pair(&root.path().join("explicit"));
-        let packaged = write_pair(&root.path().join("gentd").join("runtime").join("node"));
+        let packaged = write_pair(&root.path().join("release").join("runtime").join("node"));
         let resolved = super::node_binary_from(
+            true,
             Some(explicit.clone().into_os_string()),
-            Some(&root.path().join("gentd")),
+            Some(&root.path().join("release/gentd")),
         );
-        let runtime =
-            AppNodeRuntimeLock::capture_standalone(resolved, &root.path().join("gentd")).unwrap();
-        fs::write(explicit, "replacement").unwrap();
-        assert!(matches!(
-            runtime.recheck(),
-            Err(AppNodeRuntimeLockError::Runtime(_))
-        ));
+        assert_eq!(resolved, Some(explicit));
         assert!(packaged.exists());
+    }
+
+    #[test]
+    fn release_builds_ignore_the_node_override_for_the_packaged_runtime() {
+        let root = tempfile::tempdir().unwrap();
+        let explicit = write_pair(&root.path().join("explicit"));
+        let packaged = write_pair(&root.path().join("release").join("runtime").join("node"));
+        let resolved = super::node_binary_from(
+            false,
+            Some(explicit.into_os_string()),
+            Some(&root.path().join("release/gentd")),
+        );
+        assert_eq!(resolved, Some(packaged));
+    }
+
+    #[test]
+    fn release_builds_never_fall_back_to_the_node_override() {
+        let root = tempfile::tempdir().unwrap();
+        let explicit = write_pair(&root.path().join("explicit"));
+        let resolved = super::node_binary_from(
+            false,
+            Some(explicit.into_os_string()),
+            Some(&root.path().join("release/gentd")),
+        );
+        assert!(matches!(
+            AppNodeRuntimeLock::capture(resolved, root.path()),
+            Err(AppNodeRuntimeLockError::MissingNode)
+        ));
+    }
+
+    #[test]
+    fn a_release_signed_for_the_packaged_node_verifies_despite_a_node_override() {
+        use crate::ordinary_authority_release::{
+            OrdinaryAuthorityReleaseError, SignedOrdinaryAuthorityRelease, fixture,
+        };
+        let root = tempfile::tempdir().unwrap();
+        let packaged = fixture::runtime(&root.path().join("release").join("runtime"));
+        fixture::runtime(&root.path().join("app"));
+        let app_node = root.path().join("app/node/bin/node");
+        fs::write(&app_node, "the app's other node").unwrap();
+        let other = AppNodeRuntimeLock::capture(Some(app_node.clone()), root.path()).unwrap();
+        let signer = ed25519_dalek::SigningKey::from_bytes(&[11; 32]);
+        let authority = root.path().join("ordinary-authority.json");
+        let write = |node: &AppNodeRuntimeLock| {
+            let release = fixture::release(&signer, node.node_digest_sha256());
+            fs::write(&authority, serde_json::to_vec(&release).unwrap()).unwrap();
+        };
+        let resolved = super::node_binary_from(
+            false,
+            Some(app_node.into_os_string()),
+            Some(&root.path().join("release/gentd")),
+        );
+        let runtime = AppNodeRuntimeLock::capture(resolved, root.path()).unwrap();
+        let load = || {
+            SignedOrdinaryAuthorityRelease::load_bound(
+                &authority,
+                &fixture::root_keys(&signer),
+                &runtime,
+                10,
+            )
+        };
+        write(&packaged);
+        assert!(load().unwrap().authorizes_provider("codex"));
+        write(&other);
+        assert!(matches!(
+            load(),
+            Err(OrdinaryAuthorityReleaseError::RuntimeUnverified)
+        ));
     }
 
     #[test]
@@ -247,8 +285,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let data_dir = root.path().join("gentd");
         let node = write_pair(&root.path().join("release").join("runtime").join("node"));
-        let resolved = super::node_binary_from(None, Some(&root.path().join("release/gentd")));
-        let runtime = AppNodeRuntimeLock::capture_standalone(resolved, &data_dir).unwrap();
+        let resolved =
+            super::node_binary_from(false, None, Some(&root.path().join("release/gentd")));
+        let runtime = AppNodeRuntimeLock::capture(resolved, &data_dir).unwrap();
         fs::write(node, "replacement").unwrap();
         assert!(matches!(
             runtime.recheck(),
@@ -268,9 +307,9 @@ mod tests {
     #[test]
     fn standalone_runtime_requires_an_explicit_or_packaged_binary() {
         let root = tempfile::tempdir().unwrap();
-        let resolved = super::node_binary_from(None, Some(&root.path().join("gentd")));
+        let resolved = super::node_binary_from(false, None, Some(&root.path().join("gentd")));
         assert!(matches!(
-            AppNodeRuntimeLock::capture_standalone(resolved, root.path()),
+            AppNodeRuntimeLock::capture(resolved, root.path()),
             Err(AppNodeRuntimeLockError::MissingNode)
         ));
     }
@@ -286,7 +325,7 @@ mod tests {
         fs::write(&node, "#!/bin/sh\necho packaged-node\n").unwrap();
         fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).unwrap();
         let launcher = super::provider_launcher_from(
-            super::node_binary_from(None, Some(&release.join("gentd"))),
+            super::node_binary_from(false, None, Some(&release.join("gentd"))),
             4096,
         );
         let lock =

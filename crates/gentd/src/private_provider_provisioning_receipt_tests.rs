@@ -279,7 +279,7 @@ pub(super) fn runtime_at(root: &std::path::Path) -> AppNodeRuntimeLock {
     let npm_cli = root.join("lib/node_modules/npm/bin");
     fs::create_dir_all(&npm_cli).unwrap();
     fs::write(npm_cli.join("npm-cli.js"), "npm cli").unwrap();
-    AppNodeRuntimeLock::capture(Some(node.into_os_string()), &root.join(".gentd")).unwrap()
+    AppNodeRuntimeLock::capture(Some(node), &root.join(".gentd")).unwrap()
 }
 
 #[cfg(windows)]

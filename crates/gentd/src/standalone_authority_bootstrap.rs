@@ -54,16 +54,18 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .map(crate::standalone_mcp_config::StandaloneMcpConfig::server_names)
         .transpose()?
         .unwrap_or_default();
-
-    let verified_release = authority_release
-        .as_ref()
-        .map(|release| release.load(startup::unix_seconds()))
-        .transpose()?;
+    let verified_release = authority_release.as_ref().and_then(|release| {
+        release
+            .load(startup::unix_seconds())
+            .inspect_err(|error| eprintln!("gentd cannot use its signed provider release: {error}"))
+            .ok()
+            .map(|verified| (release, verified))
+    });
     let compatibility = verified_release.as_ref().map_or_else(
         || CompatibilityAssessment::load(None, &[], startup::unix_seconds()),
-        crate::ordinary_authority_release::VerifiedOrdinaryAuthorityRelease::compatibility,
+        |(_, verified)| verified.compatibility(),
     );
-    let capability_profile = standalone_capability_profile(authority_release.is_some());
+    let capability_profile = standalone_capability_profile(verified_release.is_some());
     let reopened = data_dir.join("gent.db").is_file();
     let state = DaemonCompositionState::open(&data_dir, &capability_profile, compatibility)?;
     if reopened {
@@ -84,9 +86,11 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             mcp_config: mcp_config.clone(),
         },
     )?;
-    let prompt_provider_provision = authority_release
+    let prompt_provider_provision = verified_release
         .as_ref()
-        .map(|release| crate::standalone_provider_provision::compose(&state, release))
+        .map(|(release, verified)| {
+            crate::standalone_provider_provision::compose(&state, release, verified)
+        })
         .transpose()?
         .map(|provision| {
             std::sync::Arc::new(

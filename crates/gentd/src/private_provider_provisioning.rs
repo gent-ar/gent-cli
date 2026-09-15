@@ -168,30 +168,6 @@ impl<
     B: ProvisionedProviderCompatibility,
 > PrivateProviderProvisioner<I, P, V, R, B>
 {
-    /// Captures the app runtime without enabling installation or registering a public handler.
-    ///
-    /// # Errors
-    /// Returns an error when `GENT_NODE_BINARY` cannot be locked.
-    pub(crate) fn from_environment(
-        data_dir: &Path,
-        installer: I,
-        policy: P,
-        verifier: Option<V>,
-        receipts: R,
-        compatibility: B,
-        release_authority: Option<ReleaseAuthorityConfig>,
-    ) -> Result<Self, PrivateProvisionError> {
-        Ok(Self::with_compatibility(
-            AppNodeRuntimeLock::from_environment(data_dir)?,
-            installer,
-            policy,
-            verifier,
-            receipts,
-            compatibility,
-            release_authority,
-        ))
-    }
-
     /// Runs one consented package installation after exact policy and Node identity checks.
     ///
     /// The Node/npm pair is rechecked immediately before the fixed installer effect. It is checked

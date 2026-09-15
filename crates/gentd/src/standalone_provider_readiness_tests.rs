@@ -205,6 +205,42 @@ fn signed_release_produces_a_daemon_owned_missing_install_review() {
     assert!(review.consent_required);
 }
 
+#[test]
+fn a_release_that_does_not_approve_gents_node_reports_an_unverified_runtime_instead_of_a_review() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime =
+        crate::ordinary_authority_release::fixture::runtime(&directory.path().join("runtime"));
+    let signer = SigningKey::from_bytes(&[9; 32]);
+    let envelope = crate::ordinary_authority_release::fixture::release(&signer, &"e".repeat(64));
+    let path = directory.path().join("authority.json");
+    std::fs::write(&path, serde_json::to_vec(&envelope).unwrap()).unwrap();
+    let release = StandaloneAuthorityRelease::configured(
+        path,
+        &[format!(
+            "root:{}",
+            hex::encode(signer.verifying_key().as_bytes())
+        )],
+        runtime,
+    )
+    .unwrap();
+    let ledger = conversation(directory.path(), AgentChatProvider::Codex);
+    let authority = StandaloneProviderReadinessAuthority::new(
+        ledger.clone(),
+        ProviderExecutables::standalone(None, None, directory.path(), ledger, Some(release)),
+        crate::local_model_jobs::tests::models(directory.path()),
+    );
+
+    assert!(!authority.is_ready(AgentChatProvider::Codex).unwrap());
+    assert_eq!(
+        authority.assess(request("run")).unwrap(),
+        ProviderReadinessFrame::Unavailable {
+            conversation_id: AgentChatConversationId("conversation".into()),
+            run_id: AgentChatRunId("run".into()),
+            reason: ProviderReadinessUnavailable::RuntimeUnverified,
+        }
+    );
+}
+
 #[derive(Clone)]
 struct InstalledCodex(gent_types::RunVersionLock);
 

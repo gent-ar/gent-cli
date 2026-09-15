@@ -99,7 +99,7 @@ fn rejected_post_install_compatibility_is_ambiguous_and_never_creates_a_lock() {
     fs::write(npm_cli.join("npm-cli.js"), "npm cli").unwrap();
     let installer = Installer::default();
     let provisioner = PrivateProviderProvisioner::with_compatibility(
-        AppNodeRuntimeLock::capture(Some(node.into_os_string()), root.path()).unwrap(),
+        AppNodeRuntimeLock::capture(Some(node), root.path()).unwrap(),
         installer.clone(),
         Policy,
         Some(Verifier),

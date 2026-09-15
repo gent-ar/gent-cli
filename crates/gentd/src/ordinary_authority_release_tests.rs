@@ -66,7 +66,25 @@ fn unknown_data_and_changed_node_fail_before_authority_is_returned() {
     fs::write(root.path().join("node/bin/node"), "changed").unwrap();
     assert!(matches!(
         SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10),
-        Err(OrdinaryAuthorityReleaseError::EmbeddedAuthority)
+        Err(OrdinaryAuthorityReleaseError::RuntimeUnverified)
+    ));
+}
+
+#[test]
+fn a_release_signed_for_another_node_reports_an_unverified_runtime() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path());
+    let signer = SigningKey::from_bytes(&[3; 32]);
+    let path = root.path().join("ordinary-authority.json");
+    let other_node = hex::encode(sha2::Sha256::digest(b"another node"));
+    fs::write(
+        &path,
+        serde_json::to_vec(&release(&signer, &other_node)).unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        SignedOrdinaryAuthorityRelease::load_bound(&path, &root_keys(&signer), &runtime, 10),
+        Err(OrdinaryAuthorityReleaseError::RuntimeUnverified)
     ));
 }
 

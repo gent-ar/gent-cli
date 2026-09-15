@@ -280,8 +280,7 @@ fn runtime() -> (AppNodeRuntimeLock, PathBuf) {
     fs::create_dir_all(&npm_cli).unwrap();
     fs::write(npm_cli.join("npm-cli.js"), "npm cli").unwrap();
     (
-        AppNodeRuntimeLock::capture(Some(node.clone().into_os_string()), &root.join(".gentd"))
-            .unwrap(),
+        AppNodeRuntimeLock::capture(Some(node.clone()), &root.join(".gentd")).unwrap(),
         node,
     )
 }

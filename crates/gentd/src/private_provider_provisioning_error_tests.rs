@@ -116,7 +116,7 @@ fn rejected_or_mismatched_policy_never_reaches_the_installer() {
     assert_eq!(*installer.0.lock().unwrap(), 0);
     let provisioner = PrivateProviderProvisioner::new(
         AppNodeRuntimeLock::capture(
-            Some(temp.path().join("bin/node").into_os_string()),
+            Some(temp.path().join("bin/node")),
             &temp.path().join(".gentd"),
         )
         .unwrap(),
@@ -237,9 +237,7 @@ fn runtime() -> (tempfile::TempDir, AppNodeRuntimeLock) {
     let npm_cli = temp.path().join("lib/node_modules/npm/bin");
     fs::create_dir_all(&npm_cli).unwrap();
     fs::write(npm_cli.join("npm-cli.js"), "npm cli").unwrap();
-    let runtime =
-        AppNodeRuntimeLock::capture(Some(node.into_os_string()), &temp.path().join(".gentd"))
-            .unwrap();
+    let runtime = AppNodeRuntimeLock::capture(Some(node), &temp.path().join(".gentd")).unwrap();
     (temp, runtime)
 }
 

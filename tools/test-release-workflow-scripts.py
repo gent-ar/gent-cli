@@ -122,17 +122,21 @@ def check_authority_verifier() -> None:
         recorder = root / "recorder.py"
         recorder.write_text(
             "import json, os, pathlib, sys\n"
-            f"pathlib.Path({str(record)!r}).write_text(json.dumps({{'argv': sys.argv[1:], "
-            "'node': os.environ['GENT_NODE_BINARY'], 'data': os.path.isdir(sys.argv[-1])}))\n",
+            "gentd = pathlib.Path(sys.argv[1])\n"
+            f"pathlib.Path({str(record)!r}).write_text(json.dumps({{'argv': sys.argv[2:], "
+            "'node': (gentd.parent / 'runtime/node/bin/node').read_text(), "
+            "'override': 'GENT_NODE_BINARY' in os.environ, 'data': os.path.isdir(sys.argv[-1])}))\n",
             encoding="utf-8",
         )
         if os.name == "nt":
             verifier = root / "gentd.cmd"
-            verifier.write_text(f'@"{sys.executable}" "{recorder}" %*\n', encoding="utf-8")
+            verifier.write_text(f'@"{sys.executable}" "{recorder}" "%~f0" %*\n', encoding="utf-8")
         else:
             verifier = root / "gentd"
-            shim(root, "gentd", f'exec "{sys.executable}" "{recorder}" "$@"')
-        environment = {**os.environ, "GENTD_VERIFIER": verifier.name, "NODE_BINARY": "node-runtime/node"}
+            shim(root, "gentd", f'exec "{sys.executable}" "{recorder}" "$0" "$@"')
+        (root / "node-runtime/bin").mkdir(parents=True)
+        (root / "node-runtime/bin/node").write_text("staged node", encoding="utf-8")
+        environment = {**os.environ, "GENTD_VERIFIER": verifier.name, "NODE_RUNTIME_DIR": "node-runtime", "GENT_NODE_BINARY": "elsewhere/node"}
         subprocess.run([sys.executable, str(AUTHORITY_VERIFIER), "--pins", str(pins)], cwd=root, env=environment, check=True)
         value = json.loads(record.read_text())
         release = str((authority / "ordinary-authority.json").resolve())
@@ -142,7 +146,7 @@ def check_authority_verifier() -> None:
             "--standalone-authority-key", "one:01", "--standalone-authority-key", "two:02",
         ]
         assert value["argv"][-2] == "--data-dir" and value["data"]
-        assert value["node"] == str((root / "node-runtime/node").resolve())
+        assert value["node"] == "staged node" and not value["override"]
         failing = {**environment, "GENTD_VERIFIER": "missing-gentd"}
         missing = subprocess.run([sys.executable, str(AUTHORITY_VERIFIER), "--pins", str(pins)], cwd=root, env=failing, capture_output=True)
         assert missing.returncode != 0

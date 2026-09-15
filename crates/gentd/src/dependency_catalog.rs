@@ -215,8 +215,7 @@ fn node_status(node: Option<PathBuf>) -> DependencyStatus {
         name: "node".into(),
         present: node.is_some(),
         version: None,
-        remediation:
-            "Install Gent's packaged runtime or set GENT_NODE_BINARY to a Node executable.".into(),
+        remediation: "Reinstall Gent to restore its packaged Node runtime.".into(),
     }
 }
 

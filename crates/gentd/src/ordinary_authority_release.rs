@@ -120,6 +120,8 @@ pub(crate) enum OrdinaryAuthorityReleaseError {
     Inactive,
     #[error("ordinary authority release embedded authority is invalid")]
     EmbeddedAuthority,
+    #[error("Gent's Node runtime is missing or not the one its signed provider release approves")]
+    RuntimeUnverified,
 }
 
 impl SignedOrdinaryAuthorityRelease {
@@ -131,7 +133,7 @@ impl SignedOrdinaryAuthorityRelease {
     ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
         runtime
             .recheck()
-            .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
+            .map_err(|_| OrdinaryAuthorityReleaseError::RuntimeUnverified)?;
         let bytes = read(path)?;
         let value: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(|_| OrdinaryAuthorityReleaseError::Malformed)?;
@@ -195,6 +197,16 @@ impl SignedOrdinaryAuthorityRelease {
             .package_policy
             .verify(&keys(&self.payload.package_policy_keys)?, now, node_digest)
             .map_err(|_| OrdinaryAuthorityReleaseError::EmbeddedAuthority)?;
+        if !self
+            .payload
+            .package_policy
+            .payload
+            .entries
+            .iter()
+            .any(|entry| entry.node_runtime_digest_sha256 == node_digest)
+        {
+            return Err(OrdinaryAuthorityReleaseError::RuntimeUnverified);
+        }
         let mut providers = Vec::new();
         let mut provider_names = BTreeSet::new();
         for provider in self.payload.providers {

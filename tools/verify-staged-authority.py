@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 
@@ -21,20 +22,24 @@ def main() -> None:
     envelope = json.loads(release.read_text(encoding="utf-8"))
     require_pinned_authority(envelope["payload"], args.pins)
     roots = json.loads(pathlib.Path("dist-runtime/authority/root-keys.json").read_text(encoding="utf-8"))
-    command = [
-        str(pathlib.Path(os.environ["GENTD_VERIFIER"]).resolve()),
+    verification = [
         "--standalone-authority",
         "--verify-standalone-authority-release",
         "--standalone-authority-release",
         str(release),
     ]
     for key in roots["keys"]:
-        command.extend(["--standalone-authority-key", key])
-    environment = os.environ.copy()
-    environment["GENT_NODE_BINARY"] = str(pathlib.Path(os.environ["NODE_BINARY"]).resolve())
-    with tempfile.TemporaryDirectory() as data_dir:
-        command.extend(["--data-dir", data_dir])
-        subprocess.run(command, env=environment, check=True)
+        verification.extend(["--standalone-authority-key", key])
+    environment = {name: value for name, value in os.environ.items() if name != "GENT_NODE_BINARY"}
+    with tempfile.TemporaryDirectory() as directory:
+        staged = pathlib.Path(directory)
+        verifier = pathlib.Path(os.environ["GENTD_VERIFIER"]).resolve()
+        gentd = staged / verifier.name
+        shutil.copy2(verifier, gentd)
+        shutil.copytree(pathlib.Path(os.environ["NODE_RUNTIME_DIR"]).resolve(), staged / "runtime" / "node", symlinks=True)
+        data_dir = staged / "data"
+        data_dir.mkdir()
+        subprocess.run([str(gentd), *verification, "--data-dir", str(data_dir)], env=environment, check=True)
 
 
 if __name__ == "__main__":
