@@ -152,24 +152,25 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn rejects_prefix_escape_and_invalid_version_output() {
+    fn rejects_a_provider_symlink_that_escapes_the_private_prefix() {
         let root = tempfile::tempdir().unwrap();
         let escaped_prefix = root.path().join("npm-global");
         let escaped = codex_path(&escaped_prefix);
         fs::create_dir_all(escaped.parent().unwrap()).unwrap();
         let outside = root.path().join("outside");
         fs::write(&outside, "outside").unwrap();
-        #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, &escaped).unwrap();
-        #[cfg(not(unix))]
-        fs::write(&escaped, "outside").unwrap();
         assert!(
             verifier(Ok("1.2.3".into()))
                 .lock(DependencyProvider::Codex, &escaped_prefix)
                 .is_err()
         );
+    }
 
+    #[test]
+    fn rejects_failed_or_invalid_version_output() {
         let fresh = tempfile::tempdir().unwrap();
         let prefix = prefix(fresh.path());
         assert!(
