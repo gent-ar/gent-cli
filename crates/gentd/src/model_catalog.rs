@@ -148,7 +148,7 @@ impl super::RuntimeFacade {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "model_catalog_provider_tests.rs"]
 mod provider_tests;
 

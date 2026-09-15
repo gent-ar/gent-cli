@@ -142,11 +142,24 @@ fn workspace_reads_never_ask_but_reads_outside_it_do_unless_bypassed() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn edits_through_a_symlink_that_leaves_the_workspace_always_ask() {
+    let (root, project) = workspace();
+    std::os::unix::fs::symlink(root.path().join("outside"), project.join("escape")).unwrap();
+    for mode in [
+        PermissionMode::AutoAcceptEdits,
+        PermissionMode::Autonomous,
+        PermissionMode::Bypass,
+    ] {
+        assert_eq!(agent(mode, &edit("escape/x.py"), &project), ASK);
+    }
+}
+
 #[test]
 fn edits_are_unattended_only_inside_the_workspace_in_an_edit_accepting_mode() {
-    let (root, project) = workspace();
+    let (_root, project) = workspace();
     let inside = project.join("src/new.py");
-    std::os::unix::fs::symlink(root.path().join("outside"), project.join("escape")).unwrap();
     assert_eq!(
         agent(PermissionMode::AskEveryTime, &edit("src/app.py"), &project),
         ASK
@@ -162,7 +175,6 @@ fn edits_are_unattended_only_inside_the_workspace_in_an_edit_accepting_mode() {
             ALLOW
         );
         assert_eq!(agent(mode, &edit("src/../../outside/x.py"), &project), ASK);
-        assert_eq!(agent(mode, &edit("escape/x.py"), &project), ASK);
         assert_eq!(
             agent(
                 mode,

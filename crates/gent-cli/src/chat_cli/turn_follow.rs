@@ -254,6 +254,6 @@ fn print(value: &impl Serialize) -> io::Result<()> {
     writer.flush()
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "turn_follow_tests.rs"]
 mod tests;

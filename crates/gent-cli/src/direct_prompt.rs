@@ -130,7 +130,7 @@ fn shorthand_path(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use gent_protocol::{
         Hello, Negotiated, ORCHESTRATION_CAPABILITY, WireFrame, read_frame, read_json_frame,
