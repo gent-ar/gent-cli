@@ -25,7 +25,7 @@ def main():
         output = root / "output"
         tar_path = source / "claurst.tar.gz"
         with tarfile.open(tar_path, "w:gz") as archive:
-            member = tarfile.TarInfo("claurst")
+            member = tarfile.TarInfo("claurst.exe")
             content = b"claurst"
             member.size = len(content)
             import io
@@ -35,16 +35,16 @@ def main():
             archive.writestr("bin/llama-server.exe", b"llama")
         claurst_digest = sha(tar_path.read_bytes())
         original = stage.ARTIFACTS
-        stage.ARTIFACTS = {"fixture": {"claurst": ("https://fixture.invalid/claurst.tar.gz", claurst_digest, "claurst"), "llama": ("https://fixture.invalid/llama.zip", sha(zip_path.read_bytes()), "llama-server.exe")}}
+        stage.ARTIFACTS = {"fixture": {"claurst": ("https://fixture.invalid/claurst.tar.gz", claurst_digest, "claurst.exe"), "llama": ("https://fixture.invalid/llama.zip", sha(zip_path.read_bytes()), "llama-server.exe")}}
         import sys
         previous = sys.argv
         sys.argv = ["stage", "--target", "fixture", "--out-dir", str(output), "--source-dir", str(source)]
         stage.main()
         sys.argv = previous
         stage.ARTIFACTS = original
-        assert (output / "claurst").read_bytes() == b"claurst"
+        assert (output / "claurst.exe").read_bytes() == b"claurst"
         assert (output / "llama/llama-server.exe").read_bytes() == b"llama"
-        assert (output / "claurst").stat().st_mode & 0o111
+        assert (output / "claurst.exe").stat().st_mode & 0o111
         assert (output / "llama/llama-server.exe").stat().st_mode & 0o111
         tampered = source / "claurst.tar.gz"
         tampered.write_bytes(b"bad")

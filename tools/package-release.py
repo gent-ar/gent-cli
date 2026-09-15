@@ -14,6 +14,16 @@ import zipfile
 from pathlib import Path
 
 
+TAR_EXECUTABLES = frozenset({
+    "gent",
+    "gentd",
+    "runtime/node/bin/node",
+    "runtime/node/bin/npm",
+    "runtime/claurst/claurst",
+    "runtime/claurst/llama/llama-server",
+})
+
+
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-dir", type=Path, required=True)
@@ -125,6 +135,7 @@ def archive_name(version: str, target: str, archive_format: str) -> str:
 
 def add_tar_file(archive: tarfile.TarFile, source: Path, name: str, root: str, epoch: int) -> None:
     info = archive.gettarinfo(str(source), arcname=f"{root}/{name}")
+    info.mode = 0o755 if name in TAR_EXECUTABLES or info.mode & 0o111 else 0o644
     info.uid = info.gid = 0
     info.uname = info.gname = ""
     info.mtime = epoch

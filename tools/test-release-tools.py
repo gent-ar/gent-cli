@@ -155,9 +155,17 @@ def main() -> None:
         rejects_authority_encoding(target, root / "bom", runtime, claurst, "utf-8-sig")
         rejects_authority_encoding(target, root / "utf-16", runtime, claurst, "utf-16")
         first = package(target, root / "first", runtime, claurst, "tar.gz")
+        (target / "gent").chmod(0o644)
+        (runtime / "bin" / "node").chmod(0o600)
         second = package(target, root / "second", runtime, claurst, "tar.gz")
+        (target / "gent").chmod(0o755)
+        (runtime / "bin" / "node").chmod(0o755)
         assert first.read_bytes() == second.read_bytes()
         verify(first)
+        with tarfile.open(first, "r:gz") as bundle:
+            modes = {member.name.partition("/")[2]: member.mode for member in bundle.getmembers()}
+        assert modes["gent"] == modes["runtime/node/bin/node"] == modes["runtime/claurst/llama/llama-server"] == 0o755
+        assert modes["authority/root-keys.json"] == modes["runtime/node/lib/node_modules/npm/bin/npm-cli.js"] == 0o644
         manifest = json.loads(Path(f"{first}.manifest.json").read_text())
         assert manifest["binaries"] == ["gent", "gentd"]
         assert "local-models-v1" in manifest["capabilities"]
