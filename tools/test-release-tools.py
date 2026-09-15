@@ -23,25 +23,38 @@ PACKAGER = ROOT / "tools/package-release.py"
 VERIFIER = ROOT / "tools/verify-release.py"
 
 
-def package(target: Path, output: Path, runtime: Path, claurst: Path, archive_format: str, suffix: str = "") -> Path:
+def write_authority(directory: Path, encoding: str = "utf-8") -> tuple[Path, Path]:
+    directory.mkdir(exist_ok=True)
+    release = directory / "ordinary-authority.json"
+    root_keys = directory / "root-keys.json"
+    release.write_text(json.dumps({"key_id": "fixture", "payload": {}, "signature_hex": "00" * 64}), encoding=encoding)
+    root_keys.write_text(json.dumps({"version": 1, "keys": [f"fixture:{'01' * 32}"]}), encoding=encoding)
+    return release, root_keys
+
+
+def run_packager(target: Path, output: Path, runtime: Path, claurst: Path, archive_format: str, suffix: str,
+                 authority: tuple[Path, Path]) -> subprocess.CompletedProcess[str]:
     environment = {**os.environ, "SOURCE_DATE_EPOCH": "1700000000"}
-    authority = target.parent / "authority"
-    authority.mkdir(exist_ok=True)
-    (authority / "ordinary-authority.json").write_text(
-        json.dumps({"key_id": "fixture", "payload": {}, "signature_hex": "00" * 64}),
-        encoding="utf-8",
-    )
-    (authority / "root-keys.json").write_text(
-        json.dumps({"version": 1, "keys": [f"fixture:{'01' * 32}"]}),
-        encoding="utf-8",
-    )
-    subprocess.run(
+    return subprocess.run(
         [sys.executable, str(PACKAGER), "--target-dir", str(target), "--out-dir", str(output),
          "--version", "0.1.0", "--target", "fixture-target", "--format", archive_format,
          "--suffix", suffix, "--node-runtime-dir", str(runtime), "--claurst-runtime-dir", str(claurst),
-         "--authority-release", str(authority / "ordinary-authority.json"),
-         "--authority-root-keys", str(authority / "root-keys.json")], check=True, env=environment)
+         "--authority-release", str(authority[0]), "--authority-root-keys", str(authority[1])],
+        capture_output=True, text=True, env=environment)
+
+
+def package(target: Path, output: Path, runtime: Path, claurst: Path, archive_format: str, suffix: str = "") -> Path:
+    result = run_packager(target, output, runtime, claurst, archive_format, suffix, write_authority(target.parent / "authority"))
+    assert result.returncode == 0, result.stderr
     return output / f"gent-0.1.0-fixture-target.{archive_format}"
+
+
+def rejects_authority_encoding(target: Path, output: Path, runtime: Path, claurst: Path, encoding: str) -> None:
+    authority = write_authority(target.parent / f"authority-{encoding}", encoding)
+    result = run_packager(target, output, runtime, claurst, "tar.gz", "", authority)
+    assert result.returncode != 0
+    assert f"authority release input must be UTF-8 JSON without a byte order mark: {authority[0]}" in result.stderr, result.stderr
+    assert not (output / "gent-0.1.0-fixture-target.tar.gz").exists()
 
 
 def command(archive: Path, *expected: str) -> list[str]:
@@ -139,6 +152,8 @@ def main() -> None:
         (claurst / "llama" / "llama-server").write_bytes(b"llama fixture\n")
         (claurst / "llama" / "llama-server").chmod(0o755)
         (claurst / "llama" / "libllama.so").write_bytes(b"llama library fixture\n")
+        rejects_authority_encoding(target, root / "bom", runtime, claurst, "utf-8-sig")
+        rejects_authority_encoding(target, root / "utf-16", runtime, claurst, "utf-16")
         first = package(target, root / "first", runtime, claurst, "tar.gz")
         second = package(target, root / "second", runtime, claurst, "tar.gz")
         assert first.read_bytes() == second.read_bytes()

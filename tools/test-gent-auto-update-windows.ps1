@@ -7,6 +7,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("gent-auto-update-test-" + [guid]:
 $server = $null
 
 function Assert-True([bool]$Value, [string]$Message) { if (-not $Value) { throw $Message } }
+function Write-Utf8File([string]$Path, [string]$Text) { [IO.File]::WriteAllText($Path, $Text, [Text.UTF8Encoding]::new($false)) }
 function Free-Port {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $listener.Start()
     $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port; $listener.Stop(); return $port
@@ -26,16 +27,16 @@ try {
     $runtime = Join-Path $work "runtime"; $release = Join-Path $runtime "releases\v1.2.3-x86_64-pc-windows-msvc"
     $files = Join-Path $work "files"; $fake = Join-Path $work "fake"; $scheduler = Join-Path $work "scheduler"; $record = Join-Path $work "record"
     New-Item -ItemType Directory -Force -Path $release, $files, $fake | Out-Null
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $release "gent.exe") "fixture"
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $release "gentd.exe") "fixture"
-    @{ release = "v1.2.3-x86_64-pc-windows-msvc" } | ConvertTo-Json -Compress | Set-Content -NoNewline -Encoding utf8 (Join-Path $runtime "current.json")
+    Write-Utf8File (Join-Path $release "gent.exe") "fixture"
+    Write-Utf8File (Join-Path $release "gentd.exe") "fixture"
+    Write-Utf8File (Join-Path $runtime "current.json") (@{ release = "v1.2.3-x86_64-pc-windows-msvc" } | ConvertTo-Json -Compress)
     $tagDir = Join-Path $files "v1.2.4"; New-Item -ItemType Directory -Force -Path $tagDir | Out-Null
-    @{ tag_name = "v1.2.4"; draft = $false; prerelease = $false } | ConvertTo-Json -Compress | Set-Content -NoNewline -Encoding utf8 (Join-Path $files "latest")
-    @'
+    Write-Utf8File (Join-Path $files "latest") (@{ tag_name = "v1.2.4"; draft = $false; prerelease = $false } | ConvertTo-Json -Compress)
+    Write-Utf8File (Join-Path $tagDir "gent-install.ps1") @'
 param([string]$Version,[string]$InstallDir,[string]$IdleDataDir,[switch]$Force,[switch]$RequireHealth)
 [IO.File]::WriteAllText($env:GENT_TEST_RECORD, "$Version|$InstallDir|$IdleDataDir|$Force|$RequireHealth")
-'@ | Set-Content -NoNewline -Encoding utf8 (Join-Path $tagDir "gent-install.ps1")
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $tagDir "gent-install.ps1.sigstore.json") "{}"
+'@
+    Write-Utf8File (Join-Path $tagDir "gent-install.ps1.sigstore.json") "{}"
     Set-Content -NoNewline -Encoding ascii (Join-Path $fake "cosign.cmd") "@exit /b 0`r`n"
     $port = Free-Port; $server = Start-Process -FilePath $python -ArgumentList @("-m", "http.server", "$port", "--bind", "127.0.0.1", "--directory", $files) -PassThru
     $base = "http://127.0.0.1:$port"; for ($attempt = 0; $attempt -lt 30; $attempt++) { try { Invoke-WebRequest -UseBasicParsing "$base/" | Out-Null; break } catch { Start-Sleep -Milliseconds 100 } }

@@ -21,6 +21,10 @@ function Find-FreePort() {
     return $port
 }
 
+function Write-Utf8File([string]$path, [string]$text) {
+    [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($false))
+}
+
 function Write-FixtureBinary([string]$path, [string]$name) {
     [IO.File]::WriteAllBytes($path, [Text.Encoding]::UTF8.GetBytes("$name fixture`n"))
 }
@@ -52,8 +56,8 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
     Write-FixtureBinary (Join-Path $claurstRuntime "llama\llama-server.exe") "llama-server"
     $authority = Join-Path $source "authority-inputs"
     New-Item -ItemType Directory -Path $authority | Out-Null
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $authority "ordinary-authority.json") '{"key_id":"fixture","payload":{},"signature_hex":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}'
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $authority "root-keys.json") '{"version":1,"keys":["fixture:0101010101010101010101010101010101010101010101010101010101010101"]}'
+    Write-Utf8File (Join-Path $authority "ordinary-authority.json") '{"key_id":"fixture","payload":{},"signature_hex":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"}'
+    Write-Utf8File (Join-Path $authority "root-keys.json") '{"version":1,"keys":["fixture:0101010101010101010101010101010101010101010101010101010101010101"]}'
     & $python (Join-Path $repo "tools\package-release.py") --target-dir $source --out-dir $output `
         --version $version --target $target --format zip --suffix .exe `
         --node-runtime-dir $nodeRuntime --claurst-runtime-dir $claurstRuntime `
@@ -61,10 +65,10 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
         --authority-root-keys (Join-Path $authority "root-keys.json")
     if ($LASTEXITCODE -ne 0) { throw "could not package release fixture" }
     $archive = "gent-$version-$target.zip"
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $output "$archive.sigstore.json") '{}'
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $output "$archive.manifest.json.sigstore.json") '{}'
+    Write-Utf8File (Join-Path $output "$archive.sigstore.json") '{}'
+    Write-Utf8File (Join-Path $output "$archive.manifest.json.sigstore.json") '{}'
     Copy-Item (Join-Path $repo "tools\gent-auto-update.ps1") (Join-Path $output "gent-auto-update.ps1")
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $output "gent-auto-update.ps1.sigstore.json") '{}'
+    Write-Utf8File (Join-Path $output "gent-auto-update.ps1.sigstore.json") '{}'
     Copy-ReleaseAssets $output $fixture $version
 }
 
@@ -134,9 +138,8 @@ try {
     $badManifest = Join-Path $fixture "v0.3.0\gent-v0.3.0-$target.zip.manifest.json"
     $manifest = Get-Content -Raw $badManifest | ConvertFrom-Json
     $manifest.archive.sha256 = "0" * 64
-    $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $badManifest
-    Set-Content -NoNewline -Encoding utf8 (Join-Path $fixture "v0.3.0\gent-v0.3.0-$target.zip.sha256") `
-        (("0" * 64) + "  gent-v0.3.0-$target.zip")
+    Write-Utf8File $badManifest ($manifest | ConvertTo-Json -Depth 5)
+    Write-Utf8File (Join-Path $fixture "v0.3.0\gent-v0.3.0-$target.zip.sha256") (("0" * 64) + "  gent-v0.3.0-$target.zip")
 
     Set-Content -NoNewline -Encoding ascii (Join-Path $fakeBin "cosign.cmd") "@exit /b 0`r`n"
     $port = Find-FreePort

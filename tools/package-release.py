@@ -87,15 +87,19 @@ def claurst_files(runtime_dir: Path, suffix: str) -> list[tuple[Path, str]]:
     return files
 
 
+def authority_json(path: Path) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"authority release input must be UTF-8 JSON without a byte order mark: {path}") from error
+
+
 def authority_files(release: Path, root_keys: Path) -> list[tuple[Path, str]]:
     for path in (release, root_keys):
         if not path.is_file() or path.is_symlink() or path.stat().st_size > 1024 * 1024:
             raise SystemExit(f"invalid authority release input: {path}")
-    try:
-        envelope = json.loads(release.read_text(encoding="utf-8"))
-        roots = json.loads(root_keys.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise SystemExit("authority release inputs are not valid JSON") from error
+    envelope = authority_json(release)
+    roots = authority_json(root_keys)
     if not isinstance(envelope, dict) or set(envelope) != {"key_id", "payload", "signature_hex"}:
         raise SystemExit("ordinary authority release envelope is invalid")
     key_id = envelope["key_id"]

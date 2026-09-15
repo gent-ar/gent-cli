@@ -111,7 +111,7 @@ function Scheduled-Arguments { "-NoProfile -NonInteractive -ExecutionPolicy Bypa
 function Schedule-Paths { $dir = if ($SchedulerDir) { $SchedulerDir } else { $null }; if ($null -eq $dir) { return $null }; New-Item -ItemType Directory -Force -Path $dir | Out-Null; return @((Join-Path $dir "gent-auto-update.task.ps1"), (Join-Path $dir "gent-auto-update.task.json")) }
 function Enable-Update {
     Current-Release | Out-Null; Clear-DisabledMarker; $paths = Schedule-Paths
-    if ($null -ne $paths) { [IO.File]::WriteAllText($paths[0], "& powershell $(Scheduled-Arguments)`n", [Text.UTF8Encoding]::new($false)); @{ taskName = Task-Name; intervalSeconds = $IntervalSeconds } | ConvertTo-Json -Compress | Set-Content -NoNewline -Encoding utf8 $paths[1]; return }
+    if ($null -ne $paths) { [IO.File]::WriteAllText($paths[0], "& powershell $(Scheduled-Arguments)`n", [Text.UTF8Encoding]::new($false)); [IO.File]::WriteAllText($paths[1], (@{ taskName = Task-Name; intervalSeconds = $IntervalSeconds } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false)); return }
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Seconds $IntervalSeconds)
     Register-ScheduledTask -TaskName (Task-Name) -Action (New-ScheduledTaskAction -Execute "powershell.exe" -Argument (Scheduled-Arguments)) -Trigger $trigger -Description "Gent signed paired-runtime updater" -Force | Out-Null
 }
