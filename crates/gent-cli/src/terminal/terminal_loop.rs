@@ -13,26 +13,24 @@ use std::{
     io::{self, IsTerminal, Stdout},
     time::{Duration, Instant},
 };
-pub(crate) fn run<F, R, T>(
-    mut state: UiState,
-    mut request: F,
-    mut refresh: R,
-    mut render_template: T,
-    mut list_documents: impl FnMut(
-        String,
-    ) -> Result<Vec<gent_protocol::WorkspaceDocumentRecord>, String>,
-    mut list_templates: impl FnMut() -> Result<Vec<gent_types::PromptTemplateRecord>, String>,
-    mut create_session: impl FnMut(
-        gent_types::AgentChatSession,
-    ) -> Result<gent_types::AgentChatSession, String>,
-    mut login: impl FnMut(gent_types::AgentChatProvider) -> Result<String, String>,
-    mut save_thinking: impl FnMut(bool) -> Result<(), String>,
-) -> io::Result<()>
-where
-    F: FnMut(UiRequest) -> Result<UiRequestResult, String>,
-    R: FnMut(String) -> Result<super::ConversationView, String>,
-    T: FnMut(String, Vec<PromptTemplateVariable>) -> Result<String, String>,
-{
+pub(crate) struct TerminalPorts<'a> {
+    pub(crate) request: Box<dyn FnMut(UiRequest) -> Result<UiRequestResult, String> + 'a>,
+    pub(crate) refresh: Box<dyn FnMut(String) -> Result<super::ConversationView, String> + 'a>,
+    pub(crate) render_template:
+        Box<dyn FnMut(String, Vec<PromptTemplateVariable>) -> Result<String, String> + 'a>,
+    pub(crate) list_documents:
+        Box<dyn FnMut(String) -> Result<Vec<gent_protocol::WorkspaceDocumentRecord>, String> + 'a>,
+    pub(crate) list_templates:
+        Box<dyn FnMut() -> Result<Vec<gent_types::PromptTemplateRecord>, String> + 'a>,
+    pub(crate) create_session: Box<
+        dyn FnMut(gent_types::AgentChatSession) -> Result<gent_types::AgentChatSession, String>
+            + 'a,
+    >,
+    pub(crate) login: Box<dyn FnMut(gent_types::AgentChatProvider) -> Result<String, String> + 'a>,
+    pub(crate) save_thinking: Box<dyn FnMut(bool) -> Result<(), String> + 'a>,
+}
+
+pub(crate) fn run(mut state: UiState, mut ports: TerminalPorts<'_>) -> io::Result<()> {
     require_interactive()?;
     let mut terminal = TerminalSession::open()?;
     let mut last_live_refresh = Instant::now();
@@ -57,7 +55,7 @@ where
                                 | UiRequest::Queue { .. }
                                 | UiRequest::InvokeCommand { .. }
                         );
-                        match request(value) {
+                        match (ports.request)(value) {
                             Ok(result) => {
                                 if clears_composer {
                                     state.clear_sent_prompt();
@@ -66,7 +64,7 @@ where
                                 if let Some(conversation_id) =
                                     state.selected().map(|item| item.conversation_id.clone())
                                 {
-                                    match refresh(conversation_id) {
+                                    match (ports.refresh)(conversation_id) {
                                         Ok(view) => state.apply_view(view),
                                         Err(error) => state.set_notice(error),
                                     }
@@ -78,35 +76,35 @@ where
                     UiEffect::RenderTemplate {
                         template_id,
                         variables,
-                    } => match render_template(template_id, variables) {
+                    } => match (ports.render_template)(template_id, variables) {
                         Ok(prompt) => {
                             state.replace_input(prompt);
                             state.set_notice("Template rendered. Press Enter to send.".into());
                         }
                         Err(error) => state.set_notice(error),
                     },
-                    UiEffect::Refresh(conversation_id) => match refresh(conversation_id) {
+                    UiEffect::Refresh(conversation_id) => match (ports.refresh)(conversation_id) {
                         Ok(view) => state.apply_view(view),
                         Err(error) => state.set_notice(error),
                     },
                     UiEffect::ListDocuments {
                         workspace_id,
                         attach_id,
-                    } => match list_documents(workspace_id) {
+                    } => match (ports.list_documents)(workspace_id) {
                         Ok(documents) => state.set_documents(documents, attach_id),
                         Err(error) => state.set_notice(error),
                     },
-                    UiEffect::ListTemplates => match list_templates() {
+                    UiEffect::ListTemplates => match (ports.list_templates)() {
                         Ok(templates) => state.set_templates(templates),
                         Err(error) => state.set_notice(error),
                     },
-                    UiEffect::CreateSession(session) => match create_session(session) {
+                    UiEffect::CreateSession(session) => match (ports.create_session)(session) {
                         Ok(session) => state.add_session(session),
                         Err(error) => state.set_notice(error),
                     },
                     UiEffect::Login(provider) => {
                         terminal.suspend()?;
-                        let result = login(provider);
+                        let result = (ports.login)(provider);
                         terminal.resume()?;
                         match result {
                             Ok(notice) => state.set_notice(notice),
@@ -116,7 +114,7 @@ where
                     UiEffect::Continue => {}
                 }
                 if previous_thinking != state.show_thinking()
-                    && let Err(error) = save_thinking(state.show_thinking())
+                    && let Err(error) = (ports.save_thinking)(state.show_thinking())
                 {
                     state.set_notice(error);
                 }
@@ -128,7 +126,7 @@ where
                 if let Some(conversation_id) =
                     state.selected().map(|item| item.conversation_id.clone())
                 {
-                    match refresh(conversation_id) {
+                    match (ports.refresh)(conversation_id) {
                         Ok(view) => state.apply_view(view),
                         Err(error) => state.set_notice(error),
                     }

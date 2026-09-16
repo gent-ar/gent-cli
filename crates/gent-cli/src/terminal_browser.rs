@@ -65,12 +65,12 @@ pub(crate) async fn open(
     let view_runtime = runtime.clone();
     let view_data_dir = data_dir.clone();
     let view_capabilities = capabilities.0.clone();
-    let template_runtime = runtime.clone();
-    let template_data_dir = data_dir.clone();
+    let render_template_runtime = runtime.clone();
+    let render_template_data_dir = data_dir.clone();
     let documents_runtime = runtime.clone();
     let documents_data_dir = data_dir.clone();
-    let templates_runtime = runtime.clone();
-    let templates_data_dir = data_dir.clone();
+    let list_templates_runtime = runtime.clone();
+    let list_templates_data_dir = data_dir.clone();
     let sessions_runtime = runtime.clone();
     let sessions_data_dir = data_dir.clone();
     let login_runtime = runtime.clone();
@@ -86,81 +86,85 @@ pub(crate) async fn open(
             .with_model_catalog(model_catalog)
             .with_command_catalog(command_catalog)
             .with_show_thinking(show_thinking),
-        move |intent| {
-            submit::request(
-                &request_runtime,
-                request_data_dir.clone(),
-                no_autostart,
-                intent,
-            )
-        },
-        move |conversation_id| {
-            tokio::task::block_in_place(|| {
-                view_runtime.block_on(read_view(
-                    view_data_dir.clone(),
+        terminal::TerminalPorts {
+            request: Box::new(move |intent| {
+                submit::request(
+                    &request_runtime,
+                    request_data_dir.clone(),
                     no_autostart,
-                    conversation_id,
-                    &view_capabilities,
-                ))
-            })
+                    intent,
+                )
+            }),
+            refresh: Box::new(move |conversation_id| {
+                tokio::task::block_in_place(|| {
+                    view_runtime.block_on(read_view(
+                        view_data_dir.clone(),
+                        no_autostart,
+                        conversation_id,
+                        &view_capabilities,
+                    ))
+                })
+            }),
+            render_template: Box::new(move |template_id, variables| {
+                tokio::task::block_in_place(|| {
+                    render_template_runtime.block_on(crate::prompt_templates_cli::render(
+                        render_template_data_dir.clone(),
+                        no_autostart,
+                        template_id,
+                        variables,
+                    ))
+                })
+                .map_err(|error| error.to_string())
+            }),
+            list_documents: Box::new(move |workspace_id| {
+                tokio::task::block_in_place(|| {
+                    documents_runtime.block_on(crate::workspace_documents_cli::list(
+                        documents_data_dir.clone(),
+                        no_autostart,
+                        workspace_id,
+                    ))
+                })
+                .map_err(|error| error.to_string())
+            }),
+            list_templates: Box::new(move || {
+                tokio::task::block_in_place(|| {
+                    list_templates_runtime.block_on(crate::prompt_templates_cli::list(
+                        list_templates_data_dir.clone(),
+                        no_autostart,
+                    ))
+                })
+                .map_err(|error| error.to_string())
+            }),
+            create_session: Box::new(move |session| {
+                tokio::task::block_in_place(|| {
+                    sessions_runtime.block_on(crate::session_cli::create(
+                        sessions_data_dir.clone(),
+                        no_autostart,
+                        session,
+                    ))
+                })
+                .map_err(|error| error.to_string())
+            }),
+            login: Box::new(move |provider| {
+                let provider = match provider {
+                    AgentChatProvider::Claude => crate::provider_auth_cli::ProviderArgument::Claude,
+                    AgentChatProvider::Codex => crate::provider_auth_cli::ProviderArgument::Codex,
+                    AgentChatProvider::Claurst => {
+                        return Err("Gent uses local models and does not require a login.".into());
+                    }
+                };
+                tokio::task::block_in_place(|| {
+                    login_runtime.block_on(crate::provider_auth_cli::login_interactive(
+                        login_data_dir.clone(),
+                        no_autostart,
+                        provider,
+                    ))
+                })
+            }),
+            save_thinking: Box::new(move |show_thinking| {
+                crate::terminal_preferences::save(&preference_dir, show_thinking)
+            }),
         },
-        move |template_id, variables| {
-            tokio::task::block_in_place(|| {
-                template_runtime.block_on(crate::prompt_templates_cli::render(
-                    template_data_dir.clone(),
-                    no_autostart,
-                    template_id,
-                    variables,
-                ))
-            })
-            .map_err(|error| error.to_string())
-        },
-        move |workspace_id| {
-            tokio::task::block_in_place(|| {
-                documents_runtime.block_on(crate::workspace_documents_cli::list(
-                    documents_data_dir.clone(),
-                    no_autostart,
-                    workspace_id,
-                ))
-            })
-            .map_err(|error| error.to_string())
-        },
-        move || {
-            tokio::task::block_in_place(|| {
-                templates_runtime.block_on(crate::prompt_templates_cli::list(
-                    templates_data_dir.clone(),
-                    no_autostart,
-                ))
-            })
-            .map_err(|error| error.to_string())
-        },
-        move |session| {
-            tokio::task::block_in_place(|| {
-                sessions_runtime.block_on(crate::session_cli::create(
-                    sessions_data_dir.clone(),
-                    no_autostart,
-                    session,
-                ))
-            })
-            .map_err(|error| error.to_string())
-        },
-        move |provider| {
-            let provider = match provider {
-                AgentChatProvider::Claude => crate::provider_auth_cli::ProviderArgument::Claude,
-                AgentChatProvider::Codex => crate::provider_auth_cli::ProviderArgument::Codex,
-                AgentChatProvider::Claurst => {
-                    return Err("Gent uses local models and does not require a login.".into());
-                }
-            };
-            tokio::task::block_in_place(|| {
-                login_runtime.block_on(crate::provider_auth_cli::login_interactive(
-                    login_data_dir.clone(),
-                    no_autostart,
-                    provider,
-                ))
-            })
-        },
-        move |show_thinking| crate::terminal_preferences::save(&preference_dir, show_thinking),
     )?;
     Ok(())
 }

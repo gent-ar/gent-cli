@@ -35,14 +35,12 @@ pub(super) fn command(state: &mut UiState, command: &str, argument: &str) -> Opt
         return None;
     }
     let input = if command == "/answer" {
-        match serde_json::from_str(argument) {
-            Ok(value) => Some(value),
-            Err(_) => {
-                state.notice =
-                    Some("/answer requires a JSON object with the requested answers.".into());
-                return Some(UiEffect::Continue);
-            }
-        }
+        let Ok(value) = serde_json::from_str(argument) else {
+            state.notice =
+                Some("/answer requires a JSON object with the requested answers.".into());
+            return Some(UiEffect::Continue);
+        };
+        Some(value)
     } else {
         None
     };

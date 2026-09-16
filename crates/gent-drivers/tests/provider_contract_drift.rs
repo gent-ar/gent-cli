@@ -236,14 +236,14 @@ fn claude_findings() -> Vec<String> {
     let cli = snapshot("claude", "cli.json");
     let probes = snapshot("claude", "launch-probe.json");
     let mut findings = Vec::new();
-    let mut probed = BTreeSet::new();
+    let mut launched_arguments = BTreeSet::new();
     for (name, probe) in probes.as_object().unwrap() {
         if probe["handshake"] != "success" || probe["stderr"] != "" {
             findings.push(format!(
                 "launch-probe {name} did not complete initialize with clean stderr: {probe}"
             ));
         }
-        probed.extend(
+        launched_arguments.extend(
             probe["argv"]
                 .as_array()
                 .unwrap()
@@ -258,7 +258,7 @@ fn claude_findings() -> Vec<String> {
         "crates/gent-drivers/src/claude_turn_options.rs",
     ] {
         for flag in flags(&production_source(&workspace().join(file))) {
-            if !options.contains_key(&flag) && !probed.contains(&flag) {
+            if !options.contains_key(&flag) && !launched_arguments.contains(&flag) {
                 findings.push(format!("flag-removed {flag} is built by {file} but is neither in pinned claude --help nor in an accepted launch probe"));
             }
         }

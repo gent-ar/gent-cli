@@ -77,42 +77,8 @@ impl ConversationView {
         self
     }
     #[must_use]
-    pub(crate) fn with_metadata(
-        mut self,
-        title: Option<String>,
-        recap: Option<String>,
-        preview: Option<String>,
-        workspace_id: Option<String>,
-        workspace_path: Option<String>,
-        mcp_server_count: u16,
-        mcp_server_names: Vec<String>,
-        automation_count: u16,
-        automation_names: Vec<String>,
-        automations: Vec<gent_types::AutomationDefinition>,
-        automation_runs: Vec<gent_types::AutomationRunSummary>,
-        forge_count: u16,
-        forge_names: Vec<String>,
-        changed_file_count: Option<u32>,
-        git_branch: Option<String>,
-    ) -> Self {
-        self.metadata = ConversationMetadata {
-            permission_mode: gent_types::PermissionMode::AskEveryTime,
-            title,
-            recap,
-            preview,
-            workspace_id,
-            workspace_path,
-            mcp_server_count,
-            mcp_server_names,
-            automation_count,
-            automation_names,
-            automations,
-            automation_runs,
-            forge_count,
-            forge_names,
-            changed_file_count,
-            git_branch,
-        };
+    pub(crate) fn with_metadata(mut self, metadata: ConversationMetadata) -> Self {
+        self.metadata = metadata;
         self
     }
     #[must_use]

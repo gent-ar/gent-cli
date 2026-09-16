@@ -5,8 +5,7 @@ pub(super) fn conversation_title(events: &[NormalizedTranscriptEvent]) -> String
     let text = events
         .iter()
         .find(|event| event.kind == NormalizedTranscriptKind::UserMessage)
-        .map(|event| event.text.as_str())
-        .unwrap_or("Untitled conversation");
+        .map_or("Untitled conversation", |event| event.text.as_str());
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let text = text
         .strip_prefix("please ")

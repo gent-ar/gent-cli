@@ -56,11 +56,11 @@ pub struct ProjectionCatalog {
 pub enum AgentChatProjectionDelta {
     Transcript {
         cursor: ProjectionCursor,
-        event: NormalizedTranscriptEvent,
+        event: Box<NormalizedTranscriptEvent>,
     },
     Activity {
         cursor: ProjectionCursor,
-        fact: ConversationActivityFact,
+        fact: Box<ConversationActivityFact>,
     },
     Lifecycle {
         cursor: ProjectionCursor,
@@ -92,7 +92,7 @@ pub enum AgentChatProjectionFrame {
     },
     ConversationSnapshot {
         request_id: String,
-        snapshot: AgentChatProjectionSnapshot,
+        snapshot: Box<AgentChatProjectionSnapshot>,
     },
     FollowConversation {
         request_id: String,
@@ -111,7 +111,11 @@ pub enum AgentChatProjectionFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::{AGENT_CHAT_PROJECTION_CAPABILITY, AgentChatProjectionFrame, ProjectionCursor};
+    use super::{
+        AGENT_CHAT_PROJECTION_CAPABILITY, AgentChatProjectionDelta, AgentChatProjectionFrame,
+        ProjectionCursor,
+    };
+    use gent_types::{NormalizedTranscriptEvent, NormalizedTranscriptKind};
     use serde_json::json;
 
     #[test]
@@ -132,6 +136,36 @@ mod tests {
                     "afterCursor": { "value": 7 }
                 }
             })
+        );
+    }
+
+    #[test]
+    fn transcript_delta_frames_keep_their_unboxed_wire_shape() {
+        let frame = AgentChatProjectionFrame::Delta {
+            request_id: "request-1".into(),
+            delta: AgentChatProjectionDelta::Transcript {
+                cursor: ProjectionCursor { value: 240 },
+                event: Box::new(NormalizedTranscriptEvent {
+                    cursor: 240,
+                    event_id: "event-240".into(),
+                    turn_id: "turn-9".into(),
+                    run_id: "run-1".into(),
+                    kind: NormalizedTranscriptKind::AssistantMessage,
+                    text: "Latest reply".into(),
+                    is_partial: false,
+                    origin: None,
+                    attachments: Vec::new(),
+                }),
+            },
+        };
+        assert_eq!(
+            serde_json::to_string(&frame).expect("frame serializes"),
+            concat!(
+                r#"{"type":"delta","body":{"requestId":"request-1","delta":{"type":"transcript","#,
+                r#""body":{"cursor":{"value":240},"event":{"cursor":240,"eventId":"event-240","#,
+                r#""turnId":"turn-9","runId":"run-1","kind":"assistantMessage","#,
+                r#""text":"Latest reply","isPartial":false}}}}}"#
+            )
         );
     }
 

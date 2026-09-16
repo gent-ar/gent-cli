@@ -112,27 +112,17 @@ impl super::RuntimeFacade {
         &self,
         frame: &AgentChatIntentFrame,
     ) -> Result<(), crate::agent_chat_intent_error::AgentChatIntentError> {
-        let selection = match frame {
-            AgentChatIntentFrame::CreateConversation {
-                selection: Some(selection),
-                ..
-            }
-            | AgentChatIntentFrame::SwitchSelection { selection, .. } => selection,
-            _ => return Ok(()),
+        let (AgentChatIntentFrame::CreateConversation {
+            selection: Some(selection),
+            ..
+        }
+        | AgentChatIntentFrame::SwitchSelection { selection, .. }) = frame
+        else {
+            return Ok(());
         };
         self.model_catalog
             .as_ref()
             .map_or(Ok(()), |catalog| catalog.validate(selection))
-    }
-
-    pub(super) fn switched_selection(
-        &self,
-        frame: &AgentChatIntentFrame,
-    ) -> Option<gent_types::AgentChatSelection> {
-        match frame {
-            AgentChatIntentFrame::SwitchSelection { selection, .. } => Some(selection.clone()),
-            _ => None,
-        }
     }
 
     pub(super) fn remember_switched_selection(
@@ -155,3 +145,12 @@ mod provider_tests;
 #[cfg(test)]
 #[path = "model_catalog_first_run_tests.rs"]
 mod first_run_tests;
+
+pub(super) fn switched_selection(
+    frame: &AgentChatIntentFrame,
+) -> Option<gent_types::AgentChatSelection> {
+    match frame {
+        AgentChatIntentFrame::SwitchSelection { selection, .. } => Some(selection.clone()),
+        _ => None,
+    }
+}

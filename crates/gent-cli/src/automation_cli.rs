@@ -166,10 +166,16 @@ async fn exchange(
         return Err(error.into());
     }
     let response: AutomationFrame = serde_json::from_value(raw)?;
-    let response_id = match &response {
-        AutomationFrame::RunAccepted { request_id, .. }
-        | AutomationFrame::Runs { request_id, .. } => request_id,
-        _ => return Err("daemon returned an invalid automation response".into()),
+    let (AutomationFrame::RunAccepted {
+        request_id: response_id,
+        ..
+    }
+    | AutomationFrame::Runs {
+        request_id: response_id,
+        ..
+    }) = &response
+    else {
+        return Err("daemon returned an invalid automation response".into());
     };
     if *response_id != request_id {
         return Err("daemon returned a mismatched automation response".into());

@@ -78,34 +78,13 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     create_conversation(&ledger, conversation_id.clone());
-    let prompt = ledger
-        .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("prompt-a".into()),
-            receipt_id: ReceiptId("prompt-receipt".into()),
-            host_epoch: HostEpoch(1),
-            conversation_id: conversation_id.clone(),
-            disposition: AgentChatPromptDisposition::Send,
-            attachment_ids: vec![],
-            tool_source_ids: vec![],
-            text: "hello".into(),
-        })
-        .unwrap();
-    crate::readiness_test_support::release(&ledger, &prompt);
+    let prompt = released_prompt(&ledger, "prompt-a", "prompt-receipt", "hello");
     let runner = Runner::default();
-    runner.state.lock().unwrap().effects.push_back(vec![
-        CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
-            provider_session_id: "private-thread".into(),
-        }),
-        CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
-            text: "hello back".into(),
-            is_partial: false,
-        })),
-        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Ready,
-            },
-        )),
-    ]);
+    let mut started = vec![CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
+        provider_session_id: "private-thread".into(),
+    })];
+    started.extend(reply_effects("hello back"));
+    runner.state.lock().unwrap().effects.push_back(started);
     let compatibility = super::codex_prompt_lifecycle_tests::compatibility();
     let runtime = PublicDriversRuntime::new(
         profile(&compatibility),
@@ -139,19 +118,7 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             .iter()
             .any(|event| event.text == "hello back")
     );
-    let follow_up = ledger
-        .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("prompt-b".into()),
-            receipt_id: ReceiptId("prompt-receipt-b".into()),
-            host_epoch: HostEpoch(1),
-            conversation_id,
-            disposition: AgentChatPromptDisposition::Send,
-            attachment_ids: vec![],
-            tool_source_ids: vec![],
-            text: "follow up".into(),
-        })
-        .unwrap();
-    crate::readiness_test_support::release(&ledger, &follow_up);
+    released_prompt(&ledger, "prompt-b", "prompt-receipt-b", "follow up");
     assert!(matches!(
         host.tick().unwrap().dispatch,
         Some(CodexPromptDispatchOutcome::Started { .. })
@@ -160,17 +127,12 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     assert_eq!(state.starts, 1);
     assert_eq!(state.submitted, ["follow up"]);
     drop(state);
-    runner.state.lock().unwrap().effects.push_back(vec![
-        CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
-            text: "follow up back".into(),
-            is_partial: false,
-        })),
-        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Ready,
-            },
-        )),
-    ]);
+    runner
+        .state
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(reply_effects("follow up back"));
     let second_poll = host.tick().unwrap();
     assert_eq!(second_poll.polled_runs, 1);
     assert_eq!(second_poll.facts, 2);
@@ -198,35 +160,23 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
         .effects
         .push_back(vec![CodexRunnerEffect::Exited { code: Some(0) }]);
     assert_eq!(host.tick().unwrap().polled_runs, 1);
-    let resumed = ledger
-        .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("prompt-c".into()),
-            receipt_id: ReceiptId("prompt-receipt-c".into()),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
-            disposition: AgentChatPromptDisposition::Send,
-            attachment_ids: vec![],
-            tool_source_ids: vec![],
-            text: "after process loss".into(),
-        })
-        .unwrap();
-    crate::readiness_test_support::release(&ledger, &resumed);
+    released_prompt(
+        &ledger,
+        "prompt-c",
+        "prompt-receipt-c",
+        "after process loss",
+    );
     assert!(matches!(
         host.tick().unwrap().dispatch,
         Some(CodexPromptDispatchOutcome::Started { .. })
     ));
     assert_eq!(runner.state.lock().unwrap().resumes, 1);
-    runner.state.lock().unwrap().effects.push_back(vec![
-        CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
-            text: "after process loss back".into(),
-            is_partial: false,
-        })),
-        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Ready,
-            },
-        )),
-    ]);
+    runner
+        .state
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(reply_effects("after process loss back"));
     assert_eq!(host.tick().unwrap().facts, 2);
     let transcript = ledger
         .normalized_transcript_page(&AgentChatConversationId("conversation-a".into()), 0, 10)
@@ -238,6 +188,42 @@ fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
             .any(|event| event.text == "after process loss back")
     );
     assert_eq!(prompt.message.text, "hello");
+}
+
+fn released_prompt(
+    ledger: &SqliteLedger,
+    request_id: &str,
+    receipt_id: &str,
+    text: &str,
+) -> gent_types::AgentChatPromptSaved {
+    let prompt = ledger
+        .save_agent_chat_prompt(&AgentChatPromptCreate {
+            request_id: AgentChatRequestId(request_id.into()),
+            receipt_id: ReceiptId(receipt_id.into()),
+            host_epoch: HostEpoch(1),
+            conversation_id: AgentChatConversationId("conversation-a".into()),
+            disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
+            text: text.into(),
+        })
+        .unwrap();
+    crate::readiness_test_support::release(ledger, &prompt);
+    prompt
+}
+
+fn reply_effects(text: &str) -> Vec<CodexRunnerEffect> {
+    vec![
+        CodexRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: text.into(),
+            is_partial: false,
+        })),
+        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        )),
+    ]
 }
 
 fn create_conversation(ledger: &SqliteLedger, conversation_id: AgentChatConversationId) {

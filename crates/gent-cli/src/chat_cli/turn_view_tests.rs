@@ -33,10 +33,12 @@ fn screen(outputs: Vec<Output>) -> String {
         .into_iter()
         .map(|output| match output {
             Output::Reply(text) => text,
-            Output::Status(text) => text
-                .lines()
-                .map(|line| format!("[stderr] {line}\n"))
-                .collect(),
+            Output::Status(text) => text.lines().fold(String::new(), |mut lines, line| {
+                lines.push_str("[stderr] ");
+                lines.push_str(line);
+                lines.push('\n');
+                lines
+            }),
         })
         .collect()
 }

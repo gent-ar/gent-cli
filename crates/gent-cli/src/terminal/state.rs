@@ -181,19 +181,7 @@ impl UiState {
                 );
                 UiEffect::Continue
             }
-            UiCommand::Interrupt if self.chat_enabled => match (
-                self.selected().map(|item| item.conversation_id.clone()),
-                self.parent_run_id.clone(),
-            ) {
-                (Some(conversation_id), Some(run_id)) => UiEffect::Request(UiRequest::Interrupt {
-                    conversation_id,
-                    run_id,
-                }),
-                _ => {
-                    self.notice = Some("No active run is available to cancel.".into());
-                    UiEffect::Continue
-                }
-            },
+            UiCommand::Interrupt if self.chat_enabled => self.interrupt(),
             UiCommand::SelectNext => self.move_selection(true),
             UiCommand::SelectPrevious => self.move_selection(false),
             UiCommand::FocusSessions => self.toggle_session_focus(),

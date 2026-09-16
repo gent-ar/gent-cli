@@ -136,7 +136,11 @@ fn mcp_label(names: &[String], count: u16, compact: bool) -> String {
     let more = names.len().saturating_sub(2);
     format!(
         "MCP · {visible}{}",
-        (more > 0).then(|| format!(" +{more}")).unwrap_or_default()
+        if more > 0 {
+            format!(" +{more}")
+        } else {
+            String::new()
+        }
     )
 }
 
@@ -148,7 +152,11 @@ fn catalog_label(label: &str, names: &[String], count: u16) -> String {
     let more = names.len().saturating_sub(2);
     format!(
         "{label} · {visible}{}",
-        (more > 0).then(|| format!(" +{more}")).unwrap_or_default()
+        if more > 0 {
+            format!(" +{more}")
+        } else {
+            String::new()
+        }
     )
 }
 

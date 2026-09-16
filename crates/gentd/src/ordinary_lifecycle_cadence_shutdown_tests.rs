@@ -185,7 +185,7 @@ async fn permit_owns_the_post_commit_wake_before_shutdown_can_drain() {
         .position(|event| *event == "shutdown")
         .unwrap();
     assert!(wake < shutdown);
-    assert!(events[..shutdown].iter().any(|event| *event == "drive"));
+    assert!(events[..shutdown].contains(&"drive"));
 }
 
 fn cadence(

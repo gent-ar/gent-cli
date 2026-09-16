@@ -33,18 +33,16 @@ impl UiState {
     }
 
     pub(super) fn apply_picker(&mut self) -> Option<super::UiEffect> {
-        let Some(picker) = self.selection_picker.take() else {
-            return None;
-        };
+        let picker = self.selection_picker.take()?;
         if picker == SelectionPicker::Permission {
             return Some(permission_request(self, self.selection_picker_index));
-        };
+        }
         match (picker, self.selection_picker_index) {
             (SelectionPicker::Provider, index) => {
                 self.selection.provider = providers(self.model_catalog.as_ref())[index].0;
             }
             (SelectionPicker::Model, index) => {
-                self.selection.model = options(self, picker)[index].clone()
+                options(self, picker)[index].clone_into(&mut self.selection.model);
             }
             (SelectionPicker::Effort, index) => {
                 self.selection.effort =
@@ -63,19 +61,17 @@ impl UiState {
         if matches!(picker, SelectionPicker::Provider | SelectionPicker::Model) {
             super::selection_commands::fit_effort(self);
         }
-        match super::super::state_switch::request(
+        let Ok(effect) = super::super::state_switch::request(
             self.selected().map(|item| item.conversation_id.clone()),
             self.parent_run_id.clone(),
             self.selection.clone(),
             self.context_policy,
-        ) {
-            Ok(effect) => Some(effect),
-            Err(_) => {
-                self.new_conversation_selection = Some(self.selection.clone());
-                self.notice = Some("Selection is ready for the next new conversation.".into());
-                None
-            }
-        }
+        ) else {
+            self.new_conversation_selection = Some(self.selection.clone());
+            self.notice = Some("Selection is ready for the next new conversation.".into());
+            return None;
+        };
+        Some(effect)
     }
 
     pub(super) fn close_picker(&mut self) -> bool {

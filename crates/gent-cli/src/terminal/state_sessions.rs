@@ -45,7 +45,7 @@ impl UiState {
 
     pub(super) fn focused_session_id(&self) -> Option<AgentChatSessionId> {
         self.session_focus
-            .then(|| self.selected_session)
+            .then_some(self.selected_session)
             .flatten()
             .and_then(|index| self.sessions.get(index))
             .map(|session| session.session_id.clone())

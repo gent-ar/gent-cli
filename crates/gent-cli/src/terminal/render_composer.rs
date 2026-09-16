@@ -32,9 +32,11 @@ pub(super) fn composer_widget(state: &UiState) -> Paragraph<'static> {
         state.attachment_count(),
     );
     let detail = state.picker_line().unwrap_or_else(|| {
-        (!state.attachments.is_empty())
-            .then(|| attachment_names(state))
-            .unwrap_or_else(choices)
+        if state.attachments.is_empty() {
+            choices()
+        } else {
+            attachment_names(state)
+        }
     });
     let mut lines = vec![
         Line::from(format!("> {}", state.input())),
@@ -70,9 +72,11 @@ fn attachment_names(state: &UiState) -> String {
         .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
         .take(4)
         .collect::<Vec<_>>();
-    let suffix = (state.attachments.len() > names.len())
-        .then_some(" …")
-        .unwrap_or("");
+    let suffix = if state.attachments.len() > names.len() {
+        " …"
+    } else {
+        ""
+    };
     format!("Attached · {}{suffix}", names.join(" · "))
 }
 

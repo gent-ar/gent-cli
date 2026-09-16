@@ -106,7 +106,7 @@ fn terminal_settlement_survives_reopen_and_requires_both_durable_fences() {
 #[test]
 fn pending_dispatch_inspection_is_provider_scoped_and_does_not_claim_work() {
     let directory = tempfile::tempdir().unwrap();
-    let ledger = SqliteLedger::open(&directory.path().join("gent.db")).unwrap();
+    let ledger = SqliteLedger::open(directory.path().join("gent.db")).unwrap();
     ledger
         .create_agent_chat_conversation_in_workspace(
             &AgentChatConversationCreate {

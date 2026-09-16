@@ -44,16 +44,16 @@ pub(crate) async fn report(
         turn_watch::announce_delivery(data_dir.as_deref(), conversation_id, *delivery);
     }
     let target = turn_watch::TurnTarget {
-        conversation_id: conversation_id.clone(),
-        run_id: run_id.clone(),
-        turn_id: turn_id.clone(),
+        conversation: conversation_id.clone(),
+        run: run_id.clone(),
+        turn: turn_id.clone(),
     };
     turn_watch::follow(data_dir.clone(), no_autostart, &target, json).await?;
     if !json {
         eprintln!(
             "Continue this conversation: {} --conversation-id {} \"<prompt>\"",
             turn_watch::command_prefix(data_dir.as_deref()),
-            target.conversation_id
+            target.conversation
         );
     }
     Ok(())

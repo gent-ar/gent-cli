@@ -5,7 +5,7 @@ use gent_drivers::ndjson::NdjsonFramer;
 pub(super) fn relay_acp_frames(mut reader: impl Read, sender: SyncSender<Result<Vec<u8>, String>>) {
     let mut framer = NdjsonFramer::new(gent_drivers::MAX_PROVIDER_FRAME_BYTES)
         .expect("the provider frame ceiling is non-zero");
-    let mut chunk = [0_u8; 64 * 1024];
+    let mut chunk = vec![0_u8; 64 * 1024].into_boxed_slice();
     loop {
         let read = match reader.read(&mut chunk) {
             Ok(0) => return,

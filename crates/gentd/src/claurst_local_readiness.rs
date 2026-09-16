@@ -14,7 +14,7 @@ pub(crate) enum ClaurstLocalReadiness {
         plan: LocalModelDownloadPlan,
         downloaded_bytes: u64,
     },
-    Ready(ClaurstLocalRuntimePlan),
+    Ready(Box<ClaurstLocalRuntimePlan>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -61,9 +61,9 @@ impl ClaurstLocalReadinessService {
                     .provisioner
                     .model(model_id)
                     .expect("a successful curated download plan has its model record");
-                Ok(ClaurstLocalReadiness::Ready(
+                Ok(ClaurstLocalReadiness::Ready(Box::new(
                     ClaurstLocalRuntimePlan::build(request, model, port)?,
-                ))
+                )))
             }
         }
     }

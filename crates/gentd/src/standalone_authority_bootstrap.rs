@@ -10,6 +10,9 @@ use crate::{
     startup,
 };
 
+#[path = "standalone_authority_bootstrap_stages.rs"]
+mod stages;
+
 pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     validate(&args)?;
     let data_dir = args
@@ -35,25 +38,10 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&data_dir)?;
     let _host_lock = host_lock::acquire(&data_dir)?;
     let _provider_groups = daemon_bootstrap::stop_provider_groups_left_behind(&data_dir)?;
-    let mcp_config = args
-        .mcp_config
-        .as_deref()
-        .map(crate::standalone_mcp_config::StandaloneMcpConfig::load)
-        .transpose()?;
-    let mcp_config = match mcp_config {
-        Some(config) => Some(config.with_internal_servers(&data_dir)?),
-        None => Some(crate::standalone_mcp_config::StandaloneMcpConfig::internal_only(&data_dir)?),
-    };
-    let mcp_server_count = mcp_config
-        .as_ref()
-        .map(crate::standalone_mcp_config::StandaloneMcpConfig::server_count)
-        .transpose()?
-        .unwrap_or_default();
-    let mcp_server_names = mcp_config
-        .as_ref()
-        .map(crate::standalone_mcp_config::StandaloneMcpConfig::server_names)
-        .transpose()?
-        .unwrap_or_default();
+    let mcp = stages::mcp_settings(&args, &data_dir)?;
+    let mcp_config = mcp.config;
+    let mcp_server_count = mcp.server_count;
+    let mcp_server_names = mcp.server_names;
     let verified_release = authority_release.as_ref().and_then(|release| {
         release
             .load(startup::unix_seconds())
@@ -151,36 +139,7 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         provider_release: authority_release.is_some(),
         provisioned: Some(std::sync::Arc::new(provisioned)),
     });
-    let recovered = authority.clone();
-    let mut cadence = tokio::spawn(async move { authority.run_cadence().await });
-    tokio::select! {
-        result = &mut cadence => return lifecycle_stopped(result),
-        ready = recovered.wait_until_ready() => ready?,
-        () = daemon_bootstrap::terminated() => {
-            cadence.abort();
-            return Ok(());
-        }
-    }
-    let serve = daemon_bootstrap::serve_ordinary(runtime, &args, &data_dir);
-    tokio::pin!(serve);
-    tokio::select! {
-        result = &mut cadence => lifecycle_stopped(result),
-        result = &mut serve => {
-            cadence.abort();
-            result
-        }
-        () = daemon_bootstrap::terminated() => {
-            cadence.abort();
-            Ok(())
-        }
-    }
-}
-
-fn lifecycle_stopped(
-    result: Result<Result<(), String>, tokio::task::JoinError>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    result.map_err(|_| "standalone provider lifecycle task failed")??;
-    Err("standalone provider lifecycle stopped unexpectedly".into())
+    stages::serve_until_stopped(authority, runtime, &args, &data_dir).await
 }
 
 fn standalone_capability_profile(provider_provision: bool) -> RuntimeCapabilityProfile {
@@ -221,7 +180,7 @@ fn validate_build(args: &Args, development_build: bool) -> Result<(), String> {
     if args.agent_chat_authority {
         return Err("standalone authority cannot be combined with another daemon authority".into());
     }
-    if args.standalone_authority_release.is_some() != !args.standalone_authority_keys.is_empty() {
+    if args.standalone_authority_release.is_some() == args.standalone_authority_keys.is_empty() {
         return Err("standalone authority release and root keys must be supplied together".into());
     }
     if args.verify_standalone_authority_release && args.standalone_authority_release.is_none() {

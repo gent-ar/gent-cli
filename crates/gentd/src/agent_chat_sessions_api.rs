@@ -46,7 +46,7 @@ pub(crate) fn exchange(
             }),
             AgentChatSessionResult::Missing => Err("session does not exist".into()),
             AgentChatSessionResult::DeniedObserver => Err("sessions are observer-disabled".into()),
-            _ => Err("invalid session selection result".into()),
+            AgentChatSessionResult::Sessions(_) => Err("invalid session selection result".into()),
         },
         AgentChatSessionFrame::AttachRequest {
             request_id,

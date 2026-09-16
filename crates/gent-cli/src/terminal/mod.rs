@@ -24,5 +24,5 @@ mod terminal_loop;
 mod view;
 
 pub(crate) use state::{UiRequest, UiRequestResult, UiState};
-pub(crate) use terminal_loop::{require_interactive, run};
+pub(crate) use terminal_loop::{TerminalPorts, require_interactive, run};
 pub(crate) use view::{ConversationMetadata, ConversationView};

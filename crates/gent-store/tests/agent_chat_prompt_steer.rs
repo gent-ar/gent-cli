@@ -471,25 +471,6 @@ fn a_steer_written_before_a_crash_is_never_replayed_by_the_successor() {
     );
 }
 
-fn terminal_cause(
-    ledger: &SqliteLedger,
-    prompt: &AgentChatPromptSaved,
-) -> Option<Option<gent_types::TurnTerminalCause>> {
-    ledger
-        .read_conversation_activity_page(&prompt.message.conversation_id, &prompt.run_id.0, 0, 50)
-        .unwrap()
-        .facts
-        .into_iter()
-        .find_map(|fact| match fact {
-            ConversationActivityFact::Terminal { scope, cause, .. }
-                if scope.turn_id == prompt.message.turn_id =>
-            {
-                Some(cause)
-            }
-            _ => None,
-        })
-}
-
 #[test]
 fn an_interrupt_caused_by_a_steer_is_typed_apart_from_a_user_stop() {
     let (ledger, conversation_id) = ledger();
@@ -521,7 +502,7 @@ fn an_interrupt_caused_by_a_steer_is_typed_apart_from_a_user_stop() {
         .unwrap();
     assert_eq!(
         terminal_cause(&ledger, &steered),
-        Some(Some(gent_types::TurnTerminalCause::Steered))
+        RecordedTerminal::Caused(gent_types::TurnTerminalCause::Steered)
     );
     let projected = ledger
         .agent_chat_projection_page(&conversation_id, 0, 100)
@@ -553,5 +534,9 @@ fn an_interrupt_caused_by_a_steer_is_typed_apart_from_a_user_stop() {
     ledger
         .settle_agent_chat_prompt_terminal(id, DAEMON, HostEpoch(1), DurableTurnPhase::Interrupted)
         .unwrap();
-    assert_eq!(terminal_cause(&ledger, &stopped), Some(None));
+    assert_eq!(terminal_cause(&ledger, &stopped), RecordedTerminal::Untyped);
 }
+
+#[path = "support/terminal_cause.rs"]
+mod terminal_cause_support;
+use terminal_cause_support::{RecordedTerminal, terminal_cause};

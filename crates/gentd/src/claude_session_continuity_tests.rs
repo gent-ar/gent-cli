@@ -45,7 +45,7 @@ fn send_now_resumes_the_switched_runs_claude_session_with_its_own_context() {
     assert_eq!(daemon.phase(&queued), DurableTurnPhase::Completed);
     assert!(text(&daemon, &queued).contains("recall: CODE-PELICAN"));
     let session = daemon.bound_session(&run);
-    assert_eq!(daemon.sessions(), [session.clone()]);
+    assert_eq!(daemon.sessions(), std::slice::from_ref(&session));
     let launches = daemon.launches();
     assert_eq!(launches.len(), 2);
     assert!(

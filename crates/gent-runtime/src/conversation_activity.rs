@@ -22,7 +22,7 @@ pub enum ConversationActivityAuthority {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConversationActivityResult {
     DeniedObserver,
-    Recorded(ConversationActivityFact),
+    Recorded(Box<ConversationActivityFact>),
 }
 
 /// A bounded activity-history response without replacement state.
@@ -65,7 +65,7 @@ impl<L: Ledger + ConversationActivityLedger> ConversationActivityService<L> {
         let scope = activity_scope(fact);
         require_open_host(&self.ledger, scope)?;
         self.ledger.append_conversation_activity(fact)?;
-        Ok(ConversationActivityResult::Recorded(fact.clone()))
+        Ok(ConversationActivityResult::Recorded(Box::new(fact.clone())))
     }
 
     /// Reads a bounded, ordered page of immutable facts.

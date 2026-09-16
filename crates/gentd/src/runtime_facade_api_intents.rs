@@ -16,7 +16,7 @@ impl RuntimeFacade {
         let host_epoch = self.host_epoch()?;
         let frame = self.with_default_selection(frame)?;
         self.validate_catalog_selection(&frame)?;
-        let switched = self.switched_selection(&frame);
+        let switched = super::model_catalog::switched_selection(&frame);
         if let AgentChatIntentFrame::SwitchSelection { parent_run_id, .. } = &frame {
             self.require_settled_selection_parent(&parent_run_id.0)?;
         }
@@ -178,7 +178,7 @@ impl RuntimeFacade {
                     .ok_or("agent-chat reads are unavailable")?
                     .run_selection(&conversation_id.0, &run_id.0)?
                     .provider;
-                if ingress.steers_by_interrupt(provider)
+                if crate::ordinary_lifecycle_cadence::wake::steers_by_interrupt(provider)
                     && !self.agent_chat_prompts.interrupt_active_turn_for_steer(
                         host_epoch,
                         &conversation_id,

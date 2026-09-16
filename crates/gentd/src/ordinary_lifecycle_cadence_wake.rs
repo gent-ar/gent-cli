@@ -12,17 +12,17 @@ use super::{
     StandalonePromptRelease,
 };
 
-impl<L: AgentChatReadLedger> OrdinaryPromptIngress<L> {
-    pub(crate) const fn steers_by_interrupt(&self, provider: AgentChatProvider) -> bool {
-        matches!(provider, AgentChatProvider::Claurst)
-    }
+pub(crate) const fn steers_by_interrupt(provider: AgentChatProvider) -> bool {
+    matches!(provider, AgentChatProvider::Claurst)
+}
 
+impl<L: AgentChatReadLedger> OrdinaryPromptIngress<L> {
     pub(crate) fn steer_run(
         &self,
         provider: AgentChatProvider,
         prompt: PromptWake,
     ) -> Result<(), String> {
-        if self.steers_by_interrupt(provider) {
+        if steers_by_interrupt(provider) {
             return self.interrupt_run(provider, &prompt.run_id.0);
         }
         OrdinaryPromptWake {

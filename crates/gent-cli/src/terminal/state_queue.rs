@@ -35,6 +35,20 @@ impl UiState {
         }
     }
 
+    pub(super) fn interrupt(&mut self) -> UiEffect {
+        let (Some(conversation_id), Some(run_id)) = (
+            self.selected().map(|item| item.conversation_id.clone()),
+            self.parent_run_id.clone(),
+        ) else {
+            self.notice = Some("No active run is available to cancel.".into());
+            return UiEffect::Continue;
+        };
+        UiEffect::Request(UiRequest::Interrupt {
+            conversation_id,
+            run_id,
+        })
+    }
+
     pub(super) fn continue_from_history(&mut self) -> UiEffect {
         let lost_turn = self
             .selected_activity()
@@ -60,38 +74,32 @@ impl UiState {
                 .strip_prefix("user:")
                 .map(str::to_owned)
         });
-        match (
+        let (Some(conversation_id), Some(message_id)) = (
             self.selected().map(|item| item.conversation_id.clone()),
             message_id,
-        ) {
-            (Some(conversation_id), Some(message_id)) => {
-                self.input.clear();
-                UiEffect::Request(UiRequest::ContinueFromHistory {
-                    conversation_id,
-                    message_id,
-                })
-            }
-            _ => {
-                self.notice = Some("No turn here lost its provider session.".into());
-                UiEffect::Continue
-            }
-        }
+        ) else {
+            self.notice = Some("No turn here lost its provider session.".into());
+            return UiEffect::Continue;
+        };
+        self.input.clear();
+        UiEffect::Request(UiRequest::ContinueFromHistory {
+            conversation_id,
+            message_id,
+        })
     }
 
     pub(super) fn cancel_queued(&mut self) -> UiEffect {
         let newest = self.selected_queue().pop();
-        match (
+        let (Some(conversation_id), Some(prompt)) = (
             self.selected().map(|item| item.conversation_id.clone()),
             newest,
-        ) {
-            (Some(conversation_id), Some(prompt)) => UiEffect::Request(UiRequest::CancelQueued {
-                conversation_id,
-                message_id: prompt.message_id,
-            }),
-            _ => {
-                self.notice = Some("No prompts are queued.".into());
-                UiEffect::Continue
-            }
-        }
+        ) else {
+            self.notice = Some("No prompts are queued.".into());
+            return UiEffect::Continue;
+        };
+        UiEffect::Request(UiRequest::CancelQueued {
+            conversation_id,
+            message_id: prompt.message_id,
+        })
     }
 }

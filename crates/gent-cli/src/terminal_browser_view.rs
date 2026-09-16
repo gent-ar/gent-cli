@@ -133,39 +133,7 @@ pub(super) async fn read_view(
         terminal::ConversationView::new(&conversation_id, status, transcript)
             .with_current_run_id(detail.as_ref().map(|value| value.current_run_id.clone()))
             .with_selection(detail.as_ref().map(|value| value.summary.selection.clone()))
-            .with_metadata(
-                detail
-                    .as_ref()
-                    .and_then(|value| value.summary.title.clone()),
-                detail
-                    .as_ref()
-                    .and_then(|value| value.summary.recap.clone()),
-                preview,
-                detail
-                    .as_ref()
-                    .and_then(|value| value.summary.workspace_id.clone()),
-                detail
-                    .as_ref()
-                    .and_then(|value| value.summary.workspace_path.clone()),
-                detail
-                    .as_ref()
-                    .map_or(0, |value| value.summary.mcp_server_count),
-                detail
-                    .as_ref()
-                    .map_or_else(Vec::new, |value| value.summary.mcp_server_names.clone()),
-                metadata::count(&catalog.automation_names),
-                catalog.automation_names,
-                catalog.automations,
-                catalog.automation_runs,
-                metadata::count(&catalog.forge_names),
-                catalog.forge_names,
-                detail
-                    .as_ref()
-                    .and_then(|value| value.summary.changed_file_count),
-                detail
-                    .as_ref()
-                    .and_then(|value| value.summary.git_branch.clone()),
-            )
+            .with_metadata(conversation_metadata(detail.as_ref(), preview, catalog))
             .with_activity(activity)
             .with_timeline(timeline)
             .with_local_model_state(model)
@@ -173,6 +141,32 @@ pub(super) async fn read_view(
             .with_install_hold(install_hold)
             .with_commands(commands),
     )
+}
+
+fn conversation_metadata(
+    detail: Option<&gent_types::AgentChatConversationDetail>,
+    preview: Option<String>,
+    catalog: metadata::WorkspaceCatalog,
+) -> terminal::ConversationMetadata {
+    terminal::ConversationMetadata {
+        permission_mode: gent_types::PermissionMode::AskEveryTime,
+        title: detail.and_then(|value| value.summary.title.clone()),
+        recap: detail.and_then(|value| value.summary.recap.clone()),
+        preview,
+        workspace_id: detail.and_then(|value| value.summary.workspace_id.clone()),
+        workspace_path: detail.and_then(|value| value.summary.workspace_path.clone()),
+        mcp_server_count: detail.map_or(0, |value| value.summary.mcp_server_count),
+        mcp_server_names: detail
+            .map_or_else(Vec::new, |value| value.summary.mcp_server_names.clone()),
+        automation_count: metadata::count(&catalog.automation_names),
+        automation_names: catalog.automation_names,
+        automations: catalog.automations,
+        automation_runs: catalog.automation_runs,
+        forge_count: metadata::count(&catalog.forge_names),
+        forge_names: catalog.forge_names,
+        changed_file_count: detail.and_then(|value| value.summary.changed_file_count),
+        git_branch: detail.and_then(|value| value.summary.git_branch.clone()),
+    }
 }
 
 fn latest_preview(events: &[gent_types::NormalizedTranscriptEvent]) -> Option<String> {

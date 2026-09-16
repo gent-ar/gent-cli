@@ -142,13 +142,16 @@ fn goal_updates_reach_the_projection_snapshot_and_follow_stream() {
             &gent_protocol::ProjectionCursor { value: 0 },
         )
         .unwrap();
-    assert!(followed.iter().any(|delta| matches!(
-        delta,
-        gent_protocol::AgentChatProjectionDelta::Activity {
-            fact: gent_types::ConversationActivityFact::GoalUpdated { goal: published, .. },
-            ..
-        } if *published == goal
-    )));
+    assert!(followed.iter().any(|delta| {
+        let gent_protocol::AgentChatProjectionDelta::Activity { fact, .. } = delta else {
+            return false;
+        };
+        matches!(
+            fact.as_ref(),
+            gent_types::ConversationActivityFact::GoalUpdated { goal: published, .. }
+                if *published == goal
+        )
+    }));
 }
 
 fn clear_and_read(

@@ -113,7 +113,7 @@ pub(super) async fn catalog(
     {
         crate::automation_cli::list(data_dir.clone(), no_autostart, workspace_id.into())
             .await
-            .map_or_else(|_| Vec::new(), |items| items)
+            .unwrap_or_default()
     } else {
         Vec::new()
     };

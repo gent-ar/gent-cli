@@ -38,7 +38,9 @@ fn pending(
     }
 }
 
-struct CodexHost(Arc<Mutex<Vec<(String, String, Option<serde_json::Value>)>>>);
+type CodexResponses = Arc<Mutex<Vec<(String, String, Option<serde_json::Value>)>>>;
+
+struct CodexHost(CodexResponses);
 
 impl OrdinaryLifecycleHost for CodexHost {
     fn provider(&self) -> AgentChatProvider {
@@ -71,7 +73,9 @@ impl OrdinaryLifecycleHost for CodexHost {
     }
 }
 
-struct ClaudeHost(Arc<Mutex<Vec<(String, String, bool, Option<serde_json::Value>)>>>);
+type ClaudeResponses = Arc<Mutex<Vec<(String, String, bool, Option<serde_json::Value>)>>>;
+
+struct ClaudeHost(ClaudeResponses);
 
 #[test]
 fn decision_event_identity_is_scoped_to_the_run_and_turn() {

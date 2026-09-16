@@ -47,7 +47,9 @@ fn summary_with_mcp(
     mut summary: gent_types::AgentChatConversationSummary,
 ) -> Result<gent_types::AgentChatConversationSummary, String> {
     summary.mcp_server_count = facade.mcp_server_count;
-    summary.mcp_server_names = facade.mcp_server_names.clone();
+    summary
+        .mcp_server_names
+        .clone_from(&facade.mcp_server_names);
     let git = match summary.workspace_path.as_deref() {
         Some(path) => crate::workspace_git_api::status(path)?,
         None => None,
@@ -105,7 +107,7 @@ pub(super) fn projection(
         .map_err(AgentChatIntentError::from)?;
     Ok(AgentChatProjectionFrame::ConversationSnapshot {
         request_id,
-        snapshot: AgentChatProjectionSnapshot {
+        snapshot: Box::new(AgentChatProjectionSnapshot {
             conversation: detail,
             cursor: ProjectionCursor { value: tail.cursor },
             catalogs: Vec::new(),
@@ -129,7 +131,7 @@ pub(super) fn projection(
             },
             transcript_truncated: tail.transcript_truncated,
             activity_truncated: tail.activity_truncated,
-        },
+        }),
     })
 }
 
@@ -163,11 +165,11 @@ fn delta(event: AgentChatProjectionEvent) -> Result<AgentChatProjectionDelta, St
     match event.kind.as_str() {
         "transcript" => Ok(AgentChatProjectionDelta::Transcript {
             cursor,
-            event: transcript_event(event.payload)?,
+            event: Box::new(transcript_event(event.payload)?),
         }),
         "activity" => Ok(AgentChatProjectionDelta::Activity {
             cursor,
-            fact: activity_fact(event.payload)?,
+            fact: Box::new(activity_fact(event.payload)?),
         }),
         "lifecycle" => Ok(AgentChatProjectionDelta::Lifecycle {
             cursor,

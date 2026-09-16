@@ -55,6 +55,6 @@ pub(crate) async fn list(
     let frame: WorkspaceDocumentsFrame = serde_json::from_value(value)?;
     match frame {
         WorkspaceDocumentsFrame::Listed { documents, .. } => Ok(documents),
-        _ => Err("invalid workspace document response".into()),
+        WorkspaceDocumentsFrame::List { .. } => Err("invalid workspace document response".into()),
     }
 }

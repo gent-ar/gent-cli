@@ -170,7 +170,7 @@ where
                     downloaded_bytes,
                 });
             }
-            ClaurstLocalReadiness::Ready(plan) => plan,
+            ClaurstLocalReadiness::Ready(plan) => *plan,
         };
         if !workspace.is_absolute() {
             return Err(ClaurstStandaloneStartError::Acp(

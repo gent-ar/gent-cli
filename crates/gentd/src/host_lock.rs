@@ -115,6 +115,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(directory.path().join("owner.txt"))
@@ -129,6 +130,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(directory.path().join("empty.txt"))

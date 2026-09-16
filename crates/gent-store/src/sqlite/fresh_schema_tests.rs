@@ -2,6 +2,8 @@ use rusqlite::Connection;
 
 use super::{apply, has_table};
 
+type ProjectionRow = (u64, String, Option<u64>, Option<String>, Option<String>);
+
 #[test]
 fn rejects_an_existing_ledger_without_altering_data() {
     let mut connection = Connection::open_in_memory().unwrap();
@@ -131,7 +133,7 @@ fn journals_transcript_lifecycle_and_activity_in_one_cursor_order() {
              INSERT INTO events (cursor, event_id, receipt_id, host_epoch, kind, payload) VALUES (3, 'permission-1', 'receipt-1', 4, 'providerPermissionpending', '{\"conversationId\":\"conversation-1\",\"runId\":\"run-1\",\"turnId\":\"turn-1\",\"decisionId\":\"decision-1\"}');",
         )
         .unwrap();
-    let rows: Vec<(u64, String, Option<u64>, Option<String>, Option<String>)> = connection
+    let rows: Vec<ProjectionRow> = connection
         .prepare("SELECT cursor, kind, json_extract(payload, '$.activity.cursor'), json_extract(payload, '$.activity.type'), json_extract(payload, '$.activity.decisionId') FROM agent_chat_projection_events ORDER BY cursor")
         .unwrap()
         .query_map([], |row| {

@@ -43,7 +43,7 @@ fn claude_result_reports_every_billed_token_class_for_the_turn() {
 
 #[test]
 fn codex_token_usage_update_reports_the_last_call_and_its_context() {
-    let frame = json!({"method":"thread/tokenUsage/updated","params":{"threadId":"t","turnId":"u","tokenUsage":{"total":{"totalTokens":38173,"inputTokens":38128,"cachedInputTokens":31744,"cacheWriteInputTokens":0,"outputTokens":45,"reasoningOutputTokens":0},"last":{"totalTokens":19118,"inputTokens":19113,"cachedInputTokens":18816,"cacheWriteInputTokens":12,"outputTokens":5,"reasoningOutputTokens":0},"modelContextWindow":258400}}});
+    let frame = json!({"method":"thread/tokenUsage/updated","params":{"threadId":"t","turnId":"u","tokenUsage":{"total":{"totalTokens":38173,"inputTokens":38128,"cachedInputTokens":31744,"cacheWriteInputTokens":0,"outputTokens":45,"reasoningOutputTokens":0},"last":{"totalTokens":19118,"inputTokens":19113,"cachedInputTokens":18816,"cacheWriteInputTokens":12,"outputTokens":5,"reasoningOutputTokens":0},"modelContextWindow":258_400}}});
     let events = events(PublicProvider::Codex, &frame);
     assert_eq!(
         events,

@@ -112,9 +112,9 @@ async fn prompt(
             data_dir,
             no_autostart,
             &turn_watch::TurnTarget {
-                conversation_id: conversation_id.0,
-                run_id: run_id.0,
-                turn_id,
+                conversation: conversation_id.0,
+                run: run_id.0,
+                turn: turn_id,
             },
             json,
         )

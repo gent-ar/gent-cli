@@ -160,10 +160,11 @@ impl CodexAppServerSession {
             .and_then(Value::as_u64)
             .filter(|id| *id > 0)
             .ok_or(CodexSessionError::MalformedResponse)?;
-        if let Some(outcome) = self.steers.response(&self.phase, response_id, frame) {
-            return Ok(outcome.map_or(CodexSessionIngress::Ignored, CodexSessionIngress::Steer));
+        match self.steers.response(&self.phase, response_id, frame) {
+            steer::CodexSteerResponse::Unrelated => self.response(response_id, frame),
+            steer::CodexSteerResponse::Accepted => Ok(CodexSessionIngress::Ignored),
+            steer::CodexSteerResponse::Outcome(outcome) => Ok(CodexSessionIngress::Steer(outcome)),
         }
-        self.response(response_id, frame)
     }
     /// Whether an exact thread response has made the connection available for a user turn.
     #[must_use]

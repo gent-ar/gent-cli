@@ -10,6 +10,13 @@ pub enum CodexSteerOutcome {
     Rejected { message_id: String },
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum CodexSteerResponse {
+    Unrelated,
+    Accepted,
+    Outcome(CodexSteerOutcome),
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CodexSteers {
     requests: BTreeMap<u64, String>,
@@ -60,8 +67,10 @@ impl CodexSteers {
         phase: &CodexSessionPhase,
         response_id: u64,
         frame: &Value,
-    ) -> Option<Option<CodexSteerOutcome>> {
-        let message_id = self.requests.remove(&response_id)?;
+    ) -> CodexSteerResponse {
+        let Some(message_id) = self.requests.remove(&response_id) else {
+            return CodexSteerResponse::Unrelated;
+        };
         let turn_live = matches!(
             phase,
             CodexSessionPhase::Ready {
@@ -70,10 +79,10 @@ impl CodexSteers {
             }
         );
         if frame.get("error").is_none() && turn_live {
-            return Some(None);
+            return CodexSteerResponse::Accepted;
         }
         self.outstanding.remove(&message_id);
-        Some(Some(CodexSteerOutcome::Rejected { message_id }))
+        CodexSteerResponse::Outcome(CodexSteerOutcome::Rejected { message_id })
     }
 
     pub(super) fn consumed(&mut self, frame: &Value) -> Option<CodexSteerOutcome> {

@@ -25,17 +25,19 @@ pub(crate) fn stamped_status(
 ) -> Result<HostStatus, String> {
     status
         .map(|status| HostStatus {
-            executable_digest_sha256: executable_digest().clone(),
+            executable_digest_sha256: executable_digest().map(str::to_owned),
             ..status
         })
         .map_err(|error| error.to_string())
 }
 
-fn executable_digest() -> &'static Option<String> {
+fn executable_digest() -> Option<&'static str> {
     static DIGEST: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    DIGEST.get_or_init(|| {
-        crate::local_model_integrity::file_sha256(&std::env::current_exe().ok()?).ok()
-    })
+    DIGEST
+        .get_or_init(|| {
+            crate::local_model_integrity::file_sha256(&std::env::current_exe().ok()?).ok()
+        })
+        .as_deref()
 }
 
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {

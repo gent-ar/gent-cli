@@ -173,10 +173,10 @@ fn login_notice(
         ProviderAuthProvider::Claude => "Claude",
         ProviderAuthProvider::Codex => "Codex",
     };
-    let status = match frame {
-        ProviderAuthFrame::Status { status, .. }
-        | ProviderAuthFrame::SelectionAccepted { status, .. } => status,
-        _ => return Err("gentd returned an invalid provider authentication response".into()),
+    let (ProviderAuthFrame::Status { status, .. }
+    | ProviderAuthFrame::SelectionAccepted { status, .. }) = frame
+    else {
+        return Err("gentd returned an invalid provider authentication response".into());
     };
     match status.lifecycle {
         ProviderAuthLifecycle::NotInstalled => Err(format!(

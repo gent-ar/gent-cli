@@ -58,11 +58,11 @@ fn approved_service_persists_immutable_facts_and_reads_a_page() {
     let service = ConversationActivityService::new(ledger, ConversationActivityAuthority::Approved);
     assert_eq!(
         service.record(&fact(1)).unwrap(),
-        ConversationActivityResult::Recorded(fact(1))
+        ConversationActivityResult::Recorded(Box::new(fact(1)))
     );
     assert_eq!(
         service.record(&fact(2)).unwrap(),
-        ConversationActivityResult::Recorded(fact(2))
+        ConversationActivityResult::Recorded(Box::new(fact(2)))
     );
     assert!(matches!(
         service.read("conversation-1", "run-1", 0).unwrap(),

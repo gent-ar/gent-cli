@@ -1,13 +1,13 @@
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatQueuedPromptLedger,
-    AgentChatWorkspaceLedger, ConversationActivityLedger, ConversationLedger, Ledger, LedgerError,
+    AgentChatWorkspaceLedger, ConversationLedger, Ledger, LedgerError,
 };
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatProvider,
-    AgentChatRequestId, AgentChatRunId, AgentChatSelection, ConversationActivityFact,
-    DurableTurnPhase, HostEpoch, ReceiptId, TurnTerminalCause, WorkspaceRecord,
+    AgentChatRequestId, AgentChatRunId, AgentChatSelection, DurableTurnPhase, HostEpoch, ReceiptId,
+    TurnTerminalCause, WorkspaceRecord,
 };
 
 const DAEMON: &str = "daemon-a";
@@ -113,25 +113,6 @@ fn restart(ledger: &SqliteLedger) {
         .unwrap();
 }
 
-fn terminal_cause(
-    ledger: &SqliteLedger,
-    prompt: &AgentChatPromptSaved,
-) -> Option<Option<TurnTerminalCause>> {
-    ledger
-        .read_conversation_activity_page(&prompt.message.conversation_id, &prompt.run_id.0, 0, 50)
-        .unwrap()
-        .facts
-        .into_iter()
-        .find_map(|fact| match fact {
-            ConversationActivityFact::Terminal { scope, cause, .. }
-                if scope.turn_id == prompt.message.turn_id =>
-            {
-                Some(cause)
-            }
-            _ => None,
-        })
-}
-
 #[test]
 fn a_steer_accepted_but_never_written_is_delivered_exactly_once_after_a_restart() {
     let (ledger, conversation_id) = ledger();
@@ -155,7 +136,7 @@ fn a_steer_accepted_but_never_written_is_delivered_exactly_once_after_a_restart(
             .unwrap()
             .is_none()
     );
-    assert_eq!(terminal_cause(&ledger, &queued), None);
+    assert_eq!(terminal_cause(&ledger, &queued), RecordedTerminal::Absent);
 }
 
 #[test]
@@ -184,7 +165,11 @@ fn a_possibly_delivered_steer_fails_with_a_typed_unprovable_delivery_cause() {
     );
     assert_eq!(
         terminal_cause(&ledger, &queued),
-        Some(Some(TurnTerminalCause::DeliveryUnprovable))
+        RecordedTerminal::Caused(TurnTerminalCause::DeliveryUnprovable)
     );
-    assert_eq!(terminal_cause(&ledger, &send), Some(None));
+    assert_eq!(terminal_cause(&ledger, &send), RecordedTerminal::Untyped);
 }
+
+#[path = "support/terminal_cause.rs"]
+mod terminal_cause_support;
+use terminal_cause_support::{RecordedTerminal, terminal_cause};

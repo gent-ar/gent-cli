@@ -24,9 +24,9 @@ const IDLE_POLL: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TurnTarget {
-    pub(crate) conversation_id: String,
-    pub(crate) run_id: String,
-    pub(crate) turn_id: String,
+    pub(crate) conversation: String,
+    pub(crate) run: String,
+    pub(crate) turn: String,
 }
 
 pub(crate) async fn follow(
@@ -38,8 +38,8 @@ pub(crate) async fn follow(
     let view = RefCell::new(
         TurnView::new(
             &command_prefix(data_dir.as_deref()),
-            &target.conversation_id,
-            &target.run_id,
+            &target.conversation,
+            &target.run,
         )
         .with_live_progress(io::stderr().is_terminal()),
     );
@@ -59,9 +59,9 @@ pub(crate) async fn follow(
     let followed = turn_follow::follow_accepted_if_supported(
         data_dir.clone(),
         no_autostart,
-        target.conversation_id.clone(),
-        target.run_id.clone(),
-        target.turn_id.clone(),
+        target.conversation.clone(),
+        target.run.clone(),
+        target.turn.clone(),
         &mut sink,
     );
     let terminal = if json {
@@ -167,11 +167,11 @@ async fn poll(
     if let Ok(Some(request)) = permissions_cli::agent_chat::pending(
         data_dir.clone(),
         no_autostart,
-        target.conversation_id.clone(),
-        target.run_id.clone(),
+        target.conversation.clone(),
+        target.run.clone(),
     )
     .await
-        && request.binding.turn_id == target.turn_id
+        && request.binding.turn_id == target.turn
     {
         view.borrow_mut().permission(&request);
     }
@@ -179,15 +179,15 @@ async fn poll(
         let page = conversation_activity::request(
             data_dir.clone(),
             no_autostart,
-            target.conversation_id.clone(),
-            target.run_id.clone(),
+            target.conversation.clone(),
+            target.run.clone(),
             state.activity_cursor,
         )
         .await?
         .0;
         for fact in &page.facts {
             state.activity_cursor = state.activity_cursor.max(fact.scope().cursor);
-            if fact.scope().turn_id == target.turn_id {
+            if fact.scope().turn_id == target.turn {
                 state.hold = prompt_hold::hold_after(state.hold.take(), fact);
             }
         }
@@ -200,16 +200,13 @@ async fn poll(
         return Ok(());
     };
     if state.selection.is_none() {
-        let detail = super::reads::detail(
-            data_dir.clone(),
-            no_autostart,
-            target.conversation_id.clone(),
-        )
-        .await?;
+        let detail =
+            super::reads::detail(data_dir.clone(), no_autostart, target.conversation.clone())
+                .await?;
         state.selection = detail
             .runs
             .into_iter()
-            .find(|run| run.run_id == target.run_id)
+            .find(|run| run.run_id == target.run)
             .map(|run| (run.selection.provider, run.selection.model));
     }
     let Some((provider, model)) = state.selection.clone() else {
@@ -223,8 +220,8 @@ async fn poll(
             match prompt_hold::install_review(
                 data_dir,
                 no_autostart,
-                &target.conversation_id,
-                &target.run_id,
+                &target.conversation,
+                &target.run,
                 &hold,
             )
             .await

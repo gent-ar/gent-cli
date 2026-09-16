@@ -198,7 +198,10 @@ async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_p
     })
     .await
     .unwrap();
-    assert_eq!(*interrupts.lock().unwrap(), [run_id.0.clone()]);
+    assert_eq!(
+        *interrupts.lock().unwrap(),
+        *std::slice::from_ref(&run_id.0)
+    );
     assert_eq!(
         ledger
             .current_goal(&conversation_id.0)
@@ -215,22 +218,8 @@ async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_p
             gent_types::DurableTurnPhase::Interrupted,
         )
         .unwrap();
-    let terminal = gent_ports::ConversationActivityLedger::read_conversation_activity_page(
-        &ledger,
-        &conversation_id.0,
-        &run_id.0,
-        0,
-        50,
-    )
-    .unwrap()
-    .facts
-    .into_iter()
-    .find_map(|fact| match fact {
-        gent_types::ConversationActivityFact::Terminal { phase, cause, .. } => Some((phase, cause)),
-        _ => None,
-    });
     assert_eq!(
-        terminal,
+        terminal_fact(&ledger, &conversation_id.0, &run_id.0),
         Some((
             gent_types::TurnPhase::Interrupted,
             Some(gent_types::TurnTerminalCause::Steered)
@@ -251,4 +240,25 @@ async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_p
         (GoalStatus::Paused, GoalStatusReason::UserStopped)
     );
     task.abort();
+}
+
+fn terminal_fact(
+    ledger: &gent_store::SqliteLedger,
+    conversation_id: &str,
+    run_id: &str,
+) -> Option<(gent_types::TurnPhase, Option<gent_types::TurnTerminalCause>)> {
+    gent_ports::ConversationActivityLedger::read_conversation_activity_page(
+        ledger,
+        conversation_id,
+        run_id,
+        0,
+        50,
+    )
+    .unwrap()
+    .facts
+    .into_iter()
+    .find_map(|fact| match fact {
+        gent_types::ConversationActivityFact::Terminal { phase, cause, .. } => Some((phase, cause)),
+        _ => None,
+    })
 }

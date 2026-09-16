@@ -1,14 +1,13 @@
 use std::path::PathBuf;
 
-use crate::{chat_cli, terminal};
+use crate::terminal::{self, UiRequest};
 
-use crate::terminal_browser::{
-    automation,
-    result::{delivery_notice, result},
-};
+use crate::terminal_browser::automation;
 
 #[path = "terminal_browser_command.rs"]
 mod command;
+#[path = "terminal_browser_submit_requests.rs"]
+mod requests;
 
 pub(super) fn request(
     runtime: &tokio::runtime::Handle,
@@ -24,57 +23,23 @@ async fn resolve(
     no_autostart: bool,
     request: terminal::UiRequest,
 ) -> Result<terminal::UiRequestResult, String> {
-    let queued = matches!(request, terminal::UiRequest::Queue { .. });
+    let queued = matches!(request, UiRequest::Queue { .. });
     match request {
-        terminal::UiRequest::Create {
+        UiRequest::Create {
             selection,
             session_id,
-        } => {
-            let workspace = std::env::current_dir()
-                .map_err(|_| "Gent could not determine the current workspace.".to_owned())?;
-            if let Some(selection) = &selection {
-                crate::model_catalog_cli::set_default(data_dir.clone(), no_autostart, selection)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            }
-            let (conversation_id, run_id) =
-                chat_cli::create(data_dir.clone(), no_autostart, None, Some(workspace))
-                    .await
-                    .map_err(|error| error.to_string())?;
-            let mut created = result(
-                conversation_id.0,
-                Some(run_id.0),
-                if session_id.is_some() {
-                    "Conversation created and attached to the selected session."
-                } else {
-                    "Conversation created; choose a prompt to persist."
-                },
-            );
-            if let Some(session_id) = session_id {
-                created.session = Some(
-                    crate::session_cli::attach(
-                        data_dir,
-                        no_autostart,
-                        session_id,
-                        created.conversation.conversation_id.clone(),
-                    )
-                    .await
-                    .map_err(|error| error.to_string())?,
-                );
-            }
-            Ok(created)
-        }
-        terminal::UiRequest::Send {
+        } => requests::create(data_dir, no_autostart, selection, session_id).await,
+        UiRequest::Send {
             conversation_id,
             text,
             attachments,
         }
-        | terminal::UiRequest::Queue {
+        | UiRequest::Queue {
             conversation_id,
             text,
             attachments,
         } => {
-            let accepted = chat_cli::send(
+            requests::send(
                 data_dir,
                 no_autostart,
                 conversation_id,
@@ -83,24 +48,12 @@ async fn resolve(
                 queued,
             )
             .await
-            .map_err(|error| error.to_string())?;
-            let mut result = result(
-                accepted.conversation_id.0,
-                Some(accepted.run_id.0),
-                delivery_notice(accepted.delivery),
-            );
-            result.awaiting_turn = Some(matches!(
-                accepted.delivery,
-                gent_types::AgentChatPromptDelivery::AwaitingReadiness
-                    | gent_types::AgentChatPromptDelivery::AwaitingProvider
-            ));
-            Ok(result)
         }
-        terminal::UiRequest::RunAutomation {
+        UiRequest::RunAutomation {
             automation_id,
             conversation_id,
         } => automation::run(data_dir, no_autostart, automation_id, conversation_id).await,
-        terminal::UiRequest::InvokeCommand {
+        UiRequest::InvokeCommand {
             conversation_id,
             name,
             arguments,
@@ -116,125 +69,59 @@ async fn resolve(
             )
             .await
         }
-        terminal::UiRequest::Switch {
+        UiRequest::Switch {
             conversation_id,
             parent_run_id,
             selection,
             context_policy,
         } => {
-            let run_id = chat_cli::switch::request(
+            requests::switch(
                 data_dir,
                 no_autostart,
-                conversation_id.clone(),
+                conversation_id,
                 parent_run_id,
                 selection,
                 context_policy,
             )
             .await
-            .map_err(|error| error.to_string())?;
-            Ok(result(
-                conversation_id,
-                Some(run_id.0),
-                "Selection switched; prompts now target the new durable run.",
-            ))
         }
-        terminal::UiRequest::Permission { response } => {
-            let conversation_id = response.binding.conversation_id.0.clone();
-            crate::permissions_cli::agent_chat::respond(data_dir, no_autostart, response)
-                .await
-                .map_err(|error| error.to_string())?;
-            Ok(result(
-                conversation_id,
-                None,
-                "Permission response saved; Gentd will relay it to the provider.",
-            ))
+        UiRequest::Permission { response } => {
+            requests::permission(data_dir, no_autostart, response).await
         }
-        terminal::UiRequest::SetPermissionMode {
+        UiRequest::SetPermissionMode {
             conversation_id,
             workspace_id,
             mode,
             bypass_consent,
         } => {
-            crate::permissions_cli::set_mode(
+            requests::set_permission_mode(
                 data_dir,
                 no_autostart,
+                conversation_id,
                 workspace_id,
                 mode,
                 bypass_consent,
             )
             .await
-            .map_err(|error| error.to_string())?;
-            let mut saved = result(
-                conversation_id,
-                None,
-                "Permission posture saved for this workspace.",
-            );
-            saved.permission_mode = Some(mode);
-            Ok(saved)
         }
-        terminal::UiRequest::SteerQueued {
+        UiRequest::SteerQueued {
             conversation_id,
             message_ids,
+        } => requests::steer_queued(data_dir, no_autostart, conversation_id, message_ids).await,
+        UiRequest::CancelQueued {
+            conversation_id,
+            message_id,
+        } => requests::cancel_queued(data_dir, no_autostart, conversation_id, message_id).await,
+        UiRequest::ContinueFromHistory {
+            conversation_id,
+            message_id,
         } => {
-            let count = message_ids.len();
-            chat_cli::queue::deliver(data_dir, no_autostart, &conversation_id, message_ids, true)
+            requests::continue_from_history(data_dir, no_autostart, conversation_id, message_id)
                 .await
-                .map_err(|error| error.to_string())?;
-            Ok(result(
-                conversation_id,
-                None,
-                if count == 1 {
-                    "Sent the queued prompt into the running turn.".to_owned()
-                } else {
-                    format!("Sent {count} queued prompts into the running turn.")
-                },
-            ))
         }
-        terminal::UiRequest::CancelQueued {
-            conversation_id,
-            message_id,
-        } => {
-            chat_cli::queue::deliver(
-                data_dir,
-                no_autostart,
-                &conversation_id,
-                vec![message_id],
-                false,
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-            Ok(result(
-                conversation_id,
-                None,
-                "Removed the last queued prompt.",
-            ))
-        }
-        terminal::UiRequest::ContinueFromHistory {
-            conversation_id,
-            message_id,
-        } => {
-            let accepted =
-                chat_cli::continuation::send(data_dir, no_autostart, conversation_id, message_id)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            let mut continued = result(
-                accepted.conversation_id.0,
-                Some(accepted.run_id.0),
-                "Continuing from Gent's saved history.",
-            );
-            continued.awaiting_turn = Some(true);
-            Ok(continued)
-        }
-        terminal::UiRequest::Interrupt {
+        UiRequest::Interrupt {
             conversation_id,
             run_id,
-        } => {
-            chat_cli::interrupt(data_dir, no_autostart, conversation_id.clone(), run_id)
-                .await
-                .map_err(|error| error.to_string())?;
-            let mut result = result(conversation_id, None, "Canceled current work.");
-            result.awaiting_turn = Some(false);
-            Ok(result)
-        }
+        } => requests::interrupt(data_dir, no_autostart, conversation_id, run_id).await,
     }
 }

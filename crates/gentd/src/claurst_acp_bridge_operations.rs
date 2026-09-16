@@ -102,7 +102,7 @@ fn start_blocking_with_mcp<S: ClaurstAcpStdio>(
         &request.attachments,
         state.transport.supports_images(),
     )
-    .map_err(|error| invalid(error))?;
+    .map_err(invalid)?;
     state
         .transport
         .prompt_content(&session_id, content)
@@ -179,7 +179,7 @@ pub(super) fn submit_blocking<S: ClaurstAcpStdio>(
         &request.attachments,
         state.transport.supports_images(),
     )
-    .map_err(|error| invalid(error))?;
+    .map_err(invalid)?;
     state
         .transport
         .prompt_content(&request.binding.opaque_session_id, content)
