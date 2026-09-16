@@ -27,6 +27,15 @@ A child inherits its parent's workspace and its parent's provider/model/effort/m
 unless the caller overrides `workspacePath` or `selection`. A conversation may only address
 conversations in its own workspace.
 
+The label is also the child's title from the moment it exists. At creation Gentd writes it as the
+child's ordinary completed title artifact — the same durable record and the same
+`ConversationArtifactLedger` write the LLM summarizer uses — so every client reads it through the
+`title` it already reads, with no client-side rule about link notices. Only the child is titled, and
+only then; the parent's own title is never touched. The existing title precedence applies unchanged:
+`scheduled_requests` asks for a title only while a conversation has no completed title artifact, so
+a labelled child is never later retitled from its content, exactly as a summarized conversation is
+never retitled once its first title lands.
+
 ## The four facts
 
 Link activity is published as ordinary `ConversationActivityFact` variants

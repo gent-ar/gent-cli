@@ -165,6 +165,20 @@ pub(super) fn child(
     }
 }
 
+pub(super) fn title(
+    runtime: &RuntimeFacade,
+    conversation: &AgentChatConversationId,
+) -> Option<String> {
+    runtime
+        .agent_chat_reads
+        .as_ref()
+        .unwrap()
+        .detail(&conversation.0)
+        .unwrap()
+        .summary
+        .title
+}
+
 pub(super) fn facts(
     runtime: &RuntimeFacade,
     conversation: &AgentChatConversationId,

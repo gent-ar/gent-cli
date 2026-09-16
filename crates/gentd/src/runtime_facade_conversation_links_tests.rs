@@ -1,7 +1,9 @@
+use gent_ports::ConversationArtifactLedger;
 use gent_protocol::AgentChatIntentFrame;
+use gent_runtime::conversation_label_title::label_title;
 use gent_types::{AgentChatRequestId, ConversationMessageDelivery, DurableTurnPhase, ReceiptId};
 
-use super::{child, facade, facts, root, running};
+use super::{child, facade, facts, root, running, title};
 use crate::api::RuntimeApi;
 
 #[tokio::test]
@@ -191,4 +193,42 @@ async fn listing_a_thread_returns_the_parent_and_every_child_with_its_label() {
             (reviewer.0.clone(), "the reviewer".to_owned()),
         ]
     );
+}
+
+#[tokio::test]
+async fn a_child_created_with_a_label_is_titled_with_that_label() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = facade(directory.path()).await;
+    let top = root(&runtime, "top", ".");
+    let audit = child(&runtime, "audit", &top, "  Bounds audit  ");
+
+    assert_eq!(title(&runtime, &audit).as_deref(), Some("Bounds audit"));
+}
+
+#[tokio::test]
+async fn a_conversation_created_without_a_label_has_no_title() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = facade(directory.path()).await;
+    let top = root(&runtime, "top", ".");
+
+    assert_eq!(title(&runtime, &top), None);
+}
+
+#[tokio::test]
+async fn creating_a_child_leaves_the_parents_title_untouched() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = facade(directory.path()).await;
+    let top = root(&runtime, "top", ".");
+    runtime
+        .conversation_links()
+        .unwrap()
+        .create_conversation_artifact(
+            &label_title(&top.0, "Map NLE", vec!["turn-1".into()], "seed".into()).unwrap(),
+        )
+        .unwrap();
+
+    let audit = child(&runtime, "audit", &top, "Bounds audit");
+
+    assert_eq!(title(&runtime, &top).as_deref(), Some("Map NLE"));
+    assert_eq!(title(&runtime, &audit).as_deref(), Some("Bounds audit"));
 }

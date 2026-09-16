@@ -28,6 +28,7 @@ mod conversation_context_pagination_tests;
 #[cfg(test)]
 mod conversation_context_tests;
 mod conversation_context_window;
+pub mod conversation_label_title;
 mod conversation_prompts;
 pub mod conversation_summary;
 pub mod conversation_summary_scheduler;

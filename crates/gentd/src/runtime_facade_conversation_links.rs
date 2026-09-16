@@ -1,4 +1,4 @@
-use gent_ports::ConversationLinkLedger;
+use gent_ports::{ConversationArtifactLedger, ConversationLinkLedger};
 use gent_protocol::{
     AgentChatIntentFrame,
     conversation_links::{
@@ -6,6 +6,7 @@ use gent_protocol::{
         validate_conversation_link_request,
     },
 };
+use gent_runtime::conversation_label_title::label_title;
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationId, AgentChatRequestId, ConversationActivityFact,
@@ -153,6 +154,16 @@ impl RuntimeFacade {
                 &input.request_id.0,
             )
             .map_err(|error| AgentChatIntentError::from(error.to_string()))?;
+        if let Some(title) = label_title(
+            &conversation_id.0,
+            &input.label,
+            vec![parent.fact_turn_id()],
+            format!("label:{}", ReceiptId::new().0),
+        ) {
+            links
+                .create_conversation_artifact(&title)
+                .map_err(|error| AgentChatIntentError::from(error.to_string()))?;
+        }
         if let Some(prompt) = input.prompt.clone() {
             self.agent_chat_intent(AgentChatIntentFrame::SendPrompt {
                 request_id: AgentChatRequestId(format!("linked-prompt-{}", input.request_id.0)),
@@ -212,15 +223,8 @@ impl RuntimeFacade {
     }
 
     pub(super) fn conversation_label(&self, conversation_id: &str) -> String {
-        if let Ok(Some(link)) = self
-            .conversation_links
-            .as_ref()
-            .ok_or(())
-            .and_then(|links| {
-                links
-                    .read_conversation_parent(conversation_id)
-                    .map_err(|_| ())
-            })
+        if let Some(links) = self.conversation_links.as_ref()
+            && let Ok(Some(link)) = links.read_conversation_parent(conversation_id)
         {
             return link.label;
         }
