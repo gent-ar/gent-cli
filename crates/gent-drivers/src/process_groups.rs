@@ -1,14 +1,17 @@
 #[cfg(unix)]
+use std::collections::BTreeSet;
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::{
-    collections::BTreeSet,
     fs, io,
     path::{Path, PathBuf},
     sync::{OnceLock, PoisonError},
 };
 
 use super::{SystemProcess, signal_process_tree};
-use crate::interrupt::{ProcessTreeError, ProcessTreeSignal};
+#[cfg(unix)]
+use crate::interrupt::ProcessTreeError;
+use crate::interrupt::ProcessTreeSignal;
 
 static ACTIVE: OnceLock<ProcessGroups> = OnceLock::new();
 

@@ -125,7 +125,9 @@ pub fn known_package(provider: &str, package_name: &str, version: &str) -> bool 
 mod tests {
     use std::path::PathBuf;
 
-    use super::{PLATFORMS, host_platform, known_package};
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    use super::host_platform;
+    use super::{PLATFORMS, known_package};
 
     #[test]
     fn claude_is_bound_to_its_platform_package_and_native_binary() {

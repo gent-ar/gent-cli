@@ -19,8 +19,10 @@ const PACKAGE_DIRECTORY: &str = "lib/node_modules";
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     use std::path::Path;
 
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     use gent_protocol::DependencyProvider;
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
