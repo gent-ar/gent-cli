@@ -66,14 +66,14 @@ impl StandaloneProviderAuthPort {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn with_windows(mut self, challenge_window: Duration, login_timeout: Duration) -> Self {
         self.challenge_window = challenge_window;
         self.login_timeout = login_timeout;
         self
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn with_probe_budget(
         mut self,
         probe_timeout: Duration,

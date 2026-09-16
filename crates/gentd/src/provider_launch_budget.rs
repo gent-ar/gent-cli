@@ -39,7 +39,7 @@ impl From<String> for ProviderLaunchError {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn warm_first_execution(executable: &std::path::Path) {
     for _ in 0..200 {
         match std::process::Command::new(executable)

@@ -219,8 +219,8 @@ async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
 }
 
 #[cfg(windows)]
-async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
-    ClientOptions::new().open(windows_pipe_name(data_dir))
+fn connect(data_dir: &Path) -> std::future::Ready<Result<LocalStream, std::io::Error>> {
+    std::future::ready(ClientOptions::new().open(windows_pipe_name(data_dir)))
 }
 
 #[cfg(windows)]

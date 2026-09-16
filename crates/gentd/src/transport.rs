@@ -53,6 +53,7 @@ pub async fn serve<R: RuntimeApi>(
 /// The cancellation branch drops the in-flight protocol future, which also closes its stream.
 /// It deliberately does not create a receipt or settle provider work: transport has no durable
 /// authority and only stops accepting/serving client IPC.
+#[cfg(unix)]
 pub(crate) async fn serve_connection_until<S, R>(
     stream: S,
     runtime: R,

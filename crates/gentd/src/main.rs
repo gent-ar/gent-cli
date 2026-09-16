@@ -258,7 +258,7 @@ mod runtime_facade_state_tests;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    daemon_bootstrap::run().await
+    Box::pin(daemon_bootstrap::run()).await
 }
 
 #[cfg(test)]
