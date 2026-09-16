@@ -1,15 +1,5 @@
 {
   "schema_version": 2,
-  "reconciliation": {
-    "state": "ownerReconciliationRequired",
-    "verified": "2026-09-15 live on macos-arm64",
-    "required": [
-      "Claude moved from 2.1.270 to 2.1.271 (compatibility entry claude-2.1.271-darwin-arm64, native digest 87d119eb46782a1369d79d6e8cc00557f1b51bc9db7a51bd01fa2f909d8fe3dc). The owner must re-sign the ordinary-authority payload with the 2.1.271 compatibility and package-policy entries before a release can authorize it.",
-      "Compare every provider entry with the signed ordinary-authority payload decoded from GENT_ORDINARY_AUTHORITY_RELEASE_BASE64 and change whichever side is wrong before the next signed release.",
-      "The local stream A authority payload pinned codex 0.154.0 with digest 61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70, which is the version-independent bin/codex.js npm shim; Gentd now installs and executes the native platform tarball binary, so that entry can no longer authorize a launch.",
-      "Only darwin-arm64 targets are verified. Before signing a multi-platform release, add each remaining target's platform tarball integrity and the sha256 of its executed native binary: claude-code-{darwin-x64,linux-arm64,linux-x64,win32-arm64,win32-x64} and @openai/codex@<version>-{darwin-x64,linux-arm64,linux-x64,win32-arm64,win32-x64}."
-    ]
-  },
   "providers": {
     "claude": {
       "version": "2.1.271",
@@ -23,6 +13,42 @@
           },
           "executable": "@anthropic-ai/claude-code-darwin-arm64/claude",
           "executable_sha256": "87d119eb46782a1369d79d6e8cc00557f1b51bc9db7a51bd01fa2f909d8fe3dc"
+        },
+        "darwin-x64": {
+          "package": {
+            "name": "@anthropic-ai/claude-code-darwin-x64",
+            "version": "2.1.271",
+            "integrity": "sha512-lzox70BxUYUm8VS+kC0lXKpd177ZYA2mWelCGf3mwfVKw+Lcy/lMXu81ChkVArraPDJytSy3aKK1KWZHcvN97Q=="
+          },
+          "executable": "@anthropic-ai/claude-code-darwin-x64/claude",
+          "executable_sha256": "98e796c311fd8c1d3ed40b408aff2aa48f8d2e19761fa98d3777187ad32fa9e5"
+        },
+        "linux-arm64": {
+          "package": {
+            "name": "@anthropic-ai/claude-code-linux-arm64",
+            "version": "2.1.271",
+            "integrity": "sha512-2BApzkWi6fNZtnaHPPzne0hW0s7NzQmtBGUEMx5iljG/PuDN+8A220Kr/ZJgTPAWKZsRItcOpp8A/GK8VIeFag=="
+          },
+          "executable": "@anthropic-ai/claude-code-linux-arm64/claude",
+          "executable_sha256": "daecf0a2fdae57c1603a937b60ea3e69b97750be6bce93cca5664d05a5ef50f5"
+        },
+        "linux-x64": {
+          "package": {
+            "name": "@anthropic-ai/claude-code-linux-x64",
+            "version": "2.1.271",
+            "integrity": "sha512-CEOkbTcKVl6A7m4JcJPxUP/bKUPEZJX7e2FRZHeNPAtV8IJkk7kO7xQzCCKUF2FwMZIzfQcYkvL12q5+cgPfSA=="
+          },
+          "executable": "@anthropic-ai/claude-code-linux-x64/claude",
+          "executable_sha256": "5e7b6fc24d0e124f68e99a0641c47b662945c6d197d768d7ad7a72cbf1897f58"
+        },
+        "win32-x64": {
+          "package": {
+            "name": "@anthropic-ai/claude-code-win32-x64",
+            "version": "2.1.271",
+            "integrity": "sha512-hyiHBNVAXeh1Y7Nak4TybGiF7Bf6PfuZHl/e6HtyPg0DjrS0DYsBjaw+DM4m+jzSfZnUZaATefAQHrX/9OYgcg=="
+          },
+          "executable": "@anthropic-ai/claude-code-win32-x64/claude.exe",
+          "executable_sha256": "2673fc39e91d71413b74070634738c7f85d639af5aa742366c93c949b9022f21"
         }
       }
     },
@@ -38,6 +64,42 @@
           },
           "executable": "@openai/codex/vendor/aarch64-apple-darwin/bin/codex",
           "executable_sha256": "b973d440acac501fd2594a43e7ca9ce41e0a65b9dfb28d0d7a7837c99e1261e3"
+        },
+        "darwin-x64": {
+          "package": {
+            "name": "@openai/codex",
+            "version": "0.153.4-darwin-x64",
+            "integrity": "sha512-vnSbbPzfoDZmmyzsxswsDDXQ06IVFBzkQU7/hroB3ji93Ok2utcsq8Psfk2tjF5r9mEx8RWFJhzuTGHG26/NDA=="
+          },
+          "executable": "@openai/codex/vendor/x86_64-apple-darwin/bin/codex",
+          "executable_sha256": "88ecd2cbf8044832a49e7710394d9d328f7205fa5e8c8ebbdd015e002b4f6e21"
+        },
+        "linux-arm64": {
+          "package": {
+            "name": "@openai/codex",
+            "version": "0.153.4-linux-arm64",
+            "integrity": "sha512-QKdjYLYV4hXIuUQDP3P6F4NXuWFoKo9WUoV4nAREIx55kiUyi8UsYdsVobkeXir5n/maEQgYMCKLHVma4rNPiw=="
+          },
+          "executable": "@openai/codex/vendor/aarch64-unknown-linux-musl/bin/codex",
+          "executable_sha256": "4d76e542c222ea8c75861d8c4ade60a1a332a63255ce1c60bdaebf7c2a2869e6"
+        },
+        "linux-x64": {
+          "package": {
+            "name": "@openai/codex",
+            "version": "0.153.4-linux-x64",
+            "integrity": "sha512-x1EcwBlY3AObM1VTUHNM2AzAJQsyreGdagpF+qFiYi/Oa30VBktvvG0C6tLtCzqW6hjZNWkGZQWmeVk7MuJKWg=="
+          },
+          "executable": "@openai/codex/vendor/x86_64-unknown-linux-musl/bin/codex",
+          "executable_sha256": "56ef98ab4032d317ab26e9b5e5a175650717351edb16ed9cde0cb6d1734d62da"
+        },
+        "win32-x64": {
+          "package": {
+            "name": "@openai/codex",
+            "version": "0.153.4-win32-x64",
+            "integrity": "sha512-lMkB43kJZH0VFr+hoXc11qqR7QtQIbkr07ALgj4urKL1osNyUyuy1iXd3Vzz2iCYvBUCSw7I0l/W1cEPGx9euQ=="
+          },
+          "executable": "@openai/codex/vendor/x86_64-pc-windows-msvc/bin/codex.exe",
+          "executable_sha256": "444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b"
         }
       }
     },
@@ -74,6 +136,32 @@
     }
   },
   "runtimes": {
+    "node": {
+      "version": "22.17.0",
+      "source": "actions/setup-node 22.17.0 (actions/node-versions 22.17.0-15866718879, byte-identical to nodejs.org v22.17.0)",
+      "artifacts": {
+        "aarch64-apple-darwin": {
+          "provider_target": "darwin-arm64",
+          "upstream_node_sha256": "7bf25453c4280d0c4b8501144e419dd9597eeddd5804c4f4ab571d3286489547"
+        },
+        "x86_64-apple-darwin": {
+          "provider_target": "darwin-x64",
+          "upstream_node_sha256": "f3b9015450b5d4f8951a4c73d570609db9993056aa05e509587565b6fcb559ce"
+        },
+        "aarch64-unknown-linux-gnu": {
+          "provider_target": "linux-arm64",
+          "upstream_node_sha256": "cd8324a6ad6ea42472dfdce35f8cf21d746cd4ef53654dea605c69f1fce47fbf"
+        },
+        "x86_64-unknown-linux-gnu": {
+          "provider_target": "linux-x64",
+          "upstream_node_sha256": "8071ae0fca095a272ad698a90c7061801a86fb6392ddb81e922b68a91a4374b9"
+        },
+        "x86_64-pc-windows-msvc": {
+          "provider_target": "win32-x64",
+          "upstream_node_sha256": "39d45b5933f339d3ebdebd76474893dab5d7da1038920f65cf5bbcf0f20f3636"
+        }
+      }
+    },
     "llama_cpp": {
       "release_tag": "b10545",
       "artifacts": {

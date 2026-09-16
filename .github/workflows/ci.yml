@@ -115,6 +115,9 @@ jobs:
       - run: python -m py_compile tools/sign-ordinary-authority-release.py
       - run: python tools/test-sign-ordinary-authority-release.py
       - run: python tools/test-provider-pins.py
+      - run: python -m py_compile tools/build-ordinary-authority.py tools/node-runtime-identity.py
+      - run: python tools/test-authority-keys.py
+      - run: python tools/test-build-ordinary-authority.py
       - run: python tools/test-provider-contract-snapshot.py
       - run: python tools/test-stage-claurst-runtime.py
       - run: python tools/test-generate-runtime-release-key.py

@@ -220,9 +220,10 @@ between two captured versions before any Rust changes.
 
 ### Tie-in to pinning and signing
 
-Today the Claude/Codex pins are not in the repository at all. They exist only inside
-`ordinary-authority.json`, which `release.yml:166-179` decodes from the secret
-`GENT_ORDINARY_AUTHORITY_RELEASE_BASE64`. That document contains the compatibility entries
+The Claude/Codex pins now live in `fixtures/provider-contracts/pins.json`, and the release
+workflow's `authority` job builds and signs `ordinary-authority.json` from them with
+`tools/build-ordinary-authority.py`; only the Ed25519 root key is secret, and its public half is
+committed in `platform/authority/root-keys.json`. That document contains the compatibility entries
 `(provider, version, digest_sha256)` (`gent-adapters/src/compatibility.rs`), the npm
 `package_policy` (exact semver plus SRI), and per-provider scenario evidence. The version it
 compares is raw `--version` stdout (`"2.1.233 (Claude Code)"`, `"codex-cli 0.144.1"`). The

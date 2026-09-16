@@ -17,6 +17,7 @@ struct Manifest {
     schema_version: u8,
     vendors: Vec<String>,
     scenarios: Vec<String>,
+    malformed_tolerance_proof: String,
     cells: Vec<Cell>,
 }
 
@@ -91,6 +92,12 @@ fn validate_dimensions(manifest: &Manifest, errors: &mut Vec<String>) {
     let scenarios = manifest.scenarios.iter().cloned().collect::<BTreeSet<_>>();
     if scenarios.len() != manifest.scenarios.len() || scenarios != expected_scenarios {
         errors.push("scenarios must declare the complete public-driver scenario matrix".into());
+    }
+    if manifest.malformed_tolerance_proof.trim().is_empty() {
+        errors.push(
+            "malformed_tolerance_proof must name the in-repo tests that prove parser tolerance"
+                .into(),
+        );
     }
 }
 

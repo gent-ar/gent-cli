@@ -8,7 +8,7 @@ use super::{
 };
 use crate::compatibility::TrustedKeySet;
 
-const SCENARIOS: [ClaudeEvidenceScenario; 15] = [
+const SCENARIOS: [ClaudeEvidenceScenario; 14] = [
     ClaudeEvidenceScenario::FullTurn,
     ClaudeEvidenceScenario::ToolUse,
     ClaudeEvidenceScenario::ToolError,
@@ -23,7 +23,6 @@ const SCENARIOS: [ClaudeEvidenceScenario; 15] = [
     ClaudeEvidenceScenario::Interrupt,
     ClaudeEvidenceScenario::Steer,
     ClaudeEvidenceScenario::UsageCost,
-    ClaudeEvidenceScenario::MalformedTolerance,
 ];
 
 fn record(key: &SigningKey) -> SignedClaudeAuthorityEvidence {
@@ -39,9 +38,6 @@ fn record(key: &SigningKey) -> SignedClaudeAuthorityEvidence {
                     fixture_sha256: "a".repeat(64),
                     attestation_sha256: "b".repeat(64),
                     capture_run_id: "capture-1".into(),
-                    malformed_diagnostic_sha256: (scenario
-                        == ClaudeEvidenceScenario::MalformedTolerance)
-                        .then(|| "c".repeat(64)),
                 },
             )
         })
@@ -74,7 +70,7 @@ fn accepts_a_signed_complete_claude_matrix() {
     let verified = record(&key).verify(&keys(&key), 100).unwrap();
     assert_eq!(
         verified
-            .scenario(ClaudeEvidenceScenario::MalformedTolerance)
+            .scenario(ClaudeEvidenceScenario::UsageCost)
             .transport,
         ClaudeEvidenceTransport::StreamJson
     );
@@ -96,22 +92,27 @@ fn rejects_missing_or_malformed_required_claude_proofs() {
         missing.verify(&keys(&key), 100),
         Err(ClaudeAuthorityEvidenceError::InvalidScenarioSet)
     ));
-    let mut malformed = record(&key);
-    malformed
-        .payload
-        .scenarios
-        .get_mut(&ClaudeEvidenceScenario::MalformedTolerance)
-        .unwrap()
-        .malformed_diagnostic_sha256 = None;
-    malformed.signature_hex = hex::encode(
-        key.sign(&serde_json::to_vec(&malformed.payload).unwrap())
+    let mut unknown = record(&key);
+    unknown.payload.scenarios.insert(
+        ClaudeEvidenceScenario::FullTurn,
+        ClaudeScenarioProof {
+            provider_version: "2.1.233".into(),
+            platform: "macos-arm64".into(),
+            transport: ClaudeEvidenceTransport::StreamJson,
+            fixture_sha256: "A".repeat(64),
+            attestation_sha256: "b".repeat(64),
+            capture_run_id: "capture-1".into(),
+        },
+    );
+    unknown.signature_hex = hex::encode(
+        key.sign(&serde_json::to_vec(&unknown.payload).unwrap())
             .to_bytes(),
     );
     assert!(matches!(
-        malformed.verify(&keys(&key), 100),
+        unknown.verify(&keys(&key), 100),
         Err(ClaudeAuthorityEvidenceError::InvalidProof {
-            scenario: ClaudeEvidenceScenario::MalformedTolerance,
-            field: "malformed_diagnostic_sha256"
+            scenario: ClaudeEvidenceScenario::FullTurn,
+            field: "fixture_sha256"
         })
     ));
 }

@@ -31,16 +31,19 @@ def pinned_targets(pins: dict[str, object]):
             yield provider, pin, target, detail
 
 
-def pinned_entries(pins: dict[str, object], node_runtime_digest_sha256: str, terms_version: str) -> dict[str, list[dict[str, object]]]:
+def pinned_entries(pins: dict[str, object], node_runtime_digests: dict[str, str], terms_version: str) -> dict[str, list[dict[str, object]]]:
     targets = list(pinned_targets(pins))
+    unbound = sorted({target for _, _, target, _ in targets} - set(node_runtime_digests))
+    if unbound:
+        raise ValueError("pinned provider targets have no measured Node runtime digest: " + ", ".join(unbound))
     return {
         "compatibility": [
             {"id": entry_id(provider, pin, target), "provider": provider, "version": pin["version_output"], "digest_sha256": detail["executable_sha256"], "revoked": False}
             for provider, pin, target, detail in targets
         ],
         "package_policy": [
-            {"provider": provider, "package_name": detail["package"]["name"], "version": detail["package"]["version"], "integrity": detail["package"]["integrity"], "node_runtime_digest_sha256": node_runtime_digest_sha256, "terms_version": terms_version, "revoked": False}
-            for provider, _, _, detail in targets
+            {"provider": provider, "package_name": detail["package"]["name"], "version": detail["package"]["version"], "integrity": detail["package"]["integrity"], "node_runtime_digest_sha256": node_runtime_digests[target], "terms_version": terms_version, "revoked": False}
+            for provider, _, target, detail in targets
         ],
     }
 

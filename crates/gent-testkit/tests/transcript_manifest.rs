@@ -5,7 +5,7 @@ use tempfile::TempDir;
 
 fn manifest(cells: &str) -> String {
     format!(
-        "schema_version: 1\nvendors: [claude, codex]\nscenarios: [{}]\ncells:\n{cells}",
+        "schema_version: 1\nvendors: [claude, codex]\nscenarios: [{}]\nmalformed_tolerance_proof: crates/gent-drivers parser tests\ncells:\n{cells}",
         REQUIRED_SCENARIOS.join(", ")
     )
 }

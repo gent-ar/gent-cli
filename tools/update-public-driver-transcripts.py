@@ -13,28 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "fixtures/public-driver-transcripts/manifest.yml"
 DEFAULT_MODEL = {"claude": "haiku", "codex": "gpt-5.6-luna"}
-CAPTURE_PREREQUISITES = {
-    ("claude", "permission_persistent"): (
-        "grants one Bash approval over Claude's own --permission-prompt-tool stdio "
-        "relay (the same mechanism the production app uses on every session), then "
-        "confirms an identical disposable command runs a second time with no "
-        "further prompt; never an always-allow permission mode."
-    ),
-    ("claude", "malformed_tolerance"): (
-        "requires a vendor-documented bounded output-fault control during an "
-        "attended read-only/tool-free run; never inject or proxy output. Validate "
-        "a reviewed candidate with tools/validate-malformed-driver-evidence.py."
-    ),
-    ("codex", "subagent"): (
-        "requires a documented Codex native-subagent control and correlated event "
-        "surface; do not infer a subagent from model text."
-    ),
-    ("codex", "malformed_tolerance"): (
-        "requires a vendor-documented bounded output-fault control during an "
-        "attended read-only/tool-free run; never inject or proxy output. Validate "
-        "a reviewed candidate with tools/validate-malformed-driver-evidence.py."
-    ),
-}
+CAPTURE_PREREQUISITE = "requires a reviewed scenario-specific capture design before any live invocation."
 CELL_RE = re.compile(
     r"^\s*-\s*\{\s*vendor:\s*(?P<vendor>[a-z]+),\s*"
     r"scenario:\s*(?P<scenario>[a-z_]+),\s*"
@@ -182,13 +161,6 @@ def should_handle_cell(cell: dict[str, str], vendor: str | None, scenario: str |
     return True
 
 
-def prerequisite_for(vendor: str, scenario: str) -> str:
-    return CAPTURE_PREREQUISITES.get(
-        (vendor, scenario),
-        "requires a reviewed scenario-specific capture design before any live invocation.",
-    )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vendor", choices=("claude", "codex"))
@@ -226,7 +198,7 @@ def main() -> int:
     if args.run and unsupported:
         print("Capture prerequisites:")
         for cell in unsupported:
-            print(f"- {cell['vendor']}:{cell['scenario']}: {prerequisite_for(cell['vendor'], cell['scenario'])}")
+            print(f"- {cell['vendor']}:{cell['scenario']}: {CAPTURE_PREREQUISITE}")
         print("No live capture was invoked because this request includes an unsupported cell.")
         return 1
     for cell in todo:
@@ -235,7 +207,7 @@ def main() -> int:
         resolved_model = model or DEFAULT_MODEL[vendor]
         cmd = command_for(vendor, scenario, resolved_model, args.run)
         if cmd is None:
-            failures.append(f"{vendor}:{scenario} (state={cell['state']}): {prerequisite_for(vendor, scenario)}")
+            failures.append(f"{vendor}:{scenario} (state={cell['state']}): {CAPTURE_PREREQUISITE}")
             continue
         if args.run:
             print(f"RUN {cell['vendor']} {cell['scenario']} ({cell['state']})")

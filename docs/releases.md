@@ -48,8 +48,12 @@ signer uses only the Python standard library so the same signed envelope can
 be produced and verified by the repository's macOS, Linux, and Windows gates.
 The same protected key is also Gent's ordinary-provider-authority root: it
 signs the one release artifact that binds provider evidence, compatibility, and
-the exact npm package policy. This does not add a second signing setup or let
-runtime-update metadata itself authorize a provider.
+the exact npm package policy. Its public half is committed in
+`platform/authority/root-keys.json`, which ships in every archive so an
+installed daemon can revalidate the authority offline, and the release
+workflow's `authority` job derives the nested compatibility, package-policy and
+evidence signing keys from that one root. This does not add a second signing
+setup or let runtime-update metadata itself authorize a provider.
 
 Before the first runtime-update release, generate the protected key material
 locally (the output file is mode `0600` on Unix and is never added to the repository):

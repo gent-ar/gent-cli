@@ -9,8 +9,18 @@ from provider_pins import pinned_entries
 
 CLAUDE_DIGEST = "a" * 64
 CODEX_DIGEST = "b" * 64
+NODE_DIGESTS = {"darwin-arm64": "d" * 64, "linux-x64": "e" * 64}
 PINS = {
     "schema_version": 2,
+    "runtimes": {
+        "node": {
+            "version": "22.17.0",
+            "artifacts": {
+                "aarch64-apple-darwin": {"provider_target": "darwin-arm64", "upstream_node_sha256": "1" * 64},
+                "x86_64-unknown-linux-gnu": {"provider_target": "linux-x64", "upstream_node_sha256": "2" * 64},
+            },
+        },
+    },
     "providers": {
         "claude": {
             "version": "9.1.0",
@@ -62,7 +72,7 @@ def envelope(entries: list[dict[str, object]]) -> dict[str, object]:
 
 
 def pinned_payload() -> dict[str, object]:
-    entries = pinned_entries(PINS, "d" * 64, "terms-1")
+    entries = pinned_entries(PINS, NODE_DIGESTS, "terms-1")
     compatibility, packages = entries["compatibility"], entries["package_policy"]
     return copy.deepcopy({
         "version": 1,

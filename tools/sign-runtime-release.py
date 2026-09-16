@@ -104,7 +104,10 @@ def canonical(value: dict[str, object]) -> bytes:
 def load_seed(key: Path) -> bytes:
     if not key.is_file() or key.is_symlink():
         raise ValueError("private key must be a real readable file")
-    value = key.read_bytes()
+    return parse_seed(key.read_bytes())
+
+
+def parse_seed(value: bytes) -> bytes:
     if len(value) == 32:
         return value
     try:
@@ -163,7 +166,10 @@ def public_key(seed: bytes) -> bytes:
 
 
 def sign(key: Path, content: bytes) -> str:
-    seed = load_seed(key)
+    return sign_seed(load_seed(key), content)
+
+
+def sign_seed(seed: bytes, content: bytes) -> str:
     digest = hashlib.sha512(seed).digest()
     scalar = int.from_bytes(digest[:32], "little")
     scalar &= (1 << 254) - 8

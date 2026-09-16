@@ -70,6 +70,9 @@ jobs:
       - run: python -m py_compile tools/capture-claude-mcp-transcript.py
       - run: python tools/test-capture-claude-mcp-transcript.py
       - run: python tools/test-release-tools.py
+      - run: python tools/test-provider-pins.py
+      - run: python tools/test-authority-keys.py
+      - run: python tools/test-build-ordinary-authority.py
       - run: python tools/test-generate-runtime-release-key.py
       - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
@@ -80,9 +83,70 @@ jobs:
       - run: cargo test -p gentd workspace_git_api_tests
       - run: bash tools/smoke-local-ipc.sh
 
+  node-runtime:
+    name: node runtime (${{ matrix.target }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, node_arch: x64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, node_arch: arm64 }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, node_arch: x64 }
+          - { os: macos-15, target: aarch64-apple-darwin, node_arch: arm64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, node_arch: x64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22.17.0", architecture: "${{ matrix.node_arch }}" }
+      - name: Stage the pinned upstream Node runtime
+        shell: bash
+        run: |
+          python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node ${{ runner.os == 'Windows' && '--windows' || '' }}
+          python tools/node-runtime-identity.py check-upstream --target "${{ matrix.target }}" --node-runtime-dir dist-runtime/node
+      - if: runner.os == 'macOS'
+        name: Sign and notarize Node with the Developer ID before it is measured
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: bash tools/sign-macos-node-runtime.sh dist-runtime/node
+      - name: Measure the Node binary this target ships
+        shell: bash
+        run: |
+          python tools/node-runtime-identity.py record --target "${{ matrix.target }}" --node-runtime-dir dist-runtime/node --out-dir node-digest
+          tar -cf node-runtime.tar -C dist-runtime node
+      - uses: actions/upload-artifact@v4
+        with: { name: "node-runtime-${{ matrix.target }}", path: node-runtime.tar, if-no-files-found: error }
+      - uses: actions/upload-artifact@v4
+        with: { name: "node-digest-${{ matrix.target }}", path: "node-digest/${{ matrix.target }}.json", if-no-files-found: error }
+
+  authority:
+    name: sign ordinary provider authority
+    needs: node-runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/download-artifact@v4
+        with: { pattern: node-digest-*, path: node-digests, merge-multiple: true }
+      - name: Sign the authority from pins, measured Node runtimes and recorded evidence
+        env:
+          RUNTIME_RELEASE_PRIVATE_KEY: ${{ secrets.GENT_RUNTIME_RELEASE_PRIVATE_KEY }}
+          RUNTIME_RELEASE_KEY_ID: ${{ vars.GENT_RUNTIME_RELEASE_KEY_ID }}
+        run: python tools/build-ordinary-authority.py --node-digests node-digests --out authority/ordinary-authority.json
+      - uses: actions/upload-artifact@v4
+        with: { name: ordinary-authority, path: authority/ordinary-authority.json, if-no-files-found: error }
+
   package:
     name: package (${{ matrix.target }})
-    needs: verify
+    needs: authority
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -91,94 +155,38 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            archive: tar.gz
-            suffix: ""
-            target_dir: target/release
-            build_target: ""
-            node_arch: x64
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            archive: tar.gz
-            suffix: ""
-            target_dir: target/release
-            build_target: ""
-            node_arch: arm64
-          # macos-13 Intel runners are no longer reliably available. macOS's
-          # linker can emit this target from the hosted ARM runner, and the
-          # cross build is exercised before its archive is published.
-          - os: macos-14
-            target: x86_64-apple-darwin
-            archive: tar.gz
-            suffix: ""
-            target_dir: target/x86_64-apple-darwin/release
-            build_target: x86_64-apple-darwin
-            node_arch: x64
-          - os: macos-14
-            target: aarch64-apple-darwin
-            archive: tar.gz
-            suffix: ""
-            target_dir: target/release
-            build_target: ""
-            node_arch: arm64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            archive: zip
-            suffix: .exe
-            target_dir: target/release
-            build_target: ""
-            node_arch: x64
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, archive: tar.gz, suffix: "" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, archive: tar.gz, suffix: "" }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, archive: tar.gz, suffix: "" }
+          - { os: macos-15, target: aarch64-apple-darwin, archive: tar.gz, suffix: "" }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, archive: zip, suffix: .exe }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22.17.0"
-          architecture: ${{ matrix.node_arch }}
+        with: { python-version: "3.12" }
       - name: Derive deterministic package timestamp
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
       - name: Build release binaries
-        shell: bash
-        env:
-          BUILD_TARGET: ${{ matrix.build_target }}
-        run: |
-          if [ -n "$BUILD_TARGET" ]; then
-            rustup target add "$BUILD_TARGET"
-            cargo build --locked --release --target "$BUILD_TARGET" -p gent-cli -p gentd --bins
-            cargo build --locked --release -p gentd --bin gentd
-          else
-            cargo build --locked --release -p gent-cli -p gentd --bins
-          fi
+        run: cargo build --locked --release -p gent-cli -p gentd --bins
       - if: runner.os == 'Windows'
         name: Verify Windows installer activation
         run: powershell -ExecutionPolicy Bypass -File tools/test-install-windows.ps1
-      - name: Stage bundled runtimes
+      - uses: actions/download-artifact@v4
+        with: { name: "node-runtime-${{ matrix.target }}" }
+      - uses: actions/download-artifact@v4
+        with: { name: ordinary-authority, path: dist-runtime/authority }
+      - name: Stage the measured Node, Claurst and the signed authority
         shell: bash
         run: |
-          python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node ${{ runner.os == 'Windows' && '--windows' || '' }}
+          mkdir -p dist-runtime/authority
+          tar -xf node-runtime.tar -C dist-runtime
+          cp platform/authority/root-keys.json dist-runtime/authority/root-keys.json
+          test -s dist-runtime/authority/ordinary-authority.json
           python tools/stage-claurst-runtime.py --target "${{ matrix.target }}" --out-dir dist-runtime/claurst --profile release
           python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst --target "${{ matrix.target }}"
-      - name: Stage signed ordinary authority
-        shell: bash
-        env:
-          AUTHORITY_RELEASE_BASE64: ${{ secrets.GENT_ORDINARY_AUTHORITY_RELEASE_BASE64 }}
-          AUTHORITY_ROOT_KEYS_BASE64: ${{ secrets.GENT_ORDINARY_AUTHORITY_ROOT_KEYS_BASE64 }}
-        run: |
-          test -n "$AUTHORITY_RELEASE_BASE64"
-          test -n "$AUTHORITY_ROOT_KEYS_BASE64"
-          mkdir -p dist-runtime/authority
-          python - <<'PY'
-          import base64, os, pathlib
-          root = pathlib.Path('dist-runtime/authority')
-          root.joinpath('ordinary-authority.json').write_bytes(base64.b64decode(os.environ['AUTHORITY_RELEASE_BASE64'], validate=True))
-          root.joinpath('root-keys.json').write_bytes(base64.b64decode(os.environ['AUTHORITY_ROOT_KEYS_BASE64'], validate=True))
-          PY
-      - name: Verify signed authority against the staged runtime
+      - name: Verify signed authority against the staged runtime with this target's gentd
         shell: bash
         env:
           GENTD_VERIFIER: target/release/gentd${{ matrix.suffix }}
@@ -186,7 +194,7 @@ jobs:
         run: python tools/verify-staged-authority.py
       - name: Package binaries
         run: >-
-          python tools/package-release.py --target-dir "${{ matrix.target_dir }}" --out-dir dist
+          python tools/package-release.py --target-dir target/release --out-dir dist
           --version "${{ github.ref_name }}" --target "${{ matrix.target }}"
           --format "${{ matrix.archive }}" --suffix "${{ matrix.suffix }}"
           --node-runtime-dir dist-runtime/node --claurst-runtime-dir dist-runtime/claurst
@@ -200,10 +208,7 @@ jobs:
             cosign sign-blob --yes --bundle "${artifact}.sigstore.json" "$artifact"
           done
       - uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.target }}
-          path: dist/*
-          if-no-files-found: error
+        with: { name: "release-${{ matrix.target }}", path: dist/*, if-no-files-found: error }
 
   publish:
     name: publish GitHub release
@@ -215,8 +220,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
+        with: { pattern: release-*, path: release-artifacts }
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Create signed runtime-release metadata
         shell: bash

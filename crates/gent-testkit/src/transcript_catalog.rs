@@ -4,7 +4,7 @@
 pub const PUBLIC_PROVIDERS: [&str; 2] = ["claude", "codex"];
 
 /// Scenarios that prove the public-driver baseline instead of a single happy path.
-pub const REQUIRED_SCENARIOS: [&str; 15] = [
+pub const REQUIRED_SCENARIOS: [&str; 14] = [
     "full_turn",
     "tool_use",
     "tool_error",
@@ -19,5 +19,4 @@ pub const REQUIRED_SCENARIOS: [&str; 15] = [
     "interrupt",
     "steer",
     "usage_cost",
-    "malformed_tolerance",
 ];

@@ -13,7 +13,7 @@ use gent_adapters::{
 use super::{ClaudeAuthorityPreflightError, load};
 use crate::CompatibilityAssessment;
 
-const SCENARIOS: [ClaudeEvidenceScenario; 15] = [
+const SCENARIOS: [ClaudeEvidenceScenario; 14] = [
     ClaudeEvidenceScenario::FullTurn,
     ClaudeEvidenceScenario::ToolUse,
     ClaudeEvidenceScenario::ToolError,
@@ -28,7 +28,6 @@ const SCENARIOS: [ClaudeEvidenceScenario; 15] = [
     ClaudeEvidenceScenario::Interrupt,
     ClaudeEvidenceScenario::Steer,
     ClaudeEvidenceScenario::UsageCost,
-    ClaudeEvidenceScenario::MalformedTolerance,
 ];
 
 fn compatibility() -> CompatibilityAssessment {
@@ -68,9 +67,6 @@ fn record(
                     fixture_sha256: "a".repeat(64),
                     attestation_sha256: "b".repeat(64),
                     capture_run_id: "capture-1".into(),
-                    malformed_diagnostic_sha256: (scenario
-                        == ClaudeEvidenceScenario::MalformedTolerance)
-                        .then(|| "c".repeat(64)),
                 },
             )
         })

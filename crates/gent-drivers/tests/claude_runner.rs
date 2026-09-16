@@ -592,3 +592,89 @@ fn recreating_a_lost_session_reuses_its_identity_with_gent_history_and_no_resume
     let effects = runner.poll("run-1").unwrap().unwrap();
     assert!(!effects.contains(&ClaudeRunnerEffect::ResumeUnavailable));
 }
+
+fn malformed_tolerance_runner(state: &Arc<State>) -> ClaudeStreamRunner<Launcher, Process> {
+    ClaudeStreamRunner::new(
+        Launcher(Arc::clone(state)),
+        BufferPolicy::new(4, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
+    )
+}
+
+fn transport_diagnostic(classification: &str) -> ClaudeRunnerEffect {
+    ClaudeRunnerEffect::Fact(PublicWireFact::Event(
+        NormalizedProviderEvent::TransportDiagnostic {
+            classification: classification.into(),
+        },
+    ))
+}
+
+#[test]
+fn an_unparseable_stdout_line_is_a_typed_diagnostic_that_never_poisons_the_next_frame() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = malformed_tolerance_runner(&state);
+    runner
+        .start(start("run-1", directory.path(), None))
+        .unwrap();
+    state.output.lock().unwrap().push_back(
+        br#"{"type":"system","subtype":"init","session_id":"private-session"}
+not json at all
+{"type":"assistant","message":{"content":[{"type":"text"}]}}
+{"type":"future-frame-kind"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"still parsing"}]}}
+"#
+        .to_vec(),
+    );
+    let effects = runner.poll("run-1").unwrap().unwrap();
+    for classification in [
+        "malformedClaudeFrame",
+        "malformedClaudeText",
+        "unsupportedClaudeFrame",
+    ] {
+        assert!(
+            effects.contains(&transport_diagnostic(classification)),
+            "{classification} missing from {effects:?}"
+        );
+    }
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text,
+            is_partial: false
+        })) if text == "still parsing"
+    )));
+}
+
+#[test]
+fn an_over_ceiling_claude_frame_is_skipped_with_a_typed_diagnostic_and_the_stream_continues() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = malformed_tolerance_runner(&state);
+    runner
+        .start(start("run-1", directory.path(), None))
+        .unwrap();
+    {
+        let mut output = state.output.lock().unwrap();
+        for _ in 0..=gent_drivers::MAX_PROVIDER_FRAME_BYTES / 4096 {
+            output.push_back(vec![b'x'; 4096]);
+        }
+        output.push_back(
+            b"\n{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"after\"}]}}\n"
+                .to_vec(),
+        );
+    }
+    let mut effects = Vec::new();
+    while !state.output.lock().unwrap().is_empty() {
+        effects.extend(runner.poll("run-1").unwrap().unwrap_or_default());
+    }
+    assert!(effects.contains(&transport_diagnostic(
+        gent_types::OVERSIZED_PROVIDER_FRAME_DIAGNOSTIC
+    )));
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text,
+            is_partial: false
+        })) if text == "after"
+    )));
+}

@@ -32,10 +32,9 @@ pub enum CodexEvidenceScenario {
     Interrupt,
     Steer,
     UsageCost,
-    MalformedTolerance,
 }
 
-const REQUIRED_SCENARIOS: [CodexEvidenceScenario; 15] = [
+const REQUIRED_SCENARIOS: [CodexEvidenceScenario; 14] = [
     CodexEvidenceScenario::FullTurn,
     CodexEvidenceScenario::ToolUse,
     CodexEvidenceScenario::ToolError,
@@ -50,7 +49,6 @@ const REQUIRED_SCENARIOS: [CodexEvidenceScenario; 15] = [
     CodexEvidenceScenario::Interrupt,
     CodexEvidenceScenario::Steer,
     CodexEvidenceScenario::UsageCost,
-    CodexEvidenceScenario::MalformedTolerance,
 ];
 
 /// The documented Codex app-server transport bound by every proof in this record.
@@ -69,8 +67,6 @@ pub struct CodexScenarioProof {
     pub fixture_sha256: String,
     pub attestation_sha256: String,
     pub capture_run_id: String,
-    /// Required only for the documented malformed-output scenario.
-    pub malformed_diagnostic_sha256: Option<String>,
 }
 
 /// The signer-covered portion of a provider-scoped authority record.
@@ -242,14 +238,6 @@ fn validate_proof(
     }
     if !valid_text(&proof.capture_run_id, MAX_TEXT_BYTES) {
         return Err(invalid_proof(scenario, "capture_run_id"));
-    }
-    match (scenario, proof.malformed_diagnostic_sha256.as_deref()) {
-        (CodexEvidenceScenario::MalformedTolerance, Some(digest)) if valid_sha256(digest) => {}
-        (CodexEvidenceScenario::MalformedTolerance, _) => {
-            return Err(invalid_proof(scenario, "malformed_diagnostic_sha256"));
-        }
-        (_, None) => {}
-        _ => return Err(invalid_proof(scenario, "malformed_diagnostic_sha256")),
     }
     Ok(())
 }

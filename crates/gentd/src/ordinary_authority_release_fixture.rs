@@ -155,7 +155,6 @@ fn evidence(key: &SigningKey, compatibility_digest: &str) -> SignedCodexAuthorit
         CodexEvidenceScenario::Interrupt,
         CodexEvidenceScenario::Steer,
         CodexEvidenceScenario::UsageCost,
-        CodexEvidenceScenario::MalformedTolerance,
     ]
     .into_iter()
     .map(|scenario| {
@@ -168,9 +167,6 @@ fn evidence(key: &SigningKey, compatibility_digest: &str) -> SignedCodexAuthorit
                 fixture_sha256: "a".repeat(64),
                 attestation_sha256: "b".repeat(64),
                 capture_run_id: "capture-1".into(),
-                malformed_diagnostic_sha256: (scenario
-                    == CodexEvidenceScenario::MalformedTolerance)
-                    .then(|| "c".repeat(64)),
             },
         )
     })

@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-from provider_pins import PINS, authority_mismatches, load_pins, platform_tarball_digests, require_pinned_authority, tarball_mismatches
+from provider_pins import PINS, authority_mismatches, load_pins, pinned_entries, platform_tarball_digests, require_pinned_authority, tarball_mismatches
 from provider_pins_testing import pinned_payload, write_pins
 
 
@@ -85,23 +85,34 @@ def test_require_raises_with_every_mismatch() -> None:
             raise AssertionError("mismatched authority payload was accepted")
 
 
-def test_generated_entries_match_the_pins_the_signer_enforces() -> None:
+def test_each_package_policy_entry_is_bound_to_its_own_target_node_digest() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        pins = write_pins(Path(directory))
-        tool = Path(__file__).with_name("provider-authority-entries.py")
-        result = subprocess.run([sys.executable, tool, "--pins", pins, "--node-runtime-digest", "e" * 64, "--terms-version", "terms-2"], capture_output=True, text=True, check=True)
-        entries = json.loads(result.stdout)
-        payload = pinned_payload()
-        payload["compatibility"]["payload"]["entries"] = entries["compatibility"]
-        payload["package_policy"]["payload"]["entries"] = entries["package_policy"]
-        assert authority_mismatches(payload, pins) == []
-        assert {entry["node_runtime_digest_sha256"] for entry in entries["package_policy"]} == {"e" * 64}
+        pins = load_pins(write_pins(Path(directory)))
+        entries = pinned_entries(pins, {"darwin-arm64": "1" * 64, "linux-x64": "2" * 64}, "terms-2")
+        bound = {(entry["provider"], entry["version"]): entry["node_runtime_digest_sha256"] for entry in entries["package_policy"]}
+        assert bound == {("claude", "9.1.0"): "1" * 64, ("codex", "9.2.0-darwin-arm64"): "1" * 64, ("codex", "9.2.0-linux-x64"): "2" * 64}, bound
+        assert {entry["terms_version"] for entry in entries["package_policy"]} == {"terms-2"}
         assert [entry["id"] for entry in entries["compatibility"]] == ["claude-9.1.0-darwin-arm64", "codex-9.2.0-darwin-arm64", "codex-9.2.0-linux-x64"]
+        try:
+            pinned_entries(pins, {"darwin-arm64": "1" * 64}, "terms-2")
+        except ValueError as error:
+            assert "no measured Node runtime digest: linux-x64" in str(error), error
+        else:
+            raise AssertionError("a provider target without a measured Node digest was accepted")
+
+
+def test_repository_node_runtimes_cover_exactly_the_pinned_provider_targets() -> None:
+    pins = load_pins(PINS)
+    runtime_targets = sorted(item["provider_target"] for item in pins["runtimes"]["node"]["artifacts"].values())
+    for provider in ("claude", "codex"):
+        assert sorted(pins["providers"][provider]["targets"]) == runtime_targets, provider
+    for item in pins["runtimes"]["node"]["artifacts"].values():
+        assert len(item["upstream_node_sha256"]) == 64 and int(item["upstream_node_sha256"], 16) >= 0
 
 
 def test_repository_pins_have_contract_snapshots_of_the_executed_native_binaries() -> None:
     pins = load_pins(PINS)
-    assert pins["reconciliation"]["state"] == "ownerReconciliationRequired"
+    assert "reconciliation" not in pins
     for provider in ("claude", "codex"):
         pin = pins["providers"][provider]
         source = json.loads((PINS.parent / provider / pin["version"] / "source.json").read_text(encoding="utf-8"))

@@ -31,10 +31,9 @@ pub enum ClaudeEvidenceScenario {
     Interrupt,
     Steer,
     UsageCost,
-    MalformedTolerance,
 }
 
-const REQUIRED_SCENARIOS: [ClaudeEvidenceScenario; 15] = [
+const REQUIRED_SCENARIOS: [ClaudeEvidenceScenario; 14] = [
     ClaudeEvidenceScenario::FullTurn,
     ClaudeEvidenceScenario::ToolUse,
     ClaudeEvidenceScenario::ToolError,
@@ -49,7 +48,6 @@ const REQUIRED_SCENARIOS: [ClaudeEvidenceScenario; 15] = [
     ClaudeEvidenceScenario::Interrupt,
     ClaudeEvidenceScenario::Steer,
     ClaudeEvidenceScenario::UsageCost,
-    ClaudeEvidenceScenario::MalformedTolerance,
 ];
 
 /// The public Claude stream-json transport required for every proof.
@@ -68,8 +66,6 @@ pub struct ClaudeScenarioProof {
     pub fixture_sha256: String,
     pub attestation_sha256: String,
     pub capture_run_id: String,
-    /// Required only for a provider-emitted malformed-output scenario.
-    pub malformed_diagnostic_sha256: Option<String>,
 }
 
 /// The signer-covered portion of a provider-scoped Claude authority record.
@@ -237,16 +233,7 @@ fn validate_proof(
             return Err(invalid_proof(scenario, field));
         }
     }
-    match (scenario, proof.malformed_diagnostic_sha256.as_deref()) {
-        (ClaudeEvidenceScenario::MalformedTolerance, Some(digest)) if valid_sha256(digest) => {
-            Ok(())
-        }
-        (ClaudeEvidenceScenario::MalformedTolerance, _) => {
-            Err(invalid_proof(scenario, "malformed_diagnostic_sha256"))
-        }
-        (_, None) => Ok(()),
-        _ => Err(invalid_proof(scenario, "malformed_diagnostic_sha256")),
-    }
+    Ok(())
 }
 
 const fn invalid_proof(

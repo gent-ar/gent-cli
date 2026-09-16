@@ -13,7 +13,7 @@ use gent_adapters::{
 use super::{CodexAuthorityPreflightError, load};
 use crate::CompatibilityAssessment;
 
-const SCENARIOS: [CodexEvidenceScenario; 15] = [
+const SCENARIOS: [CodexEvidenceScenario; 14] = [
     CodexEvidenceScenario::FullTurn,
     CodexEvidenceScenario::ToolUse,
     CodexEvidenceScenario::ToolError,
@@ -28,7 +28,6 @@ const SCENARIOS: [CodexEvidenceScenario; 15] = [
     CodexEvidenceScenario::Interrupt,
     CodexEvidenceScenario::Steer,
     CodexEvidenceScenario::UsageCost,
-    CodexEvidenceScenario::MalformedTolerance,
 ];
 
 fn compatibility() -> CompatibilityAssessment {
@@ -68,9 +67,6 @@ fn record(
                     fixture_sha256: "a".repeat(64),
                     attestation_sha256: "b".repeat(64),
                     capture_run_id: "capture-1".into(),
-                    malformed_diagnostic_sha256: (scenario
-                        == CodexEvidenceScenario::MalformedTolerance)
-                        .then(|| "c".repeat(64)),
                 },
             )
         })

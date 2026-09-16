@@ -7,7 +7,7 @@ use super::{
     CodexEvidenceTransport, CodexScenarioProof, SignedCodexAuthorityEvidence, TrustedKeySet,
 };
 
-const SCENARIOS: [CodexEvidenceScenario; 15] = [
+const SCENARIOS: [CodexEvidenceScenario; 14] = [
     CodexEvidenceScenario::FullTurn,
     CodexEvidenceScenario::ToolUse,
     CodexEvidenceScenario::ToolError,
@@ -22,7 +22,6 @@ const SCENARIOS: [CodexEvidenceScenario; 15] = [
     CodexEvidenceScenario::Interrupt,
     CodexEvidenceScenario::Steer,
     CodexEvidenceScenario::UsageCost,
-    CodexEvidenceScenario::MalformedTolerance,
 ];
 
 fn payload() -> CodexAuthorityEvidencePayload {
@@ -38,9 +37,6 @@ fn payload() -> CodexAuthorityEvidencePayload {
                     fixture_sha256: "a".repeat(64),
                     attestation_sha256: "b".repeat(64),
                     capture_run_id: "capture-1".into(),
-                    malformed_diagnostic_sha256: (scenario
-                        == CodexEvidenceScenario::MalformedTolerance)
-                        .then(|| "c".repeat(64)),
                 },
             )
         })
@@ -80,34 +76,34 @@ fn signed_complete_codex_record_verifies_without_external_effects() {
     assert_eq!(verified.compatibility_manifest_sha256(), "d".repeat(64));
     assert_eq!(
         verified
-            .scenario(CodexEvidenceScenario::MalformedTolerance)
-            .malformed_diagnostic_sha256,
-        Some("c".repeat(64))
+            .scenario(CodexEvidenceScenario::UsageCost)
+            .transport,
+        CodexEvidenceTransport::JsonRpc
     );
 }
 
 #[test]
-fn record_rejects_incomplete_or_non_malformed_proof_sets() {
+fn record_rejects_incomplete_or_noncanonical_proof_sets() {
     let key = SigningKey::from_bytes(&[2; 32]);
     let mut incomplete = payload();
     incomplete
         .scenarios
-        .remove(&CodexEvidenceScenario::MalformedTolerance);
+        .remove(&CodexEvidenceScenario::UsageCost);
     assert!(matches!(
         signed(incomplete, &key).verify(&keys(&key), 1),
         Err(CodexAuthorityEvidenceError::InvalidScenarioSet)
     ));
-    let mut absent_diagnostic = payload();
-    absent_diagnostic
+    let mut noncanonical = payload();
+    noncanonical
         .scenarios
-        .get_mut(&CodexEvidenceScenario::MalformedTolerance)
+        .get_mut(&CodexEvidenceScenario::UsageCost)
         .unwrap()
-        .malformed_diagnostic_sha256 = None;
+        .attestation_sha256 = "A".repeat(64);
     assert!(matches!(
-        signed(absent_diagnostic, &key).verify(&keys(&key), 1),
+        signed(noncanonical, &key).verify(&keys(&key), 1),
         Err(CodexAuthorityEvidenceError::InvalidProof {
-            scenario: CodexEvidenceScenario::MalformedTolerance,
-            field: "malformed_diagnostic_sha256"
+            scenario: CodexEvidenceScenario::UsageCost,
+            field: "attestation_sha256"
         })
     ));
 }

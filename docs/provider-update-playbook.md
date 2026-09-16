@@ -192,12 +192,14 @@ Stop and ask the maintainer at the steps marked HUMAN. `W` is `release-work/<pro
    - `chat send --text /nope` must fail with `slashCommandRequiresInvoke` and create no turn.
      Once `gent` exposes `InvokeCommand`, also run `/compact` and one `providerNative` command.
    - Check `chat transcript` and `sqlite3 "file:W/data/gent.db?mode=ro" 'select phase from turns'`.
-9. **Evidence and signing (HUMAN).**
-   `python3 tools/provider-authority-entries.py --node-runtime-digest <staged node sha256> --terms-version <v>`
-   prints the compatibility and package-policy entries `pins.json` requires. The maintainer
-   signs the compatibility manifest, package policy and evidence records with their keys, runs
-   `tools/sign-ordinary-authority-release.py`, then `tools/verify-staged-authority.py`, then
-   updates the release secret.
+9. **Evidence and signing.** The signed ordinary authority is built in CI, not by hand: the
+   `node-runtime` release job measures the Node binary each target ships and the `authority` job
+   runs `tools/build-ordinary-authority.py`, which derives the compatibility, package-policy and
+   evidence documents from `pins.json`, those measurements and the recorded transcript corpus,
+   and signs them with nested keys derived from the runtime-release root key. To rehearse it
+   locally, generate a throwaway root with `tools/generate-runtime-release-key.py`, write a
+   temporary `root-keys.json`, run the builder with `--root-keys`, and check the result with
+   `tools/verify-staged-authority.py` against a locally built `gentd`.
 10. **Clean up.** Stop the daemon. Delete `W` and every `~/.claude/projects/<W path with / and .
     as ->` folder the smoke created. Delete snapshots older than `OLD`. Report the diff findings
     with dispositions, the gates run, and any file changed outside `fixtures/` with its reason.

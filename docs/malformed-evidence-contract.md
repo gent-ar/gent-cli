@@ -1,44 +1,53 @@
-# Malformed provider-frame evidence contract
+# Malformed provider-frame tolerance
 
-`malformed_tolerance` has two deliberately separate proof obligations.
+Malformed-frame tolerance is a property of Gent's own parsers, not a fact about
+a provider, so it is proven deterministically in this repository and is not part
+of the recorded public-driver matrix or the signed ordinary-authority evidence
+set.
 
-1. Deterministic driver tests prove the parser/framer boundary: invalid JSON,
-   incomplete documented fields, unknown frame kinds, oversized NDJSON, and a
-   valid frame after rejection never crash, retain an invalid partial frame, or
-   mutate a terminal session.
-2. A future recorded matrix cell proves a provider actually emitted a relevant
-   abnormal frame. It must not turn a local injector, proxy, replay, or parser
-   fixture into a claim about a vendor.
+## Why it is not a capture cell
 
-The installed Claude and Codex CLIs currently document no bounded output-fault
-control. Do not try to make a provider produce corrupt stdout, alter its stream,
-or send malformed protocol input: that would either test Gent's own injection
-or risk an unaudited provider action. Both manifest cells therefore remain
-`capture_required`.
+A recorded matrix cell claims that a named provider version, on a named
+platform, actually emitted the frames in the fixture. Claude Code and Codex
+publish no bounded output-fault control, so the only way to produce a malformed
+frame from them is to inject, proxy, replay, or shim the stream. Any of those
+would turn Gent's own injector into a claim about a vendor, which is
+fabrication. `malformed_tolerance` therefore has no cell in
+`fixtures/public-driver-transcripts/manifest.yml`, no scenario in
+`gent_testkit::REQUIRED_SCENARIOS`, and no proof in
+`Claude/CodexAuthorityEvidencePayload::scenarios`.
 
-## Future live capture prerequisite
+## Where tolerance is proven instead
 
-Only record the cell when the provider publishes a documented test/diagnostic
-control that emits a malformed or unknown output frame during an attended,
-ephemeral, read-only, tool-free run. Retain no raw output. Instead retain the
-redacted structural input shape, a SHA-256 digest of the reviewed shape, the
-vendor documentation URL/control, the exact normalizer diagnostic, and one
-ordinary frame observed after the fault.
+Every obligation below is a deterministic Rust test that feeds the fault
+straight into the shipped parser and asserts a typed diagnostic plus survival.
 
-Validate a reviewed candidate before changing the manifest:
+| Obligation | Proof |
+| --- | --- |
+| Unparseable JSON on the Claude stream-json boundary | `crates/gent-drivers/tests/claude_runner.rs` (`malformedClaudeFrame`) |
+| Unparseable JSON on the Codex app-server boundary | `crates/gent-drivers/tests/public_protocol_edges_replay.rs` (`malformedCodexFrame`) |
+| Incomplete documented fields | `crates/gent-drivers/tests/public_protocol_edges.rs` |
+| Unknown frame kinds | `crates/gent-drivers/tests/public_protocol_edges.rs` |
+| Oversized NDJSON lines | `crates/gent-drivers/src/ndjson.rs`, `src/output_pump.rs`, `tests/claude_runner.rs`, `tests/codex_runner.rs` (`oversizedProviderFrame`) |
+| A valid frame after a rejected one | `crates/gent-drivers/tests/public_protocol_edges_replay.rs`, `tests/claude_runner.rs` |
+| A frame after a terminal session never mutates it | `crates/gent-drivers/tests/session_errors.rs` |
+
+`fixtures/public-driver-transcripts/manifest.yml` records the same pointer in
+its validated `malformed_tolerance_proof` field, so the corpus cannot silently
+drop the statement.
+
+## Reviewing a hypothetical future live candidate
+
+If a vendor ever ships a documented, bounded output-fault control, a candidate
+recording must still be reviewed before anybody proposes reinstating a cell.
+`tools/validate-malformed-driver-evidence.py` is that review gate: it checks the
+provenance, redaction, fault boundary, and post-fault continuation facts a live
+candidate would have to declare, and it never starts a provider, writes a
+fixture, or accepts an injected source.
 
 ```sh
 python3 tools/validate-malformed-driver-evidence.py candidate.jsonl
-```
-
-The validator never starts a provider, writes a fixture, or accepts an injected
-source. Its `--describe` mode gives automation the exact future requirement:
-
-```sh
 python3 tools/validate-malformed-driver-evidence.py --describe
 ```
 
-It validates the *additional* malformed-evidence facts only. The normal
-public-driver manifest validator still enforces provenance, redaction, matrix
-identity, and the strict `--require-live` gate. A candidate is not evidence
-until it passes both validators and a human review.
+Passing it is a precondition for a human review, not evidence by itself.

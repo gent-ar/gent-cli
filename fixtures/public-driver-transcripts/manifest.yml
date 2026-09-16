@@ -1,6 +1,7 @@
 schema_version: 1
 vendors: [claude, codex]
-scenarios: [full_turn, tool_use, tool_error, thinking, permission_prompt, permission_persistent, plan_mode, subagent, compaction, mcp_tool, resume, interrupt, steer, usage_cost, malformed_tolerance]
+scenarios: [full_turn, tool_use, tool_error, thinking, permission_prompt, permission_persistent, plan_mode, subagent, compaction, mcp_tool, resume, interrupt, steer, usage_cost]
+malformed_tolerance_proof: proven deterministically in crates/gent-drivers (tests/public_protocol_edges.rs, tests/public_protocol_edges_replay.rs, tests/claude_runner.rs, tests/codex_runner.rs, src/ndjson.rs, src/output_pump.rs); parser tolerance is a property of Gent's own parsers, not a capturable provider behavior, so it is neither a matrix cell nor part of the signed authority evidence set
 cells:
   - { vendor: claude, scenario: full_turn, state: recorded, path: claude-full-turn-haiku-20260816.jsonl }
   - { vendor: claude, scenario: tool_use, state: recorded, path: claude-tool-use-haiku-20260816.jsonl }
@@ -16,7 +17,6 @@ cells:
   - { vendor: claude, scenario: interrupt, state: recorded, path: claude-interrupt-haiku-20260816.jsonl }
   - { vendor: claude, scenario: steer, state: recorded, path: claude-steer-haiku-20260816.jsonl }
   - { vendor: claude, scenario: usage_cost, state: recorded, path: claude-usage-cost-haiku-20260816.jsonl }
-  - { vendor: claude, scenario: malformed_tolerance, state: capture_required }
   - { vendor: codex, scenario: full_turn, state: recorded, path: codex-full-turn-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: tool_use, state: recorded, path: codex-tool-use-gpt-5-6-luna-20260816.jsonl }
   - { vendor: codex, scenario: tool_error, state: recorded, path: codex-tool-error-gpt-5-6-luna-20260816.jsonl }
@@ -31,4 +31,3 @@ cells:
   - { vendor: codex, scenario: interrupt, state: recorded, path: codex-interrupt-live.jsonl }
   - { vendor: codex, scenario: steer, state: recorded, path: codex-steer-live.jsonl }
   - { vendor: codex, scenario: usage_cost, state: recorded, path: codex-usage-cost-gpt-5-6-luna-20260816.jsonl }
-  - { vendor: codex, scenario: malformed_tolerance, state: capture_required }
