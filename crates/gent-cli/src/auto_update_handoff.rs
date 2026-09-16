@@ -87,12 +87,12 @@ fn runtime_root_from_executable(executable: &Path) -> Option<PathBuf> {
         let metadata = serde_json::from_str::<serde_json::Value>(&release).ok()?;
         let release = metadata.get("release")?.as_str()?;
         let expected = root.join("releases").join(release).join("gent.exe");
-        return (executable
+        (executable
             .file_name()
             .is_some_and(|name| name == "gent.exe")
             && expected.is_file()
             && root.join("releases").is_dir())
-        .then(|| root.to_path_buf());
+        .then(|| root.to_path_buf())
     }
     #[cfg(not(windows))]
     {

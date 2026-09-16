@@ -135,12 +135,12 @@ fn selected_release(root: &Path) -> Result<Option<String>, String> {
         let value: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(pointer).map_err(display)?)
                 .map_err(display)?;
-        return value
+        value
             .get("release")
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| "Gent current runtime pointer is invalid".into())
-            .map(Some);
+            .map(Some)
     }
     #[cfg(not(windows))]
     {

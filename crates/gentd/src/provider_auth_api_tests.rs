@@ -8,7 +8,9 @@ use gent_protocol::{PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame};
 use gent_runtime::catalog::{
     RuntimeCapabilityFeature, RuntimeCapabilityProfile, declared_capabilities_with_profiles,
 };
-use gent_types::{ProviderAuthLifecycle, ProviderAuthMethodSelection, ProviderAuthProvider};
+#[cfg(unix)]
+use gent_types::ProviderAuthMethodSelection;
+use gent_types::{ProviderAuthLifecycle, ProviderAuthProvider};
 
 use super::{ProviderAuthPort, StandaloneProviderAuthPort};
 

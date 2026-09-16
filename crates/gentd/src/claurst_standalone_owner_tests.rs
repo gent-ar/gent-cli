@@ -4,10 +4,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(unix)]
+use crate::claurst_local_runtime_owner::{
+    SystemClaurstStandaloneLauncher, SystemPrivateSettingsStore,
+};
 use crate::{
-    claurst_local_runtime_owner::{SystemClaurstStandaloneLauncher, SystemPrivateSettingsStore},
-    local_model_catalog::LocalModelCatalog,
-    local_model_provisioning::LocalModelProvisioner,
+    local_model_catalog::LocalModelCatalog, local_model_provisioning::LocalModelProvisioner,
 };
 use gent_ports::{ClaurstSourceId, ClaurstStartRequest, PrivateClaurstBridge};
 use gent_testkit::host_absolute_path;

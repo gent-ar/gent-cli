@@ -12,6 +12,7 @@ use tokio::task::JoinSet;
 #[cfg(unix)]
 use tokio::net::UnixListener;
 
+#[cfg(unix)]
 use crate::api::RuntimeApi;
 
 #[cfg(unix)]
