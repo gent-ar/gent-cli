@@ -29,6 +29,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
       - run: rustup component add llvm-tools-preview
       - run: cargo install cargo-llvm-cov --version 0.6.21 --locked
       - run: bash tools/run-coverage.sh
@@ -61,6 +63,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
