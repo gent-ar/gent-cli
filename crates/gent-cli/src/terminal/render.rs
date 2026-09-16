@@ -174,7 +174,7 @@ fn active_turn_label(state: &UiState) -> String {
             downloaded_bytes.saturating_mul(100) / total_bytes,
         ),
         Some(gent_protocol::LocalModelInstallState::NotInstalled) => {
-            format!("Preparing {} model download…", state.selection().model,)
+            format!("Preparing {} model download…", state.selection().model)
         }
         _ => {
             let mut live = state.selected_status().into_iter().flat_map(|status| {

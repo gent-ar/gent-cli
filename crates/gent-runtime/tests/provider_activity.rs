@@ -105,13 +105,13 @@ fn approved_owned_fact_uses_its_durable_source_cursor_and_retries_safely() {
     assert_eq!(events[0].kind, "providerActivity");
     assert_eq!(events[0].payload["conversationId"], "conversation-a");
     assert_eq!(events[0].payload["activity"]["type"], "turnStarted");
-    assert!(
+    assert_eq!(
         ledger
             .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
             .unwrap()
             .facts
-            .len()
-            == 1
+            .len(),
+        1
     );
 }
 

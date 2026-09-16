@@ -194,9 +194,7 @@ fn validate_build(args: &Args, development_build: bool) -> Result<(), String> {
         ),
     ] {
         if let Some(path) = path
-            && !std::fs::metadata(path)
-                .map(|metadata| metadata.is_file())
-                .unwrap_or(false)
+            && !std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
         {
             return Err(format!("standalone {label} executable is not a file"));
         }
