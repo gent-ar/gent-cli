@@ -22,6 +22,7 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
     fn has_codex_session(&self, run_id: &str) -> bool;
     fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
     fn refresh_codex_mcp_config(&self, run_id: &str) -> Result<bool, PublicProviderRunError>;
+    fn codex_mcp_servers(&self) -> Result<Option<serde_json::Value>, PublicProviderRunError>;
     fn submit_codex_prompt(
         &self,
         run_id: &str,
@@ -86,6 +87,10 @@ where
 
     fn refresh_codex_mcp_config(&self, run_id: &str) -> Result<bool, PublicProviderRunError> {
         self.refresh_mcp_config(run_id)
+    }
+
+    fn codex_mcp_servers(&self) -> Result<Option<serde_json::Value>, PublicProviderRunError> {
+        Ok(self.current_mcp_servers()?.map(|(servers, _)| servers))
     }
 
     fn submit_codex_prompt(

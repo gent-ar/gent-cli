@@ -5,7 +5,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 const MAX_BYTES: u64 = 1024 * 1024;
-pub(crate) const INTERNAL_SERVER_NAMES: [&str; 3] = ["gent-automations", "gent-forge", "gent-goal"];
+pub(crate) const INTERNAL_SERVER_NAMES: [&str; 4] =
+    ["gent-automations", "gent-chat", "gent-forge", "gent-goal"];
+pub(crate) const CHAT_SERVER_NAME: &str = "gent-chat";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StandaloneMcpConfig {

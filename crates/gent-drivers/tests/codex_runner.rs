@@ -220,7 +220,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                 fresh_context: None,
                 turn_options: options(),
                 attachments: vec![],
-                selected_mcp_source_names: Vec::new(),
+                mcp_servers: None,
                 interrupted_reply: None,
             },
         )
@@ -238,7 +238,7 @@ fn prompt_adapter_preserves_the_first_pending_prompt_until_durable_start() {
                     fresh_context: None,
                     turn_options: options(),
                     attachments: vec![],
-                    selected_mcp_source_names: Vec::new(),
+                    mcp_servers: None,
                     interrupted_reply: None,
                 },
             )

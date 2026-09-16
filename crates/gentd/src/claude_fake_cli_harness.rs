@@ -31,6 +31,7 @@ const BACKGROUND_SUBAGENT: &str =
 
 pub(crate) struct FakeClaudeDaemon {
     root: tempfile::TempDir,
+    data_dir: PathBuf,
     workspace: PathBuf,
     pub(crate) ledger: SqliteLedger,
     pub(crate) epoch: HostEpoch,
@@ -40,6 +41,10 @@ pub(crate) struct FakeClaudeDaemon {
 
 impl FakeClaudeDaemon {
     pub(crate) fn start() -> Self {
+        Self::start_with_mcp_servers(None)
+    }
+
+    pub(crate) fn start_with_mcp_servers(servers: Option<&str>) -> Self {
         let root = tempfile::tempdir().unwrap();
         let executable = root.path().join("cli/claude");
         fs::create_dir_all(executable.parent().unwrap()).unwrap();
@@ -62,6 +67,7 @@ impl FakeClaudeDaemon {
         .unwrap();
         state.fence_unclean_predecessor().unwrap();
         let epoch = state.coordinator().status().unwrap().host_epoch;
+        let mcp_config_path = data_dir.clone();
         let host = compose_standalone_claude(
             state.ledger().clone(),
             state.coordinator().clone(),
@@ -73,7 +79,11 @@ impl FakeClaudeDaemon {
                     Some(executable),
                     None,
                 ),
-                mcp_config: None,
+                mcp_config: servers.map(|servers| {
+                    let path = mcp_config_path.join("standalone-mcp.json");
+                    fs::write(&path, servers).unwrap();
+                    path
+                }),
             },
             SystemLauncher::new(64 * 1024),
         )
@@ -89,6 +99,7 @@ impl FakeClaudeDaemon {
         router.activate_recovery().unwrap();
         let mut daemon = Self {
             workspace: fs::canonicalize(&workspace).unwrap(),
+            data_dir: mcp_config_path,
             root,
             ledger: state.ledger().clone(),
             epoch,
@@ -230,6 +241,10 @@ impl FakeClaudeDaemon {
                 .join(format!("cli/sessions/{session_id}.jsonl")),
         )
         .unwrap();
+    }
+
+    pub(crate) fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
     }
 
     pub(crate) fn fail_resumes_with_an_api_error(&self) {

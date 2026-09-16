@@ -51,7 +51,11 @@ pub fn with_activity_cursor(
         | ConversationActivityFact::Recovered { scope }
         | ConversationActivityFact::Terminal { scope, .. }
         | ConversationActivityFact::GoalUpdated { scope, .. }
-        | ConversationActivityFact::PlanUpdated { scope, .. } => scope.cursor = cursor,
+        | ConversationActivityFact::PlanUpdated { scope, .. }
+        | ConversationActivityFact::ConversationCreated { scope, .. }
+        | ConversationActivityFact::CreatedByConversation { scope, .. }
+        | ConversationActivityFact::ConversationMessageSent { scope, .. }
+        | ConversationActivityFact::ConversationWaitSettled { scope, .. } => scope.cursor = cursor,
     }
     fact
 }

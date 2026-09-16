@@ -101,6 +101,7 @@ mod codex_summary_runner;
 mod compatibility_assessment;
 #[cfg(test)]
 mod compatibility_lock_tests;
+mod conversation_scoped_mcp;
 mod conversation_transport;
 mod daemon_bootstrap;
 mod decision_mapping;
@@ -223,6 +224,7 @@ mod standalone_authority_composition;
 mod standalone_authority_release;
 #[allow(dead_code)]
 mod standalone_claurst_runtime_factory;
+mod standalone_claurst_runtime_identity;
 mod standalone_mcp_config;
 mod standalone_provider_provision;
 mod standalone_provider_readiness;

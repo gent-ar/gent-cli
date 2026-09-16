@@ -35,7 +35,7 @@ fn current_fresh_schema_reopens_without_running_its_migration_again() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(identity, "gent-fresh-schema-v23");
+    assert_eq!(identity, "gent-fresh-schema-v24");
     assert!(has_table(&connection, "agent_chat_projection_events").unwrap());
 }
 
@@ -67,7 +67,7 @@ fn migrates_the_previous_fresh_schema_identity() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(identity, "gent-fresh-schema-v23");
+    assert_eq!(identity, "gent-fresh-schema-v24");
     let column: String = connection
         .query_row(
             "SELECT name FROM pragma_table_info('agent_chat_prompt_receipts') WHERE name = 'tool_source_ids_json'",
@@ -185,7 +185,7 @@ fn migrates_existing_activity_projection_cursors() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert_eq!((identity.as_str(), cursor), ("gent-fresh-schema-v23", 7));
+    assert_eq!((identity.as_str(), cursor), ("gent-fresh-schema-v24", 7));
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn migrates_permission_decisions_into_the_projection() {
     assert_eq!(
         values,
         (
-            "gent-fresh-schema-v23".into(),
+            "gent-fresh-schema-v24".into(),
             "decisionPending".into(),
             "decision-1".into(),
             9
@@ -251,8 +251,29 @@ fn migrates_transcript_prompts_to_a_typed_user_origin() {
     assert_eq!(
         origins,
         [
-            (Some("user".into()), "gent-fresh-schema-v23".into()),
-            (None, "gent-fresh-schema-v23".into()),
+            (Some("user".into()), "gent-fresh-schema-v24".into()),
+            (None, "gent-fresh-schema-v24".into()),
         ]
     );
+}
+
+#[test]
+fn migrates_a_v23_ledger_into_the_conversation_link_table() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE gent_schema (singleton INTEGER PRIMARY KEY, identity TEXT NOT NULL); \
+             INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v23');",
+        )
+        .unwrap();
+    apply(&mut connection).unwrap();
+    let identity: String = connection
+        .query_row(
+            "SELECT identity FROM gent_schema WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(identity, "gent-fresh-schema-v24");
+    assert!(has_table(&connection, "agent_chat_conversation_links").unwrap());
 }

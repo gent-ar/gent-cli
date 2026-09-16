@@ -222,7 +222,7 @@ const fn encode_phase(phase: DurableTurnPhase) -> &'static str {
     }
 }
 
-fn decode_phase(value: &str) -> rusqlite::Result<DurableTurnPhase> {
+pub(super) fn decode_phase(value: &str) -> rusqlite::Result<DurableTurnPhase> {
     match value {
         "active" => Ok(DurableTurnPhase::Active),
         "waitingPermission" => Ok(DurableTurnPhase::WaitingPermission),

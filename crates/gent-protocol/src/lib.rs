@@ -24,6 +24,7 @@ mod automations;
 mod conversation_activity;
 mod conversation_content;
 mod conversation_index;
+pub mod conversation_links;
 mod conversation_status;
 mod conversation_timeline;
 mod decision;

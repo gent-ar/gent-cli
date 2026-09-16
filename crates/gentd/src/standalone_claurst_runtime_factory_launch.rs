@@ -2,12 +2,11 @@ use std::path::PathBuf;
 
 use gent_ports::{AgentChatWorkspaceLedger, ToolSourceLedger};
 use gent_runtime::AgentChatReadService;
-use gent_types::{
-    AgentChatEffort, AgentChatMode, AgentChatPromptSaved, AgentChatSelection, PermissionMode,
-    ToolSourceRecord,
-};
+use gent_types::{AgentChatPromptSaved, ToolSourceRecord};
 
 use super::{ActiveRuntime, StandaloneClaurstRuntimeFactory};
+use crate::standalone_claurst_runtime_identity::{RuntimeIdentity, RuntimeReuse};
+use crate::standalone_mcp_config::StandaloneMcpConfig;
 use crate::{
     claurst_acp_bridge::ClaurstBridgeHandle,
     claurst_local_runtime_owner::{
@@ -15,39 +14,6 @@ use crate::{
     },
     claurst_standalone_owner::ClaurstStandaloneOwner,
 };
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct RuntimeIdentity {
-    pub(super) model_id: String,
-    mode: AgentChatMode,
-    effort: AgentChatEffort,
-    workspace: PathBuf,
-    permission_mode: PermissionMode,
-    mcp_config_digest: Option<String>,
-    tool_source_ids: Vec<String>,
-}
-
-impl RuntimeIdentity {
-    pub(super) fn new(
-        selection: &AgentChatSelection,
-        workspace: PathBuf,
-        permission_mode: PermissionMode,
-        mcp_config_digest: Option<String>,
-        tool_source_ids: &[String],
-    ) -> Self {
-        let mut tool_source_ids = tool_source_ids.to_vec();
-        tool_source_ids.sort();
-        Self {
-            model_id: selection.model.clone(),
-            mode: selection.mode,
-            effort: selection.effort,
-            workspace,
-            permission_mode,
-            mcp_config_digest,
-            tool_source_ids,
-        }
-    }
-}
 
 impl StandaloneClaurstRuntimeFactory {
     pub(super) async fn start_selected(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
@@ -71,72 +37,85 @@ impl StandaloneClaurstRuntimeFactory {
                 .to_owned()
         })?;
         let selected_sources = self.selected_tool_sources(saved, &workspace_id)?;
-        let selected = !selected_sources.is_empty();
         let mcp_config_digest = config
             .mcp_config
             .as_ref()
             .map(crate::standalone_mcp_config::StandaloneMcpConfig::digest)
             .transpose()?;
         let permission_mode = permission.mode;
+        let conversation_id = saved.message.conversation_id.clone();
         let identity = RuntimeIdentity::new(
             &selection,
+            conversation_id.clone(),
             workspace.clone(),
             permission_mode,
             mcp_config_digest,
             &saved.tool_source_ids,
         );
-        if self.retire_unless_reusable(&identity).await? {
+        let reuse = self.retire_unless_reusable(&identity).await?;
+        if reuse == RuntimeReuse::Ready {
             return Ok(());
         }
-
         let mut request = config.request.clone();
         request.effort = selection.effort;
         request.mode = selection.mode;
         request.permission_mode = permission_mode;
-        let settings_mcp_servers = config
-            .mcp_config
-            .as_ref()
-            .map(|config| {
-                if selected {
-                    config.selected_claurst_settings_servers(&selected_sources)
-                } else {
-                    config.claurst_settings_servers()
-                }
-            })
-            .transpose()?;
-        request.mcp_servers = settings_mcp_servers.unwrap_or_default();
-        let mcp_servers = config
-            .mcp_config
-            .as_ref()
-            .map(|config| {
-                if selected {
-                    config.selected_claurst_servers(&selected_sources)
-                } else {
-                    config.claurst_servers()
-                }
-            })
-            .transpose()?;
+        request.mcp_servers = conversation_servers(
+            config.mcp_config.as_ref(),
+            &selected_sources,
+            &conversation_id,
+            StandaloneMcpConfig::claurst_settings_servers,
+            StandaloneMcpConfig::selected_claurst_settings_servers,
+        )?;
+        let launch_mcp_servers = conversation_servers(
+            config.mcp_config.as_ref(),
+            &selected_sources,
+            &conversation_id,
+            StandaloneMcpConfig::claurst_servers,
+            StandaloneMcpConfig::selected_claurst_servers,
+        )?;
+        match reuse {
+            RuntimeReuse::Ready => Ok(()),
+            RuntimeReuse::RebindSession
+                if self
+                    .rebind_session(
+                        &identity,
+                        request.clone(),
+                        &workspace,
+                        launch_mcp_servers.clone(),
+                    )
+                    .await? =>
+            {
+                Ok(())
+            }
+            RuntimeReuse::RebindSession | RuntimeReuse::Relaunch => {
+                self.launch_runtime(identity, request, workspace, launch_mcp_servers)
+                    .await
+            }
+        }
+    }
+
+    async fn launch_runtime(
+        &self,
+        identity: RuntimeIdentity,
+        request: crate::claurst_local_runtime::ClaurstLocalRuntimeRequest,
+        workspace: PathBuf,
+        mcp_servers: Vec<serde_json::Value>,
+    ) -> Result<(), String> {
         let readiness = self.readiness.clone();
-        let launch_model_id = identity.model_id.clone();
-        let launch_workspace = workspace;
-        let startup = tokio::task::spawn_blocking(move || {
+        let model_id = identity.model.model_id.clone();
+        let runtime = tokio::task::spawn_blocking(move || {
             ClaurstStandaloneOwner::new(
                 readiness,
                 SystemPrivateSettingsStore,
                 SystemClaurstStandaloneLauncher,
                 HttpLlamaServerReadiness::default(),
             )
-            .start_with_mcp(
-                &launch_model_id,
-                request,
-                &launch_workspace,
-                mcp_servers.unwrap_or_default(),
-            )
-        });
-        let runtime = startup
-            .await
-            .map_err(|_| "local Claurst startup worker stopped unexpectedly".to_owned())?
-            .map_err(|error| error.to_string())?;
+            .start_with_mcp(&model_id, request, &workspace, mcp_servers)
+        })
+        .await
+        .map_err(|_| "local Claurst startup worker stopped unexpectedly".to_owned())?
+        .map_err(|error| error.to_string())?;
         let bridge = ClaurstBridgeHandle::new(runtime.bridge());
         let mut active = self.active.lock().await;
         if active.is_some() {
@@ -176,14 +155,21 @@ impl StandaloneClaurstRuntimeFactory {
         Ok(selected_sources)
     }
 
-    async fn retire_unless_reusable(&self, identity: &RuntimeIdentity) -> Result<bool, String> {
+    async fn retire_unless_reusable(
+        &self,
+        identity: &RuntimeIdentity,
+    ) -> Result<RuntimeReuse, String> {
         let previous = {
             let mut active = self.active.lock().await;
-            let reusable = active.as_mut().is_some_and(|runtime| {
-                runtime.identity == *identity && matches!(runtime.runtime.exited(), Ok(None))
+            let reuse = active.as_mut().map_or(RuntimeReuse::Relaunch, |runtime| {
+                if matches!(runtime.runtime.exited(), Ok(None)) {
+                    identity.reuse_from(&runtime.identity)
+                } else {
+                    RuntimeReuse::Relaunch
+                }
             });
-            if reusable {
-                return Ok(true);
+            if reuse != RuntimeReuse::Relaunch {
+                return Ok(reuse);
             }
             active.take()
         };
@@ -192,6 +178,75 @@ impl StandaloneClaurstRuntimeFactory {
                 .shut_down("could not stop previous local Claurst runtime")
                 .await?;
         }
-        Ok(false)
+        Ok(RuntimeReuse::Relaunch)
     }
+
+    async fn rebind_session(
+        &self,
+        identity: &RuntimeIdentity,
+        request: crate::claurst_local_runtime::ClaurstLocalRuntimeRequest,
+        workspace: &std::path::Path,
+        mcp_servers: Vec<serde_json::Value>,
+    ) -> Result<bool, String> {
+        let Some(mut active) = self.active.lock().await.take() else {
+            return Ok(false);
+        };
+        let model_id = identity.model.model_id.clone();
+        let readiness = self.readiness.clone();
+        let workspace = workspace.to_path_buf();
+        drop(active.bridge);
+        let rebound = tokio::task::spawn_blocking(move || {
+            ClaurstStandaloneOwner::new(
+                readiness,
+                SystemPrivateSettingsStore,
+                SystemClaurstStandaloneLauncher,
+                HttpLlamaServerReadiness::default(),
+            )
+            .rebind_session(
+                &mut active.runtime,
+                &model_id,
+                request,
+                &workspace,
+                mcp_servers,
+            )
+            .map(|()| active.runtime)
+        })
+        .await
+        .map_err(|_| "local Claurst session worker stopped unexpectedly".to_owned())?;
+        let Ok(runtime) = rebound else {
+            return Ok(false);
+        };
+        *self.active.lock().await = Some(ActiveRuntime {
+            identity: identity.clone(),
+            bridge: ClaurstBridgeHandle::new(runtime.bridge()),
+            runtime,
+        });
+        Ok(true)
+    }
+}
+
+pub(super) fn conversation_servers(
+    config: Option<&StandaloneMcpConfig>,
+    sources: &[ToolSourceRecord],
+    conversation_id: &str,
+    all: fn(&StandaloneMcpConfig) -> Result<Vec<serde_json::Value>, String>,
+    selected: fn(
+        &StandaloneMcpConfig,
+        &[ToolSourceRecord],
+    ) -> Result<Vec<serde_json::Value>, String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let entries = config
+        .map(|config| {
+            if sources.is_empty() {
+                all(config)
+            } else {
+                selected(config, sources)
+            }
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok(crate::conversation_scoped_mcp::scope_named_entries(
+        entries,
+        conversation_id,
+    ))
 }

@@ -22,7 +22,8 @@ pub(crate) struct Runner {
 }
 #[derive(Default, Debug)]
 pub(crate) struct State {
-    pending: Option<(String, CodexPromptStart)>,
+    pub(crate) pending: Option<(String, CodexPromptStart)>,
+    pub(crate) mcp_servers: Option<serde_json::Value>,
     pub(crate) starts: usize,
     pub(crate) effects: VecDeque<Vec<CodexRunnerEffect>>,
     pub(crate) poll_failure: bool,
@@ -83,6 +84,9 @@ impl CodexPromptExecution for Runner {
         state.prepared_goals.push(prompt.goal.clone());
         state.pending = Some((run_id, prompt));
         Ok(())
+    }
+    fn codex_mcp_servers(&self) -> Result<Option<serde_json::Value>, PublicProviderRunError> {
+        Ok(self.state.lock().unwrap().mcp_servers.clone())
     }
     fn cancel_codex_prompt(&self, _: &str) {
         self.state.lock().unwrap().pending = None;
@@ -263,14 +267,10 @@ pub(crate) fn assert_prepared_options(runner: &Runner) {
         Some(&expected)
     );
     assert_eq!(
-        state.pending.as_ref().map(|entry| {
-            entry
-                .1
-                .selected_mcp_source_names
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-        }),
-        Some(Vec::new())
+        state
+            .pending
+            .as_ref()
+            .map(|entry| entry.1.mcp_servers.clone()),
+        Some(None)
     );
 }

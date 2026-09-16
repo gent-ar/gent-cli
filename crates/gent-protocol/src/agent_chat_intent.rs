@@ -6,6 +6,7 @@
 use gent_types::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse,
     AgentChatPromptDelivery, AgentChatRequestId, AgentChatRunId, AgentChatSelection, ContextPolicy,
+    ConversationMessageDelivery, ConversationWaitResult, LinkedConversations,
     NormalizedTranscriptEvent, NormalizedTranscriptKind, Receipt,
 };
 use serde::{Deserialize, Serialize};
@@ -200,6 +201,64 @@ pub enum AgentChatIntentFrame {
         source_conversation_id: AgentChatConversationId,
         conversation_id: AgentChatConversationId,
         run_id: AgentChatRunId,
+    },
+    CreateLinkedConversation {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        parent_conversation_id: AgentChatConversationId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selection: Option<AgentChatSelection>,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin_tool_use_id: Option<String>,
+    },
+    LinkedConversationCreated {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        parent_conversation_id: AgentChatConversationId,
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
+        label: String,
+    },
+    SendToConversation {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        from_conversation_id: AgentChatConversationId,
+        target_conversation_id: AgentChatConversationId,
+        message: String,
+    },
+    ConversationMessageDelivered {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        from_conversation_id: AgentChatConversationId,
+        target_conversation_id: AgentChatConversationId,
+        delivery: ConversationMessageDelivery,
+        message_id: String,
+    },
+    WaitForConversations {
+        request_id: AgentChatRequestId,
+        from_conversation_id: AgentChatConversationId,
+        conversation_ids: Vec<AgentChatConversationId>,
+        timeout_seconds: u32,
+    },
+    ConversationWaitSettled {
+        request_id: AgentChatRequestId,
+        from_conversation_id: AgentChatConversationId,
+        results: Vec<ConversationWaitResult>,
+        timed_out: bool,
+    },
+    ListLinkedConversations {
+        request_id: AgentChatRequestId,
+        conversation_id: AgentChatConversationId,
+    },
+    ConversationLinks {
+        request_id: AgentChatRequestId,
+        conversation_id: AgentChatConversationId,
+        links: LinkedConversations,
     },
 }
 

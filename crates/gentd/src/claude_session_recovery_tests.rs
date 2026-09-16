@@ -96,3 +96,35 @@ fn a_resume_that_fails_after_spending_api_time_is_a_genuine_failure_and_is_not_r
     assert_eq!(launches_with(&daemon, "--resume", &session), 1);
     assert_eq!(launches_with(&daemon, "--session-id", &session), 0);
 }
+
+#[test]
+fn a_real_claude_launch_receives_its_own_conversation_scoped_chat_server() {
+    let mut daemon = FakeClaudeDaemon::start_with_mcp_servers(Some(
+        r#"{"mcpServers":{"gent-chat":{"command":"gent","args":["mcp","chat"]},"gent-goal":{"command":"gent","args":["mcp","goal"]}}}"#,
+    ));
+    let (conversation, _) = daemon.conversation("scoped");
+    let prompt = daemon.prompt(&conversation, "hello", Send);
+    daemon.drive_until("the first Claude turn to settle", |daemon| {
+        daemon.phase(&prompt).is_terminal()
+    });
+    let arguments = daemon.launches().last().unwrap().clone();
+    let index = arguments
+        .iter()
+        .position(|argument| argument == "--mcp-config")
+        .expect("a Claude launch always names its MCP config");
+    let path = std::path::PathBuf::from(&arguments[index + 1]);
+    assert_eq!(
+        path.parent().unwrap(),
+        daemon.data_dir().join("conversation-mcp")
+    );
+    let servers: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        servers["mcpServers"]["gent-chat"]["args"],
+        serde_json::json!(["mcp", "chat", "--conversation-id", "conversation-scoped"])
+    );
+    assert_eq!(
+        servers["mcpServers"]["gent-goal"]["args"],
+        serde_json::json!(["mcp", "goal"])
+    );
+}

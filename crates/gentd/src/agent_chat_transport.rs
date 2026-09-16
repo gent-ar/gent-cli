@@ -6,6 +6,7 @@
 
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame,
+    conversation_links::{CONVERSATION_LINKS_CAPABILITY, is_conversation_link_frame},
     write_json_frame,
 };
 use gent_types::CapabilitySet;
@@ -47,7 +48,52 @@ where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
+    if let Some(frame) = waiting_frame(capabilities, raw) {
+        return wait_off_thread(stream, runtime, frame).await;
+    }
     dispatch_port(stream, runtime, capabilities, raw).await
+}
+
+fn waiting_frame(capabilities: &CapabilitySet, raw: &Value) -> Option<AgentChatIntentFrame> {
+    if !supports(capabilities) || !links_enabled(capabilities) {
+        return None;
+    }
+    serde_json::from_value::<AgentChatIntentFrame>(raw.clone())
+        .ok()
+        .filter(|frame| matches!(frame, AgentChatIntentFrame::WaitForConversations { .. }))
+}
+
+async fn wait_off_thread<S, R>(
+    stream: &mut S,
+    runtime: &R,
+    request: AgentChatIntentFrame,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>
+where
+    S: AsyncWrite + Unpin,
+    R: RuntimeApi,
+{
+    let runtime = runtime.clone();
+    let waited = request.clone();
+    let result = tokio::task::spawn_blocking(move || runtime.agent_chat_intent(waited)).await?;
+    match result {
+        Ok(replies) => match validate_replies(&request, &replies) {
+            Ok(()) => {
+                for reply in replies {
+                    write_json_frame(stream, &reply).await?;
+                }
+            }
+            Err(message) => write_error(stream, "invalidAgentChatResponse", message).await?,
+        },
+        Err(error) => write_error(stream, error.code, &error.message).await?,
+    }
+    Ok(true)
+}
+
+fn links_enabled(capabilities: &CapabilitySet) -> bool {
+    capabilities
+        .0
+        .iter()
+        .any(|capability| capability == CONVERSATION_LINKS_CAPABILITY)
 }
 
 pub(crate) async fn dispatch_port<S, P>(
@@ -74,7 +120,11 @@ where
     {
         return Ok(false);
     }
+    if is_conversation_link_frame(&request) && !links_enabled(capabilities) {
+        return Ok(false);
+    }
     if !matches!(request, AgentChatIntentFrame::ImportTranscript { .. })
+        && !is_conversation_link_frame(&request)
         && !capabilities
             .0
             .iter()
@@ -109,6 +159,7 @@ fn supports(capabilities: &CapabilitySet) -> bool {
     capabilities.0.iter().any(|capability| {
         capability == AGENT_CHAT_INTENTS_CAPABILITY
             || capability == AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY
+            || capability == CONVERSATION_LINKS_CAPABILITY
     })
 }
 
@@ -129,5 +180,9 @@ fn is_client_request(frame: &AgentChatIntentFrame) -> bool {
             | AgentChatIntentFrame::Decision { .. }
             | AgentChatIntentFrame::Subscribe { .. }
             | AgentChatIntentFrame::ForkConversation { .. }
+            | AgentChatIntentFrame::CreateLinkedConversation { .. }
+            | AgentChatIntentFrame::SendToConversation { .. }
+            | AgentChatIntentFrame::WaitForConversations { .. }
+            | AgentChatIntentFrame::ListLinkedConversations { .. }
     )
 }

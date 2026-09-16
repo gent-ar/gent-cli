@@ -27,6 +27,7 @@ mod conversation_artifact;
 mod conversation_content;
 mod conversation_context;
 mod conversation_context_compaction;
+mod conversation_links;
 mod conversation_prompts;
 mod conversations;
 mod decision;
@@ -140,6 +141,13 @@ pub use conversation_context_compaction::{
     CONTEXT_COMPACTION_PARTIAL_NOTICE, ContextCompactionFact, ContextCompactionFailure,
     ContextCompactionPlan, ContextCompactionTrigger, ContextCoverageDigest, ContextSourceItem,
     ContextSourceRole, MAX_CONTEXT_SUMMARY_BYTES,
+};
+pub use conversation_links::{
+    ConversationLink, ConversationMessageDelivery, ConversationThreadState, ConversationWaitResult,
+    ConversationWaitTarget, LinkedConversationSummary, LinkedConversations,
+    MAX_CONVERSATION_LABEL_BYTES, MAX_CONVERSATION_MESSAGE_PREVIEW_BYTES,
+    MAX_CONVERSATION_WAIT_REPLY_BYTES, MAX_CONVERSATION_WAIT_SECONDS,
+    MAX_CONVERSATION_WAIT_TARGETS, bounded_excerpt, valid_conversation_label,
 };
 pub use conversation_prompts::{ConversationMessage, ConversationPrompt};
 pub use conversations::{

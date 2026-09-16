@@ -16,6 +16,7 @@ mod conversation_activity_ledger;
 mod conversation_artifacts;
 mod conversation_content;
 mod conversation_ledger;
+mod conversation_link_ledger;
 mod conversation_prompt_ledger;
 mod conversation_summary;
 mod dependency_action_executor;
@@ -66,6 +67,7 @@ pub use conversation_activity_ledger::*;
 pub use conversation_artifacts::ConversationArtifactLedger;
 pub use conversation_content::ConversationContentReader;
 pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
+pub use conversation_link_ledger::*;
 pub use conversation_prompt_ledger::{ConversationPromptLedger, ConversationPromptSave};
 pub use conversation_summary::ConversationSummaryRunner;
 pub use dependency_action_executor::{

@@ -122,6 +122,18 @@ impl LaunchSetup {
         let goal = runtime.active_goal_for(&prompt.message.conversation_id)?;
         let (prompt_text, attachments) =
             provider_input(runtime, &prompt.message, &prompt.run_id.0)?;
+        let mcp_servers = runtime
+            .runner()
+            .codex_mcp_servers()?
+            .map(|servers| {
+                crate::conversation_scoped_mcp::scoped_servers(
+                    &servers,
+                    &self.selected_mcp_source_names,
+                    &prompt.message.conversation_id,
+                )
+            })
+            .transpose()
+            .map_err(gent_ports::PublicProviderRunError::Failed)?;
         Ok(CodexPromptStart {
             working_directory: Some(self.working_directory),
             workspace_root: self.workspace_root,
@@ -131,7 +143,7 @@ impl LaunchSetup {
             fresh_context,
             turn_options: self.turn_options,
             attachments,
-            selected_mcp_source_names: self.selected_mcp_source_names,
+            mcp_servers,
             interrupted_reply,
         })
     }

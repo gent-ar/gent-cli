@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    GoalRecord, HostEpoch, PlanArtifact, PromptHoldReason, RootActivity, TokenUsage, ToolActivity,
-    TurnPhase, WorkPhase,
+    AgentChatSelection, ConversationMessageDelivery, ConversationWaitTarget, GoalRecord, HostEpoch,
+    PlanArtifact, PromptHoldReason, RootActivity, TokenUsage, ToolActivity, TurnPhase, WorkPhase,
 };
 
 /// Version of the conversation-activity value contract.
@@ -159,6 +159,38 @@ pub enum ConversationActivityFact {
         scope: ConversationActivityScope,
         plan: PlanArtifact,
     },
+    ConversationCreated {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        child_conversation_id: String,
+        label: String,
+        workspace_path: String,
+        selection: AgentChatSelection,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin_tool_use_id: Option<String>,
+    },
+    CreatedByConversation {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        parent_conversation_id: String,
+        parent_run_id: String,
+        label: String,
+    },
+    ConversationMessageSent {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        target_conversation_id: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        target_label: String,
+        delivery: ConversationMessageDelivery,
+        preview: String,
+    },
+    ConversationWaitSettled {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        targets: Vec<ConversationWaitTarget>,
+        timed_out: bool,
+    },
 }
 
 impl ConversationActivityFact {
@@ -185,7 +217,11 @@ impl ConversationActivityFact {
             | Self::Recovered { scope }
             | Self::Terminal { scope, .. }
             | Self::GoalUpdated { scope, .. }
-            | Self::PlanUpdated { scope, .. } => scope,
+            | Self::PlanUpdated { scope, .. }
+            | Self::ConversationCreated { scope, .. }
+            | Self::CreatedByConversation { scope, .. }
+            | Self::ConversationMessageSent { scope, .. }
+            | Self::ConversationWaitSettled { scope, .. } => scope,
         }
     }
 }

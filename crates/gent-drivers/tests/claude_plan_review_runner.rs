@@ -65,7 +65,6 @@ fn start(root: &Path, mode: AgentChatMode) -> ClaudeRunStart {
         workspace_root: root.to_path_buf(),
         workspace_access: SandboxWorkspaceAccess::ReadOnly,
         mcp_config: None,
-        selected_mcp_source_names: Vec::new(),
     }
 }
 fn runner(

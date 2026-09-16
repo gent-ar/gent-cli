@@ -270,6 +270,13 @@ mod tests {
     }
 }
 
+impl SystemLocalRuntimeProcess {
+    #[must_use]
+    pub(crate) fn process_id(&self) -> u32 {
+        self.child.id()
+    }
+}
+
 impl LocalRuntimeProcess for SystemLocalRuntimeProcess {
     fn exited(&mut self) -> Result<Option<String>, String> {
         self.child

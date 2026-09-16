@@ -143,7 +143,6 @@ fn start() -> ClaudeRunStart {
         workspace_root: "/workspace".into(),
         workspace_access: gent_types::SandboxWorkspaceAccess::ReadOnly,
         mcp_config: None,
-        selected_mcp_source_names: Vec::new(),
     }
 }
 

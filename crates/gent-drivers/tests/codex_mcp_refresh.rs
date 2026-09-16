@@ -68,6 +68,10 @@ fn options() -> CodexTurnOptions {
     .unwrap()
 }
 fn prompt(root: PathBuf) -> CodexPromptStart {
+    prompt_with_servers(root, None)
+}
+
+fn prompt_with_servers(root: PathBuf, mcp_servers: Option<serde_json::Value>) -> CodexPromptStart {
     CodexPromptStart {
         working_directory: Some("/work".into()),
         workspace_root: root,
@@ -77,7 +81,7 @@ fn prompt(root: PathBuf) -> CodexPromptStart {
         fresh_context: None,
         turn_options: options(),
         attachments: vec![],
-        selected_mcp_source_names: Vec::new(),
+        mcp_servers,
         interrupted_reply: None,
     }
 }
@@ -128,7 +132,16 @@ fn changed_mcp_config_replaces_the_process_and_resumes_the_bound_thread_with_new
         &[ProcessTreeSignal::Terminate]
     );
     runner
-        .prepare("run".into(), prompt(directory.path().into()))
+        .prepare(
+            "run".into(),
+            prompt_with_servers(
+                directory.path().into(),
+                runner
+                    .current_mcp_servers()
+                    .unwrap()
+                    .map(|(servers, _)| servers),
+            ),
+        )
         .unwrap();
     PublicProviderRunner::resume(&runner, "run", &lock, "bound-thread").unwrap();
     state

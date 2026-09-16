@@ -22,6 +22,58 @@ use super::codex_prompt_lifecycle_tests::{
 };
 
 #[test]
+fn a_codex_launch_scopes_only_the_chat_server_to_its_own_conversation() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation_id = AgentChatConversationId("conversation-a".into());
+    create_conversation(&ledger, conversation_id.clone());
+    let prompt = ledger
+        .save_agent_chat_prompt(&AgentChatPromptCreate {
+            request_id: AgentChatRequestId("prompt-a".into()),
+            receipt_id: ReceiptId("prompt-receipt".into()),
+            host_epoch: HostEpoch(1),
+            conversation_id,
+            disposition: AgentChatPromptDisposition::Send,
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
+            text: "hello".into(),
+        })
+        .unwrap();
+    crate::readiness_test_support::release(&ledger, &prompt);
+    let runner = Runner::default();
+    runner.state.lock().unwrap().mcp_servers = Some(serde_json::json!({
+        "gent-chat": {"command": "gent", "args": ["mcp", "chat"]},
+        "gent-goal": {"command": "gent", "args": ["mcp", "goal"]}
+    }));
+    let compatibility = super::codex_prompt_lifecycle_tests::compatibility();
+    let runtime = PublicDriversRuntime::new(
+        profile(&compatibility),
+        Coordinator::new(ledger.clone(), CapabilitySet::default()),
+        ledger.clone(),
+        compatibility,
+        runner.clone(),
+        Resolver,
+    )
+    .unwrap();
+    let mut host = ApprovedCodexHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
+    host.tick().unwrap();
+
+    let state = runner.state.lock().unwrap();
+    let launched = state
+        .pending
+        .as_ref()
+        .and_then(|entry| entry.1.mcp_servers.clone())
+        .expect("a codex launch carries its scoped MCP servers");
+    assert_eq!(
+        launched["gent-chat"]["args"],
+        serde_json::json!(["mcp", "chat", "--conversation-id", "conversation-a"])
+    );
+    assert_eq!(
+        launched["gent-goal"]["args"],
+        serde_json::json!(["mcp", "goal"])
+    );
+}
+
+#[test]
 fn codex_host_reserves_then_persists_normalized_facts_and_settles() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());

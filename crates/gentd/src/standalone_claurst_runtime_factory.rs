@@ -23,7 +23,7 @@ use crate::{
 
 #[path = "standalone_claurst_runtime_factory_launch.rs"]
 mod launch;
-use launch::RuntimeIdentity;
+use crate::standalone_claurst_runtime_identity::RuntimeIdentity;
 
 type SystemRuntime = ClaurstStandaloneRuntime<SystemLocalRuntimeProcess, SystemClaurstAcpStdio>;
 type SystemBridge = ClaurstBridgeHandle<SystemClaurstAcpStdio>;
@@ -104,7 +104,7 @@ impl StandaloneClaurstRuntimeFactory {
         let runtime = active
             .as_ref()
             .ok_or_else(|| PortError::Unavailable("local Claurst runtime is not ready".into()))?;
-        if runtime.identity.model_id != model_id {
+        if runtime.identity.model.model_id != model_id {
             return Err(PortError::Unavailable(
                 "selected Claurst model is not the active local model".into(),
             ));

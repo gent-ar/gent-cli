@@ -1,5 +1,6 @@
 //! Capability reconciliation is pure: live declarations must match observed behavior.
 
+use gent_protocol::conversation_links::CONVERSATION_LINKS_CAPABILITY;
 use gent_protocol::{
     AGENT_CHAT_CHECKPOINT_CAPABILITY, AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY,
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
@@ -105,6 +106,7 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
         (agent_chat, AGENT_CHAT_TRANSCRIPT_CAPABILITY),
         (agent_chat, AGENT_CHAT_SESSIONS_CAPABILITY),
         (agent_chat, GOAL_CAPABILITY),
+        (agent_chat, CONVERSATION_LINKS_CAPABILITY),
         (agent_chat, ORCHESTRATION_CAPABILITY),
         (agent_chat, AUTOMATIONS_CAPABILITY),
         (agent_chat, FORGE_CONNECTORS_CAPABILITY),

@@ -33,6 +33,11 @@ mod chat_reads;
 mod commands;
 #[path = "runtime_facade_composition.rs"]
 mod composition;
+#[path = "runtime_facade_conversation_links.rs"]
+mod conversation_links;
+#[cfg(test)]
+#[path = "runtime_facade_conversation_links_test_support.rs"]
+mod conversation_links_test_support;
 #[path = "runtime_facade_documents.rs"]
 mod documents;
 #[path = "runtime_facade_api_intents.rs"]
@@ -79,6 +84,7 @@ pub(crate) struct RuntimeFacade {
     mcp_server_names: Vec<String>,
     local_model_events: SqliteLedger,
     transcript_import_ledger: SqliteLedger,
+    conversation_links: Option<SqliteLedger>,
     turn_follow_source: Option<SqliteLedger>,
     conversation_activity: ConversationActivityService<SqliteLedger>,
     ordinary_prompt_ingress:
@@ -248,6 +254,7 @@ impl RuntimeFacade {
             mcp_server_names,
             local_model_events: ledger.clone(),
             transcript_import_ledger: ledger.clone(),
+            conversation_links: agent_chat_enabled.then(|| ledger.clone()),
             agent_chat_permission_port,
             model_catalog: None,
             turn_follow_source,

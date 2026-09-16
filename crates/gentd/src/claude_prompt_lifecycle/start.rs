@@ -172,6 +172,7 @@ where
     let goal = runtime.active_goal_for(&prompt.message.conversation_id)?;
     let (prompt_text, content) = provider_input(runtime, &prompt.message)?;
     Ok(ClaudePromptStart {
+        conversation_id: prompt.message.conversation_id.clone(),
         workspace_root: workspace.canonical_path.into(),
         workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(selection.mode),
         prompt: prompt_text,

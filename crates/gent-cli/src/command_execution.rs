@@ -114,10 +114,13 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
             crate::session_cli::execute(data_dir, no_autostart, action).await?;
         }
         CommandLine::McpServer => {
-            crate::mcp_server::run(data_dir, no_autostart, None).await?;
+            crate::mcp_server::run(data_dir, no_autostart, None, None).await?;
         }
-        CommandLine::Mcp { domain } => {
-            crate::mcp_server::run(data_dir, no_autostart, domain).await?;
+        CommandLine::Mcp {
+            domain,
+            conversation_id,
+        } => {
+            crate::mcp_server::run(data_dir, no_autostart, domain, conversation_id).await?;
         }
         CommandLine::Provider { action } => {
             print(provider_lifecycle_cli::execute(data_dir, no_autostart, action).await?)?;

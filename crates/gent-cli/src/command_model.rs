@@ -122,10 +122,15 @@ pub(crate) enum CommandLine {
     #[command(about = "Serve Gent MCP tools over stdio, optionally for one domain")]
     Mcp {
         #[arg(
-            value_parser = ["goal", "automations", "forge"],
+            value_parser = ["goal", "automations", "forge", "chat"],
             help = "Tool domain to serve [default: every domain]"
         )]
         domain: Option<String>,
+        #[arg(
+            long,
+            help = "Conversation these tools act for [default: resolved by gentd from the caller]"
+        )]
+        conversation_id: Option<String>,
     },
     #[command(about = "Check whether a held prompt can run, or consent to its provider install")]
     Provider {

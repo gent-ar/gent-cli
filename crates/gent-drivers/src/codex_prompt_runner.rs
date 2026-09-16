@@ -33,7 +33,7 @@ pub struct CodexPromptStart {
     pub fresh_context: Option<FrozenConversationContext>,
     pub turn_options: CodexTurnOptions,
     pub attachments: Vec<serde_json::Value>,
-    pub selected_mcp_source_names: Vec<String>,
+    pub mcp_servers: Option<serde_json::Value>,
     pub interrupted_reply: Option<String>,
 }
 
@@ -220,7 +220,6 @@ where
                 })
             },
         )?;
-        let mcp = self.selected_mcp_servers(&prompt.selected_mcp_source_names)?;
         if let Some((_, digest)) = self.current_mcp_servers()? {
             lock(&self.mcp_digests).insert(run_id.into(), digest);
         }
@@ -232,7 +231,7 @@ where
                     working_directory: prompt.working_directory,
                     resume_thread_id,
                     turn_options: prompt.turn_options,
-                    mcp_servers: mcp.map(|(servers, _)| servers),
+                    mcp_servers: prompt.mcp_servers,
                 },
                 workspace_root: prompt.workspace_root,
                 workspace_access: prompt.workspace_access,

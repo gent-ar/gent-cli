@@ -10,6 +10,9 @@ impl RuntimeFacade {
         &self,
         frame: AgentChatIntentFrame,
     ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
+        if let Some(replies) = self.conversation_link_intent(&frame)? {
+            return Ok(replies);
+        }
         let host_epoch = self.host_epoch()?;
         let frame = self.with_default_selection(frame)?;
         self.validate_catalog_selection(&frame)?;

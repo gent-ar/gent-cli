@@ -4,6 +4,8 @@ mod auto_update_handoff;
 mod automation_cli;
 mod chat_cli;
 mod chat_command;
+mod chat_links_cli;
+mod chat_mcp_tools;
 mod cli_error;
 mod command_catalog_cli;
 mod command_execution;

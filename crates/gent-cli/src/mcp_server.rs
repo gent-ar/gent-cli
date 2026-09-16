@@ -9,6 +9,7 @@ pub(crate) async fn run(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     domain: Option<String>,
+    conversation_id: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let input = io::stdin();
     let mut output = io::BufWriter::new(io::stdout());
@@ -16,10 +17,24 @@ pub(crate) async fn run(
         let line = line?;
         let request: Value = serde_json::from_str(&line)?;
         if request.get("id").is_none() {
-            let _ = dispatch(data_dir.clone(), no_autostart, domain.as_deref(), request).await;
+            let _ = dispatch(
+                data_dir.clone(),
+                no_autostart,
+                domain.as_deref(),
+                conversation_id.as_deref(),
+                request,
+            )
+            .await;
             continue;
         }
-        let response = dispatch(data_dir.clone(), no_autostart, domain.as_deref(), request).await;
+        let response = dispatch(
+            data_dir.clone(),
+            no_autostart,
+            domain.as_deref(),
+            conversation_id.as_deref(),
+            request,
+        )
+        .await;
         writeln!(output, "{}", serde_json::to_string(&response)?)?;
         output.flush()?;
     }
@@ -30,6 +45,7 @@ async fn dispatch(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     domain: Option<&str>,
+    conversation_id: Option<&str>,
     request: Value,
 ) -> Value {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
@@ -44,6 +60,7 @@ async fn dispatch(
                 data_dir,
                 no_autostart,
                 domain,
+                conversation_id,
                 id,
                 request.get("params").cloned().unwrap_or_default(),
             )
@@ -54,12 +71,13 @@ async fn dispatch(
 }
 
 fn tools(domain: Option<&str>) -> Vec<Value> {
-    let all = vec![
+    let mut all = vec![
         json!({"name":"gent_automations_list","description":"List Gent automations for a workspace","inputSchema":{"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string"}}}}),
         json!({"name":"gent_automation_run","description":"Run one manual Gent automation","inputSchema":{"type":"object","required":["automationId"],"properties":{"automationId":{"type":"string"}}}}),
         json!({"name":"gent_forge_list","description":"List Gent Forge connectors for a workspace","inputSchema":{"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string"}}}}),
         json!({"name":"gent_goal_update","description":"Report that the active Gent goal is complete, or blocked until the user helps","inputSchema":{"type":"object","required":["goalId","status"],"properties":{"goalId":{"type":"string"},"status":{"type":"string","enum":["complete","blocked"]},"note":{"type":"string"}}}}),
     ];
+    all.extend(crate::chat_mcp_tools::tools());
     all.into_iter()
         .filter(|tool| {
             domain.is_none()
@@ -69,6 +87,10 @@ fn tools(domain: Option<&str>) -> Vec<Value> {
                         .is_some_and(|name| name.starts_with("gent_automation"))
                 || domain == Some("forge") && tool["name"] == "gent_forge_list"
                 || domain == Some("goal") && tool["name"] == "gent_goal_update"
+                || domain == Some("chat")
+                    && tool["name"]
+                        .as_str()
+                        .is_some_and(|name| name.starts_with("gent_chat_"))
         })
         .collect()
 }
@@ -83,6 +105,7 @@ async fn call_tool(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     domain: Option<&str>,
+    conversation_id: Option<&str>,
     id: Value,
     params: Value,
 ) -> Value {
@@ -128,6 +151,9 @@ async fn call_tool(
         .await
         .map(|value| json!(value)),
         "gent_goal_update" => goal_update(data_dir, no_autostart, &args).await,
+        "gent_chat_create" | "gent_chat_send" | "gent_chat_wait" | "gent_chat_list" => {
+            crate::chat_mcp_tools::call(data_dir, no_autostart, conversation_id, name, &args).await
+        }
         _ => Err("unknown Gent tool".into()),
     };
     match result {

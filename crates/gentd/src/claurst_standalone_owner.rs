@@ -26,6 +26,8 @@ pub(crate) struct ClaurstStandaloneRuntime<L, S> {
     llama: L,
     bridge: Arc<ClaurstAcpBridge<S>>,
     summarizer: Arc<LlamaContextSummarizer>,
+    port: u16,
+    llama_launch: LocalProcessLaunch,
 }
 
 impl<L, S> ClaurstStandaloneRuntime<L, S> {
@@ -37,6 +39,18 @@ impl<L, S> ClaurstStandaloneRuntime<L, S> {
     #[must_use]
     pub(crate) fn summarizer(&self) -> Arc<LlamaContextSummarizer> {
         Arc::clone(&self.summarizer)
+    }
+
+    #[must_use]
+    pub(crate) fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+#[cfg(test)]
+impl<L, S> ClaurstStandaloneRuntime<L, S> {
+    pub(crate) fn llama(&self) -> &L {
+        &self.llama
     }
 }
 
@@ -62,7 +76,7 @@ pub(crate) enum ClaurstStandaloneStartError {
     #[error("selected Claurst model `{model_id}` is not installed")]
     DownloadRequired {
         model_id: String,
-        plan: LocalModelDownloadPlan,
+        plan: Box<LocalModelDownloadPlan>,
         downloaded_bytes: u64,
     },
     #[error("could not materialize isolated Claurst settings: {0}")]
@@ -73,6 +87,8 @@ pub(crate) enum ClaurstStandaloneStartError {
     ReadinessProbe(String),
     #[error("could not start Claurst ACP: {0}")]
     Acp(String),
+    #[error("the local llama.cpp plan changed, so its model must be reloaded")]
+    ModelPlanChanged,
 }
 
 pub(crate) struct ClaurstStandaloneOwner<S, L, R> {
@@ -112,14 +128,37 @@ where
         self.start_with_mcp(model_id, request, workspace, Vec::new())
     }
 
-    pub(crate) fn start_with_mcp(
+    pub(crate) fn rebind_session(
         &self,
+        runtime: &mut ClaurstStandaloneRuntime<L::Llama, L::Acp>,
         model_id: &str,
         request: ClaurstLocalRuntimeRequest,
         workspace: &Path,
         mcp_servers: Vec<serde_json::Value>,
-    ) -> Result<ClaurstStandaloneRuntime<L::Llama, L::Acp>, ClaurstStandaloneStartError> {
-        let port = select_ephemeral_loopback_port().map_err(ClaurstStandaloneStartError::Llama)?;
+    ) -> Result<(), ClaurstStandaloneStartError> {
+        let plan = self.ready_plan(model_id, request, runtime.port, workspace)?;
+        if plan.llama_server != runtime.llama_launch {
+            return Err(ClaurstStandaloneStartError::ModelPlanChanged);
+        }
+        runtime.bridge = Arc::new(
+            ClaurstAcpBridge::new(
+                workspace.to_path_buf(),
+                self.materialize_and_launch_acp(&plan, workspace)?,
+                mcp_servers,
+            )
+            .with_history_input_bytes(plan.history_input_bytes),
+        );
+        Ok(())
+    }
+
+    fn ready_plan(
+        &self,
+        model_id: &str,
+        request: ClaurstLocalRuntimeRequest,
+        port: u16,
+        workspace: &Path,
+    ) -> Result<crate::claurst_local_runtime::ClaurstLocalRuntimePlan, ClaurstStandaloneStartError>
+    {
         let plan = match self.readiness.assess(model_id, request, port)? {
             ClaurstLocalReadiness::DownloadRequired {
                 plan,
@@ -127,7 +166,7 @@ where
             } => {
                 return Err(ClaurstStandaloneStartError::DownloadRequired {
                     model_id: model_id.into(),
-                    plan,
+                    plan: Box::new(plan),
                     downloaded_bytes,
                 });
             }
@@ -138,9 +177,13 @@ where
                 "Gent workspace must be absolute".into(),
             ));
         }
-        self.settings
-            .materialize(&plan.settings_path, &plan.settings_json)
-            .map_err(ClaurstStandaloneStartError::Settings)?;
+        Ok(plan)
+    }
+
+    fn materialize_chat_template(
+        &self,
+        plan: &crate::claurst_local_runtime::ClaurstLocalRuntimePlan,
+    ) -> Result<(), ClaurstStandaloneStartError> {
         if let (Some(path), Some(contents)) =
             (&plan.chat_template_path, &plan.chat_template_contents)
         {
@@ -148,6 +191,35 @@ where
                 .materialize(path, contents)
                 .map_err(ClaurstStandaloneStartError::Settings)?;
         }
+        Ok(())
+    }
+
+    fn materialize_and_launch_acp(
+        &self,
+        plan: &crate::claurst_local_runtime::ClaurstLocalRuntimePlan,
+        workspace: &Path,
+    ) -> Result<L::Acp, ClaurstStandaloneStartError> {
+        self.settings
+            .materialize(&plan.settings_path, &plan.settings_json)
+            .map_err(ClaurstStandaloneStartError::Settings)?;
+        self.launcher
+            .launch_acp(&LocalProcessLaunch {
+                working_directory: Some(workspace.to_path_buf()),
+                ..plan.claurst_acp.clone()
+            })
+            .map_err(ClaurstStandaloneStartError::Acp)
+    }
+
+    pub(crate) fn start_with_mcp(
+        &self,
+        model_id: &str,
+        request: ClaurstLocalRuntimeRequest,
+        workspace: &Path,
+        mcp_servers: Vec<serde_json::Value>,
+    ) -> Result<ClaurstStandaloneRuntime<L::Llama, L::Acp>, ClaurstStandaloneStartError> {
+        let port = select_ephemeral_loopback_port().map_err(ClaurstStandaloneStartError::Llama)?;
+        let plan = self.ready_plan(model_id, request, port, workspace)?;
+        self.materialize_chat_template(&plan)?;
         let mut llama = self
             .launcher
             .launch_llama(&plan.llama_server)
@@ -156,15 +228,11 @@ where
             let _ = llama.shutdown();
             return Err(ClaurstStandaloneStartError::ReadinessProbe(error));
         }
-        let acp_launch = LocalProcessLaunch {
-            working_directory: Some(workspace.to_path_buf()),
-            ..plan.claurst_acp.clone()
-        };
-        let acp = match self.launcher.launch_acp(&acp_launch) {
+        let acp = match self.materialize_and_launch_acp(&plan, workspace) {
             Ok(acp) => acp,
             Err(error) => {
                 let _ = llama.shutdown();
-                return Err(ClaurstStandaloneStartError::Acp(error));
+                return Err(error);
             }
         };
         Ok(ClaurstStandaloneRuntime {
@@ -174,6 +242,8 @@ where
                 ClaurstAcpBridge::new(workspace.to_path_buf(), acp, mcp_servers)
                     .with_history_input_bytes(plan.history_input_bytes),
             ),
+            port,
+            llama_launch: plan.llama_server.clone(),
         })
     }
 }

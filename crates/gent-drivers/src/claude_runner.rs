@@ -30,7 +30,6 @@ pub struct ClaudeRunStart {
     pub workspace_root: PathBuf,
     pub workspace_access: SandboxWorkspaceAccess,
     pub mcp_config: Option<PathBuf>,
-    pub selected_mcp_source_names: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

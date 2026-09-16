@@ -28,6 +28,9 @@ mod connection;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
 mod conversation_ledger;
+mod conversation_link_ledger;
+#[cfg(test)]
+mod conversation_link_ledger_tests;
 mod conversation_prompt_ledger;
 mod conversation_prompts;
 mod conversations;

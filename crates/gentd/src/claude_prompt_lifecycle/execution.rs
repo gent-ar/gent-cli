@@ -16,7 +16,7 @@ use gent_types::{
 
 #[path = "execution_mcp.rs"]
 mod mcp;
-use mcp::selected_config;
+use mcp::conversation_config;
 #[path = "execution_trait.rs"]
 mod execution_trait;
 pub(crate) use execution_trait::ClaudePromptExecution;
@@ -24,6 +24,7 @@ pub(crate) use execution_trait::ClaudePromptExecution;
 /// Prompt held only between a durable dispatch claim and a locked Claude launch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaudePromptStart {
+    pub(crate) conversation_id: String,
     pub(crate) workspace_root: PathBuf,
     pub(crate) workspace_access: SandboxWorkspaceAccess,
     pub(crate) prompt: String,
@@ -40,7 +41,7 @@ pub(crate) struct ClaudePromptStart {
 pub(crate) struct ClaudePromptRunner<L, P> {
     runner: Arc<Mutex<ClaudeStreamRunner<L, P>>>,
     pending: Arc<Mutex<BTreeMap<String, ClaudePromptStart>>>,
-    selected_configs: Arc<Mutex<BTreeMap<String, PathBuf>>>,
+    conversation_configs: Arc<Mutex<BTreeMap<String, PathBuf>>>,
     mcp_config: Option<PathBuf>,
 }
 
@@ -49,7 +50,7 @@ impl<L, P> Clone for ClaudePromptRunner<L, P> {
         Self {
             runner: Arc::clone(&self.runner),
             pending: Arc::clone(&self.pending),
-            selected_configs: Arc::clone(&self.selected_configs),
+            conversation_configs: Arc::clone(&self.conversation_configs),
             mcp_config: self.mcp_config.clone(),
         }
     }
@@ -61,7 +62,7 @@ where
     P: ProviderProcess,
 {
     fn cleanup_config(&self, run_id: &str) {
-        if let Some(path) = lock(&self.selected_configs).remove(run_id) {
+        if let Some(path) = lock(&self.conversation_configs).remove(run_id) {
             let _ = std::fs::remove_file(path);
         }
     }
@@ -75,7 +76,7 @@ where
         Self {
             runner: Arc::new(Mutex::new(ClaudeStreamRunner::new(launcher, policy))),
             pending: Arc::new(Mutex::new(BTreeMap::new())),
-            selected_configs: Arc::new(Mutex::new(BTreeMap::new())),
+            conversation_configs: Arc::new(Mutex::new(BTreeMap::new())),
             mcp_config,
         }
     }
@@ -178,15 +179,14 @@ where
         let prompt = lock(&self.pending).remove(run_id).ok_or_else(|| {
             PublicProviderRunError::Failed("Claude run has no durable pending prompt".into())
         })?;
-        let mcp_config = selected_config(
+        let mcp_config = conversation_config(
             self.mcp_config.as_deref(),
             &prompt.selected_mcp_source_names,
+            &prompt.conversation_id,
             run_id,
         )?;
         if let Some(path) = &mcp_config {
-            if self.mcp_config.as_deref() != Some(path.as_path()) {
-                lock(&self.selected_configs).insert(run_id.into(), path.clone());
-            }
+            lock(&self.conversation_configs).insert(run_id.into(), path.clone());
         }
         let result = lock(&self.runner)
             .start(ClaudeRunStart {
@@ -198,7 +198,6 @@ where
                 goal: prompt.goal,
                 fresh_context: prompt.fresh_context,
                 mcp_config,
-                selected_mcp_source_names: Vec::new(),
                 intent: match resume_session_id {
                     Some(session_id) if prompt.recreate_session => {
                         LaunchIntent::Recreate { session_id }
