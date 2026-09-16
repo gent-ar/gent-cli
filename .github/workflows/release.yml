@@ -78,7 +78,7 @@ jobs:
       - run: python tools/test-generate-runtime-release-key.py
       - run: cargo run --quiet -p gent-testkit --bin validate-public-driver-manifest -- fixtures/public-driver-transcripts/manifest.yml
       - run: cargo run --quiet -p gent-testkit --bin validate-ipc-fixtures -- fixtures/ipc-contract/manifest.json
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features --keep-going -- -D warnings
       - continue-on-error: true
         run: cargo test --workspace --all-features --no-fail-fast
       - run: cargo test -p gent-git report_includes_commit_branch_stash_and_tracking_state

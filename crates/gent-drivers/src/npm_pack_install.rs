@@ -164,12 +164,16 @@ fn io_error(error: &std::io::Error) -> InstallerError {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::fs;
+    #[cfg(unix)]
+    use std::path::Path;
 
     use base64::{Engine, engine::general_purpose::STANDARD};
     use sha2::{Digest, Sha512};
 
-    use super::{pack_filename, staging_directory, verify_integrity};
+    #[cfg(unix)]
+    use super::staging_directory;
+    use super::{pack_filename, verify_integrity};
 
     #[test]
     fn accepts_only_a_single_safe_tarball_filename() {
