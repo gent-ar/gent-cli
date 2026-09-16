@@ -328,6 +328,7 @@ fn exhausted_probe_timeouts_fail_but_the_next_read_retries_without_a_refresh() {
 
 struct InstalledSource {
     revision: std::sync::Mutex<Option<String>>,
+    release: std::sync::Mutex<mpsc::Receiver<()>>,
     loads: AtomicUsize,
 }
 
@@ -346,6 +347,11 @@ impl ModelCatalogSource for InstalledSource {
 
     fn load(&self) -> Result<ProviderListing, ProviderLaunchError> {
         let loads = self.loads.fetch_add(1, Ordering::SeqCst) + 1;
+        self.release
+            .lock()
+            .unwrap()
+            .recv()
+            .map_err(|_| ProviderLaunchError::Failed("closed".into()))?;
         Ok(ProviderListing {
             availability: if self.revision.lock().unwrap().is_some() {
                 ProviderAvailability::Ready
@@ -364,8 +370,10 @@ impl ModelCatalogSource for InstalledSource {
 #[test]
 fn an_installed_repaired_or_upgraded_provider_is_relisted_before_its_ttl() {
     let directory = tempfile::tempdir().unwrap();
+    let (release, released) = mpsc::channel();
     let source = Arc::new(InstalledSource {
         revision: std::sync::Mutex::new(None),
+        release: std::sync::Mutex::new(released),
         loads: AtomicUsize::new(0),
     });
     let service = ModelCatalogService::new(
@@ -380,6 +388,7 @@ fn an_installed_repaired_or_upgraded_provider_is_relisted_before_its_ttl() {
         }
     };
     service.read(false);
+    release.send(()).unwrap();
     eventually(&service, listed("listing-1"));
     assert_eq!(
         service.read(false).providers[0].availability,
@@ -393,6 +402,7 @@ fn an_installed_repaired_or_upgraded_provider_is_relisted_before_its_ttl() {
             service.read(false).providers[0].listing,
             ModelListing::Loading
         );
+        release.send(()).unwrap();
         eventually(&service, listed(listing));
         assert_eq!(
             service.read(false).providers[0].availability,
