@@ -62,3 +62,14 @@ async fn a_wait_rejects_conversation_identifiers_that_are_not_strings() {
     .expect_err("only string identifiers are valid");
     assert!(error.to_string().contains("only strings"));
 }
+
+#[test]
+fn the_client_negotiates_the_capability_every_chat_tool_needs() {
+    let declared = crate::local_ipc::client_capabilities();
+    assert!(
+        declared.0.iter().any(|capability| capability
+            == gent_protocol::conversation_links::CONVERSATION_LINKS_CAPABILITY),
+        "gentd negotiates the intersection of both capability sets, so a chat tool whose capability the client never \
+         declares fails with `conversation links are unavailable from this gentd` against a daemon that supports it"
+    );
+}

@@ -115,6 +115,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         FORGE_CONNECTORS_CAPABILITY.into(),
         AUTOMATIONS_CAPABILITY.into(),
         AGENT_CHAT_SIDE_QUESTION_CAPABILITY.into(),
+        gent_protocol::conversation_links::CONVERSATION_LINKS_CAPABILITY.into(),
         gent_protocol::agent_chat_commands::AGENT_CHAT_COMMANDS_CAPABILITY.into(),
     ]);
     CapabilitySet(capabilities)
