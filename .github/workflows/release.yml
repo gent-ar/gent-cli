@@ -260,11 +260,18 @@ jobs:
         run: |
           mapfile -d '' artifacts < <(find release-artifacts -type f -print0 | sort -z)
           test "${#artifacts[@]}" -gt 0
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "${artifacts[@]}" --clobber
-          else
-            gh release create "$RELEASE_TAG" "${artifacts[@]}" --generate-notes
-          fi
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 ||
+            gh release create "$RELEASE_TAG" --generate-notes --verify-tag
+          for attempt in 1 2 3; do
+            if gh release upload "$RELEASE_TAG" "${artifacts[@]}" --clobber; then
+              break
+            fi
+            test "$attempt" -lt 3 || exit 1
+            sleep $((attempt * 15))
+          done
+          published="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')"
+          test "$published" -eq "${#artifacts[@]}"
+
 
   install-smoke:
     name: published install smoke
