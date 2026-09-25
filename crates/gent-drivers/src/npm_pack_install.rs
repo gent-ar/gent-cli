@@ -73,8 +73,8 @@ fn pack(
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(InstallerError::InvalidArtifact);
     }
-    let staging = fs::canonicalize(staging).map_err(|error| io_error(&error))?;
-    let archive = fs::canonicalize(archive).map_err(|error| io_error(&error))?;
+    let staging = strip_verbatim_prefix(fs::canonicalize(staging).map_err(|error| io_error(&error))?);
+    let archive = strip_verbatim_prefix(fs::canonicalize(archive).map_err(|error| io_error(&error))?);
     if !archive.starts_with(&staging) || archive == staging {
         return Err(InstallerError::InvalidArtifact);
     }
@@ -162,6 +162,29 @@ fn io_error(error: &std::io::Error) -> InstallerError {
     InstallerError::Io(error.to_string())
 }
 
+/// `fs::canonicalize` on Windows returns the `\\?\`-prefixed verbatim form
+/// (e.g. `\\?\X:\...`). That form is only meaningful to the Win32 API; handed
+/// to npm as a CLI argument it broke `npm-package-arg`'s own path parsing,
+/// which silently mis-resolved it to the bare drive root (`file:X:\`) and
+/// made `npm install` fail reading it as a directory (`EISDIR`) instead of
+/// the archive. This normalizes back to a plain absolute path — the archive
+/// stays under `staging`, which every caller of [`pack`] already requires to
+/// exist and be private, so the `\\?\`-only long-path support it exists for
+/// is never actually needed here.
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        path.to_string_lossy()
+            .strip_prefix(r"\\?\")
+            .map(PathBuf::from)
+            .unwrap_or(path)
+    }
+    #[cfg(not(windows))]
+    {
+        path
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -174,6 +197,28 @@ mod tests {
     #[cfg(unix)]
     use super::staging_directory;
     use super::{pack_filename, verify_integrity};
+    #[cfg(windows)]
+    use super::strip_verbatim_prefix;
+
+    /// The regression case: `npm install <archive>` failed with `EISDIR`
+    /// reading `file:X:\` (the bare drive root) whenever the archive path
+    /// came from `fs::canonicalize`, because npm's own path parsing does not
+    /// understand the `\\?\`-prefixed verbatim form Windows returns.
+    #[cfg(windows)]
+    #[test]
+    fn strips_the_windows_verbatim_prefix_canonicalize_adds() {
+        use std::path::PathBuf;
+
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"\\?\X:\gent\staging\codex-1.0.0.tgz")),
+            PathBuf::from(r"X:\gent\staging\codex-1.0.0.tgz")
+        );
+        // A path that was never verbatim-prefixed passes through unchanged.
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"X:\gent\staging\codex-1.0.0.tgz")),
+            PathBuf::from(r"X:\gent\staging\codex-1.0.0.tgz")
+        );
+    }
 
     #[test]
     fn accepts_only_a_single_safe_tarball_filename() {
