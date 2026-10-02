@@ -94,10 +94,11 @@ fn permission_request_retains_suggestions_privately_and_writes_only_its_response
                 tool_use_id: "tool-1".into(),
                 tool_name: "Bash".into(),
                 child_id: None,
+                operation_preview: Some(serde_json::json!({"command": "private command"})),
             }
         )]
     );
-    assert!(!format!("{effects:?}").contains("private command"));
+    assert!(format!("{effects:?}").contains("private command"));
     runner
         .respond_permission_with_input(
             "run-1",

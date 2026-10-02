@@ -120,6 +120,7 @@ fn an_exit_plan_request_outside_plan_mode_stays_a_permission_request() {
                 tool_use_id: "toolu-plan".into(),
                 tool_name: "ExitPlanMode".into(),
                 child_id: None,
+                operation_preview: None,
             }
         )]
     );

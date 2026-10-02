@@ -6,14 +6,16 @@ const MAX_UPDATED_INPUT_BYTES: usize = 16 * 1024;
 
 /// The public identifiers needed to classify one Claude permission request.
 ///
-/// Raw tool input and permission suggestions deliberately remain in the process runner. They are
-/// neither durable facts nor client-facing values.
+/// A bounded, redacted operation preview crosses the provider boundary so a
+/// person can make an informed permission decision. Raw tool input and
+/// permission suggestions remain private to the process runner.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaudePermissionRequest {
     pub request_id: String,
     pub tool_use_id: String,
     pub tool_name: String,
     pub child_id: Option<String>,
+    pub operation_preview: Option<Value>,
 }
 
 /// The closed response selected after Gent's durable permission policy resolves a request.
@@ -59,9 +61,66 @@ pub fn parse_permission_request(
                 .or_else(|| string(frame, "agent_id"))
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned),
+            operation_preview: request.get("input").and_then(redacted_operation_preview),
         },
         suggestions,
     ))
+}
+
+const MAX_PREVIEW_STRING_BYTES: usize = 2 * 1024;
+const MAX_PREVIEW_FIELDS: usize = 32;
+
+fn redacted_operation_preview(input: &Value) -> Option<Value> {
+    input.as_object().map(|fields| {
+        let mut preview = serde_json::Map::new();
+        for (key, value) in fields.iter().take(MAX_PREVIEW_FIELDS) {
+            preview.insert(key.clone(), redact_value(key, value));
+        }
+        Value::Object(preview)
+    })
+}
+
+fn redact_value(key: &str, value: &Value) -> Value {
+    if sensitive_key(key) {
+        return Value::String("[redacted]".into());
+    }
+    match value {
+        Value::String(text) => Value::String(redact_text(text)),
+        Value::Array(values) => Value::Array(values.iter().take(MAX_PREVIEW_FIELDS).map(|value| redact_value("", value)).collect()),
+        Value::Object(fields) => Value::Object(fields.iter().take(MAX_PREVIEW_FIELDS).map(|(key, value)| (key.clone(), redact_value(key, value))).collect()),
+        _ => value.clone(),
+    }
+}
+
+fn sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    ["token", "secret", "password", "authorization", "api_key", "apikey", "cookie", "credential"]
+        .iter()
+        .any(|needle| key.contains(needle))
+}
+
+fn redact_text(text: &str) -> String {
+    let mut redacted = String::new();
+    let mut redact_next = false;
+    for token in text.split_whitespace() {
+        if !redacted.is_empty() {
+            redacted.push(' ');
+        }
+        let lower = token.to_ascii_lowercase();
+        let sensitive = redact_next || sensitive_key(&lower) || lower == "bearer";
+        if sensitive {
+            redacted.push_str("[redacted]");
+        } else {
+            redacted.push_str(token);
+        }
+        redact_next = (lower.ends_with(':') && sensitive_key(&lower)) || lower == "bearer" || lower == "-p" || lower == "--password" || lower == "--token" || lower == "--api-key" || lower == "-h";
+        if redacted.len() >= MAX_PREVIEW_STRING_BYTES {
+            redacted.truncate(MAX_PREVIEW_STRING_BYTES);
+            redacted.push_str("…");
+            break;
+        }
+    }
+    redacted
 }
 
 /// Encodes the only supported Claude permission response.
@@ -198,13 +257,13 @@ mod tests {
     };
 
     #[test]
-    fn permission_request_retains_only_identifiers_and_private_suggestions() {
+    fn permission_request_exposes_a_redacted_operation_preview_but_keeps_suggestions_private() {
         let (request, suggestions) = parse_permission_request(&json!({
             "type": "control_request",
             "request_id": "request-1",
             "request": {
                 "subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "tool-1",
-                "input": {"command": "private"},
+                "input": {"command": "echo hello --token private", "api_key": "private"},
                 "permission_suggestions": [{"type": "addDirectories", "path": "/private"}],
             }
         }))
@@ -212,9 +271,25 @@ mod tests {
         assert_eq!(request.request_id, "request-1");
         assert_eq!(request.tool_use_id, "tool-1");
         assert_eq!(request.tool_name, "Bash");
-        assert!(!format!("{request:?}").contains("private"));
+        assert_eq!(request.operation_preview, Some(json!({"command": "echo hello [redacted] [redacted]", "api_key": "[redacted]"})));
         assert_eq!(suggestions.len(), 1);
         assert_eq!(request.child_id, None);
+    }
+
+    #[test]
+    fn operation_preview_redacts_header_and_bearer_values() {
+        let (request, _) = parse_permission_request(&json!({
+            "type": "control_request", "request_id": "request-2",
+            "request": {
+                "subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "tool-2",
+                "input": {"command": "curl -H Authorization: Bearer private-token https://example.test"}
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            request.operation_preview,
+            Some(json!({"command": "curl -H [redacted] [redacted] [redacted] https://example.test"}))
+        );
     }
 
     #[test]
