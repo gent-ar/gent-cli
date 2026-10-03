@@ -20,6 +20,7 @@ for line in sys.stdin:
             {"value": "default", "resolvedModel": "claude-opus-5[1m]", "displayName": "Default (recommended)", "description": "Opus 5 with 1M context", "supportsEffort": True, "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]},
             {"value": "sonnet", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet", "description": "Sonnet 5", "supportedEffortLevels": ["low", "medium", "high"]},
             {"value": "haiku", "resolvedModel": "claude-haiku-4-5", "displayName": "Haiku", "description": "Haiku 4.5"},
+            {"value": "fable", "resolvedModel": "claude-fable-5-1[1m]", "displayName": "Fable", "description": "Lowest-cost Claude model"},
             {"value": "", "displayName": "Broken"}
         ],
         "account": {"email": "user@example.test"}

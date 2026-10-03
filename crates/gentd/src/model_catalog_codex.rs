@@ -9,9 +9,7 @@ use serde_json::{Value, json};
 
 use super::{
     probe::{ProbeStep, ProviderProbe},
-    service::{
-        ModelCatalogSource, ProviderListing, effort, provider_default_model, public_availability,
-    },
+    service::{ModelCatalogSource, ProviderListing, effort, public_availability},
 };
 use crate::{provider_auth_api::ProviderAuthPort, provider_launch_budget::ProviderLaunchError};
 
@@ -47,7 +45,7 @@ impl ModelCatalogSource for CodexModelSource {
         let Some(executable) = self.executables.executable(AgentChatProvider::Codex) else {
             return Ok(ProviderListing {
                 availability,
-                models: vec![provider_default_model()],
+                models: vec![bootstrap_luna()],
             });
         };
         let mut opening =
@@ -113,7 +111,11 @@ impl ModelListPages {
                     .map_err(|error| error.to_string())?;
                 Ok(ProbeStep::Continue)
             }
-            _ => Ok(ProbeStep::Done(std::mem::take(&mut self.models))),
+            _ => {
+                let mut models = std::mem::take(&mut self.models);
+                mark_lowest_cost(&mut models);
+                Ok(ProbeStep::Done(models))
+            }
         }
     }
 }
@@ -171,9 +173,73 @@ fn codex_model(entry: &Value) -> Option<CatalogModel> {
             .and_then(Value::as_str)
             .filter(|description| !description.trim().is_empty())
             .map(str::to_owned),
-        is_default: entry.get("isDefault").and_then(Value::as_bool) == Some(true),
+        is_default: false,
         efforts,
         default_effort,
         local: None,
     })
+}
+
+fn bootstrap_luna() -> CatalogModel {
+    CatalogModel {
+        id: "gpt-5.6-luna".into(),
+        label: "GPT-5.6-Luna".into(),
+        description: Some("Lowest-cost Codex model".into()),
+        is_default: true,
+        efforts: Vec::new(),
+        default_effort: None,
+        local: None,
+    }
+}
+
+fn mark_lowest_cost(models: &mut [CatalogModel]) {
+    // Codex does not return pricing in model/list. Luna is the low-cost
+    // family; mini is the next-best explicit cost signal for future lists.
+    let preferred = models
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, model)| codex_cost_rank(model))
+        .map(|(index, _)| index);
+    for model in models.iter_mut() {
+        model.is_default = false;
+    }
+    if let Some(index) = preferred {
+        models[index].is_default = true;
+    }
+}
+
+fn codex_cost_rank(model: &CatalogModel) -> u8 {
+    let identity = format!("{} {}", model.id, model.label).to_ascii_lowercase();
+    if identity.contains("luna") {
+        0
+    } else if identity.contains("mini") {
+        1
+    } else {
+        2
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{codex_model, mark_lowest_cost};
+
+    #[test]
+    fn marks_luna_as_the_lowest_cost_model_instead_of_the_provider_default() {
+        let entries = [
+            json!({"model": "gpt-6-astra", "displayName": "GPT-6-Astra", "isDefault": true}),
+            json!({"model": "gpt-5.6-luna", "displayName": "GPT-5.6-Luna", "isDefault": false}),
+        ];
+        let mut models = entries.iter().filter_map(codex_model).collect::<Vec<_>>();
+        mark_lowest_cost(&mut models);
+
+        assert_eq!(
+            models
+                .iter()
+                .find(|model| model.is_default)
+                .map(|model| model.id.as_str()),
+            Some("gpt-5.6-luna")
+        );
+    }
 }

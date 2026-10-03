@@ -90,7 +90,7 @@ fn a_provider_that_is_not_installed_accepts_any_model_so_the_prompt_can_be_held_
     claude_gate
         .send(Ok(ProviderListing {
             availability: ProviderAvailability::NotInstalled,
-            models: vec![super::super::provider_default_model()],
+            models: vec![model("fable", None)],
         }))
         .unwrap();
     for (model, effort) in [

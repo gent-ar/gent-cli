@@ -96,7 +96,7 @@ fn codex_models_come_from_every_model_list_page_with_supported_efforts_only() {
         .collect::<Vec<_>>();
     assert_eq!(ids, ["gpt-6-astra", "gpt-5.6-luna"]);
     let astra = &listing.models[0];
-    assert!(astra.is_default);
+    assert!(!astra.is_default);
     assert_eq!(astra.label, "GPT-6-Astra");
     assert_eq!(
         astra.efforts,
@@ -107,7 +107,7 @@ fn codex_models_come_from_every_model_list_page_with_supported_efforts_only() {
         ]
     );
     assert_eq!(astra.default_effort, Some(AgentChatEffort::Medium));
-    assert!(!listing.models[1].is_default);
+    assert!(listing.models[1].is_default);
     assert_eq!(listing.models[1].default_effort, None);
     let requests = fs::read_to_string(root.path().join("model-list-requests.jsonl")).unwrap();
     let lists = requests
@@ -137,8 +137,7 @@ fn codex_signed_out_and_list_errors_stay_typed() {
 }
 
 #[test]
-fn a_missing_provider_reports_not_installed_and_offers_only_its_default_for_install_on_first_prompt()
- {
+fn a_missing_provider_reports_its_concrete_lowest_cost_model_for_install_on_first_prompt() {
     let listing = CodexModelSource {
         executables: crate::provider_executables::ProviderExecutables::explicit(None, None),
         auth: Arc::new(FixedAuth(ProviderAuthLifecycle::NotInstalled)),
@@ -153,7 +152,7 @@ fn a_missing_provider_reports_not_installed_and_offers_only_its_default_for_inst
             .iter()
             .map(|model| (model.id.as_str(), model.is_default, model.efforts.len()))
             .collect::<Vec<_>>(),
-        [("default", true, 0)]
+        [("gpt-5.6-luna", true, 0)]
     );
     let claude = ClaudeModelSource {
         initialize: ClaudeInitialize::new(
@@ -164,7 +163,14 @@ fn a_missing_provider_reports_not_installed_and_offers_only_its_default_for_inst
     }
     .load()
     .unwrap();
-    assert_eq!(claude.models, listing.models);
+    assert_eq!(
+        claude
+            .models
+            .iter()
+            .map(|model| (model.id.as_str(), model.label.as_str(), model.is_default))
+            .collect::<Vec<_>>(),
+        [("fable", "Fable", true)]
+    );
 }
 
 #[test]
@@ -182,16 +188,17 @@ fn claude_models_are_what_the_installed_binary_reports_on_initialize() {
         .iter()
         .map(|model| model.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(ids, ["default", "sonnet", "haiku"]);
-    assert!(listing.models[0].is_default);
-    assert_eq!(listing.models[0].label, "Default (recommended)");
-    assert_eq!(listing.models[0].efforts.len(), 5);
+    assert_eq!(ids, ["sonnet", "haiku", "fable"]);
+    assert!(!listing.models[0].is_default);
+    assert_eq!(listing.models[0].efforts.len(), 3);
     assert_eq!(
         listing.models[1].default_effort,
         Some(AgentChatEffort::Medium)
     );
-    assert!(listing.models[2].efforts.is_empty());
-    assert_eq!(listing.models[2].default_effort, None);
+    assert!(listing.models[1].efforts.is_empty());
+    assert_eq!(listing.models[1].default_effort, None);
+    assert!(listing.models[2].is_default);
+    assert_eq!(listing.models[2].label, "Fable");
 }
 
 #[test]
