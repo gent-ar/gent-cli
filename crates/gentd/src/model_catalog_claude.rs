@@ -40,7 +40,7 @@ impl ModelCatalogSource for ClaudeModelSource {
                 // This is a real Claude selector, not the provider's opaque
                 // `default` alias.  It is replaced with the installed CLI's
                 // catalog as soon as the provider becomes available.
-                models: vec![bootstrap_fable()],
+                models: vec![bootstrap_haiku()],
             });
         }
         let response = self.initialize.load(None, true)?;
@@ -102,10 +102,10 @@ fn claude_model(entry: &Value) -> Option<CatalogModel> {
     })
 }
 
-fn bootstrap_fable() -> CatalogModel {
+fn bootstrap_haiku() -> CatalogModel {
     CatalogModel {
-        id: "fable".into(),
-        label: "Fable".into(),
+        id: "haiku".into(),
+        label: "Haiku".into(),
         description: Some("Lowest-cost Claude model".into()),
         is_default: true,
         efforts: Vec::new(),
@@ -117,8 +117,8 @@ fn bootstrap_fable() -> CatalogModel {
 fn mark_lowest_cost(models: &mut [CatalogModel]) {
     // Claude's initialize response has no price field. Its public model
     // families provide the only stable cost signal, ordered from least to
-    // most expensive. Unknown future models stay available but never replace
-    // a known lower-cost family.
+    // most expensive. Anthropic identifies Haiku as its cost-efficient tier.
+    // Unknown future models stay available but never replace a known tier.
     let preferred = models
         .iter()
         .enumerate()
@@ -134,16 +134,14 @@ fn mark_lowest_cost(models: &mut [CatalogModel]) {
 
 fn claude_cost_rank(model: &CatalogModel) -> u8 {
     let identity = format!("{} {}", model.id, model.label).to_ascii_lowercase();
-    if identity.contains("fable") {
+    if identity.contains("haiku") {
         0
-    } else if identity.contains("haiku") {
-        1
     } else if identity.contains("sonnet") {
-        2
+        1
     } else if identity.contains("opus") {
-        3
+        2
     } else {
-        4
+        3
     }
 }
 
@@ -154,12 +152,12 @@ mod tests {
     use super::{claude_model, mark_lowest_cost};
 
     #[test]
-    fn hides_the_account_default_alias_and_marks_fable_as_the_lowest_cost_choice() {
+    fn hides_the_account_default_alias_and_marks_haiku_as_the_lowest_cost_choice() {
         let entries = [
             json!({"value": "default", "displayName": "Default (recommended)"}),
             json!({"value": "opus", "displayName": "Opus"}),
-            json!({"value": "fable", "displayName": "Fable"}),
             json!({"value": "haiku", "displayName": "Haiku"}),
+            json!({"value": "fable", "displayName": "Fable"}),
         ];
         let mut models = entries
             .iter()
@@ -173,14 +171,14 @@ mod tests {
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            ["opus", "fable", "haiku"]
+            ["opus", "haiku", "fable"]
         );
         assert_eq!(
             models
                 .iter()
                 .find(|model| model.is_default)
                 .map(|model| model.id.as_str()),
-            Some("fable")
+            Some("haiku")
         );
     }
 }

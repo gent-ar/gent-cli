@@ -169,7 +169,7 @@ fn a_missing_provider_reports_its_concrete_lowest_cost_model_for_install_on_firs
             .iter()
             .map(|model| (model.id.as_str(), model.label.as_str(), model.is_default))
             .collect::<Vec<_>>(),
-        [("fable", "Fable", true)]
+        [("haiku", "Haiku", true)]
     );
 }
 
@@ -197,8 +197,8 @@ fn claude_models_are_what_the_installed_binary_reports_on_initialize() {
     );
     assert!(listing.models[1].efforts.is_empty());
     assert_eq!(listing.models[1].default_effort, None);
-    assert!(listing.models[2].is_default);
-    assert_eq!(listing.models[2].label, "Fable");
+    assert!(listing.models[1].is_default);
+    assert_eq!(listing.models[1].label, "Haiku");
 }
 
 #[test]
