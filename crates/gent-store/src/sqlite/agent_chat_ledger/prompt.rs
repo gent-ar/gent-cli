@@ -27,7 +27,14 @@ impl AgentChatPromptLedger for SqliteLedger {
         &self,
         prompt: &AgentChatPromptCreate,
     ) -> Result<AgentChatPromptSaved, LedgerError> {
-        save(self, prompt, None, &AgentChatPromptOrigin::User)
+        save(
+            self,
+            prompt,
+            None,
+            &AgentChatPromptOrigin::User {
+                client_request_id: Some(prompt.request_id.0.clone()),
+            },
+        )
     }
 
     fn save_agent_chat_prompt_with_origin(
@@ -47,7 +54,9 @@ impl AgentChatPromptLedger for SqliteLedger {
             self,
             prompt,
             Some(expected_run_id),
-            &AgentChatPromptOrigin::User,
+            &AgentChatPromptOrigin::User {
+                client_request_id: Some(prompt.request_id.0.clone()),
+            },
         )
     }
 }

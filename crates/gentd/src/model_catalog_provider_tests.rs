@@ -192,7 +192,7 @@ fn claude_models_are_what_the_installed_binary_reports_on_initialize() {
     assert!(!listing.models[0].is_default);
     assert_eq!(listing.models[0].efforts.len(), 3);
     assert_eq!(
-        listing.models[1].default_effort,
+        listing.models[0].default_effort,
         Some(AgentChatEffort::Medium)
     );
     assert!(listing.models[1].efforts.is_empty());
