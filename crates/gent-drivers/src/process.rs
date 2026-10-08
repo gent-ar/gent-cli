@@ -229,6 +229,18 @@ pub fn signal_process_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), Pr
 
 #[cfg(windows)]
 pub fn signal_process_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
+    signal_process_tree_with(pid, signal, taskkill)
+}
+
+#[cfg(windows)]
+fn signal_process_tree_with<F>(
+    pid: i32,
+    signal: ProcessTreeSignal,
+    mut taskkill: F,
+) -> Result<(), ProcessTreeError>
+where
+    F: FnMut(i32, bool) -> Result<ExitStatus, ProcessTreeError>,
+{
     let status = taskkill(pid, signal == ProcessTreeSignal::Kill)?;
     if status.success() {
         return Ok(());
@@ -246,7 +258,9 @@ pub fn signal_process_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), Pr
             "taskkill exited with {status}; forced retry exited with {forced}"
         )));
     }
-    Err(ProcessTreeError::Failed(format!("taskkill exited with {status}")))
+    Err(ProcessTreeError::Failed(format!(
+        "taskkill exited with {status}"
+    )))
 }
 
 #[cfg(windows)]
@@ -270,4 +284,22 @@ pub fn signal_process_tree(_: i32, _: ProcessTreeSignal) -> Result<(), ProcessTr
 
 fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::os::windows::process::ExitStatusExt;
+
+    #[test]
+    fn soft_process_tree_shutdown_retries_with_force() {
+        let mut calls = Vec::new();
+        let result = signal_process_tree_with(17, ProcessTreeSignal::Terminate, |_, force| {
+            calls.push(force);
+            Ok(ExitStatus::from_raw(if force { 0 } else { 1 }))
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(calls, vec![false, true]);
+    }
 }
