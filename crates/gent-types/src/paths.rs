@@ -78,8 +78,13 @@ pub fn windows_pipe_name(data_dir: &Path) -> String {
 
 #[must_use]
 fn windows_endpoint_hash(data_dir: &Path) -> u64 {
+    // Windows treats both separator spellings as the same path. The app uses
+    // forward slashes after resolving its data directory, while the CLI uses
+    // the platform-native backslashes. Hashing the raw spelling split them
+    // into different named pipes and made an already-running daemon invisible.
     data_dir
         .to_string_lossy()
+        .replace('\\', "/")
         .bytes()
         .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
@@ -179,11 +184,11 @@ mod tests {
     }
 
     #[test]
-    fn windows_pipe_name_is_deterministic_for_the_same_data_dir() {
-        let first = windows_pipe_name(Path::new(r"C:\gent\data"));
-        let second = windows_pipe_name(Path::new(r"C:\gent\data"));
-        assert_eq!(first, second);
-        assert_ne!(first, windows_pipe_name(Path::new(r"C:\gent\other")));
-        assert!(first.starts_with(r"\\.\pipe\gentd-"));
+    fn windows_pipe_name_is_stable_across_windows_separator_spellings() {
+        let backslash = windows_pipe_name(Path::new(r"C:\gent\data"));
+        let forward_slash = windows_pipe_name(Path::new("C:/gent/data"));
+        assert_eq!(backslash, forward_slash);
+        assert_ne!(backslash, windows_pipe_name(Path::new(r"C:\gent\other")));
+        assert!(backslash.starts_with(r"\\.\pipe\gentd-"));
     }
 }
