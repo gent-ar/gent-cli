@@ -229,18 +229,36 @@ pub fn signal_process_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), Pr
 
 #[cfg(windows)]
 pub fn signal_process_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
+    let status = taskkill(pid, signal == ProcessTreeSignal::Kill)?;
+    if status.success() {
+        return Ok(());
+    }
+    // Windows may refuse a non-forced /T request when a descendant has
+    // already exited or cannot be terminated gracefully. That is a normal
+    // race during provider shutdown; retrying with /F prevents it from
+    // escalating into a fatal daemon lifecycle error.
+    if signal != ProcessTreeSignal::Kill {
+        let forced = taskkill(pid, true)?;
+        if forced.success() {
+            return Ok(());
+        }
+        return Err(ProcessTreeError::Failed(format!(
+            "taskkill exited with {status}; forced retry exited with {forced}"
+        )));
+    }
+    Err(ProcessTreeError::Failed(format!("taskkill exited with {status}")))
+}
+
+#[cfg(windows)]
+fn taskkill(pid: i32, force: bool) -> Result<std::process::ExitStatus, ProcessTreeError> {
     let mut command = Command::new("taskkill");
     command.args(["/PID", &pid.to_string(), "/T"]);
-    if signal == ProcessTreeSignal::Kill {
+    if force {
         command.arg("/F");
     }
-    let status = command
+    command
         .status()
-        .map_err(|error| ProcessTreeError::Failed(error.to_string()))?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| ProcessTreeError::Failed(format!("taskkill exited with {status}")))
+        .map_err(|error| ProcessTreeError::Failed(error.to_string()))
 }
 
 #[cfg(not(any(unix, windows)))]
