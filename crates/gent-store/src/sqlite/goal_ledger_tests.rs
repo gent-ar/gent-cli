@@ -294,7 +294,9 @@ fn every_prompt_carries_its_typed_origin_on_live_and_restored_transcript_rows() 
         [
             (
                 format!("user:{}", user.message.message_id),
-                Some(AgentChatPromptOrigin::User)
+                Some(AgentChatPromptOrigin::User {
+                    client_request_id: Some("request-1".into()),
+                })
             ),
             (
                 format!("user:{}", continuation.message.message_id),
@@ -313,7 +315,7 @@ fn every_prompt_carries_its_typed_origin_on_live_and_restored_transcript_rows() 
     assert_eq!(
         projection,
         [
-            serde_json::json!({"kind": "user"}),
+            serde_json::json!({"kind": "user", "clientRequestId": "request-1"}),
             serde_json::json!({"kind": "goalContinuation", "goalId": "goal-1", "continuesAfterOrdinal": 1}),
         ]
     );

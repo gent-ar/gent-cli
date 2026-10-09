@@ -36,7 +36,12 @@ fn owner_snapshot_and_follow_stream_carry_the_same_typed_prompt_origins() {
     ledger
         .save_agent_chat_prompt_with_origin(&create("continuation-prompt"), &continuation)
         .unwrap();
-    let expected = vec![Some(AgentChatPromptOrigin::User), Some(continuation)];
+    let expected = vec![
+        Some(AgentChatPromptOrigin::User {
+            client_request_id: Some("user-prompt".into()),
+        }),
+        Some(continuation),
+    ];
     let AgentChatProjectionFrame::ConversationSnapshot { snapshot, .. } = runtime
         .agent_chat_projection(AgentChatProjectionFrame::ConversationSnapshotRequest {
             request_id: "snapshot".into(),

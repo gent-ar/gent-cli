@@ -156,6 +156,7 @@ fn accepted_user_interrupt_settles_claude_as_interrupted_instead_of_failed() {
                 tool_use_id: "tool-a".into(),
                 tool_name: "write_file".into(),
                 child_id: None,
+                operation_preview: None,
             },
         ),
     ]);

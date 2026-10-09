@@ -82,17 +82,31 @@ fn runtime_root() -> Result<PathBuf, AutoUpdateError> {
 fn runtime_root_from_executable(executable: &Path) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        let root = executable.parent()?.parent()?;
+        if executable.file_name().is_none_or(|name| name != "gent.exe") {
+            return None;
+        }
+        let parent = executable.parent()?;
+        // `windows_launcher.rs` always spawns the release copy as a child
+        // process rather than replacing itself (Windows has no exec-in-place),
+        // so an ordinary `gent update ...` invocation reports its own
+        // `current_exe()` as `root/releases/<release>/gent.exe`, not
+        // `root/bin/gent.exe`. Recognize both shapes.
+        let root = if parent.file_name().is_some_and(|name| name == "bin") {
+            parent.parent()?
+        } else if parent.parent()?.file_name().is_some_and(|name| name == "releases") {
+            parent.parent()?.parent()?
+        } else {
+            return None;
+        };
         let release = std::fs::read_to_string(root.join("current.json")).ok()?;
         let metadata = serde_json::from_str::<serde_json::Value>(&release).ok()?;
         let release = metadata.get("release")?.as_str()?;
         let expected = root.join("releases").join(release).join("gent.exe");
-        (executable
-            .file_name()
-            .is_some_and(|name| name == "gent.exe")
-            && expected.is_file()
-            && root.join("releases").is_dir())
-        .then(|| root.to_path_buf())
+        // The running executable must be exactly one of the two recognized,
+        // currently-selected copies — never a stray or stale `gent.exe`
+        // elsewhere that happens to share a directory shape.
+        let is_current_copy = executable == root.join("bin").join("gent.exe") || executable == expected;
+        (is_current_copy && expected.is_file() && root.join("releases").is_dir()).then(|| root.to_path_buf())
     }
     #[cfg(not(windows))]
     {
@@ -151,5 +165,84 @@ mod tests {
             runtime_root_from_executable(&root.join("current/gent")),
             Some(root.canonicalize().unwrap())
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_bin_launcher_path_resolves_to_the_active_managed_runtime() {
+        use super::runtime_root_from_executable;
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("runtime");
+        let release = root.join("releases").join("v1.2.3-x86_64-pc-windows-msvc");
+        std::fs::create_dir_all(&release).unwrap();
+        std::fs::write(release.join("gent.exe"), b"fixture").unwrap();
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        std::fs::write(
+            root.join("current.json"),
+            r#"{"release":"v1.2.3-x86_64-pc-windows-msvc"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            runtime_root_from_executable(&root.join("bin").join("gent.exe")),
+            Some(root)
+        );
+    }
+
+    /// The regression case: `windows_launcher.rs` spawns the release copy as
+    /// a child rather than replacing itself in place, so this is the path an
+    /// ordinary `gent update ...` invocation actually runs from.
+    #[cfg(windows)]
+    #[test]
+    fn windows_release_child_path_resolves_to_the_active_managed_runtime() {
+        use super::runtime_root_from_executable;
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("runtime");
+        let release = root.join("releases").join("v1.2.3-x86_64-pc-windows-msvc");
+        std::fs::create_dir_all(&release).unwrap();
+        std::fs::write(release.join("gent.exe"), b"fixture").unwrap();
+        std::fs::write(
+            root.join("current.json"),
+            r#"{"release":"v1.2.3-x86_64-pc-windows-msvc"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            runtime_root_from_executable(&release.join("gent.exe")),
+            Some(root)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_stray_gent_exe_next_to_an_unrelated_directory_is_not_installed() {
+        use super::runtime_root_from_executable;
+
+        let directory = tempfile::tempdir().unwrap();
+        let stray = directory.path().join("Downloads").join("gent.exe");
+        std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
+        std::fs::write(&stray, b"fixture").unwrap();
+        assert_eq!(runtime_root_from_executable(&stray), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_release_child_from_a_release_current_json_no_longer_selects_is_not_installed() {
+        use super::runtime_root_from_executable;
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("runtime");
+        let stale = root.join("releases").join("v1.2.2-x86_64-pc-windows-msvc");
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("gent.exe"), b"fixture").unwrap();
+        let current = root.join("releases").join("v1.2.3-x86_64-pc-windows-msvc");
+        std::fs::create_dir_all(&current).unwrap();
+        std::fs::write(current.join("gent.exe"), b"fixture").unwrap();
+        std::fs::write(
+            root.join("current.json"),
+            r#"{"release":"v1.2.3-x86_64-pc-windows-msvc"}"#,
+        )
+        .unwrap();
+        assert_eq!(runtime_root_from_executable(&stale.join("gent.exe")), None);
     }
 }

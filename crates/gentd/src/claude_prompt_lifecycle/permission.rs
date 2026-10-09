@@ -93,7 +93,7 @@ where
         let normalized = PermissionRequest::new(
             request.tool_name.clone(),
             category,
-            None,
+            request.operation_preview.clone(),
             request.child_id.clone(),
         );
         match crate::permission_preflight::evaluate(&policy, &normalized) {

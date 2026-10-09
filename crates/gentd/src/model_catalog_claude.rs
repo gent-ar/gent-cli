@@ -6,10 +6,7 @@ use serde_json::Value;
 
 use super::{
     claude_initialize::ClaudeInitialize,
-    service::{
-        ModelCatalogSource, PROVIDER_DEFAULT_MODEL, ProviderListing, effort,
-        provider_default_model, public_availability,
-    },
+    service::{ModelCatalogSource, ProviderListing, effort, public_availability},
 };
 use crate::{provider_auth_api::ProviderAuthPort, provider_launch_budget::ProviderLaunchError};
 
@@ -40,7 +37,10 @@ impl ModelCatalogSource for ClaudeModelSource {
         if !self.initialize.installed() {
             return Ok(ProviderListing {
                 availability,
-                models: vec![provider_default_model()],
+                // This is a real Claude selector, not the provider's opaque
+                // `default` alias.  It is replaced with the installed CLI's
+                // catalog as soon as the provider becomes available.
+                models: vec![bootstrap_haiku()],
             });
         }
         let response = self.initialize.load(None, true)?;
@@ -49,9 +49,17 @@ impl ModelCatalogSource for ClaudeModelSource {
                 "claude did not report its models".into(),
             ));
         };
+        let mut models = entries
+            .iter()
+            // `default` is an account policy alias. It has no stable model
+            // name or cost, so it must not be exposed as a user model choice.
+            .filter_map(claude_model)
+            .filter(|model| model.id != "default")
+            .collect::<Vec<_>>();
+        mark_lowest_cost(&mut models);
         Ok(ProviderListing {
             availability,
-            models: entries.iter().filter_map(claude_model).collect(),
+            models,
         })
     }
 }
@@ -85,11 +93,92 @@ fn claude_model(entry: &Value) -> Option<CatalogModel> {
             .and_then(Value::as_str)
             .filter(|description| !description.trim().is_empty())
             .map(str::to_owned),
-        is_default: id == PROVIDER_DEFAULT_MODEL,
+        is_default: false,
         default_effort: efforts
             .contains(&gent_types::AgentChatEffort::Medium)
             .then_some(gent_types::AgentChatEffort::Medium),
         efforts,
         local: None,
     })
+}
+
+fn bootstrap_haiku() -> CatalogModel {
+    CatalogModel {
+        id: "haiku".into(),
+        label: "Haiku".into(),
+        description: Some("Lowest-cost Claude model".into()),
+        is_default: true,
+        efforts: Vec::new(),
+        default_effort: None,
+        local: None,
+    }
+}
+
+fn mark_lowest_cost(models: &mut [CatalogModel]) {
+    // Claude's initialize response has no price field. Its public model
+    // families provide the only stable cost signal, ordered from least to
+    // most expensive. Anthropic identifies Haiku as its cost-efficient tier.
+    // Unknown future models stay available but never replace a known tier.
+    let preferred = models
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, model)| claude_cost_rank(model))
+        .map(|(index, _)| index);
+    for model in models.iter_mut() {
+        model.is_default = false;
+    }
+    if let Some(index) = preferred {
+        models[index].is_default = true;
+    }
+}
+
+fn claude_cost_rank(model: &CatalogModel) -> u8 {
+    let identity = format!("{} {}", model.id, model.label).to_ascii_lowercase();
+    if identity.contains("haiku") {
+        0
+    } else if identity.contains("sonnet") {
+        1
+    } else if identity.contains("opus") {
+        2
+    } else {
+        3
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{claude_model, mark_lowest_cost};
+
+    #[test]
+    fn hides_the_account_default_alias_and_marks_haiku_as_the_lowest_cost_choice() {
+        let entries = [
+            json!({"value": "default", "displayName": "Default (recommended)"}),
+            json!({"value": "opus", "displayName": "Opus"}),
+            json!({"value": "haiku", "displayName": "Haiku"}),
+            json!({"value": "fable", "displayName": "Fable"}),
+        ];
+        let mut models = entries
+            .iter()
+            .filter_map(claude_model)
+            .filter(|model| model.id != "default")
+            .collect::<Vec<_>>();
+        mark_lowest_cost(&mut models);
+
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["opus", "haiku", "fable"]
+        );
+        assert_eq!(
+            models
+                .iter()
+                .find(|model| model.is_default)
+                .map(|model| model.id.as_str()),
+            Some("haiku")
+        );
+    }
 }

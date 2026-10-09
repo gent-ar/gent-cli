@@ -236,6 +236,7 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
                 tool_use_id: "tool-a".into(),
                 tool_name: "write_file".into(),
                 child_id: None,
+                operation_preview: None,
             },
         ),
     ]);

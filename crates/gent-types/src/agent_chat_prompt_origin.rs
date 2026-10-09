@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
     rename_all_fields = "camelCase"
 )]
 pub enum AgentChatPromptOrigin {
-    User,
+    User {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_request_id: Option<String>,
+    },
     GoalContinuation {
         goal_id: String,
         continues_after_ordinal: u64,
@@ -18,7 +21,7 @@ impl AgentChatPromptOrigin {
     #[must_use]
     pub fn goal_id(&self) -> Option<&str> {
         match self {
-            Self::User => None,
+            Self::User { .. } => None,
             Self::GoalContinuation { goal_id, .. } => Some(goal_id),
         }
     }
@@ -33,7 +36,10 @@ mod tests {
     #[test]
     fn prompt_origin_is_a_kind_tagged_value() {
         assert_eq!(
-            serde_json::to_value(AgentChatPromptOrigin::User).unwrap(),
+            serde_json::to_value(AgentChatPromptOrigin::User {
+                client_request_id: None,
+            })
+            .unwrap(),
             json!({"kind": "user"})
         );
         let continuation = AgentChatPromptOrigin::GoalContinuation {
@@ -45,6 +51,12 @@ mod tests {
             json!({"kind": "goalContinuation", "goalId": "goal-1", "continuesAfterOrdinal": 7})
         );
         assert_eq!(continuation.goal_id(), Some("goal-1"));
-        assert_eq!(AgentChatPromptOrigin::User.goal_id(), None);
+        assert_eq!(
+            AgentChatPromptOrigin::User {
+                client_request_id: Some("request-1".into()),
+            }
+            .goal_id(),
+            None
+        );
     }
 }

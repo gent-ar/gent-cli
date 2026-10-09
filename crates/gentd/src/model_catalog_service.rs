@@ -18,8 +18,6 @@ use crate::{
     provider_launch_budget::{ProbeRetry, ProviderLaunchError},
 };
 
-pub(crate) const PROVIDER_DEFAULT_MODEL: &str = "default";
-
 pub(crate) struct ProviderListing {
     pub(crate) availability: ProviderAvailability,
     pub(crate) models: Vec<CatalogModel>,
@@ -212,18 +210,6 @@ pub(crate) fn effort(value: &str) -> Option<AgentChatEffort> {
         "max" => Some(AgentChatEffort::Max),
         "ultra" => Some(AgentChatEffort::Ultra),
         _ => None,
-    }
-}
-
-pub(crate) fn provider_default_model() -> CatalogModel {
-    CatalogModel {
-        id: PROVIDER_DEFAULT_MODEL.into(),
-        label: "Default".into(),
-        description: None,
-        is_default: true,
-        efforts: Vec::new(),
-        default_effort: None,
-        local: None,
     }
 }
 

@@ -95,7 +95,7 @@ fn activate_at(
 }
 
 fn refresh_auto_update_helper(root: &Path) -> Result<(), String> {
-    let source = root.join("current").join(auto_update_helper_name());
+    let source = current_release_dir(root)?.join(auto_update_helper_name());
     let metadata = fs::symlink_metadata(&source).map_err(display)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err("Gent automatic-update helper is invalid".into());
@@ -110,6 +110,27 @@ fn refresh_auto_update_helper(root: &Path) -> Result<(), String> {
         fs::set_permissions(&temporary, fs::Permissions::from_mode(0o700)).map_err(display)?;
     }
     fs::rename(temporary, destination).map_err(display)
+}
+
+/// The directory holding the currently selected release's files.
+///
+/// On non-Windows this is `root/current`, a real symlink to `releases/<release>`.
+/// Windows has no such symlink — `select_release` only ever writes `current.json`
+/// (a JSON pointer, since symlinks need elevated privilege there) and copies the
+/// launcher into `root/bin`. Reading `root/current/<name>` on Windows therefore
+/// fails on the missing `current` path component, not on a missing file, which
+/// `refresh_auto_update_helper` used to surface verbatim as an opaque OS error.
+fn current_release_dir(root: &Path) -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    {
+        let release = selected_release(root)?
+            .ok_or_else(|| "Gent current runtime pointer is invalid".to_string())?;
+        Ok(root.join("releases").join(release))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(root.join("current"))
+    }
 }
 
 fn verify_bootstrap(root: &Path) -> Result<(), String> {
