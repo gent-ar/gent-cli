@@ -55,6 +55,15 @@ pub(crate) fn models(provider: &str) -> Vec<CatalogModel> {
     models
 }
 
+pub(crate) fn merge(provider: &str, mut models: Vec<CatalogModel>) -> Vec<CatalogModel> {
+    for suggested in self::models(provider) {
+        if !models.iter().any(|model| model.id == suggested.id) {
+            models.push(suggested);
+        }
+    }
+    models
+}
+
 fn refresh_online_catalog() {
     if ONLINE_REFRESH.set(()).is_err() {
         return;

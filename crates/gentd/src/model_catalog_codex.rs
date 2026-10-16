@@ -63,7 +63,7 @@ impl ModelCatalogSource for CodexModelSource {
         .exchange(&opening, |value, process| listing.accept(value, process))?;
         Ok(ProviderListing {
             availability,
-            models,
+            models: suggestions::merge("codex", models),
         })
     }
 }

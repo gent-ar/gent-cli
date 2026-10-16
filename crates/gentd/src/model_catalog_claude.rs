@@ -51,7 +51,7 @@ impl ModelCatalogSource for ClaudeModelSource {
         };
         Ok(ProviderListing {
             availability,
-            models: entries.iter().filter_map(claude_model).collect(),
+            models: suggestions::merge("claude", entries.iter().filter_map(claude_model).collect()),
         })
     }
 }

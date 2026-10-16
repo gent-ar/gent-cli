@@ -165,7 +165,7 @@ fn a_missing_provider_lists_models_before_install_on_first_prompt() {
 }
 
 #[test]
-fn claude_models_are_what_the_installed_binary_reports_on_initialize() {
+fn claude_models_include_the_installed_binary_and_gent_catalog() {
     let root = tempfile::tempdir().unwrap();
     let listing = ClaudeModelSource {
         initialize: claude_initialize(root.path()),
@@ -179,7 +179,8 @@ fn claude_models_are_what_the_installed_binary_reports_on_initialize() {
         .iter()
         .map(|model| model.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(ids, ["default", "sonnet", "haiku"]);
+    assert_eq!(&ids[..3], ["default", "sonnet", "haiku"]);
+    assert!(ids.contains(&"claude-opus-5-5"));
     assert!(listing.models[0].is_default);
     assert_eq!(listing.models[0].label, "Default (recommended)");
     assert_eq!(listing.models[0].efforts.len(), 5);
