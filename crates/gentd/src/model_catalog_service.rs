@@ -227,6 +227,18 @@ pub(crate) fn provider_default_model() -> CatalogModel {
     }
 }
 
+pub(crate) fn suggested_model(id: &str, label: &str) -> CatalogModel {
+    CatalogModel {
+        id: id.into(),
+        label: label.into(),
+        description: None,
+        is_default: false,
+        efforts: Vec::new(),
+        default_effort: None,
+        local: None,
+    }
+}
+
 pub(crate) fn public_availability(
     auth: &dyn ProviderAuthPort,
     provider: ProviderAuthProvider,

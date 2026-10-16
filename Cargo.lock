@@ -509,6 +509,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -516,6 +517,18 @@ name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
+
+[[package]]
+name = "futures-io"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53c0fa8157de1303bfffdaa1cc2a673bfffb60102f76b0ef4441659124373fed"
+
+[[package]]
+name = "futures-sink"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
 
 [[package]]
 name = "futures-task"
@@ -530,7 +543,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
  "futures-core",
+ "futures-io",
+ "futures-sink",
  "futures-task",
+ "memchr",
  "pin-project-lite",
  "slab",
 ]
@@ -547,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "gent-adapters"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -563,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "gent-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64",
  "clap",
@@ -584,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "gent-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -593,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "gent-drivers"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64",
  "clap",
@@ -611,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "gent-git"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -623,14 +639,14 @@ dependencies = [
 
 [[package]]
 name = "gent-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "gent-ports"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "gent-types",
@@ -640,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "gent-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gent-types",
  "hex",
@@ -653,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "gent-runtime"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ed25519-dalek",
  "gent-core",
@@ -673,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "gent-store"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "gent-core",
  "gent-ports",
@@ -688,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "gent-testkit"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "clap",
@@ -705,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "gent-types"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64",
  "directories",
@@ -719,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "gentd"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64",
@@ -1430,7 +1446,9 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",

@@ -16,6 +16,8 @@ pub(crate) mod local;
 pub(crate) mod probe;
 #[path = "model_catalog_service.rs"]
 pub(crate) mod service;
+#[path = "model_catalog_suggestions.rs"]
+pub(crate) mod suggestions;
 #[path = "model_catalog_transport.rs"]
 pub(crate) mod transport;
 

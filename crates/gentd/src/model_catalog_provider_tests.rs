@@ -137,8 +137,7 @@ fn codex_signed_out_and_list_errors_stay_typed() {
 }
 
 #[test]
-fn a_missing_provider_reports_not_installed_and_offers_only_its_default_for_install_on_first_prompt()
- {
+fn a_missing_provider_lists_models_before_install_on_first_prompt() {
     let listing = CodexModelSource {
         executables: crate::provider_executables::ProviderExecutables::explicit(None, None),
         auth: Arc::new(FixedAuth(ProviderAuthLifecycle::NotInstalled)),
@@ -147,14 +146,9 @@ fn a_missing_provider_reports_not_installed_and_offers_only_its_default_for_inst
     .load()
     .unwrap();
     assert_eq!(listing.availability, ProviderAvailability::NotInstalled);
-    assert_eq!(
-        listing
-            .models
-            .iter()
-            .map(|model| (model.id.as_str(), model.is_default, model.efforts.len()))
-            .collect::<Vec<_>>(),
-        [("default", true, 0)]
-    );
+    assert_eq!(listing.models[0].id, "default");
+    assert!(listing.models.len() > 5);
+    assert!(listing.models.iter().any(|model| model.id == "gpt-6-astra"));
     let claude = ClaudeModelSource {
         initialize: ClaudeInitialize::new(
             crate::provider_executables::ProviderExecutables::explicit(None, None),
@@ -164,7 +158,10 @@ fn a_missing_provider_reports_not_installed_and_offers_only_its_default_for_inst
     }
     .load()
     .unwrap();
-    assert_eq!(claude.models, listing.models);
+    assert_eq!(claude.availability, ProviderAvailability::NotInstalled);
+    assert_eq!(claude.models[0].id, "default");
+    assert!(claude.models.len() > 5);
+    assert!(claude.models.iter().any(|model| model.id == "sonnet"));
 }
 
 #[test]

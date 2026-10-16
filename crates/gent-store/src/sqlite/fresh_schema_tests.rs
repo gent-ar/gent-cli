@@ -42,12 +42,13 @@ fn current_fresh_schema_reopens_without_running_its_migration_again() {
 }
 
 #[test]
-fn migrates_the_previous_fresh_schema_identity() {
-    let mut connection = Connection::open_in_memory().unwrap();
-    connection
-        .execute_batch(
-            "CREATE TABLE gent_schema (singleton INTEGER PRIMARY KEY, identity TEXT NOT NULL); \
-             INSERT INTO gent_schema (singleton, identity) VALUES (1, 'gent-fresh-schema-v10'); \
+fn migrates_legacy_fresh_schema_identities() {
+    for schema_identity in ["gent-fresh-schema-v10", "gent-fresh-schema-v11"] {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(&format!(
+                "CREATE TABLE gent_schema (singleton INTEGER PRIMARY KEY, identity TEXT NOT NULL); \
+             INSERT INTO gent_schema (singleton, identity) VALUES (1, '{schema_identity}'); \
              CREATE TABLE conversations (conversation_id TEXT PRIMARY KEY NOT NULL); \
              CREATE TABLE workspaces (workspace_id TEXT PRIMARY KEY NOT NULL); \
              CREATE TABLE runs (run_id TEXT PRIMARY KEY NOT NULL); \
@@ -58,26 +59,27 @@ fn migrates_the_previous_fresh_schema_identity() {
              CREATE TABLE agent_chat_run_selections (run_id TEXT PRIMARY KEY NOT NULL); \
              CREATE TABLE agent_chat_prompt_receipts (request_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL, conversation_id TEXT NOT NULL, run_id TEXT NOT NULL, turn_id TEXT NOT NULL, message_id TEXT NOT NULL, disposition TEXT NOT NULL); \
              CREATE TABLE agent_chat_transcript_events (conversation_id TEXT NOT NULL, cursor INTEGER NOT NULL, event_id TEXT NOT NULL UNIQUE, turn_id TEXT NOT NULL, run_id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, is_partial INTEGER NOT NULL, PRIMARY KEY (conversation_id, cursor)); \
-             CREATE TABLE events (cursor INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, receipt_id TEXT NOT NULL, host_epoch INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL);",
-        )
-        .unwrap();
-    apply(&mut connection).unwrap();
-    let identity: String = connection
-        .query_row(
-            "SELECT identity FROM gent_schema WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(identity, "gent-fresh-schema-v24");
-    let column: String = connection
-        .query_row(
-            "SELECT name FROM pragma_table_info('agent_chat_prompt_receipts') WHERE name = 'tool_source_ids_json'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(column, "tool_source_ids_json");
+             CREATE TABLE events (cursor INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, receipt_id TEXT NOT NULL, host_epoch INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL);"
+            ))
+            .unwrap();
+        apply(&mut connection).unwrap();
+        let identity: String = connection
+            .query_row(
+                "SELECT identity FROM gent_schema WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(identity, "gent-fresh-schema-v24");
+        let column: String = connection
+            .query_row(
+                "SELECT name FROM pragma_table_info('agent_chat_prompt_receipts') WHERE name = 'tool_source_ids_json'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column, "tool_source_ids_json");
+    }
 }
 
 #[test]

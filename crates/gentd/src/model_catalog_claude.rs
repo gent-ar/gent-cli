@@ -7,9 +7,9 @@ use serde_json::Value;
 use super::{
     claude_initialize::ClaudeInitialize,
     service::{
-        ModelCatalogSource, PROVIDER_DEFAULT_MODEL, ProviderListing, effort,
-        provider_default_model, public_availability,
+        ModelCatalogSource, PROVIDER_DEFAULT_MODEL, ProviderListing, effort, public_availability,
     },
+    suggestions,
 };
 use crate::{provider_auth_api::ProviderAuthPort, provider_launch_budget::ProviderLaunchError};
 
@@ -40,7 +40,7 @@ impl ModelCatalogSource for ClaudeModelSource {
         if !self.initialize.installed() {
             return Ok(ProviderListing {
                 availability,
-                models: vec![provider_default_model()],
+                models: suggestions::models("claude"),
             });
         }
         let response = self.initialize.load(None, true)?;

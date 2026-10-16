@@ -13,6 +13,7 @@ const V18_SCHEMA_ID: &str = "gent-fresh-schema-v18";
 const V17_SCHEMA_ID: &str = "gent-fresh-schema-v17";
 const V16_SCHEMA_ID: &str = "gent-fresh-schema-v16";
 const V15_SCHEMA_ID: &str = "gent-fresh-schema-v15";
+const V11_SCHEMA_ID: &str = "gent-fresh-schema-v11";
 const V10_SCHEMA_ID: &str = "gent-fresh-schema-v10";
 const SCHEMA: &str = concat!(
     include_str!("fresh_schema.sql"),
@@ -66,7 +67,7 @@ fn upgrade_through_v18(
     transaction: &rusqlite::Transaction<'_>,
     identity: &str,
 ) -> Result<bool, LedgerError> {
-    let requires_v15_to_v16 = if identity == V10_SCHEMA_ID {
+    let requires_v15_to_v16 = if matches!(identity, V10_SCHEMA_ID | V11_SCHEMA_ID) {
         transaction
             .execute_batch(V10_TO_V15)
             .map_err(storage_error)?;

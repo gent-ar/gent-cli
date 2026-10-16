@@ -9,9 +9,8 @@ use serde_json::{Value, json};
 
 use super::{
     probe::{ProbeStep, ProviderProbe},
-    service::{
-        ModelCatalogSource, ProviderListing, effort, provider_default_model, public_availability,
-    },
+    service::{ModelCatalogSource, ProviderListing, effort, public_availability},
+    suggestions,
 };
 use crate::{provider_auth_api::ProviderAuthPort, provider_launch_budget::ProviderLaunchError};
 
@@ -47,7 +46,7 @@ impl ModelCatalogSource for CodexModelSource {
         let Some(executable) = self.executables.executable(AgentChatProvider::Codex) else {
             return Ok(ProviderListing {
                 availability,
-                models: vec![provider_default_model()],
+                models: suggestions::models("codex"),
             });
         };
         let mut opening =
