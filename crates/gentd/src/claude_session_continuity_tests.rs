@@ -131,7 +131,7 @@ fn a_run_whose_session_cannot_be_recorded_fails_alone_while_gentd_keeps_serving(
     .unwrap();
     assert_eq!(follow.terminal.unwrap().phase, DurableTurnPhase::Failed);
     assert!(follow.events.iter().any(|event| {
-        event.kind == NormalizedTranscriptKind::Notice && event.text == RUN_FAILURE_NOTICE
+        event.kind == NormalizedTranscriptKind::Notice && event.text.starts_with(RUN_FAILURE_NOTICE)
     }));
     let projection = daemon.projection(&broken);
     let failure = projection

@@ -18,10 +18,19 @@ pub(crate) const fn is_daemon_fatal(error: &RuntimeError) -> bool {
     )
 }
 
-pub(crate) fn failure_fact() -> PublicWireFact {
+/// Produces the durable, user-visible explanation for a provider failure.
+///
+/// A provider can fail before it announces a session ID. The normalized event
+/// is then fenced off correctly, so the prompt-dispatch transcript is the
+/// only durable place the client can show the actual reason.
+pub(crate) fn failure_notice(error: &RuntimeError) -> String {
+    format!("{RUN_FAILURE_NOTICE}\n\nReason: {error}")
+}
+
+pub(crate) fn failure_fact(error: &RuntimeError) -> PublicWireFact {
     PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure {
         classification: ProviderFailureClassification::Lifecycle,
-        message: RUN_FAILURE_NOTICE.into(),
+        message: failure_notice(error),
     })
 }
 
@@ -41,12 +50,13 @@ impl<L: AgentChatPromptDispatchLedger, D, R> PublicDriversRuntime<L, D, R> {
         message_id: &str,
         coordinator_id: &str,
         host_epoch: HostEpoch,
+        error: &RuntimeError,
     ) -> Result<(), RuntimeError> {
         tolerate_run_scoped(self.dispatches.fail_prelaunch(
             message_id,
             coordinator_id,
             host_epoch,
-            RUN_FAILURE_NOTICE,
+            &failure_notice(error),
         ))
         .map(|_| ())
     }

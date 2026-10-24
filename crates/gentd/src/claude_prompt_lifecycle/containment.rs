@@ -65,7 +65,24 @@ where
             .get(run_id)
             .is_some_and(|binding| !binding.settled)
         {
-            tolerate_run_scoped(self.record_wire(run_id, host_epoch, &failure_fact()))?;
+            // The provider may fail before it announces its session. Persist
+            // the explanation through prompt dispatch before attempting the
+            // normalized, session-fenced event.
+            let message_id = self
+                .active
+                .get(run_id)
+                .expect("checked active Claude binding")
+                .prompt
+                .message
+                .message_id
+                .clone();
+            tolerate_run_scoped(self.runtime.fail_claimed_prompt(
+                &message_id,
+                &self.coordinator_id,
+                host_epoch,
+                &error,
+            ))?;
+            tolerate_run_scoped(self.record_wire(run_id, host_epoch, &failure_fact(&error)))?;
             tolerate_run_scoped(self.settle_if_open(run_id, host_epoch, DurableTurnPhase::Failed))?;
         }
         tolerate_run_scoped(self.release_steers(run_id, host_epoch))?;
@@ -90,6 +107,7 @@ where
             &prompt.message.message_id,
             &self.coordinator_id,
             host_epoch,
+            &error,
         )?;
         Ok(ClaudePromptDispatchOutcome::Unprovable {
             run_id: prompt.run_id.0.clone(),

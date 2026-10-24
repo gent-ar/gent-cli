@@ -189,7 +189,7 @@ fn a_resume_rejected_while_the_thread_history_exists_stays_a_genuine_failure() {
     assert_eq!(daemon.settle(&next), DurableTurnPhase::Failed);
     assert_eq!(daemon.requests("thread/turns/list").len(), 1);
     assert!(daemon.transcript(&next).iter().any(|event| {
-        event.kind == NormalizedTranscriptKind::Notice && event.text == RUN_FAILURE_NOTICE
+        event.kind == NormalizedTranscriptKind::Notice && event.text.starts_with(RUN_FAILURE_NOTICE)
     }));
     let projection = daemon.projection(&conversation);
     assert!(projection.iter().any(|event| {
