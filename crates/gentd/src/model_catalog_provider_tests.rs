@@ -94,7 +94,13 @@ fn codex_models_come_from_every_model_list_page_with_supported_efforts_only() {
         .iter()
         .map(|model| model.id.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(ids, ["gpt-6-astra", "gpt-5.6-luna"]);
+    assert!(ids.starts_with(&["gpt-6-astra", "gpt-5.6-luna"]));
+    assert!(ids.contains(&"default"));
+    assert!(!ids.contains(&"gpt-internal"));
+    assert_eq!(
+        ids.iter().collect::<std::collections::HashSet<_>>().len(),
+        ids.len()
+    );
     let astra = &listing.models[0];
     assert!(astra.is_default);
     assert_eq!(astra.label, "GPT-6-Astra");

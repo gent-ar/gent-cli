@@ -268,6 +268,7 @@ fn upgrading_a_v22_ledger_rewrites_no_committed_fact_and_adds_recency() {
              DROP TRIGGER agent_chat_conversation_projection_recency; \
              DROP INDEX agent_chat_transcript_events_by_turn_kind; \
              ALTER TABLE agent_chat_conversations DROP COLUMN updated_at_unix_ms; \
+             ALTER TABLE agent_chat_conversation_configs DROP COLUMN thinking_enabled; \
              UPDATE turns SET phase = 'interrupted'; \
              UPDATE gent_schema SET identity = 'gent-fresh-schema-v22' WHERE singleton = 1;",
         )
