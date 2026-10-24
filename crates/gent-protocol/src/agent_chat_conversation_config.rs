@@ -49,6 +49,7 @@ mod tests {
             system_prompt: Some("Be concise.".into()),
             append_system_prompt: true,
             max_turns: Some(10),
+            thinking_enabled: None,
             disallowed_tools: vec!["shell:rm".into()],
         }
     }

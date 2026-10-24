@@ -1,0 +1,1 @@
+ALTER TABLE agent_chat_conversation_configs ADD COLUMN thinking_enabled INTEGER;

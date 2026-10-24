@@ -19,6 +19,8 @@ pub struct AgentChatConversationConfigRecord {
     pub append_system_prompt: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_enabled: Option<bool>,
     /// Canonically sorted, unique tool names this conversation's provider must never invoke.
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
@@ -34,6 +36,7 @@ pub enum AgentChatConversationConfigUnsupportedField {
     SystemPromptOverride,
     MaxTurns,
     DisallowedTools,
+    ThinkingEnabled,
 }
 
 #[cfg(test)]
@@ -50,6 +53,7 @@ mod tests {
             system_prompt: None,
             append_system_prompt: false,
             max_turns: None,
+            thinking_enabled: None,
             disallowed_tools: Vec::new(),
         };
         assert_eq!(
@@ -79,5 +83,20 @@ mod tests {
             serde_json::to_value(AgentChatConversationConfigUnsupportedField::MaxTurns).unwrap(),
             json!("maxTurns")
         );
+    }
+    #[test]
+    fn thinking_preference_preserves_false_true_and_unset() {
+        for enabled in [None, Some(false), Some(true)] {
+            let record: AgentChatConversationConfigRecord = serde_json::from_value(json!({
+                "conversationId": "conversation-1", "revision": 1, "thinkingEnabled": enabled
+            }))
+            .unwrap();
+            assert_eq!(record.thinking_enabled, enabled);
+            let serialized = serde_json::to_value(&record).unwrap();
+            assert_eq!(
+                serialized.get("thinkingEnabled"),
+                enabled.map(|value| json!(value)).as_ref()
+            );
+        }
     }
 }

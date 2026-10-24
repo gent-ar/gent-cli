@@ -1,8 +1,8 @@
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
-    AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatWorkspaceLedger,
-    TranscriptLedger,
+    AgentChatConversationConfigLedger, AgentChatPromptDispatchLedger, AgentChatPromptLedger,
+    AgentChatWorkspaceLedger, TranscriptLedger,
 };
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
@@ -23,54 +23,73 @@ use super::codex_prompt_lifecycle_tests::{
 
 #[test]
 fn a_codex_launch_scopes_only_the_chat_server_to_its_own_conversation() {
-    let ledger = SqliteLedger::in_memory().unwrap();
-    let conversation_id = AgentChatConversationId("conversation-a".into());
-    create_conversation(&ledger, conversation_id.clone());
-    let prompt = ledger
-        .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("prompt-a".into()),
-            receipt_id: ReceiptId("prompt-receipt".into()),
-            host_epoch: HostEpoch(1),
-            conversation_id,
-            disposition: AgentChatPromptDisposition::Send,
-            attachment_ids: vec![],
-            tool_source_ids: vec![],
-            text: "hello".into(),
-        })
+    for exclude_goal in [false, true] {
+        let ledger = SqliteLedger::in_memory().unwrap();
+        let conversation_id = AgentChatConversationId("conversation-a".into());
+        create_conversation(&ledger, conversation_id.clone());
+        if exclude_goal {
+            ledger
+                .save_conversation_config(&gent_types::AgentChatConversationConfigRecord {
+                    conversation_id: conversation_id.clone(),
+                    revision: 1,
+                    system_prompt: None,
+                    append_system_prompt: false,
+                    max_turns: None,
+                    thinking_enabled: None,
+                    disallowed_tools: vec!["mcp__gent-goal__*".into()],
+                })
+                .unwrap();
+        }
+        let prompt = ledger
+            .save_agent_chat_prompt(&AgentChatPromptCreate {
+                request_id: AgentChatRequestId("prompt-a".into()),
+                receipt_id: ReceiptId("prompt-receipt".into()),
+                host_epoch: HostEpoch(1),
+                conversation_id,
+                disposition: AgentChatPromptDisposition::Send,
+                attachment_ids: vec![],
+                tool_source_ids: vec![],
+                text: "hello".into(),
+            })
+            .unwrap();
+        crate::readiness_test_support::release(&ledger, &prompt);
+        let runner = Runner::default();
+        runner.state.lock().unwrap().mcp_servers = Some(serde_json::json!({
+            "gent-chat": {"command": "gent", "args": ["mcp", "chat"]},
+            "gent-goal": {"command": "gent", "args": ["mcp", "goal"]}
+        }));
+        let compatibility = super::codex_prompt_lifecycle_tests::compatibility();
+        let runtime = PublicDriversRuntime::new(
+            profile(&compatibility),
+            Coordinator::new(ledger.clone(), CapabilitySet::default()),
+            ledger.clone(),
+            compatibility,
+            runner.clone(),
+            Resolver,
+        )
         .unwrap();
-    crate::readiness_test_support::release(&ledger, &prompt);
-    let runner = Runner::default();
-    runner.state.lock().unwrap().mcp_servers = Some(serde_json::json!({
-        "gent-chat": {"command": "gent", "args": ["mcp", "chat"]},
-        "gent-goal": {"command": "gent", "args": ["mcp", "goal"]}
-    }));
-    let compatibility = super::codex_prompt_lifecycle_tests::compatibility();
-    let runtime = PublicDriversRuntime::new(
-        profile(&compatibility),
-        Coordinator::new(ledger.clone(), CapabilitySet::default()),
-        ledger.clone(),
-        compatibility,
-        runner.clone(),
-        Resolver,
-    )
-    .unwrap();
-    let mut host = ApprovedCodexHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
-    host.tick().unwrap();
+        let mut host = ApprovedCodexHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1);
+        host.tick().unwrap();
 
-    let state = runner.state.lock().unwrap();
-    let launched = state
-        .pending
-        .as_ref()
-        .and_then(|entry| entry.1.mcp_servers.clone())
-        .expect("a codex launch carries its scoped MCP servers");
-    assert_eq!(
-        launched["gent-chat"]["args"],
-        serde_json::json!(["mcp", "chat", "--conversation-id", "conversation-a"])
-    );
-    assert_eq!(
-        launched["gent-goal"]["args"],
-        serde_json::json!(["mcp", "goal"])
-    );
+        let state = runner.state.lock().unwrap();
+        let launched = state
+            .pending
+            .as_ref()
+            .and_then(|entry| entry.1.mcp_servers.clone())
+            .expect("a codex launch carries its scoped MCP servers");
+        assert_eq!(
+            launched["gent-chat"]["args"],
+            serde_json::json!(["mcp", "chat", "--conversation-id", "conversation-a"])
+        );
+        if exclude_goal {
+            assert!(launched.get("gent-goal").is_none());
+        } else {
+            assert_eq!(
+                launched["gent-goal"]["args"],
+                serde_json::json!(["mcp", "goal"])
+            );
+        }
+    }
 }
 
 #[test]

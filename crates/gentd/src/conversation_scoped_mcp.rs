@@ -7,6 +7,18 @@ use crate::standalone_mcp_config::CHAT_SERVER_NAME;
 const CONVERSATION_ARGUMENT: &str = "--conversation-id";
 const CONVERSATION_CONFIG_DIRECTORY: &str = "conversation-mcp";
 
+pub(crate) fn server_is_disallowed(name: &str, rules: &[String]) -> bool {
+    let all_tools = format!("mcp__{name}__*");
+    rules.iter().any(|rule| rule == &all_tools)
+}
+
+pub(crate) fn filter_disallowed_servers(mut servers: Value, rules: &[String]) -> Value {
+    if let Some(entries) = servers.as_object_mut() {
+        entries.retain(|name, _| !server_is_disallowed(name, rules));
+    }
+    servers
+}
+
 pub(crate) fn scoped_servers(
     servers: &Value,
     names: &[String],
@@ -113,8 +125,30 @@ fn with_conversation(config: &Value, conversation_id: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{scope_named_entries, scope_server_map};
+    use super::{
+        filter_disallowed_servers, scope_named_entries, scope_server_map, server_is_disallowed,
+    };
     use serde_json::json;
+
+    #[test]
+    fn full_server_exclusions_preserve_project_tools_and_partial_tool_rules() {
+        let servers = json!({
+            "gent-forge": {"command": "forge"},
+            "gent-canvas": {"command": "canvas"},
+            "project": {"command": "project-tools"}
+        });
+        let rules = vec![
+            "mcp__gent-forge__*".into(),
+            "mcp__gent-canvas__create".into(),
+            "Read".into(),
+        ];
+        let filtered = filter_disallowed_servers(servers.clone(), &rules);
+        assert!(filtered.get("gent-forge").is_none());
+        assert_eq!(filtered["gent-canvas"], servers["gent-canvas"]);
+        assert_eq!(filtered["project"], servers["project"]);
+        assert_eq!(filter_disallowed_servers(servers.clone(), &[]), servers);
+        assert!(!server_is_disallowed("gent-forge-extra", &rules));
+    }
 
     #[test]
     fn only_the_chat_server_learns_the_conversation() {

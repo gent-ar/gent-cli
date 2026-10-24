@@ -33,6 +33,7 @@ pub(crate) struct ClaudePromptStart {
     pub(crate) fresh_context: Option<FrozenConversationContext>,
     pub(crate) content: Vec<serde_json::Value>,
     pub(crate) selected_mcp_source_names: Vec<String>,
+    pub(crate) disallowed_mcp_tools: Vec<String>,
     pub(crate) recreate_session: bool,
 }
 
@@ -184,6 +185,7 @@ where
             &prompt.selected_mcp_source_names,
             &prompt.conversation_id,
             run_id,
+            &prompt.disallowed_mcp_tools,
         )?;
         if let Some(path) = &mcp_config {
             lock(&self.conversation_configs).insert(run_id.into(), path.clone());

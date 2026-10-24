@@ -73,7 +73,11 @@ fn config(directory: &std::path::Path) -> StandaloneMcpConfig {
     StandaloneMcpConfig::load(&path).unwrap()
 }
 
-fn launched(config: &StandaloneMcpConfig, conversation_id: &str) -> Vec<Vec<serde_json::Value>> {
+fn launched(
+    config: &StandaloneMcpConfig,
+    conversation_id: &str,
+    rules: &[String],
+) -> Vec<Vec<serde_json::Value>> {
     [
         conversation_servers(
             Some(config),
@@ -81,6 +85,7 @@ fn launched(config: &StandaloneMcpConfig, conversation_id: &str) -> Vec<Vec<serd
             conversation_id,
             StandaloneMcpConfig::claurst_servers,
             StandaloneMcpConfig::selected_claurst_servers,
+            rules,
         )
         .unwrap(),
         conversation_servers(
@@ -89,6 +94,7 @@ fn launched(config: &StandaloneMcpConfig, conversation_id: &str) -> Vec<Vec<serd
             conversation_id,
             StandaloneMcpConfig::claurst_settings_servers,
             StandaloneMcpConfig::selected_claurst_settings_servers,
+            rules,
         )
         .unwrap(),
     ]
@@ -133,7 +139,7 @@ fn each_conversation_launches_with_its_own_chat_server_and_never_the_previous_on
     let directory = tempfile::tempdir().unwrap();
     let config = config(directory.path());
 
-    for entries in launched(&config, "conversation-1") {
+    for entries in launched(&config, "conversation-1", &[]) {
         assert_eq!(
             arguments(&entries, "gent-chat"),
             serde_json::json!(["mcp", "chat", "--conversation-id", "conversation-1"])
@@ -143,12 +149,25 @@ fn each_conversation_launches_with_its_own_chat_server_and_never_the_previous_on
             serde_json::json!(["mcp", "goal"])
         );
     }
-    for entries in launched(&config, "conversation-2") {
+    for entries in launched(&config, "conversation-2", &[]) {
         let chat = arguments(&entries, "gent-chat");
         assert_eq!(
             chat,
             serde_json::json!(["mcp", "chat", "--conversation-id", "conversation-2"])
         );
         assert!(!chat.to_string().contains("conversation-1"));
+    }
+}
+
+#[test]
+fn inline_exclusions_reach_both_claurst_configuration_surfaces() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = config(directory.path());
+    let rules = ["mcp__gent-chat__*".into(), "mcp__gent-goal__*".into()];
+    for entries in launched(&config, "inline-conversation", &rules) {
+        assert!(entries.is_empty());
+    }
+    for entries in launched(&config, "ordinary-conversation", &[]) {
+        assert_eq!(entries.len(), 2);
     }
 }

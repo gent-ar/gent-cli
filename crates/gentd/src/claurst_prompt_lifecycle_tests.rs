@@ -156,6 +156,7 @@ async fn appended_conversation_config_prefixes_the_prompt_sent_to_claurst() {
             system_prompt: Some("Prefer terse replies.".into()),
             append_system_prompt: true,
             max_turns: None,
+            thinking_enabled: None,
             disallowed_tools: Vec::new(),
         })
         .unwrap();

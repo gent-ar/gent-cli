@@ -16,6 +16,7 @@ pub(super) struct LaunchSetup {
     workspace_root: PathBuf,
     mode: AgentChatMode,
     selected_mcp_source_names: Vec<String>,
+    disallowed_mcp_tools: Vec<String>,
     turn_options: CodexTurnOptions,
 }
 
@@ -86,6 +87,9 @@ impl LaunchSetup {
             workspace_root,
             mode: selection.mode,
             selected_mcp_source_names,
+            disallowed_mcp_tools: conversation_config
+                .map(|config| config.disallowed_tools)
+                .unwrap_or_default(),
             turn_options,
         })
     }
@@ -131,6 +135,12 @@ impl LaunchSetup {
                     &self.selected_mcp_source_names,
                     &prompt.message.conversation_id,
                 )
+                .map(|scoped| {
+                    crate::conversation_scoped_mcp::filter_disallowed_servers(
+                        scoped,
+                        &self.disallowed_mcp_tools,
+                    )
+                })
             })
             .transpose()
             .map_err(gent_ports::PublicProviderRunError::Failed)?;

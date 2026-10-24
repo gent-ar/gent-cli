@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gent_ports::{AgentChatWorkspaceLedger, ToolSourceLedger};
+use gent_ports::{AgentChatConversationConfigLedger, AgentChatWorkspaceLedger, ToolSourceLedger};
 use gent_runtime::AgentChatReadService;
 use gent_types::{AgentChatPromptSaved, ToolSourceRecord};
 
@@ -37,11 +37,27 @@ impl StandaloneClaurstRuntimeFactory {
                 .to_owned()
         })?;
         let selected_sources = self.selected_tool_sources(saved, &workspace_id)?;
+        let conversation_config = self
+            .ledger
+            .current_conversation_config(&saved.message.conversation_id)
+            .map_err(|error| error.to_string())?;
+        let disallowed_tools = conversation_config
+            .as_ref()
+            .map(|config| config.disallowed_tools.as_slice())
+            .unwrap_or_default();
         let mcp_config_digest = config
             .mcp_config
             .as_ref()
             .map(crate::standalone_mcp_config::StandaloneMcpConfig::digest)
-            .transpose()?;
+            .transpose()?
+            .map(|digest| {
+                format!(
+                    "{digest}:{}",
+                    conversation_config
+                        .as_ref()
+                        .map_or(0, |config| config.revision)
+                )
+            });
         let permission_mode = permission.mode;
         let conversation_id = saved.message.conversation_id.clone();
         let identity = RuntimeIdentity::new(
@@ -66,6 +82,7 @@ impl StandaloneClaurstRuntimeFactory {
             &conversation_id,
             StandaloneMcpConfig::claurst_settings_servers,
             StandaloneMcpConfig::selected_claurst_settings_servers,
+            disallowed_tools,
         )?;
         let launch_mcp_servers = conversation_servers(
             config.mcp_config.as_ref(),
@@ -73,6 +90,7 @@ impl StandaloneClaurstRuntimeFactory {
             &conversation_id,
             StandaloneMcpConfig::claurst_servers,
             StandaloneMcpConfig::selected_claurst_servers,
+            disallowed_tools,
         )?;
         match reuse {
             RuntimeReuse::Ready => Ok(()),
@@ -234,8 +252,9 @@ pub(super) fn conversation_servers(
         &StandaloneMcpConfig,
         &[ToolSourceRecord],
     ) -> Result<Vec<serde_json::Value>, String>,
+    disallowed_tools: &[String],
 ) -> Result<Vec<serde_json::Value>, String> {
-    let entries = config
+    let mut entries = config
         .map(|config| {
             if sources.is_empty() {
                 all(config)
@@ -245,6 +264,15 @@ pub(super) fn conversation_servers(
         })
         .transpose()?
         .unwrap_or_default();
+    entries.retain(|entry| {
+        !crate::conversation_scoped_mcp::server_is_disallowed(
+            entry
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+            disallowed_tools,
+        )
+    });
     Ok(crate::conversation_scoped_mcp::scope_named_entries(
         entries,
         conversation_id,

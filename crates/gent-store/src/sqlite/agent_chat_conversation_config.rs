@@ -34,7 +34,7 @@ pub(super) fn save(
         .map_err(|error| LedgerError::Storage(error.to_string()))?;
     connection
         .execute(
-            "INSERT INTO agent_chat_conversation_configs (conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO agent_chat_conversation_configs (conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools, thinking_enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 config.conversation_id.0,
                 config.revision,
@@ -42,6 +42,7 @@ pub(super) fn save(
                 config.append_system_prompt,
                 config.max_turns,
                 disallowed_tools,
+                config.thinking_enabled,
             ],
         )
         .map(|_| ())
@@ -62,7 +63,7 @@ fn current(
 ) -> Result<Option<AgentChatConversationConfigRecord>, LedgerError> {
     connection
         .query_row(
-            "SELECT conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools FROM agent_chat_conversation_configs WHERE conversation_id = ?1 ORDER BY revision DESC LIMIT 1",
+            "SELECT conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools, thinking_enabled FROM agent_chat_conversation_configs WHERE conversation_id = ?1 ORDER BY revision DESC LIMIT 1",
             [conversation_id],
             decode_config,
         )
@@ -117,6 +118,7 @@ fn decode_config(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentChatConversat
         system_prompt: row.get(2)?,
         append_system_prompt: row.get(3)?,
         max_turns: row.get(4)?,
+        thinking_enabled: row.get(6)?,
         disallowed_tools: serde_json::from_str(&disallowed_tools)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
     })

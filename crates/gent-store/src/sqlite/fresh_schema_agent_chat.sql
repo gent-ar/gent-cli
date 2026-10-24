@@ -26,6 +26,7 @@ CREATE TABLE agent_chat_conversation_configs (
     system_prompt TEXT,
     append_system_prompt INTEGER NOT NULL DEFAULT 0,
     max_turns INTEGER,
+    thinking_enabled INTEGER,
     disallowed_tools TEXT NOT NULL DEFAULT '[]',
     UNIQUE (conversation_id, revision)
 );

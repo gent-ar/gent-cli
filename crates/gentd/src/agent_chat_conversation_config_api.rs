@@ -83,6 +83,9 @@ fn unsupported_for_provider(
             if !config.disallowed_tools.is_empty() {
                 unsupported.push(AgentChatConversationConfigUnsupportedField::DisallowedTools);
             }
+            if config.thinking_enabled.is_some() {
+                unsupported.push(AgentChatConversationConfigUnsupportedField::ThinkingEnabled);
+            }
             unsupported
         }
     }
@@ -108,6 +111,7 @@ mod tests {
             system_prompt: Some("Be concise.".into()),
             append_system_prompt: true,
             max_turns: Some(5),
+            thinking_enabled: Some(false),
             disallowed_tools: vec!["shell:rm".into()],
         }
     }
@@ -167,7 +171,7 @@ mod tests {
         assert!(matches!(
             current,
             AgentChatConversationConfigFrame::CurrentConfig { config: Some(config), .. }
-            if config.revision == 1
+            if config.revision == 1 && config.thinking_enabled == Some(false)
         ));
     }
 
@@ -238,6 +242,11 @@ mod tests {
         else {
             unreachable!()
         };
-        assert_eq!(unsupported_for_provider.len(), 2);
+        assert_eq!(unsupported_for_provider.len(), 3);
+        assert!(
+            unsupported_for_provider.contains(
+                &gent_types::AgentChatConversationConfigUnsupportedField::ThinkingEnabled
+            )
+        );
     }
 }

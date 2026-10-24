@@ -155,6 +155,11 @@ where
             permission.mode,
         )
         .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?
+        .with_thinking_enabled(
+            conversation_config
+                .as_ref()
+                .and_then(|config| config.thinking_enabled),
+        )
         .with_conversation_config(
             conversation_config
                 .as_ref()
@@ -166,7 +171,8 @@ where
                 .as_ref()
                 .and_then(|config| config.max_turns),
             conversation_config
-                .map(|config| config.disallowed_tools)
+                .as_ref()
+                .map(|config| config.disallowed_tools.clone())
                 .unwrap_or_default(),
         );
     let goal = runtime.active_goal_for(&prompt.message.conversation_id)?;
@@ -181,6 +187,9 @@ where
         fresh_context,
         content,
         selected_mcp_source_names,
+        disallowed_mcp_tools: conversation_config
+            .map(|config| config.disallowed_tools)
+            .unwrap_or_default(),
         recreate_session: false,
     })
 }

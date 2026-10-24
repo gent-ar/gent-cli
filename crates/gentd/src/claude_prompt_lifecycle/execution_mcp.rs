@@ -9,6 +9,7 @@ pub(super) fn conversation_config(
     names: &[String],
     conversation_id: &str,
     run_id: &str,
+    disallowed_tools: &[String],
 ) -> Result<Option<PathBuf>, PublicProviderRunError> {
     let Some(path) = configured else {
         return Ok(None);
@@ -19,6 +20,8 @@ pub(super) fn conversation_config(
     let servers = configured_servers(path)?;
     let scoped = crate::conversation_scoped_mcp::scoped_servers(&servers, names, conversation_id)
         .map_err(PublicProviderRunError::Failed)?;
+    let scoped =
+        crate::conversation_scoped_mcp::filter_disallowed_servers(scoped, disallowed_tools);
     crate::conversation_scoped_mcp::write_conversation_config(data_dir, run_id, &scoped)
         .map(Some)
         .map_err(PublicProviderRunError::Failed)
@@ -69,7 +72,7 @@ mod tests {
     fn a_claude_launch_writes_its_own_conversation_config_under_the_data_dir() {
         let directory = data_dir();
         let configured = directory.path().join("standalone-mcp.json");
-        let written = conversation_config(Some(&configured), &[], "conversation-1", "run-1")
+        let written = conversation_config(Some(&configured), &[], "conversation-1", "run-1", &[])
             .unwrap()
             .unwrap();
 
@@ -97,10 +100,10 @@ mod tests {
     fn one_conversations_config_never_leaks_into_another() {
         let directory = data_dir();
         let configured = directory.path().join("standalone-mcp.json");
-        let first = conversation_config(Some(&configured), &[], "conversation-1", "run-1")
+        let first = conversation_config(Some(&configured), &[], "conversation-1", "run-1", &[])
             .unwrap()
             .unwrap();
-        let second = conversation_config(Some(&configured), &[], "conversation-2", "run-2")
+        let second = conversation_config(Some(&configured), &[], "conversation-2", "run-2", &[])
             .unwrap()
             .unwrap();
 
@@ -124,6 +127,7 @@ mod tests {
             &["gent-chat".into()],
             "conversation-1",
             "run-1",
+            &[],
         )
         .unwrap()
         .unwrap();
@@ -139,18 +143,36 @@ mod tests {
                 &["missing".into()],
                 "conversation-1",
                 "run-2",
+                &[],
             )
             .is_err()
         );
     }
 
     #[test]
+    fn disabled_servers_are_absent_from_the_actual_launch_file() {
+        let directory = data_dir();
+        let configured = directory.path().join("standalone-mcp.json");
+        let written = conversation_config(
+            Some(&configured),
+            &[],
+            "inline-conversation",
+            "inline-run",
+            &["mcp__gent-chat__*".into(), "mcp__gent-goal__*".into()],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(servers(&written), serde_json::json!({}));
+        assert_eq!(servers(&configured).as_object().unwrap().len(), 2);
+    }
+
+    #[test]
     fn a_launch_without_a_conversation_is_refused_rather_than_unscoped() {
         let directory = data_dir();
         let configured = directory.path().join("standalone-mcp.json");
-        assert!(conversation_config(Some(&configured), &[], "  ", "run-1").is_err());
+        assert!(conversation_config(Some(&configured), &[], "  ", "run-1", &[]).is_err());
         assert!(
-            conversation_config(None, &[], "conversation-1", "run-1")
+            conversation_config(None, &[], "conversation-1", "run-1", &[])
                 .unwrap()
                 .is_none()
         );

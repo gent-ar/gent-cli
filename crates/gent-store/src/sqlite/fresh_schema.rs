@@ -3,7 +3,8 @@
 use super::queries::storage_error;
 use gent_ports::LedgerError;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
-const SCHEMA_ID: &str = "gent-fresh-schema-v24";
+const SCHEMA_ID: &str = "gent-fresh-schema-v25";
+const V24_SCHEMA_ID: &str = "gent-fresh-schema-v24";
 const V23_SCHEMA_ID: &str = "gent-fresh-schema-v23";
 const V22_SCHEMA_ID: &str = "gent-fresh-schema-v22";
 const V21_SCHEMA_ID: &str = "gent-fresh-schema-v21";
@@ -173,14 +174,20 @@ fn upgrade(transaction: &rusqlite::Transaction<'_>, identity: &str) -> Result<()
     } else {
         identity == V23_SCHEMA_ID
     };
-    if !requires_v23_to_v24 {
+    if requires_v23_to_v24 {
+        transaction
+            .execute_batch(V23_TO_V24)
+            .map_err(storage_error)?;
+    } else if identity != V24_SCHEMA_ID {
         return Err(LedgerError::Invariant(
             "unknown Gent fresh schema identity".into(),
         ));
     }
-    transaction
-        .execute_batch(V23_TO_V24)
-        .map_err(storage_error)?;
+    if has_table(transaction, "agent_chat_conversation_configs")? {
+        transaction
+            .execute_batch(include_str!("fresh_schema_v24_to_v25.sql"))
+            .map_err(storage_error)?;
+    }
     Ok(())
 }
 
@@ -255,3 +262,7 @@ fn has_column(connection: &Connection, table: &str, column: &str) -> Result<bool
 #[cfg(test)]
 #[path = "fresh_schema_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fresh_schema_thinking_tests.rs"]
+mod thinking_tests;

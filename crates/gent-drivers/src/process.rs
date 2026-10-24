@@ -229,19 +229,12 @@ pub fn signal_process_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), Pr
 
 #[cfg(windows)]
 pub fn signal_process_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-    let mut command = Command::new("taskkill");
-    command.args(["/PID", &pid.to_string(), "/T"]);
-    if signal == ProcessTreeSignal::Kill {
-        command.arg("/F");
-    }
-    let status = command
-        .status()
-        .map_err(|error| ProcessTreeError::Failed(error.to_string()))?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| ProcessTreeError::Failed(format!("taskkill exited with {status}")))
+    windows::signal_tree(pid, signal)
 }
+
+#[cfg(windows)]
+#[path = "process_windows.rs"]
+mod windows;
 
 #[cfg(not(any(unix, windows)))]
 pub fn signal_process_tree(_: i32, _: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
