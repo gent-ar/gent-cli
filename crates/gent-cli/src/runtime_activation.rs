@@ -95,7 +95,13 @@ fn activate_at(
 }
 
 fn refresh_auto_update_helper(root: &Path) -> Result<(), String> {
-    let source = root.join("current").join(auto_update_helper_name());
+    let directory = if cfg!(windows) {
+        root.join("releases")
+            .join(selected_release(root)?.ok_or("Gent has no selected runtime")?)
+    } else {
+        root.join("current")
+    };
+    let source = directory.join(auto_update_helper_name());
     let metadata = fs::symlink_metadata(&source).map_err(display)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err("Gent automatic-update helper is invalid".into());
@@ -286,3 +292,7 @@ fn display(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 #[path = "runtime_activation_tests.rs"]
 mod tests;
+
+#[cfg(all(test, windows))]
+#[path = "runtime_activation_windows_tests.rs"]
+mod windows_tests;
