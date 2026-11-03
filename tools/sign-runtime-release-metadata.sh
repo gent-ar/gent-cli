@@ -13,6 +13,7 @@ printf '%s\n' "$RUNTIME_RELEASE_PRIVATE_KEY" > "$key"
 derived_key=$(python - "$key" "$tools/sign-runtime-release.py" <<'PY'
 import importlib.util, pathlib, sys
 path = pathlib.Path(sys.argv[2])
+sys.path.insert(0, str(path.parent))
 spec = importlib.util.spec_from_file_location('runtime_release_signer', path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

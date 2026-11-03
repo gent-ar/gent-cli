@@ -171,6 +171,7 @@ async fn set_saves_the_next_revision_for_the_resolved_workspace() {
                     protocol: PROTOCOL_MAX,
                     capabilities: CapabilitySet(vec![
                         PERMISSION_POLICY_CAPABILITY.into(),
+                        gent_protocol::PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY.into(),
                         WORKSPACE_GIT_CAPABILITY.into(),
                     ]),
                 }),

@@ -21,7 +21,7 @@ fn host_mcp_node_alias_swap_executes_only_the_pinned_canonical_entrypoint() {
     std::fs::remove_file(&alias).unwrap();
     std::os::windows::fs::symlink_file(&evil, &alias).unwrap();
     let output = std::process::Command::new("C:/Program Files/nodejs/node.exe")
-        .arg(&entry)
+        .arg(super::ordinary_argument(&entry).unwrap())
         .env_clear()
         .env("SystemRoot", std::env::var_os("SystemRoot").unwrap())
         .current_dir(&host)
