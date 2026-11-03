@@ -1,8 +1,10 @@
 #[cfg(windows)]
 use gent_drivers::lock::rechecked_identity;
+#[cfg(windows)]
 use gent_types::RunVersionLock;
 #[cfg(windows)]
 use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
 use std::{
     collections::BTreeMap,
     fs::File,

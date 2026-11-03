@@ -11,7 +11,7 @@ pub(super) trait McpEndpoint: Send + Sync {
     fn settled(&self) -> bool;
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 #[path = "provider_mcp_http_tests.rs"]
 mod tests;
 impl McpEndpoint for Bridge {

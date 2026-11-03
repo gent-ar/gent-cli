@@ -5,8 +5,11 @@ use gent_types::{AgentChatProvider, Containment};
 /// This is preparation authority, never evidence that a process was contained.
 #[cfg(any(windows, target_os = "linux"))]
 pub(crate) trait VerifiedProviderFactoryResources {
+    #[cfg(windows)]
     fn provider(&self) -> AgentChatProvider;
+    #[cfg(windows)]
     fn executable_lock(&self) -> &gent_types::RunVersionLock;
+    #[cfg(windows)]
     fn command_egress(&self) -> Option<gent_types::SandboxCommandEgress>;
     fn recheck(&self) -> Result<(), String>;
 }

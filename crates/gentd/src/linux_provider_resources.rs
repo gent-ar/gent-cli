@@ -5,7 +5,7 @@ use crate::{
     provider_executables::ManagedProviderRuntime,
     standalone_authority_release::StandaloneAuthorityRelease,
 };
-use gent_types::{AgentChatProvider, RunVersionLock, SandboxCpuSemantics, SandboxResourceGrant};
+use gent_types::{RunVersionLock, SandboxCpuSemantics, SandboxResourceGrant};
 use std::{
     collections::BTreeMap,
     fs::File,
@@ -249,15 +249,6 @@ impl LinuxProviderResources {
 impl crate::permission_backend_registry::VerifiedProviderFactoryResources
     for LinuxProviderResources
 {
-    fn provider(&self) -> AgentChatProvider {
-        AgentChatProvider::Claude
-    }
-    fn executable_lock(&self) -> &RunVersionLock {
-        self.runtime.executable()
-    }
-    fn command_egress(&self) -> Option<gent_types::SandboxCommandEgress> {
-        None
-    }
     fn recheck(&self) -> Result<(), String> {
         self.runtime.recheck()?;
         let current = self

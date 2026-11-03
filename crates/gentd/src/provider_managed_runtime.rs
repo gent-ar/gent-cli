@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(windows)]
+use std::path::PathBuf;
 
 use gent_drivers::node_runtime_lock::NodeRuntimeLock;
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy};

@@ -175,7 +175,7 @@ pub(super) fn run(resources: Arc<dyn ProbeInputs>) -> Result<OsProbeWitness, Str
     let expected_version = format!("{} (Claude Code)", resources.sdk_version());
     resources.observe(serde_json::json!({"phase":"settled","scopeKnown":true,"exitCode":exit,"stdoutBytes":stdout.len(),"exactVersionMatched":std::str::from_utf8(&stdout).ok().map(str::trim_end)==Some(expected_version.as_str())}));
     if !witnessed
-        || exit != Some(Some(0))
+        || exit != Some(0)
         || std::str::from_utf8(&stdout).ok().map(str::trim_end) != Some(expected_version.as_str())
         || stdout.len() > 4096
     {
@@ -243,7 +243,7 @@ fn probe_context(
     Ok((ledger, run_id, binding))
 }
 
-fn collect_exit<P>(process: &P) -> Result<(Vec<u8>, Option<Option<i32>>), String>
+fn collect_exit<P>(process: &P) -> Result<(Vec<u8>, Option<i32>), String>
 where
     P: ProviderProcess + ProcessTreeControl,
 {
@@ -287,5 +287,5 @@ where
             _ => break,
         }
     }
-    Ok((stdout, exit))
+    Ok((stdout, exit.flatten()))
 }
