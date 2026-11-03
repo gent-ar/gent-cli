@@ -350,13 +350,13 @@ mod retained_pin_tests {
     use super::*;
     #[test]
     fn exact_retained_generation_survives_path_rename() {
+        use std::io::Read;
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("image");
         std::fs::write(&path, b"approved-generation").unwrap();
         let file = retained_file_with(&path, 1, 1024, || Ok(())).unwrap();
         std::fs::rename(&path, root.path().join("old")).unwrap();
         std::fs::write(&path, b"replacement").unwrap();
-        use std::io::Read;
         let mut bytes = Vec::new();
         (&file).read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"approved-generation");

@@ -20,7 +20,7 @@ pub(super) fn retain_unsettled(lease: &Arc<ProviderGatewayLease>) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(super) fn release_test_retention(lease: &Arc<ProviderGatewayLease>) {
     retained_leases()
         .lock()

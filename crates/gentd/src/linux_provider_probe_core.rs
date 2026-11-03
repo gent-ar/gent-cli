@@ -50,10 +50,6 @@ pub(crate) struct OsProbeWitness {
     parent_identity: (u64, u64),
 }
 impl OsProbeWitness {
-    #[cfg(test)]
-    pub(super) fn qa_summary(&self) -> serde_json::Value {
-        serde_json::json!({"qaOnly":true,"kernelProbePassed":true,"scopeKnown":true,"ordinaryReleaseVerified":false,"normalRegistryAvailable":false,"providerDigest":self.provider.digest_sha256,"sourceFingerprint":self.manifest})
-    }
     pub(super) fn matches(&self, resources: &dyn ProbeInputs) -> bool {
         use std::os::unix::fs::MetadataExt;
         self.manifest == resources.fingerprint()

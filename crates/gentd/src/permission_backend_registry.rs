@@ -81,6 +81,81 @@ fn native(provider: AgentChatProvider) -> Result<(), String> {
     }
 }
 
+#[cfg(all(test, windows))]
+mod contained_ordinary_tests {
+    use super::*;
+    struct Resources(AgentChatProvider, gent_types::RunVersionLock);
+    impl VerifiedProviderFactoryResources for Resources {
+        fn provider(&self) -> AgentChatProvider {
+            self.0
+        }
+        fn executable_lock(&self) -> &gent_types::RunVersionLock {
+            &self.1
+        }
+        fn command_egress(&self) -> Option<gent_types::SandboxCommandEgress> {
+            None
+        }
+        fn recheck(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn contained_launch_verification_never_admits_an_unsandboxed_conversation() {
+        for (provider, name) in [
+            (AgentChatProvider::Codex, "codex"),
+            (AgentChatProvider::Claude, "claude"),
+            (AgentChatProvider::Claurst, "claurst"),
+        ] {
+            let resources = Resources(
+                provider,
+                gent_types::RunVersionLock {
+                    provider: name.into(),
+                    canonical_path: "pinned".into(),
+                    file_identity: "file".into(),
+                    digest_sha256: "a".repeat(64),
+                    version: "1".into(),
+                    compatibility_entry: "entry".into(),
+                },
+            );
+            for mode in [
+                gent_types::PermissionMode::AskEveryTime,
+                gent_types::PermissionMode::Bypass,
+            ] {
+                let binding = gent_types::SandboxPermissionBinding::new(
+                    "conversation".into(),
+                    "run".into(),
+                    gent_types::PolicyRecord {
+                        policy_id: "policy".into(),
+                        workspace_id: "workspace".into(),
+                        scope: gent_types::PolicyScope::ProviderPermissions,
+                        revision: 1,
+                        mode,
+                        containment: Containment::Unsandboxed,
+                        allowed_tools: vec![],
+                        allowed_categories: vec![],
+                    },
+                    gent_types::HostEpoch(1),
+                )
+                .unwrap();
+                assert!(
+                    require_verified_launch(provider, &binding, &resources.1, &resources)
+                        .is_err_and(|reason| reason.contains("supported permission binding"))
+                );
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn require_verified_linux_launch(
+    provider: AgentChatProvider,
+    binding: &gent_types::SandboxPermissionBinding,
+    lock: &gent_types::RunVersionLock,
+    authority: &crate::linux_provider_factory::LinuxFactoryAuthorization,
+) -> Result<(), String> {
+    authority.require_launch(provider, binding, lock)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,79 +243,4 @@ mod tests {
                 .is_err()
         );
     }
-}
-
-#[cfg(all(test, windows))]
-mod contained_ordinary_tests {
-    use super::*;
-    struct Resources(AgentChatProvider, gent_types::RunVersionLock);
-    impl VerifiedProviderFactoryResources for Resources {
-        fn provider(&self) -> AgentChatProvider {
-            self.0
-        }
-        fn executable_lock(&self) -> &gent_types::RunVersionLock {
-            &self.1
-        }
-        fn command_egress(&self) -> Option<gent_types::SandboxCommandEgress> {
-            None
-        }
-        fn recheck(&self) -> Result<(), String> {
-            Ok(())
-        }
-    }
-    #[test]
-    fn contained_launch_verification_never_admits_an_unsandboxed_conversation() {
-        for (provider, name) in [
-            (AgentChatProvider::Codex, "codex"),
-            (AgentChatProvider::Claude, "claude"),
-            (AgentChatProvider::Claurst, "claurst"),
-        ] {
-            let resources = Resources(
-                provider,
-                gent_types::RunVersionLock {
-                    provider: name.into(),
-                    canonical_path: "pinned".into(),
-                    file_identity: "file".into(),
-                    digest_sha256: "a".repeat(64),
-                    version: "1".into(),
-                    compatibility_entry: "entry".into(),
-                },
-            );
-            for mode in [
-                gent_types::PermissionMode::AskEveryTime,
-                gent_types::PermissionMode::Bypass,
-            ] {
-                let binding = gent_types::SandboxPermissionBinding::new(
-                    "conversation".into(),
-                    "run".into(),
-                    gent_types::PolicyRecord {
-                        policy_id: "policy".into(),
-                        workspace_id: "workspace".into(),
-                        scope: gent_types::PolicyScope::ProviderPermissions,
-                        revision: 1,
-                        mode,
-                        containment: Containment::Unsandboxed,
-                        allowed_tools: vec![],
-                        allowed_categories: vec![],
-                    },
-                    gent_types::HostEpoch(1),
-                )
-                .unwrap();
-                assert!(
-                    require_verified_launch(provider, &binding, &resources.1, &resources)
-                        .is_err_and(|reason| reason.contains("supported permission binding"))
-                );
-            }
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn require_verified_linux_launch(
-    provider: AgentChatProvider,
-    binding: &gent_types::SandboxPermissionBinding,
-    lock: &gent_types::RunVersionLock,
-    authority: &crate::linux_provider_factory::LinuxFactoryAuthorization,
-) -> Result<(), String> {
-    authority.require_launch(provider, binding, lock)
 }

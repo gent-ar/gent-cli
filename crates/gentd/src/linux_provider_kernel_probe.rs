@@ -41,7 +41,3 @@ impl KernelProbeSeal {
 pub(crate) fn run(resources: Arc<LinuxProviderResources>) -> Result<KernelProbeSeal, String> {
     core::run(resources).map(KernelProbeSeal)
 }
-#[cfg(test)]
-pub(crate) fn run_qa(resources: Arc<dyn ProbeInputs>) -> Result<serde_json::Value, String> {
-    core::run(resources).map(|w| w.qa_summary())
-}

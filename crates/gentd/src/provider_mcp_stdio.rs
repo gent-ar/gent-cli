@@ -192,7 +192,7 @@ impl StdioPeer {
             retained,
         }))
     }
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub fn wait_settled(&self, duration: Duration) -> bool {
         let end = Instant::now() + duration;
         while !self.settled.load(Ordering::Acquire) && Instant::now() < end {

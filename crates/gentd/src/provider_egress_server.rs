@@ -33,7 +33,7 @@ impl std::fmt::Debug for ProviderEgressBroker {
 }
 
 impl ProviderEgressBroker {
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub fn start(policy: ReviewedProviderEgress) -> Result<Self, EgressError> {
         Self::start_checked(policy, Arc::new(|| true))
     }
@@ -78,7 +78,7 @@ impl ProviderEgressBroker {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub fn endpoint(&self) -> SocketAddr {
         self.endpoint
     }
@@ -107,7 +107,7 @@ impl ProviderEgressBroker {
             .is_ok_and(|held| held.as_ref().is_none_or(|b| b.settled()))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub fn client_base_url(&self) -> String {
         format!("http://{}/v1", self.endpoint)
     }

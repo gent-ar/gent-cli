@@ -192,10 +192,6 @@ impl LinuxProviderResources {
     pub(crate) fn grants(&self) -> Vec<SandboxResourceGrant> {
         self.grants.clone()
     }
-    #[cfg(test)]
-    pub(crate) fn into_handles(self) -> Vec<File> {
-        self.handles
-    }
     pub(crate) fn mcp_for_launch(
         &self,
         launch: &gent_drivers::supervisor::ProviderLaunch,
