@@ -218,9 +218,7 @@ mod tests {
         let root = Arc::new(tempfile::tempdir().unwrap());
         let script = root.path().join("server.py");
         std::fs::write(&script,"import sys,json\nopen('spawned.txt','w').write('started')\nfor line in sys.stdin:\n m=json.loads(line)\n print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':{'tools':[]}}),flush=True)\n").unwrap();
-        let python = std::path::PathBuf::from(
-            "C:/Users/ADMIN/AppData/Local/Programs/Python/Python312/python.exe",
-        );
+        let python = super::super::mcp_stdio_scope_tests::python();
         let peer = DeferredPeer::new(Spec {
             launch_guard: guard,
             authority: root.clone(),

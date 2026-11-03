@@ -13,9 +13,7 @@ fn host_mcp_stdio_rechecks_captured_scope_immediately_before_actual_write() {
     let script = root.path().join("server.py");
     let effect = root.path().join("effect.txt");
     std::fs::write(&script,"import sys,json\nfor line in sys.stdin:\n m=json.loads(line)\n open('effect.txt','w').write('must-not-happen')\n print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':{}}),flush=True)\n").unwrap();
-    let python = std::path::PathBuf::from(
-        "C:/Users/ADMIN/AppData/Local/Programs/Python/Python312/python.exe",
-    );
+    let python = python();
     let peer = StdioPeer::spawn(Spec {
         launch_guard: Arc::new(|| true),
         authority: root.clone(),
@@ -69,4 +67,26 @@ fn host_mcp_stdio_rechecks_captured_scope_immediately_before_actual_write() {
     assert!(matches!(call.join().unwrap(), Err(Error::Unprovable)));
     assert!(peer.wait_settled(Duration::from_secs(5)));
     assert!(!effect.exists());
+}
+
+pub(crate) fn python() -> std::path::PathBuf {
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .filter(|directory| {
+            !directory
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .contains("windowsapps")
+        })
+        .map(|directory| directory.join("python.exe"))
+        .find(|candidate| {
+            candidate.is_file()
+                && std::process::Command::new(candidate)
+                    .args(["-c", "import sys; sys.exit(sys.version_info[0] < 3)"])
+                    .status()
+                    .is_ok_and(|status| status.success())
+        })
+        .and_then(|candidate| candidate.canonicalize().ok())
+        .expect("Python 3 python.exe on PATH")
 }

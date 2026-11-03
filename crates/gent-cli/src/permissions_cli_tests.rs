@@ -227,6 +227,8 @@ async fn set_saves_the_next_revision_for_the_resolved_workspace() {
         "/tmp/ws2",
         "--mode",
         "autonomous",
+        "--provider",
+        "codex",
     ])
     .unwrap();
     let Some(CommandLine::Permissions { action }) = args.command else {

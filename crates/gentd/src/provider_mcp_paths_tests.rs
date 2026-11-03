@@ -1,10 +1,11 @@
 use super::*;
 #[test]
 fn host_mcp_node_alias_swap_executes_only_the_pinned_canonical_entrypoint() {
-    let root = tempfile::tempdir().unwrap();
-    let host = root.path().join("host");
-    let workspace = root.path().join("workspace");
-    let worker = root.path().join("worker");
+    let temporary = tempfile::tempdir().unwrap();
+    let root = long_spelling(temporary.path());
+    let host = root.join("host");
+    let workspace = root.join("workspace");
+    let worker = root.join("worker");
     for path in [&host, &workspace, &worker] {
         std::fs::create_dir(path).unwrap();
     }
@@ -28,8 +29,9 @@ fn host_mcp_node_alias_swap_executes_only_the_pinned_canonical_entrypoint() {
         .unwrap();
     assert!(
         output.status.success(),
-        "node status {:?}",
-        output.status.code()
+        "node status {:?}: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
@@ -56,11 +58,12 @@ fn host_mcp_writable_code_and_private_state_entrypoints_are_rejected() {
 #[test]
 #[cfg(windows)]
 fn host_mcp_data_directory_uses_verified_ordinary_ipc_spelling() {
-    let root = tempfile::tempdir().unwrap();
-    let data = root.path().join("host-data");
+    let temporary = tempfile::tempdir().unwrap();
+    let root = long_spelling(temporary.path());
+    let data = root.join("host-data");
     std::fs::create_dir(&data).unwrap();
-    let workspace = root.path().join("workspace");
-    let worker = root.path().join("worker");
+    let workspace = root.join("workspace");
+    let worker = root.join("worker");
     std::fs::create_dir(&worker).unwrap();
     let (argument, pins) = super::host_data(&data, &workspace, &worker).unwrap();
     assert!(!argument.to_str().unwrap().starts_with(r"\\?\"));
@@ -128,4 +131,10 @@ fn host_mcp_node_script_ordinary_argument_preserves_pinned_file_identity() {
     assert!(super::ordinary_argument(&source).is_err());
     drop(pins);
     std::fs::remove_file(source).unwrap();
+}
+
+fn long_spelling(path: &std::path::Path) -> std::path::PathBuf {
+    let canonical = path.canonicalize().unwrap();
+    let spelled = canonical.to_string_lossy();
+    std::path::PathBuf::from(spelled.strip_prefix(r"\\?\").unwrap_or(&spelled))
 }

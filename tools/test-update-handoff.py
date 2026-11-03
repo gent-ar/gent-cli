@@ -202,14 +202,15 @@ def main() -> None:
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.3"
             subprocess.run(command("v1.2.3", first, install, data, env), cwd=ROOT, env=env, check=True)
             assert current_matches(install, "v1.2.3", runtime_target)
-            installed = install / "lib" / "gent" / "releases" / f"v1.2.3-{runtime_target}"
+            installed = (install / "lib" / "gent" / "current").resolve()
             assert (installed / "supervise-runtime-activation.py").is_file()
             assert (installed / "gent-auto-update.py").is_file()
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.4"
             subprocess.run(command("v1.2.4", second, install, data, env), cwd=ROOT, env=env, check=True)
             assert current_matches(install, "v1.2.4", runtime_target)
-            assert (install / "lib" / "gent" / "releases" / f"v1.2.4-{runtime_target}" / "supervise-runtime-activation.py").is_file()
-            assert (install / "lib" / "gent" / "releases" / f"v1.2.4-{runtime_target}" / "gent-auto-update.py").is_file()
+            installed = (install / "lib" / "gent" / "current").resolve()
+            assert (installed / "supervise-runtime-activation.py").is_file()
+            assert (installed / "gent-auto-update.py").is_file()
             env["GENT_RELEASE_BASE_URL"] = f"http://127.0.0.1:{port}/v1.2.5"
             env["GENT_RUNTIME_ACTIVATION_TIMEOUT_SECONDS"] = "1"
             lock = held_lock(data / "gentd.lock")
