@@ -73,14 +73,25 @@ if ((print_only)); then
 fi
 
 cd "$ROOT"
-CARGO_TARGET_DIR="$target_dir" "${command[@]}"
+status=0
+CARGO_TARGET_DIR="$target_dir" "${command[@]}" || status=$?
+[[ -f "$report_path" ]] || exit "$((status ? status : 1))"
 python3 - "$report_path" <<'PY'
 import json
 import sys
 
 report = json.load(open(sys.argv[1], encoding="utf-8"))
-lines = report["data"][0]["totals"]["lines"]
+data = report["data"][0]
+lines = data["totals"]["lines"]
 print("production library line coverage: {:.2f}% ({}/{})".format(
     lines["percent"], lines["covered"], lines["count"]
 ))
+missing = sorted(
+    data.get("files", []),
+    key=lambda entry: entry["summary"]["lines"]["covered"] - entry["summary"]["lines"]["count"],
+)
+for entry in missing[:15]:
+    summary = entry["summary"]["lines"]
+    print("  {:>5} uncovered  {}".format(summary["count"] - summary["covered"], entry["filename"]))
 PY
+exit "$status"
