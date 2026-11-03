@@ -22,9 +22,9 @@ pub(crate) enum ClaurstOwnedAcpStdio {
     },
 }
 
+#[cfg(windows)]
 impl ClaurstOwnedAcpStdio {
     fn settle_after_model_loss(&self) {
-        #[cfg(windows)]
         if let Self::Contained {
             process,
             model_current,
@@ -77,6 +77,7 @@ impl ClaurstAcpStdio for ClaurstOwnedAcpStdio {
         }
     }
     fn sandbox_evidence(&self) -> Option<&ProcessSandboxEvidence> {
+        #[cfg(windows)]
         self.settle_after_model_loss();
         match self {
             #[cfg(windows)]
@@ -85,6 +86,7 @@ impl ClaurstAcpStdio for ClaurstOwnedAcpStdio {
         }
     }
     fn write_frame(&mut self, bytes: &[u8]) -> Result<(), String> {
+        #[cfg(windows)]
         self.settle_after_model_loss();
         match self {
             Self::Host { process, .. } => process.write_frame(bytes),
@@ -104,6 +106,7 @@ impl ClaurstAcpStdio for ClaurstOwnedAcpStdio {
         }
     }
     fn exited(&mut self) -> Result<Option<String>, String> {
+        #[cfg(windows)]
         self.settle_after_model_loss();
         match self {
             Self::Host { process, .. } => process.exited(),

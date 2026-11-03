@@ -1,14 +1,17 @@
 //! A host stdio owner: bounded framing, one writer, correlated replies and a
 //! Windows Job whose wait includes descendants. Never logs child frames/env.
 use super::mcp::{Error, MAX_MESSAGE, Peer, Ticket};
-use process_wrap::std::{ChildWrapper, CommandWrap};
+use process_wrap::std::ChildWrapper;
+#[cfg(not(target_os = "linux"))]
+use process_wrap::std::CommandWrap;
 use serde_json::Value;
+#[cfg(not(target_os = "linux"))]
+use std::process::{Command, Stdio};
 use std::{
     collections::BTreeMap,
     fs::File,
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
-    process::{Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -100,6 +103,7 @@ pub struct StdioPeer {
 impl StdioPeer {
     /// The caller must supply the host-approved snapshot and retain every
     /// executable/script authority pin in Spec. This is not worker input.
+    #[cfg(not(target_os = "linux"))]
     pub fn spawn(spec: Spec) -> Result<Arc<Self>, Error> {
         #[cfg(target_os = "linux")]
         {

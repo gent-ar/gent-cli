@@ -1,6 +1,6 @@
 //! Normal Linux broad-mode factory. Installed authority, a real settled kernel
 //! probe and a fresh run binding are required; host fallback is never selected.
-use super::*;
+use super::{ProviderLaunch, RoutedProviderProcess, SandboxProviderLauncher, SupervisorError};
 impl SandboxProviderLauncher {
     pub(super) fn linux_authority(
         &self,

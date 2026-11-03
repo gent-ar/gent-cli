@@ -6,7 +6,13 @@ use gent_drivers::{
     supervisor::ProviderLaunch,
 };
 use gent_ports::{AgentChatWorkspaceLedger, PolicyLedger};
-use gent_types::*;
+use gent_types::{
+    AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
+    AgentChatProvider, AgentChatRunId, AgentChatSelection, Containment, HostEpoch, PermissionMode,
+    PolicyRecord, PolicyScope, ReceiptId, RunVersionLock, SandboxCpuSemantics, SandboxLaunchPolicy,
+    SandboxNetworkPolicy, SandboxPermissionBinding, SandboxPrivateState, SandboxResourceGrant,
+    SandboxResourceLimits, SandboxWorkspaceAccess, SandboxedLaunchRequest, WorkspaceRecord,
+};
 use std::{
     path::Path,
     sync::{Arc, OnceLock},
@@ -44,6 +50,7 @@ pub(crate) struct OsProbeWitness {
     parent_identity: (u64, u64),
 }
 impl OsProbeWitness {
+    #[cfg(test)]
     pub(super) fn qa_summary(&self) -> serde_json::Value {
         serde_json::json!({"qaOnly":true,"kernelProbePassed":true,"scopeKnown":true,"ordinaryReleaseVerified":false,"normalRegistryAvailable":false,"providerDigest":self.provider.digest_sha256,"sourceFingerprint":self.manifest})
     }
@@ -73,7 +80,7 @@ pub(super) fn run(resources: Arc<dyn ProbeInputs>) -> Result<OsProbeWitness, Str
     let state = root.path().join("state");
     std::fs::create_dir(&workspace).map_err(|_| "Linux preflight workspace")?;
     std::fs::create_dir(&state).map_err(|_| "Linux preflight state")?;
-    let ledger = gent_store::SqliteLedger::open(&root.path().join("probe.sqlite"))
+    let ledger = gent_store::SqliteLedger::open(root.path().join("probe.sqlite"))
         .map_err(|_| "Linux preflight ledger unavailable")?;
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let conversation = format!("linux-preflight-conversation-{nonce}");

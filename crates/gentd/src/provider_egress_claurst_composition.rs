@@ -76,7 +76,7 @@ impl ProviderGatewayLease {
             #[cfg(any(windows, target_os = "linux"))]
             mcp: std::sync::Mutex::default(),
             #[cfg(target_os = "linux")]
-            mcp_deployment: Default::default(),
+            mcp_deployment: std::sync::Mutex::default(),
         }))
     }
 

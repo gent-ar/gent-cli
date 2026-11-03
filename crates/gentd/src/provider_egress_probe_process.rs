@@ -28,6 +28,7 @@ impl ProbeFailure {
             retained: None,
         }
     }
+    #[cfg(any(windows, test))]
     pub fn unknown() -> Self {
         Self {
             known: false,
@@ -49,6 +50,7 @@ impl std::fmt::Debug for ProbeFailure {
             .finish()
     }
 }
+#[cfg(windows)]
 pub(super) fn environment() -> BTreeMap<String, String> {
     [
         "SystemRoot",
@@ -88,21 +90,12 @@ pub(super) fn run(
         timeout,
     )
 }
-#[cfg(not(windows))]
-pub(super) fn run(
-    _: &RunVersionLock,
-    _: &Path,
-    _: &[String],
-    _: &BTreeMap<String, String>,
-    _: Duration,
-) -> Result<ProbeOutput, ProbeFailure> {
-    Err(ProbeFailure::known())
-}
 #[cfg(windows)]
 #[path = "provider_egress_probe_windows.rs"]
 mod windows;
 #[cfg(windows)]
 use windows::run_with_helper;
+#[cfg(windows)]
 fn await_with_authority(
     worker: JoinHandle<Result<ProbeOutput, ProbeFailure>>,
     deadline: Instant,
@@ -116,6 +109,7 @@ fn await_with_authority(
         }
     })
 }
+#[cfg(windows)]
 fn await_worker(
     worker: JoinHandle<Result<ProbeOutput, ProbeFailure>>,
     deadline: Instant,
@@ -128,6 +122,7 @@ fn await_worker(
     }
     worker.join().map_err(|_| ProbeFailure::unknown())?
 }
+#[cfg(windows)]
 fn bounded(reader: impl Read, limit: u64) -> std::io::Result<Vec<u8>> {
     let mut output = Vec::new();
     reader.take(limit + 1).read_to_end(&mut output)?;
@@ -138,6 +133,7 @@ fn bounded(reader: impl Read, limit: u64) -> std::io::Result<Vec<u8>> {
 }
 // None is unauthenticated/Unknown. Some(Err) is an authenticated Known
 // settled failure (including read/size errors), never a successful capture.
+#[cfg(windows)]
 fn decode(bytes: &[u8]) -> Option<Result<ProbeOutput, ProbeFailure>> {
     if bytes.len() < 20 || &bytes[..8] != b"GENTPRB2" {
         return None;

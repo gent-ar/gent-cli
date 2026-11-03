@@ -10,6 +10,7 @@ use super::{ProviderExecutables, current_identity, dependency};
 pub(crate) struct ManagedProviderRuntime {
     executable: RunVersionLock,
     package: ApprovedPackageInstall,
+    #[cfg(windows)]
     package_root: PathBuf,
     node: NodeRuntimeLock,
 }
@@ -21,6 +22,7 @@ impl ManagedProviderRuntime {
     pub(crate) fn package(&self) -> &ApprovedPackageInstall {
         &self.package
     }
+    #[cfg(windows)]
     pub(crate) fn package_root(&self) -> &Path {
         &self.package_root
     }
@@ -136,6 +138,7 @@ impl ProviderExecutables {
         let runtime = ManagedProviderRuntime {
             executable: launch.clone(),
             package,
+            #[cfg(windows)]
             package_root,
             node,
         };

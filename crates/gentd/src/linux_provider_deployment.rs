@@ -121,7 +121,7 @@ fn verify(
     now: u64,
 ) -> Result<Payload, &'static str> {
     if bytes.is_empty()
-        || bytes.len() > MAX_DESCRIPTOR as usize
+        || bytes.len() > usize::try_from(MAX_DESCRIPTOR).unwrap_or(usize::MAX)
         || keys.is_empty()
         || keys.len() > 8
     {
@@ -226,7 +226,7 @@ impl VerifiedLinuxDeployment {
         let root = checked_descriptor_root(path, resource_root)?;
         let mut file = OpenOptions::new()
             .read(true)
-            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
             .open(path)
             .map_err(|_| "Linux deployment absent")?;
         let before = file.metadata().map_err(|_| "Linux deployment metadata")?;
@@ -303,7 +303,7 @@ impl VerifiedLinuxDeployment {
             .take(MAX_DESCRIPTOR + 1)
             .read_to_end(&mut descriptor)
             .map_err(|_| "Linux descriptor changed")?;
-        if descriptor.len() > MAX_DESCRIPTOR as usize
+        if descriptor.len() > usize::try_from(MAX_DESCRIPTOR).unwrap_or(usize::MAX)
             || format!("{:x}", Sha256::digest(descriptor)) != self.descriptor_sha256
         {
             return Err("Linux descriptor changed");
@@ -323,7 +323,7 @@ impl VerifiedLinuxDeployment {
                 return Err("Linux resource size changed");
             }
             let mut digest = Sha256::new();
-            let mut buffer = [0; 65536];
+            let mut buffer = vec![0; 65536];
             let mut total = 0u64;
             loop {
                 let n = file.read(&mut buffer).map_err(|_| "Linux resource read")?;

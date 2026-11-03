@@ -40,7 +40,8 @@ mod linux {
         {
             return Err("scope mismatch");
         }
-        if rustix::process::getppid().map(|pid| pid.as_raw_pid() as u32) != Some(start.parent_pid)
+        if rustix::process::getppid().map(|pid| pid.as_raw_pid().cast_unsigned())
+            != Some(start.parent_pid)
             || birth(start.parent_pid).ok().as_deref() != Some(start.parent_birth.as_str())
         {
             return Err("owner identity");
@@ -53,17 +54,15 @@ mod linux {
         }
         let required = mxc_baseline::required_existing_roots().map_err(|_| "baseline inspect")?;
         for root in required {
-            if !start.readonly.iter().any(|p| {
-                std::fs::canonicalize(p)
-                    .ok()
-                    .is_some_and(|p| root.starts_with(p))
-            }) {
+            if !start
+                .readonly
+                .iter()
+                .any(|p| std::fs::canonicalize(p).is_ok_and(|p| root.starts_with(p)))
+            {
                 return Err("baseline not approved");
             }
             if start.readwrite.iter().any(|p| {
-                std::fs::canonicalize(p)
-                    .ok()
-                    .is_some_and(|p| root.starts_with(&p) || p.starts_with(&root))
+                std::fs::canonicalize(p).is_ok_and(|p| root.starts_with(&p) || p.starts_with(&root))
             }) {
                 return Err("system baseline cannot be writable");
             }
@@ -183,7 +182,7 @@ mod linux {
         serde_json::to_writer(&mut worker_input, &gate_start).map_err(|_| "gate startup write")?;
         worker_input
             .write_all(b"\n")
-            .and_then(|_| worker_input.flush())
+            .and_then(|()| worker_input.flush())
             .map_err(|_| "gate startup write")?;
         let gate_ready: gent_linux_sandbox::contained_gate::GateReady = serde_json::from_slice(
             &gent_linux_sandbox::contained_gate::line(&mut worker_output, 65536)?,
@@ -218,7 +217,7 @@ mod linux {
         drop(release);
         worker_input
             .write_all(format!("GENT-CONTAINED-GO/1 {}\n", start.nonce).as_bytes())
-            .and_then(|_| worker_input.flush())
+            .and_then(|()| worker_input.flush())
             .map_err(|_| "gate release")?;
         thread::spawn(move || {
             let _ = std::io::copy(&mut std::io::stdin().lock(), &mut worker_input);
@@ -237,7 +236,7 @@ mod linux {
             result
         });
         let code = loop {
-            if rustix::process::getppid().map(|pid| pid.as_raw_pid() as u32)
+            if rustix::process::getppid().map(|pid| pid.as_raw_pid().cast_unsigned())
                 != Some(start.parent_pid)
                 || birth(start.parent_pid).ok().as_deref() != Some(start.parent_birth.as_str())
             {

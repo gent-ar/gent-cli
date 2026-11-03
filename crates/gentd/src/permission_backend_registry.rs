@@ -93,6 +93,7 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
     #[test]
     fn exact_preparation_checks_provider_executable_and_recheck_without_claiming_process_proof() {
         struct Fixture {

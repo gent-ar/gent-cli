@@ -40,12 +40,12 @@ mod linux {
         };
         let data = serde_json::to_vec(&value).unwrap();
         let mut out = std::io::stdout().lock();
-        out.write_all(&((data.len() + 5) as u32).to_be_bytes())
+        out.write_all(&u32::try_from(data.len() + 5).unwrap().to_be_bytes())
             .unwrap();
         out.write_all(&[40, 0, 0, 0, 0]).unwrap();
         out.write_all(&data).unwrap();
         out.flush().unwrap();
-        std::process::exit(if value["passed"] == true { 0 } else { 1 });
+        std::process::exit(i32::from(value["passed"] != true));
     }
     fn child() -> Result<(), &'static str> {
         let mut line = String::new();
@@ -67,7 +67,7 @@ mod linux {
         }
         let snapshot = SealedExecutable::capture(&lock)?;
         let ready = serde_json::json!({"fd":snapshot.as_fd().as_raw_fd(),"sha256":snapshot.origin().digest_sha256,"bytes":snapshot.bytes(),"pid":std::process::id(),"birth":birth(std::process::id())?,"originUid":std::fs::metadata(&path).map_err(|_|"origin metadata")?.uid(),"originLock":lock});
-        println!("{}", ready);
+        println!("{ready}");
         std::io::stdout().flush().map_err(|_| "ready flush")?;
         line.clear();
         std::io::stdin()
@@ -286,7 +286,7 @@ mod linux {
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                     Err(_) => return Err("SDK output"),
-                };
+                }
                 if let Some(status) = child.try_wait().map_err(|_| "SDK exit")? {
                     exit = Some(status.success());
                     break;

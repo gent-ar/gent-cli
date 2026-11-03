@@ -192,6 +192,7 @@ impl LinuxProviderResources {
     pub(crate) fn grants(&self) -> Vec<SandboxResourceGrant> {
         self.grants.clone()
     }
+    #[cfg(test)]
     pub(crate) fn into_handles(self) -> Vec<File> {
         self.handles
     }

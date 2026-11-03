@@ -11,7 +11,9 @@ impl ReviewedProviderEgress {
         let relative = match (self.api, method, path) {
             (ProviderApi::Claude, "POST", "/v1/messages") => "messages",
             (ProviderApi::Claude, "POST", "/v1/messages/count_tokens") => "messages/count_tokens",
+            #[cfg(windows)]
             (ProviderApi::Codex, "POST", "/v1/responses") => "responses",
+            #[cfg(windows)]
             (ProviderApi::Codex, "POST", "/v1/responses/compact") => "responses/compact",
             (ProviderApi::Claurst, "POST", "/v1/chat/completions") => "chat/completions",
             (_, "GET", "/v1/models") => "models",
@@ -20,9 +22,12 @@ impl ReviewedProviderEgress {
         if query.is_some() && !(self.api == ProviderApi::Claude && query == Some("beta=true")) {
             return Err(EgressError::Request);
         }
+        #[cfg(windows)]
         let ProviderTarget::Http { upstream, .. } = &self.target else {
             return Err(EgressError::Configuration);
         };
+        #[cfg(not(windows))]
+        let ProviderTarget::Http { upstream, .. } = &self.target;
         let mut target = upstream.join(relative).map_err(|_| EgressError::Request)?;
         target.set_query(query);
         Ok(target)
@@ -64,9 +69,12 @@ impl ReviewedProviderEgress {
                 );
             }
         }
+        #[cfg(windows)]
         let ProviderTarget::Http { client, .. } = &self.target else {
             return Err(EgressError::Configuration);
         };
+        #[cfg(not(windows))]
+        let ProviderTarget::Http { client, .. } = &self.target;
         let response = client
             .request(method, target)
             .headers(headers)

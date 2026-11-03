@@ -15,6 +15,7 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(windows)]
 #[path = "contained_claurst_mcp.rs"]
 mod claurst;
 
@@ -220,6 +221,7 @@ impl HostMcpConfig {
     ) -> Result<WorkerMcpConfig, String> {
         self.materialize_format(private_root, routes, false)
     }
+    #[cfg(windows)]
     pub(crate) fn materialize_claurst(
         &self,
         private_root: &Path,

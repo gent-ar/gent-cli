@@ -47,6 +47,7 @@ mod probe_options;
 mod probe_owner;
 use probe_options::{arguments, isolate_environment};
 
+#[cfg(windows)]
 fn resolve_reviewed(
     lock: &RunVersionLock,
     probe_root: &Path,

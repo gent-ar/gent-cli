@@ -12,6 +12,7 @@ mod claude_credential;
 #[cfg(windows)]
 #[path = "provider_egress_codex_credential.rs"]
 mod codex_credential;
+#[cfg(windows)]
 #[path = "provider_egress_codex_owner.rs"]
 mod codex_owner;
 #[cfg(windows)]
@@ -88,12 +89,17 @@ mod tests;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderApi {
     Claude,
+    #[cfg(windows)]
     Codex,
     Claurst,
 }
 
 enum ProviderTarget {
-    Http { upstream: Url, client: Client },
+    Http {
+        upstream: Url,
+        client: Client,
+    },
+    #[cfg(windows)]
     ContainedModel(crate::contained_model::ModelEndpoint),
 }
 

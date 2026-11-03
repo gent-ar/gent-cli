@@ -17,7 +17,7 @@ pub(super) fn validate(
         .filter(|(_, lock)| lock.provider == "node-mcp")
         .map(|(name, _)| name)
         .collect();
-    if entries.keys().ne(expected.into_iter()) {
+    if entries.keys().ne(expected) {
         return Err(Error::Denied);
     }
     for (name, server) in config.servers() {

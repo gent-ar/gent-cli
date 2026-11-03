@@ -1,6 +1,9 @@
 //! Linux-only managed-lease composition; no credential capture or platform fallback.
-//! Included as a child of provider_egress::composition after explicit review.
-use super::*;
+use super::{
+    Arc, Coordinator, EgressError, GatewayBoundLauncher, Path, ProviderGatewayLease,
+    RunVersionLock, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceGrant,
+    SandboxResourceLimits, SandboxedLauncher, SqliteLedger, claude_credential,
+};
 use gent_linux_sandbox::{GatewayAuthority, LinuxMxcLauncher, RuntimePin};
 use gent_types::{SandboxCpuSemantics, SandboxPermissionBinding};
 use std::path::PathBuf;

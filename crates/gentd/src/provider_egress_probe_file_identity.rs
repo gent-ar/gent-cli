@@ -77,7 +77,8 @@ pub(super) fn open_path(path: &Path) -> Result<File, EgressError> {
             (rustix::fs::OFlags::NOFOLLOW
                 | rustix::fs::OFlags::NONBLOCK
                 | rustix::fs::OFlags::DIRECTORY)
-                .bits() as i32,
+                .bits()
+                .cast_signed(),
         );
     }
     let file = options

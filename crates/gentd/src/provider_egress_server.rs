@@ -122,6 +122,7 @@ impl ProviderEgressBroker {
         };
         let api = match self.api {
             ProviderApi::Claude => gent_types::SandboxGatewayApi::Claude,
+            #[cfg(windows)]
             ProviderApi::Codex => gent_types::SandboxGatewayApi::Codex,
             ProviderApi::Claurst => gent_types::SandboxGatewayApi::Claurst,
         };
@@ -254,9 +255,8 @@ fn serve(
             .respond(request, stream)
             .map_err(|_| EgressError::Transport);
     }
+    #[cfg(windows)]
     if let super::ProviderTarget::ContainedModel(model) = &policy.target {
-        // wire::read has authenticated the run bearer. No credential/header is
-        // forwarded into the network-disabled model worker.
         let response = model.respond(
             crate::contained_model::ModelRequest {
                 method: request.method,
@@ -267,8 +267,6 @@ fn serve(
         );
         return match response {
             Ok(()) => Ok(()),
-            // A partially sent JSON/SSE body is truncated; never append a second
-            // status line or a successful terminal chunk after a worker failure.
             Err(error) if error.started => Ok(()),
             Err(error) => Err(match error.error {
                 crate::contained_model::ModelError::Request => EgressError::Request,

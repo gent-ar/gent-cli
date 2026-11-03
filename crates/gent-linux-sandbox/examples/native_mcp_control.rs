@@ -117,6 +117,7 @@ mod linux {
         Ok(())
     }
     fn run() -> Result<serde_json::Value, &'static str> {
+        use std::os::unix::fs::MetadataExt;
         // Consume only the public bootstrap frame; no SDK/user credentials.
         let mut n = [0; 4];
         std::io::stdin()
@@ -140,7 +141,7 @@ mod linux {
             return Err("Gent initialize response");
         }
         let input = child.stdin().as_mut().ok_or("MCP stdin")?;
-        input.write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n").and_then(|_|input.flush()).map_err(|_|"MCP catalog request")?;
+        input.write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n").and_then(|()|input.flush()).map_err(|_|"MCP catalog request")?;
         let catalog = rpc(&mut child, &mut out, 2, &mut buffer)?;
         let count = catalog["result"]["tools"]
             .as_array()
@@ -199,7 +200,6 @@ mod linux {
         }
         let scope = &scopes[0];
         let held = std::fs::metadata(scope).map_err(|_| "owner scope identity")?;
-        use std::os::unix::fs::MetadataExt;
         if !scope.file_name().and_then(|v| v.to_str()).is_some_and(|v| {
             v.len() == 37 && v.starts_with("gent-") && v[5..].bytes().all(|c| c.is_ascii_hexdigit())
         }) || held.uid() != rustix::process::geteuid().as_raw()
@@ -235,7 +235,7 @@ mod linux {
     }
     pub fn main() {
         if std::env::args().any(|v| v == "--owner-child") {
-            std::process::exit(if owner_child().is_ok() { 0 } else { 1 });
+            std::process::exit(i32::from(owner_child().is_err()));
         }
         let v = match run() {
             Ok(v) => v,
@@ -243,12 +243,12 @@ mod linux {
         };
         let bytes = serde_json::to_vec(&v).unwrap();
         let mut out = std::io::stdout().lock();
-        out.write_all(&((bytes.len() + 5) as u32).to_be_bytes())
+        out.write_all(&u32::try_from(bytes.len() + 5).unwrap().to_be_bytes())
             .unwrap();
         out.write_all(&[40, 0, 0, 0, 0]).unwrap();
         out.write_all(&bytes).unwrap();
         out.flush().unwrap();
-        std::process::exit(if v["passed"] == true { 0 } else { 1 });
+        std::process::exit(i32::from(v["passed"] != true));
     }
 }
 #[cfg(target_os = "linux")]

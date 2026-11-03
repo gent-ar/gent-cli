@@ -6,6 +6,7 @@ mod approved_codex_host_bounds_tests;
 mod claude_early_exit_tests;
 #[path = "claude_failure_notice_tests.rs"]
 mod claude_failure_notice_tests;
+#[cfg(windows)]
 #[path = "claurst_sandbox_tests.rs"]
 mod claurst_sandbox_tests;
 #[path = "internal_mcp_regressions.rs"]
