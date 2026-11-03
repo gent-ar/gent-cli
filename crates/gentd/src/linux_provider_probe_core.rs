@@ -80,48 +80,7 @@ pub(super) fn run(resources: Arc<dyn ProbeInputs>) -> Result<OsProbeWitness, Str
     let state = root.path().join("state");
     std::fs::create_dir(&workspace).map_err(|_| "Linux preflight workspace")?;
     std::fs::create_dir(&state).map_err(|_| "Linux preflight state")?;
-    let ledger = gent_store::SqliteLedger::open(root.path().join("probe.sqlite"))
-        .map_err(|_| "Linux preflight ledger unavailable")?;
-    let nonce = uuid::Uuid::new_v4().simple().to_string();
-    let conversation = format!("linux-preflight-conversation-{nonce}");
-    let run_id = format!("linux-preflight-run-{nonce}");
-    let workspace_id = format!("linux-preflight-workspace-{nonce}");
-    ledger
-        .create_agent_chat_conversation_in_workspace(
-            &AgentChatConversationCreate {
-                receipt_id: ReceiptId(nonce.clone()),
-                idempotency_key: nonce.clone(),
-                host_epoch: HostEpoch(1),
-                conversation_id: AgentChatConversationId(conversation.clone()),
-                run_id: AgentChatRunId(run_id.clone()),
-                selection: AgentChatSelection {
-                    provider: AgentChatProvider::Claude,
-                    model: "haiku".into(),
-                    effort: AgentChatEffort::Low,
-                    mode: AgentChatMode::Ask,
-                },
-            },
-            &WorkspaceRecord {
-                workspace_id: workspace_id.clone(),
-                canonical_path: workspace.to_str().ok_or("Linux preflight path")?.into(),
-            },
-        )
-        .map_err(|_| "Linux preflight durable context")?;
-    let policy = PolicyRecord {
-        policy_id: format!("linux-preflight-policy-{nonce}"),
-        workspace_id,
-        scope: PolicyScope::ProviderPermissions,
-        revision: 1,
-        mode: PermissionMode::AskEveryTime,
-        containment: Containment::Sandboxed,
-        allowed_tools: vec![],
-        allowed_categories: vec![],
-    };
-    ledger
-        .save_policy(&policy)
-        .map_err(|_| "Linux preflight policy")?;
-    let binding = SandboxPermissionBinding::new(conversation, run_id.clone(), policy, HostEpoch(1))
-        .map_err(|_| "Linux preflight binding")?;
+    let (ledger, run_id, binding) = probe_context(root.path(), &workspace)?;
     let private = SandboxPrivateState::new(run_id.clone(), state)
         .map_err(|_| "Linux preflight private state")?;
     for path in private.directories() {
@@ -209,6 +168,85 @@ pub(super) fn run(resources: Arc<dyn ProbeInputs>) -> Result<OsProbeWitness, Str
     let live_at_read = matches!(process.try_exit_code(), Ok(None));
     let witnessed = recorded_execution && different_run_rejected && different_image_rejected;
     resources.observe(serde_json::json!({"phase":"witness","backendRecordedExecution":recorded_execution,"differentRunRejected":different_run_rejected,"differentImageRejected":different_image_rejected,"liveAtCallerReadDiagnosticOnly":live_at_read}));
+    let (stdout, exit) = collect_exit(&process)?;
+    if !held().release_after_scope_known(&authority) {
+        return Err("Linux probe ownership generation changed after settlement".into());
+    }
+    let expected_version = format!("{} (Claude Code)", resources.sdk_version());
+    resources.observe(serde_json::json!({"phase":"settled","scopeKnown":true,"exitCode":exit,"stdoutBytes":stdout.len(),"exactVersionMatched":std::str::from_utf8(&stdout).ok().map(str::trim_end)==Some(expected_version.as_str())}));
+    if !witnessed
+        || exit != Some(Some(0))
+        || std::str::from_utf8(&stdout).ok().map(str::trim_end) != Some(expected_version.as_str())
+        || stdout.len() > 4096
+    {
+        return Err(
+            "Linux kernel probe did not establish the exact managed contained version exit".into(),
+        );
+    }
+    let seal = OsProbeWitness {
+        manifest: resources.fingerprint().into(),
+        provider: resources.executable().clone(),
+        parent_identity,
+    };
+    if seal.manifest != resources.fingerprint() || seal.provider != *resources.executable() {
+        return Err("Linux deployment changed during kernel probe".into());
+    }
+    Ok(seal)
+}
+
+fn probe_context(
+    root: &Path,
+    workspace: &Path,
+) -> Result<(gent_store::SqliteLedger, String, SandboxPermissionBinding), String> {
+    let ledger = gent_store::SqliteLedger::open(root.join("probe.sqlite"))
+        .map_err(|_| "Linux preflight ledger unavailable")?;
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let conversation = format!("linux-preflight-conversation-{nonce}");
+    let run_id = format!("linux-preflight-run-{nonce}");
+    let workspace_id = format!("linux-preflight-workspace-{nonce}");
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId(nonce.clone()),
+                idempotency_key: nonce.clone(),
+                host_epoch: HostEpoch(1),
+                conversation_id: AgentChatConversationId(conversation.clone()),
+                run_id: AgentChatRunId(run_id.clone()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "haiku".into(),
+                    effort: AgentChatEffort::Low,
+                    mode: AgentChatMode::Ask,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: workspace_id.clone(),
+                canonical_path: workspace.to_str().ok_or("Linux preflight path")?.into(),
+            },
+        )
+        .map_err(|_| "Linux preflight durable context")?;
+    let policy = PolicyRecord {
+        policy_id: format!("linux-preflight-policy-{nonce}"),
+        workspace_id,
+        scope: PolicyScope::ProviderPermissions,
+        revision: 1,
+        mode: PermissionMode::AskEveryTime,
+        containment: Containment::Sandboxed,
+        allowed_tools: vec![],
+        allowed_categories: vec![],
+    };
+    ledger
+        .save_policy(&policy)
+        .map_err(|_| "Linux preflight policy")?;
+    let binding = SandboxPermissionBinding::new(conversation, run_id.clone(), policy, HostEpoch(1))
+        .map_err(|_| "Linux preflight binding")?;
+    Ok((ledger, run_id, binding))
+}
+
+fn collect_exit<P>(process: &P) -> Result<(Vec<u8>, Option<Option<i32>>), String>
+where
+    P: ProviderProcess + ProcessTreeControl,
+{
     let begun = Instant::now();
     let mut stdout = Vec::new();
     let mut exit = None;
@@ -243,34 +281,11 @@ pub(super) fn run(resources: Arc<dyn ProbeInputs>) -> Result<OsProbeWitness, Str
     if exit.is_none() {
         return Err("Linux kernel probe scope settlement is unknown; authority retained".into());
     }
-    // Native settlement may enqueue the final bounded output at exit.
     while stdout.len() <= 4096 {
         match process.next_stdout_chunk() {
             Ok(Some(bytes)) => stdout.extend(bytes),
             _ => break,
         }
     }
-    if !held().release_after_scope_known(&authority) {
-        return Err("Linux probe ownership generation changed after settlement".into());
-    }
-    let expected_version = format!("{} (Claude Code)", resources.sdk_version());
-    resources.observe(serde_json::json!({"phase":"settled","scopeKnown":true,"exitCode":exit,"stdoutBytes":stdout.len(),"exactVersionMatched":std::str::from_utf8(&stdout).ok().map(str::trim_end)==Some(expected_version.as_str())}));
-    if !witnessed
-        || exit != Some(Some(0))
-        || std::str::from_utf8(&stdout).ok().map(str::trim_end) != Some(expected_version.as_str())
-        || stdout.len() > 4096
-    {
-        return Err(
-            "Linux kernel probe did not establish the exact managed contained version exit".into(),
-        );
-    }
-    let seal = OsProbeWitness {
-        manifest: resources.fingerprint().into(),
-        provider: resources.executable().clone(),
-        parent_identity,
-    };
-    if seal.manifest != resources.fingerprint() || seal.provider != *resources.executable() {
-        return Err("Linux deployment changed during kernel probe".into());
-    }
-    Ok(seal)
+    Ok((stdout, exit))
 }

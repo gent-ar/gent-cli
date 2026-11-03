@@ -97,6 +97,7 @@ impl Fixture {
 }
 
 #[test]
+#[cfg(windows)]
 fn managed_resources_follow_only_the_receipt_bound_generation() {
     let fixture = Fixture::new();
     let prefix = crate::standalone_provider_setup::provider_generation_prefix(

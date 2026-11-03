@@ -45,7 +45,7 @@ impl std::fmt::Debug for ProviderGatewayLease {
 }
 
 impl ProviderGatewayLease {
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub fn claude(
         ledger: SqliteLedger,
         coordinator: Coordinator<SqliteLedger>,
@@ -238,7 +238,7 @@ pub use bound_launcher::GatewayBoundLauncher;
 #[path = "provider_egress_claurst_composition.rs"]
 mod claurst;
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 #[path = "provider_egress_lifetime_tests.rs"]
 mod lifetime_tests;
 

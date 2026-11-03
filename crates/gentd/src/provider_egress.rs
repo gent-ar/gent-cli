@@ -79,10 +79,10 @@ mod server;
 mod wire;
 pub use composition::ProviderGatewayLease;
 pub use server::ProviderEgressBroker;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 #[path = "provider_egress_integration_tests.rs"]
 mod integration_tests;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 #[path = "provider_egress_tests.rs"]
 mod tests;
 

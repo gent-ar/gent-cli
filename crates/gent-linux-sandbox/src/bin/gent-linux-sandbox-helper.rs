@@ -9,18 +9,7 @@ mod linux {
         thread,
         time::Duration,
     };
-    fn run() -> Result<i32, &'static str> {
-        let mut line = Vec::new();
-        let input = std::io::stdin();
-        let mut initial = std::io::BufReader::new(input.lock()).take(65537);
-        initial
-            .read_until(b'\n', &mut line)
-            .map_err(|_| "startup input")?;
-        if line.len() > 65536 || line.last() != Some(&b'\n') {
-            return Err("startup bound");
-        }
-        drop(initial);
-        let start: Start = serde_json::from_slice(&line).map_err(|_| "startup invalid")?;
+    fn validate_start(start: &Start) -> Result<(), &'static str> {
         if start.schema != 1
             || start.nonce.len() != 32
             || !start
@@ -126,6 +115,21 @@ mod linux {
         if let Some(runtime) = &start.runtime_root {
             runtime.verify_helper_environment()?;
         }
+        Ok(())
+    }
+    fn run() -> Result<i32, &'static str> {
+        let mut line = Vec::new();
+        let input = std::io::stdin();
+        let mut initial = std::io::BufReader::new(input.lock()).take(65537);
+        initial
+            .read_until(b'\n', &mut line)
+            .map_err(|_| "startup input")?;
+        if line.len() > 65536 || line.last() != Some(&b'\n') {
+            return Err("startup bound");
+        }
+        drop(initial);
+        let start: Start = serde_json::from_slice(&line).map_err(|_| "startup invalid")?;
+        validate_start(&start)?;
         // Parent wall watchdog is the primary bound. A later independent SDK timeout
         // remains as defense in depth and makes parent-watchdog tests causal.
         let gate_image = std::env::current_exe().map_err(|_| "contained gate image")?;

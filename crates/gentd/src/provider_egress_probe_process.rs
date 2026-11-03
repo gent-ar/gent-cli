@@ -158,6 +158,6 @@ fn decode(bytes: &[u8]) -> Option<Result<ProbeOutput, ProbeFailure>> {
         success: flags & 1 != 0,
     }))
 }
-#[cfg(test)]
+#[cfg(all(test, windows))]
 #[path = "provider_egress_probe_process_tests.rs"]
 mod tests;

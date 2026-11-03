@@ -103,6 +103,118 @@ mod linux {
             Ok(v) => match v {},
         }
     }
+    fn read_ready_line(
+        output: &mut std::process::ChildStdout,
+        scope: &CgroupScope,
+        begun: Instant,
+    ) -> Result<(Option<Vec<u8>>, Vec<u8>), &'static str> {
+        let mut buffer = Vec::new();
+        while begun.elapsed() < Duration::from_secs(15) {
+            if scope.sample_cpu_budget().map_err(|_| "scope CPU")?.exceeded {
+                return Err("scope CPU exceeded");
+            }
+            let mut bytes = [0; 4096];
+            match output.read(&mut bytes) {
+                Ok(0) => return Err("ready EOF"),
+                Ok(n) => {
+                    buffer.extend_from_slice(&bytes[..n]);
+                    if buffer.len() > 8192 {
+                        return Err("ready bound");
+                    }
+                    if let Some(i) = buffer.iter().position(|v| *v == b'\n') {
+                        let line = buffer.drain(..=i).collect::<Vec<_>>();
+                        return Ok((Some(line), buffer));
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                Err(_) => return Err("ready read"),
+            }
+        }
+        Ok((None, buffer))
+    }
+    fn read_busy_line(output: &mut std::process::ChildStdout) -> Result<Vec<u8>, &'static str> {
+        let mut busy_line = Vec::new();
+        let busy_deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < busy_deadline {
+            let mut byte = [0];
+            match output.read(&mut byte) {
+                Ok(0) => return Err("busy exec EOF"),
+                Ok(_) => {
+                    busy_line.push(byte[0]);
+                    if byte[0] == b'\n' {
+                        break;
+                    }
+                    if busy_line.len() > 1024 {
+                        return Err("busy result bound");
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(_) => return Err("busy result read"),
+            }
+        }
+        Ok(busy_line)
+    }
+    fn scope_memory(scope: &CgroupScope) -> Result<(u64, u64), &'static str> {
+        let scope_path = PathBuf::from("/sys/fs/cgroup").join(
+            scope
+                .membership_path()
+                .map_err(|_| "scope path")?
+                .trim_start_matches('/'),
+        );
+        let peak = std::fs::read_to_string(scope_path.join("memory.peak"))
+            .map_err(|_| "scope memory peak")?
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "memory peak")?;
+        let events = std::fs::read_to_string(scope_path.join("memory.events"))
+            .map_err(|_| "scope memory events")?;
+        let oom = events
+            .lines()
+            .find_map(|v| v.strip_prefix("oom_kill "))
+            .and_then(|v| v.parse::<u64>().ok())
+            .ok_or("OOM counter")?;
+        Ok((peak, oom))
+    }
+    fn observe_exec(
+        child: &mut std::process::Child,
+        output: &mut std::process::ChildStdout,
+        buffer: &mut Vec<u8>,
+        metadata: &std::fs::Metadata,
+        scope: &CgroupScope,
+        begun: Instant,
+    ) -> Result<(bool, Option<bool>), &'static str> {
+        let mut image_seen = false;
+        let mut exit = None;
+        while begun.elapsed() < Duration::from_secs(20) {
+            if let Ok(m) = std::fs::metadata(format!("/proc/{}/exe", child.id())) {
+                image_seen |= m.dev() == metadata.dev() && m.ino() == metadata.ino();
+            }
+            let mut bytes = [0; 4096];
+            match output.read(&mut bytes) {
+                Ok(n) => {
+                    buffer.extend_from_slice(&bytes[..n]);
+                    if buffer.len() > 65536 {
+                        return Err("SDK output bound");
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => return Err("SDK output"),
+            }
+            if let Some(status) = child.try_wait().map_err(|_| "SDK exit")? {
+                exit = Some(status.success());
+                break;
+            }
+            if scope.sample_cpu_budget().map_err(|_| "CPU")?.exceeded {
+                return Err("CPU exceeded");
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Ok((image_seen, exit))
+    }
     fn run() -> Result<serde_json::Value, &'static str> {
         let mut len = [0; 4];
         std::io::stdin()
@@ -165,31 +277,7 @@ mod linux {
             rustix::fs::fcntl_setfl(&output, flags | rustix::fs::OFlags::NONBLOCK)
                 .map_err(|_| "pipe flags")?;
             let begun = Instant::now();
-            let mut buffer = Vec::new();
-            let mut line = None;
-            while begun.elapsed() < Duration::from_secs(15) {
-                if scope.sample_cpu_budget().map_err(|_| "scope CPU")?.exceeded {
-                    return Err("scope CPU exceeded");
-                }
-                let mut bytes = [0; 4096];
-                match output.read(&mut bytes) {
-                    Ok(0) => return Err("ready EOF"),
-                    Ok(n) => {
-                        buffer.extend_from_slice(&bytes[..n]);
-                        if buffer.len() > 8192 {
-                            return Err("ready bound");
-                        }
-                        if let Some(i) = buffer.iter().position(|v| *v == b'\n') {
-                            line = Some(buffer.drain(..=i).collect::<Vec<_>>());
-                            break;
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(2))
-                    }
-                    Err(_) => return Err("ready read"),
-                }
-            }
+            let (line, mut buffer) = read_ready_line(&mut output, &scope, begun)?;
             let ready: serde_json::Value =
                 serde_json::from_slice(&line.ok_or("ready timeout")?).map_err(|_| "ready JSON")?;
             if ready["pid"].as_u64() != Some(u64::from(child.id()))
@@ -239,27 +327,7 @@ mod linux {
             input
                 .write_all(b"TRY_BUSY\n")
                 .map_err(|_| "busy exec release")?;
-            let mut busy_line = Vec::new();
-            let busy_deadline = Instant::now() + Duration::from_secs(2);
-            while Instant::now() < busy_deadline {
-                let mut byte = [0];
-                match output.read(&mut byte) {
-                    Ok(0) => return Err("busy exec EOF"),
-                    Ok(_) => {
-                        busy_line.push(byte[0]);
-                        if byte[0] == b'\n' {
-                            break;
-                        }
-                        if busy_line.len() > 1024 {
-                            return Err("busy result bound");
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(1))
-                    }
-                    Err(_) => return Err("busy result read"),
-                }
-            }
+            let busy_line = read_busy_line(&mut output)?;
             let busy: serde_json::Value =
                 serde_json::from_slice(&busy_line).map_err(|_| "busy negative JSON")?;
             if busy["busyRejected"] != true {
@@ -270,51 +338,16 @@ mod linux {
             drop(write_probe);
             input.write_all(b"EXEC\n").map_err(|_| "exec release")?;
             drop(input);
-            let mut image_seen = false;
-            let mut exit = None;
-            while begun.elapsed() < Duration::from_secs(20) {
-                if let Ok(m) = std::fs::metadata(format!("/proc/{}/exe", child.id())) {
-                    image_seen |= m.dev() == metadata.dev() && m.ino() == metadata.ino();
-                }
-                let mut bytes = [0; 4096];
-                match output.read(&mut bytes) {
-                    Ok(n) => {
-                        buffer.extend_from_slice(&bytes[..n]);
-                        if buffer.len() > 65536 {
-                            return Err("SDK output bound");
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                    Err(_) => return Err("SDK output"),
-                }
-                if let Some(status) = child.try_wait().map_err(|_| "SDK exit")? {
-                    exit = Some(status.success());
-                    break;
-                }
-                if scope.sample_cpu_budget().map_err(|_| "CPU")?.exceeded {
-                    return Err("CPU exceeded");
-                }
-                std::thread::sleep(Duration::from_millis(1));
-            }
+            let (image_seen, exit) = observe_exec(
+                &mut child,
+                &mut output,
+                &mut buffer,
+                &metadata,
+                &scope,
+                begun,
+            )?;
             let version = String::from_utf8_lossy(&buffer).trim() == "2.1.271 (Claude Code)";
-            let scope_path = PathBuf::from("/sys/fs/cgroup").join(
-                scope
-                    .membership_path()
-                    .map_err(|_| "scope path")?
-                    .trim_start_matches('/'),
-            );
-            let peak = std::fs::read_to_string(scope_path.join("memory.peak"))
-                .map_err(|_| "scope memory peak")?
-                .trim()
-                .parse::<u64>()
-                .map_err(|_| "memory peak")?;
-            let events = std::fs::read_to_string(scope_path.join("memory.events"))
-                .map_err(|_| "scope memory events")?;
-            let oom = events
-                .lines()
-                .find_map(|v| v.strip_prefix("oom_kill "))
-                .and_then(|v| v.parse::<u64>().ok())
-                .ok_or("OOM counter")?;
+            let (peak, oom) = scope_memory(&scope)?;
             Ok(
                 serde_json::json!({"passed":write_denied&&grow_denied&&image_seen&&version&&exit==Some(true),"sourceOwnedByQaUser":true,"originDeletedAfterSeal":true,"kernelSeals":seals.bits(),"kernelWriteDenied":write_denied,"kernelGrowDenied":grow_denied,"kernelExeMatchesRetainedFd":image_seen,"versionMatched":version,"noAuthHome":true,"noModelRequest":true,"notProviderAdmission":true,"writableFdExecBusyRejected":true,"ownedScopeMemoryPeak":peak,"ownedScopeOomKills":oom}),
             )

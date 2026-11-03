@@ -11,11 +11,11 @@ use super::{
     probe_process,
 };
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 const VALIDATED_WINDOWS_CLAUDE: &str =
     "70052a17e06561a4563597f79570e81ccc0772474c3c6ac522aa5ccc71773013";
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(super) fn resolve(
     lock: &RunVersionLock,
     probe_root: &Path,

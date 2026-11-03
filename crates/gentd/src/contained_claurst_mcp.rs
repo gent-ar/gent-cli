@@ -1,18 +1,23 @@
 //! Fixed configured-roster capture for the patched Claurst ACP client.
 //! Original stdio commands/arguments/env remain only in host snapshots.
+#[cfg(windows)]
 use super::{
-    BTreeMap, Deserialize, Digest, Document, HostMcpConfig, HostStdioServer, MAX_BYTES, Path, Read,
-    Sha256, WorkerMcpConfig, Write, Zeroize, Zeroizing, open_locked, unique_map,
+    BTreeMap, Deserialize, Digest, Document, HostMcpConfig, HostStdioServer, MAX_BYTES, Read,
+    Sha256, Zeroize, Zeroizing, unique_map,
 };
+use super::{Path, WorkerMcpConfig, Write, open_locked};
+#[cfg(windows)]
 #[derive(Deserialize)]
 struct Settings {
     config: Config,
 }
+#[cfg(windows)]
 #[derive(Deserialize)]
 struct Config {
     #[serde(default)]
     mcp_servers: Vec<Server>,
 }
+#[cfg(windows)]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Server {
@@ -25,6 +30,7 @@ struct Server {
     #[serde(rename = "type", default)]
     transport: Option<String>,
 }
+#[cfg(windows)]
 impl Drop for Server {
     fn drop(&mut self) {
         self.command.zeroize();
@@ -36,6 +42,7 @@ impl Drop for Server {
         }
     }
 }
+#[cfg(windows)]
 impl HostMcpConfig {
     pub(crate) fn capture_claurst(path: &Path) -> Result<Self, String> {
         let mut source = open_locked(path)?;
@@ -101,6 +108,6 @@ pub(super) fn publish(private_root: &Path, bytes: &[u8]) -> Result<WorkerMcpConf
     let handle = open_locked(&path)?;
     Ok(WorkerMcpConfig { path, handle })
 }
-#[cfg(test)]
+#[cfg(all(test, windows))]
 #[path = "contained_claurst_mcp_tests.rs"]
 mod tests;

@@ -15,7 +15,6 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
-#[cfg(windows)]
 #[path = "contained_claurst_mcp.rs"]
 mod claurst;
 
