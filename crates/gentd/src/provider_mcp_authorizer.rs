@@ -171,7 +171,7 @@ impl Authorizer for EvidenceGate {
                 // An SDK can_use_tool request has already travelled through the
                 // ordinary policy/approval owner before its host response. That
                 // response grants only its exact arguments, once, in this turn.
-                let permitted = self.relay.lock().ok().is_some_and(|mut r| {
+                let permitted = self.relay.lock().is_ok_and(|mut r| {
                     r.permits(turn, call.request_key, &name, &args)
                         .unwrap_or(false)
                 });

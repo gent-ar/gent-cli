@@ -32,6 +32,8 @@ use selection::active_daemon;
 use selection::{refresh_auto_update_helper, select_release, selected_release};
 #[path = "runtime_activation_scheduling.rs"]
 mod scheduling;
+#[cfg(all(test, not(windows)))]
+use scheduling::active_cli;
 #[cfg(test)]
 use scheduling::default_root;
 use scheduling::enable_updates;
@@ -54,6 +56,17 @@ pub(crate) fn activate(
     data_dir: PathBuf,
 ) -> Result<PathBuf, String> {
     activate_expected(bootstrap, root, data_dir, None, None, None).map(|result| result.daemon_path)
+}
+
+#[cfg(all(test, not(windows)))]
+fn activate_at(
+    bootstrap: &Path,
+    root: &Path,
+    data_dir: &Path,
+    scheduler: fn(&Path, &Path) -> Result<(), String>,
+) -> Result<PathBuf, String> {
+    activate_at_expected(bootstrap, root, data_dir, scheduler, None, None, None)
+        .map(|result| result.daemon_path)
 }
 
 #[cfg(test)]

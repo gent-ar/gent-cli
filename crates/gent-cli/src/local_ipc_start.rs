@@ -1,7 +1,9 @@
 use super::{
-    LocalStream, Path, PathBuf, connect, daemon_command, default_daemon_binary, pipe_is_busy,
-    unavailable, wait_for_connection_until, wait_for_spawned_connection, windows,
+    LocalStream, Path, PathBuf, connect, daemon_command, default_daemon_binary, unavailable,
+    wait_for_spawned_connection,
 };
+#[cfg(windows)]
+use super::{pipe_is_busy, wait_for_connection_until, windows};
 pub(crate) async fn connect_or_start(
     data_dir: &Path,
     no_autostart: bool,

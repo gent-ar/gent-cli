@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod contained_model;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use provider_egress::run_fence;
 
 mod activity_transport;

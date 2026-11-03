@@ -162,7 +162,9 @@ impl PublicProviderResolver for Resolver {
 mod steer;
 #[path = "claude_prompt_lifecycle_test_support.rs"]
 mod support;
-pub(crate) use support::{compatibility, compatibility_for_lock, lock};
+#[cfg(windows)]
+pub(crate) use support::compatibility_for_lock;
+pub(crate) use support::{compatibility, lock};
 
 pub(crate) fn profile(
     compatibility: &CompatibilityAssessment,

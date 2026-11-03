@@ -1,12 +1,13 @@
-//! Safe Rust transport to the pinned native host credential-probe owner.
+#[cfg(windows)]
 use gent_drivers::lock::rechecked_identity;
 use gent_types::RunVersionLock;
+#[cfg(windows)]
+use std::process::{Child, Command, Stdio};
 use std::{
     collections::BTreeMap,
     fs::File,
     io::Read,
     path::Path,
-    process::{Child, Command, Stdio},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -95,7 +96,6 @@ pub(super) fn run(
     _: &BTreeMap<String, String>,
     _: Duration,
 ) -> Result<ProbeOutput, ProbeFailure> {
-    // Linux production supplies its independently scoped native host_probe.
     Err(ProbeFailure::known())
 }
 #[cfg(windows)]

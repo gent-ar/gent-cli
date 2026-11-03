@@ -5,7 +5,7 @@ use gent_drivers::{
     interrupt::{ProcessTreeControl, ProcessTreeSignal},
     supervisor::ProviderLaunch,
 };
-use gent_ports::{AgentChatWorkspaceLedger, ConversationLedger, Ledger, PolicyLedger};
+use gent_ports::{AgentChatWorkspaceLedger, PolicyLedger};
 use gent_types::*;
 use std::{
     path::Path,
@@ -106,6 +106,7 @@ pub(super) fn run(resources: Arc<dyn ProbeInputs>) -> Result<OsProbeWitness, Str
         scope: PolicyScope::ProviderPermissions,
         revision: 1,
         mode: PermissionMode::AskEveryTime,
+        containment: Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
     };

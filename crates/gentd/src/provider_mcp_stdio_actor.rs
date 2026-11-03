@@ -1,8 +1,10 @@
 use super::{
-    Action, Arc, AtomicBool, BTreeMap, BufRead, BufReader, Command, CommandWrap, Duration, Error,
-    Input, Instant, MAX_MESSAGE, Mutex, Ordering, Outbound, OwnedChild, Read, Spec, Stdio, Ticket,
-    Value, Write, mpsc, thread,
+    Action, Arc, AtomicBool, BTreeMap, BufRead, BufReader, Duration, Error, Input, Instant,
+    MAX_MESSAGE, Mutex, Ordering, Outbound, OwnedChild, Read, Spec, Ticket, Value, Write, mpsc,
+    thread,
 };
+#[cfg(not(target_os = "linux"))]
+use super::{Command, CommandWrap, Stdio};
 
 type Reply = mpsc::SyncSender<Result<Value, Error>>;
 type Pending = BTreeMap<String, (Reply, Instant, bool)>;

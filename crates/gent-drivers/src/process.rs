@@ -125,8 +125,7 @@ impl SystemProcess {
         }
     }
 
-    /// Inspect only the retained OS child status. A sandbox owner must not join
-    /// inherited pipe readers until its native scope settlement is established.
+    #[cfg(windows)]
     pub(crate) fn peek_owned_exit_status(
         &self,
     ) -> Result<Option<std::process::ExitStatus>, ProcessTreeError> {
@@ -135,12 +134,14 @@ impl SystemProcess {
             .map_err(|error| ProcessTreeError::Failed(error.to_string()))
     }
 
+    #[cfg(windows)]
     pub(crate) fn kill_owned(&self) -> Result<(), ProcessTreeError> {
         recover_lock(&self.child)
             .kill()
             .map_err(|error| ProcessTreeError::Failed(error.to_string()))
     }
 
+    #[cfg(windows)]
     pub(crate) fn reap_owned(&self) -> bool {
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         while std::time::Instant::now() < deadline {

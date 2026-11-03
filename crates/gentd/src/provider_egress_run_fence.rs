@@ -106,7 +106,7 @@ impl RunFence {
             return false;
         };
         epoch.host_epoch == self.host_epoch
-            && self.ledger.host_ingress().ok().is_some_and(|ingress| {
+            && self.ledger.host_ingress().is_ok_and(|ingress| {
                 ingress.epoch == self.host_epoch && ingress.mode == gent_ports::IngressMode::Open
             })
             && workspace == self.workspace

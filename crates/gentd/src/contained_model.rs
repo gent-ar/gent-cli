@@ -14,6 +14,7 @@ mod protocol;
 mod scope;
 pub(crate) use protocol::ModelRequest;
 use protocol::{Metadata, Reader};
+#[cfg(any(windows, test))]
 pub(crate) use scope::ModelResources;
 use scope::Scope;
 #[path = "contained_model_budget.rs"]
@@ -240,4 +241,5 @@ mod stream_tests;
 
 #[path = "contained_model_admission.rs"]
 mod admission;
+#[cfg(windows)]
 pub(crate) use admission::packaged_model_error;

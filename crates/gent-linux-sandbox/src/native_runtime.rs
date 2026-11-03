@@ -129,6 +129,7 @@ impl SandboxedProviderLaunch for LinuxMxcLauncher {
 /// Historical execution observation for a contained READINESS PROBE only.
 /// Issued solely after the backend observed the approved sealed image while
 /// the exact worker was alive. Not live user-run evidence or an authorization.
+#[derive(Debug)]
 pub struct ProbeExecutionWitness<'a> {
     evidence: &'a gent_drivers::sandboxed_launch::ProcessSandboxEvidence,
 }
