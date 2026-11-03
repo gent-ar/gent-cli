@@ -15,6 +15,10 @@ use crate::private_provider_provisioning::ProvisionedProviderVerifier;
 mod probe;
 use probe::{LockedNodeVersionProbe, PrivateVersionProbe};
 
+#[cfg(windows)]
+#[path = "private_provider_verifier/windows_codex_companions.rs"]
+mod windows_codex_companions;
+
 const VERSION_ARGUMENT: &str = "--version";
 
 #[derive(Clone, Debug)]
@@ -49,6 +53,13 @@ where
     ) -> Result<ProvisionedProviderLock, String> {
         let prefix = canonical_prefix(prefix)?;
         let executable = private_executable(provider, &prefix)?;
+        // This verifier is called only for the fresh, unpublished npm generation.
+        #[cfg(windows)]
+        let _companion_pins = if provider == DependencyProvider::Codex {
+            windows_codex_companions::prepare(&executable)?
+        } else {
+            Vec::new()
+        };
         let before = capture(provider.as_str(), &executable, "unprobed", "unbound")
             .map_err(|_| "private provider executable cannot be identity-locked".to_owned())?;
         let version = self

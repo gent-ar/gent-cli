@@ -20,6 +20,9 @@ use crate::{
 #[path = "agent_chat_transport_replies.rs"]
 mod replies;
 use replies::validate_replies;
+#[cfg(test)]
+#[path = "targeted_steer_transport_tests.rs"]
+mod targeted_steer_tests;
 
 pub(crate) trait IntentPort {
     fn exchange(
@@ -112,6 +115,37 @@ where
     let Ok(request) = serde_json::from_value::<AgentChatIntentFrame>(raw.clone()) else {
         return Ok(false);
     };
+    if matches!(request, AgentChatIntentFrame::SteerPromptForTurn(_))
+        && !capabilities
+            .0
+            .iter()
+            .any(|v| v == gent_protocol::AGENT_CHAT_STEER_ENQUEUE_CAPABILITY)
+    {
+        write_error(
+            stream,
+            "unsupportedCapability",
+            "atomic steer enqueue was not negotiated",
+        )
+        .await?;
+        return Ok(true);
+    }
+    if matches!(
+        request,
+        AgentChatIntentFrame::SteerQueuedPromptForTurn { .. }
+            | AgentChatIntentFrame::SteerPromptForTurn(_)
+    ) && !capabilities
+        .0
+        .iter()
+        .any(|v| v == gent_protocol::AGENT_CHAT_STEER_TURN_CAPABILITY)
+    {
+        write_error(
+            stream,
+            "unsupportedCapability",
+            "turn-bound steering was not negotiated",
+        )
+        .await?;
+        return Ok(true);
+    }
     if matches!(request, AgentChatIntentFrame::ImportTranscript { .. })
         && !capabilities
             .0
@@ -174,6 +208,8 @@ fn is_client_request(frame: &AgentChatIntentFrame) -> bool {
             | AgentChatIntentFrame::QueuePromptWithTools { .. }
             | AgentChatIntentFrame::CancelQueuedPrompt { .. }
             | AgentChatIntentFrame::SteerQueuedPrompt { .. }
+            | AgentChatIntentFrame::SteerQueuedPromptForTurn { .. }
+            | AgentChatIntentFrame::SteerPromptForTurn(_)
             | AgentChatIntentFrame::ContinueFromSavedHistory { .. }
             | AgentChatIntentFrame::SwitchSelection { .. }
             | AgentChatIntentFrame::Interrupt { .. }

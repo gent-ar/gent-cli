@@ -17,6 +17,10 @@ impl PolicyLedger for SqliteLedger {
         policies::save(self, policy)
     }
 
+    fn save_provider_permission_policy(&self, policy: &PolicyRecord) -> Result<(), LedgerError> {
+        policies::save_guarded(self, policy)
+    }
+
     fn current_policy(
         &self,
         workspace_id: &str,

@@ -55,18 +55,27 @@ fn repeated_tool_phase(
     let ConversationActivityFact::ToolActivity { scope, activity } = activity else {
         return Ok(None);
     };
-    let phase = serde_json::to_value(&activity.phase).map_err(storage_error)?;
     let recorded = transaction
         .query_row(
-            "SELECT cursor, json_extract(payload, '$.activity.phase') FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 AND json_extract(payload, '$.type') = 'toolActivity' AND json_extract(payload, '$.turnId') = ?3 AND json_extract(payload, '$.activity.toolUseId') = ?4 ORDER BY cursor DESC LIMIT 1",
+            "SELECT cursor, json_extract(payload, '$.activity') FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 AND json_extract(payload, '$.type') = 'toolActivity' AND json_extract(payload, '$.turnId') = ?3 AND json_extract(payload, '$.activity.toolUseId') = ?4 ORDER BY cursor DESC LIMIT 1",
             rusqlite::params![scope.conversation_id, scope.run_id, scope.turn_id, activity.tool_use_id],
             |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()
         .map_err(storage_error)?;
-    Ok(recorded
-        .filter(|(_, recorded)| phase.as_str() == Some(recorded.as_str()))
-        .map(|(cursor, _)| cursor))
+    let Some((cursor, recorded)) = recorded else {
+        return Ok(None);
+    };
+    let recorded: gent_types::ToolActivity =
+        serde_json::from_str(&recorded).map_err(storage_error)?;
+    // A streamed tool start can precede its complete arguments. Keep that update even
+    // when the phase is unchanged; otherwise clients can never display the operation.
+    Ok((recorded.phase == activity.phase
+        && recorded.tool_name == activity.tool_name
+        && recorded.parent_tool_use_id == activity.parent_tool_use_id
+        && (activity.input.is_none() || recorded.input == activity.input)
+        && (activity.output_digest.is_none() || recorded.output_digest == activity.output_digest))
+        .then_some(cursor))
 }
 
 pub(super) fn scope(fact: &ConversationActivityFact) -> &gent_types::ConversationActivityScope {

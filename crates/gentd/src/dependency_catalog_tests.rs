@@ -206,7 +206,7 @@ impl gent_ports::ProvisionedProviderLockReader for Provisioned {
 }
 
 #[test]
-fn standalone_doctor_identifies_a_provisioned_provider_by_its_recorded_version() {
+fn standalone_doctor_does_not_publish_an_unverified_path_from_only_a_recorded_version() {
     let root = tempfile::tempdir().unwrap();
     let codex = crate::standalone_provider_setup::provider_executable(
         &root.path().join("npm-global"),
@@ -230,8 +230,5 @@ fn standalone_doctor_identifies_a_provisioned_provider_by_its_recorded_version()
         .iter()
         .find(|provider| provider.provider == "codex")
         .unwrap();
-    assert_eq!(
-        codex.executable.as_ref().unwrap().version.as_deref(),
-        Some("0.154.0")
-    );
+    assert!(codex.executable.is_none());
 }

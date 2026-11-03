@@ -93,12 +93,20 @@ where
     ///
     /// # Errors
     /// Returns an error when an owned process rejects the daemon-selected signal.
-    pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
+    pub(crate) fn signal_active(&mut self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
         self.lifecycle.signal_active(signal)
     }
 
     pub(crate) fn interrupt(&mut self, run_id: &str) -> Result<(), RuntimeError> {
         self.lifecycle.interrupt(run_id)
+    }
+
+    pub(crate) fn interrupt_turn(
+        &mut self,
+        run_id: &str,
+        turn_id: &str,
+    ) -> Result<(), RuntimeError> {
+        self.lifecycle.interrupt_turn(run_id, turn_id)
     }
 
     pub(crate) fn respond_permission(

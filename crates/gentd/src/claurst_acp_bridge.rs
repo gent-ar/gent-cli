@@ -141,6 +141,28 @@ where
             .map_err(|_| unavailable("ACP drain worker"))?
     }
 
+    async fn permission_enforcement(
+        &self,
+        binding: ClaurstSessionBinding,
+        policy: gent_types::PolicyRecord,
+        epoch: gent_types::HostEpoch,
+    ) -> Result<gent_types::SandboxEnforcement, PortError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| unavailable("ACP permission authority"))?;
+        if !state
+            .sources
+            .get(&binding.source_id)
+            .is_some_and(|source| source.binding == binding && !source.terminal)
+        {
+            return Ok(gent_types::SandboxEnforcement::Unavailable);
+        }
+        Ok(state
+            .transport
+            .permission_enforcement(&binding.run_id, &policy, epoch))
+    }
+
     async fn respond_permission(
         &self,
         binding: ClaurstSessionBinding,
@@ -228,6 +250,15 @@ where
 
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
         self.0.drain(request).await
+    }
+
+    async fn permission_enforcement(
+        &self,
+        binding: ClaurstSessionBinding,
+        policy: gent_types::PolicyRecord,
+        epoch: gent_types::HostEpoch,
+    ) -> Result<gent_types::SandboxEnforcement, PortError> {
+        self.0.permission_enforcement(binding, policy, epoch).await
     }
 
     async fn respond_permission(

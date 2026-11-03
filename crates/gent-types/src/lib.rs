@@ -36,6 +36,7 @@ mod event_page;
 mod git_operations;
 mod goal;
 mod host_protocol;
+pub mod internal_tools;
 mod lifecycle_signal;
 mod lifecycle_state;
 mod mcp_connectors;
@@ -50,6 +51,7 @@ mod permission_control;
 mod policies;
 mod prompt_templates;
 mod provider_auth;
+mod provider_auth_handoff;
 mod provider_lifecycle_values;
 mod provider_prompt_provision;
 mod provider_prompt_readiness;
@@ -58,10 +60,13 @@ mod run_checkpoints;
 mod run_lifecycle_fact;
 mod runtime_maintenance;
 mod runtime_update;
+mod sandbox_gateway;
 mod sandbox_launch;
 #[cfg(test)]
 mod sandbox_launch_tests;
 mod sandbox_policy;
+mod sandbox_provider_contract;
+mod sandbox_resources;
 mod token_usage;
 mod tool_activity;
 mod tool_sources;
@@ -69,11 +74,11 @@ mod turn_follow;
 mod workspace_git;
 mod workspaces;
 pub use agent_chat::{
-    AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
-    AgentChatProjectionEvent, AgentChatProjectionPage, AgentChatProjectionTail, AgentChatProvider,
-    AgentChatRejection, AgentChatRun, AgentChatRunState, AgentChatSelection,
-    AgentChatSelectionError, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
-    NormalizedTranscriptKind, NormalizedTranscriptPage,
+    AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort,
+    AgentChatFailureCode, AgentChatMode, AgentChatProjectionEvent, AgentChatProjectionPage,
+    AgentChatProjectionTail, AgentChatProvider, AgentChatRejection, AgentChatRun,
+    AgentChatRunState, AgentChatSelection, AgentChatSelectionError, NormalizedTranscriptAppend,
+    NormalizedTranscriptEvent, NormalizedTranscriptKind, NormalizedTranscriptPage,
 };
 pub use agent_chat_checkpoint::{
     AgentChatCheckpointCapture, AgentChatCheckpointRestore, AgentChatCheckpointRestored,
@@ -189,8 +194,8 @@ pub use paths::{
 };
 pub use permission_control::*;
 pub use policies::{
-    PermissionCategory, PermissionDenialReason, PermissionMode, PermissionRequest, PolicyRecord,
-    PolicyScope, SandboxEnforcement,
+    Containment, PermissionCategory, PermissionDenialReason, PermissionMode, PermissionRequest,
+    PolicyRecord, PolicyScope, SandboxEnforcement,
 };
 pub use prompt_templates::{
     PROMPT_TEMPLATE_SCHEMA_VERSION, PromptTemplateError, PromptTemplateRecord,
@@ -200,6 +205,9 @@ pub use provider_auth::{
     ProviderAuthBinaryLock, ProviderAuthChallenge, ProviderAuthContractError,
     ProviderAuthLifecycle, ProviderAuthMethod, ProviderAuthMethodSelection, ProviderAuthProvider,
     ProviderAuthStatus,
+};
+pub use provider_auth_handoff::{
+    ProviderAuthHandoff, ProviderAuthHandoffMethod, ProviderAuthHandoffState,
 };
 pub use provider_lifecycle_values::{
     NormalizedProviderEvent, ProviderEvent, ProviderFailureClassification,
@@ -229,13 +237,23 @@ pub use runtime_update::{
     RuntimeUpdateRecord, RuntimeUpdateStage, RuntimeUpdateStatus, RuntimeVersion,
     SignedRuntimeRelease, SignedRuntimeReleaseIndex,
 };
+pub use sandbox_gateway::{SandboxGatewayApi, SandboxProviderGateway};
+pub use sandbox_provider_contract::{ContainedProviderContract, ContainedProviderRoute};
+mod sandbox_permission_binding;
+#[cfg(test)]
+mod sandbox_shell_runtime_tests;
 pub use sandbox_launch::{
-    SandboxBackendId, SandboxLaunchAttestation, SandboxLaunchContractError, SandboxLaunchProfile,
-    SandboxNetworkPolicy, SandboxResourceLimits, SandboxedLaunchRequest,
+    SandboxBackendId, SandboxCommandEgress, SandboxCpuSemantics, SandboxLaunchAttestation,
+    SandboxLaunchContractError, SandboxLaunchProfile, SandboxNetworkPolicy, SandboxPrivateState,
+    SandboxResourceLimits, SandboxShellRuntime, SandboxedLaunchRequest,
 };
+pub use sandbox_permission_binding::SandboxPermissionBinding;
 pub use sandbox_policy::{SandboxLaunchPolicy, SandboxWorkspaceAccess};
+pub use sandbox_resources::SandboxResourceGrant;
 pub use token_usage::TokenUsage;
-pub use tool_activity::{ToolActivity, ToolCategory, ToolPhase};
+pub use tool_activity::{
+    ToolActivity, ToolCategory, ToolPhase, operation_preview, operation_preview_with_limit,
+};
 pub use tool_sources::{ToolSourceKind, ToolSourceRecord};
 pub use turn_follow::TurnTerminal;
 pub use workspace_git::{
@@ -243,3 +261,6 @@ pub use workspace_git::{
     WorkspaceGitReport, WorkspaceGitStashEntry, WorkspaceGitWorktree,
 };
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
+
+mod windows_pipe_client;
+pub use windows_pipe_client::windows_pipe_client_candidates;

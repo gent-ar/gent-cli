@@ -24,6 +24,7 @@ pub(crate) fn read() -> TurnFollowRead {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "normalized".into(),
             is_partial: false,
+            failure_code: None,
             origin: None,
             attachments: Vec::new(),
         }],

@@ -162,7 +162,7 @@ impl PublicProviderResolver for Resolver {
 mod steer;
 #[path = "claude_prompt_lifecycle_test_support.rs"]
 mod support;
-pub(crate) use support::{compatibility, lock};
+pub(crate) use support::{compatibility, compatibility_for_lock, lock};
 
 pub(crate) fn profile(
     compatibility: &CompatibilityAssessment,
@@ -235,21 +235,19 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
                 request_id: "permission-a".into(),
                 tool_use_id: "tool-a".into(),
                 tool_name: "write_file".into(),
+                operation_preview: Some(
+                    serde_json::json!({"file_path":"/workspace-a/main.rs", "content":"hello"}),
+                ),
                 child_id: None,
             },
         ),
     ]);
-    runner.0.lock().unwrap().effects.push_back(vec![
-        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
-            text: "done".into(),
-            is_partial: false,
-        })),
-        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Ready,
-            },
-        )),
-    ]);
+    runner
+        .0
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(ready_reply("done"));
     let compatibility = compatibility();
     let runtime = PublicDriversRuntime::new(
         profile(&compatibility),
@@ -262,17 +260,24 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
     .unwrap();
     let mut host = ApprovedClaudeHost::new(runtime, "daemon-a".into(), HostEpoch(1), 1, None);
     let resumed = host.tick().unwrap();
+    assert!(host.needs_drive());
     assert!(matches!(
         resumed.dispatch,
         Some(crate::claude_prompt_lifecycle::ClaudePromptDispatchOutcome::Started { .. })
     ));
     let waiting = host.tick().unwrap();
     assert_eq!(waiting.batch.facts, 3);
+    assert!(host.needs_drive());
+    assert!(runner.0.lock().unwrap().active);
     let pending = ledger
         .pending_permission(&conversation_id, &AgentChatRunId("run-a".into()))
         .unwrap()
         .expect("permission is durable before the waiting lifecycle facts are exposed");
     assert_eq!(pending.binding.decision_id.0, "permission-a");
+    assert_eq!(
+        pending.request.input,
+        Some(serde_json::json!({"file_path":"/workspace-a/main.rs", "content":"hello"}))
+    );
     assert_eq!(pending.binding.turn_id, saved.message.turn_id);
     host.respond_permission(
         "run-a",
@@ -292,9 +297,10 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
     );
     let ready = host.tick().unwrap();
     assert_eq!(ready.batch.facts, 2);
+    assert!(runner.0.lock().unwrap().active);
     assert!(
-        host.needs_drive(),
-        "a settled Claude prompt keeps its live stream available for the next turn"
+        !host.needs_drive(),
+        "a settled Claude session remains reusable without blocking idle-owner admission"
     );
     assert_eq!(
         ledger.find_run_session_binding("run-a").unwrap(),
@@ -311,23 +317,21 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
     assert!(transcript.events.iter().any(|event| event.text == "done"));
     prompt(&ledger, &conversation_id, "b");
     let resumed = host.tick().unwrap();
+    assert!(host.needs_drive());
     assert!(matches!(
         resumed.dispatch,
         Some(crate::claude_prompt_lifecycle::ClaudePromptDispatchOutcome::Started { .. })
     ));
-    runner.0.lock().unwrap().effects.push_back(vec![
-        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
-            text: "again".into(),
-            is_partial: false,
-        })),
-        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
-            NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Ready,
-            },
-        )),
-    ]);
+    runner
+        .0
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(ready_reply("again"));
     let second_ready = host.tick().unwrap();
     assert_eq!(second_ready.batch.facts, 2);
+    assert!(!host.needs_drive());
+    assert!(runner.0.lock().unwrap().active);
     assert!(
         ledger
             .read_agent_chat_transcript(&conversation_id.0, None, 10)
@@ -338,4 +342,18 @@ fn standalone_claude_submits_follow_up_to_one_live_conversation_and_relays_permi
     );
     let state = runner.0.lock().unwrap();
     assert_eq!((state.starts, state.resumes, state.submits), (1, 0, 1));
+}
+
+fn ready_reply(text: &str) -> Vec<ClaudeRunnerEffect> {
+    vec![
+        ClaudeRunnerEffect::Fact(PublicWireFact::Event(NormalizedProviderEvent::Output {
+            text: text.into(),
+            is_partial: false,
+        })),
+        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        )),
+    ]
 }

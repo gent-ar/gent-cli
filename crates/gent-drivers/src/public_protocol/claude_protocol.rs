@@ -1,5 +1,3 @@
-//! Claude frames that need strict frame-local tool identity checks.
-
 use gent_types::{
     NormalizedLifecycleSignal, NormalizedProviderEvent, ProviderFailureClassification,
     RootActivity, ToolActivity, ToolPhase, TurnPhase,
@@ -221,6 +219,24 @@ pub(crate) fn activity(
     output_digest: Option<String>,
     parent_tool_use_id: Option<&str>,
 ) -> Vec<PublicWireFact> {
+    activity_with_input(
+        tool_use_id,
+        tool_name,
+        phase,
+        output_digest,
+        parent_tool_use_id,
+        None,
+    )
+}
+
+pub(crate) fn activity_with_input(
+    tool_use_id: &str,
+    tool_name: &str,
+    phase: ToolPhase,
+    output_digest: Option<String>,
+    parent_tool_use_id: Option<&str>,
+    input: Option<&Value>,
+) -> Vec<PublicWireFact> {
     vec![PublicWireFact::Lifecycle(
         NormalizedLifecycleSignal::ToolActivity {
             activity: ToolActivity {
@@ -228,6 +244,7 @@ pub(crate) fn activity(
                 tool_name: tool_name.into(),
                 phase,
                 output_digest,
+                input: input.and_then(gent_types::operation_preview),
                 parent_tool_use_id: parent_tool_use_id.map(str::to_owned),
             },
         },

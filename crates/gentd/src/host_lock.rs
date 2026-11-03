@@ -6,12 +6,15 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use fs2::FileExt;
 
 #[derive(Debug)]
-pub(super) struct HostLock(File);
+pub(super) struct HostLock {
+    file: File,
+    canonical_data_directory: PathBuf,
+}
 
 /// The owner recorded in a data directory's lock file, read on a failed acquire.
 #[derive(Debug, Eq, PartialEq)]
@@ -26,12 +29,22 @@ pub(super) struct LockOwner {
 /// Returns an error if another `gentd` process owns the same data directory. The error message
 /// names that owner's process id and build version when the holder recorded them.
 pub(super) fn acquire(data_dir: &Path) -> Result<HostLock, std::io::Error> {
+    let canonical_data_directory = data_dir.canonicalize()?;
+    let lock_path = canonical_data_directory.join("gentd.lock");
+    if std::fs::symlink_metadata(&lock_path).is_ok_and(|m| !m.is_file() || redirected(&m)) {
+        return Err(std::io::Error::other("daemon lock path is redirected"));
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .read(true)
         .write(true)
         .truncate(false)
-        .open(data_dir.join("gentd.lock"))?;
+        .open(&lock_path)?;
+    if lock_path.canonicalize()? != lock_path || redirected(&file.metadata()?) {
+        return Err(std::io::Error::other(
+            "daemon lock does not belong to the canonical data directory",
+        ));
+    }
     if let Err(error) = file.try_lock_exclusive() {
         let owner = read_owner(&mut file);
         return Err(std::io::Error::new(
@@ -40,7 +53,28 @@ pub(super) fn acquire(data_dir: &Path) -> Result<HostLock, std::io::Error> {
         ));
     }
     write_owner(&mut file, current_owner())?;
-    Ok(HostLock(file))
+    Ok(HostLock {
+        file,
+        canonical_data_directory,
+    })
+}
+
+fn redirected(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+impl HostLock {
+    pub(super) fn canonical_data_directory(&self) -> &Path {
+        &self.canonical_data_directory
+    }
 }
 
 fn current_owner() -> LockOwner {
@@ -82,7 +116,7 @@ fn read_owner(file: &mut File) -> Option<LockOwner> {
 
 impl Drop for HostLock {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.0);
+        let _ = FileExt::unlock(&self.file);
     }
 }
 

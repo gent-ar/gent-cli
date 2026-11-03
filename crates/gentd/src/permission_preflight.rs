@@ -8,11 +8,36 @@ pub(crate) enum PermissionPreflight {
     Ask,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct PreflightContext<'a> {
+    pub(crate) run_id: &'a str,
+    pub(crate) conversation_id: &'a str,
+    pub(crate) disallowed: &'a [String],
+    pub(crate) injection: Option<&'a crate::standalone_mcp_config::InjectedInternalMcp>,
+    pub(crate) host_epoch: gent_types::HostEpoch,
+}
+
 pub(crate) fn evaluate(policy: &PolicyRecord, request: &PermissionRequest) -> PermissionPreflight {
-    if is_internal_tool(&request.tool_name) {
-        return PermissionPreflight::Allow;
+    evaluate_with_evidence(policy, request, "", None)
+}
+
+pub(crate) fn evaluate_with_evidence(
+    policy: &PolicyRecord,
+    request: &PermissionRequest,
+    run_id: &str,
+    evidence: Option<&gent_drivers::ProcessSandboxEvidence>,
+) -> PermissionPreflight {
+    if crate::permission_category::requires_user_response(&request.tool_name) {
+        return PermissionPreflight::Ask;
     }
-    match evaluate_permission_with_sandbox(policy, request, SandboxEnforcement::Unavailable) {
+    let enforcement = evidence
+        .filter(|proof| proof.run_id() == run_id)
+        .and_then(|proof| proof.permission_binding())
+        .filter(|binding| binding.run_id() == run_id && binding.policy() == policy)
+        .map_or(SandboxEnforcement::Unavailable, |_| {
+            SandboxEnforcement::Enforced
+        });
+    match evaluate_permission_with_sandbox(policy, request, enforcement) {
         PermissionDecision::Allow => PermissionPreflight::Allow,
         PermissionDecision::Deny => PermissionPreflight::Deny,
         PermissionDecision::Prompt | PermissionDecision::SandboxRequired => {
@@ -21,16 +46,39 @@ pub(crate) fn evaluate(policy: &PolicyRecord, request: &PermissionRequest) -> Pe
     }
 }
 
-pub(crate) fn is_internal_tool(tool_name: &str) -> bool {
-    tool_name.strip_prefix("mcp__").is_some_and(|qualified| {
-        let server = qualified
-            .split_once("__")
-            .map_or(qualified, |(server, _)| server);
-        crate::standalone_mcp_config::INTERNAL_SERVER_NAMES
-            .iter()
-            .any(|name| server == *name || server == name.replace('-', "_"))
-    })
+/// Process evidence is borrowed only while the production runner owner remains locked.
+/// Injection provenance identifies a Gent control; it is never containment evidence.
+pub(crate) fn evaluate_callback(
+    policy: &PolicyRecord,
+    request: &PermissionRequest,
+    run: &str,
+    conversation: &str,
+    epoch: gent_types::HostEpoch,
+    evidence: Option<&gent_drivers::ProcessSandboxEvidence>,
+    trusted_internal: bool,
+) -> PermissionPreflight {
+    if crate::permission_category::requires_user_response(&request.tool_name) {
+        return PermissionPreflight::Ask;
+    }
+    let evidence = evidence
+        .filter(|proof| proof.run_id() == run)
+        .filter(|proof| {
+            proof.permission_binding().is_some_and(|binding| {
+                binding.run_id() == run
+                    && binding.conversation_id() == conversation
+                    && binding.policy() == policy
+                    && binding.host_epoch() == epoch
+            })
+        });
+    if trusted_internal && (!policy.unattended_requires_sandbox() || evidence.is_some()) {
+        return PermissionPreflight::Allow;
+    }
+    evaluate_with_evidence(policy, request, run, evidence)
 }
+
+#[cfg(test)]
+#[path = "permission_preflight_sandbox_tests.rs"]
+mod sandbox_tests;
 
 #[cfg(test)]
 mod tests {
@@ -47,6 +95,7 @@ mod tests {
             scope: PolicyScope::ProviderPermissions,
             revision: 1,
             mode,
+            containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec!["workspace:edit".into()],
             allowed_categories: vec![PermissionCategory::Network],
         }
@@ -58,6 +107,39 @@ mod tests {
             category,
             input: None,
             child_id: None,
+        }
+    }
+
+    #[test]
+    fn user_questions_are_never_auto_approved_even_with_explicit_grants() {
+        for mode in [
+            PermissionMode::AskEveryTime,
+            PermissionMode::AutoAcceptEdits,
+            PermissionMode::Autonomous,
+            PermissionMode::Bypass,
+        ] {
+            let mut current = policy(mode);
+            current.allowed_tools = vec!["AskUserQuestion".into()];
+            current.allowed_categories = vec![PermissionCategory::Provider];
+            for name in ["AskUserQuestion", "ask_user"] {
+                let question = request(name, PermissionCategory::Provider);
+                assert_eq!(
+                    super::evaluate_with_evidence(&current, &question, "run", None),
+                    PermissionPreflight::Ask
+                );
+                assert_eq!(
+                    super::evaluate_callback(
+                        &current,
+                        &question,
+                        "run",
+                        "conversation",
+                        gent_types::HostEpoch(1),
+                        None,
+                        true
+                    ),
+                    PermissionPreflight::Ask
+                );
+            }
         }
     }
 
@@ -80,32 +162,18 @@ mod tests {
     }
 
     #[test]
-    fn gent_internal_mcp_tools_are_pre_approved_in_every_mode() {
+    fn names_without_owned_injection_provenance_never_get_an_internal_exemption() {
         for mode in [PermissionMode::AskEveryTime, PermissionMode::Bypass] {
             for tool in [
                 "mcp__gent-goal__gent_goal_update",
                 "mcp__gent_goal__gent_goal_update",
-                "mcp__gent-automations__list",
-                "mcp__gent-forge",
+                "mcp__gent-chat__unknown",
             ] {
                 assert_eq!(
                     evaluate(&policy(mode), &request(tool, PermissionCategory::Provider)),
-                    PermissionPreflight::Allow
+                    PermissionPreflight::Ask
                 );
             }
-        }
-        for lookalike in [
-            "mcp__gent-goal-extra__gent_goal_update",
-            "mcp__other__gent_goal_update",
-            "gent-goal",
-        ] {
-            assert_eq!(
-                evaluate(
-                    &policy(PermissionMode::AskEveryTime),
-                    &request(lookalike, PermissionCategory::Provider)
-                ),
-                PermissionPreflight::Ask
-            );
         }
     }
 

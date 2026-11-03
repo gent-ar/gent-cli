@@ -9,6 +9,38 @@ use gent_types::{
 use serde_json::json;
 
 #[test]
+fn provider_tool_facts_expose_the_same_operation_preview_contract() {
+    for (provider, frame, expected) in [
+        (
+            PublicProvider::Claude,
+            json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"write-1","name":"Write","input":{"file_path":"X:/repo/main.rs","content":"fn main() {}","environment":{"TOKEN":"hidden"}}}]}}),
+            json!({"file_path":"X:/repo/main.rs","content":"fn main() {}"}),
+        ),
+        (
+            PublicProvider::Codex,
+            json!({"method":"item/started","params":{"item":{"id":"command-1","type":"commandExecution","command":"cargo test","cwd":"X:/repo","environment":{"TOKEN":"hidden"}}}}),
+            json!({"command":"cargo test","cwd":"X:/repo"}),
+        ),
+        (
+            PublicProvider::Codex,
+            json!({"method":"item/completed","params":{"item":{"id":"edit-1","type":"fileChange","changes":[{"path":"main.rs","diff":"+hello"}]}}}),
+            json!({"changes":[{"path":"main.rs","diff":"+hello"}]}),
+        ),
+    ] {
+        let activity = normalize_public_frame(provider, &frame)
+            .into_iter()
+            .find_map(|fact| match fact {
+                PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) => {
+                    Some(activity)
+                }
+                _ => None,
+            })
+            .expect("normalized tool activity");
+        assert_eq!(activity.input, Some(expected));
+    }
+}
+
+#[test]
 fn claude_stream_json_init_assistant_tool_and_result_are_normalized() {
     let facts = replay_public_frames(
         PublicProvider::Claude,
@@ -208,6 +240,7 @@ fn claude_permission_denial_marks_the_named_tool_failed_without_correlation() {
                     tool_name: "Bash".into(),
                     phase: ToolPhase::Failed,
                     output_digest: None,
+                    input: None,
                     parent_tool_use_id: None,
                 },
             }
@@ -314,6 +347,7 @@ fn claude_child_frames_are_attributed_to_the_parent_tool_not_the_root_turn() {
                     tool_name: "Bash".into(),
                     phase: ToolPhase::Started,
                     output_digest: None,
+                    input: Some(json!({"command":"find . -name '*.txt'"})),
                     parent_tool_use_id: Some("parent-tool-1".into()),
                 },
             }),
@@ -646,7 +680,15 @@ fn codex_collab_launches_preserve_each_explicit_child_thread() {
         PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
             child_id, parent_tool_use_id
         }) if child_id == "child-2" && parent_tool_use_id == "parent-tool-1")));
-    assert!(!format!("{facts:?}").contains("private"));
+    assert!(
+        facts
+            .iter()
+            .filter(|fact| matches!(
+                fact,
+                PublicWireFact::Event(NormalizedProviderEvent::ChildStarted { .. })
+            ))
+            .all(|fact| !format!("{fact:?}").contains("private"))
+    );
 }
 
 #[test]

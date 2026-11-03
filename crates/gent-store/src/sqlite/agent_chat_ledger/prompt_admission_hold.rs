@@ -80,6 +80,16 @@ pub(super) fn admission(
     })
 }
 
+pub(super) fn turn_id(
+    ledger: &SqliteLedger,
+    receipt_id: &ReceiptId,
+) -> Result<String, LedgerError> {
+    ledger.lock()?.query_row(
+        "SELECT p.turn_id FROM agent_chat_prompt_receipts p JOIN receipts r ON r.idempotency_key = p.idempotency_key WHERE r.receipt_id = ?1",
+        params![receipt_id.0], |row| row.get(0),
+    ).map_err(storage_error)
+}
+
 pub(crate) fn clear(
     transaction: &Transaction<'_>,
     message_id: &str,

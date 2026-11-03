@@ -26,9 +26,13 @@ pub fn validate_observed_capabilities(
             REVIEWED_PLAN_CAPABILITY,
             PROVIDER_READINESS_CAPABILITY,
             PROVIDER_AUTH_CAPABILITY,
+            gent_protocol::PROVIDER_AUTH_HANDOFF_CAPABILITY,
             PROMPT_PROVIDER_PROVISION_CAPABILITY,
             RUNTIME_UPDATE_CHECK_CAPABILITY,
             RUNTIME_MAINTENANCE_CAPABILITY,
+            gent_protocol::runtime_owner::RUNTIME_OWNER_CONTROL_CAPABILITY,
+            gent_protocol::runtime_owner::RUNTIME_OWNER_QUIESCE_REJECTION_CAPABILITY,
+            gent_protocol::runtime_owner::RUNTIME_OWNER_IDENTITY_CAPABILITY,
             LOCAL_MODELS_CAPABILITY,
             PROMPT_TEMPLATES_CAPABILITY,
             WORKSPACE_DOCUMENTS_CAPABILITY,
@@ -59,11 +63,19 @@ fn feature_from_observed(
             REVIEWED_PLAN_CAPABILITY => RuntimeCapabilityFeature::ReviewedPlans,
             PROVIDER_READINESS_CAPABILITY => RuntimeCapabilityFeature::ProviderReadiness,
             PROVIDER_AUTH_CAPABILITY => RuntimeCapabilityFeature::ProviderAuth,
+            gent_protocol::PROVIDER_AUTH_HANDOFF_CAPABILITY => {
+                RuntimeCapabilityFeature::ProviderAuthHandoff
+            }
             PROMPT_PROVIDER_PROVISION_CAPABILITY => {
                 RuntimeCapabilityFeature::PromptProviderProvision
             }
             RUNTIME_UPDATE_CHECK_CAPABILITY => RuntimeCapabilityFeature::RuntimeUpdateCheck,
             RUNTIME_MAINTENANCE_CAPABILITY => RuntimeCapabilityFeature::RuntimeMaintenance,
+            gent_protocol::runtime_owner::RUNTIME_OWNER_CONTROL_CAPABILITY
+            | gent_protocol::runtime_owner::RUNTIME_OWNER_QUIESCE_REJECTION_CAPABILITY
+            | gent_protocol::runtime_owner::RUNTIME_OWNER_IDENTITY_CAPABILITY => {
+                RuntimeCapabilityFeature::RuntimeOwnerControl
+            }
             LOCAL_MODELS_CAPABILITY => RuntimeCapabilityFeature::LocalModels,
             PROMPT_TEMPLATES_CAPABILITY => RuntimeCapabilityFeature::PromptTemplates,
             WORKSPACE_DOCUMENTS_CAPABILITY => RuntimeCapabilityFeature::WorkspaceDocuments,

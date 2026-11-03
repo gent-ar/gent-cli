@@ -48,15 +48,15 @@ fn summary(
     let selection = connection.query_row("SELECT s.provider, s.model, s.effort, s.mode FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id WHERE r.conversation_id = ?1 ORDER BY r.rowid DESC LIMIT 1", [conversation_id], selection).optional().map_err(storage_error)?.ok_or(LedgerError::Rejected(gent_types::AgentChatRejection::ConversationNotFound))?;
     let title = metadata(&connection, conversation_id, "title")?;
     let recap = metadata(&connection, conversation_id, "recap")?;
-    let (workspace_id, workspace_path, updated_at_unix_ms) = connection
+    let (workspace_id, workspace_path, updated_at_unix_ms, containment) = connection
         .query_row(
-            "SELECT c.workspace_id, w.canonical_path, c.updated_at_unix_ms FROM agent_chat_conversations c LEFT JOIN workspaces w ON w.workspace_id = c.workspace_id WHERE c.conversation_id = ?1",
+            "SELECT c.workspace_id, w.canonical_path, c.updated_at_unix_ms, (SELECT g.containment FROM agent_chat_conversation_configs g WHERE g.conversation_id = c.conversation_id ORDER BY g.revision DESC LIMIT 1) FROM agent_chat_conversations c LEFT JOIN workspaces w ON w.workspace_id = c.workspace_id WHERE c.conversation_id = ?1",
             [conversation_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, Option<String>>(3)?)),
         )
         .optional()
         .map_err(storage_error)?
-        .unwrap_or((None, None, 0));
+        .unwrap_or((None, None, 0, None));
     Ok(AgentChatConversationSummary {
         conversation_id: conversation_id.into(),
         title,
@@ -69,6 +69,11 @@ fn summary(
         git_branch: None,
         updated_at_unix_ms,
         selection,
+        containment: if containment.as_deref() == Some("sandboxed") {
+            gent_types::Containment::Sandboxed
+        } else {
+            gent_types::Containment::Unsandboxed
+        },
     })
 }
 

@@ -210,6 +210,7 @@ fn a_repeated_tool_phase_is_recorded_once_and_a_new_phase_still_advances() {
                 tool_name: "Bash".into(),
                 phase,
                 output_digest: None,
+                input: None,
                 parent_tool_use_id: None,
             },
         }),
@@ -257,6 +258,65 @@ fn a_repeated_tool_phase_is_recorded_once_and_a_new_phase_still_advances() {
             .activity_cursor,
         recorded[0]
     );
+}
+
+#[test]
+fn tool_arguments_arriving_after_started_are_durable_and_replayed() {
+    let (ledger, turn_id) = prepared();
+    let tool = |index, input| NormalizedSessionBatch {
+        lifecycle_event_id: format!("tool-input-lifecycle-{index}"),
+        transcript: None,
+        activity_event_id: Some(format!("tool-input-activity-{index}")),
+        activity: Some(ConversationActivityFact::ToolActivity {
+            scope: ConversationActivityScope {
+                conversation_id: "conversation-a".into(),
+                run_id: "run-a".into(),
+                turn_id: turn_id.clone(),
+                host_epoch: HostEpoch(1),
+                cursor: 0,
+            },
+            activity: gent_types::ToolActivity {
+                tool_use_id: "tool-1".into(),
+                tool_name: "Bash".into(),
+                phase: gent_types::ToolPhase::Started,
+                input,
+                output_digest: None,
+                parent_tool_use_id: None,
+            },
+        }),
+        ..batch(turn_id.clone())
+    };
+    let empty = ledger
+        .append_normalized_session_batch(&tool(0, None))
+        .unwrap()
+        .activity_cursor;
+    let input = Some(serde_json::json!({"command":"cargo test"}));
+    let full = ledger
+        .append_normalized_session_batch(&tool(1, input.clone()))
+        .unwrap()
+        .activity_cursor;
+    assert!(full > empty);
+    for (index, repeated) in [(2, input.clone()), (3, None)] {
+        assert_eq!(
+            ledger
+                .append_normalized_session_batch(&tool(index, repeated))
+                .unwrap()
+                .activity_cursor,
+            full
+        );
+    }
+    let facts = ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 20)
+        .unwrap()
+        .facts;
+    let inputs = facts
+        .into_iter()
+        .filter_map(|fact| match fact {
+            ConversationActivityFact::ToolActivity { activity, .. } => Some(activity.input),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(inputs, [None, input]);
 }
 
 #[test]

@@ -27,6 +27,10 @@ impl<L> std::fmt::Debug for OrdinaryPublicLifecycleRouter<L> {
 }
 
 impl<L> OrdinaryPublicLifecycleRouter<L> {
+    pub(crate) fn is_idle(&self) -> bool {
+        self.hosts.iter().all(|host| !host.needs_drive())
+    }
+
     pub(crate) fn new(
         reads: AgentChatReadService<L>,
         hosts: Vec<Box<dyn OrdinaryLifecycleHost>>,
@@ -156,6 +160,20 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
             .find(|host| host.provider() == provider)
             .ok_or(OrdinaryLifecycleRouterError::HostUnavailable(provider))?
             .interrupt_run(run_id)
+            .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(provider))
+    }
+
+    pub(crate) fn interrupt_turn(
+        &mut self,
+        provider: AgentChatProvider,
+        run_id: &str,
+        turn_id: &str,
+    ) -> Result<(), OrdinaryLifecycleRouterError> {
+        self.hosts
+            .iter_mut()
+            .find(|host| host.provider() == provider)
+            .ok_or(OrdinaryLifecycleRouterError::HostUnavailable(provider))?
+            .interrupt_turn(run_id, turn_id)
             .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(provider))
     }
 }

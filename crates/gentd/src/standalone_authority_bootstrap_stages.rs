@@ -61,8 +61,23 @@ pub(super) async fn serve_until_stopped(
     }
     let serve = daemon_bootstrap::serve_ordinary(runtime, args, data_dir);
     tokio::pin!(serve);
+    let control = recovered.lifecycle_control();
     tokio::select! {
-        result = &mut cadence => lifecycle_stopped(result),
+        result = &mut cadence => {
+            if recovered.lifecycle_control().is_quiesced() {
+                let stopped = result.map_err(|_| "standalone provider lifecycle task failed");
+                tokio::select! {
+                    () = control.quiesce_acknowledged() => {
+                        stopped??;
+                        Ok(())
+                    },
+                    result = &mut serve => result,
+                    () = daemon_bootstrap::terminated() => Ok(()),
+                }
+            } else {
+                lifecycle_stopped(result)
+            }
+        },
         result = &mut serve => {
             cadence.abort();
             result

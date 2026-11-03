@@ -71,28 +71,7 @@ async fn dispatch(
 }
 
 fn tools(domain: Option<&str>) -> Vec<Value> {
-    let mut all = vec![
-        json!({"name":"gent_automations_list","description":"List Gent automations for a workspace","inputSchema":{"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string"}}}}),
-        json!({"name":"gent_automation_run","description":"Run one manual Gent automation","inputSchema":{"type":"object","required":["automationId"],"properties":{"automationId":{"type":"string"}}}}),
-        json!({"name":"gent_forge_list","description":"List Gent Forge connectors for a workspace","inputSchema":{"type":"object","required":["workspaceId"],"properties":{"workspaceId":{"type":"string"}}}}),
-        json!({"name":"gent_goal_update","description":"Report that the active Gent goal is complete, or blocked until the user helps","inputSchema":{"type":"object","required":["goalId","status"],"properties":{"goalId":{"type":"string"},"status":{"type":"string","enum":["complete","blocked"]},"note":{"type":"string"}}}}),
-    ];
-    all.extend(crate::chat_mcp_tools::tools());
-    all.into_iter()
-        .filter(|tool| {
-            domain.is_none()
-                || domain == Some("automations")
-                    && tool["name"]
-                        .as_str()
-                        .is_some_and(|name| name.starts_with("gent_automation"))
-                || domain == Some("forge") && tool["name"] == "gent_forge_list"
-                || domain == Some("goal") && tool["name"] == "gent_goal_update"
-                || domain == Some("chat")
-                    && tool["name"]
-                        .as_str()
-                        .is_some_and(|name| name.starts_with("gent_chat_"))
-        })
-        .collect()
+    gent_types::internal_tools::tools(domain)
 }
 
 fn tool_available(domain: Option<&str>, name: &str) -> bool {
@@ -157,13 +136,25 @@ async fn call_tool(
         _ => Err("unknown Gent tool".into()),
     };
     match result {
-        Ok(value) => {
-            json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":serde_json::to_string(&value).unwrap_or_default()}],"structuredContent":value}})
-        }
+        Ok(value) => successful_tool_result(id, value),
         Err(error) => {
             json!({"jsonrpc":"2.0","id":id,"result":{"content":[{"type":"text","text":error.to_string()}],"isError":true}})
         }
     }
+}
+
+// The negotiated 2025 MCP schemas require structuredContent to be an object.
+// Preserve the exact JSON text result and every original object field.
+fn successful_tool_result(id: Value, value: Value) -> Value {
+    let text = serde_json::to_string(&value).unwrap_or_default();
+    let structured = if value.is_object() {
+        value
+    } else {
+        json!({"result": value})
+    };
+    json!({"jsonrpc":"2.0","id":id,"result":{
+        "content":[{"type":"text","text":text}],"structuredContent":structured
+    }})
 }
 
 async fn goal_update(
@@ -206,5 +197,36 @@ mod tests {
         assert_eq!(tools(Some("goal")).len(), 1);
         assert!(tool_available(Some("goal"), "gent_goal_update"));
         assert!(!tool_available(Some("goal"), "gent_forge_list"));
+    }
+}
+
+#[cfg(test)]
+mod structured_result_tests {
+    use super::*;
+    #[test]
+    fn mcp_structured_result_preserves_objects_and_wraps_lists_and_scalars() {
+        for value in [
+            json!([]),
+            json!([1, 2]),
+            json!(null),
+            json!("text"),
+            json!(true),
+            json!(42),
+            json!({"items":[]}),
+        ] {
+            let reply = successful_tool_result(json!(7), value.clone());
+            assert_eq!(reply["id"], 7);
+            assert_eq!(
+                reply["result"]["content"][0]["text"],
+                serde_json::to_string(&value).unwrap()
+            );
+            assert!(reply["result"]["structuredContent"].is_object());
+            if value.is_object() {
+                assert_eq!(reply["result"]["structuredContent"], value);
+            } else {
+                assert_eq!(reply["result"]["structuredContent"]["result"], value);
+            }
+            assert!(reply["result"].get("isError").is_none());
+        }
     }
 }

@@ -37,6 +37,7 @@ fn a_codex_launch_scopes_only_the_chat_server_to_its_own_conversation() {
                     max_turns: None,
                     thinking_enabled: None,
                     disallowed_tools: vec!["mcp__gent-goal__*".into()],
+                    containment: gent_types::Containment::Unsandboxed,
                 })
                 .unwrap();
         }

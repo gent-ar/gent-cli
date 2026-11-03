@@ -102,6 +102,7 @@ fn event(cursor: u64) -> NormalizedTranscriptEvent {
         kind: NormalizedTranscriptKind::AssistantMessage,
         text: "normalized".into(),
         is_partial: false,
+        failure_code: None,
         origin: None,
         attachments: Vec::new(),
     }

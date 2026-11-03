@@ -9,9 +9,7 @@ use crate::standalone_claurst_runtime_identity::{RuntimeIdentity, RuntimeReuse};
 use crate::standalone_mcp_config::StandaloneMcpConfig;
 use crate::{
     claurst_acp_bridge::ClaurstBridgeHandle,
-    claurst_local_runtime_owner::{
-        HttpLlamaServerReadiness, SystemClaurstStandaloneLauncher, SystemPrivateSettingsStore,
-    },
+    claurst_local_runtime_owner::{HttpLlamaServerReadiness, SystemPrivateSettingsStore},
     claurst_standalone_owner::ClaurstStandaloneOwner,
 };
 
@@ -26,8 +24,17 @@ impl StandaloneClaurstRuntimeFactory {
             .map_err(|error| error.to_string())?;
         let workspace_id = workspace_record.workspace_id.clone();
         let workspace = PathBuf::from(workspace_record.canonical_path);
-        let permission = crate::permission_workspace::policy_for(&self.ledger, &workspace_id)
-            .map_err(|error| error.to_string())?;
+        let permission = crate::permission_workspace::policy_for_conversation(
+            &self.ledger,
+            &saved.message.conversation_id,
+            &workspace_id,
+        )
+        .map_err(|error| error.to_string())?;
+        crate::permission_workspace::require_supported_launch(
+            &permission,
+            gent_types::AgentChatProvider::Claurst,
+        )
+        .map_err(|error| error.to_string())?;
         if !workspace.is_absolute() {
             return Err("the selected Gent workspace is not absolute".into());
         }
@@ -60,7 +67,7 @@ impl StandaloneClaurstRuntimeFactory {
             });
         let permission_mode = permission.mode;
         let conversation_id = saved.message.conversation_id.clone();
-        let identity = RuntimeIdentity::new(
+        let mut identity = RuntimeIdentity::new(
             &selection,
             conversation_id.clone(),
             workspace.clone(),
@@ -68,6 +75,25 @@ impl StandaloneClaurstRuntimeFactory {
             mcp_config_digest,
             &saved.tool_source_ids,
         );
+        let binding = if permission.requires_sandbox() {
+            let epoch = gent_ports::Ledger::host_ingress(&self.ledger)
+                .map_err(|error| error.to_string())?
+                .epoch;
+            Some(
+                gent_types::SandboxPermissionBinding::new(
+                    conversation_id.clone(),
+                    saved.run_id.0.clone(),
+                    permission.clone(),
+                    epoch,
+                )
+                .map_err(|_| "invalid Claurst permission authority")?,
+            )
+        } else {
+            None
+        };
+        if let Some(binding) = &binding {
+            identity = identity.with_permission_binding(binding.clone());
+        }
         let reuse = self.retire_unless_reusable(&identity).await?;
         if reuse == RuntimeReuse::Ready {
             return Ok(());
@@ -111,42 +137,6 @@ impl StandaloneClaurstRuntimeFactory {
                     .await
             }
         }
-    }
-
-    async fn launch_runtime(
-        &self,
-        identity: RuntimeIdentity,
-        request: crate::claurst_local_runtime::ClaurstLocalRuntimeRequest,
-        workspace: PathBuf,
-        mcp_servers: Vec<serde_json::Value>,
-    ) -> Result<(), String> {
-        let readiness = self.readiness.clone();
-        let model_id = identity.model.model_id.clone();
-        let runtime = tokio::task::spawn_blocking(move || {
-            ClaurstStandaloneOwner::new(
-                readiness,
-                SystemPrivateSettingsStore,
-                SystemClaurstStandaloneLauncher,
-                HttpLlamaServerReadiness::default(),
-            )
-            .start_with_mcp(&model_id, request, &workspace, mcp_servers)
-        })
-        .await
-        .map_err(|_| "local Claurst startup worker stopped unexpectedly".to_owned())?
-        .map_err(|error| error.to_string())?;
-        let bridge = ClaurstBridgeHandle::new(runtime.bridge());
-        let mut active = self.active.lock().await;
-        if active.is_some() {
-            drop(bridge);
-            let _ = tokio::task::spawn_blocking(move || runtime.shutdown()).await;
-            return Err("local Claurst runtime changed while it was starting".into());
-        }
-        *active = Some(ActiveRuntime {
-            identity,
-            bridge,
-            runtime,
-        });
-        Ok(())
     }
 
     fn selected_tool_sources(
@@ -206,6 +196,9 @@ impl StandaloneClaurstRuntimeFactory {
         workspace: &std::path::Path,
         mcp_servers: Vec<serde_json::Value>,
     ) -> Result<bool, String> {
+        if identity.permission_binding().is_some() {
+            return Ok(false);
+        }
         let Some(mut active) = self.active.lock().await.take() else {
             return Ok(false);
         };
@@ -217,7 +210,7 @@ impl StandaloneClaurstRuntimeFactory {
             ClaurstStandaloneOwner::new(
                 readiness,
                 SystemPrivateSettingsStore,
-                SystemClaurstStandaloneLauncher,
+                crate::claurst_sandbox_launcher::RoutedClaurstStandaloneLauncher::host(),
                 HttpLlamaServerReadiness::default(),
             )
             .rebind_session(
@@ -278,3 +271,6 @@ pub(super) fn conversation_servers(
         conversation_id,
     ))
 }
+
+#[path = "standalone_claurst_runtime_factory_start.rs"]
+mod start;

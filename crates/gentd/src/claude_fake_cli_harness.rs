@@ -72,6 +72,7 @@ impl FakeClaudeDaemon {
             state.ledger().clone(),
             state.coordinator().clone(),
             &StandaloneClaudeConfig {
+                mcp_injection: None,
                 data_dir,
                 coordinator_id: format!("gentd-{}", epoch.0),
                 host_epoch: epoch,

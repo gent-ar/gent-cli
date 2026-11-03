@@ -16,6 +16,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from runtime_release_policy import compatibility
 
 
 VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)$")
@@ -30,6 +31,7 @@ PKCS8_ED25519_PREFIX = bytes.fromhex("302e020100300506032b657004220420")
 
 
 def parse_args() -> argparse.Namespace:
+    policy = compatibility()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive-manifest", type=Path, required=True)
     parser.add_argument("--version", required=True)
@@ -37,11 +39,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--key-id", required=True)
     parser.add_argument("--private-key", type=Path, required=True)
     parser.add_argument("--expires-at", type=int, required=True)
-    parser.add_argument("--protocol-min", type=int, default=1)
-    parser.add_argument("--protocol-max", type=int, default=1)
-    parser.add_argument("--schema-min", type=int, default=1)
-    parser.add_argument("--schema-max", type=int, default=23)
-    parser.add_argument("--minimum-app-version", default="0.1.5")
+    parser.add_argument("--protocol-min", type=int, default=policy["protocolMin"])
+    parser.add_argument("--protocol-max", type=int, default=policy["protocolMax"])
+    parser.add_argument("--schema-min", type=int, default=policy["schemaMin"])
+    parser.add_argument("--schema-max", type=int, default=policy["schemaMax"])
+    parser.add_argument("--minimum-app-version", default=policy["minimumCompatibleHostVersion"],
+                        help="Minimum compatible native host/runtime version, independent of target or GUI")
     parser.add_argument("--channel", choices=CHANNELS, default="stable")
     parser.add_argument("--rollout-percent", type=int, default=100)
     parser.add_argument("--forward-only-schema", action="store_true")

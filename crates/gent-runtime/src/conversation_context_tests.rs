@@ -317,6 +317,7 @@ fn transcript(
         kind,
         text: format!("event-{cursor}"),
         is_partial,
+        failure_code: None,
         origin: None,
         attachments: Vec::new(),
     }

@@ -158,6 +158,7 @@ async fn appended_conversation_config_prefixes_the_prompt_sent_to_claurst() {
             max_turns: None,
             thinking_enabled: None,
             disallowed_tools: Vec::new(),
+            containment: gent_types::Containment::Unsandboxed,
         })
         .unwrap();
     let saved = ledger.save_agent_chat_prompt(&prompt()).unwrap();

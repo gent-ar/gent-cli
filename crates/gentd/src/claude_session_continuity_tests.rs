@@ -18,6 +18,46 @@ fn text(daemon: &FakeClaudeDaemon, prompt: &AgentChatPromptSaved) -> String {
 }
 
 #[test]
+fn interrupt_turn_rejects_a_previous_turn_while_current_permission_waits() {
+    let mut daemon = FakeClaudeDaemon::start();
+    let (conversation, run) = daemon.switched_conversation("interrupt-target");
+    let previous = daemon.prompt(&conversation, "hello", Send);
+    daemon.drive_until("previous turn completes", |daemon| {
+        daemon.phase(&previous).is_terminal()
+    });
+    let current = daemon.prompt(&conversation, "PERMISSION", Send);
+    daemon.drive_until("pending permission", |daemon| {
+        daemon
+            .ledger
+            .pending_permission(&conversation, &run)
+            .unwrap()
+            .is_some()
+    });
+    assert!(
+        daemon
+            .router
+            .interrupt_turn(AgentChatProvider::Claude, &run.0, &previous.message.turn_id)
+            .is_err()
+    );
+    assert!(!daemon.phase(&current).is_terminal());
+    assert!(
+        daemon
+            .ledger
+            .pending_permission(&conversation, &run)
+            .unwrap()
+            .is_some()
+    );
+    daemon
+        .router
+        .interrupt_turn(AgentChatProvider::Claude, &run.0, &current.message.turn_id)
+        .unwrap();
+    daemon.drive_until("current turn interrupted", |daemon| {
+        daemon.phase(&current).is_terminal()
+    });
+    assert_eq!(daemon.phase(&current), DurableTurnPhase::Interrupted);
+}
+
+#[test]
 fn send_now_resumes_the_switched_runs_claude_session_with_its_own_context() {
     let mut daemon = FakeClaudeDaemon::start();
     let (conversation, run) = daemon.switched_conversation("switched");

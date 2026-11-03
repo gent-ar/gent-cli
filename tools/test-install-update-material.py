@@ -40,7 +40,7 @@ def install(runtime: Path, source: Path, update: Path, bin_dir: Path) -> subproc
     return subprocess.run(
         [
             sys.executable, str(ACTIVATOR), str(runtime), "v1-target", "--source-release",
-            str(source), "--source-update-material", str(update), "--bin-dir", str(bin_dir), "--force",
+            str(source), "--source-update-material", str(update), "--bin-dir", str(bin_dir), "--force", "--idle-data-dir", str(runtime / "fixture-data"),
         ],
         capture_output=True,
         text=True,
@@ -54,13 +54,14 @@ def main() -> None:
         source = release(root / "source")
         original = material(root / "material", "release-1")
         assert install(runtime, source, original, bin_dir).returncode == 0
-        staged = runtime / "releases" / "v1-target"
+        staged = (runtime / "current").resolve()
         assert json.loads((staged / "runtime-release-trust.json").read_text())["keys"][0]["keyId"] == "release-1"
         assert (staged / "runtime-release-trust.json").stat().st_mode & 0o777 == 0o600
         changed = material(root / "changed", "release-2")
         result = install(runtime, source, changed, bin_dir)
-        assert result.returncode != 0
-        assert "verified update material" in result.stderr
+        assert result.returncode == 0, result.stderr
+        assert (runtime / "current").resolve() != staged
+        assert json.loads(((runtime / "current").resolve() / "runtime-release-cache.json").read_text())["release"]["keyId"] == "release-2"
         assert json.loads((staged / "runtime-release-cache.json").read_text())["release"]["keyId"] == "release-1"
     print("install update material checks passed")
 

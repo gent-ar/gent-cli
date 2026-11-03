@@ -3,12 +3,12 @@ members = [
   "crates/gent-types", "crates/gent-ports", "crates/gent-core", "crates/gent-protocol",
   "crates/gent-adapters", "crates/gent-store", "crates/gent-drivers", "crates/gent-git",
   "crates/gent-mcp", "crates/gent-runtime",
-  "crates/gent-testkit", "crates/gentd", "crates/gent-cli",
+  "crates/gent-linux-sandbox", "crates/gent-linux-cgroup-owner", "crates/gent-testkit", "crates/gentd", "crates/gent-cli",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -37,6 +37,7 @@ tempfile = "3.23.0"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 uuid = { version = "1.18.1", features = ["v4", "serde"] }
+zeroize = "=1.9.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

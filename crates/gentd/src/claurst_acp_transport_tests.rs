@@ -24,7 +24,22 @@ impl ClaurstAcpStdio for Fake {
     }
 }
 
-fn frame(value: serde_json::Value) -> Vec<u8> {
+fn frame(mut value: serde_json::Value) -> Vec<u8> {
+    // These fixtures exercise post-handshake behavior using the current
+    // permission-binding protocol, not a legacy unbound provider.
+    if value.get("id") == Some(&serde_json::json!(1))
+        && value
+            .get("result")
+            .is_some_and(serde_json::Value::is_object)
+    {
+        value["result"]["_meta"]["gentPermissionBinding"] = serde_json::json!(1);
+    }
+    if value.get("method").and_then(serde_json::Value::as_str) == Some("session/request_permission")
+        && value.pointer("/params/options").is_none()
+    {
+        value["params"]["options"] =
+            serde_json::json!([{ "kind": "allow_once", "optionId": "allow_once" }]);
+    }
     serde_json::to_vec(&value).unwrap()
 }
 
@@ -205,7 +220,7 @@ fn permission_request_is_held_then_relays_only_a_closed_gent_reply() {
             frame(serde_json::json!({"id":1,"result":{}})),
             frame(serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}})),
             frame(
-                serde_json::json!({"id":99,"method":"session/request_permission","params":{"toolCall":{"toolCallId":"tool-1","title":"Bash: rm -rf /","kind":"execute","rawInput":{"command":"rm -rf /"}}}}),
+                serde_json::json!({"id":99,"method":"session/request_permission","params":{"toolCall":{"toolCallId":"tool-1","title":"Bash","kind":"execute","rawInput":{"command":"rm -rf /"}}}}),
             ),
         ]),
     };
@@ -216,7 +231,7 @@ fn permission_request_is_held_then_relays_only_a_closed_gent_reply() {
     let drain = transport.drain(1).unwrap();
     assert_eq!(drain.facts.len(), 0);
     assert_eq!(drain.permissions.len(), 1);
-    assert_eq!(drain.permissions[0].request_id, "99");
+    assert_eq!(drain.permissions[0].request_id, "claurst:n:99");
     assert_eq!(drain.permissions[0].tool_use_id, "tool-1");
     assert_eq!(drain.permissions[0].tool_name, "Bash");
     assert!(transport.stdio.writes.iter().all(|frame| {
@@ -225,7 +240,7 @@ fn permission_request_is_held_then_relays_only_a_closed_gent_reply() {
             .any(|window| window == b"rm -rf /")
     }));
     transport
-        .respond_permission("99", ClaurstPermissionReply::AllowOnce)
+        .respond_permission("claurst:n:99", ClaurstPermissionReply::AllowOnce)
         .unwrap();
     let response: serde_json::Value =
         serde_json::from_slice(transport.stdio.writes.last().unwrap()).unwrap();
@@ -241,12 +256,12 @@ fn a_claurst_permission_names_the_tool_call_it_gates_with_its_input_and_category
             serde_json::json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"acp-1","update":update}}),
         )
     };
-    let permission = |id: u64, title: &str, kind: &str| {
+    let permission = |id: u64, tool_id: &str, title: &str, kind: &str, input: serde_json::Value| {
         frame(serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": "session/request_permission",
-            "params": {"sessionId": "acp-1", "toolCall": {"toolCallId": format!("perm-acp-1-{id}"), "title": title, "kind": kind, "status": "pending"}}
+            "params": {"sessionId": "acp-1", "toolCall": {"toolCallId": tool_id, "title": title, "kind": kind, "status": "pending", "rawInput": input}}
         }))
     };
     let fake = Fake {
@@ -263,8 +278,20 @@ fn a_claurst_permission_names_the_tool_call_it_gates_with_its_input_and_category
             update(
                 serde_json::json!({"sessionUpdate":"tool_call","toolCallId":"glob-1","title":"Glob: **/*","kind":"search","status":"in_progress","rawInput":{"pattern":"**/*"}}),
             ),
-            permission(7, "Runs the project test suite", "execute"),
-            permission(8, "Tool 'Glob' requires approval", "read"),
+            permission(
+                7,
+                "bash-1",
+                "Bash",
+                "execute",
+                serde_json::json!({"command":"cargo test"}),
+            ),
+            permission(
+                8,
+                "glob-1",
+                "Glob",
+                "read",
+                serde_json::json!({"pattern":"**/*"}),
+            ),
         ]),
     };
     let mut transport = ClaurstAcpTransport::new(fake);
@@ -317,7 +344,7 @@ fn permission_category_follows_the_acp_tool_kind() {
         frame(serde_json::json!({
             "id": id,
             "method": "session/request_permission",
-            "params": {"toolCall": {"toolCallId": format!("perm-{id}"), "title": "Tool 'Tool' requires approval", "kind": kind, "status": "pending"}}
+            "params": {"toolCall": {"toolCallId": format!("perm-{id}"), "title": "Tool", "kind": kind, "status": "pending", "rawInput": {}}}
         }))
     };
     let kinds = [
@@ -357,7 +384,7 @@ fn permission_denial_uses_the_nested_acp_outcome_shape() {
             frame(serde_json::json!({"id":1,"result":{}})),
             frame(serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}})),
             frame(
-                serde_json::json!({"id":99,"method":"session/request_permission","params":{"toolCall":{"toolCallId":"tool-1","title":"Bash: pwd","kind":"execute"}}}),
+                serde_json::json!({"id":99,"method":"session/request_permission","params":{"toolCall":{"toolCallId":"tool-1","title":"Bash","kind":"execute","rawInput":{"command":"pwd"}}}}),
             ),
         ]),
     };
@@ -367,7 +394,7 @@ fn permission_denial_uses_the_nested_acp_outcome_shape() {
         .unwrap();
     assert_eq!(transport.drain(1).unwrap().permissions.len(), 1);
     transport
-        .respond_permission("99", ClaurstPermissionReply::Deny)
+        .respond_permission("claurst:n:99", ClaurstPermissionReply::Deny)
         .unwrap();
     let response: serde_json::Value =
         serde_json::from_slice(transport.stdio.writes.last().unwrap()).unwrap();
@@ -381,7 +408,7 @@ fn overlapping_permission_requests_are_held_and_presented_in_order() {
         frame(serde_json::json!({
             "id": id,
             "method": "session/request_permission",
-            "params": {"toolCall": {"toolCallId": tool_id, "title": "Bash: pwd", "kind": "execute"}}
+            "params": {"toolCall": {"toolCallId": tool_id, "title": "Bash", "kind": "execute", "rawInput": {"command":"pwd"}}}
         }))
     };
     let fake = Fake {
@@ -401,21 +428,21 @@ fn overlapping_permission_requests_are_held_and_presented_in_order() {
     let writes_before = transport.stdio.writes.len();
     let first = transport.drain(8).unwrap().permissions;
     assert_eq!(first.len(), 1);
-    assert_eq!(first[0].request_id, "99");
+    assert_eq!(first[0].request_id, "claurst:n:99");
     assert!(transport.drain(8).unwrap().permissions.is_empty());
     assert_eq!(transport.stdio.writes.len(), writes_before);
     assert_eq!(
-        transport.respond_permission("100", ClaurstPermissionReply::AllowOnce),
+        transport.respond_permission("claurst:n:100", ClaurstPermissionReply::AllowOnce),
         Err(super::ClaurstAcpTransportError::InvalidPermission)
     );
 
     let mut answered = Vec::new();
     for (expected, reply) in [
-        ("99", ClaurstPermissionReply::AllowOnce),
-        ("100", ClaurstPermissionReply::Deny),
-        ("101", ClaurstPermissionReply::AllowOnce),
+        ("claurst:n:99", ClaurstPermissionReply::AllowOnce),
+        ("claurst:n:100", ClaurstPermissionReply::Deny),
+        ("claurst:n:101", ClaurstPermissionReply::AllowOnce),
     ] {
-        let permissions = if expected == "99" {
+        let permissions = if expected == "claurst:n:99" {
             first.clone()
         } else {
             transport.drain(8).unwrap().permissions
@@ -447,7 +474,7 @@ fn cancelling_a_turn_settles_every_held_permission_request() {
         frame(serde_json::json!({
             "id": id,
             "method": "session/request_permission",
-            "params": {"toolCall": {"toolCallId": tool_id, "title": "Bash: pwd", "kind": "execute"}}
+            "params": {"toolCall": {"toolCallId": tool_id, "title": "Bash", "kind": "execute", "rawInput": {"command":"pwd"}}}
         }))
     };
     let fake = Fake {
@@ -507,6 +534,7 @@ fn projects_upstream_tool_call_lifecycle_and_keeps_its_output_for_later_provider
                     tool_name: "Bash".into(),
                     phase: ToolPhase::Started,
                     output_digest: None,
+                    input: Some(serde_json::json!({"command":"pwd"})),
                     parent_tool_use_id: None,
                 },
             }),
@@ -519,6 +547,7 @@ fn projects_upstream_tool_call_lifecycle_and_keeps_its_output_for_later_provider
                         "sha256:4384b4849b7f004db243393653c15565c0a2ab2a8951d8513646c37d2a14a51f"
                             .into(),
                     ),
+                    input: Some(serde_json::json!({"command":"pwd"})),
                     parent_tool_use_id: None,
                 },
             }),
@@ -570,6 +599,51 @@ fn claurst_flattened_tool_call_update_carries_its_content_text() {
             }),
         ]
     );
+}
+
+#[test]
+fn acp_argument_only_updates_keep_the_phase_and_reach_completion() {
+    let fake = Fake {
+        writes: vec![],
+        reads: VecDeque::from([
+            frame(serde_json::json!({"id":1,"result":{}})),
+            frame(serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}})),
+            frame(
+                serde_json::json!({"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"Write","kind":"edit","status":"in_progress"}}}),
+            ),
+            frame(
+                serde_json::json!({"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","rawInput":{"file_path":"main.rs","content":"hello"}}}}),
+            ),
+            frame(
+                serde_json::json!({"method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"tool-1","status":"completed"}}}),
+            ),
+        ]),
+    };
+    let mut transport = ClaurstAcpTransport::new(fake);
+    transport
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
+        .unwrap();
+    let activities = transport
+        .drain(8)
+        .unwrap()
+        .facts
+        .into_iter()
+        .filter_map(|fact| match fact {
+            ClaurstAcpFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) => {
+                Some(activity)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(activities.len(), 3);
+    assert_eq!(activities[0].input, None);
+    assert_eq!(activities[1].phase, ToolPhase::Started);
+    assert_eq!(
+        activities[1].input,
+        Some(serde_json::json!({"file_path":"main.rs","content":"hello"}))
+    );
+    assert_eq!(activities[2].phase, ToolPhase::Completed);
+    assert_eq!(activities[2].input, activities[1].input);
 }
 
 #[test]

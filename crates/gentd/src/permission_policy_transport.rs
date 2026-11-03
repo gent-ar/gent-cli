@@ -28,6 +28,18 @@ where
     let Ok(frame) = serde_json::from_value::<PermissionPolicyFrame>(raw.clone()) else {
         return Ok(false);
     };
+    if matches!(
+        &frame,
+        PermissionPolicyFrame::Save {
+            expected_provider: Some(_),
+            ..
+        }
+    ) && !capabilities.0.iter().any(|capability| {
+        capability == gent_protocol::PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY
+    }) {
+        write_error(stream, "unsupportedCapability", "provider-bound permission saves require permission-policy-provider-binding-v1 negotiation").await?;
+        return Ok(true);
+    }
     if !matches!(
         frame,
         PermissionPolicyFrame::Current { .. } | PermissionPolicyFrame::Save { .. }
@@ -40,7 +52,27 @@ where
         .await?;
         return Ok(true);
     }
-    match runtime.permission_policy(frame) {
+    // Reviewed resource preparation can hash files and verify OS signatures.
+    // Retain admission inside the blocking worker even if this viewer disconnects.
+    let permit = match runtime
+        .runtime_owner_control_port()
+        .map(|owner| owner.acquire_operation())
+        .transpose()
+    {
+        Ok(permit) => permit,
+        Err(message) => {
+            write_error(stream, "runtimeOwnerNotReady", &message).await?;
+            return Ok(true);
+        }
+    };
+    let authority = runtime.clone();
+    let response = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        authority.permission_policy(frame)
+    })
+    .await
+    .unwrap_or_else(|_| Err("permission policy preparation worker stopped unexpectedly".into()));
+    match response {
         Ok(response) => write_json_frame(stream, &response).await?,
         Err(message) => write_error(stream, "permissionPolicyRejected", &message).await?,
     }

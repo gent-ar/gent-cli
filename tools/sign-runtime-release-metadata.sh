@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -eo pipefail
 tools=$(dirname "$0")
+read -r protocol_min protocol_max schema_min schema_max minimum_host < <(python "$tools/runtime_release_policy.py")
 test -n "$RUNTIME_RELEASE_PRIVATE_KEY"
 test -n "$RUNTIME_RELEASE_KEY_ID"
 case "$RUNTIME_RELEASE_PUBLIC_KEY" in (????????????????????????????????????????????????????????????????) ;; (*) exit 1 ;; esac
 case "$RUNTIME_RELEASE_PUBLIC_KEY" in (*[!0-9a-f]*) exit 1 ;; esac
 key="$RUNNER_TEMP/gent-runtime-release.pem"
+trap 'rm -f "$key"' EXIT HUP INT TERM
 umask 077
 printf '%s\n' "$RUNTIME_RELEASE_PRIVATE_KEY" > "$key"
 derived_key=$(python - "$key" "$tools/sign-runtime-release.py" <<'PY'
@@ -25,8 +27,8 @@ while IFS= read -r manifest; do
   python "$tools/sign-runtime-release.py" \
     --archive-manifest "$manifest" --version "$RELEASE_TAG" --target "$target" \
     --key-id "$RUNTIME_RELEASE_KEY_ID" --private-key "$key" --expires-at "$expires_at" \
-    --protocol-min 1 --protocol-max 1 --schema-max 23 \
-    --minimum-app-version "${RELEASE_TAG#v}" --out "$output"
+    --protocol-min "$protocol_min" --protocol-max "$protocol_max" --schema-min "$schema_min" --schema-max "$schema_max" \
+    --minimum-app-version "$minimum_host" --out "$output"
 done < <(find release-artifacts -name '*.manifest.json' -type f | sort)
 set -- --key-id "$RUNTIME_RELEASE_KEY_ID" --private-key "$key" --expires-at "$expires_at" \
   --out "release-artifacts/gent-$RELEASE_TAG.runtime-release-index.json"

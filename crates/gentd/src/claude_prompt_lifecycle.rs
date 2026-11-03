@@ -1,6 +1,5 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use gent_drivers::public_protocol::PublicWireFact;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PendingPermissionLedger,
@@ -9,7 +8,7 @@ use gent_ports::{
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
 use gent_types::{AgentChatPromptSaved, DurableTurnPhase, HostEpoch};
 
-use crate::public_driver_runtime::{NormalizedSessionFact, PublicDriverFact, PublicDriversRuntime};
+use crate::public_driver_runtime::{PublicDriverFact, PublicDriversRuntime};
 
 mod containment;
 mod execution;
@@ -36,6 +35,7 @@ pub(super) struct Binding {
     interrupt_requested: bool,
     steers: Vec<AgentChatPromptSaved>,
     session_recovery: SessionRecovery,
+    failure_reported_turn: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +53,7 @@ pub(crate) struct ClaudePromptLifecycle<L, D, R> {
     active: BTreeMap<String, Binding>,
     summary_hook: Option<Arc<dyn ClaudeSummaryHook>>,
     compaction_notices: std::collections::BTreeSet<String>,
+    shutdown_signaled: bool,
 }
 
 impl<L, D, R> ClaudePromptLifecycle<L, D, R>
@@ -86,6 +87,7 @@ where
             active: BTreeMap::new(),
             summary_hook: None,
             compaction_notices: std::collections::BTreeSet::new(),
+            shutdown_signaled: false,
         }
     }
 
@@ -168,53 +170,18 @@ where
         Ok(())
     }
 
-    fn record_wire(
+    pub(crate) fn interrupt_turn(
         &mut self,
         run_id: &str,
-        host_epoch: HostEpoch,
-        fact: &PublicWireFact,
-    ) -> Result<bool, RuntimeError> {
-        if matches!(fact, PublicWireFact::SessionStarted { .. }) {
-            let event_id = self.next_event_id(run_id, host_epoch, "session")?;
-            self.runtime.record(
-                run_id,
-                &self.coordinator_id,
-                host_epoch,
-                PublicDriverFact::PublicWire {
-                    event_id,
-                    fact: fact.clone(),
-                },
-            )?;
-            return Ok(false);
+        turn_id: &str,
+    ) -> Result<(), RuntimeError> {
+        // The lifecycle owner is locked through validation and provider signal;
+        // a completed/replaced turn cannot consume a delayed Stop.
+        let binding = self.active.get(run_id).ok_or_else(missing_binding)?;
+        if binding.settled || binding.prompt.message.turn_id != turn_id {
+            return Err(missing_binding());
         }
-        let binding = self
-            .active
-            .get(run_id)
-            .cloned()
-            .ok_or_else(missing_binding)?;
-        let Some(fact) = crate::public_driver_runtime::session::recorded_wire_fact(
-            &mut self.compaction_notices,
-            &binding.prompt.message.turn_id,
-            fact,
-        ) else {
-            return Ok(false);
-        };
-        let lifecycle_event_id = self.next_event_id(run_id, host_epoch, "wire")?;
-        let transcript_event_id = self.next_event_id(run_id, host_epoch, "transcript")?;
-        let activity_event_id = self.next_event_id(run_id, host_epoch, "activity")?;
-        let input = NormalizedSessionFact {
-            run_id: run_id.into(),
-            conversation_id: binding.prompt.message.conversation_id,
-            turn_id: binding.prompt.message.turn_id,
-            host_epoch,
-            lifecycle_event_id,
-            transcript_event_id,
-            activity_event_id,
-            fact,
-        };
-        self.runtime
-            .record_normalized_session(&self.coordinator_id, &input)?;
-        Ok(false)
+        self.interrupt(run_id)
     }
 
     fn record_exit(
@@ -298,3 +265,5 @@ fn missing_binding() -> RuntimeError {
         "Claude runner has no durable prompt binding".into(),
     ))
 }
+
+mod record;

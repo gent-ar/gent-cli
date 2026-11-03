@@ -101,6 +101,9 @@ pub(crate) trait PrivateLifecycleOwner {
     fn interrupt_run(&mut self, _: &str) -> Result<(), ()> {
         Err(())
     }
+    fn interrupt_turn(&mut self, _: &str, _: &str) -> Result<(), ()> {
+        Err(())
+    }
 }
 
 type PrivateLifecycleTickResult<O> = Result<
@@ -200,6 +203,9 @@ where
 
     pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.owner.interrupt_run(run_id)
+    }
+    pub(crate) fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
+        self.owner.interrupt_turn(run_id, turn_id)
     }
 
     /// Queues one caller-selected operation without executing it.

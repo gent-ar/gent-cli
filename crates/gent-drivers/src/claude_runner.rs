@@ -49,6 +49,8 @@ pub enum ClaudeRunnerError {
     NotActive,
     #[error("Claude runner has no pending permission request with that identifier")]
     PermissionRequestNotPending,
+    #[error("{0}")]
+    InvalidPermissionInput(&'static str),
     #[error("Claude runner accepts only a locked Claude executable")]
     UnsupportedProvider,
     #[error("Claude prompt is invalid")]
@@ -65,6 +67,7 @@ pub enum ClaudeRunnerError {
 
 #[derive(Debug)]
 pub struct ClaudeStreamRunner<L, P> {
+    permission_bindings: BTreeMap<String, gent_types::SandboxPermissionBinding>,
     launcher: L,
     policy: BufferPolicy,
     runs: BTreeMap<String, OwnedRun<P>>,
@@ -91,6 +94,7 @@ where
     #[must_use]
     pub fn new(launcher: L, policy: BufferPolicy) -> Self {
         Self {
+            permission_bindings: BTreeMap::new(),
             launcher,
             policy,
             runs: BTreeMap::new(),
@@ -123,6 +127,8 @@ where
         start.turn_options.append_arguments(&mut arguments);
         append_claude_mcp_config(&mut arguments, start.mcp_config.as_deref());
         let launch = ProviderLaunch {
+            permission_binding: self.permission_bindings.remove(&start.run_id),
+            run_id: Some(start.run_id.clone()),
             lock: start.lock.clone(),
             provider: "claude".into(),
             executable: PathBuf::from(&start.lock.canonical_path),
@@ -131,7 +137,7 @@ where
             workspace_root: Some(start.workspace_root),
             workspace_access: start.workspace_access,
         };
-        let process = self.launcher.launch(&launch)?;
+        let process = sandbox::launch_checked(&self.launcher, &launch)?;
         if let Err(error) = process.write_frame(&input) {
             let _ = process.signal_tree(ProcessTreeSignal::Terminate);
             return Err(error.into());
@@ -208,7 +214,17 @@ where
             .ok_or(ClaudeRunnerError::NotActive)?;
         if let Some(chunk) = run.process.next_stdout_chunk()? {
             run.output.accept_chunk(&chunk)?;
-            return Ok(drain(run));
+            let mut effects = drain(run).unwrap_or_default();
+            // Reduce each chunk before reading more to preserve pump backpressure and FIFO.
+            // A single 4 KiB read per tick otherwise delays large tool results and controls.
+            for _ in 1..crate::output_pump::MAX_OUTPUT_CHUNKS_PER_POLL {
+                let Some(chunk) = run.process.next_stdout_chunk()? else {
+                    break;
+                };
+                run.output.accept_chunk(&chunk)?;
+                effects.extend(drain(run).unwrap_or_default());
+            }
+            return Ok((!effects.is_empty()).then_some(effects));
         }
         let Some(code) = run.process.try_exit_code()? else {
             return Ok(None);
@@ -219,15 +235,6 @@ where
         }
         self.runs.remove(run_id);
         Ok(Some(vec![ClaudeRunnerEffect::Exited { code }]))
-    }
-
-    pub fn signal(&self, run_id: &str, signal: ProcessTreeSignal) -> Result<(), ClaudeRunnerError> {
-        self.runs
-            .get(run_id)
-            .ok_or(ClaudeRunnerError::NotActive)?
-            .process
-            .signal_tree(signal)?;
-        Ok(())
     }
 
     /// Writes one closed Gent permission decision to the exact Claude process that requested it.
@@ -267,25 +274,12 @@ where
                 persist_suggestions,
                 updated_input.as_ref(),
             )
+            .map_err(ClaudeRunnerError::InvalidPermissionInput)?
             .ok_or(ClaudeRunnerError::PermissionRequestNotPending)?;
         run.process.write_frame(&response)?;
         run.permissions.settle(request_id);
         Ok(())
     }
-}
-
-fn drain<P: ProviderProcess>(run: &mut OwnedRun<P>) -> Option<Vec<ClaudeRunnerEffect>> {
-    let mut effects = Vec::new();
-    while run.output.queued_frames() > 0 {
-        let (frame, _) = run.output.take_frame();
-        let Some(frame) = frame else { break };
-        effects.extend(frames::normalize(run, &frame));
-    }
-    effects.extend(
-        crate::public_protocol::oversized_frames_skipped(run.output.take_skipped_frames())
-            .map(ClaudeRunnerEffect::Fact),
-    );
-    (!effects.is_empty()).then_some(effects)
 }
 
 #[path = "claude_runner_frames.rs"]
@@ -296,3 +290,8 @@ use input::input_frame;
 #[cfg(test)]
 #[path = "claude_runner_tests.rs"]
 mod tests;
+
+use frames::drain;
+
+#[path = "claude_runner_sandbox.rs"]
+mod sandbox;

@@ -3,7 +3,6 @@
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, PermissionMode,
 };
-use serde_json::{Value, json};
 
 /// Provider turn fields derived exclusively from a durable Gent run selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -40,6 +39,7 @@ pub enum CodexSandboxPolicy {
     ReadOnly,
     WorkspaceWrite { writable_root: Option<String> },
     DangerFullAccess,
+    ExternalSandbox,
 }
 
 impl CodexTurnOptions {
@@ -81,17 +81,18 @@ impl CodexTurnOptions {
                 writable_root: working_directory.map(str::to_owned),
             },
         };
-        let sandbox =
-            if permission_mode == PermissionMode::Bypass && selection.mode != AgentChatMode::Plan {
-                CodexSandboxPolicy::DangerFullAccess
-            } else {
-                mode_sandbox
-            };
+        let sandbox = if permission_mode == PermissionMode::Bypass
+            && selection.mode == AgentChatMode::Agent
+        {
+            CodexSandboxPolicy::DangerFullAccess
+        } else {
+            mode_sandbox
+        };
         let approval = match permission_mode {
-            PermissionMode::AskEveryTime => CodexApprovalPolicy::Untrusted,
-            PermissionMode::AutoAcceptEdits | PermissionMode::Autonomous => {
-                CodexApprovalPolicy::OnRequest
+            PermissionMode::AskEveryTime | PermissionMode::AutoAcceptEdits => {
+                CodexApprovalPolicy::Untrusted
             }
+            PermissionMode::Autonomous => CodexApprovalPolicy::OnRequest,
             PermissionMode::Bypass => CodexApprovalPolicy::Never,
         };
         Ok(Self {
@@ -108,7 +109,7 @@ impl CodexTurnOptions {
         let model = model.into();
         (!model.trim().is_empty() && !model.contains('\0'))
             .then_some(Self {
-                model: Some(model),
+                model: (model != "default").then_some(model),
                 effort: CodexTurnEffort::Low,
                 sandbox: CodexSandboxPolicy::ReadOnly,
                 approval: CodexApprovalPolicy::Never,
@@ -139,6 +140,22 @@ impl CodexTurnOptions {
         self.model.as_deref()
     }
 
+    pub(super) fn resolve_provider_default(
+        mut self,
+        model: String,
+    ) -> Result<Self, CodexSessionError> {
+        if self.model.is_some()
+            || model.is_empty()
+            || model.len() > 512
+            || model.contains('\0')
+            || model == "default"
+        {
+            return Err(CodexSessionError::ProviderDefaultUnavailable);
+        }
+        self.model = Some(model);
+        Ok(self)
+    }
+
     pub(crate) fn effort(&self) -> &'static str {
         match self.effort {
             CodexTurnEffort::Low => "low",
@@ -148,6 +165,10 @@ impl CodexTurnOptions {
             CodexTurnEffort::Max => "max",
             CodexTurnEffort::Ultra => "ultra",
         }
+    }
+
+    pub(super) fn bind_external_sandbox(&mut self) {
+        self.sandbox = CodexSandboxPolicy::ExternalSandbox;
     }
 
     pub(crate) fn sandbox(&self) -> &CodexSandboxPolicy {
@@ -163,54 +184,9 @@ impl CodexTurnOptions {
     }
 }
 
-pub(crate) fn turn_parameters(
-    options: &CodexTurnOptions,
-    thread_id: &str,
-    prompt: &str,
-    attachments: &[Value],
-) -> Value {
-    let sandbox_policy = match options.sandbox() {
-        CodexSandboxPolicy::ReadOnly => json!({"type": "readOnly", "networkAccess": false}),
-        CodexSandboxPolicy::WorkspaceWrite { writable_root } => json!({
-            "type": "workspaceWrite",
-            "writableRoots": writable_root.iter().collect::<Vec<_>>(),
-            "networkAccess": false,
-            "excludeTmpdirEnvVar": false,
-            "excludeSlashTmp": false,
-        }),
-        CodexSandboxPolicy::DangerFullAccess => json!({"type": "dangerFullAccess"}),
-    };
-    let prompt = options
-        .configured_append_system_prompt
-        .as_deref()
-        .map_or_else(
-            || prompt.into(),
-            |instruction| format!("{instruction}\n\nUser request:\n{prompt}"),
-        );
-    let mut parameters = json!({
-        "threadId": thread_id,
-        "input": [{"type": "text", "text": prompt}],
-        "effort": options.effort(),
-        "approvalPolicy": options.approval(),
-        "sandboxPolicy": sandbox_policy,
-    });
-    if let Some(model) = options.model() {
-        parameters["model"] = Value::String(model.into());
-        if options.plan {
-            parameters["collaborationMode"] = json!({
-                "mode": "plan",
-                "settings": {"model": model, "reasoning_effort": options.effort(), "developer_instructions": null},
-            });
-        }
-    }
-    if !attachments.is_empty() {
-        let input = parameters["input"]
-            .as_array_mut()
-            .expect("fixed input array");
-        input.extend(attachments.iter().cloned());
-    }
-    parameters
-}
+#[path = "turn_parameters.rs"]
+mod parameters;
+pub(crate) use parameters::turn_parameters;
 
 /// Inputs fixed before the Codex app-server initialization request is sent.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -281,103 +257,10 @@ pub enum CodexSessionError {
     UnsupportedSelection,
     #[error("the Codex model must be non-empty and within the driver limit")]
     InvalidModel,
+    #[error("Codex did not publish one unambiguous available default model")]
+    ProviderDefaultUnavailable,
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{CodexTurnOptions, turn_parameters};
-    use gent_types::{
-        AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, PermissionMode,
-    };
-
-    #[test]
-    fn plan_mode_is_codex_native_collaboration_mode_without_a_prompt_prefix() {
-        let options = CodexTurnOptions::from_selection(&selection(AgentChatMode::Plan), None)
-            .unwrap()
-            .with_conversation_config(Some("Prefer terse replies.".into()), true);
-        let parameters = turn_parameters(&options, "thread", "do the thing", &[]);
-        assert_eq!(
-            parameters["collaborationMode"],
-            serde_json::json!({"mode": "plan", "settings": {"model": "gpt-5.6", "reasoning_effort": "high", "developer_instructions": null}})
-        );
-        assert_eq!(
-            parameters["input"][0]["text"],
-            "Prefer terse replies.\n\nUser request:\ndo the thing"
-        );
-        let agent =
-            CodexTurnOptions::from_selection(&selection(AgentChatMode::Agent), None).unwrap();
-        assert!(
-            turn_parameters(&agent, "thread", "do the thing", &[])
-                .get("collaborationMode")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn a_non_append_system_prompt_is_ignored_at_the_wire_layer() {
-        let options = CodexTurnOptions::from_selection(&selection(AgentChatMode::Agent), None)
-            .unwrap()
-            .with_conversation_config(Some("Replace everything.".into()), false);
-        let parameters = turn_parameters(&options, "thread", "do the thing", &[]);
-        assert_eq!(parameters["input"][0]["text"], "do the thing");
-    }
-
-    fn selection(mode: AgentChatMode) -> AgentChatSelection {
-        AgentChatSelection {
-            provider: AgentChatProvider::Codex,
-            model: "gpt-5.6".into(),
-            effort: AgentChatEffort::High,
-            mode,
-        }
-    }
-
-    #[test]
-    fn summary_turn_never_requests_approval_or_network_access() {
-        let options = CodexTurnOptions::summary("gpt-5.6-luna").unwrap();
-        let parameters = turn_parameters(&options, "thread", "prompt", &[]);
-        assert_eq!(parameters["approvalPolicy"], "never");
-        assert_eq!(parameters["sandboxPolicy"]["type"], "readOnly");
-        assert_eq!(parameters["sandboxPolicy"]["networkAccess"], false);
-        assert_eq!(parameters["effort"], "low");
-    }
-
-    #[test]
-    fn permission_posture_changes_approval_without_replacing_plan_intent() {
-        let selection = AgentChatSelection {
-            provider: AgentChatProvider::Codex,
-            model: "gpt-5.6".into(),
-            effort: AgentChatEffort::Medium,
-            mode: AgentChatMode::Plan,
-        };
-        let options = CodexTurnOptions::from_selection_with_permissions(
-            &selection,
-            Some("/workspace"),
-            PermissionMode::Bypass,
-        )
-        .unwrap();
-        let parameters = turn_parameters(&options, "thread", "prompt", &[]);
-        assert_eq!(parameters["approvalPolicy"], "never");
-        assert_eq!(parameters["sandboxPolicy"]["type"], "readOnly");
-        assert_eq!(parameters["collaborationMode"]["mode"], "plan");
-    }
-
-    #[test]
-    fn codex_preserves_its_highest_supported_effort_level() {
-        let selection = AgentChatSelection {
-            provider: AgentChatProvider::Codex,
-            model: "gpt-5.6-sol".into(),
-            effort: AgentChatEffort::Ultra,
-            mode: AgentChatMode::Agent,
-        };
-        let options = CodexTurnOptions::from_selection_with_permissions(
-            &selection,
-            Some("/workspace"),
-            PermissionMode::AskEveryTime,
-        )
-        .unwrap();
-        assert_eq!(
-            turn_parameters(&options, "thread", "prompt", &[])["effort"],
-            "ultra"
-        );
-    }
-}
+#[path = "types_tests.rs"]
+mod tests;

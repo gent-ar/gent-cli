@@ -4,14 +4,18 @@ use gent_types::ToolSourceRecord;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+#[path = "internal_mcp_descriptors.rs"]
+mod descriptors;
+pub(crate) use descriptors::InjectedInternalMcp;
+
 const MAX_BYTES: u64 = 1024 * 1024;
-pub(crate) const INTERNAL_SERVER_NAMES: [&str; 4] =
-    ["gent-automations", "gent-chat", "gent-forge", "gent-goal"];
+pub(crate) use gent_types::internal_tools::INTERNAL_SERVER_NAMES;
 pub(crate) const CHAT_SERVER_NAME: &str = "gent-chat";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StandaloneMcpConfig {
     path: PathBuf,
+    injected: Option<InjectedInternalMcp>,
 }
 
 impl StandaloneMcpConfig {
@@ -23,24 +27,36 @@ impl StandaloneMcpConfig {
     }
 
     pub(crate) fn with_internal_servers(self, data_dir: &Path) -> Result<Self, String> {
+        let injected = descriptors::capture(data_dir)?;
+        self.with_captured_internal_servers(data_dir, injected)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_fixture_internal_servers(
+        self,
+        data_dir: &Path,
+        cli: &str,
+    ) -> Result<Self, String> {
+        self.with_captured_internal_servers(data_dir, InjectedInternalMcp::fixture(data_dir, cli))
+    }
+
+    fn with_captured_internal_servers(
+        self,
+        data_dir: &Path,
+        injected: InjectedInternalMcp,
+    ) -> Result<Self, String> {
         let value = self.value()?;
         let mut servers = value
             .get("mcpServers")
             .and_then(Value::as_object)
             .cloned()
             .ok_or("MCP config is invalid")?;
-        let executable = gent_cli_executable()?;
-        for (name, domain) in
-            INTERNAL_SERVER_NAMES.map(|name| (name, name.trim_start_matches("gent-")))
+        for (name, config) in injected
+            .servers()
+            .as_object()
+            .ok_or("MCP config is invalid")?
         {
-            servers.insert(
-                name.into(),
-                serde_json::json!({
-                    "command": executable.clone(),
-                    "args": ["--data-dir", data_dir, "mcp", domain],
-                    "env": {}
-                }),
-            );
+            servers.insert(name.clone(), config.clone());
         }
         let path = data_dir.join("standalone-mcp.json");
         std::fs::create_dir_all(data_dir).map_err(|_| "MCP config directory is unavailable")?;
@@ -50,7 +66,13 @@ impl StandaloneMcpConfig {
                 .map_err(|_| "MCP config is invalid")?,
         )
         .map_err(|_| "MCP config is unavailable")?;
-        Self::load(&path)
+        let mut config = Self::load(&path)?;
+        config.injected = Some(injected);
+        Ok(config)
+    }
+
+    pub(crate) fn injection(&self) -> Option<InjectedInternalMcp> {
+        self.injected.clone()
     }
 
     pub(crate) fn load(path: &Path) -> Result<Self, String> {
@@ -67,7 +89,8 @@ impl StandaloneMcpConfig {
             .ok_or("MCP config is invalid")?
             .iter()
             .try_for_each(|(id, config)| {
-                let valid = !id.is_empty()
+                let valid = !gent_types::internal_tools::sdk_alias(id)
+                    && !id.is_empty()
                     && id.len() <= 256
                     && config
                         .get("command")
@@ -93,7 +116,10 @@ impl StandaloneMcpConfig {
                     });
                 valid.then_some(()).ok_or("MCP config is invalid")
             })?;
-        Ok(Self { path: path.into() })
+        Ok(Self {
+            path: path.into(),
+            injected: None,
+        })
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -268,70 +294,6 @@ fn selected_server_names(sources: &[ToolSourceRecord]) -> Vec<String> {
     names
 }
 
-fn gent_cli_executable() -> Result<String, String> {
-    let current = std::env::current_exe().map_err(|_| "Gent executable is unavailable")?;
-    let directory = current.parent().ok_or("Gent executable is unavailable")?;
-    for directory in [Some(directory), directory.parent()].into_iter().flatten() {
-        let names = if cfg!(windows) {
-            ["gent.exe", "gent-cli.exe"]
-        } else {
-            // macOS app bundles cannot place a lowercase `gent` next to the
-            // uppercase app executable `Gent` on their usual
-            // case-insensitive filesystems. Native packaging therefore uses
-            // this unambiguous sibling name.
-            ["gent", "gent-cli"]
-        };
-        for name in names {
-            let sibling = directory.join(name);
-            if sibling.is_file() {
-                return Ok(sibling.to_string_lossy().into_owned());
-            }
-        }
-    }
-    Err("Gent CLI executable is unavailable".into())
-}
-
 #[cfg(test)]
-mod tests {
-    use super::StandaloneMcpConfig;
-
-    #[test]
-    fn loads_only_bounded_stdio_servers() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("mcp.json");
-        std::fs::write(&path, r#"{"mcpServers":{"example":{"command":"node","args":["server.js"],"env":{"TOKEN":"secret"}}}}"#).unwrap();
-        let config = StandaloneMcpConfig::load(&path).unwrap();
-        assert_eq!(
-            config.codex_servers().unwrap()["example"]["command"],
-            "node"
-        );
-        assert_eq!(config.claurst_servers().unwrap()[0]["name"], "example");
-        assert_eq!(
-            config.claurst_servers().unwrap()[0]["env"],
-            serde_json::json!([{"name":"TOKEN","value":"secret"}])
-        );
-        assert_eq!(
-            config.claurst_settings_servers().unwrap()[0]["env"],
-            serde_json::json!({"TOKEN":"secret"})
-        );
-        assert_eq!(
-            config.claurst_servers().unwrap()[0]["args"],
-            serde_json::json!(["server.js"])
-        );
-        let before = config.digest().unwrap();
-        std::fs::write(
-            &path,
-            r#"{"mcpServers":{"example":{"command":"node","args":["updated.js"]}}}"#,
-        )
-        .unwrap();
-        assert_ne!(before, config.digest().unwrap());
-        assert_eq!(
-            config.claurst_servers().unwrap()[0]["args"],
-            serde_json::json!(["updated.js"])
-        );
-        assert_eq!(
-            config.claurst_servers().unwrap()[0]["env"],
-            serde_json::json!([])
-        );
-    }
-}
+#[path = "standalone_mcp_config_tests.rs"]
+mod tests;

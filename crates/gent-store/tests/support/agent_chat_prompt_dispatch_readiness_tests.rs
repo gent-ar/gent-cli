@@ -25,6 +25,7 @@ fn prelaunch_failure_settles_the_claimed_turn_and_leaves_later_prompts_claimable
             "daemon-a",
             HostEpoch(1),
             "local Claurst startup exceeded 45 seconds",
+            None,
         )
         .unwrap();
     let page = ledger

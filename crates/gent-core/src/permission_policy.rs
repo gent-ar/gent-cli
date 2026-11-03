@@ -33,18 +33,12 @@ pub fn evaluate_permission_with_sandbox(
     request: &PermissionRequest,
     sandbox: SandboxEnforcement,
 ) -> PermissionDecision {
-    if policy.mode.requires_sandbox() && sandbox != SandboxEnforcement::Enforced {
+    if policy.unattended_requires_sandbox() && sandbox != SandboxEnforcement::Enforced {
         return PermissionDecision::SandboxRequired;
     }
     if mode_allows(policy.mode, request.category)
-        || policy
-            .allowed_tools
-            .binary_search(&request.tool_name)
-            .is_ok()
-        || policy
-            .allowed_categories
-            .binary_search(&request.category)
-            .is_ok()
+        || policy.allowed_tools.contains(&request.tool_name)
+        || policy.allowed_categories.contains(&request.category)
     {
         PermissionDecision::Allow
     } else {
@@ -61,7 +55,10 @@ fn mode_allows(mode: PermissionMode, category: PermissionCategory) -> bool {
         ),
         PermissionMode::Autonomous => matches!(
             category,
-            PermissionCategory::Read | PermissionCategory::Edit | PermissionCategory::Command
+            PermissionCategory::Read
+                | PermissionCategory::Edit
+                | PermissionCategory::Command
+                | PermissionCategory::Network
         ),
         PermissionMode::Bypass => true,
     }
@@ -82,6 +79,7 @@ mod tests {
             scope: PolicyScope::ProviderPermissions,
             revision: 1,
             mode,
+            containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec!["git:status".into()],
             allowed_categories: vec![PermissionCategory::Network],
         }
@@ -94,6 +92,30 @@ mod tests {
             input: None,
             child_id: None,
         }
+    }
+
+    #[test]
+    fn grants_do_not_depend_on_input_order() {
+        let mut current = policy(PermissionMode::AskEveryTime);
+        current.allowed_tools = vec!["Write".into(), "Bash".into(), "Read".into()];
+        current.allowed_categories = vec![PermissionCategory::Network, PermissionCategory::Edit];
+        assert_eq!(
+            evaluate_permission(&current, &request("Write", PermissionCategory::Command)),
+            PermissionDecision::Allow
+        );
+        assert_eq!(
+            evaluate_permission(&current, &request("other", PermissionCategory::Network)),
+            PermissionDecision::Allow
+        );
+        assert_eq!(
+            evaluate_permission(&current, &request("other", PermissionCategory::Command)),
+            PermissionDecision::Prompt
+        );
+        current.mode = PermissionMode::Bypass;
+        assert_eq!(
+            evaluate_permission(&current, &request("Write", PermissionCategory::Command)),
+            PermissionDecision::SandboxRequired
+        );
     }
 
     #[test]
@@ -142,7 +164,7 @@ mod tests {
                 &request("http", PermissionCategory::Network),
                 SandboxEnforcement::Enforced,
             ),
-            PermissionDecision::Prompt
+            PermissionDecision::Allow
         );
     }
 
@@ -158,5 +180,27 @@ mod tests {
             evaluate_permission_with_sandbox(&policy, &request, SandboxEnforcement::Enforced),
             PermissionDecision::Allow
         );
+    }
+
+    #[test]
+    fn an_unsandboxed_conversation_applies_its_broad_mode_without_containment_evidence() {
+        let policy =
+            policy(PermissionMode::Bypass).for_conversation(gent_types::Containment::Unsandboxed);
+        assert_eq!(
+            evaluate_permission(&policy, &request("http:post", PermissionCategory::Network)),
+            PermissionDecision::Allow
+        );
+        let ask = policy_with(
+            PermissionMode::AskEveryTime,
+            gent_types::Containment::Sandboxed,
+        );
+        assert_eq!(
+            evaluate_permission(&ask, &request("shell", PermissionCategory::Command)),
+            PermissionDecision::Prompt
+        );
+    }
+
+    fn policy_with(mode: PermissionMode, containment: gent_types::Containment) -> PolicyRecord {
+        policy(mode).for_conversation(containment)
     }
 }

@@ -84,7 +84,7 @@ pub(super) fn claim_excluding_runs(
         )
     });
     let query = format!(
-        "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1){} ORDER BY d.created_rowid LIMIT 1",
+        "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets target WHERE target.message_id=d.message_id) AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1){} ORDER BY d.created_rowid LIMIT 1",
         excluded.unwrap_or_default(),
     );
     let provider = helpers::provider_name(provider);

@@ -4,8 +4,8 @@ use gent_ports::{
 };
 use gent_runtime::{ProviderLifecycleEffect, RuntimeError};
 use gent_types::{
-    HostEpoch, NormalizedProviderEvent, NormalizedSessionBatch, NormalizedSessionLifecycle,
-    NormalizedTranscriptAppend, NormalizedTranscriptKind,
+    HostEpoch, NormalizedSessionBatch, NormalizedSessionLifecycle, NormalizedTranscriptAppend,
+    NormalizedTranscriptKind,
 };
 
 use super::validation::event_id;
@@ -43,61 +43,19 @@ where
                 signal: signal.clone(),
             },
         };
-        let transcript = match &fact.value {
-            ClaurstFactValue::Event(NormalizedProviderEvent::Output { text, is_partial }) => {
-                Some(transcript(
-                    binding,
-                    turn_id,
-                    fact.cursor,
-                    NormalizedTranscriptKind::AssistantMessage,
-                    text,
-                    *is_partial,
-                ))
+        let wire_fact = match &fact.value {
+            ClaurstFactValue::Event(event) => {
+                gent_drivers::public_protocol::PublicWireFact::Event(event.clone())
             }
-            ClaurstFactValue::Event(NormalizedProviderEvent::ToolOutputDelta { text, .. }) => {
-                Some(transcript(
-                    binding,
-                    turn_id,
-                    fact.cursor,
-                    NormalizedTranscriptKind::ToolActivity,
-                    text,
-                    false,
-                ))
+            ClaurstFactValue::Lifecycle(signal) => {
+                gent_drivers::public_protocol::PublicWireFact::Lifecycle(signal.clone())
             }
-            ClaurstFactValue::Event(NormalizedProviderEvent::TransportDiagnostic {
-                classification,
-            }) if classification == gent_types::OVERSIZED_PROVIDER_FRAME_DIAGNOSTIC => {
-                Some(transcript(
-                    binding,
-                    turn_id,
-                    fact.cursor,
-                    NormalizedTranscriptKind::Notice,
-                    gent_types::OVERSIZED_PROVIDER_FRAME_NOTICE,
-                    false,
-                ))
-            }
-            ClaurstFactValue::Event(NormalizedProviderEvent::ProviderFailure {
-                message, ..
-            }) => Some(transcript(
-                binding,
-                turn_id,
-                fact.cursor,
-                NormalizedTranscriptKind::Notice,
-                message,
-                false,
-            )),
-            ClaurstFactValue::Event(NormalizedProviderEvent::Thinking { text, is_partial }) => {
-                Some(transcript(
-                    binding,
-                    turn_id,
-                    fact.cursor,
-                    NormalizedTranscriptKind::Thinking,
-                    text,
-                    *is_partial,
-                ))
-            }
-            _ => None,
         };
+        let transcript = crate::public_driver_runtime::session::transcript_content(&wire_fact).map(
+            |(kind, text, is_partial)| {
+                transcript(binding, turn_id, fact.cursor, kind, &text, is_partial)
+            },
+        );
         let activity = crate::public_driver_runtime::session::activity_for_lifecycle(
             &conversation_id.0,
             &binding.run_id,

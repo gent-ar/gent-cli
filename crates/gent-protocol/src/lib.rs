@@ -9,7 +9,6 @@ use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
-
 mod agent_chat;
 mod agent_chat_checkpoint;
 pub mod agent_chat_commands;
@@ -19,6 +18,7 @@ mod agent_chat_permission;
 mod agent_chat_projection;
 mod agent_chat_sessions;
 mod agent_chat_side_question;
+mod agent_chat_steer;
 mod attachments;
 mod automations;
 mod conversation_activity;
@@ -33,6 +33,7 @@ mod event_stream;
 mod forge;
 mod goal;
 mod local_models;
+pub mod managed_mcp;
 pub mod model_catalog;
 mod orchestration;
 mod permission_policy;
@@ -43,95 +44,16 @@ mod provider_install_review;
 mod provider_readiness;
 mod reviewed_plan;
 mod runs;
+pub mod runtime_activation;
 mod runtime_maintenance;
+pub mod runtime_owner;
 mod runtime_update;
 mod turn_follow;
 mod workspace_documents;
 mod workspace_git;
 
-pub use agent_chat::{
-    AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
-    AgentChatConversationFrame, AgentChatTranscriptFrame,
-};
-pub use agent_chat_checkpoint::{AGENT_CHAT_CHECKPOINT_CAPABILITY, AgentChatCheckpointFrame};
-pub use agent_chat_conversation_config::{
-    AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY, AgentChatConversationConfigFrame,
-};
-pub use agent_chat_intent::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame,
-    AgentChatSubscriptionEnd, HistoricalTranscriptEntry,
-};
-pub use agent_chat_permission::{AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame};
-pub use agent_chat_projection::{
-    AGENT_CHAT_PROJECTION_CAPABILITY, AgentChatProjectionDelta, AgentChatProjectionFrame,
-    AgentChatProjectionSnapshot, DisplayRecord, ProjectionCatalog, ProjectionCursor,
-};
-pub use agent_chat_sessions::{AGENT_CHAT_SESSIONS_CAPABILITY, AgentChatSessionFrame};
-pub use agent_chat_side_question::{
-    AGENT_CHAT_SIDE_QUESTION_CAPABILITY, AgentChatSideQuestionFrame,
-};
-pub use attachments::{ATTACHMENTS_CAPABILITY, AttachmentFrame};
-pub use automations::{AUTOMATIONS_CAPABILITY, AutomationFrame, AutomationFrameError};
-pub use conversation_activity::{CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame};
-pub use conversation_content::{
-    CONVERSATION_CONTENT_CAPABILITY, ContentPageError, ConversationContentFrame,
-    MAX_CONVERSATION_CONTENT_PAGE_BYTES, bound_content_page,
-};
-pub use conversation_index::{CONVERSATION_INDEX_CAPABILITY, ConversationIndexFrame};
-pub use conversation_status::{CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame};
-pub use conversation_timeline::{CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame};
-pub use decision::{
-    DecisionEvidence, DecisionRecoveryEvidence, DecisionSubmission, ProviderDecisionEvidence,
-};
-pub use dependencies::{
-    DependencyAction, DependencyActionRequest, DependencyActionResult, DependencyActionState,
-    DependencyPlan, DependencyPlanRequest, DependencyProvider, dependency_plan_digest,
-};
-pub use event_stream::{EVENT_STREAM_CAPABILITY, EventStreamFrame};
-pub use forge::{FORGE_CONNECTORS_CAPABILITY, ForgeConnectorFrame, ForgeConnectorFrameError};
-pub use goal::{
-    GOAL_CAPABILITY, GoalFrame, GoalFrameError, GoalRejectionCode, MAX_GOAL_FRAME_BYTES,
-};
-pub use local_models::{
-    DEFAULT_LOCAL_MODEL_ID, LOCAL_MODELS_CAPABILITY, LocalModelDescriptor,
-    LocalModelDownloadFailure, LocalModelFrame, LocalModelFrameError, LocalModelInstallState,
-};
-pub use orchestration::{
-    MAX_ORCHESTRATION_FRAME_BYTES, ORCHESTRATION_CAPABILITY, OrchestrationFrame,
-    OrchestrationFrameError,
-};
-pub use permission_policy::{PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame};
-pub use prompt_provider_provision::{
-    PROMPT_PROVIDER_PROVISION_CAPABILITY, PromptProviderProvisionFrame,
-    PromptProviderProvisionState,
-};
-pub use prompt_templates::{PROMPT_TEMPLATES_CAPABILITY, PromptTemplateFrame};
-pub use provider_auth::{
-    MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame,
-    ProviderAuthFrameError, read_provider_auth_frame, write_provider_auth_frame,
-};
-pub use provider_install_review::{
-    ProviderInstallReview, ProviderPackageReview, provider_install_review_digest,
-};
-pub use provider_readiness::{
-    PROVIDER_READINESS_CAPABILITY, ProviderReadinessFrame, ProviderReadinessReviewState,
-    ProviderReadinessUnavailable,
-};
-pub use reviewed_plan::{REVIEWED_PLAN_CAPABILITY, ReviewedPlanFrame, ReviewedPlanFrameError};
-pub use runs::{
-    PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,
-    PublicRunStartRequest,
-};
-pub use runtime_maintenance::{RUNTIME_MAINTENANCE_CAPABILITY, RuntimeMaintenanceFrame};
-pub use runtime_update::{RUNTIME_UPDATE_CHECK_CAPABILITY, RuntimeUpdateCheckFrame};
-pub use turn_follow::{
-    AGENT_CHAT_TURN_FOLLOW_CAPABILITY, AgentChatTurnFollowEnd, AgentChatTurnFollowFrame,
-};
-pub use workspace_documents::{
-    WORKSPACE_DOCUMENTS_CAPABILITY, WorkspaceDocumentGroup, WorkspaceDocumentRecord,
-    WorkspaceDocumentsFrame,
-};
-pub use workspace_git::{WORKSPACE_GIT_CAPABILITY, WorkspaceGitFrame};
+mod exports;
+pub use exports::*;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

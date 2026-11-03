@@ -73,7 +73,14 @@ function Assert-PlainDirectory([string]$Path, [string]$Description) {
         Fail "$Description cannot be a reparse point"
     }
 }
-. (Join-Path $PSScriptRoot "install_archive_validation.ps1")
+function Remove-PrivateDirectory([string]$Path, [string]$Parent, [string]$Prefix) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    Assert-PlainDirectory $Path "private staging directory"
+    $actual = [IO.Path]::GetFullPath($Path)
+    $expectedParent = [IO.Path]::GetFullPath($Parent).TrimEnd('\')
+    if ([IO.Path]::GetDirectoryName($actual).TrimEnd('\') -ne $expectedParent -or -not [IO.Path]::GetFileName($actual).StartsWith($Prefix, [StringComparison]::Ordinal)) { Fail "private directory cleanup escaped its expected parent" }
+    Remove-Item -LiteralPath $actual -Force -Recurse
+}
 function Move-Atomically([string]$Source, [string]$Destination) {
     if (-not ("GentAtomicMove" -as [type])) { Add-Type -TypeDefinition @'
 using System;
@@ -91,6 +98,7 @@ public static class GentAtomicMove {
     [GentAtomicMove]::Replace($Source, $Destination)
 }
 function Write-CurrentPointer([string]$RuntimeRoot, [string]$ReleaseName) {
+    Assert-MutationLease
     Assert-ReleaseName $ReleaseName
     $releasePath = Join-Path (Join-Path $RuntimeRoot "releases") $ReleaseName
     Assert-PlainDirectory $releasePath "selected release"
@@ -111,6 +119,7 @@ function Write-CurrentPointer([string]$RuntimeRoot, [string]$ReleaseName) {
     else { [System.IO.File]::Move($temporary, $pointer) }
 }
 function Write-NativeLaunchers([string]$Root, [string]$ReleasePath) {
+    Assert-MutationLease
     $bin = Join-Path $Root "bin"
     New-Item -ItemType Directory -Force -Path $bin | Out-Null
     $source = Join-Path $ReleasePath "gent-launcher.exe"
@@ -130,55 +139,6 @@ function Write-NativeLaunchers([string]$Root, [string]$ReleasePath) {
         else { [IO.File]::Move($temporary, $destination) }
     }
 }
-function Assert-IdenticalRelease([string]$Expected, [string]$Installed) {
-    Assert-PlainDirectory $Expected "extracted release"
-    Assert-PlainDirectory $Installed "existing release"
-    foreach ($binary in @("gent.exe", "gentd.exe", "gent-launcher.exe")) {
-        $expectedPath = Join-Path $Expected $binary
-        $installedPath = Join-Path $Installed $binary
-        Assert-PlainFile $expectedPath "extracted release $binary"
-        Assert-PlainFile $installedPath "existing release $binary"
-        $expectedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $expectedPath).Hash
-        $installedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installedPath).Hash
-        if ($expectedHash -ne $installedHash) { Fail "existing release does not match signed archive" }
-    }
-    Assert-PackagedRuntime $Expected
-    Assert-PackagedRuntime $Installed
-    $expectedFiles = @(Get-ChildItem -LiteralPath (Join-Path $Expected "runtime") -File -Recurse | ForEach-Object { $_.FullName.Substring($Expected.Length) } | Sort-Object)
-    $installedFiles = @(Get-ChildItem -LiteralPath (Join-Path $Installed "runtime") -File -Recurse | ForEach-Object { $_.FullName.Substring($Installed.Length) } | Sort-Object)
-    if (($expectedFiles -join ',') -ne ($installedFiles -join ',')) { Fail "existing release runtime does not match signed archive" }
-    foreach ($relative in $expectedFiles) {
-        if ((Get-FileHash -Algorithm SHA256 -LiteralPath "$Expected$relative").Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath "$Installed$relative").Hash) {
-            Fail "existing release runtime does not match signed archive"
-        }
-    }
-}
-function Use-InstallLock([string]$Root, [scriptblock]$Action) {
-    New-Item -ItemType Directory -Force -Path $Root | Out-Null
-    $path = Join-Path $Root ".install.lock"
-    if (Test-Path -LiteralPath $path) { Assert-PlainFile $path "installer lock" }
-    $lock = [System.IO.File]::Open($path, "OpenOrCreate", "ReadWrite", "Read")
-    try {
-        try { $lock.Lock(0, 1) }
-        catch { Fail "another Gent install is already in progress" }
-        try { & $Action }
-        finally { $lock.Unlock(0, 1) }
-    }
-    finally { $lock.Dispose() }
-}
-function Use-IdleDaemonLock([string]$DataDir, [scriptblock]$Action) {
-    if (-not $DataDir) { & $Action; return }
-    New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
-    $path = Join-Path $DataDir "gentd.lock"
-    $lock = [System.IO.File]::Open($path, "OpenOrCreate", "ReadWrite", "ReadWrite")
-    try {
-        try { $lock.Lock(0, 1) }
-        catch { Fail "gentd is running for $DataDir; stop it before updating" }
-        try { & $Action }
-        finally { $lock.Unlock(0, 1) }
-    }
-    finally { $lock.Dispose() }
-}
 function Test-StagedPair([string]$ReleasePath) {
     $data = Join-Path ([IO.Path]::GetTempPath()) ("gent-health-" + [Guid]::NewGuid().ToString("N")); $process = $null
     try {
@@ -191,9 +151,10 @@ function Test-StagedPair([string]$ReleasePath) {
             Start-Sleep -Milliseconds 100
         }
         Fail "staged runtime did not complete a local IPC health check"
-    } finally { if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }; Remove-Item -LiteralPath $data -Force -Recurse -ErrorAction SilentlyContinue }
+    } finally { if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force }; Remove-PrivateDirectory $data ([IO.Path]::GetTempPath()) "gent-health-" }
 }
 function Write-AutoUpdater([string]$Source, [string]$Root) {
+    Assert-MutationLease
     $destination = Join-Path $Root "gent-auto-update.ps1"; $temporary = Join-Path $Root (".gent-auto-update-" + [Guid]::NewGuid().ToString("N"))
     [IO.File]::Copy($Source, $temporary); if (Test-Path -LiteralPath $destination) { Assert-PlainFile $destination "automatic-update helper"; Move-Atomically $temporary $destination } else { [IO.File]::Move($temporary, $destination) }
 }
@@ -213,10 +174,10 @@ if (-not $InstallDir) {
     $InstallDir = Join-Path $env:LOCALAPPDATA "Gent"
 }
 $archiveName = "gent-$Version-$Target.zip"
-$releaseName = "$Version-$Target"
 $base = Get-AssetBase $Version
 $temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("gent-install-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $temporary | Out-Null
+$privateStage = $null
 try {
     $archive = Get-Asset $base $archiveName $temporary
     $checksum = Get-Asset $base "$archiveName.sha256" $temporary
@@ -225,39 +186,61 @@ try {
     $manifestBundle = Get-Asset $base "$archiveName.manifest.json.sigstore.json" $temporary
     $autoUpdater = Get-Asset $base "gent-auto-update.ps1" $temporary
     $autoUpdaterBundle = Get-Asset $base "gent-auto-update.ps1.sigstore.json" $temporary
+    $support = Get-Asset $base "gent-install-support.ps1" $temporary
+    $supportBundle = Get-Asset $base "gent-install-support.ps1.sigstore.json" $temporary
     Assert-Signed $archive $archiveBundle $Version
     Assert-Signed $manifest $manifestBundle $Version
     Assert-Signed $autoUpdater $autoUpdaterBundle $Version
+    Assert-Signed $support $supportBundle $Version
+    . $support
     Assert-Archive $archive $manifest $checksum $Version
     $actualDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
     if ($ExpectedSha256 -and $ExpectedSha256 -ne $actualDigest) {
         Fail "release digest does not match explicit update confirmation"
     }
     Assert-ZipMembers $archive $Version
-    Use-InstallLock $InstallDir {
-        $pointer = Join-Path $InstallDir "current.json"
-        if ((Test-Path -LiteralPath $pointer) -and -not $Force) { Fail "Gent is already installed; pass --Force to update it" }
-        $releases = Join-Path $InstallDir "releases"
-        $release = Join-Path $releases $releaseName
-        New-Item -ItemType Directory -Force -Path $releases | Out-Null
-        $stage = Join-Path $releases (".stage-" + [Guid]::NewGuid().ToString("N"))
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($archive, $stage)
-        $source = Join-Path $stage "gent-$Version-$Target"
-        Assert-PackagedRuntime $source
-        if (Test-Path -LiteralPath $release) {
-            Assert-IdenticalRelease $source $release
+    $current = Assert-NoNewerSelection $InstallDir $Version
+    if ($current -and -not $IdleDataDir) { Fail "updating an existing runtime requires explicit -IdleDataDir" }
+    $extracted = Join-Path $temporary "extracted"
+    [IO.Compression.ZipFile]::ExtractToDirectory($archive, $extracted)
+    $source = Join-Path $extracted "gent-$Version-$Target"
+    Assert-PackagedRuntime $source
+    $sourceDigest = Get-RuntimeTreeDigest $source
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    Assert-PlainDirectory $InstallDir "runtime root"
+    $privateStage = Join-Path $InstallDir (".gent-stage-" + [Guid]::NewGuid().ToString("N"))
+    [IO.Directory]::CreateDirectory($privateStage) | Out-Null
+    Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $privateStage -Recurse
+    if ((Get-RuntimeTreeDigest $source) -ne $sourceDigest -or (Get-RuntimeTreeDigest $privateStage) -ne $sourceDigest) { Fail "private runtime copy changed identity" }
+    $stagedUpdater = Join-Path $privateStage "gent-auto-update.ps1"
+    Copy-Item -LiteralPath $autoUpdater -Destination $stagedUpdater
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $stagedUpdater).Hash -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $autoUpdater).Hash) { Fail "private updater copy changed identity" }
+    $sourceDigest = Get-RuntimeTreeDigest $privateStage
+    if ($RequireHealth) { Test-StagedPair $privateStage }
+    Use-IdleDaemonLock $IdleDataDir {
+        Use-InstallLock $InstallDir {
+            $previous = Assert-NoNewerSelection $InstallDir $Version
+            $previousDigest = $null
+            if ($previous) { try { $previousDigest = Get-RuntimeTreeDigest (Join-Path (Join-Path $InstallDir "releases") $previous) } catch { } }
+            if ($previous -and -not $Force) { Fail "Gent is already installed; pass -Force to update it" }
+            $releaseName = Publish-ImmutableRelease $InstallDir $privateStage $sourceDigest $Version
+            $release = Join-Path (Join-Path $InstallDir "releases") $releaseName
+            Write-NativeLaunchers $InstallDir $release
+            Write-AutoUpdater $autoUpdater $InstallDir
+            try {
+                Write-CurrentPointer $InstallDir $releaseName
+                if ((Read-SelectedRelease $InstallDir) -ne $releaseName -or (Get-RuntimeTreeDigest $release) -ne $sourceDigest) { Fail "selected runtime identity could not be verified" }
+            } catch {
+                if ((Read-SelectedRelease $InstallDir) -eq $releaseName -and $previous -ne $releaseName) { Restore-ExactSelection $InstallDir $previous $previousDigest $releaseName }
+                throw
+            }
         }
-        else { Move-Item -LiteralPath $source -Destination $release }
-        Remove-Item -LiteralPath $stage -Force -Recurse
-        if ($RequireHealth) { Test-StagedPair $release }
-        Write-NativeLaunchers $InstallDir $release
-        Use-IdleDaemonLock $IdleDataDir { Write-CurrentPointer $InstallDir $releaseName }
-        Write-AutoUpdater $autoUpdater $InstallDir
-        Enable-AutoUpdater $InstallDir $IdleDataDir
     }
+    Enable-AutoUpdater $InstallDir $IdleDataDir
     Write-Output "Installed Gent $Version in $(Join-Path $InstallDir 'bin')"
     Write-Output "Add $(Join-Path $InstallDir 'bin') to PATH, then run: gent doctor"
 }
 finally {
-    if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -Recurse }
+    if ($privateStage) { Remove-PrivateDirectory $privateStage $InstallDir ".gent-stage-" }
+    Remove-PrivateDirectory $temporary ([IO.Path]::GetTempPath()) "gent-install-"
 }

@@ -1,7 +1,6 @@
 //! Daemon-only sandbox values, never serializable or client-provided, for contained provider spawn.
-use crate::{RunVersionLock, SandboxEnforcement};
-use sha2::{Digest, Sha256};
-use std::path::{Component, Path, PathBuf};
+use crate::{RunVersionLock, SandboxEnforcement, SandboxProviderGateway, SandboxResourceGrant};
+use std::path::{Path, PathBuf};
 /// Network posture that a sandbox backend must enforce, rather than suggest to a provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SandboxNetworkPolicy {
@@ -26,6 +25,12 @@ pub struct SandboxLaunchProfile {
     inherited_environment: Vec<String>,
     network: SandboxNetworkPolicy,
     limits: SandboxResourceLimits,
+    cpu_semantics: SandboxCpuSemantics,
+    resources: Vec<SandboxResourceGrant>,
+    gateway: Option<SandboxProviderGateway>,
+    private_state: Option<SandboxPrivateState>,
+    permission_binding: Option<crate::SandboxPermissionBinding>,
+    shell_runtime: Option<SandboxShellRuntime>,
 }
 
 impl SandboxLaunchProfile {
@@ -61,45 +66,101 @@ impl SandboxLaunchProfile {
             inherited_environment,
             network,
             limits,
+            cpu_semantics: SandboxCpuSemantics::StrictTotal,
+            resources: Vec::new(),
+            gateway: None,
+            private_state: None,
+            permission_binding: None,
+            shell_runtime: None,
         })
     }
 
-    /// Returns the stable SHA-256 identity a backend must bind to its prepared sandbox.
+    pub fn with_resources(
+        mut self,
+        mut resources: Vec<SandboxResourceGrant>,
+    ) -> Result<Self, SandboxLaunchContractError> {
+        resources.sort();
+        resources.dedup();
+        for (index, grant) in resources.iter().enumerate() {
+            let root = trusted_root(grant.root())?;
+            if root.starts_with(&self.workspace_root)
+                || self.workspace_root.starts_with(&root)
+                || resources[..index]
+                    .iter()
+                    .any(|other| root.starts_with(other.root()) || other.root().starts_with(&root))
+            {
+                return Err(SandboxLaunchContractError::InvalidResourceGrant);
+            }
+        }
+        if let Some(state) = &self.private_state
+            && !resources.iter().any(|grant| {
+                matches!(grant,
+                SandboxResourceGrant::PrivateStateReadWrite(root) if root == state.root())
+            })
+        {
+            return Err(SandboxLaunchContractError::InvalidResourceGrant);
+        }
+        self.resources = resources;
+        if self
+            .shell_runtime
+            .as_ref()
+            .is_some_and(|shell| !shell.covered_by(&self.resources))
+        {
+            return Err(SandboxLaunchContractError::InvalidResourceGrant);
+        }
+        Ok(self)
+    }
+
     #[must_use]
-    pub fn digest_sha256(&self) -> String {
-        let mut hasher = Sha256::new();
-        write_field(
-            &mut hasher,
-            "workspace",
-            self.workspace_root.to_string_lossy().as_ref(),
-        );
-        for root in &self.readable_roots {
-            write_field(&mut hasher, "read", root.to_string_lossy().as_ref());
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
+    }
+
+    #[must_use]
+    pub fn readable_roots(&self) -> &[PathBuf] {
+        &self.readable_roots
+    }
+
+    #[must_use]
+    pub fn writable_roots(&self) -> &[PathBuf] {
+        &self.writable_roots
+    }
+
+    #[must_use]
+    pub fn inherited_environment(&self) -> &[String] {
+        &self.inherited_environment
+    }
+
+    #[must_use]
+    pub fn resources(&self) -> &[SandboxResourceGrant] {
+        &self.resources
+    }
+
+    pub fn with_gateway(
+        mut self,
+        gateway: SandboxProviderGateway,
+    ) -> Result<Self, SandboxLaunchContractError> {
+        if !matches!(&self.network, SandboxNetworkPolicy::ReviewedEgress { policy_digest_sha256 }
+            if policy_digest_sha256 == gateway.policy_digest_sha256())
+        {
+            return Err(SandboxLaunchContractError::InvalidEgressPolicy);
         }
-        for root in &self.writable_roots {
-            write_field(&mut hasher, "write", root.to_string_lossy().as_ref());
-        }
-        for variable in &self.inherited_environment {
-            write_field(&mut hasher, "env", variable);
-        }
-        match &self.network {
-            SandboxNetworkPolicy::Disabled => write_field(&mut hasher, "network", "disabled"),
-            SandboxNetworkPolicy::ReviewedEgress {
-                policy_digest_sha256,
-            } => write_field(&mut hasher, "egress", policy_digest_sha256),
-        }
-        write_field(
-            &mut hasher,
-            "processes",
-            &self.limits.max_processes.to_string(),
-        );
-        write_field(
-            &mut hasher,
-            "memory",
-            &self.limits.max_memory_bytes.to_string(),
-        );
-        write_field(&mut hasher, "cpu", &self.limits.max_cpu_time_ms.to_string());
-        format!("{:x}", hasher.finalize())
+        self.gateway = Some(gateway);
+        Ok(self)
+    }
+
+    pub fn gateway(&self) -> Option<&SandboxProviderGateway> {
+        self.gateway.as_ref()
+    }
+
+    #[must_use]
+    pub fn with_permission_binding(mut self, binding: crate::SandboxPermissionBinding) -> Self {
+        self.permission_binding = Some(binding);
+        self
+    }
+
+    pub fn permission_binding(&self) -> Option<&crate::SandboxPermissionBinding> {
+        self.permission_binding.as_ref()
     }
 
     /// Returns the network policy that a platform helper must enforce.
@@ -109,7 +170,16 @@ impl SandboxLaunchProfile {
     }
 
     /// Returns the resource ceilings that a platform helper must enforce.
-    #[must_use]
+    pub fn with_cpu_semantics(
+        mut self,
+        semantics: SandboxCpuSemantics,
+    ) -> Result<Self, SandboxLaunchContractError> {
+        self.cpu_semantics = semantics.validate()?;
+        Ok(self)
+    }
+    pub const fn cpu_semantics(&self) -> SandboxCpuSemantics {
+        self.cpu_semantics
+    }
     pub const fn limits(&self) -> SandboxResourceLimits {
         self.limits
     }
@@ -168,33 +238,6 @@ impl SandboxedLaunchRequest {
     }
 }
 
-/// Stable, non-secret identity of a platform-native enforcement backend.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SandboxBackendId(String);
-
-impl SandboxBackendId {
-    /// Validates a bounded backend label without allowing paths, credentials, or endpoints.
-    ///
-    /// # Errors
-    /// Returns an error unless the label uses only lowercase ASCII letters, digits, dots, or dashes.
-    pub fn new(value: String) -> Result<Self, SandboxLaunchContractError> {
-        if value.is_empty()
-            || value.len() > 80
-            || !value.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'.' || byte == b'-'
-            })
-        {
-            return Err(SandboxLaunchContractError::InvalidBackend);
-        }
-        Ok(Self(value))
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// Trusted record returned only after sandbox setup and immutable-lock recheck succeed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SandboxLaunchAttestation {
@@ -208,6 +251,8 @@ pub struct SandboxLaunchAttestation {
 pub enum SandboxLaunchContractError {
     #[error("sandbox roots must be canonical absolute descendants of the workspace")]
     InvalidRoots,
+    #[error("sandbox resource grants overlap the workspace or another resource")]
+    InvalidResourceGrant,
     #[error("sandbox inherited environment is not an approved credential-free allowlist")]
     InvalidEnvironment,
     #[error("sandbox egress policy digest is invalid")]
@@ -220,79 +265,22 @@ pub enum SandboxLaunchContractError {
     LockChanged,
     #[error("sandbox backend did not verify containment")]
     NotEnforced,
+    #[error("the provider launch has no brokered command environment")]
+    MissingCommandEgress,
 }
 
-fn trusted_roots(
-    roots: &[PathBuf],
-    workspace_root: &Path,
-) -> Result<Vec<PathBuf>, SandboxLaunchContractError> {
-    let mut roots = roots
-        .iter()
-        .map(|root| trusted_root(root))
-        .collect::<Result<Vec<_>, _>>()?;
-    if roots.iter().any(|root| !root.starts_with(workspace_root)) {
-        return Err(SandboxLaunchContractError::InvalidRoots);
-    }
-    roots.sort();
-    roots.dedup();
-    Ok(roots)
-}
+#[path = "sandbox_launch_validation.rs"]
+mod validation;
+use validation::{allowed_environment, trusted_root, trusted_roots, valid_lock, validate_digest};
 
-fn trusted_root(root: &Path) -> Result<PathBuf, SandboxLaunchContractError> {
-    if !root.is_absolute()
-        || root.parent().is_none()
-        || root
-            .components()
-            .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
-    {
-        return Err(SandboxLaunchContractError::InvalidRoots);
-    }
-    Ok(root.to_path_buf())
-}
-
-fn allowed_environment(mut values: Vec<String>) -> Result<Vec<String>, SandboxLaunchContractError> {
-    const ALLOWED: &[&str] = &[
-        "COLORTERM",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "NO_COLOR",
-        "TERM",
-        "TMP",
-        "TMPDIR",
-    ];
-    if values
-        .iter()
-        .any(|value| !ALLOWED.contains(&value.as_str()))
-    {
-        return Err(SandboxLaunchContractError::InvalidEnvironment);
-    }
-    values.sort();
-    values.dedup();
-    Ok(values)
-}
-
-fn valid_lock(lock: &RunVersionLock) -> bool {
-    !lock.provider.is_empty()
-        && !lock.canonical_path.is_empty()
-        && !lock.file_identity.is_empty()
-        && !lock.version.is_empty()
-        && !lock.compatibility_entry.is_empty()
-        && validate_digest(&lock.digest_sha256).is_ok()
-}
-
-fn validate_digest(value: &str) -> Result<(), SandboxLaunchContractError> {
-    (value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')))
-    .then_some(())
-    .ok_or(SandboxLaunchContractError::InvalidEgressPolicy)
-}
-
-fn write_field(hasher: &mut Sha256, name: &str, value: &str) {
-    hasher.update(name.len().to_be_bytes());
-    hasher.update(name.as_bytes());
-    hasher.update(value.len().to_be_bytes());
-    hasher.update(value.as_bytes());
-}
+#[path = "sandbox_private_state.rs"]
+mod private_state;
+#[path = "sandbox_profile_digest.rs"]
+mod profile_digest;
+pub use private_state::SandboxPrivateState;
+#[path = "sandbox_shell_runtime.rs"]
+mod shell_runtime;
+pub use shell_runtime::{SandboxCommandEgress, SandboxShellRuntime};
+#[path = "sandbox_launch_values.rs"]
+mod values;
+pub use values::{SandboxBackendId, SandboxCpuSemantics};

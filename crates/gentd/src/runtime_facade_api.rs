@@ -21,7 +21,7 @@ use gent_types::{
     RuntimeMaintenanceRequest, RuntimeUpdateCheckReport, RuntimeUpdateCheckRequest,
 };
 
-use super::{ModelCatalogPort, RuntimeFacade, chat_reads};
+use super::{ModelCatalogPort, RuntimeFacade, chat_reads, owner_control::display};
 use crate::{
     agent_chat_checkpoint_api, agent_chat_conversation_config_api,
     agent_chat_intent_error::AgentChatIntentError,
@@ -30,11 +30,14 @@ use crate::{
     api::RuntimeApi,
     attachment_api, decision_mapping, forge_api, goal_api,
     local_model_jobs::DownloadStart,
-    orchestration_api, permission_policy_api, reviewed_plan_api,
+    orchestration_api, reviewed_plan_api,
     workspace_git_api::{self, WorkspaceGitRejection},
 };
 
 impl RuntimeApi for RuntimeFacade {
+    fn runtime_owner_control_port(&self) -> Option<super::RuntimeOwnerControlPort> {
+        self.owner_control_port()
+    }
     fn agent_chat_permission_port(&self) -> Option<Arc<dyn AgentChatPermissionPort>> {
         self.agent_chat_permission_port.clone()
     }
@@ -51,7 +54,7 @@ impl RuntimeApi for RuntimeFacade {
             .map_err(display)
     }
     fn status(&self) -> Result<HostStatus, String> {
-        crate::api::stamped_status(self.coordinator.status())
+        self.owner_status()
     }
     fn submit(&self, command: Command) -> Result<Receipt, String> {
         self.coordinator.submit(&command).map_err(display)
@@ -143,7 +146,7 @@ impl RuntimeApi for RuntimeFacade {
         &self,
         frame: PermissionPolicyFrame,
     ) -> Result<PermissionPolicyFrame, String> {
-        permission_policy_api::exchange(&self.coordinator, frame)
+        self.exchange_permission_policy(frame)
     }
     fn agent_chat_conversation_config(
         &self,
@@ -195,19 +198,13 @@ impl RuntimeApi for RuntimeFacade {
         self.dependencies.doctor()
     }
     fn dependency_plan(&self, request: DependencyPlanRequest) -> DependencyPlan {
-        self.dependencies.plan(request)
+        self.managed_dependency_plan(request)
     }
     fn dependency_action(
         &self,
         request: DependencyActionRequest,
     ) -> Result<DependencyActionResult, String> {
-        let plan = self.dependencies.plan(DependencyPlanRequest {
-            provider: request.provider,
-            action: request.action,
-        });
-        self.dependency_actions
-            .execute(&request, &plan)
-            .map_err(display)
+        self.managed_dependency_action(request)
     }
     fn attachment(&self, frame: AttachmentFrame) -> Result<AttachmentFrame, String> {
         attachment_api::handle(&self.attachments, self.host_epoch()?, frame)
@@ -292,8 +289,4 @@ impl RuntimeApi for RuntimeFacade {
             .conversation_content(conversation_id, before.as_ref(), limit)
             .map_err(display)
     }
-}
-
-fn display(error: impl std::fmt::Display) -> String {
-    error.to_string()
 }

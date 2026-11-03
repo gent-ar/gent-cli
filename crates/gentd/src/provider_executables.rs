@@ -9,7 +9,7 @@ use gent_drivers::{
 };
 use gent_ports::ProvisionedProviderLockReader;
 use gent_protocol::DependencyProvider;
-use gent_types::{AgentChatProvider, RunVersionLock};
+use gent_types::{AgentChatProvider, ProvisionedProviderInstallation, RunVersionLock};
 
 use crate::{
     local_provider_locks::{
@@ -17,8 +17,14 @@ use crate::{
     },
     private_provider_readiness::PrivateProviderReadiness,
     standalone_authority_release::StandaloneAuthorityRelease,
-    standalone_provider_setup::{provider_executable, provider_prefix},
+    standalone_provider_setup::{
+        provider_executable, provider_prefix, verified_generation_prefix, verified_legacy_prefix,
+    },
 };
+
+#[path = "provider_managed_runtime.rs"]
+mod managed_runtime;
+pub(crate) use managed_runtime::ManagedProviderRuntime;
 
 #[derive(Clone, Default)]
 pub(crate) struct ProviderExecutables {
@@ -104,12 +110,10 @@ impl ProviderExecutables {
         {
             Err(_) => PrivateProviderReadiness::Unavailable,
             Ok(None) => PrivateProviderReadiness::InstallReview,
-            Ok(Some(installation)) => installed
-                .verify(dependency, &installation.lock.run_lock)
-                .map_or(
-                    PrivateProviderReadiness::InvalidInstallation,
-                    PrivateProviderReadiness::Ready,
-                ),
+            Ok(Some(installation)) => installed.verify(dependency, &installation).map_or(
+                PrivateProviderReadiness::InvalidInstallation,
+                PrivateProviderReadiness::Ready,
+            ),
         }
     }
 
@@ -179,13 +183,11 @@ impl InstalledProviders {
     fn verify(
         &self,
         provider: DependencyProvider,
-        durable: &RunVersionLock,
+        installation: &ProvisionedProviderInstallation,
     ) -> Option<RunVersionLock> {
-        let current = current_identity(durable)?;
-        let expected = provider_executable(&self.prefix, provider)?
-            .canonicalize()
-            .ok()?;
-        if current.provider != provider.as_str() || Path::new(&current.canonical_path) != expected {
+        let current = current_identity(&installation.lock.run_lock)?;
+        self.prefix_for_installation(provider, installation)?;
+        if current.provider != provider.as_str() {
             return None;
         }
         let now = crate::startup::unix_seconds();
@@ -196,13 +198,39 @@ impl InstalledProviders {
         release.compatibility().authorize_at(&current, now).ok()?;
         Some(current)
     }
+
+    fn prefix_for_installation(
+        &self,
+        provider: DependencyProvider,
+        installation: &ProvisionedProviderInstallation,
+    ) -> Option<PathBuf> {
+        let generation = verified_generation_prefix(
+            &self.prefix,
+            &installation.provenance.receipt_fingerprint_sha256,
+        );
+        let legacy = verified_legacy_prefix(&self.prefix);
+        [generation.as_deref(), legacy.as_deref()]
+            .into_iter()
+            .flatten()
+            .find_map(|prefix| {
+                let root = prefix.canonicalize().ok()?;
+                let executable = provider_executable(prefix, provider)?.canonicalize().ok()?;
+                (executable.starts_with(&root)
+                    && executable == Path::new(&installation.lock.run_lock.canonical_path))
+                .then_some(root)
+            })
+    }
 }
 
 fn current_identity(durable: &RunVersionLock) -> Option<RunVersionLock> {
     if recheck(durable).is_ok() {
         return Some(durable.clone());
     }
-    rechecked_identity(durable).ok()
+    rechecked_identity(durable).ok().filter(|current| {
+        current.digest_sha256 == durable.digest_sha256
+            && current.canonical_path == durable.canonical_path
+            && current.provider == durable.provider
+    })
 }
 
 fn capture_explicit(

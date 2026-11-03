@@ -42,10 +42,19 @@ where
             .collect::<Vec<_>>();
         let ledger = self.runtime.ledger();
         for run_id in run_ids {
-            while let Some((prompt, _)) = ledger.claim_steered_agent_chat_prompt(
+            let turn_id = self
+                .active
+                .get(&run_id)
+                .ok_or_else(missing_binding)?
+                .prompt
+                .message
+                .turn_id
+                .clone();
+            while let Some((prompt, _)) = ledger.claim_steered_agent_chat_prompt_for_turn(
                 &self.coordinator_id,
                 host_epoch,
                 &AgentChatRunId(run_id.clone()),
+                &turn_id,
             )? {
                 let message_id = prompt.message.message_id.clone();
                 let delivered =
@@ -56,11 +65,7 @@ where
                     });
                 if let Err(error) = delivered {
                     eprintln!("Claude steer for prompt {message_id} was not delivered: {error}");
-                    self.runtime.release_unstarted_prompt_launch(
-                        &message_id,
-                        &self.coordinator_id,
-                        host_epoch,
-                    )?;
+                    self.retire_unconsumed_steer(&message_id, host_epoch)?;
                     break;
                 }
                 self.active
@@ -112,6 +117,7 @@ where
         phase: DurableTurnPhase,
     ) -> Result<(), RuntimeError> {
         self.settle_if_open(run_id, host_epoch, phase)?;
+        self.retire_targeted_steers(run_id, host_epoch)?;
         if self
             .active
             .get(run_id)
@@ -132,6 +138,19 @@ where
             .message
             .message_id
             .clone();
+        if self
+            .runtime
+            .ledger()
+            .agent_chat_prompt_has_steer_target(&message_id)?
+        {
+            self.retire_unconsumed_steer(&message_id, host_epoch)?;
+            self.active
+                .get_mut(run_id)
+                .ok_or_else(missing_binding)?
+                .steers
+                .remove(index);
+            return Ok(());
+        }
         self.runtime.ledger().start_steered_agent_chat_prompt_turn(
             &message_id,
             &self.coordinator_id,
@@ -153,12 +172,59 @@ where
         };
         let steers = std::mem::take(&mut binding.steers);
         for steer in steers {
-            self.runtime.release_unstarted_prompt_launch(
-                &steer.message.message_id,
-                &self.coordinator_id,
-                host_epoch,
-            )?;
+            self.retire_unconsumed_steer(&steer.message.message_id, host_epoch)?;
         }
         Ok(())
+    }
+
+    fn retire_targeted_steers(
+        &mut self,
+        run_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        let messages = self
+            .active
+            .get(run_id)
+            .ok_or_else(missing_binding)?
+            .steers
+            .iter()
+            .map(|prompt| prompt.message.message_id.clone())
+            .collect::<Vec<_>>();
+        for message in messages {
+            if self
+                .runtime
+                .ledger()
+                .agent_chat_prompt_has_steer_target(&message)?
+            {
+                self.retire_unconsumed_steer(&message, host_epoch)?;
+                self.active
+                    .get_mut(run_id)
+                    .ok_or_else(missing_binding)?
+                    .steers
+                    .retain(|prompt| prompt.message.message_id != message);
+            }
+        }
+        Ok(())
+    }
+
+    fn retire_unconsumed_steer(
+        &self,
+        message_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        if self
+            .runtime
+            .ledger()
+            .agent_chat_prompt_has_steer_target(message_id)?
+        {
+            self.runtime
+                .mark_prompt_unprovable(message_id, &self.coordinator_id, host_epoch)
+        } else {
+            self.runtime.release_unstarted_prompt_launch(
+                message_id,
+                &self.coordinator_id,
+                host_epoch,
+            )
+        }
     }
 }

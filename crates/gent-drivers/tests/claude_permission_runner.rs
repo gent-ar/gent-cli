@@ -93,11 +93,12 @@ fn permission_request_retains_suggestions_privately_and_writes_only_its_response
                 request_id: "request-1".into(),
                 tool_use_id: "tool-1".into(),
                 tool_name: "Bash".into(),
+                operation_preview: Some(serde_json::json!({"command":"private command"})),
                 child_id: None,
             }
         )]
     );
-    assert!(!format!("{effects:?}").contains("private command"));
+    assert!(!format!("{effects:?}").contains("addDirectories"));
     runner
         .respond_permission_with_input(
             "run-1",

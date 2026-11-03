@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "minimumCompatibleHostVersion": "0.2.4",
+  "protocolMin": 1,
+  "protocolMax": 1,
+  "schemaMin": 1
+}

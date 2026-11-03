@@ -24,6 +24,8 @@ pub struct AgentChatConversationConfigRecord {
     /// Canonically sorted, unique tool names this conversation's provider must never invoke.
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
+    #[serde(default)]
+    pub containment: crate::Containment,
 }
 
 /// A configured field the conversation's current provider selection cannot honor.
@@ -55,12 +57,14 @@ mod tests {
             max_turns: None,
             thinking_enabled: None,
             disallowed_tools: Vec::new(),
+            containment: crate::Containment::Unsandboxed,
         };
         assert_eq!(
             serde_json::to_value(&record).unwrap(),
             json!({
                 "conversationId": "conversation-1", "revision": 1,
-                "appendSystemPrompt": false, "disallowedTools": []
+                "appendSystemPrompt": false, "disallowedTools": [],
+                "containment": "unsandboxed"
             })
         );
     }
@@ -75,6 +79,7 @@ mod tests {
         assert!(!record.append_system_prompt);
         assert_eq!(record.max_turns, None);
         assert!(record.disallowed_tools.is_empty());
+        assert_eq!(record.containment, crate::Containment::Unsandboxed);
     }
 
     #[test]
@@ -98,5 +103,31 @@ mod tests {
                 enabled.map(|value| json!(value)).as_ref()
             );
         }
+    }
+
+    #[test]
+    fn sandbox_failure_codes_round_trip_through_their_event_identity() {
+        use crate::AgentChatFailureCode;
+        for code in [
+            AgentChatFailureCode::SandboxUnavailable,
+            AgentChatFailureCode::SandboxAdmissionFailed,
+        ] {
+            assert_eq!(
+                AgentChatFailureCode::from_event_id(&format!("{}m-1", code.event_prefix())),
+                Some(code)
+            );
+        }
+        assert_eq!(
+            AgentChatFailureCode::from_event_id("prelaunch-failed:m-1"),
+            None
+        );
+        assert_eq!(
+            serde_json::to_value(AgentChatFailureCode::SandboxUnavailable).unwrap(),
+            json!("sandboxUnavailable")
+        );
+        assert_eq!(
+            serde_json::to_value(AgentChatFailureCode::SandboxAdmissionFailed).unwrap(),
+            json!("sandboxAdmissionFailed")
+        );
     }
 }

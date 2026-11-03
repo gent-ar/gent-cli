@@ -107,7 +107,16 @@ pub(super) fn prompt_message(
 ) -> Result<String, LedgerError> {
     let message_id = transaction
         .query_row(
-            "SELECT p.message_id FROM agent_chat_prompt_receipts p JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key = p.idempotency_key JOIN agent_chat_prompt_dispatches d ON d.message_id = p.message_id JOIN agent_chat_run_selections selected ON selected.run_id = p.run_id WHERE prompt_receipt.receipt_id = ?1 AND p.conversation_id = ?2 AND p.run_id = ?3 AND p.disposition IN ('send', 'queue') AND selected.provider = ?4 AND d.state = ?5 AND p.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections current_selected ON current_selected.run_id = current.run_id WHERE current.conversation_id = p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
+            "SELECT p.message_id FROM agent_chat_prompt_receipts p
+             JOIN receipts prompt_receipt ON prompt_receipt.idempotency_key=p.idempotency_key AND prompt_receipt.status='settled'
+             JOIN conversation_messages m ON m.message_id=p.message_id AND m.run_id=p.run_id AND m.turn_id=p.turn_id AND m.conversation_id=p.conversation_id
+             JOIN turns t ON t.turn_id=p.turn_id AND t.run_id=p.run_id AND t.conversation_id=p.conversation_id AND t.phase='active'
+             JOIN agent_chat_prompt_dispatches d ON d.message_id=p.message_id AND d.coordinator_id IS NULL AND d.host_epoch IS NULL
+             JOIN agent_chat_run_selections selected ON selected.run_id=p.run_id
+             WHERE prompt_receipt.receipt_id=?1 AND p.conversation_id=?2 AND p.run_id=?3
+              AND p.disposition IN ('send','queue') AND selected.provider=?4 AND d.state=?5
+              AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets target WHERE target.message_id=p.message_id)
+              AND p.run_id=(SELECT current.run_id FROM runs current JOIN agent_chat_run_selections current_selected ON current_selected.run_id=current.run_id WHERE current.conversation_id=p.conversation_id ORDER BY current.rowid DESC LIMIT 1)",
             params![binding.prompt.prompt_receipt_id.0, binding.prompt.conversation_id.0, binding.prompt.run_id.0, binding.prompt.provider, state],
             |row| row.get(0),
         )

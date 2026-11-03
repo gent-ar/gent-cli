@@ -21,6 +21,8 @@ use crate::public_protocol::PublicWireFact;
 
 mod correlation;
 mod facts;
+mod operation_inputs;
+mod reasoning;
 
 /// A write or a secret-free normalized fact owned by the daemon process edge.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,6 +53,8 @@ pub struct CodexTurnDriver {
     settled_child_threads: BTreeSet<String>,
     tool_output_item_ids: BTreeSet<String>,
     reported_root_failure: bool,
+    reasoning: reasoning::ReasoningState,
+    operation_inputs: operation_inputs::OperationInputs,
 }
 
 impl CodexTurnDriver {
@@ -87,9 +91,15 @@ impl CodexTurnDriver {
                 settled_child_threads: BTreeSet::new(),
                 tool_output_item_ids: BTreeSet::new(),
                 reported_root_failure: false,
+                reasoning: reasoning::ReasoningState::default(),
+                operation_inputs: operation_inputs::OperationInputs::default(),
             },
             vec![CodexTurnEffect::Write(initialize)],
         ))
+    }
+
+    pub(crate) fn bind_external_sandbox(&mut self) -> Result<(), CodexTurnError> {
+        self.session.bind_external_sandbox().map_err(Into::into)
     }
 
     /// Reduces one bounded JSON-RPC frame into process writes and normalized public facts.
@@ -116,7 +126,10 @@ impl CodexTurnDriver {
             CodexClientRequestResponse::NotHandled => {}
         }
         match parse_control(&frame) {
-            Ok(Some(request)) => return Ok(vec![CodexTurnEffect::ControlRequest(request)]),
+            Ok(Some(mut request)) => {
+                self.operation_inputs.enrich(&frame, &mut request);
+                return Ok(vec![CodexTurnEffect::ControlRequest(request)]);
+            }
             Err(classification) => return Ok(rejected(&frame, classification)),
             Ok(None) => {}
         }
@@ -129,6 +142,7 @@ impl CodexTurnDriver {
         } else {
             Vec::new()
         };
+        self.operation_inputs.observe(&frame, &mut effects);
         match self.session.receive(&frame) {
             Ok(CodexSessionIngress::Send(frames)) => writes(&mut effects, frames),
             Ok(CodexSessionIngress::Ready { thread_id }) => {

@@ -1,0 +1,171 @@
+{
+  "profile": "ordinary-win32-separator-aliases-v1",
+  "rawHash": "unchanged FNV-1a64 over legacy to_string_lossy UTF-8 bytes",
+  "candidateLimit": 3,
+  "order": [
+    "raw",
+    "ordinary-all-backslash",
+    "ordinary-all-forward-slash"
+  ],
+  "fallbackOnlyWin32Errors": [
+    2,
+    3
+  ],
+  "forbiddenInferences": [
+    "case-folding",
+    "canonicalization",
+    "device/verbatim prefix stripping",
+    "arbitrary old mixed-separator masks",
+    "junction/relative aliases"
+  ],
+  "vectors": [
+    {
+      "input": "C:\\gent\\data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-fc7c1d6cff1b182e",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-fc7c1d6cff1b182e",
+        "\\\\.\\pipe\\gentd-83181a5bdf33da0c"
+      ]
+    },
+    {
+      "input": "C:/gent/data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-83181a5bdf33da0c",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-83181a5bdf33da0c",
+        "\\\\.\\pipe\\gentd-fc7c1d6cff1b182e"
+      ]
+    },
+    {
+      "input": "C:\\gent/data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-85035f9ec56c0c73",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-85035f9ec56c0c73",
+        "\\\\.\\pipe\\gentd-fc7c1d6cff1b182e",
+        "\\\\.\\pipe\\gentd-83181a5bdf33da0c"
+      ]
+    },
+    {
+      "input": "c:/Gent/Δ/space data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-c2c3d3b9ca21d93d",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-c2c3d3b9ca21d93d",
+        "\\\\.\\pipe\\gentd-16e670d739a63c72"
+      ]
+    },
+    {
+      "input": "\\\\server\\share\\gent",
+      "legacyPipe": "\\\\.\\pipe\\gentd-c1e9a0d970fcee95",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-c1e9a0d970fcee95",
+        "\\\\.\\pipe\\gentd-ca9bed8528a67ecb"
+      ]
+    },
+    {
+      "input": "//server/share/gent",
+      "legacyPipe": "\\\\.\\pipe\\gentd-ca9bed8528a67ecb",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-ca9bed8528a67ecb",
+        "\\\\.\\pipe\\gentd-c1e9a0d970fcee95"
+      ]
+    },
+    {
+      "input": "\\\\server\\share/gent",
+      "legacyPipe": "\\\\.\\pipe\\gentd-30c6c98c6657ec34",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-30c6c98c6657ec34",
+        "\\\\.\\pipe\\gentd-c1e9a0d970fcee95",
+        "\\\\.\\pipe\\gentd-ca9bed8528a67ecb"
+      ]
+    },
+    {
+      "input": "\\\\?\\C:\\gent/data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-dbeb6e80a8338ec0",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-dbeb6e80a8338ec0"
+      ]
+    },
+    {
+      "input": "\\\\.\\pipe\\name",
+      "legacyPipe": "\\\\.\\pipe\\gentd-6e25217cfc4e18e6",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-6e25217cfc4e18e6"
+      ]
+    },
+    {
+      "input": "//?/UNC/server/share/gent",
+      "legacyPipe": "\\\\.\\pipe\\gentd-438bc8a8cb5cb542",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-438bc8a8cb5cb542"
+      ]
+    },
+    {
+      "input": "C:gent/data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-6ea67498a4f82aff",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-6ea67498a4f82aff"
+      ]
+    },
+    {
+      "input": "\\gent/data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-fafa802306322cf2",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-fafa802306322cf2"
+      ]
+    },
+    {
+      "input": "relative/gent",
+      "legacyPipe": "\\\\.\\pipe\\gentd-643d54a263f693c0",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-643d54a263f693c0"
+      ]
+    },
+    {
+      "input": "\\\\server",
+      "legacyPipe": "\\\\.\\pipe\\gentd-57ee5d7356eb37d2",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-57ee5d7356eb37d2"
+      ]
+    },
+    {
+      "input": "\\\\server\\\\gent",
+      "legacyPipe": "\\\\.\\pipe\\gentd-0607e0d7550a80dc",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-0607e0d7550a80dc"
+      ]
+    },
+    {
+      "input": "C:\\\\gent\\\\data",
+      "legacyPipe": "\\\\.\\pipe\\gentd-2ef47651e608fcea",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-2ef47651e608fcea",
+        "\\\\.\\pipe\\gentd-39fbb54b174b04be"
+      ]
+    },
+    {
+      "input": "C:\\gent\\other",
+      "legacyPipe": "\\\\.\\pipe\\gentd-72a07b1f86256c0c",
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-72a07b1f86256c0c",
+        "\\\\.\\pipe\\gentd-aa8f88c53cab4be6"
+      ]
+    }
+  ],
+  "illFormedUtf16WindowsOnly": [
+    {
+      "units": [
+        67,
+        58,
+        92,
+        55296,
+        47,
+        100,
+        97,
+        116,
+        97
+      ],
+      "clientPipes": [
+        "\\\\.\\pipe\\gentd-ee14479f93af20d6"
+      ]
+    }
+  ]
+}

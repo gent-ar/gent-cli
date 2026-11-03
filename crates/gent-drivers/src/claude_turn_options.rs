@@ -118,10 +118,29 @@ impl ClaudeTurnOptions {
 
     /// Appends this immutable turn's documented Claude CLI fields to a launch vector.
     pub fn append_arguments(&self, arguments: &mut Vec<String>) {
+        let mut settings = serde_json::Map::new();
+        if matches!(
+            self.mode,
+            ClaudeTurnMode::Chat(
+                ClaudePermissionMode::Manual | ClaudePermissionMode::Bypass,
+                _
+            )
+        ) {
+            // Claude can otherwise approve tools before the stdio callback,
+            // bypassing Gent's durable policy (including read-only Bash).
+            settings.insert("permissions".into(), serde_json::json!({"ask": ["*"]}));
+            settings.insert(
+                "sandbox".into(),
+                serde_json::json!({"autoAllowBashIfSandboxed": false}),
+            );
+        }
         if let Some(enabled) = self.thinking_enabled {
+            settings.insert("alwaysThinkingEnabled".into(), enabled.into());
+        }
+        if !settings.is_empty() {
             arguments.extend([
                 "--settings".into(),
-                serde_json::json!({"alwaysThinkingEnabled": enabled}).to_string(),
+                serde_json::Value::Object(settings).to_string(),
             ]);
         }
         arguments.extend(["--model".into(), self.model.clone()]);
@@ -196,8 +215,14 @@ impl From<PermissionMode> for ClaudePermissionMode {
     fn from(mode: PermissionMode) -> Self {
         match mode {
             PermissionMode::AskEveryTime => Self::Manual,
-            PermissionMode::AutoAcceptEdits => Self::AcceptEdits,
-            PermissionMode::Autonomous => Self::Auto,
+            // SDK acceptEdits can approve commands before Gent sees a callback.
+            // Keep all decisions on stdio; Gent auto-allows only Edit requests.
+            PermissionMode::AutoAcceptEdits => Self::Manual,
+            // Claude's native auto mode runs a separate classifier before the host
+            // callback; it can deny commands or approve network actions without
+            // applying Gent's shared policy. Keep decisions with the host, which
+            // checks the run-bound sandbox evidence for unattended permissions.
+            PermissionMode::Autonomous => Self::Manual,
             PermissionMode::Bypass => Self::Bypass,
         }
     }

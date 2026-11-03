@@ -163,3 +163,17 @@ where
         facts.push(fact);
     }
 }
+
+pub(super) fn drain<P: ProviderProcess>(run: &mut OwnedRun<P>) -> Option<Vec<ClaudeRunnerEffect>> {
+    let mut effects = Vec::new();
+    while run.output.queued_frames() > 0 {
+        let (frame, _) = run.output.take_frame();
+        let Some(frame) = frame else { break };
+        effects.extend(normalize(run, &frame));
+    }
+    effects.extend(
+        crate::public_protocol::oversized_frames_skipped(run.output.take_skipped_frames())
+            .map(ClaudeRunnerEffect::Fact),
+    );
+    (!effects.is_empty()).then_some(effects)
+}

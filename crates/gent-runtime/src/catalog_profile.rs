@@ -9,9 +9,11 @@ pub enum RuntimeCapabilityFeature {
     ReviewedPlans,
     ProviderReadiness,
     ProviderAuth,
+    ProviderAuthHandoff,
     PromptProviderProvision,
     RuntimeUpdateCheck,
     RuntimeMaintenance,
+    RuntimeOwnerControl,
     LocalModels,
     PromptTemplates,
     WorkspaceDocuments,
@@ -81,6 +83,10 @@ impl RuntimeCapabilityProfile {
         self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ProviderAuth)
     }
 
+    pub fn provider_auth_handoff_enabled(&self) -> bool {
+        self.provider_auth_enabled() && self.has(RuntimeCapabilityFeature::ProviderAuthHandoff)
+    }
+
     #[must_use]
     pub fn prompt_provider_provision_enabled(&self) -> bool {
         self.provider_readiness_enabled()
@@ -95,6 +101,10 @@ impl RuntimeCapabilityProfile {
     #[must_use]
     pub fn runtime_maintenance_enabled(&self) -> bool {
         self.has(RuntimeCapabilityFeature::RuntimeMaintenance)
+    }
+
+    pub fn runtime_owner_control_enabled(&self) -> bool {
+        self.has(RuntimeCapabilityFeature::RuntimeOwnerControl)
     }
 
     #[must_use]

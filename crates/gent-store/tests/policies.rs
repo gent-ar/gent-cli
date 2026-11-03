@@ -16,6 +16,7 @@ fn policy(revision: u64, tools: &[&str]) -> PolicyRecord {
         scope: PolicyScope::ProviderPermissions,
         revision,
         mode: PermissionMode::AskEveryTime,
+        containment: gent_types::Containment::Sandboxed,
         allowed_tools: tools.iter().map(ToString::to_string).collect(),
         allowed_categories: Vec::new(),
     }

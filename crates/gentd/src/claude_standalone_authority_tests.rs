@@ -23,6 +23,7 @@ fn captures_an_explicit_claude_binary_without_release_material() {
         state.ledger().clone(),
         state.coordinator().clone(),
         &StandaloneClaudeConfig {
+            mcp_injection: None,
             data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),
@@ -53,6 +54,7 @@ fn rejects_missing_local_executable_before_host_composition() {
         state.ledger().clone(),
         state.coordinator().clone(),
         &StandaloneClaudeConfig {
+            mcp_injection: None,
             data_dir: tempfile::tempdir().unwrap().keep(),
             coordinator_id: "gentd-standalone".into(),
             host_epoch: HostEpoch(1),

@@ -19,9 +19,13 @@ ALLOWED = {
     "gent-mcp": {"gent-types", "gent-ports"},
     "gent-runtime": {"gent-types", "gent-ports", "gent-core", "gent-protocol"},
     "gent-testkit": {"gent-types", "gent-ports", "gent-protocol"},
+    "gent-linux-cgroup-owner": {"gent-types"},
+    "gent-linux-sandbox": {"gent-types", "gent-drivers", "gent-linux-cgroup-owner"},
     "gentd": None,
     "gent-cli": {"gent-types", "gent-protocol"},
 }
+
+GENTD_PLATFORM_ADAPTERS = {"gentd", "gent-linux-sandbox"}
 
 PRODUCT_DOMAINS = {
     "gent-adapters",
@@ -146,7 +150,7 @@ def check_production_imports() -> list[str]:
     errors = []
     for source in (ROOT / "crates").glob("*/src/**/*.rs"):
         crate = source.relative_to(ROOT / "crates").parts[0]
-        if crate == "gentd" or is_test_source(source):
+        if crate in GENTD_PLATFORM_ADAPTERS or is_test_source(source):
             continue
         lines = source.read_text(encoding="utf-8").splitlines()
         ignored = test_module_lines(lines)

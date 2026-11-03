@@ -39,6 +39,7 @@ pub fn with_activity_cursor(
         | ConversationActivityFact::RootPhase { scope, .. }
         | ConversationActivityFact::WorkPhase { scope, .. }
         | ConversationActivityFact::ToolActivity { scope, .. }
+        | ConversationActivityFact::ToolOutput { scope, .. }
         | ConversationActivityFact::SubagentStarted { scope, .. }
         | ConversationActivityFact::DecisionPending { scope, .. }
         | ConversationActivityFact::DecisionSettled { scope, .. }
@@ -46,6 +47,8 @@ pub fn with_activity_cursor(
         | ConversationActivityFact::PromptHeld { scope, .. }
         | ConversationActivityFact::PromptReleased { scope, .. }
         | ConversationActivityFact::PromptCanceled { scope, .. }
+        | ConversationActivityFact::PromptSteerRequested { scope, .. }
+        | ConversationActivityFact::PromptSteerRejected { scope, .. }
         | ConversationActivityFact::PromptSteered { scope, .. }
         | ConversationActivityFact::InterruptRequested { scope }
         | ConversationActivityFact::Recovered { scope }

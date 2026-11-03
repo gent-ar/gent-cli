@@ -169,6 +169,7 @@ fn failed_turn(cause: Option<gent_types::TurnTerminalCause>) -> ConversationView
         kind: gent_types::NormalizedTranscriptKind::UserMessage,
         text: "Which code did I give you?".into(),
         is_partial: false,
+        failure_code: None,
         origin: None,
         attachments: Vec::new(),
     };

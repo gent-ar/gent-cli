@@ -23,6 +23,7 @@ fn context(mode: PermissionMode) -> PermissionControlContext {
             scope: PolicyScope::ProviderPermissions,
             revision: 2,
             mode,
+            containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
         },

@@ -76,3 +76,7 @@ mod install_hold_tests;
 #[cfg(test)]
 #[path = "ordinary_lifecycle_cadence_standalone_waiters_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ordinary_lifecycle_held_recovery_tests.rs"]
+mod restart_tests;

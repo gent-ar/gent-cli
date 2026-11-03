@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use gent_ports::{PublicProviderRunError, PublicProviderRunner};
+use gent_ports::PublicProviderRunError;
 use gent_types::{
     FrozenConversationContext, GoalProjection, RunVersionLock, SandboxWorkspaceAccess,
 };
@@ -20,6 +20,7 @@ use crate::conversation_context_input::{
 };
 use crate::supervisor::{ProcessLauncher, ProviderProcess};
 mod mcp;
+mod sandbox;
 /// Prompt fields held only between daemon dispatch claim and locked process launch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexPromptStart {
@@ -44,6 +45,8 @@ pub struct CodexPromptRunner<L, P> {
     pending: Arc<Mutex<BTreeMap<String, CodexPromptStart>>>,
     mcp_servers: Option<serde_json::Value>,
     mcp_config: Option<PathBuf>,
+    launched_mcp: Arc<Mutex<BTreeMap<String, (String, serde_json::Value)>>>,
+    pending_mcp_conversations: Arc<Mutex<BTreeMap<String, String>>>,
     mcp_digests: Arc<Mutex<BTreeMap<String, String>>>,
 }
 impl<L, P> Clone for CodexPromptRunner<L, P> {
@@ -53,6 +56,8 @@ impl<L, P> Clone for CodexPromptRunner<L, P> {
             pending: Arc::clone(&self.pending),
             mcp_servers: self.mcp_servers.clone(),
             mcp_config: self.mcp_config.clone(),
+            launched_mcp: Arc::clone(&self.launched_mcp),
+            pending_mcp_conversations: Arc::clone(&self.pending_mcp_conversations),
             mcp_digests: Arc::clone(&self.mcp_digests),
         }
     }
@@ -75,6 +80,8 @@ where
             pending: Arc::new(Mutex::new(BTreeMap::new())),
             mcp_servers,
             mcp_config,
+            launched_mcp: Arc::new(Mutex::new(BTreeMap::new())),
+            pending_mcp_conversations: Arc::new(Mutex::new(BTreeMap::new())),
             mcp_digests: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
@@ -104,6 +111,7 @@ where
     /// Drops a prompt that failed before process ownership began so a daemon may release its outbox claim.
     pub fn cancel(&self, run_id: &str) {
         lock(&self.pending).remove(run_id);
+        lock(&self.pending_mcp_conversations).remove(run_id);
     }
     /// Polls one owned Codex process without exposing provider-native protocol data.
     ///
@@ -113,7 +121,20 @@ where
         &self,
         run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError> {
-        lock(&self.runner).poll(run_id).map_err(map_error)
+        let result = lock(&self.runner).poll(run_id).map_err(map_error);
+        if result
+            .as_ref()
+            .ok()
+            .and_then(|effects| effects.as_ref())
+            .is_some_and(|effects| {
+                effects
+                    .iter()
+                    .any(|effect| matches!(effect, CodexRunnerEffect::Exited { .. }))
+            })
+        {
+            lock(&self.launched_mcp).remove(run_id);
+        }
+        result
     }
     pub fn submit(
         &self,
@@ -168,6 +189,7 @@ where
             return Ok(false);
         }
         digests.remove(run_id);
+        lock(&self.launched_mcp).remove(run_id);
         let mut runner = lock(&self.runner);
         if !runner.owns(run_id) {
             return Ok(false);
@@ -177,6 +199,7 @@ where
     }
 
     pub fn release_session(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        lock(&self.launched_mcp).remove(run_id);
         lock(&self.runner).terminate(run_id).map_err(map_error)
     }
 
@@ -223,7 +246,10 @@ where
         if let Some((_, digest)) = self.current_mcp_servers()? {
             lock(&self.mcp_digests).insert(run_id.into(), digest);
         }
-        lock(&self.runner)
+        let conversation = lock(&self.pending_mcp_conversations).remove(run_id);
+        let selected = prompt.mcp_servers.clone();
+        lock(&self.launched_mcp).remove(run_id);
+        let result = lock(&self.runner)
             .start(CodexRunStart {
                 run_id: run_id.into(),
                 lock: lock_value.clone(),
@@ -240,41 +266,16 @@ where
                 attachments: prompt.attachments,
                 interrupted_reply: prompt.interrupted_reply,
             })
-            .map_err(map_error)
-    }
-}
-
-impl<L, P> PublicProviderRunner for CodexPromptRunner<L, P>
-where
-    L: ProcessLauncher<Process = P> + Send + Sync,
-    P: ProviderProcess,
-{
-    fn start(
-        &self,
-        run_id: &str,
-        lock_value: &RunVersionLock,
-    ) -> Result<(), PublicProviderRunError> {
-        self.launch(run_id, lock_value, None)
-    }
-
-    fn resume(
-        &self,
-        run_id: &str,
-        lock_value: &RunVersionLock,
-        session_id: &str,
-    ) -> Result<(), PublicProviderRunError> {
-        if session_id.trim().is_empty() {
-            return Err(PublicProviderRunError::Failed(
-                "Codex resume thread is invalid".into(),
-            ));
+            .map_err(map_error);
+        if result.is_ok() {
+            if let (Some(selected), Some(conversation)) = (selected, conversation) {
+                lock(&self.launched_mcp).insert(run_id.into(), (conversation, selected));
+            }
         }
-        self.launch(run_id, lock_value, Some(session_id.into()))
-    }
-
-    fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
-        self.signal_process(run_id, crate::interrupt::ProcessTreeSignal::Interrupt)
+        result
     }
 }
+
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
@@ -286,6 +287,7 @@ fn map_error(error: CodexRunnerError) -> PublicProviderRunError {
         CodexRunnerError::Lock(crate::lock::LockError::ProviderChanged) => {
             PublicProviderRunError::ProviderChanged
         }
+        CodexRunnerError::Launch(error) => crate::run_runner::public_launch_error(error),
         other => PublicProviderRunError::Failed(other.to_string()),
     }
 }

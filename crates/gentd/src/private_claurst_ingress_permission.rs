@@ -25,7 +25,8 @@ where
         + gent_ports::NormalizedSessionBatchLedger
         + PendingPermissionLedger
         + PolicyLedger
-        + AgentChatWorkspaceLedger,
+        + AgentChatWorkspaceLedger
+        + gent_ports::AgentChatConversationConfigLedger,
     L: gent_ports::AgentChatReadLedger,
     B: gent_ports::PrivateClaurstBridge,
 {
@@ -46,8 +47,11 @@ where
         let workspace = self
             .ledger
             .agent_chat_workspace_for_run(&conversation_id.0, &state.binding.run_id)?;
-        let policy =
-            crate::permission_workspace::policy_for(&self.ledger, &workspace.workspace_id)?;
+        let policy = crate::permission_workspace::policy_for_conversation(
+            &self.ledger,
+            &conversation_id.0,
+            &workspace.workspace_id,
+        )?;
         let mode = gent_runtime::AgentChatReadService::new(self.ledger.clone())
             .run_selection(&conversation_id.0, &state.binding.run_id)?
             .mode;
@@ -57,11 +61,16 @@ where
             request.input.clone(),
             None,
         );
-        match crate::claurst_permission_policy::decide(
+        let enforcement = self
+            .bridge
+            .permission_enforcement(state.binding.clone(), policy.clone(), host_epoch)
+            .await?;
+        match crate::claurst_permission_policy::decide_with_enforcement(
             mode,
             &policy,
             &normalized,
             std::path::Path::new(&workspace.canonical_path),
+            enforcement,
         ) {
             ClaurstPermissionDecision::Allow => {
                 self.bridge
@@ -240,6 +249,10 @@ fn tool_signal(
             tool_name: request.tool_name.clone(),
             phase,
             output_digest: None,
+            input: request
+                .input
+                .as_ref()
+                .and_then(gent_types::operation_preview),
             parent_tool_use_id: None,
         },
     }

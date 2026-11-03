@@ -210,6 +210,7 @@ fn a_prelaunch_failure_settles_with_a_terminal_fact_rather_than_a_bare_turn_row(
             "daemon-a",
             HostEpoch(1),
             "the provider executable is missing",
+            None,
         )
         .unwrap();
     assert_settled(

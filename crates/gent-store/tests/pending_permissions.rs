@@ -121,7 +121,7 @@ fn v17_pending_requests_survive_the_composite_identity_migration() {
                 |row| row.get::<_, String>(0),
             )
             .unwrap(),
-        "gent-fresh-schema-v25"
+        "gent-fresh-schema-v29"
     );
     assert_eq!(
         connection

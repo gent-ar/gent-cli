@@ -5,6 +5,24 @@ use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
 
 pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
+    fn validate_permission_binding(
+        &self,
+        binding: gent_types::SandboxPermissionBinding,
+    ) -> Result<(), PublicProviderRunError> {
+        crate::permission_workspace::require_supported_launch(
+            binding.policy(),
+            gent_types::AgentChatProvider::Claude,
+        )
+    }
+
+    fn permission_preflight(
+        &self,
+        _context: &crate::permission_preflight::PreflightContext<'_>,
+        policy: &gent_types::PolicyRecord,
+        request: &gent_types::PermissionRequest,
+    ) -> crate::permission_preflight::PermissionPreflight {
+        crate::permission_preflight::evaluate(policy, request)
+    }
     fn prepare_claude_prompt(
         &self,
         run_id: String,
@@ -62,6 +80,51 @@ where
     L: ProcessLauncher<Process = P> + Send + Sync,
     P: ProviderProcess + Send,
 {
+    fn validate_permission_binding(
+        &self,
+        binding: gent_types::SandboxPermissionBinding,
+    ) -> Result<(), PublicProviderRunError> {
+        super::lock(&self.runner)
+            .prepare_permission_binding(binding)
+            .map_err(super::map_error)
+    }
+
+    fn permission_preflight(
+        &self,
+        context: &crate::permission_preflight::PreflightContext<'_>,
+        policy: &gent_types::PolicyRecord,
+        request: &gent_types::PermissionRequest,
+    ) -> crate::permission_preflight::PermissionPreflight {
+        let crate::permission_preflight::PreflightContext {
+            run_id,
+            conversation_id,
+            disallowed,
+            injection,
+            host_epoch,
+        } = *context;
+        let runner = super::lock(&self.runner);
+        let selected = super::lock(&self.launched_mcp);
+        let trusted = runner.is_live(run_id)
+            && crate::internal_mcp_trust::permits(
+                selected
+                    .get(run_id)
+                    .filter(|(conversation, _)| conversation == conversation_id)
+                    .map(|(_, servers)| servers),
+                injection,
+                conversation_id,
+                &request.tool_name,
+                disallowed,
+            );
+        crate::permission_preflight::evaluate_callback(
+            policy,
+            request,
+            run_id,
+            conversation_id,
+            host_epoch,
+            runner.sandbox_evidence(run_id),
+            trusted,
+        )
+    }
     fn prepare_claude_prompt(
         &self,
         run_id: String,

@@ -187,7 +187,13 @@ fn only_an_unreleased_queued_prompt_can_be_canceled_once_by_receipt() {
         .unwrap();
     assert_eq!(claimed.message, send.message);
     ledger
-        .fail_agent_chat_prompt_prelaunch(&send.message.message_id, "daemon-a", HostEpoch(1), "x")
+        .fail_agent_chat_prompt_prelaunch(
+            &send.message.message_id,
+            "daemon-a",
+            HostEpoch(1),
+            "x",
+            None,
+        )
         .unwrap();
     assert_eq!(
         ledger

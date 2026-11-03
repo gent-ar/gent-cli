@@ -162,6 +162,7 @@ fn tool_activity(item: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
                         tool_name,
                         phase,
                         output_digest: None,
+                        input: gent_types::operation_preview(item),
                         parent_tool_use_id: None,
                     },
                 },

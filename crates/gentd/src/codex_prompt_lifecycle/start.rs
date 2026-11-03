@@ -50,6 +50,7 @@ where
         fresh_context.is_none() && !runtime.runs().launched_executable_is_current(&run_id)?;
     runner.prepare_codex_prompt(
         run_id.clone(),
+        prompt.message.conversation_id.clone(),
         start.start(runtime, &prompt, fresh_context)?,
     )?;
     if let Err(error) = runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch) {

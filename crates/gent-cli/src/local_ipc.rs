@@ -22,7 +22,8 @@ use gent_protocol::{
 #[cfg(unix)]
 use gent_types::local_socket_path;
 #[cfg(windows)]
-use gent_types::windows_pipe_name;
+#[path = "local_ipc_windows.rs"]
+mod windows;
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
 use gent_types::{default_data_dir as resolve_default_data_dir, resolve_sibling_binary};
 
@@ -93,6 +94,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         RUNTIME_MAINTENANCE_CAPABILITY.into(),
         RUNTIME_UPDATE_CHECK_CAPABILITY.into(),
         PERMISSION_POLICY_CAPABILITY.into(),
+        gent_protocol::PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY.into(),
         PROVIDER_AUTH_CAPABILITY.into(),
         PROVIDER_READINESS_CAPABILITY.into(),
         PROMPT_PROVIDER_PROVISION_CAPABILITY.into(),
@@ -117,6 +119,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         AGENT_CHAT_SIDE_QUESTION_CAPABILITY.into(),
         gent_protocol::conversation_links::CONVERSATION_LINKS_CAPABILITY.into(),
         gent_protocol::agent_chat_commands::AGENT_CHAT_COMMANDS_CAPABILITY.into(),
+        gent_protocol::AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY.into(),
     ]);
     CapabilitySet(capabilities)
 }
@@ -126,34 +129,9 @@ pub(crate) type LocalStream = UnixStream;
 #[cfg(windows)]
 pub(crate) type LocalStream = NamedPipeClient;
 
-pub(crate) async fn connect_or_start(
-    data_dir: &Path,
-    no_autostart: bool,
-) -> Result<LocalStream, Box<dyn std::error::Error>> {
-    match connect(data_dir).await {
-        Ok(stream) => return Ok(stream),
-        #[cfg(windows)]
-        Err(error) if pipe_is_busy(&error) => {
-            return wait_for_connection_until(data_dir, None).await;
-        }
-        Err(_) => {}
-    }
-    if no_autostart {
-        return Err(unavailable("gentd is unavailable and --no-autostart was requested").into());
-    }
-    let daemon = std::env::var_os("GENTD_BIN").map_or_else(default_daemon_binary, PathBuf::from);
-    let daemon_display = daemon.display().to_string();
-    let mut child = daemon_command(daemon, data_dir).spawn().map_err(|error| {
-        unavailable(if error.kind() == std::io::ErrorKind::NotFound {
-            format!(
-                "gentd was not found at {daemon_display}; build it with `cargo build -p gentd` or set GENTD_BIN to its executable"
-            )
-        } else {
-            format!("could not start gentd at {daemon_display}: {error}")
-        })
-    })?;
-    wait_for_spawned_connection(data_dir, &mut child).await
-}
+#[path = "local_ipc_start.rs"]
+mod start;
+pub(crate) use start::connect_or_start;
 
 fn daemon_command(daemon: PathBuf, data_dir: &Path) -> tokio::process::Command {
     let mut command = tokio::process::Command::new(daemon);
@@ -195,8 +173,15 @@ async fn wait_for_connection_until(
 ) -> Result<LocalStream, Box<dyn std::error::Error>> {
     tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
-            if let Ok(stream) = connect(data_dir).await {
-                return Ok(stream);
+            match connect(data_dir).await {
+                Ok(stream) => return Ok(stream),
+                #[cfg(windows)]
+                Err(error) if !windows::endpoint_absent(&error) && !pipe_is_busy(&error) => {
+                    return Err(
+                        unavailable(format!("gentd endpoint connection failed: {error}")).into(),
+                    );
+                }
+                Err(_) => {}
             }
             if let Some(child) = child.as_deref_mut() {
                 if let Some(status) = child.try_wait()? {
@@ -220,7 +205,9 @@ async fn connect(data_dir: &Path) -> Result<LocalStream, std::io::Error> {
 
 #[cfg(windows)]
 fn connect(data_dir: &Path) -> std::future::Ready<Result<LocalStream, std::io::Error>> {
-    std::future::ready(ClientOptions::new().open(windows_pipe_name(data_dir)))
+    std::future::ready(windows::open_candidates(data_dir, |pipe| {
+        ClientOptions::new().open(pipe)
+    }))
 }
 
 #[cfg(windows)]

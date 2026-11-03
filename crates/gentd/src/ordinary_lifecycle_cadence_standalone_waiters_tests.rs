@@ -217,17 +217,37 @@ async fn canceling_a_follower_leaves_the_owner_download_running_and_its_conversa
         ),
         1
     );
-    send(
+    let next = send(
         &shared.ledger,
         shared.follower.conversation,
         "follower-again",
     );
+    let turn_phase = |turn: &str| shared.ledger.find_turn(turn).unwrap().unwrap().phase;
     assert!(
         !shared
             .readiness
-            .cancel_held_prompts(shared.follower.run)
+            .cancel_held_turn(shared.follower.run, &shared.follower.turn_id)
             .unwrap()
     );
+    assert_eq!(turn_phase(&next.message.turn_id), DurableTurnPhase::Active);
+    assert!(
+        shared
+            .readiness
+            .cancel_held_turn(shared.follower.run, &next.message.turn_id)
+            .unwrap()
+    );
+    assert!(
+        !shared
+            .readiness
+            .cancel_held_turn(shared.follower.run, &next.message.turn_id)
+            .unwrap()
+    );
+    assert_eq!(
+        turn_phase(&next.message.turn_id),
+        DurableTurnPhase::Cancelled
+    );
+    assert!(downloading(&shared.models, MODEL));
+    assert_still_waiting(&shared.ledger, &shared.owner);
 }
 
 #[tokio::test]

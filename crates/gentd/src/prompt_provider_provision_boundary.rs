@@ -17,10 +17,22 @@ use crate::{
 mod derive;
 mod effect;
 mod values;
-use effect::PromptProviderProvisionEffect;
+pub(crate) use effect::PromptProviderProvisionEffect;
 use values::{Derived, event, public_provider_name, result};
 
 pub(crate) trait PromptProviderProvisionPort: Send + Sync {
+    fn managed_plan(
+        &self,
+        _request: gent_protocol::DependencyPlanRequest,
+    ) -> Option<gent_protocol::DependencyPlan> {
+        None
+    }
+    fn managed_action(
+        &self,
+        _request: gent_protocol::DependencyActionRequest,
+    ) -> Option<Result<gent_protocol::DependencyActionResult, String>> {
+        None
+    }
     fn confirm(
         &self,
         frame: PromptProviderProvisionFrame,
@@ -59,7 +71,7 @@ impl<L, P, E, C> PromptProviderProvisionBoundary<L, P, E, C> {
             effect,
             clock,
             release_artifact_digest_sha256,
-            serial: Arc::new(Mutex::new(())),
+            serial: crate::private_provider_provisioning::effect_serial(),
         }
     }
 }

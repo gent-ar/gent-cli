@@ -52,12 +52,29 @@ impl<L: AgentChatPromptDispatchLedger, D, R> PublicDriversRuntime<L, D, R> {
         host_epoch: HostEpoch,
         error: &RuntimeError,
     ) -> Result<(), RuntimeError> {
-        tolerate_run_scoped(self.dispatches.fail_prelaunch(
-            message_id,
-            coordinator_id,
-            host_epoch,
-            &failure_notice(error),
-        ))
-        .map(|_| ())
+        let notice = failure_notice(error);
+        let code = match error {
+            RuntimeError::ProviderRun(error) => error.failure_code(),
+            _ => None,
+        };
+        match self
+            .dispatches
+            .fail_prelaunch(message_id, coordinator_id, host_epoch, &notice, code)
+        {
+            Ok(()) => Ok(()),
+            Err(error) if is_daemon_fatal(&error) => Err(error),
+            Err(_) => tolerate_run_scoped(
+                self.ledger
+                    .record_agent_chat_prompt_failure_notice(
+                        message_id,
+                        coordinator_id,
+                        host_epoch,
+                        &notice,
+                        code,
+                    )
+                    .map_err(RuntimeError::from),
+            )
+            .map(|_| ()),
+        }
     }
 }

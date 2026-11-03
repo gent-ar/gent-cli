@@ -13,6 +13,10 @@ pub(super) enum CodexSessionPhase {
         resumed_thread_id: Option<String>,
         turn_options: CodexTurnOptions,
     },
+    AwaitDefaultModel {
+        request_id: u64,
+        discovery: super::default_model::DefaultModelDiscovery,
+    },
     ConfirmResumeUnavailable {
         request_id: u64,
     },
@@ -48,6 +52,7 @@ pub(super) enum CodexSessionPhase {
 pub(super) fn matches_response(phase: &CodexSessionPhase, response_id: u64) -> bool {
     match phase {
         CodexSessionPhase::AwaitInitialize { request_id, .. }
+        | CodexSessionPhase::AwaitDefaultModel { request_id, .. }
         | CodexSessionPhase::AwaitThread { request_id, .. }
         | CodexSessionPhase::ConfirmResumeUnavailable { request_id }
         | CodexSessionPhase::AwaitTurn { request_id, .. }

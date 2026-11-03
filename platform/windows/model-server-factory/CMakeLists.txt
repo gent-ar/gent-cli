@@ -1,0 +1,11 @@
+add_executable(gent-contained-model-factory main.cpp)
+target_include_directories(gent-contained-model-factory SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/tools/server" "${CMAKE_SOURCE_DIR}/common" "${CMAKE_SOURCE_DIR}/vendor" "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/ggml/include")
+target_link_libraries(gent-contained-model-factory PRIVATE server-context bcrypt)
+target_compile_features(gent-contained-model-factory PRIVATE cxx_std_17)
+target_compile_options(gent-contained-model-factory PRIVATE /W4 /WX /guard:cf /sdl)
+target_link_options(gent-contained-model-factory PRIVATE /guard:cf /DYNAMICBASE /NXCOMPAT /DEPENDENTLOADFLAG:0x800)
+
+add_executable(gent-model-launch-config-test model_launch_config_test.cpp)
+target_include_directories(gent-model-launch-config-test SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/vendor")
+target_compile_features(gent-model-launch-config-test PRIVATE cxx_std_17)
+target_compile_options(gent-model-launch-config-test PRIVATE /W4 /WX)

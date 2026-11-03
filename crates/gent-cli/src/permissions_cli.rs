@@ -53,6 +53,12 @@ pub(crate) struct PermissionPendingArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct PermissionSetArgs {
+    #[arg(
+        long,
+        value_enum,
+        help = "Provider whose native backend must support an unattended posture"
+    )]
+    pub(crate) provider: Option<crate::chat_cli::Provider>,
     #[command(flatten)]
     pub(crate) workspace: PermissionWorkspaceArgs,
     #[arg(
@@ -159,12 +165,24 @@ async fn save(
     args: PermissionSetArgs,
 ) -> Result<PolicyRecord, Box<dyn std::error::Error>> {
     let mode: PermissionMode = args.mode.into();
+    let expected_provider = args.provider.map(|provider| match provider {
+        crate::chat_cli::Provider::Claude => gent_types::AgentChatProvider::Claude,
+        crate::chat_cli::Provider::Codex => gent_types::AgentChatProvider::Codex,
+        crate::chat_cli::Provider::Gent => gent_types::AgentChatProvider::Claurst,
+    });
+
     if mode == PermissionMode::Bypass && !args.consent_bypass {
         return Err(CliError::new(
             Failure::ConsentRequired,
             "changing to bypass mode requires --consent-bypass",
         )
         .into());
+    }
+    if mode.is_unattended() && expected_provider.is_none() {
+        return Err(
+            "Autonomous and Bypass require --provider so Gent can verify its native backend."
+                .into(),
+        );
     }
     let workspace_id =
         workspace::resolve(data_dir.clone(), no_autostart, args.workspace.workspace).await?;
@@ -194,6 +212,7 @@ async fn save(
             request_id: uuid::Uuid::new_v4().to_string(),
             policy,
             bypass_consent: args.consent_bypass,
+            expected_provider: mode.is_unattended().then_some(expected_provider).flatten(),
         },
     )
     .await
@@ -236,6 +255,7 @@ pub(super) fn policy(
         scope: PolicyScope::ProviderPermissions,
         revision,
         mode,
+        containment: gent_types::Containment::Sandboxed,
         allowed_tools,
         allowed_categories,
     }
@@ -254,6 +274,7 @@ pub(super) async fn exchange(
     {
         return Err("gentd does not support permission policy; upgrade gentd".into());
     }
+    mode::require_provider_binding(&request, &capabilities)?;
     write_json_frame(&mut stream, &request).await?;
     let raw: Value = read_json_frame(&mut stream).await?;
     if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {

@@ -6,6 +6,7 @@
 use serde_json::{Value, json};
 
 mod compaction;
+mod default_model;
 mod interrupt;
 mod notifications;
 mod phase;
@@ -49,6 +50,14 @@ impl CodexAppServerSession {
             },
             encode(&codex_initialize_request(request_id))?,
         ))
+    }
+
+    pub(crate) fn bind_external_sandbox(&mut self) -> Result<(), CodexSessionError> {
+        let CodexSessionPhase::AwaitInitialize { config, .. } = &mut self.phase else {
+            return Err(CodexSessionError::SessionFailed);
+        };
+        config.turn_options.bind_external_sandbox();
+        Ok(())
     }
 
     /// Encodes a user turn only after an exact thread response established the native thread.

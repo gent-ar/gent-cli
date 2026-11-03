@@ -1,0 +1,19 @@
+{
+  "source": {
+    "url": "https://codeload.github.com/ggml-org/llama.cpp/zip/refs/tags/b10545",
+    "sha256": "9f33a1308e4eb52b3c706159da5e182a9df9d195d41be1d660dd3dff7fe97911",
+    "archiveBytes": 38571253,
+    "uncompressedBytes": 165935113
+  },
+  "modelAcceptance": {
+    "publisher": "ggml-org/Qwen3-0.6B-GGUF",
+    "revision": "13ac06624948e4d8589cb4b6f90100837342fcb8",
+    "url": "https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/13ac06624948e4d8589cb4b6f90100837342fcb8/Qwen3-0.6B-Q4_0.gguf?download=true",
+    "bytes": 428970080,
+    "sha256": "da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4",
+    "digestSource": "https://huggingface.co/api/models/ggml-org/Qwen3-0.6B-GGUF?blobs=true",
+    "purpose": "contained chat and function-tool protocol test; no user model"
+  },
+  "binarySha256": "f29d3a89e12d33809ffb7c8a1ee2229e2bb56e5c0fc77c65cfc4a38b2cdf93f6",
+  "productionEnabled": false
+}

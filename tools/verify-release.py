@@ -119,7 +119,7 @@ def safe_member_name(name: str, root: str) -> None:
         fail("archive member is outside the release root")
 
 
-def read_manifest(path: Path, archive: Path) -> tuple[str, str, str, int, list[str]]:
+def read_manifest(path: Path, archive: Path, runtime_features: dict | None = None) -> tuple[str, str, str, int, list[str]]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -147,17 +147,24 @@ def read_manifest(path: Path, archive: Path) -> tuple[str, str, str, int, list[s
     if (not isinstance(capabilities, list) or any(not isinstance(capability, str) for capability in capabilities)
             or len(set(capabilities)) != len(capabilities) or not REQUIRED_CAPABILITIES.issubset(capabilities)):
         fail("manifest capabilities are incomplete or invalid")
-    if value["runtimes"] != ["runtime/node", "runtime/claurst"]:
+    linux=value["runtimes"]==["runtime/node","runtime/claurst","runtime/linux-sandbox"]
+    if linux:
+        if target not in ("x86_64-unknown-linux-gnu","aarch64-unknown-linux-gnu")or not archive.name.endswith(".tar.gz"):fail("Linux companion target/format mismatch")
+    elif value["runtimes"] != ["runtime/node", "runtime/claurst"]:
         fail("manifest runtimes do not match archive format")
+    if runtime_features is not None:runtime_features["linuxSandbox"]=linux
     return version, target, digest, size, binaries
 
 
-def verify_tar(archive: Path, root: str, binaries: list[str]) -> None:
+def verify_tar(archive: Path, root: str, binaries: list[str], linux_target: str | None = None) -> None:
     required = [f"{root}/{name}" for name in [*binaries, *expected_runtime(archive), *expected_claurst_runtime(archive), *expected_authority()]]
     executable_members = {f"{root}/{name}" for name in expected_executables(archive)}
     try:
         with tarfile.open(archive, "r:gz") as bundle:
             members = bundle.getmembers()
+            if linux_target:
+                from linux_release_archive import archive_members
+                required.extend(root+"/"+name for name in archive_members(bundle,root,linux_target)if root+"/"+name not in required)
             names = [member.name for member in members]
             for name in names:
                 safe_member_name(name, root)
@@ -210,7 +217,8 @@ def verify_zip(archive: Path, root: str, binaries: list[str]) -> None:
 def verify(archive: Path, manifest_path: Path, checksum_path: Path, version: str | None, target: str | None) -> None:
     if not archive.is_file() or archive.is_symlink():
         fail("archive must be a regular file")
-    manifest_version, manifest_target, digest, size, binaries = read_manifest(manifest_path, archive)
+    features={}
+    manifest_version, manifest_target, digest, size, binaries = read_manifest(manifest_path, archive,runtime_features=features)
     if version is not None and manifest_version != version:
         fail("manifest version does not match expected version")
     if target is not None and manifest_target != target:
@@ -225,7 +233,7 @@ def verify(archive: Path, manifest_path: Path, checksum_path: Path, version: str
         fail("checksum file does not match manifest")
     root = f"gent-{manifest_version}-{manifest_target}"
     if extension == ".tar.gz":
-        verify_tar(archive, root, binaries)
+        verify_tar(archive, root, binaries, manifest_target if features.get("linuxSandbox")else None)
     else:
         verify_zip(archive, root, binaries)
 

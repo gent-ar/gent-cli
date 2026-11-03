@@ -18,10 +18,10 @@ use crate::{
     runtime_facade::model_catalog::defaults::ModelCatalogDefaults,
 };
 
-struct GatedSource {
+pub(super) struct GatedSource {
     provider: AgentChatProvider,
     gate: std::sync::Mutex<mpsc::Receiver<Result<ProviderListing, ProviderLaunchError>>>,
-    loads: AtomicUsize,
+    pub(super) loads: AtomicUsize,
 }
 
 impl ModelCatalogSource for GatedSource {
@@ -47,7 +47,7 @@ impl ModelCatalogSource for GatedSource {
     }
 }
 
-fn gated(
+pub(super) fn gated(
     provider: AgentChatProvider,
 ) -> (
     Arc<GatedSource>,
@@ -76,7 +76,7 @@ fn model(id: &str, default_effort: Option<AgentChatEffort>) -> CatalogModel {
     }
 }
 
-fn eventually(
+pub(super) fn eventually(
     service: &ModelCatalogService,
     ready: impl Fn(&gent_protocol::model_catalog::ModelCatalog) -> bool,
 ) {
@@ -245,14 +245,14 @@ fn defaults_to_the_small_local_model_until_a_listed_default_is_saved() {
 #[path = "model_catalog_validation_tests.rs"]
 mod validation;
 
-fn listing(id: &str) -> ProviderListing {
+pub(super) fn listing(id: &str) -> ProviderListing {
     ProviderListing {
         availability: ProviderAvailability::Ready,
         models: vec![model(id, None)],
     }
 }
 
-fn loads_reach(source: &GatedSource, count: usize) {
+pub(super) fn loads_reach(source: &GatedSource, count: usize) {
     let deadline = Instant::now() + Duration::from_secs(2);
     while source.loads.load(Ordering::SeqCst) < count {
         assert!(Instant::now() < deadline, "provider was not reloaded");
@@ -329,7 +329,7 @@ fn exhausted_probe_timeouts_fail_but_the_next_read_retries_without_a_refresh() {
 struct InstalledSource {
     revision: std::sync::Mutex<Option<String>>,
     release: std::sync::Mutex<mpsc::Receiver<()>>,
-    loads: AtomicUsize,
+    pub(super) loads: AtomicUsize,
 }
 
 impl ModelCatalogSource for InstalledSource {

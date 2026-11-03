@@ -14,7 +14,7 @@ use serde_json::json;
 use super::SqliteLedger;
 
 #[test]
-fn unprovable_settlement_terminally_fences_the_exact_reserved_prompt() {
+fn uncertain_install_fences_the_installer_but_keeps_the_agent_prompt_undelivered() {
     let (ledger, message_id, command, receipt, binding) = reserved_prompt();
     let terminal = Event {
         cursor: 0,
@@ -31,7 +31,7 @@ fn unprovable_settlement_terminally_fences_the_exact_reserved_prompt() {
             .status,
         ReceiptStatus::Unprovable
     );
-    assert_eq!(dispatch_state(&ledger, &message_id), "unprovable");
+    assert_eq!(dispatch_state(&ledger, &message_id), "awaiting_readiness");
     assert_eq!(
         ledger
             .settle_unprovable_provider_prompt_provision(&command, &receipt, &terminal, &binding)
@@ -107,7 +107,7 @@ fn pre_effect_failure_rejects_conflicting_terminal_or_status() {
             )
             .is_err()
     );
-    assert_eq!(dispatch_state(&ledger, &message_id), "unprovable");
+    assert_eq!(dispatch_state(&ledger, &message_id), "awaiting_readiness");
 }
 
 #[test]
@@ -214,8 +214,8 @@ fn reserved_prompt() -> (
                 event_id: "accepted".into(),
                 receipt_id: command.receipt_id.clone(),
                 host_epoch: HostEpoch(1),
-                kind: "accepted".into(),
-                payload: json!({}),
+                kind: "privatePromptProvisionAccepted".into(),
+                payload: command.payload.clone(),
             },
         )
         .unwrap()
@@ -240,3 +240,6 @@ fn dispatch_state(ledger: &SqliteLedger, message_id: &str) -> String {
         )
         .unwrap()
 }
+
+#[path = "private_provider_prompt_provision_install_recovery_tests.rs"]
+mod install_recovery_tests;

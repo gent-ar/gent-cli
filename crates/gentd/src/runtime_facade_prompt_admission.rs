@@ -4,6 +4,7 @@ pub(crate) fn prompt_intent(frame: &AgentChatIntentFrame) -> bool {
     matches!(
         frame,
         AgentChatIntentFrame::SendPrompt { .. }
+            | AgentChatIntentFrame::SteerPromptForTurn(_)
             | AgentChatIntentFrame::QueuePrompt { .. }
             | AgentChatIntentFrame::SendPromptWithTools { .. }
             | AgentChatIntentFrame::QueuePromptWithTools { .. }

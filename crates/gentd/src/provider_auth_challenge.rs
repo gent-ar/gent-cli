@@ -6,7 +6,7 @@ use gent_protocol::ProviderAuthFrame;
 use gent_types::ProviderAuthLifecycle;
 
 use super::provider_auth_process::{launch, login_arguments, now};
-use super::provider_auth_session::{LoginProcess, expire_login_after};
+use super::provider_auth_session::{LoginProcess, monitor_login};
 use super::{StandaloneProviderAuthPort, recover};
 
 impl StandaloneProviderAuthPort {
@@ -20,6 +20,11 @@ impl StandaloneProviderAuthPort {
             .iter_mut()
             .find(|item| item.challenge_id() == Some(selection.challenge_id.as_str()))
             .ok_or_else(|| "provider authentication challenge is no longer active".to_owned())?;
+        if session.device_login.is_some() {
+            return Err(
+                "provider sign-in is already active; cancel it before changing methods".into(),
+            );
+        }
         let (state, effect) = reduce_provider_auth(
             session.state.clone(),
             ProviderAuthEvent::SelectMethod {
@@ -38,15 +43,18 @@ impl StandaloneProviderAuthPort {
                 session.provider,
                 &session.lock,
                 login_arguments(session.provider),
+                self.control()?,
             ) {
                 Ok(process) => {
                     session.login = Some(LoginProcess {
                         process,
                         deadline: Instant::now() + self.login_timeout,
+                        next_auth_check: Instant::now(),
                     });
-                    expire_login_after(
+                    monitor_login(
                         Arc::clone(&self.sessions),
                         session.provider,
+                        session.challenge_id().unwrap_or_default().into(),
                         self.login_timeout,
                         self.probe_timeout,
                     );
@@ -54,7 +62,7 @@ impl StandaloneProviderAuthPort {
                 Err(_) => session.settle(ProviderAuthLifecycle::Failed),
             },
             ProviderAuthEffect::None => {}
-            ProviderAuthEffect::Status(status) => session.state.status = Some(status),
+            ProviderAuthEffect::Status(status) => session.settle(status.lifecycle),
             ProviderAuthEffect::Rejected(_) | ProviderAuthEffect::AskTool(_) => {
                 return Err("provider authentication method was rejected".into());
             }
@@ -75,6 +83,15 @@ impl StandaloneProviderAuthPort {
             .iter_mut()
             .find(|item| item.challenge_id() == Some(challenge_id.as_str()))
             .ok_or_else(|| "provider authentication challenge is no longer active".to_owned())?;
+        if session.device_login.is_some() {
+            super::refresh(session, self.probe_timeout);
+            if session.challenge_id().is_none() {
+                return Ok(ProviderAuthFrame::Status {
+                    request_id,
+                    status: session.status(),
+                });
+            }
+        }
         let (state, effect) = reduce_provider_auth(
             session.state.clone(),
             ProviderAuthEvent::Cancel { challenge_id },

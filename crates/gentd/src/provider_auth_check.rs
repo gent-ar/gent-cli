@@ -61,6 +61,9 @@ impl StandaloneProviderAuthPort {
     }
 
     fn start_check(&self, provider: ProviderAuthProvider, executable: PathBuf) {
+        let Some(control) = self.lifecycle_control.clone() else {
+            return;
+        };
         let mut checks = recover(&self.checks);
         if checks.iter().any(|(checked, _)| *checked == provider) {
             return;
@@ -69,7 +72,7 @@ impl StandaloneProviderAuthPort {
         let checks = Arc::clone(&self.checks);
         let (timeout, retry) = (self.probe_timeout, self.probe_retry);
         thread::spawn(move || {
-            let outcome = probe(provider, &executable, timeout, retry);
+            let outcome = probe(provider, &executable, timeout, retry, &control);
             let mut checks = recover(&checks);
             let index = checks.iter().position(|(checked, _)| *checked == provider);
             match (index, outcome) {
@@ -119,9 +122,10 @@ fn probe(
     executable: &std::path::Path,
     timeout: Duration,
     retry: ProbeRetry,
+    control: &crate::ordinary_lifecycle_control::OrdinaryLifecycleControl,
 ) -> Option<ProviderAuthOutcome> {
     for attempt in 1..=retry.attempts {
-        match probe_once(provider, executable, timeout) {
+        match probe_once(provider, executable, timeout, control) {
             Ok(outcome) => return Some(outcome),
             Err(_) if attempt < retry.attempts => thread::sleep(retry.delay),
             Err(_) => {}
@@ -134,17 +138,18 @@ fn probe_once(
     provider: ProviderAuthProvider,
     executable: &std::path::Path,
     timeout: Duration,
+    control: &crate::ordinary_lifecycle_control::OrdinaryLifecycleControl,
 ) -> Result<ProviderAuthOutcome, ProviderLaunchError> {
-    let lock = match identified_lock(provider, executable, timeout) {
+    let lock = match identified_lock(provider, executable, timeout, control) {
         Ok(lock) => lock,
         Err(timed_out @ ProviderLaunchError::TimedOut(_)) => return Err(timed_out),
         Err(ProviderLaunchError::Failed(_)) => {
             return Ok(ProviderAuthOutcome::Unlocked(ProviderAuthLifecycle::Failed));
         }
     };
-    let lifecycle = authentication(provider, &lock, timeout)?;
+    let lifecycle = authentication(provider, &lock, timeout, control)?;
     Ok(ProviderAuthOutcome::Session(Box::new(
-        ProviderAuthSession::new(provider, lock, lifecycle),
+        ProviderAuthSession::new(provider, lock, lifecycle, Some(control.clone())),
     )))
 }
 
@@ -153,6 +158,7 @@ pub(super) fn unlocked(
     lifecycle: ProviderAuthLifecycle,
 ) -> ProviderAuthStatus {
     ProviderAuthStatus {
+        challenge_id: None,
         provider,
         binary_lock: None,
         lifecycle,

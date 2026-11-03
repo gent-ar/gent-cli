@@ -63,8 +63,19 @@ where
                     ) else {
                         continue;
                     };
+                    let provider_failure = matches!(
+                        &fact,
+                        PublicWireFact::Event(
+                            gent_types::NormalizedProviderEvent::ProviderFailure { .. }
+                        )
+                    );
                     terminal = terminal.or_else(|| terminal::phase(&fact));
                     self.record_wire(run_id, host_epoch, &fact)?;
+                    if provider_failure {
+                        let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
+                        binding.failure_reported_turn =
+                            Some(binding.prompt.message.turn_id.clone());
+                    }
                     facts = facts.saturating_add(1);
                 }
                 ClaudeRunnerEffect::PermissionRequest(request) => {
@@ -88,6 +99,38 @@ where
                     facts = facts.saturating_add(1);
                 }
                 ClaudeRunnerEffect::Exited { code } => {
+                    if !self.shutdown_signaled
+                        && !matches!(
+                            terminal,
+                            Some(DurableTurnPhase::Completed | DurableTurnPhase::Interrupted)
+                        )
+                        && let Some(binding) = self.active.get(run_id)
+                        && !binding.settled
+                        && !binding.interrupt_requested
+                        && binding.failure_reported_turn.as_deref()
+                            != Some(binding.prompt.message.turn_id.as_str())
+                        && binding.session_recovery != super::SessionRecovery::Unavailable
+                    {
+                        let status = code.map_or_else(|| "unknown".into(), |code| code.to_string());
+                        let error = RuntimeError::ProviderRun(PublicProviderRunError::Failed(
+                            format!(
+                                "Claude exited before completing the turn (process status {status})."
+                            ),
+                        ));
+                        self.runtime.fail_claimed_prompt(
+                            &binding.prompt.message.message_id,
+                            &self.coordinator_id,
+                            host_epoch,
+                            &error,
+                        )?;
+                        crate::public_driver_runtime::run_failure::tolerate_run_scoped(
+                            self.record_wire(
+                                run_id,
+                                host_epoch,
+                                &crate::public_driver_runtime::run_failure::failure_fact(&error),
+                            ),
+                        )?;
+                    }
                     self.record_exit(run_id, host_epoch, code)?;
                     if self.recover_unavailable_session(run_id, host_epoch)? {
                         return Ok(Some(ClaudePromptPoll {

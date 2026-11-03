@@ -69,6 +69,8 @@ function New-ReleaseFixture([string]$fixture, [string]$version) {
     Write-Utf8File (Join-Path $output "$archive.manifest.json.sigstore.json") '{}'
     Copy-Item (Join-Path $repo "tools\gent-auto-update.ps1") (Join-Path $output "gent-auto-update.ps1")
     Write-Utf8File (Join-Path $output "gent-auto-update.ps1.sigstore.json") '{}'
+    Copy-Item (Join-Path $repo "tools\install_archive_validation.ps1") (Join-Path $output "gent-install-support.ps1")
+    Write-Utf8File (Join-Path $output "gent-install-support.ps1.sigstore.json") '{}'
     Copy-ReleaseAssets $output $fixture $version
 }
 
@@ -79,17 +81,11 @@ function Invoke-Installer([string]$version, [string]$installRoot, [bool]$force =
     try {
         $ErrorActionPreference = "Continue"
         try {
-            if ($force) {
-                if ($expected -and $idleData) {
-                    & $installer -Version $version -InstallDir $installRoot -Force -ExpectedSha256 $expected -IdleDataDir $idleData
-                } elseif ($expected) {
-                    & $installer -Version $version -InstallDir $installRoot -Force -ExpectedSha256 $expected
-                } else { & $installer -Version $version -InstallDir $installRoot -Force }
-            } elseif ($expected -and $idleData) {
-                & $installer -Version $version -InstallDir $installRoot -ExpectedSha256 $expected -IdleDataDir $idleData
-            } elseif ($expected) {
-                & $installer -Version $version -InstallDir $installRoot -ExpectedSha256 $expected
-            } else { & $installer -Version $version -InstallDir $installRoot }
+            if (-not $idleData) { $idleData = Join-Path (Split-Path $installRoot -Parent) "data" }
+            $parameters = @{ Version = $version; InstallDir = $installRoot; IdleDataDir = $idleData }
+            if ($force) { $parameters.Force = $true }
+            if ($expected) { $parameters.ExpectedSha256 = $expected }
+            & $installer @parameters
             $code = $LASTEXITCODE
         } catch {
             $code = 1
@@ -107,7 +103,8 @@ function Get-CurrentRelease([string]$runtime) {
     Assert-True (Test-Path -LiteralPath $pointer -PathType Leaf) "current.json missing"
     $value = Get-Content -Raw -LiteralPath $pointer | ConvertFrom-Json
     Assert-True ($null -ne $value.release) "current.json has no release"
-    return [string]$value.release
+    Assert-True ([string]$value.release -match '^(v[0-9]+\.[0-9]+\.[0-9]+)\+[0-9a-f]{16}\.[0-9a-f]{8}-(.+)$') "new selection must have immutable generation identity"
+    return "$($Matches[1])-$($Matches[2])"
 }
 
 function Archive-Digest([string]$fixture, [string]$version) {
@@ -160,6 +157,7 @@ try {
         Invoke-Installer -version "v0.1.0" -installRoot $installRoot -expected $firstDigest -idleData $dataRoot
         $runtime = $installRoot
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "first release was not activated"
+        $firstGeneration = [string]((Get-Content -Raw -LiteralPath (Join-Path $runtime "current.json") | ConvertFrom-Json).release)
         $pointerBytes = [IO.File]::ReadAllBytes((Join-Path $runtime "current.json"))
         Assert-True ($pointerBytes.Length -gt 0 -and $pointerBytes[0] -eq [byte][char]'{') "current pointer has a UTF-8 BOM"
         Assert-True (Test-Path (Join-Path $installRoot "bin\gent.exe")) "gent launcher missing"
@@ -171,7 +169,7 @@ try {
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.1.0-$target") "failed update changed current"
         Invoke-Installer -version "v0.2.0" -installRoot $installRoot -force $true
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "forced update was not activated"
-        Add-Content -NoNewline -Encoding utf8 (Join-Path $installRoot "releases\v0.1.0-$target\gent.exe") "tampered"
+        Add-Content -NoNewline -Encoding utf8 (Join-Path (Join-Path (Join-Path $installRoot "releases") $firstGeneration) "gent.exe") "tampered"
         $env:GENT_RELEASE_BASE_URL = "$base/v0.1.0"
         Invoke-Installer -version "v0.1.0" -installRoot $installRoot -force $true -mustSucceed $false
         Assert-True ((Get-CurrentRelease $runtime) -eq "v0.2.0-$target") "tampered retained release was activated"

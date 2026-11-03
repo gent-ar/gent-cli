@@ -98,6 +98,8 @@ mod tests {
     fn read_write_launch_is_rejected_before_the_system_runner() {
         let launcher = ReadOnlyHostLauncher::new(1);
         let error = launcher.launch(&ProviderLaunch {
+            permission_binding: None,
+            run_id: None,
             lock: RunVersionLock {
                 provider: "codex".into(),
                 canonical_path: "/does-not-exist".into(),
@@ -129,6 +131,8 @@ mod tests {
         let launcher = NodeReadOnlyHostLauncher::new(runtime, 1);
         let error = launcher
             .launch(&ProviderLaunch {
+                permission_binding: None,
+                run_id: None,
                 lock,
                 provider: "codex".into(),
                 executable: provider,
@@ -160,6 +164,8 @@ mod tests {
         let launcher = NodeReadOnlyHostLauncher::new(runtime, 1024);
         let process = launcher
             .launch(&ProviderLaunch {
+                permission_binding: None,
+                run_id: None,
                 lock,
                 provider: "codex".into(),
                 executable: provider,

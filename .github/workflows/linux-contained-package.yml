@@ -1,0 +1,64 @@
+name: Verify and package prepared Linux companion
+# Artifact-only reusable step. The caller must authenticate build provenance and
+# provide digests from its trusted protected-tag build, never from the artifact itself.
+on:
+  workflow_call:
+    inputs:
+      target: { type: string, required: true }
+      version: { type: string, required: true }
+      bundle_artifact: { type: string, required: true }
+      bundle_sha256: { type: string, required: true }
+      verifier_artifact: { type: string, required: true }
+      verifier_sha256: { type: string, required: true }
+      descriptor_sha256: { type: string, required: true }
+permissions:
+  contents: read
+jobs:
+  package:
+    if: startsWith(github.ref, 'refs/tags/v') && github.ref_protected
+    runs-on: ${{ inputs.target == 'aarch64-unknown-linux-gnu' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require exact protected-tag identity and finite target
+        env:
+          TARGET: ${{ inputs.target }}
+          VERSION: ${{ inputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          assert os.environ['TARGET'] in ('x86_64-unknown-linux-gnu','aarch64-unknown-linux-gnu')
+          assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',os.environ['VERSION'])
+          assert os.environ['TAG']=='v'+os.environ['VERSION']
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.bundle_artifact }}
+          path: linux-input/bundle
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.verifier_artifact }}
+          path: linux-input/verifier
+      - name: Verify genuine authority and build root-owned package metadata
+        env:
+          TARGET: ${{ inputs.target }}
+          VERSION: ${{ inputs.version }}
+          BUNDLE_SHA: ${{ inputs.bundle_sha256 }}
+          VERIFIER_SHA: ${{ inputs.verifier_sha256 }}
+          DESCRIPTOR_SHA: ${{ inputs.descriptor_sha256 }}
+        run: |
+          mkdir -p dist-linux
+          sudo /usr/bin/python3 tools/package-linux-ci.py \
+            --bundle "$PWD/linux-input/bundle/bundle.tar" --bundle-sha256 "$BUNDLE_SHA" \
+            --verifier "$PWD/linux-input/verifier/gentd" --verifier-sha256 "$VERIFIER_SHA" \
+            --descriptor-sha256 "$DESCRIPTOR_SHA" --version "$VERSION" --target "$TARGET" \
+            --out-dir "$PWD/dist-linux"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-contained-${{ inputs.target }}
+          path: dist-linux/*
+          if-no-files-found: error
+# No release key, signing job, publication, apt install, unit enable/start or
+# daemon-reload occurs here. Existing release.yml is not auto-enabled for Linux
+# companion publishing until its genuine asset producer/provenance wiring exists.

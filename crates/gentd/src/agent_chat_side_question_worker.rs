@@ -23,15 +23,16 @@ pub(crate) fn dispatch(
     runners: Option<AgentChatSideQuestionRunnerSources>,
     ledger: SqliteLedger,
     host_epoch: HostEpoch,
-    side_question_id: String,
-    conversation_id: String,
-    question: String,
+    asked: gent_types::AgentChatSideQuestionRecord,
+    operation: Option<crate::ordinary_lifecycle_control::OrdinaryPromptPermit>,
 ) {
     std::thread::spawn(move || {
+        let _operation = operation;
+        let side_question_id = asked.side_question_id;
         let settled = service.run_and_complete(
             &side_question_id,
-            &conversation_id,
-            &question,
+            &asked.conversation_id.0,
+            &asked.question,
             |provider, workspace_path| {
                 runners.as_ref().map_or_else(
                     || {

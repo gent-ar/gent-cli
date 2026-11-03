@@ -3,7 +3,18 @@ use serde_json::json;
 
 use crate::local_model_catalog::{LocalAgentProfile, LocalModelRecord};
 
+#[cfg(not(windows))]
 const COMPACT_TOOLS: [&str; 6] = ["Glob", "Grep", "Read", "Edit", "Write", "Bash"];
+#[cfg(windows)]
+const COMPACT_TOOLS: [&str; 7] = [
+    "Glob",
+    "Grep",
+    "Read",
+    "Edit",
+    "Write",
+    "Bash",
+    "PowerShell",
+];
 const COMPACT_READ_ONLY_TOOLS: [&str; 3] = ["Glob", "Grep", "Read"];
 const COMPACT_GUIDANCE: &str = "\
 - Work step by step with tools until you can answer; do not stop after one tool call if the answer needs more.

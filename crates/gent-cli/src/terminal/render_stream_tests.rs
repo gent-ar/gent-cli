@@ -21,6 +21,7 @@ fn event(
         kind,
         text: text.into(),
         is_partial: partial,
+        failure_code: None,
         origin: None,
         attachments: Vec::new(),
     }

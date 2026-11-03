@@ -107,13 +107,10 @@ fn service(
 fn observer_mode_hard_denies_provider_lifecycle_without_touching_runner() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let runner = FakeRunner::new(ledger.clone());
-    let path = tempfile::NamedTempFile::new().unwrap();
-    let (service, (_, locks), resolver_calls) = service(
-        ProviderRunAuthority::Observer,
-        runner,
-        resolved_lock(path.path()),
-    );
-    let answer = service.start(request(path.path())).unwrap();
+    let path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+    let (service, (_, locks), resolver_calls) =
+        service(ProviderRunAuthority::Observer, runner, resolved_lock(&path));
+    let answer = service.start(request(&path)).unwrap();
     assert_eq!(answer.outcome, PublicRunOutcome::Denied);
     assert!(locks.lock().unwrap().is_empty());
     assert_eq!(resolver_calls.load(Ordering::SeqCst), 0);

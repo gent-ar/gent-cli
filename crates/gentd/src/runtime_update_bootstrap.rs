@@ -114,6 +114,14 @@ fn validate_archive(
         || manifest.archive.size != size
         || manifest.binaries != vec!["gent".to_owned(), "gentd".to_owned()]
         || manifest.runtimes != vec!["runtime/node".to_owned(), "runtime/claurst".to_owned()]
+        || manifest.cli_capabilities.len() > 128
+        || manifest.cli_capabilities.iter().any(|label| {
+            label.is_empty()
+                || label.len() > 128
+                || !label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_'))
+        })
         || REQUIRED_CAPABILITIES.iter().any(|capability| {
             !manifest
                 .capabilities
@@ -135,6 +143,8 @@ struct ArchiveManifest {
     archive: ArchiveIdentity,
     binaries: Vec<String>,
     capabilities: Vec<String>,
+    #[serde(default)]
+    cli_capabilities: Vec<String>,
     runtimes: Vec<String>,
 }
 

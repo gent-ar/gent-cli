@@ -175,6 +175,7 @@ where
             goal_resolver: None,
             attachment_root: None,
             codex_attachment_root: None,
+            internal_mcp: None,
         })
     }
 }

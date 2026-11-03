@@ -1,4 +1,4 @@
-use std::{net::TcpListener, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use crate::{
     claurst_acp_bridge::ClaurstAcpBridge,
@@ -18,7 +18,31 @@ pub(crate) trait ClaurstStandaloneLauncher {
     type Llama: LocalRuntimeProcess;
     type Acp: ClaurstAcpStdio + Send;
 
+    fn validate_permission_mode(&self, mode: gent_types::PermissionMode) -> Result<(), String> {
+        if mode.is_unattended() {
+            Err("contained Claurst launcher unavailable".into())
+        } else {
+            Ok(())
+        }
+    }
+    fn validate_acp_authority(
+        &self,
+        _stdio: &mut Self::Acp,
+        mode: gent_types::PermissionMode,
+    ) -> Result<(), String> {
+        if mode.is_unattended() {
+            Err("live contained Claurst authority missing".into())
+        } else {
+            Ok(())
+        }
+    }
     fn launch_llama(&self, launch: &LocalProcessLaunch) -> Result<Self::Llama, String>;
+    fn launch_model(
+        &self,
+        plan: &crate::claurst_local_runtime::ClaurstLocalRuntimePlan,
+    ) -> Result<Self::Llama, String> {
+        self.launch_llama(&plan.llama_server)
+    }
     fn launch_acp(&self, launch: &LocalProcessLaunch) -> Result<Self::Acp, String>;
 }
 
@@ -41,6 +65,7 @@ impl<L, S> ClaurstStandaloneRuntime<L, S> {
         Arc::clone(&self.summarizer)
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn port(&self) -> u16 {
         self.port
@@ -89,6 +114,8 @@ pub(crate) enum ClaurstStandaloneStartError {
     Acp(String),
     #[error("the local llama.cpp plan changed, so its model must be reloaded")]
     ModelPlanChanged,
+    #[error("selected permission mode requires verified OS containment for this Claurst run")]
+    SandboxRequired,
 }
 
 pub(crate) struct ClaurstStandaloneOwner<S, L, R> {
@@ -136,6 +163,7 @@ where
         workspace: &Path,
         mcp_servers: Vec<serde_json::Value>,
     ) -> Result<(), ClaurstStandaloneStartError> {
+        let mode = request.permission_mode;
         let plan = self.ready_plan(model_id, request, runtime.port, workspace)?;
         if plan.llama_server != runtime.llama_launch {
             return Err(ClaurstStandaloneStartError::ModelPlanChanged);
@@ -143,7 +171,7 @@ where
         runtime.bridge = Arc::new(
             ClaurstAcpBridge::new(
                 workspace.to_path_buf(),
-                self.materialize_and_launch_acp(&plan, workspace)?,
+                self.materialize_and_launch_acp(&plan, workspace, mode)?,
                 mcp_servers,
             )
             .with_history_input_bytes(plan.history_input_bytes),
@@ -159,6 +187,9 @@ where
         workspace: &Path,
     ) -> Result<crate::claurst_local_runtime::ClaurstLocalRuntimePlan, ClaurstStandaloneStartError>
     {
+        self.launcher
+            .validate_permission_mode(request.permission_mode)
+            .map_err(|_| ClaurstStandaloneStartError::SandboxRequired)?;
         let plan = match self.readiness.assess(model_id, request, port)? {
             ClaurstLocalReadiness::DownloadRequired {
                 plan,
@@ -198,16 +229,22 @@ where
         &self,
         plan: &crate::claurst_local_runtime::ClaurstLocalRuntimePlan,
         workspace: &Path,
+        mode: gent_types::PermissionMode,
     ) -> Result<L::Acp, ClaurstStandaloneStartError> {
         self.settings
             .materialize(&plan.settings_path, &plan.settings_json)
             .map_err(ClaurstStandaloneStartError::Settings)?;
-        self.launcher
+        let mut acp = self
+            .launcher
             .launch_acp(&LocalProcessLaunch {
                 working_directory: Some(workspace.to_path_buf()),
                 ..plan.claurst_acp.clone()
             })
-            .map_err(ClaurstStandaloneStartError::Acp)
+            .map_err(ClaurstStandaloneStartError::Acp)?;
+        self.launcher
+            .validate_acp_authority(&mut acp, mode)
+            .map_err(ClaurstStandaloneStartError::Acp)?;
+        Ok(acp)
     }
 
     pub(crate) fn start_with_mcp(
@@ -217,18 +254,19 @@ where
         workspace: &Path,
         mcp_servers: Vec<serde_json::Value>,
     ) -> Result<ClaurstStandaloneRuntime<L::Llama, L::Acp>, ClaurstStandaloneStartError> {
+        let mode = request.permission_mode;
         let port = select_ephemeral_loopback_port().map_err(ClaurstStandaloneStartError::Llama)?;
         let plan = self.ready_plan(model_id, request, port, workspace)?;
         self.materialize_chat_template(&plan)?;
         let mut llama = self
             .launcher
-            .launch_llama(&plan.llama_server)
+            .launch_model(&plan)
             .map_err(ClaurstStandaloneStartError::Llama)?;
         if let Err(error) = self.probe.wait_ready(&plan.server_url, &mut llama) {
             let _ = llama.shutdown();
             return Err(ClaurstStandaloneStartError::ReadinessProbe(error));
         }
-        let acp = match self.materialize_and_launch_acp(&plan, workspace) {
+        let acp = match self.materialize_and_launch_acp(&plan, workspace, mode) {
             Ok(acp) => acp,
             Err(error) => {
                 let _ = llama.shutdown();
@@ -236,7 +274,10 @@ where
             }
         };
         Ok(ClaurstStandaloneRuntime {
-            summarizer: Arc::new(LlamaContextSummarizer::new(plan.summary_endpoint.clone())),
+            summarizer: Arc::new(
+                LlamaContextSummarizer::new(plan.summary_endpoint.clone())
+                    .with_contained_model(llama.contained_model()),
+            ),
             llama,
             bridge: Arc::new(
                 ClaurstAcpBridge::new(workspace.to_path_buf(), acp, mcp_servers)
@@ -248,15 +289,9 @@ where
     }
 }
 
-fn select_ephemeral_loopback_port() -> Result<u16, String> {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
-    let port = listener
-        .local_addr()
-        .map_err(|error| error.to_string())?
-        .port();
-    drop(listener);
-    Ok(port)
-}
+#[path = "claurst_standalone_owner_port.rs"]
+mod port_selection;
+use port_selection::select_ephemeral_loopback_port;
 
 #[cfg(test)]
 #[path = "claurst_standalone_owner_tests.rs"]

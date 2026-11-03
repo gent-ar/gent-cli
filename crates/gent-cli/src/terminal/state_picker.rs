@@ -196,6 +196,11 @@ fn permission_request(state: &mut UiState, index: usize) -> super::UiEffect {
         workspace_id,
         mode,
         bypass_consent: mode == gent_types::PermissionMode::Bypass,
+        expected_provider: state
+            .view
+            .as_ref()
+            .and_then(|view| view.selection())
+            .map(|selection| selection.provider),
     })
 }
 

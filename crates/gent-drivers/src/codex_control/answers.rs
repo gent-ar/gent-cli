@@ -3,9 +3,12 @@ use serde_json::{Value, json};
 use super::CodexControlRequest;
 
 pub(super) fn question_answers(request: &CodexControlRequest, answers: Option<Value>) -> Value {
-    let Some(Value::Object(raw_answers)) = answers else {
+    let Some(Value::Object(mut raw_answers)) = answers else {
         return json!({});
     };
+    if let Some(Value::Object(nested)) = raw_answers.remove("answers") {
+        raw_answers = nested;
+    }
     let questions = request
         .input
         .as_ref()

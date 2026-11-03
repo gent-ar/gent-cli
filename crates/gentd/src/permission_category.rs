@@ -1,5 +1,10 @@
 use gent_types::PermissionCategory;
 
+/// These operations collect an answer, not permission to run a tool.
+pub(crate) fn requires_user_response(tool_name: &str) -> bool {
+    matches!(tool_name, "AskUserQuestion" | "ask_user")
+}
+
 pub(crate) fn for_tool(tool_name: &str) -> PermissionCategory {
     match tool_name {
         "Read"
@@ -22,9 +27,9 @@ pub(crate) fn for_tool(tool_name: &str) -> PermissionCategory {
         | "ToolSearch" => PermissionCategory::Read,
         "Edit" | "Write" | "edit_file" | "write_file" | "WriteFile" | "apply_patch" | "replace"
         | "Replace" | "NotebookEdit" => PermissionCategory::Edit,
-        "Bash" | "bash" | "shell" | "run_in_terminal" | "run_shell_command" | "Shell"
-        | "session.shell.exec" | "read_bash" | "write_bash" | "stop_bash"
-        | "session.shell.kill" | "Command" => PermissionCategory::Command,
+        "Bash" | "bash" | "PowerShell" | "powershell" | "pwsh" | "shell" | "run_in_terminal"
+        | "run_shell_command" | "Shell" | "session.shell.exec" | "read_bash" | "write_bash"
+        | "stop_bash" | "session.shell.kill" | "Command" => PermissionCategory::Command,
         "WebSearch" | "web_search" | "google_web_search" | "GoogleSearch" | "WebFetch"
         | "web_fetch" => PermissionCategory::Network,
         _ => PermissionCategory::Provider,
@@ -42,6 +47,7 @@ mod tests {
         assert_eq!(for_tool("Read"), PermissionCategory::Read);
         assert_eq!(for_tool("Write"), PermissionCategory::Edit);
         assert_eq!(for_tool("Bash"), PermissionCategory::Command);
+        assert_eq!(for_tool("PowerShell"), PermissionCategory::Command);
         assert_eq!(for_tool("WebFetch"), PermissionCategory::Network);
         assert_eq!(for_tool("mcp__server__tool"), PermissionCategory::Provider);
     }

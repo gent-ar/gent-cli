@@ -75,6 +75,7 @@ impl CodexPromptExecution for Runner {
     fn prepare_codex_prompt(
         &self,
         run_id: String,
+        _conversation_id: String,
         prompt: CodexPromptStart,
     ) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();

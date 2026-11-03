@@ -12,12 +12,19 @@ pub(super) fn create(
     ledger: &SqliteLedger,
     connector: &McpConnectorRecord,
 ) -> Result<(), LedgerError> {
+    let connection = ledger.lock()?;
+    insert(&connection, connector)
+}
+
+pub(super) fn insert(
+    connection: &rusqlite::Connection,
+    connector: &McpConnectorRecord,
+) -> Result<(), LedgerError> {
     if connector.phase != McpConnectorPhase::Requested || !valid(connector) {
         return Err(LedgerError::Invariant(
             "MCP connector requires safe identities and requested phase".into(),
         ));
     }
-    let connection = ledger.lock()?;
     let source = connection
         .query_row(
             "SELECT workspace_id, kind FROM tool_sources WHERE tool_source_id = ?1",

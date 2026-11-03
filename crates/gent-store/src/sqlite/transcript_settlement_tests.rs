@@ -265,6 +265,7 @@ fn upgrading_a_v22_ledger_rewrites_no_committed_fact_and_adds_recency() {
         .unwrap()
         .execute_batch(
             "DROP TRIGGER agent_chat_conversation_created_recency; \
+             DROP TABLE agent_chat_steer_targets; \
              DROP TRIGGER agent_chat_conversation_projection_recency; \
              DROP INDEX agent_chat_transcript_events_by_turn_kind; \
              ALTER TABLE agent_chat_conversations DROP COLUMN updated_at_unix_ms; \

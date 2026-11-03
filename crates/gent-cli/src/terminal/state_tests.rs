@@ -992,6 +992,7 @@ fn settled_response_clears_the_live_thinking_notice() {
                 kind: NormalizedTranscriptKind::AssistantMessage,
                 text: "Done".into(),
                 is_partial: false,
+                failure_code: None,
                 origin: None,
                 attachments: Vec::new(),
             }],

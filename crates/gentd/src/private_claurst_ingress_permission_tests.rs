@@ -32,11 +32,15 @@ fn permission(
     }
 }
 
-async fn drain_permissions(
+async fn prepare_permissions(
     mode: AgentChatMode,
     policy: PermissionMode,
     permissions: Vec<ClaurstPermissionRequest>,
-) -> (SqliteLedger, FakePrivateClaurstBridge) {
+) -> (
+    SqliteLedger,
+    FakePrivateClaurstBridge,
+    PrivateClaurstIngress<SqliteLedger, FakePrivateClaurstBridge>,
+) {
     let ledger = prepared_ledger_in_mode(mode);
     ledger
         .save_policy(&PolicyRecord {
@@ -45,10 +49,25 @@ async fn drain_permissions(
             scope: PolicyScope::ProviderPermissions,
             revision: 1,
             mode: policy,
+            containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
         })
         .unwrap();
+    gent_ports::AgentChatConversationConfigLedger::save_conversation_config(
+        &ledger,
+        &gent_types::AgentChatConversationConfigRecord {
+            conversation_id: AgentChatConversationId("conversation-a".into()),
+            revision: 1,
+            system_prompt: None,
+            append_system_prompt: false,
+            max_turns: None,
+            thinking_enabled: None,
+            disallowed_tools: vec![],
+            containment: gent_types::Containment::Sandboxed,
+        },
+    )
+    .unwrap();
     let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
             request_id: AgentChatRequestId("request-permission".into()),
@@ -88,6 +107,15 @@ async fn drain_permissions(
             .await
             .unwrap();
     }
+    (ledger, bridge, ingress)
+}
+
+async fn drain_permissions(
+    mode: AgentChatMode,
+    policy: PermissionMode,
+    permissions: Vec<ClaurstPermissionRequest>,
+) -> (SqliteLedger, FakePrivateClaurstBridge) {
+    let (ledger, bridge, _) = prepare_permissions(mode, policy, permissions).await;
     (ledger, bridge)
 }
 
@@ -134,7 +162,7 @@ async fn an_ask_mode_change_is_denied_by_gent_with_a_typed_notice() {
 async fn agent_mode_workspace_reads_and_edits_do_not_wait_for_the_user() {
     let (ledger, bridge) = drain_permissions(
         AgentChatMode::Agent,
-        PermissionMode::Autonomous,
+        PermissionMode::AutoAcceptEdits,
         vec![
             permission(
                 "glob-1",
@@ -162,7 +190,7 @@ async fn agent_mode_workspace_reads_and_edits_do_not_wait_for_the_user() {
 }
 
 #[tokio::test]
-async fn an_autonomous_command_waits_for_the_user_without_an_os_sandbox() {
+async fn a_sandboxed_autonomous_command_waits_for_the_user_without_an_os_sandbox() {
     let (ledger, bridge) = drain_permissions(
         AgentChatMode::Agent,
         PermissionMode::Autonomous,
@@ -176,4 +204,87 @@ async fn an_autonomous_command_waits_for_the_user_without_an_os_sandbox() {
     .await;
     assert!(bridge.permission_replies().is_empty());
     assert!(pending(&ledger));
+}
+
+#[tokio::test]
+async fn a_sandboxed_bypass_workspace_edit_waits_without_live_containment() {
+    let (ledger, bridge) = drain_permissions(
+        AgentChatMode::Agent,
+        PermissionMode::Bypass,
+        vec![permission(
+            "edit-1",
+            "Edit",
+            PermissionCategory::Edit,
+            serde_json::json!({"file_path": "/workspace-a/src/app.py"}),
+        )],
+    )
+    .await;
+    assert!(bridge.permission_replies().is_empty());
+    assert!(pending(&ledger));
+}
+
+#[tokio::test]
+async fn claurst_commits_canonical_grant_and_rejects_stale_once_before_bridge_delivery() {
+    use gent_types::{PermissionDecisionResponse, PermissionDecisionResponseKind};
+    for stale in [false, true] {
+        let (ledger, bridge, ingress) = prepare_permissions(
+            AgentChatMode::Agent,
+            PermissionMode::AskEveryTime,
+            vec![permission(
+                "command",
+                "Bash",
+                PermissionCategory::Command,
+                serde_json::json!({"command":"fixture"}),
+            )],
+        )
+        .await;
+        let request = ledger
+            .pending_permission(
+                &AgentChatConversationId("conversation-a".into()),
+                &AgentChatRunId("run-a".into()),
+            )
+            .unwrap()
+            .unwrap();
+        if stale {
+            let mut policy = ledger
+                .current_policy("workspace-a", PolicyScope::ProviderPermissions)
+                .unwrap()
+                .unwrap();
+            policy.policy_id = "newer-policy".into();
+            policy.revision = 2;
+            ledger.save_policy(&policy).unwrap();
+        }
+        let response = PermissionDecisionResponse {
+            binding: request.binding.clone(),
+            response: if stale {
+                PermissionDecisionResponseKind::ApproveOnce
+            } else {
+                PermissionDecisionResponseKind::ApproveExactTool
+            },
+            input: None,
+        };
+        let result = ingress.respond_permission(response).await;
+        if stale {
+            assert!(result.is_err());
+            assert!(bridge.permission_replies().is_empty());
+            assert!(pending(&ledger));
+        } else {
+            result.unwrap();
+            let policy = ledger
+                .current_policy("workspace-a", PolicyScope::ProviderPermissions)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                policy.policy_id,
+                "provider-permissions-v2-ab50b6065e8c3ddbad0696feb67aa85d0d506b225e419ed9593f2d8ef3d2a6ac"
+            );
+            assert_eq!(policy.allowed_tools, ["Bash"]);
+            assert_eq!(policy.revision, 2);
+            assert_eq!(
+                bridge.permission_replies(),
+                [("command".into(), ClaurstPermissionReply::AllowOnce)]
+            );
+            assert!(!pending(&ledger));
+        }
+    }
 }

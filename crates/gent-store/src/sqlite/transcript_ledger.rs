@@ -212,6 +212,7 @@ fn event(
         kind: append.kind,
         text: append.text.clone(),
         is_partial: append.is_partial,
+        failure_code: gent_types::AgentChatFailureCode::from_event_id(&append.event_id),
         origin: None,
         attachments: Vec::new(),
     })
@@ -225,9 +226,11 @@ fn decode_event_at(
     row: &rusqlite::Row<'_>,
     start: usize,
 ) -> rusqlite::Result<NormalizedTranscriptEvent> {
+    let event_id: String = row.get(start + 1)?;
     Ok(NormalizedTranscriptEvent {
         cursor: row.get(start)?,
-        event_id: row.get(start + 1)?,
+        failure_code: gent_types::AgentChatFailureCode::from_event_id(&event_id),
+        event_id,
         turn_id: row.get(start + 2)?,
         run_id: row.get(start + 3)?,
         kind: decode_kind(&row.get::<_, String>(start + 4)?).map_err(to_sql_error)?,

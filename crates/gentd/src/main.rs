@@ -1,6 +1,10 @@
-//! `gentd` composition root. Product domains are assembled only behind typed ports.
+#[allow(dead_code)]
+mod contained_model;
+#[cfg(test)]
+use provider_egress::run_fence;
 
 mod activity_transport;
+mod admitted_process;
 mod agent_chat_api;
 mod agent_chat_checkpoint_api;
 mod agent_chat_checkpoint_transport;
@@ -20,16 +24,12 @@ mod agent_chat_side_question_transport;
 mod agent_chat_side_question_worker;
 mod agent_chat_subscription;
 mod agent_chat_transport;
-#[cfg(test)]
-mod agent_chat_transport_tests;
 mod agent_chat_turn_follow;
 mod api;
 #[allow(dead_code)]
 mod approved_claude_host;
 #[allow(dead_code)]
 mod approved_codex_host;
-#[cfg(test)]
-mod approved_codex_host_bounds_tests;
 mod attachment_api;
 mod attachment_transport;
 #[allow(dead_code)]
@@ -71,10 +71,12 @@ mod claurst_local_runtime_owner;
 #[cfg(test)]
 mod claurst_local_runtime_owner_tests;
 mod claurst_metadata_summary;
+#[allow(dead_code)]
 mod claurst_permission_policy;
 mod claurst_prompt_lifecycle;
 mod claurst_runtime_factory;
-#[allow(dead_code)]
+mod claurst_sandbox_launcher;
+mod claurst_sandbox_stdio;
 mod claurst_standalone_owner;
 mod claurst_summary_runner;
 #[allow(dead_code)]
@@ -117,6 +119,15 @@ mod goal_api;
 mod goal_pursuit_host;
 mod goal_transport;
 mod host_lock;
+mod internal_mcp_trust;
+#[cfg(target_os = "linux")]
+mod linux_provider_deployment;
+#[cfg(target_os = "linux")]
+mod linux_provider_factory;
+#[cfg(target_os = "linux")]
+mod linux_provider_kernel_probe;
+#[cfg(target_os = "linux")]
+mod linux_provider_resources;
 mod local_model_catalog;
 #[allow(dead_code)]
 mod local_model_download;
@@ -133,8 +144,6 @@ mod locked_provider_resolver;
 mod node_runtime_lock;
 mod orchestration_api;
 mod orchestration_transport;
-#[cfg(test)]
-mod orchestration_transport_tests;
 mod ordinary_authority_release;
 #[allow(dead_code)]
 mod ordinary_lifecycle_cadence;
@@ -145,8 +154,10 @@ mod ordinary_lifecycle_host;
 #[allow(dead_code)]
 mod ordinary_lifecycle_router;
 mod packaged_claurst_runtime;
+mod permission_backend_registry;
 mod permission_category;
 mod permission_policy_api;
+mod permission_policy_transition;
 mod permission_policy_transport;
 mod permission_preflight;
 mod permission_workspace;
@@ -195,6 +206,7 @@ mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;
 mod provider_effects;
+mod provider_egress;
 mod provider_executables;
 mod provider_launch_budget;
 #[allow(dead_code)]
@@ -211,13 +223,18 @@ mod reviewed_plan_api;
 mod reviewed_plan_transport;
 #[cfg(test)]
 mod reviewed_plan_transport_tests;
+mod runtime_activation;
+mod runtime_activation_maintenance;
 mod runtime_facade;
 mod runtime_maintenance_transport;
+mod runtime_owner_identity;
 mod runtime_update_authority;
 mod runtime_update_bootstrap;
 mod runtime_update_config;
 mod runtime_update_recovery;
 mod runtime_update_transport;
+mod sandbox_provider_launcher;
+mod sandbox_provider_process;
 mod standalone_authority_bootstrap;
 #[allow(dead_code)]
 mod standalone_authority_composition;
@@ -237,6 +254,20 @@ mod transport_shutdown;
 mod transport_windows;
 #[cfg(all(test, windows))]
 mod transport_windows_tests;
+#[cfg(windows)]
+mod windows_claurst_resources;
+#[cfg(windows)]
+mod windows_external_proxy_admission;
+#[cfg(windows)]
+mod windows_external_proxy_policy;
+#[cfg(windows)]
+mod windows_helper_inspection;
+#[cfg(windows)]
+mod windows_os_resources;
+#[cfg(windows)]
+mod windows_provider_resources;
+#[cfg(windows)]
+mod windows_sandbox_runtime;
 mod workspace_documents;
 mod workspace_documents_transport;
 mod workspace_git_api;
@@ -252,18 +283,16 @@ pub(crate) use compatibility_assessment::CompatibilityAssessment;
 pub(crate) use runtime_facade::build_runtime;
 pub(crate) use runtime_facade::{RuntimeFacade, build_runtime_with_update_checks};
 
-#[cfg(test)]
-#[path = "runtime_facade_state_tests.rs"]
-mod runtime_facade_state_tests;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Box::pin(daemon_bootstrap::run()).await
 }
 
 #[cfg(test)]
-#[path = "runtime_facade_chat_tests.rs"]
-mod runtime_facade_chat_tests;
+mod regression_suites;
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
+
+#[cfg(any(windows, target_os = "linux"))]
+mod contained_claude_mcp;

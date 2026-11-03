@@ -93,6 +93,7 @@ async fn resolve(
             workspace_id,
             mode,
             bypass_consent,
+            expected_provider,
         } => {
             requests::set_permission_mode(
                 data_dir,
@@ -101,6 +102,7 @@ async fn resolve(
                 workspace_id,
                 mode,
                 bypass_consent,
+                expected_provider,
             )
             .await
         }

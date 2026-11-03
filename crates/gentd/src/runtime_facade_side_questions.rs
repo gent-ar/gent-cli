@@ -9,6 +9,13 @@ impl RuntimeFacade {
     ) -> Result<AgentChatSideQuestionFrame, String> {
         let host_epoch = self.host_epoch()?;
         let is_ask = matches!(frame, AgentChatSideQuestionFrame::AskSideQuestion { .. });
+        let operation = if is_ask {
+            self.owner_control_port()
+                .map(|owner| owner.acquire_operation())
+                .transpose()?
+        } else {
+            None
+        };
         let response = crate::agent_chat_side_question_api::exchange(
             &self.agent_chat_side_questions,
             host_epoch,
@@ -22,9 +29,8 @@ impl RuntimeFacade {
                         self.agent_chat_side_question_runners.clone(),
                         self.local_model_events.clone(),
                         host_epoch,
-                        record.side_question_id.clone(),
-                        record.conversation_id.0.clone(),
-                        record.question.clone(),
+                        record.clone(),
+                        operation,
                     );
                 }
             }

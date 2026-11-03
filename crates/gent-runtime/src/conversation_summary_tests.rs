@@ -9,6 +9,7 @@ fn event(kind: NormalizedTranscriptKind, text: &str) -> NormalizedTranscriptEven
         kind,
         text: text.into(),
         is_partial: false,
+        failure_code: None,
         origin: None,
         attachments: Vec::new(),
     }
@@ -34,6 +35,7 @@ fn scheduler_retries_missing_titles_and_creates_recaps_at_native_cadence() {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "done".into(),
             is_partial: false,
+            failure_code: None,
             origin: None,
             attachments: Vec::new(),
         })
@@ -65,6 +67,7 @@ fn request_has_stable_digest_and_excludes_partial_thinking() {
         event(NormalizedTranscriptKind::Thinking, "private"),
         NormalizedTranscriptEvent {
             is_partial: true,
+            failure_code: None,
             ..event(NormalizedTranscriptKind::AssistantMessage, "partial")
         },
         event(NormalizedTranscriptKind::AssistantMessage, "done"),

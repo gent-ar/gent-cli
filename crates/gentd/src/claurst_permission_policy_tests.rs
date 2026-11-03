@@ -28,6 +28,7 @@ fn policy(mode: PermissionMode) -> PolicyRecord {
         scope: PolicyScope::ProviderPermissions,
         revision: 1,
         mode,
+        containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
     }
@@ -39,6 +40,34 @@ fn request(
     input: serde_json::Value,
 ) -> PermissionRequest {
     PermissionRequest::new(tool.into(), category, Some(input), None)
+}
+
+#[test]
+fn questions_require_an_answer_in_every_mode_even_with_grants_and_sandbox() {
+    let (_root, project) = workspace();
+    for mode in [
+        PermissionMode::AskEveryTime,
+        PermissionMode::AutoAcceptEdits,
+        PermissionMode::Autonomous,
+        PermissionMode::Bypass,
+    ] {
+        let mut current = policy(mode);
+        current.allowed_tools = vec!["AskUserQuestion".into()];
+        current.allowed_categories = vec![PermissionCategory::Provider];
+        for name in ["AskUserQuestion", "ask_user"] {
+            let question = request(name, PermissionCategory::Provider, json!({"questions": []}));
+            assert_eq!(
+                super::decide_with_enforcement(
+                    AgentChatMode::Agent,
+                    &current,
+                    &question,
+                    &project,
+                    gent_types::SandboxEnforcement::Enforced
+                ),
+                ASK
+            );
+        }
+    }
 }
 
 fn read(path: &str) -> PermissionRequest {
@@ -98,7 +127,7 @@ fn ask_and_plan_deny_changes_with_a_typed_reason_whatever_the_policy_grants() {
 }
 
 #[test]
-fn workspace_reads_never_ask_but_reads_outside_it_do_unless_bypassed() {
+fn workspace_reads_are_automatic_only_under_a_supported_policy() {
     let (root, project) = workspace();
     let outside = root.path().join("outside/secret.txt");
     let glob = request(
@@ -136,10 +165,7 @@ fn workspace_reads_never_ask_but_reads_outside_it_do_unless_bypassed() {
         agent(PermissionMode::Autonomous, &absolute_glob, &project),
         ASK
     );
-    assert_eq!(
-        agent(PermissionMode::Bypass, &absolute_glob, &project),
-        ALLOW
-    );
+    assert_eq!(agent(PermissionMode::Bypass, &absolute_glob, &project), ASK);
 }
 
 #[cfg(unix)]
@@ -164,11 +190,8 @@ fn edits_are_unattended_only_inside_the_workspace_in_an_edit_accepting_mode() {
         agent(PermissionMode::AskEveryTime, &edit("src/app.py"), &project),
         ASK
     );
-    for mode in [
-        PermissionMode::AutoAcceptEdits,
-        PermissionMode::Autonomous,
-        PermissionMode::Bypass,
-    ] {
+    {
+        let mode = PermissionMode::AutoAcceptEdits;
         assert_eq!(agent(mode, &edit("src/app.py"), &project), ALLOW);
         assert_eq!(
             agent(mode, &edit(inside.to_str().unwrap()), &project),
@@ -227,7 +250,7 @@ fn commands_follow_the_shared_sandbox_rule_and_ask_without_an_os_sandbox() {
 }
 
 #[test]
-fn network_and_other_tools_are_unattended_only_when_bypassed_or_granted() {
+fn network_and_other_tools_require_a_supported_explicit_grant() {
     let (_root, project) = workspace();
     let fetch = request(
         "WebFetch",
@@ -235,11 +258,35 @@ fn network_and_other_tools_are_unattended_only_when_bypassed_or_granted() {
         json!({ "url": "https://example.com" }),
     );
     assert_eq!(agent(PermissionMode::Autonomous, &fetch, &project), ASK);
-    assert_eq!(agent(PermissionMode::Bypass, &fetch, &project), ALLOW);
+    assert_eq!(agent(PermissionMode::Bypass, &fetch, &project), ASK);
     let mut granted = policy(PermissionMode::AskEveryTime);
     granted.allowed_categories = vec![PermissionCategory::Network];
     assert_eq!(
         decide(AgentChatMode::Agent, &granted, &fetch, &project),
         ALLOW
     );
+}
+
+#[test]
+fn persisted_broad_modes_cannot_bypass_missing_containment_with_exact_grants() {
+    let (_root, project) = workspace();
+    for mode in [PermissionMode::Autonomous, PermissionMode::Bypass] {
+        let mut granted = policy(mode);
+        granted.allowed_tools = vec!["Read".into(), "Edit".into(), "WebFetch".into()];
+        granted.allowed_categories = vec![
+            PermissionCategory::Read,
+            PermissionCategory::Edit,
+            PermissionCategory::Network,
+        ];
+        for request in [
+            read("src/app.py"),
+            edit("src/app.py"),
+            request("WebFetch", PermissionCategory::Network, json!({})),
+        ] {
+            assert_eq!(
+                decide(AgentChatMode::Agent, &granted, &request, &project),
+                ASK
+            );
+        }
+    }
 }

@@ -5,10 +5,11 @@ use gent_types::{
     PermissionDecisionRequest, PermissionDecisionResponse, PermissionDecisionResponseKind,
     PolicyScope, Receipt, ReceiptId, ReceiptStatus,
 };
-use sha2::{Digest, Sha256};
 
 use super::StandaloneAgentChatPermissionPort;
-use super::receipt::{permission_decision_command, permission_decision_terminal_event};
+use super::receipt::{
+    permission_decision_command, permission_decision_terminal_event, receipt_or_unknown,
+};
 
 type ProviderResponder =
     fn(&StandaloneAgentChatPermissionPort, &PermissionDecisionResponse) -> Result<(), String>;
@@ -45,31 +46,38 @@ impl StandaloneAgentChatPermissionPort {
             .map_err(|error| error.to_string())?
         {
             ReceiptClaim::Existing(receipt) if receipt.status == ReceiptStatus::Accepted => {
-                let pending = self
-                    .ledger
-                    .pending_permission(&response.binding.conversation_id, &response.binding.run_id)
-                    .map_err(|error| error.to_string())?;
-                if pending
-                    .as_ref()
-                    .is_some_and(|request| request.binding == response.binding)
-                {
-                    return self.settle_receipt(&command, ReceiptStatus::Unprovable);
-                }
-                Err(format!("{provider} permission receipt recovery is stale"))
+                // A crash can occur after the provider consumed the decision and
+                // removed the pending request but before the receipt settled.
+                Ok(receipt_or_unknown(
+                    &command,
+                    self.settle_receipt(&command, ReceiptStatus::Unprovable),
+                ))
             }
             ReceiptClaim::Existing(receipt) => Ok(receipt),
             ReceiptClaim::Accepted(_) => {
-                if let Err(error) = respond(self, response) {
-                    let _ = self.settle_receipt(&command, ReceiptStatus::Unprovable);
+                // Validate the binding and persist any scoped grant before the
+                // provider write, so a stale decision is a definite rejection.
+                if let Err(error) = self.approved_pending(response, provider) {
+                    let _ = self.settle_receipt(&command, ReceiptStatus::Rejected);
                     return Err(error);
                 }
-                self.settle_receipt(&command, ReceiptStatus::Settled)
+                if respond(self, response).is_err() {
+                    // The provider write may already have happened. Return the durable
+                    // uncertainty rather than an error that invites a new decision.
+                    return Ok(receipt_or_unknown(
+                        &command,
+                        self.settle_receipt(&command, ReceiptStatus::Unprovable),
+                    ));
+                }
+                Ok(receipt_or_unknown(
+                    &command,
+                    self.settle_receipt(&command, ReceiptStatus::Settled),
+                ))
             }
         }
     }
 
     fn respond_codex(&self, response: &PermissionDecisionResponse) -> Result<(), String> {
-        self.approved_pending(response, "Codex")?;
         let decision = if response.response == PermissionDecisionResponseKind::Deny {
             gent_drivers::codex_control::CodexControlDecision::Deny
         } else {
@@ -87,17 +95,16 @@ impl StandaloneAgentChatPermissionPort {
     }
 
     fn respond_claude(&self, response: &PermissionDecisionResponse) -> Result<(), String> {
-        self.approved_pending(response, "Claude")?;
         let behavior = if response.response == PermissionDecisionResponseKind::Deny {
             gent_drivers::claude_control::ClaudePermissionBehavior::Deny
         } else {
             gent_drivers::claude_control::ClaudePermissionBehavior::Allow
         };
-        let persist_suggestions = matches!(
-            response.response,
-            PermissionDecisionResponseKind::ApproveExactTool
-                | PermissionDecisionResponseKind::ApproveCategory
-        );
+        // Gent has already persisted precisely the scope selected by the user.
+        // Provider suggestions are not that grant: they may describe a broader
+        // rule or a different storage destination, and could outlive changes to
+        // Gent's policy. Keep subsequent decisions on the shared policy path.
+        let persist_suggestions = false;
         self.ingress.respond_claude_permission_with_input(
             &response.binding.run_id.0,
             &response.binding.decision_id.0,
@@ -123,18 +130,15 @@ impl StandaloneAgentChatPermissionPort {
         if pending.binding != response.binding {
             return Err(format!("{provider} permission binding is stale"));
         }
-        self.persist_approval(&pending, response.response)
+        self.persist_approval(&pending, response)
     }
 
     fn persist_approval(
         &self,
         pending: &PermissionDecisionRequest,
-        response: PermissionDecisionResponseKind,
+        response: &PermissionDecisionResponse,
     ) -> Result<(), String> {
-        if matches!(
-            response,
-            PermissionDecisionResponseKind::Deny | PermissionDecisionResponseKind::ApproveOnce
-        ) {
+        if response.response == PermissionDecisionResponseKind::Deny {
             return Ok(());
         }
         let workspace = self
@@ -149,44 +153,11 @@ impl StandaloneAgentChatPermissionPort {
             .current_policy(&workspace.workspace_id, PolicyScope::ProviderPermissions)
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "Codex permission policy is unavailable".to_owned())?;
-        if policy.policy_id != pending.binding.policy_id
-            || policy.revision != pending.binding.policy_revision
-        {
-            return Err("Codex permission policy is stale".into());
-        }
-        let mut revised = policy.clone();
-        match response {
-            PermissionDecisionResponseKind::ApproveExactTool => {
-                revised
-                    .allowed_tools
-                    .push(pending.request.tool_name.clone());
-                revised.allowed_tools.sort();
-                revised.allowed_tools.dedup();
-            }
-            PermissionDecisionResponseKind::ApproveCategory => {
-                revised.allowed_categories.push(pending.request.category);
-                revised.allowed_categories.sort();
-                revised.allowed_categories.dedup();
-            }
-            PermissionDecisionResponseKind::Deny | PermissionDecisionResponseKind::ApproveOnce => {
-                return Ok(());
-            }
-        }
-        if revised == policy {
+        let Some(revised) =
+            super::grant::transition(&policy, pending, response).map_err(str::to_owned)?
+        else {
             return Ok(());
-        }
-        revised.revision = policy.revision + 1;
-        revised.policy_id = format!(
-            "provider-permissions-v{}-{:x}",
-            revised.revision,
-            Sha256::digest(
-                format!(
-                    "{}\0{}\0{}",
-                    policy.workspace_id, policy.policy_id, revised.revision
-                )
-                .as_bytes()
-            ),
-        );
+        };
         self.ledger
             .save_policy(&revised)
             .map_err(|error| error.to_string())

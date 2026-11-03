@@ -17,6 +17,8 @@ use gent_types::{
 use super::{Resolver, Runner, compatibility, profile};
 use crate::approved_claude_host::ApprovedClaudeHost;
 use crate::public_driver_runtime::PublicDriversRuntime;
+#[path = "claude_targeted_steer_tests.rs"]
+mod targeted;
 
 struct Scenario {
     ledger: SqliteLedger,
@@ -48,6 +50,10 @@ fn save(
 }
 
 fn steered_scenario() -> Scenario {
+    scenario(false)
+}
+
+fn scenario(targeted: bool) -> Scenario {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
         .create_agent_chat_conversation_in_workspace(
@@ -85,14 +91,27 @@ fn steered_scenario() -> Scenario {
     .unwrap();
     let mut host = ApprovedClaudeHost::new(runtime, "daemon".into(), HostEpoch(1), 1, None);
     host.tick().unwrap();
-    ledger
-        .steer_queued_agent_chat_prompt(
-            &ReceiptId("steer".into()),
-            HostEpoch(1),
-            &AgentChatConversationId("conversation".into()),
-            &queued.message.message_id,
-        )
-        .unwrap();
+    if targeted {
+        ledger
+            .steer_queued_agent_chat_prompt_for_turn(
+                &ReceiptId("steer".into()),
+                HostEpoch(1),
+                &AgentChatConversationId("conversation".into()),
+                &queued.message.message_id,
+                &active.run_id,
+                &active.message.turn_id,
+            )
+            .unwrap();
+    } else {
+        ledger
+            .steer_queued_agent_chat_prompt(
+                &ReceiptId("steer".into()),
+                HostEpoch(1),
+                &AgentChatConversationId("conversation".into()),
+                &queued.message.message_id,
+            )
+            .unwrap();
+    }
     runner
         .0
         .lock()
@@ -163,6 +182,7 @@ fn turn_of(scenario: &Scenario, text: &str) -> String {
 #[test]
 fn a_take_up_between_tool_output_and_the_result_is_recorded_in_the_running_turn() {
     let mut scenario = steered_scenario();
+    assert!(scenario.host.needs_drive());
     let queued_id = scenario.queued.message.message_id.clone();
     scenario.runner.0.lock().unwrap().effects.push_back(vec![
         output("before"),
@@ -200,62 +220,25 @@ fn a_take_up_between_tool_output_and_the_result_is_recorded_in_the_running_turn(
                 "promptQueued".into(),
                 scenario.queued.message.turn_id.clone()
             ),
+            (
+                "promptSteerRequested".into(),
+                scenario.queued.message.turn_id.clone()
+            ),
             ("promptSteered".into(), active_turn.clone())
         ]
     );
     assert_eq!(turn_of(&scenario, "after"), active_turn);
     assert_eq!(scenario.runner.0.lock().unwrap().steers.len(), 1);
+    assert!(!scenario.host.needs_drive());
 }
 
-#[test]
-fn a_take_up_after_the_result_in_the_same_batch_becomes_the_next_turn_without_a_resend() {
-    let mut scenario = steered_scenario();
-    let queued_id = scenario.queued.message.message_id.clone();
-    scenario.runner.0.lock().unwrap().effects.push_back(vec![
-        output("first"),
-        phase(TurnPhase::Ready),
-        ClaudeRunnerEffect::SteerConsumed {
-            message_id: queued_id,
-        },
-        output("second"),
-        phase(TurnPhase::Ready),
-    ]);
-    scenario.host.tick().unwrap();
-
-    let queued_turn = scenario.queued.message.turn_id.clone();
-    assert_eq!(
-        scenario
-            .ledger
-            .find_turn(&scenario.active.message.turn_id)
-            .unwrap()
-            .unwrap()
-            .phase,
-        DurableTurnPhase::Completed
-    );
-    assert_eq!(
-        scenario
-            .ledger
-            .find_turn(&queued_turn)
-            .unwrap()
-            .unwrap()
-            .phase,
-        DurableTurnPhase::Completed
-    );
-    assert_eq!(
-        kinds(&scenario),
-        [
-            ("promptQueued".into(), queued_turn.clone()),
-            ("promptReleased".into(), queued_turn.clone())
-        ]
-    );
-    assert_eq!(turn_of(&scenario, "second"), queued_turn);
-    let state = scenario.runner.0.lock().unwrap();
-    assert_eq!((state.steers.len(), state.starts), (1, 1));
-}
+#[path = "claude_steer_legacy_late_tests.rs"]
+mod legacy_late;
 
 #[test]
 fn an_interrupted_turn_returns_its_untaken_steer_to_the_queue_for_one_normal_launch() {
     let mut scenario = steered_scenario();
+    assert!(scenario.host.needs_drive());
     scenario.host.interrupt("run").unwrap();
     scenario.runner.0.lock().unwrap().effects.push_back(vec![
         phase(TurnPhase::Failed),
@@ -278,6 +261,7 @@ fn an_interrupted_turn_returns_its_untaken_steer_to_the_queue_for_one_normal_lau
         kinds(&scenario),
         [
             ("promptQueued".into(), queued_turn.clone()),
+            ("promptSteerRequested".into(), queued_turn.clone()),
             ("promptReleased".into(), queued_turn)
         ]
     );

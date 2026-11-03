@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use gent_types::{
-    ActivityWorkKind, ConversationActivityFact, ConversationMessageDelivery, ToolPhase,
-};
+use gent_types::{ActivityWorkKind, ConversationActivityFact, ToolPhase};
 use ratatui::{
     style::{Color, Style},
     text::Line,
@@ -64,6 +62,9 @@ pub(super) fn timeline_lines(facts: &[ConversationActivityFact]) -> Vec<Line<'st
     facts[start..].iter().map(|fact| fact_line(fact)).collect()
 }
 
+#[path = "render_activity_links.rs"]
+mod links;
+
 fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
     let cursor = fact.scope().cursor;
     let (text, color) = match fact {
@@ -105,6 +106,7 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
             ),
             tool_color(&activity.phase),
         ),
+        ConversationActivityFact::ToolOutput { text, .. } => (clip(text), Color::DarkGray),
         ConversationActivityFact::SubagentStarted { child_id, .. } => (
             format!("Subagent · {} · started", clip(child_id)),
             Color::Cyan,
@@ -126,6 +128,21 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
         ConversationActivityFact::PromptCanceled { .. } => {
             ("Prompt canceled".into(), Color::DarkGray)
         }
+        ConversationActivityFact::PromptSteerRequested { .. } => {
+            ("Steer requested · awaiting provider".into(), Color::Yellow)
+        }
+        ConversationActivityFact::PromptSteerRejected { reason, .. }
+            if reason == "deliveryUnprovable" =>
+        {
+            (
+                "Steer delivery could not be confirmed; automatic replay blocked".into(),
+                Color::Yellow,
+            )
+        }
+        ConversationActivityFact::PromptSteerRejected { .. } => (
+            "Steer rejected; prompt remains queued".into(),
+            Color::Yellow,
+        ),
         ConversationActivityFact::PromptSteered { .. } => {
             ("Prompt steered into the running turn".into(), Color::Cyan)
         }
@@ -155,62 +172,10 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
             format!("Plan · revision {} · {:?}", plan.revision.0, plan.status),
             Color::Magenta,
         ),
-        ConversationActivityFact::ConversationCreated {
-            child_conversation_id,
-            label,
-            ..
-        } => (
-            format!("Chat created · {} · {}", label, clip(child_conversation_id)),
-            Color::Magenta,
-        ),
-        ConversationActivityFact::CreatedByConversation {
-            parent_conversation_id,
-            label,
-            ..
-        } => (
-            format!(
-                "Created by chat · {} · {}",
-                label,
-                clip(parent_conversation_id)
-            ),
-            Color::Magenta,
-        ),
-        ConversationActivityFact::ConversationMessageSent {
-            target_conversation_id,
-            delivery,
-            preview,
-            ..
-        } => (
-            format!(
-                "Message {} to chat {} · {}",
-                match delivery {
-                    ConversationMessageDelivery::Queued => "queued",
-                    ConversationMessageDelivery::Steered => "steered",
-                },
-                clip(target_conversation_id),
-                clip(preview)
-            ),
-            Color::Cyan,
-        ),
-        ConversationActivityFact::ConversationWaitSettled {
-            targets, timed_out, ..
-        } => (
-            format!(
-                "Waited on {} chat{} · {}",
-                targets.len(),
-                if targets.len() == 1 { "" } else { "s" },
-                if *timed_out {
-                    "timed out"
-                } else {
-                    "all settled"
-                }
-            ),
-            if *timed_out {
-                Color::Yellow
-            } else {
-                Color::Green
-            },
-        ),
+        ConversationActivityFact::ConversationCreated { .. }
+        | ConversationActivityFact::CreatedByConversation { .. }
+        | ConversationActivityFact::ConversationMessageSent { .. }
+        | ConversationActivityFact::ConversationWaitSettled { .. } => links::text(fact),
     };
     Line::styled(format!("#{cursor}  {text}"), Style::default().fg(color))
 }
@@ -280,27 +245,5 @@ fn clip(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use gent_types::{ConversationActivityScope, HostEpoch};
-
-    use super::timeline_lines;
-
-    #[test]
-    fn activity_timeline_uses_durable_cursor_order() {
-        let lines = timeline_lines(&[started(9), started(3)]);
-        assert!(lines[0].to_string().starts_with("#3"));
-        assert!(lines[1].to_string().starts_with("#9"));
-    }
-
-    fn started(cursor: u64) -> gent_types::ConversationActivityFact {
-        gent_types::ConversationActivityFact::TurnStarted {
-            scope: ConversationActivityScope {
-                conversation_id: "conversation".into(),
-                run_id: "run".into(),
-                turn_id: "turn".into(),
-                host_epoch: HostEpoch(1),
-                cursor,
-            },
-        }
-    }
-}
+#[path = "render_activity_tests.rs"]
+mod tests;

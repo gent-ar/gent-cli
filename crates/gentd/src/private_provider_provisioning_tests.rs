@@ -293,3 +293,6 @@ const fn npm_name() -> &'static str {
 const fn npm_name() -> &'static str {
     "npm"
 }
+
+#[path = "private_provider_provisioning_generation_tests.rs"]
+mod generation_tests;

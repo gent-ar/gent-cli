@@ -92,6 +92,8 @@ pub(crate) struct CreateArgs {
     pub(crate) workspace: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) selection: SelectionArgs,
+    #[arg(long, help = "Run this conversation's providers inside the OS sandbox")]
+    pub(crate) sandboxed: bool,
     #[arg(long, help = "Client request id used to correlate the reply")]
     pub(crate) request_id: Option<String>,
     #[arg(long, help = "Receipt id; reuse it to retry the same request safely")]

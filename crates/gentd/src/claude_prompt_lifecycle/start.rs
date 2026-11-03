@@ -6,7 +6,7 @@ use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, PublicProviderResolver, TranscriptLedger,
 };
-use gent_protocol::{DependencyProvider, PublicRunOutcome, PublicRunStartRequest};
+use gent_protocol::PublicRunOutcome;
 use gent_runtime::RuntimeError;
 use gent_types::{AgentChatPromptSaved, HostEpoch};
 
@@ -87,6 +87,7 @@ where
                         interrupt_requested: false,
                         steers: Vec::new(),
                         session_recovery: super::SessionRecovery::NotNeeded,
+                        failure_reported_turn: None,
                     },
                 );
                 Ok(ClaudePromptDispatchOutcome::Started { run_id })
@@ -144,7 +145,18 @@ where
             .extend(crate::standalone_mcp_config::INTERNAL_SERVER_NAMES.map(str::to_owned));
     }
     let permission =
-        crate::permission_workspace::policy_for(&runtime.ledger(), &workspace.workspace_id)?;
+        runtime.conversation_policy(&prompt.message.conversation_id, &workspace.workspace_id)?;
+    runtime.runner().validate_permission_binding(
+        gent_types::SandboxPermissionBinding::new(
+            prompt.message.conversation_id.clone(),
+            run_id.clone(),
+            permission.clone(),
+            runtime.ledger().host_ingress()?.epoch,
+        )
+        .map_err(|_| {
+            gent_ports::PublicProviderRunError::Failed("invalid provider permission binding".into())
+        })?,
+    )?;
     let conversation_config = runtime
         .ledger()
         .current_conversation_config(&prompt.message.conversation_id)
@@ -281,14 +293,6 @@ where
     Ok(ClaudePromptDispatchOutcome::Started { run_id })
 }
 
-fn request(run_id: &str, coordinator_id: &str, host_epoch: HostEpoch) -> PublicRunStartRequest {
-    PublicRunStartRequest {
-        run_id: run_id.into(),
-        coordinator_id: coordinator_id.into(),
-        host_epoch,
-        provider: DependencyProvider::Claude,
-        executable: "daemon-resolved".into(),
-        version: "daemon-resolved".into(),
-        compatibility_entry: "daemon-resolved".into(),
-    }
-}
+#[path = "start_request.rs"]
+mod launch_request;
+use launch_request::request;

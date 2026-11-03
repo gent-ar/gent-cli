@@ -16,6 +16,7 @@ pub(crate) struct SessionIdentity {
     mcp_config_digest: Option<String>,
     tool_source_ids: Vec<String>,
     conversation_id: String,
+    authority: Option<gent_types::SandboxPermissionBinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,14 +55,30 @@ impl RuntimeIdentity {
                 mcp_config_digest,
                 tool_source_ids,
                 conversation_id,
+                authority: None,
             },
         }
+    }
+
+    pub(crate) fn permission_binding(&self) -> Option<&gent_types::SandboxPermissionBinding> {
+        self.session.authority.as_ref()
+    }
+
+    pub(crate) fn with_permission_binding(
+        mut self,
+        binding: gent_types::SandboxPermissionBinding,
+    ) -> Self {
+        self.session.authority = Some(binding);
+        self
     }
 
     #[must_use]
     pub(crate) fn reuse_from(&self, running: &Self) -> RuntimeReuse {
         if running == self {
             return RuntimeReuse::Ready;
+        }
+        if self.session.authority.is_some() || running.session.authority.is_some() {
+            return RuntimeReuse::Relaunch;
         }
         if running.model == self.model {
             return RuntimeReuse::RebindSession;
@@ -110,6 +127,54 @@ mod tests {
             "/workspace",
             PermissionMode::AskEveryTime,
         )
+    }
+
+    #[test]
+    fn contained_identity_changes_never_rebind_an_existing_process() {
+        use gent_types::{HostEpoch, PolicyRecord, PolicyScope, SandboxPermissionBinding};
+        let selection = selection();
+        let policy = PolicyRecord {
+            policy_id: "p".into(),
+            workspace_id: "w".into(),
+            revision: 1,
+            scope: PolicyScope::ProviderPermissions,
+            mode: PermissionMode::Bypass,
+            containment: gent_types::Containment::Sandboxed,
+            allowed_tools: vec![],
+            allowed_categories: vec![],
+        };
+        let first = identity(
+            &selection,
+            "conversation",
+            "/workspace",
+            PermissionMode::Bypass,
+        )
+        .with_permission_binding(
+            SandboxPermissionBinding::new(
+                "conversation".into(),
+                "one".into(),
+                policy.clone(),
+                HostEpoch(1),
+            )
+            .unwrap(),
+        );
+        assert_eq!(first.reuse_from(&first), RuntimeReuse::Ready);
+        let next = identity(
+            &selection,
+            "conversation",
+            "/workspace",
+            PermissionMode::Bypass,
+        )
+        .with_permission_binding(
+            SandboxPermissionBinding::new(
+                "conversation".into(),
+                "two".into(),
+                policy,
+                HostEpoch(1),
+            )
+            .unwrap(),
+        );
+        assert_eq!(next.reuse_from(&first), RuntimeReuse::Relaunch);
     }
 
     #[test]

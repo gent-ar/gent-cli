@@ -27,7 +27,7 @@ except ImportError:  # Windows ships the immutable pair but has no scheduler yet
 
 REPOSITORY = "gent-ar/gent-cli"
 TAG = re.compile(r"v([0-9]+)\.([0-9]+)\.([0-9]+)$")
-RELEASE = re.compile(r"(v[0-9]+\.[0-9]+\.[0-9]+)-.+$")
+RELEASE = re.compile(r"(v[0-9]+\.[0-9]+\.[0-9]+)(?:\+[0-9a-f]{16}\.(?:[0-9a-f]{8}|[0-9a-f]{64}))?-.+$")
 MIN_INTERVAL, MAX_INTERVAL = 300, 7 * 24 * 60 * 60
 
 

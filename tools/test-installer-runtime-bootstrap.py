@@ -101,12 +101,13 @@ def release(directory: Path, target: str, version: str) -> None:
     key.unlink()
     for source, name in (
         (ROOT / "tools/activate-install.py", "gent-activate-install.py"),
+        (ROOT / "tools/activate_install_support.py", "gent-activate-install-support.py"),
         (ROOT / "tools/gent-auto-update.py", "gent-auto-update.py"),
     ):
         shutil.copy(source, directory / name)
     for path in directory.iterdir():
         if path.name.endswith((".tar.gz", ".manifest.json", ".runtime-release.json")) or path.name in {
-            "gent-activate-install.py", "gent-auto-update.py", "gent-runtime-release-trust.json",
+            "gent-activate-install.py", "gent-activate-install-support.py", "gent-auto-update.py", "gent-runtime-release-trust.json",
         }:
             Path(f"{path}.sigstore.json").write_text("{}", encoding="utf-8")
 
@@ -147,7 +148,8 @@ def main() -> None:
         finally:
             server.shutdown()
             thread.join(timeout=5)
-        staged = install / "lib/gent/releases" / f"{version}-{target}"
+        staged = (install / "lib/gent/current").resolve()
+        assert staged.name.startswith(version + "+") and staged.name.endswith("-" + target)
         assert (staged / "gent-auto-update.py").is_file()
         cache = json.loads((staged / "runtime-release-cache.json").read_text(encoding="utf-8"))
         assert cache["release"]["keyId"] == "test-release"

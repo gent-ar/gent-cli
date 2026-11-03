@@ -1,82 +1,12 @@
 use std::path::PathBuf;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::chat_links_cli::{self, CallerConversation};
 
-const CREATE_DESCRIPTION: &str = "Start a new Gent chat that works alongside this one. \
-The new chat is a real conversation the user can open from the sidebar, with its own transcript \
-and its own agent; it is not a background job and not a sub-agent. Give it a short label the user \
-will recognize, and a prompt describing the work it should begin immediately. Returns its \
-conversationId: keep it, because gent_chat_send and gent_chat_wait take it.";
-
-const SEND_DESCRIPTION: &str = "Say something to another Gent chat you created or were created by. \
-This is the only way to talk to it. If that chat is idle the message starts its next turn; if it \
-is already working the message is steered into the turn in flight. Returns how it was delivered.";
-
-const WAIT_DESCRIPTION: &str = "Block until the named Gent chats finish what they are doing, or \
-until timeoutSeconds elapses. This call does not return while they are still working, so do not \
-call it before you have given them something to do. On timeout it returns honestly, reporting \
-each chat's phase and timedOut true, rather than failing. Returns each chat's final phase and the \
-last thing it said.";
-
-const LIST_DESCRIPTION: &str = "List the Gent chats in this conversation's thread: the chat that \
-created this one, if any, and every chat this one created, with each one's label, current phase \
-and last activity time. Use it to recover conversationIds after a restart.";
-
+#[cfg(test)]
 pub(crate) fn tools() -> Vec<Value> {
-    vec![
-        json!({
-            "name": "gent_chat_create",
-            "description": CREATE_DESCRIPTION,
-            "inputSchema": {
-                "type": "object",
-                "required": ["label"],
-                "properties": {
-                    "label": {"type": "string", "description": "Short name the user sees for the new chat"},
-                    "prompt": {"type": "string", "description": "What the new chat should start working on"},
-                    "workspacePath": {"type": "string", "description": "Workspace for the new chat [default: this conversation's workspace]"},
-                    "conversationId": {"type": "string", "description": "Only needed when gentd cannot resolve the calling conversation"}
-                }
-            }
-        }),
-        json!({
-            "name": "gent_chat_send",
-            "description": SEND_DESCRIPTION,
-            "inputSchema": {
-                "type": "object",
-                "required": ["targetConversationId", "message"],
-                "properties": {
-                    "targetConversationId": {"type": "string"},
-                    "message": {"type": "string"},
-                    "conversationId": {"type": "string", "description": "Only needed when gentd cannot resolve the calling conversation"}
-                }
-            }
-        }),
-        json!({
-            "name": "gent_chat_wait",
-            "description": WAIT_DESCRIPTION,
-            "inputSchema": {
-                "type": "object",
-                "required": ["conversationIds"],
-                "properties": {
-                    "conversationIds": {"type": "array", "items": {"type": "string"}, "maxItems": 16},
-                    "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 900},
-                    "conversationId": {"type": "string", "description": "Only needed when gentd cannot resolve the calling conversation"}
-                }
-            }
-        }),
-        json!({
-            "name": "gent_chat_list",
-            "description": LIST_DESCRIPTION,
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "conversationId": {"type": "string", "description": "Only needed when gentd cannot resolve the calling conversation"}
-                }
-            }
-        }),
-    ]
+    gent_types::internal_tools::tools(Some("chat"))
 }
 
 pub(crate) async fn call(

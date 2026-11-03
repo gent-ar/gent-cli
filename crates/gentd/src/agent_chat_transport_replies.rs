@@ -22,7 +22,10 @@ pub(super) fn validate_replies(request: &Frame, replies: &[Frame]) -> Result<(),
         | Frame::QueuePromptWithTools { .. }
         | Frame::Decision { .. } => shapes::accepted(request, replies),
         Frame::CancelQueuedPrompt { .. } => shapes::queued_prompt_canceled(request, replies),
-        Frame::SteerQueuedPrompt { .. } => shapes::queued_prompt_steered(request, replies),
+        Frame::SteerPromptForTurn(_) => shapes::atomic_steer_accepted(request, replies),
+        Frame::SteerQueuedPrompt { .. } | Frame::SteerQueuedPromptForTurn { .. } => {
+            shapes::queued_prompt_steered(request, replies)
+        }
         Frame::Interrupt { .. } => shapes::interrupted(request, replies),
         Frame::ForkConversation { .. } => shapes::forked(request, replies),
         Frame::CreateLinkedConversation { .. } => {

@@ -48,6 +48,9 @@ jobs:
       - run: sh -n tools/install.sh
       - run: python tools/test-install-activation.py
       - run: python tools/test-supervise-runtime-activation.py
+      - run: python tools/test-installer-support-assets.py
+      - run: python tools/test-install-leases-portable.py
+      - run: python tools/test-runtime-release-policy.py
       - run: python tools/test-update-handoff.py
       - run: python tools/test-gent-auto-update.py
       - run: python tools/test-install-update-material.py
@@ -72,6 +75,14 @@ jobs:
       - run: python -m py_compile tools/capture-claude-mcp-transcript.py
       - run: python tools/test-capture-claude-mcp-transcript.py
       - run: python tools/test-release-tools.py
+      - run: python tools/test-check-windows-sandbox-release.py
+      - run: python tools/test-verify-claurst-release-pair.py
+      - run: python tools/test-prepare-windows-model-manifest.py
+      - name: Check Linux companion archive and opt-in service packaging
+        run: |
+          python -m py_compile tools/linux_release_archive.py tools/package-linux-service-deb.py
+          python tools/test-linux-sandbox-package.py
+          python tools/test-linux-release-archive.py
       - run: python tools/test-provider-pins.py
       - run: python tools/test-authority-keys.py
       - run: python tools/test-build-ordinary-authority.py
@@ -236,18 +247,7 @@ jobs:
       - name: Sign the installer bootstrap
         shell: bash
         run: |
-          cp tools/install.sh release-artifacts/gent-install.sh
-          cp tools/install.ps1 release-artifacts/gent-install.ps1
-          cp tools/activate-install.py release-artifacts/gent-activate-install.py
-          cp tools/gent-auto-update.py release-artifacts/gent-auto-update.py
-          cp tools/gent-auto-update.ps1 release-artifacts/gent-auto-update.ps1
-          cp tools/supervise-runtime-activation.py release-artifacts/gent-supervise-runtime-activation.py
-          cosign sign-blob --yes --bundle release-artifacts/gent-install.sh.sigstore.json release-artifacts/gent-install.sh
-          cosign sign-blob --yes --bundle release-artifacts/gent-install.ps1.sigstore.json release-artifacts/gent-install.ps1
-          cosign sign-blob --yes --bundle release-artifacts/gent-activate-install.py.sigstore.json release-artifacts/gent-activate-install.py
-          cosign sign-blob --yes --bundle release-artifacts/gent-auto-update.py.sigstore.json release-artifacts/gent-auto-update.py
-          cosign sign-blob --yes --bundle release-artifacts/gent-auto-update.ps1.sigstore.json release-artifacts/gent-auto-update.ps1
-          cosign sign-blob --yes --bundle release-artifacts/gent-supervise-runtime-activation.py.sigstore.json release-artifacts/gent-supervise-runtime-activation.py
+          python tools/stage-installer-assets.py release-artifacts
           while IFS= read -r -d '' artifact; do
             test -s "$artifact.sigstore.json"
           done < <(find release-artifacts -type f ! -name '*.sigstore.json' -print0)

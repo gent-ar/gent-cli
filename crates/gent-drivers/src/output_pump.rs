@@ -7,6 +7,9 @@ use crate::ndjson::{NdjsonError, NdjsonFramer};
 
 /// A fixed maximum for one operating-system stdout read before the pump rejects it.
 pub const MAX_OUTPUT_CHUNK_BYTES: usize = 4096;
+
+/// Drain one bounded pipe backlog per scheduler tick without starving other sessions.
+pub(crate) const MAX_OUTPUT_CHUNKS_PER_POLL: usize = 16;
 pub const MAX_PROVIDER_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 /// Owns stdout framing and the backpressure boundary between process I/O and session reduction.

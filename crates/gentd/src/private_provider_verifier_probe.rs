@@ -55,6 +55,8 @@ impl PrivateVersionProbe for LockedNodeVersionProbe {
         let process = self
             .launcher
             .launch(&ProviderLaunch {
+                permission_binding: None,
+                run_id: None,
                 lock: lock.clone(),
                 provider: provider.as_str().into(),
                 executable: executable.into(),

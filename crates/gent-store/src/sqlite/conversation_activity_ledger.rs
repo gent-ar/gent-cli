@@ -89,16 +89,27 @@ fn page(
             "activity page limit is out of bounds".into(),
         ));
     }
-    let mut statement = connection.prepare(
-        "SELECT payload FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 AND cursor > ?3 ORDER BY cursor LIMIT ?4",
-    ).map_err(storage_error)?;
+    let mut statement = connection.prepare(&format!(
+        "SELECT cursor, payload, lifecycle_event_id FROM {} WHERE cursor > ?3 ORDER BY cursor LIMIT ?4", super::historical_tool_output::ACTIVITY_ROWS
+    )).map_err(storage_error)?;
     let rows = statement
         .query_map(
             params![conversation_id, run_id, after_cursor, limit + 1],
-            |row| decode(&row.get::<_, String>(0)?),
+            |row| Ok((row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
         )
         .map_err(storage_error)?;
-    let mut facts = rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
+    let mut facts = rows
+        .map(|row| {
+            let (payload, source) = row.map_err(storage_error)?;
+            match source {
+                Some(source) => super::historical_tool_output::read(connection, &source)?
+                    .ok_or_else(|| {
+                        LedgerError::Invariant("historical output source is absent".into())
+                    }),
+                None => decode(&payload).map_err(storage_error),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let next_after_cursor = (facts.len() > limit)
         .then(|| {
             facts.pop();

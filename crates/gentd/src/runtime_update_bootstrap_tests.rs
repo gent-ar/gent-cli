@@ -143,3 +143,24 @@ fn strict_trust_document_rejects_unknown_fields() {
     assert!(verify_if_enabled(config).is_err());
     assert!(!config.cache_path.unwrap().exists());
 }
+
+#[test]
+fn archive_accepts_separate_cli_capabilities_but_rejects_unknown_manifest_fields() {
+    for extra_unknown in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = fixture(directory.path());
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&fixture.archive_manifest).unwrap()).unwrap();
+        manifest["cliCapabilities"] = serde_json::json!([
+            "runtime-activation-lease-v1",
+            "runtime-immutable-release-v1"
+        ]);
+        if extra_unknown {
+            manifest["unexpected"] = serde_json::json!(true);
+        }
+        fs::write(&fixture.archive_manifest, manifest.to_string()).unwrap();
+        let result = verify_if_enabled(fixture.config());
+        assert_eq!(result.is_ok(), !extra_unknown);
+        assert_eq!(fixture.cache.exists(), !extra_unknown);
+    }
+}

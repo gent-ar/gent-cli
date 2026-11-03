@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node "$(node -p "require('path').resolve(process.execPath,'../../lib/node_modules/npm/bin/npx-cli.js')")" "$@"

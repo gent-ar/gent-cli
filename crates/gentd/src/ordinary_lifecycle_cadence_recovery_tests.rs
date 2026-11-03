@@ -8,6 +8,76 @@ use gent_types::{AgentChatProvider, AgentChatRunId};
 use super::{AsyncHost, cadence, prompt, wait_for, wait_for_ready};
 use crate::agent_chat_api::PromptCommitWake;
 
+#[derive(Debug)]
+struct TurnBoundHost {
+    current: Arc<Mutex<String>>,
+    attempts: Arc<Mutex<Vec<String>>>,
+    signals: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl crate::ordinary_lifecycle_cadence::AsyncOrdinaryLifecycleHost for TurnBoundHost {
+    async fn activate_recovery(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    async fn drive_once(&mut self) -> Result<bool, String> {
+        Ok(false)
+    }
+    async fn begin_shutdown_after_recovery(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    async fn interrupt_claurst_run(&mut self, _: &str) -> Result<(), String> {
+        panic!("a bound request must never fall back to a run-wide signal")
+    }
+    async fn interrupt_claurst_turn(&mut self, _: &str, turn: &str) -> Result<(), String> {
+        self.attempts.lock().unwrap().push(turn.into());
+        if self.current.lock().unwrap().as_str() != turn {
+            return Err("stale turn".into());
+        }
+        self.signals.lock().unwrap().push(turn.into());
+        Ok(())
+    }
+    fn shutdown_complete(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn queued_interrupt_turn_checks_binding_when_the_async_owner_consumes_it() {
+    let (_, cadence, wake, _, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let current = Arc::new(Mutex::new("old-turn".to_owned()));
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    let signals = Arc::new(Mutex::new(Vec::new()));
+    wake.attach_async_claurst(Box::new(TurnBoundHost {
+        current: Arc::clone(&current),
+        attempts: Arc::clone(&attempts),
+        signals: Arc::clone(&signals),
+    }))
+    .await
+    .unwrap();
+    {
+        let mut queued = wake.async_claurst_interrupts.lock().unwrap();
+        for turn in ["old-turn", "new-turn"] {
+            queued.push_back(crate::ordinary_lifecycle_cadence::PendingClaurstInterrupt {
+                run_id: "same-run".into(),
+                expected_turn_id: Some(turn.into()),
+                goal_stop: None,
+            });
+        }
+    }
+    *current.lock().unwrap() = "new-turn".into();
+    let task = tokio::spawn(cadence.run());
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while attempts.lock().unwrap().len() != 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(&*signals.lock().unwrap(), &["new-turn"]);
+    task.abort();
+}
+
 #[tokio::test]
 async fn recovery_drives_once_then_waits_without_idle_polling() {
     let (control, cadence, _, events, _, _, _) =

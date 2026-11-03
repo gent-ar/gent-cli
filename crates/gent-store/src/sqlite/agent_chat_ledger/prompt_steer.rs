@@ -7,6 +7,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::super::super::SqliteLedger;
 use super::super::super::agent_chat_queue_activity::{STEER_KEY_PREFIX, append};
+use super::super::super::agent_chat_steer_target as target;
 use super::super::super::queries::storage_error;
 use super::helpers::{saved, valid_owner};
 use super::require_open;
@@ -17,6 +18,16 @@ pub(super) fn claim(
     host_epoch: HostEpoch,
     run_id: &AgentChatRunId,
 ) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
+    claim_for_turn(ledger, coordinator_id, host_epoch, run_id, None)
+}
+
+pub(super) fn claim_for_turn(
+    ledger: &SqliteLedger,
+    coordinator_id: &str,
+    host_epoch: HostEpoch,
+    run_id: &AgentChatRunId,
+    expected_turn: Option<&str>,
+) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
     valid_owner(coordinator_id)?;
     let mut connection = ledger.lock()?;
     let transaction = connection
@@ -25,7 +36,7 @@ pub(super) fn claim(
     require_open(&transaction, host_epoch)?;
     let oldest = transaction
         .query_row(
-            "SELECT d.message_id, d.state, (SELECT r.receipt_id FROM receipts r WHERE r.idempotency_key = ?2 || d.message_id) FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.run_id = ?1 AND d.state IN ('awaiting_readiness', 'provisioning', 'pending') ORDER BY d.created_rowid LIMIT 1",
+            "SELECT d.message_id, d.state, COALESCE((SELECT receipt_id FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id AND s.state='requested'),(SELECT r.receipt_id FROM receipts r WHERE r.idempotency_key = ?2 || d.message_id AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id))) FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.run_id = ?1 AND d.state IN ('awaiting_readiness', 'provisioning', 'pending') ORDER BY d.created_rowid LIMIT 1",
             params![run_id.0, STEER_KEY_PREFIX],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
         )
@@ -35,6 +46,28 @@ pub(super) fn claim(
         return Ok(None);
     };
     let prompt = saved(&transaction, &message_id)?;
+    if let Some((_, run, turn, _)) = target::target(&transaction, &message_id)? {
+        if expected_turn != Some(turn.as_str())
+            || run != run_id.0
+            || !target::live(
+                &transaction,
+                &prompt.message.conversation_id,
+                &run,
+                &turn,
+                host_epoch,
+            )?
+        {
+            target::expire(&transaction, &message_id, host_epoch, "targetExpired")?;
+            transaction.commit().map_err(storage_error)?;
+            return Ok(None);
+        }
+        transaction
+            .execute(
+                "UPDATE agent_chat_steer_targets SET state='claimed' WHERE message_id=?1",
+                [&message_id],
+            )
+            .map_err(storage_error)?;
+    }
     if state != "pending" || prompt.disposition != AgentChatPromptDisposition::Queue {
         return Ok(None);
     }
@@ -87,6 +120,20 @@ fn settle(
         .map_err(storage_error)?;
     require_open(&transaction, host_epoch)?;
     let prompt = saved(&transaction, message_id)?;
+    if let Some((_, run, turn, state)) = target::target(&transaction, message_id)? {
+        if state != "claimed" || into_turn_id != Some(turn.as_str()) || run != prompt.message.run_id
+        {
+            return Err(LedgerError::Invariant(
+                "steer delivery does not match its durable target".into(),
+            ));
+        }
+        transaction
+            .execute(
+                "UPDATE agent_chat_steer_targets SET state='delivered' WHERE message_id=?1",
+                [message_id],
+            )
+            .map_err(storage_error)?;
+    }
     let changed = transaction
         .execute(
             "UPDATE agent_chat_prompt_dispatches SET state = ?1 WHERE message_id = ?2 AND state = 'launching' AND coordinator_id = ?3 AND host_epoch = ?4",
@@ -169,6 +216,9 @@ fn steer_receipt(
     transaction: &Transaction<'_>,
     message_id: &str,
 ) -> Result<ReceiptId, LedgerError> {
+    if let Some((receipt, _, _, _)) = target::target(transaction, message_id)? {
+        return Ok(ReceiptId(receipt));
+    }
     transaction
         .query_row(
             "SELECT receipt_id FROM receipts WHERE idempotency_key = ?1",

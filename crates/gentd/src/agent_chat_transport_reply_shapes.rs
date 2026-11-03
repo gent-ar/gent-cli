@@ -117,6 +117,20 @@ pub(super) fn accepted(request: &Frame, replies: &[Frame]) -> Result<(), &'stati
     .ok_or("a chat command requires one matching accepted receipt")
 }
 
+pub(super) fn atomic_steer_accepted(
+    request: &Frame,
+    replies: &[Frame],
+) -> Result<(), &'static str> {
+    let Frame::SteerPromptForTurn(input) = request else {
+        return Err(MISMATCHED_REQUEST);
+    };
+    matches!(replies,[Frame::Accepted {request_id,receipt,conversation_id,run_id,message_id,turn_id,delivery}]
+        if request_id==&input.request_id && receipt.receipt_id==input.receipt_id
+            && conversation_id==&input.conversation_id && run_id==&input.expected_run_id
+            && !message_id.is_empty() && !turn_id.is_empty() && *delivery==gent_types::AgentChatPromptDelivery::Queued)
+        .then_some(()).ok_or("atomic steering requires one matching held prompt receipt")
+}
+
 pub(super) fn queued_prompt_canceled(
     request: &Frame,
     replies: &[Frame],
@@ -144,12 +158,19 @@ pub(super) fn queued_prompt_steered(
     request: &Frame,
     replies: &[Frame],
 ) -> Result<(), &'static str> {
-    let Frame::SteerQueuedPrompt {
+    let (Frame::SteerQueuedPrompt {
         request_id,
         receipt_id,
         conversation_id,
         message_id,
-    } = request
+    }
+    | Frame::SteerQueuedPromptForTurn {
+        request_id,
+        receipt_id,
+        conversation_id,
+        message_id,
+        ..
+    }) = request
     else {
         return Err(MISMATCHED_REQUEST);
     };
@@ -169,6 +190,7 @@ pub(super) fn interrupted(request: &Frame, replies: &[Frame]) -> Result<(), &'st
         receipt_id,
         conversation_id,
         run_id,
+        ..
     } = request
     else {
         return Err(MISMATCHED_REQUEST);

@@ -34,6 +34,7 @@ pub(crate) fn frame(args: InterruptArgs) -> Result<AgentChatIntentFrame, &'stati
         receipt_id: super::receipt_id(args.receipt),
         conversation_id: AgentChatConversationId(args.conversation),
         run_id: AgentChatRunId(run),
+        expected_turn_id: None,
     })
 }
 

@@ -271,6 +271,7 @@ fn boot(
         state.ledger().clone(),
         state.coordinator().clone(),
         &StandaloneCodexConfig {
+            mcp_injection: None,
             data_dir,
             coordinator_id: format!("gentd-{}", epoch.0),
             host_epoch: epoch,

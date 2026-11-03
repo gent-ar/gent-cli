@@ -119,6 +119,7 @@ fn an_exit_plan_request_outside_plan_mode_stays_a_permission_request() {
                 request_id: "plan-1".into(),
                 tool_use_id: "toolu-plan".into(),
                 tool_name: "ExitPlanMode".into(),
+                operation_preview: Some(serde_json::json!({"plan":"1. Add README.md"})),
                 child_id: None,
             }
         )]

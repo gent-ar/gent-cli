@@ -105,6 +105,17 @@ impl CodexAppServerSession {
                 if frame.get("result").is_none() {
                     return Err(CodexSessionError::MalformedResponse);
                 }
+                if config.turn_options.model().is_none() {
+                    let request_id = self.take_request_id()?;
+                    self.phase = CodexSessionPhase::AwaitDefaultModel {
+                        request_id,
+                        discovery: super::default_model::DefaultModelDiscovery::new(config),
+                    };
+                    return Ok(CodexSessionIngress::Send(vec![
+                        encode(&json!({"method": "initialized", "params": {}}))?,
+                        super::default_model::request(request_id, None)?,
+                    ]));
+                }
                 let thread_request_id = self.take_request_id()?;
                 let (method, params, resumed_thread_id, turn_options) = thread_request(config);
                 self.phase = CodexSessionPhase::AwaitThread {
@@ -116,6 +127,9 @@ impl CodexAppServerSession {
                     encode(&json!({"method": "initialized", "params": {}}))?,
                     encode(&json!({"id": thread_request_id, "method": method, "params": params}))?,
                 ]))
+            }
+            CodexSessionPhase::AwaitDefaultModel { discovery, .. } => {
+                self.settle_provider_default(discovery, frame)
             }
             CodexSessionPhase::AwaitThread {
                 resumed_thread_id,

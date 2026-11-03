@@ -8,7 +8,7 @@ use crate::local_model_catalog::LocalModelCatalog;
 const MODEL: &str = "/opt/gent/models/qwen3-1-7b-q4-k-m/qwen3-1-7b-q4-k-m.gguf";
 const TEMPLATE: &str = "/opt/gent/claurst/.claurst/templates/qwen3-tool-use.jinja";
 
-fn request() -> ClaurstLocalRuntimeRequest {
+pub(super) fn request() -> ClaurstLocalRuntimeRequest {
     ClaurstLocalRuntimeRequest {
         claurst_executable: host_absolute_path("/opt/gent/bin/claurst"),
         llama_server_executable: host_absolute_path("/opt/gent/bin/llama-server"),
@@ -116,27 +116,8 @@ fn builds_an_isolated_llama_cpp_acp_plan_for_the_curated_model() {
     );
 }
 
-#[test]
-fn projects_the_workspace_permission_posture_into_claurst_settings() {
-    let catalog = LocalModelCatalog::shipped().unwrap();
-    for (permission_mode, expected) in [
-        (gent_types::PermissionMode::AskEveryTime, "default"),
-        (gent_types::PermissionMode::AutoAcceptEdits, "acceptEdits"),
-        (gent_types::PermissionMode::Autonomous, "acceptEdits"),
-        (gent_types::PermissionMode::Bypass, "bypassPermissions"),
-    ] {
-        let mut local_request = request();
-        local_request.permission_mode = permission_mode;
-        let plan = ClaurstLocalRuntimePlan::build(
-            local_request,
-            catalog.model("qwen3-8b-q4-k-m").unwrap(),
-            18_080,
-        )
-        .unwrap();
-        let settings: serde_json::Value = serde_json::from_str(&plan.settings_json).unwrap();
-        assert_eq!(settings["config"]["permission_mode"], expected);
-    }
-}
+#[path = "claurst_permission_settings_tests.rs"]
+mod permission_settings;
 
 #[test]
 fn embeds_stdio_mcp_servers_in_claurst_settings() {
@@ -212,7 +193,19 @@ fn compact_catalog_profile_exposes_only_core_tools_with_local_model_guidance() {
     let kwargs = kwargs(&plan);
     assert_eq!(
         kwargs["gent_tools"],
-        serde_json::json!(["Glob", "Grep", "Read", "Edit", "Write", "Bash"])
+        if cfg!(windows) {
+            serde_json::json!([
+                "Glob",
+                "Grep",
+                "Read",
+                "Edit",
+                "Write",
+                "Bash",
+                "PowerShell"
+            ])
+        } else {
+            serde_json::json!(["Glob", "Grep", "Read", "Edit", "Write", "Bash"])
+        }
     );
     assert!(
         kwargs["gent_instructions"]

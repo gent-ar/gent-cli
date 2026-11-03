@@ -12,6 +12,7 @@ use serde_json::Value;
 
 mod arguments;
 mod attachments;
+pub(crate) mod containment;
 pub(crate) mod continuation;
 pub(crate) mod follow;
 mod intent;
@@ -146,13 +147,9 @@ pub(crate) async fn execute(
         ChatCommand::Interrupt(args) => {
             interrupt::resolve(data_dir.clone(), no_autostart, args).await?
         }
-        ChatCommand::Create(args) => AgentChatIntentFrame::CreateConversation {
-            request_id: request_id(args.request_id),
-            receipt_id: receipt_id(args.receipt_id),
-            workspace_path: workspace_path(args.workspace)?,
-            selection: new_selection(data_dir.clone(), no_autostart, args.selection.request())
-                .await?,
-        },
+        ChatCommand::Create(args) => {
+            return containment::create(data_dir, no_autostart, args).await;
+        }
         ChatCommand::Send(args) => {
             let attachments =
                 attachments::stage(data_dir.clone(), no_autostart, &args.attachments).await?;
@@ -251,6 +248,7 @@ pub(crate) async fn interrupt(
             receipt_id: receipt_id(None),
             conversation_id: AgentChatConversationId(conversation_id),
             run_id: gent_types::AgentChatRunId(run_id),
+            expected_turn_id: None,
         },
     )
     .await?;

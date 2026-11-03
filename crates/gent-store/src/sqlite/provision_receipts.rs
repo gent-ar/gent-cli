@@ -15,9 +15,17 @@ impl SqliteLedger {
         &self,
         command: &Command,
     ) -> Result<Option<Receipt>, LedgerError> {
-        let fingerprint = super::queries::command_fingerprint(command)?;
         let connection = self.lock()?;
-        connection
+        bound_receipt(&connection, command)
+    }
+}
+
+pub(super) fn bound_receipt(
+    connection: &rusqlite::Connection,
+    command: &Command,
+) -> Result<Option<Receipt>, LedgerError> {
+    let fingerprint = super::queries::command_fingerprint(command)?;
+    connection
             .query_row(
                 "SELECT status FROM receipts WHERE receipt_id = ?1 AND idempotency_key = ?2 AND host_epoch = ?3 AND kind = ?4 AND payload_digest = ?5",
                 params![&command.receipt_id.0, &command.idempotency_key, command.host_epoch.0, &command.kind, fingerprint],
@@ -30,7 +38,6 @@ impl SqliteLedger {
             )
             .optional()
             .map_err(storage_error)
-    }
 }
 
 #[cfg(test)]

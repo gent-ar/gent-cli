@@ -98,6 +98,8 @@ pub struct AgentChatConversationSummary {
     pub git_branch: Option<String>,
     pub updated_at_unix_ms: u64,
     pub selection: AgentChatSelection,
+    #[serde(default)]
+    pub containment: crate::Containment,
 }
 
 /// A run visible to a chat client without exposing a provider-native session.
@@ -159,6 +161,32 @@ pub struct NormalizedTranscriptEvent {
     pub origin: Option<crate::AgentChatPromptOrigin>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<crate::AttachmentReference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_code: Option<AgentChatFailureCode>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentChatFailureCode {
+    SandboxUnavailable,
+    SandboxAdmissionFailed,
+}
+
+impl AgentChatFailureCode {
+    #[must_use]
+    pub const fn event_prefix(self) -> &'static str {
+        match self {
+            Self::SandboxUnavailable => "sandbox-unavailable:",
+            Self::SandboxAdmissionFailed => "sandbox-admission-failed:",
+        }
+    }
+
+    #[must_use]
+    pub fn from_event_id(event_id: &str) -> Option<Self> {
+        [Self::SandboxUnavailable, Self::SandboxAdmissionFailed]
+            .into_iter()
+            .find(|code| event_id.starts_with(code.event_prefix()))
+    }
 }
 
 /// Provider-normalized transcript content before the durable ledger assigns its cursor.
@@ -331,6 +359,7 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "Hello".into(),
             is_partial: false,
+            failure_code: None,
             origin: None,
             attachments: Vec::new(),
         };

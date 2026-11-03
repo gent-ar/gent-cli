@@ -12,6 +12,7 @@ base64.workspace = true
 clap.workspace = true
 crossterm.workspace = true
 directories.workspace = true
+fs2.workspace = true
 gent-protocol = { path = "../gent-protocol" }
 gent-types = { path = "../gent-types" }
 ratatui.workspace = true

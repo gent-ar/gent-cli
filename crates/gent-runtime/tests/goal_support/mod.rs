@@ -243,6 +243,7 @@ impl Harness {
                     tool_name: "Edit".into(),
                     phase: ToolPhase::Completed,
                     output_digest: None,
+                    input: None,
                     parent_tool_use_id: None,
                 },
             });

@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from provider_pins_testing import pinned_payload, write_pins
+from runtime_release_policy import compatibility
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,7 +88,8 @@ def check_metadata_signer() -> None:
             "gent-v1.2.3-fixture-b.runtime-release.json",
         ]
         release = json.loads(releases[0].read_text())["payload"]
-        assert release["schemaMax"] == 23 and release["minimumAppVersion"] == {"major": 1, "minor": 2, "patch": 3}
+        assert release["schemaMax"] == compatibility()["schemaMax"]
+        assert release["minimumAppVersion"] == {"major": 0, "minor": 2, "patch": 4}
         index = artifacts / "gent-v1.2.3.runtime-release-index.json"
         offers = json.loads(index.read_text())["payload"]["offers"]
         assert [offer["target"] for offer in offers] == ["fixture-a", "fixture-b"]
@@ -107,6 +109,7 @@ def check_metadata_signer() -> None:
         write_archive_manifests(root)
         for mismatched in ("0" * 64, "A" * 64, public_key[:-1]):
             assert run_metadata_signer(root, mismatched).returncode != 0
+            assert not (root / "runner-temp/gent-runtime-release.pem").exists()
         assert not list((root / "release-artifacts").rglob("*.runtime-release*.json"))
 
 

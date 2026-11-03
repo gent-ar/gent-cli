@@ -124,10 +124,18 @@ pub(super) async fn set_permission_mode(
     workspace_id: String,
     mode: gent_types::PermissionMode,
     bypass_consent: bool,
+    expected_provider: Option<gent_types::AgentChatProvider>,
 ) -> Result<terminal::UiRequestResult, String> {
-    crate::permissions_cli::set_mode(data_dir, no_autostart, workspace_id, mode, bypass_consent)
-        .await
-        .map_err(|error| error.to_string())?;
+    crate::permissions_cli::set_mode(
+        data_dir,
+        no_autostart,
+        workspace_id,
+        mode,
+        bypass_consent,
+        expected_provider,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     let mut saved = result(
         conversation_id,
         None,

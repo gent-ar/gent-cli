@@ -55,6 +55,7 @@ impl TranscriptLedger for Reader {
                 kind,
                 text: "text".into(),
                 is_partial: false,
+                failure_code: None,
                 origin: None,
                 attachments: Vec::new(),
             }

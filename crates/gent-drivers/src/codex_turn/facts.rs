@@ -18,7 +18,10 @@ pub(super) fn retain_root_context(
         facts.retain(|fact| {
             !matches!(
                 fact,
-                PublicWireFact::Event(NormalizedProviderEvent::ContextUsage { .. })
+                PublicWireFact::Event(
+                    NormalizedProviderEvent::ContextUsage { .. }
+                        | NormalizedProviderEvent::TokenUsage { .. }
+                )
             )
         });
     }

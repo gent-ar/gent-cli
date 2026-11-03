@@ -51,8 +51,26 @@ impl StandaloneReadiness {
     }
 
     pub(super) fn cancel_held(&self, run_id: &str) -> Result<bool, String> {
+        self.cancel_held_matching(run_id, None)
+    }
+
+    pub(super) fn cancel_held_matching(
+        &self,
+        run_id: &str,
+        expected_turn_id: Option<&str>,
+    ) -> Result<bool, String> {
+        self.restore_held_waiters(run_id)?;
         let mut cancelled = false;
         for (prompt, resource) in self.waiters.held_for_run(run_id)? {
+            if let Some(expected) = expected_turn_id
+                && self
+                    .dispatches
+                    .agent_chat_prompt_turn_id(&prompt.receipt_id)
+                    .map_err(|error| error.to_string())?
+                    != expected
+            {
+                continue;
+            }
             match self
                 .dispatches
                 .agent_chat_prompt_admission(&prompt.receipt_id)
@@ -74,6 +92,42 @@ impl StandaloneReadiness {
             }
         }
         Ok(cancelled)
+    }
+
+    fn restore_held_waiters(&self, run_id: &str) -> Result<(), String> {
+        let mut after = String::new();
+        loop {
+            let page = self
+                .dispatches
+                .read_awaiting_agent_chat_prompts(Some(run_id), &after, 128)
+                .map_err(|error| error.to_string())?;
+            if page.is_empty() {
+                return Ok(());
+            }
+            for prompt in page {
+                after = prompt.message.message_id;
+                let selection = self
+                    .reads
+                    .run_selection(&prompt.message.conversation_id, &prompt.run_id.0)
+                    .map_err(|error| error.to_string())?;
+                let resource = if selection.provider == gent_types::AgentChatProvider::Claurst {
+                    super::waiters::model(&selection.model)
+                } else {
+                    super::waiters::provider(selection.provider)
+                };
+                self.waiters.wait(
+                    &PromptWake {
+                        conversation_id: gent_types::AgentChatConversationId(
+                            prompt.message.conversation_id,
+                        ),
+                        run_id: prompt.run_id,
+                        receipt_id: prompt.receipt.receipt_id,
+                        disposition: prompt.disposition,
+                    },
+                    &resource,
+                )?;
+            }
+        }
     }
 
     fn stop_waiting_for(&self, prompt: &PromptWake, resource: &str) {

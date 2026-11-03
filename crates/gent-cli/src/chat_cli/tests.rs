@@ -85,6 +85,7 @@ fn selection_switch_carries_each_provider_model_effort_mode_and_context_policy()
 fn create_without_a_choice_leaves_the_selection_to_gentd() {
     let request = frame(ChatCommand::Create(CreateArgs {
         workspace: None,
+        sandboxed: false,
         selection: crate::chat_cli::SelectionArgs {
             provider: None,
             model: None,

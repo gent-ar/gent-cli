@@ -1,16 +1,15 @@
 use gent_ports::{AgentChatWorkspaceLedger, PendingPermissionLedger, PolicyLedger};
 use gent_types::{
     Command, NormalizedProviderEvent, NormalizedSessionLifecycle, PermissionDecisionRequest,
-    PermissionDecisionResponse, PermissionDecisionResponseKind, PolicyRecord, PolicyScope, Receipt,
-    ReceiptId, ReceiptStatus,
+    PermissionDecisionResponse, PermissionDecisionResponseKind, PolicyScope, Receipt, ReceiptId,
+    ReceiptStatus,
 };
-use sha2::{Digest, Sha256};
 
 use crate::agent_chat_permission_api::receipt::{
-    permission_decision_command, permission_decision_terminal_event,
+    permission_decision_command, permission_decision_terminal_event, receipt_or_unknown,
 };
-use crate::private_claurst_ingress::PrivateClaurstIngress;
 use crate::private_claurst_ingress::validation::invariant;
+use crate::private_claurst_ingress::{BoundSource, PrivateClaurstIngress};
 
 impl<L, B> PrivateClaurstIngress<L, B>
 where
@@ -30,6 +29,14 @@ where
         &self,
         response: PermissionDecisionResponse,
     ) -> Result<(), gent_runtime::RuntimeError> {
+        let state = self.prepare_permission(&response)?;
+        self.dispatch_permission(&response, state).await
+    }
+
+    fn prepare_permission(
+        &self,
+        response: &PermissionDecisionResponse,
+    ) -> Result<BoundSource, gent_runtime::RuntimeError> {
         let pending = self
             .ledger
             .pending_permission(&response.binding.conversation_id, &response.binding.run_id)?
@@ -49,8 +56,16 @@ where
             .cloned()
             .ok_or_else(|| invariant("private Claurst permission source is unavailable"))?;
         if !matches!(response.response, PermissionDecisionResponseKind::Deny) {
-            self.persist_approval(&pending, response.response)?;
+            self.persist_approval(&pending, response)?;
         }
+        Ok(state)
+    }
+
+    async fn dispatch_permission(
+        &self,
+        response: &PermissionDecisionResponse,
+        state: BoundSource,
+    ) -> Result<(), gent_runtime::RuntimeError> {
         let reply = match response.response {
             PermissionDecisionResponseKind::Deny => gent_ports::ClaurstPermissionReply::Deny,
             PermissionDecisionResponseKind::ApproveOnce
@@ -72,7 +87,7 @@ where
             &format!("permission-{}-settled", response.binding.decision_id.0),
             NormalizedSessionLifecycle::Event {
                 event: NormalizedProviderEvent::DecisionSettled {
-                    decision_id: response.binding.decision_id.0,
+                    decision_id: response.binding.decision_id.0.clone(),
                 },
             },
             response.binding.host_epoch,
@@ -96,27 +111,30 @@ where
             gent_ports::ReceiptClaim::Existing(receipt)
                 if receipt.status == ReceiptStatus::Accepted =>
             {
-                let pending = self.ledger.pending_permission(
-                    &response.binding.conversation_id,
-                    &response.binding.run_id,
-                )?;
-                if pending
-                    .as_ref()
-                    .is_some_and(|request| request.binding == response.binding)
-                {
-                    return self.settle_permission_receipt(&command, ReceiptStatus::Unprovable);
-                }
-                Err(invariant(
-                    "private Claurst permission receipt recovery is stale",
+                Ok(receipt_or_unknown(
+                    &command,
+                    self.settle_permission_receipt(&command, ReceiptStatus::Unprovable),
                 ))
             }
             gent_ports::ReceiptClaim::Existing(receipt) => Ok(receipt),
             gent_ports::ReceiptClaim::Accepted(_) => {
-                if let Err(error) = self.respond_permission(response).await {
-                    let _ = self.settle_permission_receipt(&command, ReceiptStatus::Unprovable);
-                    return Err(error);
+                let state = match self.prepare_permission(&response) {
+                    Ok(state) => state,
+                    Err(error) => {
+                        let _ = self.settle_permission_receipt(&command, ReceiptStatus::Rejected);
+                        return Err(error);
+                    }
+                };
+                if self.dispatch_permission(&response, state).await.is_err() {
+                    return Ok(receipt_or_unknown(
+                        &command,
+                        self.settle_permission_receipt(&command, ReceiptStatus::Unprovable),
+                    ));
                 }
-                self.settle_permission_receipt(&command, ReceiptStatus::Settled)
+                Ok(receipt_or_unknown(
+                    &command,
+                    self.settle_permission_receipt(&command, ReceiptStatus::Settled),
+                ))
             }
         }
     }
@@ -135,7 +153,7 @@ where
     fn persist_approval(
         &self,
         pending: &PermissionDecisionRequest,
-        response: PermissionDecisionResponseKind,
+        response: &PermissionDecisionResponse,
     ) -> Result<(), gent_runtime::RuntimeError> {
         let workspace = self.ledger.agent_chat_workspace_for_run(
             &pending.binding.conversation_id.0,
@@ -145,46 +163,13 @@ where
             .ledger
             .current_policy(&workspace.workspace_id, PolicyScope::ProviderPermissions)?
             .ok_or_else(|| invariant("private Claurst permission policy is unavailable"))?;
-        if policy.policy_id != pending.binding.policy_id
-            || policy.revision != pending.binding.policy_revision
-        {
-            return Err(invariant("private Claurst permission policy is stale"));
-        }
-        let mut revised = policy.clone();
-        match response {
-            PermissionDecisionResponseKind::ApproveOnce | PermissionDecisionResponseKind::Deny => {
-                return Ok(());
-            }
-            PermissionDecisionResponseKind::ApproveExactTool => {
-                revised
-                    .allowed_tools
-                    .push(pending.request.tool_name.clone());
-                revised.allowed_tools.sort();
-                revised.allowed_tools.dedup();
-            }
-            PermissionDecisionResponseKind::ApproveCategory => {
-                revised.allowed_categories.push(pending.request.category);
-                revised.allowed_categories.sort();
-                revised.allowed_categories.dedup();
-            }
-        }
-        if revised == policy {
+        let Some(revised) =
+            crate::agent_chat_permission_api::grant::transition(&policy, pending, response)
+                .map_err(invariant)?
+        else {
             return Ok(());
-        }
-        revised.revision = policy.revision + 1;
-        revised.policy_id = revision_id(&policy, revised.revision);
+        };
         self.ledger.save_policy(&revised)?;
         Ok(())
     }
-}
-
-fn revision_id(policy: &PolicyRecord, revision: u64) -> String {
-    let material = format!(
-        "{}\\0{}\\0{revision}",
-        policy.workspace_id, policy.policy_id
-    );
-    format!(
-        "provider-permissions-v{revision}-{:x}",
-        Sha256::digest(material.as_bytes())
-    )
 }

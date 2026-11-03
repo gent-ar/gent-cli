@@ -1,0 +1,69 @@
+# Turn-bound queued steering
+
+New clients negotiate `agent-chat-steer-turn-v1` and the selected provider's
+`agent-chat-steer-turn-{provider}-v1`. The daemon currently advertises scoped
+support for `claude` and `codex`. `gent` and `claurst` currently use an older
+interrupt-and-next-turn mechanism, so the targeted request rejects them before
+claiming a receipt. That mechanism is not advertised as native current-turn
+steering. Queue remains available.
+
+Primary composer Steer uses `steerPromptForTurn`, gated separately by
+`agent-chat-steer-enqueue-v1` plus the native turn capabilities. It carries the
+same request/receipt/conversation/expected target fields, text, and optional
+attachment/tool-source ID arrays. One transaction validates the live target and
+creates the queued prompt, requested target, and request activity under one
+receipt. It returns normal `Accepted` with the queued message's stable identity.
+There is no ordinary-queue interval or second primary Steer RPC. If the target
+already ended, no prompt is created. A committed uncertain retry preserves the
+original request and target; it replays the receipt without resetting delivery.
+
+The request is `steerQueuedPromptForTurn` with `requestId`, `receiptId`,
+`conversationId`, `messageId`, `expectedRunId`, and `expectedTurnId`. Both expected
+identities are mandatory. Clients capture them at the user's click and never
+fall back to the older targetless request. Receipt and command identity include
+the original target. Retrying the same command returns its original receipt;
+changing its target under the same receipt is rejected. A new explicit click
+after refreshing the target uses a new receipt.
+An explicit same-target retry after a known rejection also needs a new receipt;
+reusing the original receipt only replays the old accepted command.
+
+Acceptance checks the conversation's durable current selection, queued message
+run, exact active dispatched turn, host epoch, and ingress in one immediate
+SQLite transaction. It persists the target alongside the immutable receipt and
+`promptSteerRequested`. Schema v26 adds one table without rewriting existing
+receipts, activities, messages, or decisions.
+
+The provider lifecycle supplies its bound turn when claiming the prompt. An old
+request cannot be claimed by a newer lifecycle binding. Expiry rejects the steer
+and leaves the same message in its held queue; it does not manufacture a
+new message or retry a steer. A duplicate acceptance receipt does not reset an
+expired target. Delivery must name the persisted run and turn. The legacy
+start-as-new-turn fallback rejects targeted requests.
+
+Codex's native `turn/steer` includes `expectedTurnId` from its active native
+session. Claude's stream transport has no native expected-turn field; the owner
+fences its canonical binding and rejects late take-up after terminal instead of
+promoting it into another canonical turn. Native provider acknowledgement is
+separate from receipt acceptance. Receipt acceptance alone does not prove native
+consumption or successful work.
+
+`promptSteerRejected` has scope, `messageId`, `receiptId`, and `reason`. Viewers
+clear only the matching request receipt. `targetExpired` and `deliveryRejected`
+retain the queued message, excluded from ordinary automatic queue dispatch.
+An explicit new-target Steer, Edit, or Remove can recover known queued input.
+After bytes were written without confirmed consumption before terminal, or
+after an ambiguous process/host recovery,
+`deliveryUnprovable` accompanies the existing unprovable dispatch/terminal
+failure; the daemon does not automatically replay potentially delivered input.
+Its notice must not claim that delivery succeeded or that the failed dispatch
+remains pending. The original prompt remains durable for deliberate recovery.
+
+The older `steerQueuedPrompt` wire intent remains compatible for old clients;
+it cannot claim a request from the new targeted table. New clients use the
+targeted intent exclusively. Ordinary queue dispatch excludes targeted rows;
+it cannot turn a failed steer into an automatic new turn or a resend.
+
+Shared activity reads can contain the additive `promptSteerRejected` kind after
+a targeted command. Readers must preserve/ignore unknown additive kinds rather
+than reject an entire page. Older strict enum readers need an update; write
+capability negotiation does not remove new facts from shared immutable history.

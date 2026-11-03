@@ -1,0 +1,16 @@
+{
+  "tools": [
+    "basename.exe", "cat.exe", "chmod.exe", "cp.exe", "cut.exe", "cygpath.exe", "date.exe",
+    "diff.exe", "dirname.exe", "echo.exe", "env.exe", "expr.exe", "false.exe", "find.exe",
+    "grep.exe", "gzip.exe", "head.exe", "id.exe", "ln.exe", "ls.exe", "mkdir.exe", "mv.exe",
+    "printf.exe", "pwd.exe", "readlink.exe", "realpath.exe", "rm.exe", "sed.exe", "seq.exe", "sh.exe",
+    "sleep.exe", "sort.exe", "stat.exe", "tail.exe", "tar.exe", "tee.exe", "test.exe", "touch.exe",
+    "tr.exe", "true.exe", "uname.exe", "uniq.exe", "wc.exe", "which.exe", "xargs.exe"
+  ],
+  "libraries": [
+    "msys-gcc_s-seh-1.dll", "msys-gmp-10.dll", "msys-iconv-2.dll", "msys-intl-8.dll", "msys-pcre-1.dll"
+  ],
+  "gentTools": ["git-remote-gent.exe", "npm", "npm.cmd", "npx", "npx.cmd"],
+  "privateAliases": {"sh.exe": "bash.exe"},
+  "licenses": ["LICENSE.txt"]
+}

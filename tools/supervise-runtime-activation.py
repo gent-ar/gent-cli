@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import json
 import os
 import subprocess
 import tempfile
 import time
 from pathlib import Path
+from activate_install_support import release_parts, require_directory, require_regular_file, tree_digest
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,22 +59,37 @@ def current(root: Path) -> str:
     return Path(target).name
 
 
-def activate(values: argparse.Namespace, stage_only: bool = False, release: str | None = None) -> None:
+def activate(values: argparse.Namespace, release: str | None = None,
+             rollback_from: str | None = None, expected_digest: str | None = None) -> Path:
     command = ["python3", str(activator(values)), str(values.runtime_root), release or values.release_name]
-    if stage_only:
-        command.extend(("--source-release", str(values.source_release), "--source-supervisor", str(Path(__file__)), "--bin-dir", str(values.bin_dir), "--force", "--stage-only"))
+    command.extend(("--idle-data-dir", str(values.data_dir), "--json"))
+    if release is None:
+        command.extend(("--source-release", str(values.source_release), "--source-supervisor", str(Path(__file__)), "--bin-dir", str(values.bin_dir), "--force"))
         if values.source_auto_updater is not None:
             command.extend(("--source-auto-updater", str(values.source_auto_updater)))
         if values.source_update_material is not None:
             command.extend(("--source-update-material", str(values.source_update_material)))
-    else:
-        command.extend(("--idle-data-dir", str(values.data_dir)))
-    run(command)
+    if rollback_from is not None:
+        if expected_digest is None:
+            raise ValueError("rollback requires the captured prior tree identity")
+        command.extend(("--rollback-from", rollback_from, "--expected-tree-sha256", expected_digest))
+    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    reply = json.loads(result.stdout)
+    release_parts(reply["release"])
+    selected = values.runtime_root / "releases" / reply["release"]
+    if selected.resolve() != Path(reply["path"]).resolve() or tree_digest(selected) != reply["treeSha256"]:
+        raise ValueError("activated runtime reply does not match its exact immutable generation")
+    return selected
 
 
 def lock_is_free(data_dir: Path) -> bool:
     data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with (data_dir / "gentd.lock").open("a+b") as lock:
+    require_directory(data_dir)
+    path = data_dir / "gentd.lock"
+    if path.exists() or path.is_symlink():
+        require_regular_file(path)
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "a+b") as lock:
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             return True
@@ -129,17 +146,18 @@ def recovery_command(values: argparse.Namespace) -> list[str] | None:
     return command
 
 
-def recover(values: argparse.Namespace, deadline: float) -> None:
+def recover(values: argparse.Namespace, deadline: float, selected: Path) -> None:
     command = recovery_command(values)
     if command is None:
-        health(values.bin_dir / "gent", values.bin_dir / "gentd", deadline)
+        health(selected / "gent", selected / "gentd", deadline)
         return
+    command[0] = str(selected / "gentd")
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     last_probe_error = "local IPC is not ready"
     while time.monotonic() < deadline:
         if (values.data_dir / "gentd.sock").exists():
             try:
-                run([str(values.bin_dir / "gent"), "--data-dir", str(values.data_dir), "--no-autostart", "status"])
+                run([str(selected / "gent"), "--data-dir", str(values.data_dir), "--no-autostart", "status"])
                 return
             except subprocess.CalledProcessError as error:
                 last_probe_error = error.stderr.strip() or "local status probe failed"
@@ -160,19 +178,21 @@ def main() -> None:
     if not 1 <= values.timeout_seconds <= 120:
         raise ValueError("timeout must be 1..120 seconds")
     previous = current(values.runtime_root)
+    previous_digest = tree_digest(values.runtime_root / "releases" / previous)
     deadline = time.monotonic() + values.timeout_seconds
-    activate(values, stage_only=True)
-    staged = values.runtime_root / "releases" / values.release_name
-    health(staged / "gent", staged / "gentd", deadline)
+    health(values.source_release / "gent", values.source_release / "gentd", deadline)
     wait_for_lock(values.data_dir, deadline)
+    selected = None
     try:
-        activate(values)
-        recover(values, deadline)
+        selected = activate(values)
+        recover(values, deadline, selected)
     except BaseException:
-        if values.recover_attempt_id is None and lock_is_free(values.data_dir):
-            activate(values, release=previous)
+        if selected is not None and values.recover_attempt_id is None and lock_is_free(values.data_dir):
+            restored = activate(values, release=previous, rollback_from=selected.name, expected_digest=previous_digest)
+            if current(values.runtime_root) != restored.name or tree_digest(restored) != previous_digest:
+                raise RuntimeError("rollback selection could not be verified")
         raise
-    print(f"activated {values.release_name}")
+    print(f"activated {selected.name}")
 
 
 if __name__ == "__main__":

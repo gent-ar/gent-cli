@@ -7,18 +7,16 @@ use gent_protocol::model_catalog::{
     CatalogModel, ModelCatalog, ModelCatalogSelection, ModelListing, ProviderAvailability,
     ProviderModelCatalog,
 };
-use gent_types::{
-    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, ProviderAuthLifecycle,
-    ProviderAuthProvider,
-};
+use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection};
 
 use super::defaults::ModelCatalogDefaults;
-use crate::{
-    provider_auth_api::{ProviderAuthPort, STATUS_SETTLE_BOUND},
-    provider_launch_budget::{ProbeRetry, ProviderLaunchError},
-};
+use crate::provider_launch_budget::{ProbeRetry, ProviderLaunchError};
 
-pub(crate) const PROVIDER_DEFAULT_MODEL: &str = "default";
+#[path = "model_catalog_values.rs"]
+mod values;
+pub(crate) use values::{
+    PROVIDER_DEFAULT_MODEL, effort, provider_default_model, public_availability,
+};
 
 pub(crate) struct ProviderListing {
     pub(crate) availability: ProviderAvailability,
@@ -39,6 +37,7 @@ struct Slot {
     entry: ProviderModelCatalog,
     loaded_at: Option<Instant>,
     loading: bool,
+    refresh_pending: bool,
     revision: Option<String>,
 }
 
@@ -67,6 +66,7 @@ impl ModelCatalogService {
                 },
                 loaded_at: None,
                 loading: false,
+                refresh_pending: false,
                 revision: None,
             })
             .collect();
@@ -155,7 +155,14 @@ impl ModelCatalogService {
             let stale = slot
                 .loaded_at
                 .is_none_or(|loaded| loaded.elapsed() >= self.sources[index].ttl());
-            if slot.loading || !(refresh || changed || stale) {
+            if slot.loading {
+                if refresh || changed {
+                    slot.refresh_pending = true;
+                    slot.entry.listing = ModelListing::Loading;
+                }
+                continue;
+            }
+            if !(refresh || changed || stale) {
                 continue;
             }
             slot.loading = true;
@@ -179,9 +186,18 @@ impl ModelCatalogService {
                 result => break result,
             }
         };
+        let revision = self.sources[index].revision();
         let mut slots = self.slots();
         let slot = &mut slots[index];
         slot.loading = false;
+        if slot.refresh_pending || slot.revision != revision {
+            slot.refresh_pending = false;
+            slot.loaded_at = None;
+            slot.entry.listing = ModelListing::Loading;
+            drop(slots);
+            let _ = self.read(false);
+            return;
+        }
         slot.loaded_at =
             (!matches!(result, Err(ProviderLaunchError::TimedOut(_)))).then(Instant::now);
         match result {
@@ -203,73 +219,13 @@ impl ModelCatalogService {
     }
 }
 
-pub(crate) fn effort(value: &str) -> Option<AgentChatEffort> {
-    match value {
-        "low" => Some(AgentChatEffort::Low),
-        "medium" => Some(AgentChatEffort::Medium),
-        "high" => Some(AgentChatEffort::High),
-        "xhigh" => Some(AgentChatEffort::XHigh),
-        "max" => Some(AgentChatEffort::Max),
-        "ultra" => Some(AgentChatEffort::Ultra),
-        _ => None,
-    }
-}
-
-pub(crate) fn provider_default_model() -> CatalogModel {
-    CatalogModel {
-        id: PROVIDER_DEFAULT_MODEL.into(),
-        label: "Default".into(),
-        description: None,
-        is_default: true,
-        efforts: Vec::new(),
-        default_effort: None,
-        local: None,
-    }
-}
-
-pub(crate) fn suggested_model(id: &str, label: &str) -> CatalogModel {
-    CatalogModel {
-        id: id.into(),
-        label: label.into(),
-        description: None,
-        is_default: false,
-        efforts: Vec::new(),
-        default_effort: None,
-        local: None,
-    }
-}
-
-pub(crate) fn public_availability(
-    auth: &dyn ProviderAuthPort,
-    provider: ProviderAuthProvider,
-) -> Result<ProviderAvailability, ProviderLaunchError> {
-    let deadline = Instant::now() + STATUS_SETTLE_BOUND;
-    let mut lifecycle = auth.check_status(provider).lifecycle;
-    while lifecycle == ProviderAuthLifecycle::Checking && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(250));
-        lifecycle = auth.check_status(provider).lifecycle;
-    }
-    match lifecycle {
-        ProviderAuthLifecycle::Checking => Err(ProviderLaunchError::TimedOut(
-            "the provider account is still being checked".into(),
-        )),
-        ProviderAuthLifecycle::NotInstalled => Ok(ProviderAvailability::NotInstalled),
-        ProviderAuthLifecycle::Authenticated => Ok(ProviderAvailability::Ready),
-        ProviderAuthLifecycle::Failed | ProviderAuthLifecycle::ProviderChanged => Err(
-            ProviderLaunchError::Failed("the provider executable could not be verified".into()),
-        ),
-        ProviderAuthLifecycle::Unauthenticated
-        | ProviderAuthLifecycle::ChallengeOffered
-        | ProviderAuthLifecycle::Verifying
-        | ProviderAuthLifecycle::Expired
-        | ProviderAuthLifecycle::Cancelled
-        | ProviderAuthLifecycle::TimedOut => Ok(ProviderAvailability::SignedOut),
-    }
-}
-
 #[path = "model_catalog_selection.rs"]
 mod selection;
 
 #[cfg(test)]
 #[path = "model_catalog_service_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "model_catalog_refresh_tests.rs"]
+mod refresh_tests;

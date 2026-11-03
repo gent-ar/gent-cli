@@ -1,5 +1,6 @@
 use gent_types::{
-    Command, Event, PermissionDecisionBinding, PermissionDecisionResponse, ReceiptId, ReceiptStatus,
+    Command, Event, PermissionDecisionBinding, PermissionDecisionResponse, Receipt, ReceiptId,
+    ReceiptStatus,
 };
 
 pub(crate) fn permission_decision_command(
@@ -49,4 +50,16 @@ pub(crate) fn permission_decision_accepted_event_id(binding: &PermissionDecision
         "permission-decision-accepted:{}:{}:{}",
         binding.run_id.0, binding.turn_id, binding.decision_id.0
     )
+}
+
+/// Once dispatch has started, even a ledger failure cannot prove the provider
+/// did not receive the decision. This fallback is an IPC indication only: it
+/// does not claim the terminal receipt was persisted.
+pub(crate) fn receipt_or_unknown<E>(command: &Command, settlement: Result<Receipt, E>) -> Receipt {
+    settlement.unwrap_or_else(|_| Receipt {
+        receipt_id: command.receipt_id.clone(),
+        idempotency_key: command.idempotency_key.clone(),
+        status: ReceiptStatus::Unprovable,
+        host_epoch: command.host_epoch,
+    })
 }

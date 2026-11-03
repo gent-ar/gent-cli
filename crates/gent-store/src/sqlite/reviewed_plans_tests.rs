@@ -36,6 +36,7 @@ fn seeded() -> (SqliteLedger, PlanArtifact, StartImplementationRequest) {
             scope: PolicyScope::ProviderPermissions,
             revision: 1,
             mode: PermissionMode::AskEveryTime,
+            containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
         })

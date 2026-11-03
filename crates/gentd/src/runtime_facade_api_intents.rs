@@ -14,6 +14,9 @@ impl RuntimeFacade {
             return Ok(replies);
         }
         let host_epoch = self.host_epoch()?;
+        if let Some(reply) = self.targeted_steer_intent(host_epoch, &frame)? {
+            return Ok(vec![reply]);
+        }
         let frame = self.with_default_selection(frame)?;
         self.validate_catalog_selection(&frame)?;
         let switched = super::model_catalog::switched_selection(&frame);
@@ -82,6 +85,7 @@ impl RuntimeFacade {
             receipt_id,
             conversation_id,
             run_id,
+            expected_turn_id,
         } = frame
         else {
             return Ok(None);
@@ -96,6 +100,11 @@ impl RuntimeFacade {
             .ok_or_else(|| "agent-chat reads are unavailable".to_owned())?
             .run_selection(&conversation_id.0, &run_id.0)
             .map_err(|error| error.to_string())?;
+        let mut interrupt_payload =
+            serde_json::json!({ "conversationId": conversation_id, "runId": run_id });
+        if let Some(turn_id) = expected_turn_id.as_deref() {
+            interrupt_payload["expectedTurnId"] = turn_id.into();
+        }
         let receipt = self
             .coordinator
             .submit(&gent_types::Command {
@@ -103,19 +112,32 @@ impl RuntimeFacade {
                 idempotency_key: format!("agent-chat-interrupt:{}", request_id.0),
                 host_epoch,
                 kind: "agentChatInterrupt".into(),
-                payload: serde_json::json!({ "conversationId": conversation_id, "runId": run_id }),
+                payload: interrupt_payload,
             })
             .map_err(|error| error.to_string())?;
-        if let Err(error) =
-            self.goals
-                .stop(&conversation_id, host_epoch, crate::startup::unix_seconds())
-        {
-            eprintln!(
-                "goal stop for conversation {} was not recorded: {error}",
-                conversation_id.0
-            );
+        if let Some(turn_id) = expected_turn_id.as_deref() {
+            ingress.interrupt_turn(
+                selection.provider,
+                &run_id.0,
+                turn_id,
+                crate::ordinary_lifecycle_cadence::InterruptGoalStop {
+                    goals: self.goals.clone(),
+                    conversation_id: conversation_id.clone(),
+                    host_epoch,
+                },
+            )?;
+        } else {
+            if let Err(error) =
+                self.goals
+                    .stop(&conversation_id, host_epoch, crate::startup::unix_seconds())
+            {
+                eprintln!(
+                    "goal stop for conversation {} was not recorded: {error}",
+                    conversation_id.0
+                );
+            }
+            ingress.interrupt_run(selection.provider, &run_id.0)?;
         }
-        ingress.interrupt_run(selection.provider, &run_id.0)?;
         Ok(Some(AgentChatIntentFrame::Interrupted {
             request_id,
             receipt,

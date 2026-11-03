@@ -42,7 +42,8 @@ impl StandaloneAuthorityRuntime {
                 self.ledger.clone(),
                 self.claurst_models.clone(),
                 config,
-            ),
+            )
+            .with_mcp_control(self.control.clone()),
         );
         if let Ok(mut bridge) = self.claurst_side_question_bridge.lock() {
             *bridge = Some(factory.bridge());

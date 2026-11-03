@@ -128,7 +128,10 @@ impl ClaurstStandaloneLauncher for Launcher {
         Ok(Acp {
             events: Arc::clone(&self.0),
             reads: VecDeque::from([
-                serde_json::to_vec(&serde_json::json!({"id":1,"result":{}})).unwrap(),
+                serde_json::to_vec(
+                    &serde_json::json!({"id":1,"result":{"_meta":{"gentPermissionBinding":1}}}),
+                )
+                .unwrap(),
                 serde_json::to_vec(&serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}}))
                     .unwrap(),
             ]),
@@ -195,6 +198,29 @@ fn missing_model_never_materializes_settings_or_starts_a_process() {
             downloaded_bytes: 0,
         }) if model_id == "qwen2-5-coder-7b-instruct-q4-k-m" && plan.model_id == model_id
     ));
+    assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn broad_modes_never_materialize_settings_or_launch_an_uncontained_private_runtime() {
+    let root = tempfile::tempdir().unwrap();
+    let events = Arc::new(Mutex::new(vec![]));
+    let owner = owner(Arc::clone(&events), root.path());
+    for mode in [
+        gent_types::PermissionMode::Autonomous,
+        gent_types::PermissionMode::Bypass,
+    ] {
+        let mut request = request();
+        request.permission_mode = mode;
+        assert!(matches!(
+            owner.start(
+                "qwen2-5-coder-7b-instruct-q4-k-m",
+                request,
+                &host_absolute_path("/workspace")
+            ),
+            Err(ClaurstStandaloneStartError::SandboxRequired)
+        ));
+    }
     assert!(events.lock().unwrap().is_empty());
 }
 
@@ -267,7 +293,7 @@ async fn system_owner_delivers_a_selected_prompt_through_real_acp_stdio() {
         &acp,
         r#"#!/bin/sh
 IFS= read -r _
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{}}'
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"_meta":{"gentPermissionBinding":1}}}'
 IFS= read -r _
 printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"fixture-session"}}'
 IFS= read -r _

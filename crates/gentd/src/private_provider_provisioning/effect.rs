@@ -1,6 +1,6 @@
 //! Exact-command private npm effect, split from the composition seam for source-size limits.
 
-use gent_drivers::installer::DependencyInstaller;
+use gent_drivers::installer::{DependencyInstaller, InstallerError};
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::DependencyAction;
 use gent_types::{
@@ -23,6 +23,7 @@ pub(super) fn provision<I, P, V, R, B>(
     provisioner: &PrivateProviderProvisioner<I, P, V, R, B>,
     request: &PrivateProvisionRequest,
     command: &Command,
+    review: Option<&crate::private_provider_provisioning::managed_actions::ReviewedPackage>,
 ) -> Result<PrivateProvisionResult, PrivateProvisionError>
 where
     I: DependencyInstaller,
@@ -31,7 +32,7 @@ where
     R: ProvisionReceiptReader,
     B: ProvisionedProviderCompatibility,
 {
-    provision_inner(provisioner, request, command, None)
+    provision_inner(provisioner, request, command, None, review)
 }
 
 pub(super) fn provision_prompt<I, P, V, R, B>(
@@ -47,7 +48,7 @@ where
     R: ProvisionReceiptReader,
     B: ProvisionedProviderCompatibility,
 {
-    provision_inner(provisioner, request, command, Some(binding))
+    provision_inner(provisioner, request, command, Some(binding), None)
 }
 
 fn provision_inner<I, P, V, R, B>(
@@ -55,6 +56,7 @@ fn provision_inner<I, P, V, R, B>(
     request: &PrivateProvisionRequest,
     command: &Command,
     binding: Option<&ProviderPromptProvisionCommandBinding>,
+    review: Option<&crate::private_provider_provisioning::managed_actions::ReviewedPackage>,
 ) -> Result<PrivateProvisionResult, PrivateProvisionError>
 where
     I: DependencyInstaller,
@@ -82,7 +84,7 @@ where
         .verifier
         .as_ref()
         .ok_or(PrivateProvisionError::VerificationUnavailable)?;
-    let npm = provisioner.runtime.rechecked_npm_prefix()?;
+    provisioner.runtime.recheck()?;
     let durable = provisioner
         .receipts
         .accepted_receipt(command)
@@ -111,11 +113,38 @@ where
             return Err(PrivateProvisionError::PromptPackageMismatch);
         }
     }
+    if let Some(review) = review {
+        let expected_command =
+            gent_runtime::dependency_action_command(&gent_protocol::DependencyActionRequest {
+                receipt_id: request.receipt.receipt_id.clone(),
+                idempotency_key: request.receipt.idempotency_key.clone(),
+                host_epoch: request.receipt.host_epoch,
+                provider: request.provider,
+                action: request.action,
+                consent_granted: request.consent_granted,
+                reviewed_plan_digest: request.reviewed_plan_digest.clone(),
+            });
+        if expected_command != *command {
+            return Err(PrivateProvisionError::ReceiptMismatch);
+        }
+        if package != review.package {
+            return Err(PrivateProvisionError::PromptPackageMismatch);
+        }
+    }
     let release_artifact_digest_sha256 = reauthorize_release(provisioner, binding, request)?;
+    if let Some(review) = review {
+        if release_artifact_digest_sha256.as_deref() != Some(review.release_digest.as_str()) {
+            return Err(PrivateProvisionError::ReleaseDigestMismatch);
+        }
+    }
+    let npm = super::generation::fresh(&provisioner.runtime, command)?;
     provisioner
         .installer
         .install(&npm, &package)
-        .map_err(|error| PrivateProvisionError::Installer(error.to_string()))?;
+        .map_err(|error| match error {
+            InstallerError::UnsupportedPrefix => PrivateProvisionError::UnsupportedPrefix,
+            error => PrivateProvisionError::Installer(error.to_string()),
+        })?;
     if provisioner.runtime.recheck().is_err() {
         return Ok(PrivateProvisionResult::Ambiguous);
     }

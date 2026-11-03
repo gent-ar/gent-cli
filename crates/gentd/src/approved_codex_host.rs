@@ -109,6 +109,10 @@ where
         self.lifecycle.interrupt(run_id)
     }
 
+    pub(crate) fn interrupt_turn(&self, run_id: &str, turn_id: &str) -> Result<(), RuntimeError> {
+        self.lifecycle.interrupt_turn(run_id, turn_id)
+    }
+
     pub(crate) fn respond_permission(
         &self,
         run_id: &str,

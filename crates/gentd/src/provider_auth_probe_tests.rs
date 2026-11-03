@@ -89,7 +89,7 @@ fn a_failing_status_command_is_reported_as_failed_and_rechecked() {
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     crate::provider_launch_budget::warm_first_execution(&executable);
     fs::write(&broken, "").unwrap();
-    let port = StandaloneProviderAuthPort::new(
+    let port = StandaloneProviderAuthPort::for_test(
         crate::provider_executables::ProviderExecutables::explicit(None, Some(executable)),
     );
     let lifecycle = |port: &StandaloneProviderAuthPort| match port

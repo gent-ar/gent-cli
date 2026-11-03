@@ -48,8 +48,11 @@ mod local_models;
 pub(crate) mod model_catalog;
 #[path = "runtime_facade_observer_gates.rs"]
 mod observer_gates;
+#[path = "runtime_facade_owner_control.rs"]
+mod owner_control;
 #[path = "runtime_facade_prompt_admission.rs"]
 mod prompt_admission;
+pub(crate) use owner_control::RuntimeOwnerControlPort;
 #[path = "runtime_facade_provider_ports.rs"]
 mod provider_ports;
 #[path = "runtime_facade_api.rs"]
@@ -58,6 +61,8 @@ mod runtime_api;
 mod session_continuation;
 #[path = "runtime_facade_side_questions.rs"]
 mod side_questions;
+#[path = "runtime_facade_targeted_steer.rs"]
+mod targeted_steer;
 #[path = "runtime_facade_transcript_import.rs"]
 mod transcript_import;
 pub(crate) use model_catalog::transport::ModelCatalogPort;
@@ -287,12 +292,5 @@ impl RuntimeFacade {
             dependencies,
             dependency_actions: DependencyActionService::new(ledger, ObserverDependencyExecutor),
         })
-    }
-
-    fn host_epoch(&self) -> Result<gent_types::HostEpoch, String> {
-        self.coordinator
-            .status()
-            .map(|status| status.host_epoch)
-            .map_err(|error| error.to_string())
     }
 }

@@ -3,31 +3,47 @@
 use gent_ports::{AgentChatPromptLedger, LedgerError};
 use gent_types::{
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptOrigin, AgentChatPromptSaved,
-    AgentChatRunId, Command, ConversationActivityFact, ConversationActivityScope,
-    ConversationMessage, Receipt, ReceiptStatus,
+    AgentChatRunId, ConversationActivityFact, ConversationActivityScope, ConversationMessage,
+    Receipt, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
-use serde_json::json;
-use sha2::{Digest, Sha256};
 
 use super::super::SqliteLedger;
 use super::super::queries::{find_receipt, insert_receipt, receipt_matches_command, storage_error};
 use super::prompt_dispatch::require_open;
+#[path = "prompt_identity.rs"]
+mod identity;
 #[path = "prompt_attachments.rs"]
 mod prompt_attachments;
 #[path = "prompt_retry.rs"]
 mod retry;
+use identity::{command_for, digest, disposition, idempotency_key, stable_identity};
 use prompt_attachments::attach_available;
 use retry::{existing, reject_receipt_id_collision};
 
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 
 impl AgentChatPromptLedger for SqliteLedger {
+    fn save_agent_chat_prompt_for_steer(
+        &self,
+        prompt: &AgentChatPromptCreate,
+        run: &AgentChatRunId,
+        turn: &str,
+    ) -> Result<AgentChatPromptSaved, LedgerError> {
+        save(
+            self,
+            prompt,
+            Some(run),
+            &AgentChatPromptOrigin::User,
+            Some(turn),
+        )
+    }
+
     fn save_agent_chat_prompt(
         &self,
         prompt: &AgentChatPromptCreate,
     ) -> Result<AgentChatPromptSaved, LedgerError> {
-        save(self, prompt, None, &AgentChatPromptOrigin::User)
+        save(self, prompt, None, &AgentChatPromptOrigin::User, None)
     }
 
     fn save_agent_chat_prompt_with_origin(
@@ -35,7 +51,7 @@ impl AgentChatPromptLedger for SqliteLedger {
         prompt: &AgentChatPromptCreate,
         origin: &AgentChatPromptOrigin,
     ) -> Result<AgentChatPromptSaved, LedgerError> {
-        save(self, prompt, None, origin)
+        save(self, prompt, None, origin, None)
     }
 
     fn save_agent_chat_prompt_for_run(
@@ -48,6 +64,7 @@ impl AgentChatPromptLedger for SqliteLedger {
             prompt,
             Some(expected_run_id),
             &AgentChatPromptOrigin::User,
+            None,
         )
     }
 }
@@ -57,9 +74,18 @@ fn save(
     prompt: &AgentChatPromptCreate,
     expected_run_id: Option<&AgentChatRunId>,
     origin: &AgentChatPromptOrigin,
+    steer_turn: Option<&str>,
 ) -> Result<AgentChatPromptSaved, LedgerError> {
     validate(prompt)?;
-    let command = command_for(prompt);
+    let mut command = command_for(prompt);
+    if let Some(turn) = steer_turn {
+        command.kind = "agentChatSteerPromptForTurn".into();
+        command.payload["expectedRunId"] =
+            serde_json::to_value(expected_run_id).map_err(storage_error)?;
+        command.payload["expectedTurnId"] = turn.into();
+        command.payload["toolSourceIds"] =
+            serde_json::to_value(&prompt.tool_source_ids).map_err(storage_error)?;
+    }
     let mut connection = ledger.lock()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -81,6 +107,22 @@ fn save(
     }
     reject_receipt_id_collision(&transaction, prompt)?;
     let run_id = current_run(&transaction, &prompt.conversation_id.0)?;
+    if let Some(turn) = steer_turn {
+        if prompt.disposition != AgentChatPromptDisposition::Queue
+            || expected_run_id.is_none_or(|run| run.0 != run_id)
+            || !super::super::agent_chat_steer_target::live(
+                &transaction,
+                &prompt.conversation_id.0,
+                &run_id,
+                turn,
+                prompt.host_epoch,
+            )?
+        {
+            return Err(LedgerError::Rejected(
+                gent_types::AgentChatRejection::QueuedPromptNotSteerable,
+            ));
+        }
+    }
     if expected_run_id.is_some_and(|expected| expected.0 != run_id) {
         return Err(LedgerError::Invariant(
             "agent chat prompt run is no longer the durable current run".into(),
@@ -113,6 +155,17 @@ fn save(
                 },
                 message_id: message.message_id.clone(),
             },
+        )?;
+    }
+    if let Some(turn) = steer_turn {
+        super::super::agent_chat_steer_target::bind(
+            &transaction,
+            &prompt.receipt_id,
+            prompt.host_epoch,
+            &prompt.conversation_id,
+            &message.message_id,
+            &AgentChatRunId(run_id.clone()),
+            turn,
         )?;
     }
     transaction.commit().map_err(storage_error)?;
@@ -202,40 +255,4 @@ fn insert_prompt(
     transaction.execute("INSERT INTO conversation_messages (message_id, turn_id, conversation_id, run_id, text, text_digest_sha256, byte_len) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![message.message_id, message.turn_id, message.conversation_id, message.run_id, message.text, message.text_digest_sha256, message.text.len()]).map_err(storage_error)?;
     transaction.execute("INSERT INTO conversation_message_ordinals (message_id, conversation_id, ordinal) VALUES (?1, ?2, ?3)", params![message.message_id, message.conversation_id, ordinal]).map_err(storage_error)?;
     Ok(message)
-}
-
-fn command_for(prompt: &AgentChatPromptCreate) -> Command {
-    Command {
-        receipt_id: prompt.receipt_id.clone(),
-        idempotency_key: idempotency_key(prompt),
-        host_epoch: prompt.host_epoch,
-        kind: "agentChatPrompt".into(),
-        payload: json!({ "requestId": prompt.request_id, "conversationId": prompt.conversation_id, "disposition": prompt.disposition, "textDigestSha256": digest(&prompt.text), "textByteLen": prompt.text.len(), "attachmentIds": prompt.attachment_ids }),
-    }
-}
-
-fn idempotency_key(prompt: &AgentChatPromptCreate) -> String {
-    stable_identity("receipt", &prompt.request_id.0)
-}
-
-fn stable_identity(kind: &str, request_id: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(b"gent-agent-chat-prompt-v1\0");
-    digest.update(kind.as_bytes());
-    digest.update([0]);
-    digest.update(request_id.as_bytes());
-    format!("agent-chat-{kind}-{:x}", digest.finalize())
-}
-
-fn digest(text: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(text.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
-const fn disposition(value: AgentChatPromptDisposition) -> &'static str {
-    match value {
-        AgentChatPromptDisposition::Send => "send",
-        AgentChatPromptDisposition::Queue => "queue",
-    }
 }

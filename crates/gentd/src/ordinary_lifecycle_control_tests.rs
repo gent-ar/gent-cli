@@ -3,6 +3,81 @@ use std::time::Duration;
 use super::{OrdinaryLifecycleControl, OrdinaryLifecyclePhase, OrdinaryPromptAdmissionError};
 
 #[test]
+fn quiesce_rejects_active_operations_without_closing_admission() {
+    let control = OrdinaryLifecycleControl::new();
+    control.open_after_recovery();
+    let permit = control.acquire_operation().unwrap();
+    assert!(
+        control
+            .quiesce_if_idle(|| panic!("busy owner must not close durable ingress"))
+            .is_err()
+    );
+    assert_eq!(control.phase(), OrdinaryLifecyclePhase::Ready);
+    drop(permit);
+    control.quiesce_if_idle(|| Ok(())).unwrap();
+    assert!(control.is_quiesced());
+    assert_eq!(
+        control.acquire_operation().map(|_| ()),
+        Err(OrdinaryPromptAdmissionError::ShuttingDown)
+    );
+    control
+        .quiesce_if_idle(|| panic!("same owner retry must preserve closure"))
+        .unwrap();
+}
+
+#[test]
+fn failed_idle_proof_preserves_ready_admission() {
+    let control = OrdinaryLifecycleControl::new();
+    control.open_after_recovery();
+    assert!(
+        control
+            .quiesce_if_idle(|| Err("active native work".into()))
+            .is_err()
+    );
+    assert!(!control.is_quiesced());
+    drop(control.acquire_operation().unwrap());
+}
+
+#[test]
+fn quiesce_linearizes_before_a_racing_new_operation() {
+    let control = OrdinaryLifecycleControl::new();
+    control.open_after_recovery();
+    let competing = control.clone();
+    let (started, observed) = std::sync::mpsc::channel();
+    let mut task = None;
+    control
+        .quiesce_if_idle(|| {
+            task = Some(std::thread::spawn(move || {
+                started.send(()).unwrap();
+                competing.acquire_operation().map(|_| ())
+            }));
+            observed.recv().unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        task.unwrap().join().unwrap(),
+        Err(OrdinaryPromptAdmissionError::ShuttingDown)
+    );
+}
+
+#[tokio::test]
+async fn quiesce_does_not_authorize_exit_until_the_response_is_flushed() {
+    let control = OrdinaryLifecycleControl::new();
+    control.open_after_recovery();
+    control.quiesce_if_idle(|| Ok(())).unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(5), control.quiesce_acknowledged())
+            .await
+            .is_err()
+    );
+    control.acknowledge_quiesce();
+    tokio::time::timeout(Duration::from_secs(1), control.quiesce_acknowledged())
+        .await
+        .unwrap();
+}
+
+#[test]
 fn admission_starts_closed_and_opens_only_after_recovery() {
     let control = OrdinaryLifecycleControl::new();
 
@@ -14,6 +89,26 @@ fn admission_starts_closed_and_opens_only_after_recovery() {
     control.open_after_recovery();
     assert_eq!(control.phase(), OrdinaryLifecyclePhase::Ready);
     drop(control.acquire_prompt().unwrap());
+}
+
+#[test]
+fn startup_metadata_operations_are_counted_without_opening_prompt_admission() {
+    let control = OrdinaryLifecycleControl::new();
+    let operation = control.acquire_operation().unwrap();
+    assert!(control.acquire_prompt().is_err());
+    assert!(
+        control
+            .quiesce_if_idle(|| panic!("recovering owner must not close"))
+            .is_err()
+    );
+    control.open_after_recovery();
+    assert!(
+        control
+            .quiesce_if_idle(|| panic!("startup operation remains active"))
+            .is_err()
+    );
+    drop(operation);
+    control.quiesce_if_idle(|| Ok(())).unwrap();
 }
 
 #[test]

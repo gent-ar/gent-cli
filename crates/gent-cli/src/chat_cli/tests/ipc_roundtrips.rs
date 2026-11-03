@@ -59,6 +59,7 @@ async fn create_negotiates_agent_chat_and_requires_a_matching_created_reply() {
         true,
         ChatCommand::Create(CreateArgs {
             workspace: None,
+            sandboxed: false,
             selection: crate::chat_cli::SelectionArgs {
                 provider: Some(Provider::Claude),
                 model: Some("haiku".into()),
@@ -168,6 +169,7 @@ async fn interrupt_negotiates_the_exact_durable_run() {
             receipt_id,
             conversation_id,
             run_id,
+            ..
         } = read_json_frame(&mut stream).await.unwrap()
         else {
             panic!("expected interrupt");

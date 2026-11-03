@@ -14,10 +14,10 @@ pub(crate) mod downloads;
 pub(crate) mod local;
 #[path = "model_catalog_probe.rs"]
 pub(crate) mod probe;
+#[path = "model_catalog_provider_models.rs"]
+pub(crate) mod provider_models;
 #[path = "model_catalog_service.rs"]
 pub(crate) mod service;
-#[path = "model_catalog_suggestions.rs"]
-pub(crate) mod suggestions;
 #[path = "model_catalog_transport.rs"]
 pub(crate) mod transport;
 
@@ -43,9 +43,11 @@ pub(crate) fn compose_standalone(
     config: StandaloneModelCatalogConfig,
 ) -> Arc<dyn transport::ModelCatalogPort> {
     let defaults = defaults::ModelCatalogDefaults::open(data_dir);
-    let initialize = claude_initialize::ClaudeInitialize::new(
+    let lifecycle_control = config.local_models.downloads.lifecycle_control();
+    let initialize = claude_initialize::ClaudeInitialize::new_with_lifecycle_control(
         config.executables.clone(),
         PROVIDER_PROBE_TIMEOUT,
+        lifecycle_control.clone(),
     );
     let service = service::ModelCatalogService::new(
         vec![
@@ -57,6 +59,7 @@ pub(crate) fn compose_standalone(
                 auth: Arc::clone(&config.auth),
             }),
             Arc::new(codex::CodexModelSource {
+                lifecycle_control,
                 executables: config.executables,
                 auth: config.auth,
                 timeout: PROVIDER_PROBE_TIMEOUT,

@@ -332,6 +332,16 @@ mod tests {
             encoded["result"]["answers"]["native-q"]["answers"],
             json!(["A", "B"])
         );
+        let nested = serde_json::from_slice::<Value>(&encode(
+            &question,
+            CodexControlDecision::Allow,
+            Some(json!({"questions": [{"question": "Choose"}], "answers": {"Choose": "A"}})),
+        ))
+        .unwrap();
+        assert_eq!(
+            nested["result"]["answers"],
+            json!({"native-q": {"answers": ["A"]}})
+        );
 
         let approval = parse(&json!({
             "id": "a",

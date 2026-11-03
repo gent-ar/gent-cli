@@ -260,3 +260,7 @@ const fn within_u32(value: u32, minimum: u32, maximum: u32) -> bool {
 #[cfg(test)]
 #[path = "runtime_update_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "runtime_update_host_floor_tests.rs"]
+mod host_floor_tests;

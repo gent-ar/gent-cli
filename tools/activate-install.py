@@ -1,296 +1,267 @@
 #!/usr/bin/env python3
-"""Atomically install and select one verified, paired Gent runtime release."""
+"""Publish and select an immutable Gent generation under host and store leases."""
 from __future__ import annotations
 import argparse
-import fcntl
+import json
 import os
-import shutil
-import stat
-import sys
-import tempfile
 from pathlib import Path
+import shutil
+import tempfile
+from activate_install_support import (
+    fail, file_digest, fsync_directory, fsync_file, generation, mutation_lease,
+    reject_newer, release_parts, require_directory, require_executable,
+    require_node_runtime, require_regular_file, selected_release, tree_digest,
+)
 LAUNCHER = """#!/usr/bin/env sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../lib/gent" && pwd)
-exec "$root/current/$(basename -- "$0")" "$@"
+target=$(readlink "$root/current")
+case "$target" in releases/*) name=${target#releases/} ;; *) exit 1 ;; esac
+case "$name" in ""|"."|".."|*/*) exit 1 ;; esac
+exec "$root/releases/$name/$(basename -- "$0")" "$@"
 """
+
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runtime_root", type=Path)
     parser.add_argument("release_name")
-    parser.add_argument("--source-release", type=Path)
-    parser.add_argument("--source-supervisor", type=Path)
-    parser.add_argument("--source-auto-updater", type=Path)
-    parser.add_argument("--source-update-material", type=Path)
-    parser.add_argument("--bin-dir", type=Path)
+    for name in ("source-release", "source-supervisor", "source-auto-updater", "source-update-material", "bin-dir", "idle-data-dir"):
+        parser.add_argument("--" + name, type=Path)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("--idle-data-dir", type=Path)
     parser.add_argument("--stage-only", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--rollback-from")
+    parser.add_argument("--expected-tree-sha256")
     return parser.parse_args()
-def fail(message: str) -> None:
-    raise SystemExit(f"Gent activation refused: {message}")
-def lstat(path: Path) -> os.stat_result:
-    try:
-        return path.lstat()
-    except FileNotFoundError:
-        fail(f"missing {path}")
-def require_directory(path: Path) -> None:
-    details = lstat(path)
-    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
-        fail(f"{path} must be a real directory")
-def require_executable(path: Path) -> None:
-    require_regular_file(path)
-    if lstat(path).st_mode & 0o111 == 0:
-        fail(f"{path} is not executable")
-def require_regular_file(path: Path) -> None:
-    details = lstat(path)
-    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
-        fail(f"{path} must be a real file")
-PACKAGED_TREES = ("runtime", "authority")
-def require_node_runtime(release: Path) -> None:
-    runtime = release / "runtime" / "node"
-    require_directory(runtime)
-    for path in (
-        runtime / "bin" / "node",
-        runtime / "bin" / "npm",
-        runtime / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js",
-    ):
-        require_regular_file(path)
-    for path in runtime.rglob("*"):
-        details = lstat(path)
-        if stat.S_ISLNK(details.st_mode) or not (stat.S_ISREG(details.st_mode) or stat.S_ISDIR(details.st_mode)):
-            fail(f"{path} must be a real file or directory")
-    claurst = runtime.parent / "claurst"
-    require_directory(claurst)
-    require_regular_file(claurst / "claurst")
-    require_regular_file(claurst / "llama" / "llama-server")
-    for path in claurst.rglob("*"):
-        details = lstat(path)
-        if stat.S_ISLNK(details.st_mode) or not (stat.S_ISREG(details.st_mode) or stat.S_ISDIR(details.st_mode)):
-            fail(f"{path} must be a real file or directory")
-def fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-def fsync_file(path: Path) -> None:
-    with path.open("rb") as file:
-        os.fsync(file.fileno())
-def release_path(runtime_root: Path, release_name: str) -> Path:
-    if not release_name or release_name in {".", ".."}:
-        fail("release name is required")
-    candidate = Path(release_name)
-    if candidate.name != release_name or candidate.is_absolute():
-        fail("release name is not a single path component")
-    releases = runtime_root / "releases"
-    require_directory(releases)
-    release = releases / release_name
-    require_directory(release)
-    require_executable(release / "gent")
-    require_executable(release / "gentd")
-    return release
-def validate_current(runtime_root: Path) -> None:
-    current = runtime_root / "current"
-    try:
-        details = current.lstat()
-    except FileNotFoundError:
-        return
-    if not stat.S_ISLNK(details.st_mode):
-        fail("current exists but is not a symlink")
-    target = os.readlink(current)
-    if Path(target).parent != Path("releases") or Path(target).name in {"", ".", ".."}:
-        fail("current does not point to a managed release")
-def activate(runtime_root: Path, release_name: str) -> Path:
-    require_directory(runtime_root)
-    release = release_path(runtime_root, release_name)
-    validate_current(runtime_root)
-    current = runtime_root / "current"
-    temporary = runtime_root / f".current-{os.getpid()}"
-    try:
-        temporary.unlink()
-    except FileNotFoundError:
-        pass
-    os.symlink(Path("releases") / release.name, temporary)
-    os.replace(temporary, current)
-    fsync_directory(runtime_root)
-    return release
-def identical(left: Path, right: Path) -> bool:
-    if left.stat().st_size != right.stat().st_size:
-        return False
-    with left.open("rb") as left_file, right.open("rb") as right_file:
-        while block := left_file.read(1024 * 1024):
-            if block != right_file.read(len(block)):
-                return False
-    return True
-def identical_tree(left: Path, right: Path) -> bool:
-    if not left.is_dir() or not right.is_dir():
-        return False
-    left_paths = sorted(path.relative_to(left) for path in left.rglob("*") if path.is_file())
-    right_paths = sorted(path.relative_to(right) for path in right.rglob("*") if path.is_file())
-    return left_paths == right_paths and all(
-        identical(left / path, right / path) for path in left_paths
-    )
-def copy_update_material(stage: Path, source: Path | None) -> None:
-    if source is None:
-        return
-    require_directory(source)
-    for name in ("runtime-release-trust.json", "runtime-release-cache.json"):
-        input_path, output = source / name, stage / name
-        require_regular_file(input_path)
-        shutil.copyfile(input_path, output)
-        output.chmod(0o600)
-        fsync_file(output)
-def prepare_release(runtime_root: Path, release_name: str, source: Path, supervisor: Path | None, auto_updater: Path | None, update_material: Path | None) -> Path:
+
+def release_path(root: Path, name: str) -> Path:
+    release_parts(name)
+    path = root / "releases" / name
+    require_directory(path)
+    require_executable(path / "gent")
+    require_executable(path / "gentd")
+    return path
+
+def copy_checked(source: Path, destination: Path, mode: int | None = None) -> None:
+    before = file_digest(source)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    if mode is not None:
+        destination.chmod(mode)
+    if file_digest(source) != before or file_digest(destination) != before:
+        fail("source changed while the private runtime stage was copied")
+    fsync_file(destination)
+
+def prepare_release(root: Path, source: Path, supervisor: Path | None,
+                    updater: Path | None, material: Path | None) -> tuple[Path, str]:
     require_directory(source)
     for name in ("gent", "gentd"):
         require_executable(source / name)
-    trees = [name for name in PACKAGED_TREES if (source / name).exists()]
-    if "runtime" in trees:
+    before = tree_digest(source)
+    if (source / "runtime").exists():
         require_node_runtime(source)
-    if "authority" in trees:
+    if (source / "authority").exists():
         for name in ("ordinary-authority.json", "root-keys.json"):
             require_regular_file(source / "authority" / name)
-    if supervisor is not None:
-        require_regular_file(supervisor)
-    if auto_updater is not None:
-        require_regular_file(auto_updater)
-    releases = runtime_root / "releases"
-    destination = releases / release_name
-    if destination.exists() or destination.is_symlink():
-        release = release_path(runtime_root, release_name)
-        names = ["gent", "gentd"]
-        if supervisor is not None:
-            names.extend(("supervise-runtime-activation.py", "activate-install.py"))
-        if auto_updater is not None:
-            names.append("gent-auto-update.py")
-        runtime_matches = all(identical_tree(source / name, release / name) if name in trees else not (release / name).exists() for name in PACKAGED_TREES)
-        if all(identical(source / name, release / name) for name in ("gent", "gentd")) and runtime_matches and (
-            supervisor is None
-            or all((release / name).is_file() for name in names[2:])
-            and identical(supervisor, release / "supervise-runtime-activation.py")
-            and identical(Path(__file__), release / "activate-install.py")
-            and (auto_updater is None or identical(auto_updater, release / "gent-auto-update.py"))
-        ):
-            if update_material is not None:
-                require_directory(update_material)
-                if not all(
-                    require_regular_file(update_material / name) is None
-                    and identical(update_material / name, release / name)
-                    for name in ("runtime-release-trust.json", "runtime-release-cache.json")
-                ):
-                    fail(f"existing {release_name} differs from the verified update material")
-            return release
-        fail(f"existing {release_name} differs from the verified release")
-    stage = Path(tempfile.mkdtemp(prefix=".gent-stage-", dir=releases))
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    require_directory(root)
+    stage = Path(tempfile.mkdtemp(prefix=".gent-stage-", dir=root))
     try:
-        for name in ("gent", "gentd"):
-            output = stage / name
-            shutil.copyfile(source / name, output)
-            output.chmod(0o755)
-            fsync_file(output)
-        for name in trees:
-            shutil.copytree(source / name, stage / name, copy_function=shutil.copy2)
+        shutil.copytree(source, stage, dirs_exist_ok=True, copy_function=shutil.copy2)
+        if tree_digest(source) != before or tree_digest(stage) != before:
+            fail("source changed while the private runtime stage was copied")
         if supervisor is not None:
-            output = stage / "supervise-runtime-activation.py"
-            shutil.copyfile(supervisor, output)
-            output.chmod(0o755)
-            fsync_file(output)
-            output = stage / "activate-install.py"
-            shutil.copyfile(Path(__file__), output)
-            output.chmod(0o755)
-            fsync_file(output)
-        if auto_updater is not None:
-            output = stage / "gent-auto-update.py"
-            shutil.copyfile(auto_updater, output)
-            output.chmod(0o700)
-            fsync_file(output)
-        copy_update_material(stage, update_material)
+            copy_checked(supervisor, stage / "supervise-runtime-activation.py", 0o755)
+            copy_checked(Path(__file__), stage / "activate-install.py", 0o755)
+            copy_checked(Path(__file__).with_name("activate_install_support.py"), stage / "activate_install_support.py", 0o644)
+        if updater is not None:
+            copy_checked(updater, stage / "gent-auto-update.py", 0o700)
+        if material is not None:
+            require_directory(material)
+            for name in ("runtime-release-trust.json", "runtime-release-cache.json"):
+                copy_checked(material / name, stage / name, 0o600)
         fsync_directory(stage)
-        os.rename(stage, destination)
-        fsync_directory(releases)
+        return stage, tree_digest(stage)
     except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
+        remove_private_stage(root, stage)
         raise
-    return release_path(runtime_root, release_name)
-def publish_launchers(bin_dir: Path) -> None:
+
+def remove_private_stage(root: Path, stage: Path) -> None:
+    if stage.exists():
+        if stage.parent.resolve() != root.resolve() or not stage.name.startswith(".gent-stage-") or stage.is_symlink():
+            fail("private staging cleanup is outside the runtime root")
+        shutil.rmtree(stage)
+
+def publish_release(root: Path, requested: str, stage: Path, digest: str, lease) -> Path:
+    lease.require()
+    if tree_digest(stage) != digest:
+        fail("prepared runtime identity changed before publication")
+    current = selected_release(root)
+    if current is not None and "+" in current and release_parts(current) == release_parts(requested):
+        active = release_path(root, current)
+        if tree_digest(active) == digest:
+            return active
+    releases = root / "releases"
+    releases.mkdir(mode=0o700, exist_ok=True)
+    require_directory(releases)
+    destination = releases / generation(requested, digest)
+    if destination.exists() or destination.is_symlink():
+        fail("immutable runtime generation already exists")
+    os.rename(stage, destination)
+    fsync_directory(releases)
+    return release_path(root, destination.name)
+
+def select_release(root: Path, release: Path, digest: str, lease) -> None:
+    lease.require()
+    if tree_digest(release) != digest:
+        fail("release identity changed before selection")
+    selected_release(root)
+    temporary = root / f".current-{os.getpid()}"
+    if temporary.exists() or temporary.is_symlink():
+        fail("a previous current-pointer staging file already exists")
+    try:
+        os.symlink(Path("releases") / release.name, temporary)
+        os.replace(temporary, root / "current")
+        fsync_directory(root)
+    finally:
+        temporary.unlink(missing_ok=True)
+    if selected_release(root) != release.name or tree_digest(release) != digest:
+        fail("selected runtime identity could not be verified")
+
+def publish_launchers(bin_dir: Path, lease) -> None:
+    lease.require()
     bin_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     require_directory(bin_dir)
     for name in ("gent", "gentd"):
         descriptor, temporary_name = tempfile.mkstemp(prefix=f".{name}-", dir=bin_dir)
         temporary = Path(temporary_name)
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as file:
-                file.write(LAUNCHER)
-                file.flush()
-                os.fsync(file.fileno())
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(LAUNCHER)
+                output.flush()
+                os.fsync(output.fileno())
             temporary.chmod(0o755)
-            os.replace(temporary, bin_dir / name)
+            destination = bin_dir / name
+            if destination.exists() or destination.is_symlink():
+                require_regular_file(destination)
+            os.replace(temporary, destination)
         finally:
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
+            temporary.unlink(missing_ok=True)
     fsync_directory(bin_dir)
-def lock_install(runtime_root: Path):
-    runtime_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    require_directory(runtime_root)
-    lock_path = runtime_root / ".install.lock"
+
+def refresh_updater(root: Path, release: Path, lease) -> None:
+    lease.require()
+    source = release / "gent-auto-update.py"
+    if not source.exists():
+        return
+    temporary = root / f".gent-auto-update-{os.getpid()}"
+    destination = root / "gent-auto-update.py"
+    if destination.exists() or destination.is_symlink():
+        require_regular_file(destination)
     try:
-        details = lock_path.lstat()
-    except FileNotFoundError:
-        pass
-    else:
-        if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
-            fail("install lock must be a real file")
-    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    return os.fdopen(descriptor, "a+b")
-def activate_while_idle(runtime_root: Path, release_name: str, data_dir: Path | None) -> Path:
-    if data_dir is None:
-        return activate(runtime_root, release_name)
-    data_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock_path = data_dir / "gentd.lock"
-    with lock_path.open("a+b") as lock:
+        copy_checked(source, temporary, 0o700)
+        os.replace(temporary, destination)
+        fsync_directory(root)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+def restore_selection(root: Path, previous: str | None, digest: str | None,
+                      changed: str, lease) -> None:
+    lease.require()
+    if selected_release(root) != changed:
+        fail("selection changed before rollback; no newer selection was overwritten")
+    if previous is None:
+        (root / "current").unlink()
+        fsync_directory(root)
+        return
+    restored = release_path(root, previous)
+    if tree_digest(restored) != digest:
+        fail("prior runtime identity changed; rollback was refused")
+    if "+" not in restored.name:
+        stage, prepared = prepare_release(root, restored, None, None, None)
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise SystemExit(
-                f"Gent activation refused: gentd is running for {data_dir}; stop it before updating"
-            ) from error
-        try:
-            return activate(runtime_root, release_name)
+            restored = publish_release(root, restored.name, stage, prepared, lease)
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            remove_private_stage(root, stage)
+    select_release(root, restored, digest, lease)
+    refresh_updater(root, restored, lease)
+    if selected_release(root) != restored.name or tree_digest(restored) != digest:
+        fail("restored runtime selection could not be verified")
+
+def activate_existing(args: argparse.Namespace) -> Path:
+    with mutation_lease(args.runtime_root, args.idle_data_dir) as lease:
+        current = selected_release(args.runtime_root)
+        prior_digest = None
+        if current:
+            try:
+                prior_digest = tree_digest(release_path(args.runtime_root, current))
+            except (OSError, SystemExit):
+                pass
+        if args.rollback_from is not None:
+            if current != args.rollback_from or not args.expected_tree_sha256:
+                fail("rollback requires the exact still-selected generation and prior identity")
+        else:
+            reject_newer(args.runtime_root, args.release_name)
+        source = release_path(args.runtime_root, args.release_name)
+        digest = tree_digest(source)
+        if args.expected_tree_sha256 and digest != args.expected_tree_sha256:
+            fail("the requested release no longer matches its verified identity")
+        if "+" not in source.name:
+            stage, digest = prepare_release(args.runtime_root, source, None, None, None)
+            try:
+                source = publish_release(args.runtime_root, source.name, stage, digest, lease)
+            finally:
+                remove_private_stage(args.runtime_root, stage)
+        try:
+            select_release(args.runtime_root, source, digest, lease)
+            refresh_updater(args.runtime_root, source, lease)
+        except BaseException:
+            if selected_release(args.runtime_root) == source.name and current != source.name:
+                restore_selection(args.runtime_root, current, prior_digest, source.name, lease)
+            raise
+        return source
+
 def install(args: argparse.Namespace) -> Path:
     if args.source_release is None or args.bin_dir is None:
         fail("source release and bin directory are required for installation")
-    with lock_install(args.runtime_root) as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            releases = args.runtime_root / "releases"
-            releases.mkdir(mode=0o700, exist_ok=True)
-            require_directory(releases)
-            try:
-                (args.runtime_root / "current").lstat()
-            except FileNotFoundError:
-                pass
-            else:
-                validate_current(args.runtime_root)
-                if not args.force:
-                    fail(f"Gent is already installed in {args.bin_dir}; pass --force to replace it")
-            release = prepare_release(args.runtime_root, args.release_name, args.source_release, args.source_supervisor, args.source_auto_updater, args.source_update_material)
-            publish_launchers(args.bin_dir)
+    release_parts(args.release_name)
+    reject_newer(args.runtime_root, args.release_name)
+    stage, digest = prepare_release(args.runtime_root, args.source_release, args.source_supervisor,
+                                    args.source_auto_updater, args.source_update_material)
+    try:
+        with mutation_lease(args.runtime_root, args.idle_data_dir) as lease:
+            current = reject_newer(args.runtime_root, args.release_name)
+            prior_digest = None
+            if current:
+                try:
+                    prior_digest = tree_digest(release_path(args.runtime_root, current))
+                except (OSError, SystemExit):
+                    pass
+            if current is not None and not args.force:
+                fail(f"Gent is already installed in {args.bin_dir}; pass --force to replace it")
+            release = publish_release(args.runtime_root, args.release_name, stage, digest, lease)
             if args.stage_only:
                 return release
-            return activate_while_idle(args.runtime_root, args.release_name, args.idle_data_dir)
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            publish_launchers(args.bin_dir, lease)
+            try:
+                select_release(args.runtime_root, release, digest, lease)
+                refresh_updater(args.runtime_root, release, lease)
+            except BaseException:
+                if selected_release(args.runtime_root) == release.name and current != release.name:
+                    restore_selection(args.runtime_root, current, prior_digest, release.name, lease)
+                raise
+            return release
+    finally:
+        remove_private_stage(args.runtime_root, stage)
+
 def main() -> None:
     args = arguments()
-    release = install(args) if args.source_release else activate_while_idle(
-        args.runtime_root, args.release_name, args.idle_data_dir
-    )
-    print(f"{'staged' if args.stage_only else 'activated'} {release.name}")
+    release = install(args) if args.source_release else activate_existing(args)
+    if args.json:
+        print(json.dumps({"release": release.name, "path": str(release.resolve()), "treeSha256": tree_digest(release)}))
+    else:
+        print(f"{'staged' if args.stage_only else 'activated'} {release.name}")
+
 if __name__ == "__main__":
     try:
         main()

@@ -9,9 +9,28 @@ use gent_ports::{PublicProviderRunError, PublicProviderRunner};
 use gent_types::GoalProjection;
 
 pub(crate) trait CodexPromptExecution: PublicProviderRunner {
+    fn validate_permission_binding(
+        &self,
+        binding: gent_types::SandboxPermissionBinding,
+    ) -> Result<(), PublicProviderRunError> {
+        crate::permission_workspace::require_supported_launch(
+            binding.policy(),
+            gent_types::AgentChatProvider::Codex,
+        )
+    }
+
+    fn permission_preflight(
+        &self,
+        _context: &crate::permission_preflight::PreflightContext<'_>,
+        policy: &gent_types::PolicyRecord,
+        request: &gent_types::PermissionRequest,
+    ) -> crate::permission_preflight::PermissionPreflight {
+        crate::permission_preflight::evaluate(policy, request)
+    }
     fn prepare_codex_prompt(
         &self,
         run_id: String,
+        conversation_id: String,
         prompt: CodexPromptStart,
     ) -> Result<(), PublicProviderRunError>;
     fn cancel_codex_prompt(&self, run_id: &str);
@@ -58,12 +77,52 @@ where
     L: ProcessLauncher<Process = P> + Send + Sync,
     P: ProviderProcess + Send,
 {
+    fn validate_permission_binding(
+        &self,
+        binding: gent_types::SandboxPermissionBinding,
+    ) -> Result<(), PublicProviderRunError> {
+        self.prepare_permission_binding(binding)
+    }
+
+    fn permission_preflight(
+        &self,
+        context: &crate::permission_preflight::PreflightContext<'_>,
+        policy: &gent_types::PolicyRecord,
+        request: &gent_types::PermissionRequest,
+    ) -> crate::permission_preflight::PermissionPreflight {
+        let crate::permission_preflight::PreflightContext {
+            run_id,
+            conversation_id,
+            disallowed,
+            injection,
+            host_epoch,
+        } = *context;
+        self.with_owned_mcp(run_id, conversation_id, |actual, _root, proof| {
+            let trusted = crate::internal_mcp_trust::permits(
+                actual,
+                injection,
+                conversation_id,
+                &request.tool_name,
+                disallowed,
+            );
+            crate::permission_preflight::evaluate_callback(
+                policy,
+                request,
+                run_id,
+                conversation_id,
+                host_epoch,
+                proof,
+                trusted,
+            )
+        })
+    }
     fn prepare_codex_prompt(
         &self,
         run_id: String,
+        conversation_id: String,
         prompt: CodexPromptStart,
     ) -> Result<(), PublicProviderRunError> {
-        self.prepare(run_id, prompt)
+        self.prepare_for_conversation(run_id, conversation_id, prompt)
     }
 
     fn cancel_codex_prompt(&self, run_id: &str) {

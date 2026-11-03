@@ -113,6 +113,7 @@ impl IntentPort for FakePort {
                         kind: NormalizedTranscriptKind::AssistantMessage,
                         text: "hello".into(),
                         is_partial: false,
+                        failure_code: None,
                         origin: None,
                         attachments: Vec::new(),
                     },

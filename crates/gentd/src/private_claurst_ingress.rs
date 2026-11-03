@@ -56,6 +56,7 @@ where
         + PendingPermissionLedger
         + PolicyLedger
         + gent_ports::AgentChatWorkspaceLedger
+        + gent_ports::AgentChatConversationConfigLedger
         + gent_ports::AgentChatReadLedger,
     B: PrivateClaurstBridge,
 {

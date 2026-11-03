@@ -8,8 +8,8 @@ use super::{ClaudeTurnOptions, ClaudeTurnOptionsError};
 fn workspace_permissions_map_to_claude_permission_arguments() {
     for (permission, permission_mode) in [
         (PermissionMode::AskEveryTime, "manual"),
-        (PermissionMode::AutoAcceptEdits, "acceptEdits"),
-        (PermissionMode::Autonomous, "auto"),
+        (PermissionMode::AutoAcceptEdits, "manual"),
+        (PermissionMode::Autonomous, "manual"),
         (PermissionMode::Bypass, "bypassPermissions"),
     ] {
         let options = ClaudeTurnOptions::from_selection_with_permissions(
@@ -19,8 +19,12 @@ fn workspace_permissions_map_to_claude_permission_arguments() {
         .unwrap();
         let mut arguments = Vec::new();
         options.append_arguments(&mut arguments);
+        assert_eq!(arguments[0], "--settings");
+        let settings: serde_json::Value = serde_json::from_str(&arguments[1]).unwrap();
+        assert_eq!(settings["permissions"]["ask"], serde_json::json!(["*"]));
+        assert_eq!(settings["sandbox"]["autoAllowBashIfSandboxed"], false);
         assert_eq!(
-            arguments,
+            &arguments[2..],
             [
                 "--model",
                 "claude-sonnet",
@@ -213,7 +217,13 @@ fn thinking_setting_is_scoped_and_preserves_model_effort_and_permissions() {
     let base = ClaudeTurnOptions::from_selection(&selection(AgentChatMode::Agent)).unwrap();
     let mut ordinary = Vec::new();
     base.append_arguments(&mut ordinary);
-    assert!(!ordinary.iter().any(|arg| arg == "--settings"));
+    assert_eq!(ordinary[0], "--settings");
+    let base_settings: serde_json::Value = serde_json::from_str(&ordinary[1]).unwrap();
+    assert_eq!(
+        base_settings["permissions"]["ask"],
+        serde_json::json!(["*"])
+    );
+    assert_eq!(base_settings["sandbox"]["autoAllowBashIfSandboxed"], false);
     for enabled in [false, true] {
         let mut arguments = Vec::new();
         base.clone()
@@ -222,8 +232,8 @@ fn thinking_setting_is_scoped_and_preserves_model_effort_and_permissions() {
         assert_eq!(arguments[0], "--settings");
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&arguments[1]).unwrap(),
-            serde_json::json!({"alwaysThinkingEnabled": enabled})
+            serde_json::json!({"alwaysThinkingEnabled": enabled, "permissions": {"ask": ["*"]}, "sandbox": {"autoAllowBashIfSandboxed": false}})
         );
-        assert_eq!(&arguments[2..], ordinary.as_slice());
+        assert_eq!(&arguments[2..], &ordinary[2..]);
     }
 }

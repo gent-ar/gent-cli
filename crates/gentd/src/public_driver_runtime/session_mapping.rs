@@ -7,7 +7,7 @@ use gent_types::{
 
 use super::NormalizedSessionFact;
 
-pub(super) fn transcript_content(
+pub(crate) fn transcript_content(
     fact: &PublicWireFact,
 ) -> Option<(NormalizedTranscriptKind, String, bool)> {
     match fact {
@@ -112,6 +112,18 @@ fn activity_for_fact(
         cursor: 0,
     };
     match fact {
+        PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
+            tool_use_id,
+            text,
+            is_partial,
+        }) => Some(ConversationActivityFact::ToolOutput {
+            scope: scope(),
+            tool_use_id: tool_use_id.clone(),
+            text: gent_types::bounded_text(text, gent_types::MAX_TRANSCRIPT_TEXT_BYTES)
+                .into_owned(),
+            is_partial: *is_partial,
+            source_lifecycle_event_id: None,
+        }),
         PublicWireFact::Event(NormalizedProviderEvent::TurnStarted { .. }) => {
             Some(ConversationActivityFact::TurnStarted { scope: scope() })
         }

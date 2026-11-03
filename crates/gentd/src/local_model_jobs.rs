@@ -40,6 +40,8 @@ pub(crate) enum DownloadStart {
 
 #[derive(Clone, Debug)]
 pub(crate) struct LocalModelDownloadJobs {
+    lifecycle_control:
+        Arc<Mutex<Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>>>,
     provisioner: LocalModelProvisioner,
     transport: Arc<dyn ModelDownloadTransport>,
     events: LocalModelEvents,
@@ -70,6 +72,7 @@ enum Outcome {
 impl LocalModelDownloadJobs {
     pub(crate) fn new(provisioner: LocalModelProvisioner, events: LocalModelEvents) -> Self {
         Self {
+            lifecycle_control: Arc::default(),
             provisioner,
             transport: Arc::new(ReqwestModelDownloadTransport::new()),
             events,
@@ -81,6 +84,25 @@ impl LocalModelDownloadJobs {
     pub(crate) fn with_transport(mut self, transport: Arc<dyn ModelDownloadTransport>) -> Self {
         self.transport = transport;
         self
+    }
+
+    pub(crate) fn set_lifecycle_control(
+        &self,
+        control: crate::ordinary_lifecycle_control::OrdinaryLifecycleControl,
+    ) {
+        *self
+            .lifecycle_control
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(control);
+    }
+
+    pub(crate) fn lifecycle_control(
+        &self,
+    ) -> Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl> {
+        self.lifecycle_control
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     pub(crate) fn install_state(
@@ -113,6 +135,11 @@ impl LocalModelDownloadJobs {
         model_id: &str,
         holder: DownloadHolder,
     ) -> Result<DownloadStart, LocalModelDownloadFailure> {
+        let operation = self
+            .lifecycle_control()
+            .map(|control| control.acquire_operation())
+            .transpose()
+            .map_err(|_| LocalModelDownloadFailure::TransportFailed)?;
         let plan = self.plan(model_id)?;
         let mut jobs = self.jobs();
         if let Some(job) = jobs.get_mut(model_id) {
@@ -146,7 +173,11 @@ impl LocalModelDownloadJobs {
                 stop,
             },
         );
-        runtime.spawn(self.clone().run(plan, request_id, sender, stopped));
+        let jobs = self.clone();
+        runtime.spawn(async move {
+            let _operation = operation;
+            jobs.run(plan, request_id, sender, stopped).await;
+        });
         Ok(DownloadStart::Downloading(progress))
     }
 

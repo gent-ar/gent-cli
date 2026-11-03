@@ -17,18 +17,45 @@ pub(crate) enum ClaurstPermissionDecision {
     Deny(Option<PermissionDenialReason>),
 }
 
+#[cfg(test)]
 pub(crate) fn decide(
     mode: AgentChatMode,
     policy: &PolicyRecord,
     request: &PermissionRequest,
     workspace: &Path,
 ) -> ClaurstPermissionDecision {
+    decide_with_enforcement(
+        mode,
+        policy,
+        request,
+        workspace,
+        gent_types::SandboxEnforcement::Unavailable,
+    )
+}
+
+pub(crate) fn decide_with_enforcement(
+    mode: AgentChatMode,
+    policy: &PolicyRecord,
+    request: &PermissionRequest,
+    workspace: &Path,
+    enforcement: gent_types::SandboxEnforcement,
+) -> ClaurstPermissionDecision {
+    if crate::permission_category::requires_user_response(&request.tool_name) {
+        return ClaurstPermissionDecision::Ask;
+    }
     let changes = matches!(
         request.category,
         PermissionCategory::Edit | PermissionCategory::Command
     );
     if mode != AgentChatMode::Agent && changes {
         return ClaurstPermissionDecision::Deny(Some(PermissionDenialReason::ReadOnlyMode));
+    }
+    if policy.unattended_requires_sandbox() {
+        return match gent_core::evaluate_permission_with_sandbox(policy, request, enforcement) {
+            gent_core::PermissionDecision::Allow => ClaurstPermissionDecision::Allow,
+            gent_core::PermissionDecision::Deny => ClaurstPermissionDecision::Deny(None),
+            _ => ClaurstPermissionDecision::Ask,
+        };
     }
     if request.category == PermissionCategory::Command {
         return match crate::permission_preflight::evaluate(policy, request) {

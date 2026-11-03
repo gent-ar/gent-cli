@@ -381,6 +381,7 @@ mod tests {
                 effort: AgentChatEffort::Low,
                 mode: AgentChatMode::Ask,
             },
+            containment: gent_types::Containment::Unsandboxed,
         }
     }
     fn event(cursor: u64) -> NormalizedTranscriptEvent {
@@ -392,6 +393,7 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "ok".into(),
             is_partial: false,
+            failure_code: None,
             origin: None,
             attachments: Vec::new(),
         }

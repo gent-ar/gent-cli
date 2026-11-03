@@ -217,6 +217,7 @@ pub(crate) fn compose_standalone_authority(
             claurst_models.clone(),
         ),
     );
+    let control_slot = Arc::new(std::sync::OnceLock::new());
     let lazy_host = |provider| -> Box<dyn OrdinaryLifecycleHost> {
         Box::new(LazyStandaloneProviderHost::new(
             provider,
@@ -225,6 +226,7 @@ pub(crate) fn compose_standalone_authority(
             coordinator_id.clone(),
             host_epoch,
             provider_readiness.clone(),
+            control_slot.clone(),
         ))
     };
     let hosts = vec![
@@ -244,6 +246,12 @@ pub(crate) fn compose_standalone_authority(
         claurst_models.clone(),
         provider_readiness.clone(),
     );
+    control_slot
+        .set(control.clone())
+        .map_err(|_| StandaloneAuthorityError::RouterUnavailable)?;
+    claurst_models
+        .downloads
+        .set_lifecycle_control(control.clone());
     Ok(StandaloneAuthorityRuntime {
         router,
         control,

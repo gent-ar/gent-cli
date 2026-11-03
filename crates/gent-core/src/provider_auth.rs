@@ -223,13 +223,20 @@ fn status_for_challenge(
     lifecycle: ProviderAuthLifecycle,
     method: Option<ProviderAuthMethod>,
 ) -> ProviderAuthStatus {
-    status(
+    let mut status = status(
         challenge.provider,
         challenge.binary_lock.clone(),
         lifecycle,
         method,
         Some(challenge.expires_at_unix_seconds),
-    )
+    );
+    if matches!(
+        lifecycle,
+        ProviderAuthLifecycle::ChallengeOffered | ProviderAuthLifecycle::Verifying
+    ) {
+        status.challenge_id = Some(challenge.challenge_id.clone());
+    }
+    status
 }
 
 fn status(
@@ -240,6 +247,7 @@ fn status(
     expires_at_unix_seconds: Option<u64>,
 ) -> ProviderAuthStatus {
     ProviderAuthStatus {
+        challenge_id: None,
         provider,
         binary_lock: Some(binary_lock),
         lifecycle,

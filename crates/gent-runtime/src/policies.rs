@@ -26,6 +26,16 @@ where
         Ok(self.ledger.save_policy(policy)?)
     }
 
+    /// Commits a user-facing policy with the ledger's atomic active-work guard.
+    /// # Errors
+    /// Returns an error when a transition would invalidate a live binding.
+    pub fn save_provider_permission_policy(
+        &self,
+        policy: &PolicyRecord,
+    ) -> Result<(), RuntimeError> {
+        Ok(self.ledger.save_provider_permission_policy(policy)?)
+    }
+
     /// Reads the latest policy without exposing any provider credentials or endpoint data.
     ///
     /// # Errors

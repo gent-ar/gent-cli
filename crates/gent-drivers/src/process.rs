@@ -110,7 +110,7 @@ pub struct SystemProcess {
 }
 
 impl SystemProcess {
-    fn new(
+    pub(crate) fn new(
         child: Child,
         stdin: ChildStdin,
         stdout: impl Read + Send + 'static,
@@ -123,6 +123,34 @@ impl SystemProcess {
             streams: ProcessStreams::new(stdout, stderr, output_limit),
             drained_stdout: Mutex::new(VecDeque::new()),
         }
+    }
+
+    /// Inspect only the retained OS child status. A sandbox owner must not join
+    /// inherited pipe readers until its native scope settlement is established.
+    pub(crate) fn peek_owned_exit_status(
+        &self,
+    ) -> Result<Option<std::process::ExitStatus>, ProcessTreeError> {
+        recover_lock(&self.child)
+            .try_wait()
+            .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+    }
+
+    pub(crate) fn kill_owned(&self) -> Result<(), ProcessTreeError> {
+        recover_lock(&self.child)
+            .kill()
+            .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+    }
+
+    pub(crate) fn reap_owned(&self) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            match recover_lock(&self.child).try_wait() {
+                Ok(Some(_)) => return true,
+                Ok(None) => thread::sleep(Duration::from_millis(10)),
+                Err(_) => return false,
+            }
+        }
+        false
     }
 
     /// Waits for process exit and joins both pipe readers before returning its exit status.
@@ -246,3 +274,7 @@ pub fn signal_process_tree(_: i32, _: ProcessTreeSignal) -> Result<(), ProcessTr
 fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+#[cfg(all(test, windows))]
+#[path = "process_sandbox_pipe_lifetime_tests.rs"]
+mod sandbox_pipe_lifetime_tests;

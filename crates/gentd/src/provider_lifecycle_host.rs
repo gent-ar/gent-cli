@@ -150,6 +150,9 @@ where
     pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.lifecycle.interrupt_run(run_id)
     }
+    pub(crate) fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
+        self.lifecycle.interrupt_turn(run_id, turn_id)
+    }
 
     /// Arms the owner for its one durable startup recovery pass.
     ///

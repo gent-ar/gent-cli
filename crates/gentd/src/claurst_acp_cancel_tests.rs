@@ -1,6 +1,9 @@
 use std::{
     collections::{BTreeSet, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use gent_ports::{
@@ -31,6 +34,7 @@ struct Held {
 #[derive(Default)]
 struct ClaurstPeer {
     written: Arc<Mutex<Vec<Value>>>,
+    fail_permission_write: Arc<AtomicBool>,
     outbox: VecDeque<Vec<u8>>,
     sessions: u32,
     cancelled: BTreeSet<String>,
@@ -51,8 +55,8 @@ impl ClaurstPeer {
             return self.send(json!({"jsonrpc":"2.0","id":id,"result":{"stopReason":"cancelled"}}));
         }
         if text.trim_end().ends_with("Please use EnterWorktree") {
-            self.update(&session_id, json!({"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"EnterWorktree","kind":"other","status":"in_progress"}));
-            self.send(json!({"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":{"toolCallId":"tool-1","title":"EnterWorktree","kind":"other"},"options":[{"kind":"allow_once","name":"Allow once","optionId":"allow_once"}]}}));
+            self.update(&session_id, json!({"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"EnterWorktree","kind":"other","status":"in_progress","rawInput":{}}));
+            self.send(json!({"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":{"toolCallId":"tool-1","title":"EnterWorktree","kind":"other","rawInput":{}},"options":[{"kind":"allow_once","name":"Allow once","optionId":"allow_once"}]}}));
             self.held = Some(Held {
                 prompt: id,
                 permission: 7,
@@ -89,10 +93,16 @@ impl ClaurstAcpStdio for ClaurstPeer {
     fn write_frame(&mut self, frame: &[u8]) -> Result<(), String> {
         let value: Value = serde_json::from_slice(frame).unwrap();
         self.written.lock().unwrap().push(value.clone());
+        if value.get("method").is_none()
+            && value.pointer("/result/outcome").is_some()
+            && self.fail_permission_write.load(Ordering::SeqCst)
+        {
+            return Err("injected write failure after handoff".into());
+        }
         let id = value.get("id").cloned().unwrap_or(Value::Null);
         match value.get("method").and_then(Value::as_str) {
             Some("initialize") => {
-                self.send(json!({"jsonrpc":"2.0","id":id,"result":{"agentCapabilities":{}}}))
+                self.send(json!({"jsonrpc":"2.0","id":id,"result":{"agentCapabilities":{},"_meta":{"gentPermissionBinding":1}}}))
             }
             Some("session/new") => {
                 self.sessions += 1;
@@ -164,6 +174,83 @@ async fn drive_until_terminal<H: AsyncOrdinaryLifecycleHost>(
         .unwrap()
         .unwrap()
         .phase
+}
+
+#[tokio::test]
+async fn uncertain_claurst_permission_write_returns_receipt_without_replay() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation = AgentChatConversationId("conversation-a".into());
+    let run = AgentChatRunId("run-a".into());
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation.clone(),
+                run_id: run.clone(),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claurst,
+                    model: "qwen3-1-7b-q4-k-m".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: gent_testkit::host_absolute_path("/workspace-a")
+                    .display()
+                    .to_string(),
+            },
+        )
+        .unwrap();
+    let peer = ClaurstPeer::default();
+    let written = Arc::clone(&peer.written);
+    let fail_permission_write = Arc::clone(&peer.fail_permission_write);
+    let bridge = ClaurstBridgeHandle::new(Arc::new(ClaurstAcpBridge::new(
+        gent_testkit::host_absolute_path("/workspace-a"),
+        peer,
+        vec![],
+    )));
+    let mut lifecycle =
+        ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
+    lifecycle.activate_recovery().await.unwrap();
+    let _waiting = prompt(&ledger, "waiting", "Please use EnterWorktree");
+    for _ in 0..4 {
+        lifecycle.drive_once().await.unwrap();
+    }
+    assert!(
+        ledger
+            .pending_permission(&conversation, &run)
+            .unwrap()
+            .is_some()
+    );
+
+    let pending = ledger
+        .pending_permission(&conversation, &run)
+        .unwrap()
+        .unwrap();
+    let response = PermissionDecisionResponse {
+        binding: pending.binding,
+        response: PermissionDecisionResponseKind::ApproveOnce,
+        input: None,
+    };
+    fail_permission_write.store(true, Ordering::SeqCst);
+    for _ in 0..2 {
+        let receipt = lifecycle
+            .respond_permission_with_receipt(response.clone(), ReceiptId("approve".into()))
+            .await
+            .unwrap();
+        assert_eq!(receipt.status, gent_types::ReceiptStatus::Unprovable);
+    }
+    let writes = written.lock().unwrap();
+    assert_eq!(
+        writes
+            .iter()
+            .filter(|frame| frame.pointer("/result/outcome").is_some())
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -242,7 +329,7 @@ async fn interrupt_with_a_pending_permission_cancels_it_and_settles_the_turn() {
         .unwrap();
     assert!(projection.events.iter().any(|event| {
         event.payload["activity"]["type"] == "decisionSettled"
-            && event.payload["activity"]["decisionId"] == "7"
+            && event.payload["activity"]["decisionId"] == "claurst:n:7"
     }));
 
     let next = prompt(&ledger, "next", "Please use EnterWorktree");
@@ -253,7 +340,7 @@ async fn interrupt_with_a_pending_permission_cancels_it_and_settles_the_turn() {
         .pending_permission(&conversation, &run)
         .unwrap()
         .unwrap();
-    assert_eq!(reused.binding.decision_id.0, "7");
+    assert_eq!(reused.binding.decision_id.0, "claurst:n:7");
     assert_eq!(reused.binding.turn_id, next.message.turn_id);
     lifecycle
         .respond_permission_with_receipt(

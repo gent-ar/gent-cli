@@ -79,6 +79,7 @@ fn message(
         kind,
         text: text.into(),
         is_partial,
+        failure_code: None,
         origin: None,
         attachments: Vec::new(),
     }

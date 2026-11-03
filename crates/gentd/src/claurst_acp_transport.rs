@@ -4,6 +4,10 @@ use gent_ports::ClaurstPermissionReply;
 use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, PermissionCategory};
 use serde_json::{Value, json};
 
+#[path = "claurst_acp_fixed_mcp.rs"]
+mod fixed_mcp;
+pub(crate) use fixed_mcp::mcp_roster_sha256;
+
 const MAX_ACP_FRAME_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 pub(crate) const OVERSIZED_FRAME_METHOD: &str = "gent/oversizedProviderFrame";
 const MAX_HANDSHAKE_FRAMES: usize = 32;
@@ -11,13 +15,9 @@ const HANDSHAKE_TIMEOUT: Duration =
     crate::provider_launch_budget::launch_budget(Duration::from_secs(20));
 const HANDSHAKE_RETRY_DELAY: Duration = Duration::from_millis(5);
 
-pub(crate) trait ClaurstAcpStdio {
-    fn write_frame(&mut self, frame: &[u8]) -> Result<(), String>;
-    fn try_read_frame(&mut self, maximum_bytes: usize) -> Result<Option<Vec<u8>>, String>;
-    fn exited(&mut self) -> Result<Option<String>, String> {
-        Ok(None)
-    }
-}
+#[path = "claurst_acp_stdio_contract.rs"]
+mod stdio_contract;
+pub(crate) use stdio_contract::ClaurstAcpStdio;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ClaurstAcpTerminal {
@@ -66,6 +66,14 @@ pub(crate) enum ClaurstAcpTransportError {
     InvalidPermission,
 }
 
+fn provider_spelling(workspace: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    if let Ok(ordinary) = crate::provider_egress::mcp_paths::ordinary_argument(workspace) {
+        return ordinary;
+    }
+    workspace.to_path_buf()
+}
+
 pub(crate) struct ClaurstAcpTransport<S> {
     stdio: S,
     next_request_id: u64,
@@ -73,7 +81,10 @@ pub(crate) struct ClaurstAcpTransport<S> {
     queued: VecDeque<ClaurstAcpFact>,
     queued_permissions: VecDeque<ClaurstAcpPermissionRequest>,
     open_tools: Vec<updates::OpenTool>,
+    permission_claimed_ids: std::collections::BTreeSet<String>,
+    permission_rpc_ids: std::collections::BTreeSet<String>,
     pending_prompt_id: Option<u64>,
+    cancel_deadline: Option<std::time::Instant>,
     pending_terminal: Option<ClaurstAcpTerminal>,
     pending_permission: Option<PendingPermission>,
     held_permissions: VecDeque<(PendingPermission, ClaurstAcpPermissionRequest)>,
@@ -85,6 +96,7 @@ pub(crate) struct ClaurstAcpTransport<S> {
 struct PendingPermission {
     request_id: String,
     json_rpc_id: Value,
+    allow_once_option: Option<String>,
 }
 
 impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
@@ -97,7 +109,10 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             queued: VecDeque::new(),
             queued_permissions: VecDeque::new(),
             open_tools: Vec::new(),
+            permission_claimed_ids: std::collections::BTreeSet::default(),
+            permission_rpc_ids: std::collections::BTreeSet::default(),
             pending_prompt_id: None,
+            cancel_deadline: None,
             pending_terminal: None,
             pending_permission: None,
             held_permissions: VecDeque::new(),
@@ -110,18 +125,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
     pub(crate) fn with_mcp_servers(mut self, mcp_servers: Vec<Value>) -> Self {
         self.mcp_servers = mcp_servers;
         self
-    }
-
-    pub(crate) fn supports_images(&self) -> bool {
-        self.supports_images
-    }
-
-    pub(crate) fn is_idle(&self) -> bool {
-        self.pending_prompt_id.is_none()
-    }
-
-    pub(crate) fn exited(&mut self) -> Result<Option<String>, String> {
-        self.stdio.exited()
     }
 
     pub(crate) fn initialize_session(
@@ -139,16 +142,22 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         if !workspace.is_absolute() {
             return Err(ClaurstAcpTransportError::InvalidSession);
         }
+        let fixed = fixed_mcp::matches(self.stdio.fixed_mcp_roster_sha256(), &mcp_servers)?;
         if !self.initialized {
             let initialize_id = self.send_request(
                 "initialize",
                 json!({
                     "protocolVersion": 1,
                     "clientCapabilities": {},
+                    "_meta": {"gentPermissionBinding":1},
                     "clientInfo": {"name": "gent", "version": env!("CARGO_PKG_VERSION")},
                 }),
             )?;
             let response = self.wait_for_response(initialize_id)?;
+            fixed_mcp::check_sdk(&response, fixed)?;
+            if response.pointer("/_meta/gentPermissionBinding") != Some(&json!(1)) {
+                return Err(ClaurstAcpTransportError::InvalidFrame);
+            }
             self.supports_images = response
                 .pointer("/agentCapabilities/promptCapabilities/image")
                 .and_then(Value::as_bool)
@@ -157,7 +166,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         }
         let session_id = self.send_request(
             "session/new",
-            json!({"cwd": workspace, "mcpServers": mcp_servers}),
+            json!({"cwd": provider_spelling(workspace), "mcpServers": if fixed{Vec::<Value>::new()}else{mcp_servers}}),
         )?;
         let response = self.wait_for_response(session_id)?;
         response
@@ -168,20 +177,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             .ok_or(ClaurstAcpTransportError::InvalidSession)
     }
 
-    pub(crate) fn prompt(
-        &mut self,
-        session_id: &str,
-        prompt: &str,
-    ) -> Result<(), ClaurstAcpTransportError> {
-        if !self.initialized {
-            return Err(ClaurstAcpTransportError::Uninitialized);
-        }
-        if session_id.is_empty() || prompt.trim().is_empty() || self.pending_prompt_id.is_some() {
-            return Err(ClaurstAcpTransportError::InvalidSession);
-        }
-        self.prompt_content(session_id, vec![json!({"type": "text", "text": prompt})])
-    }
-
     pub(crate) fn prompt_content(
         &mut self,
         session_id: &str,
@@ -190,7 +185,12 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         if !self.initialized {
             return Err(ClaurstAcpTransportError::Uninitialized);
         }
-        if session_id.is_empty() || content.is_empty() || self.pending_prompt_id.is_some() {
+        if session_id.is_empty()
+            || content.is_empty()
+            || self.pending_prompt_id.is_some()
+            || self.pending_permission.is_some()
+            || !self.held_permissions.is_empty()
+        {
             return Err(ClaurstAcpTransportError::InvalidSession);
         }
         let id = self.send_request(
@@ -200,61 +200,13 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 "prompt": content,
             }),
         )?;
+        self.permission_claimed_ids.clear();
+        self.permission_rpc_ids.clear();
+        self.open_tools.clear();
         self.pending_prompt_id = Some(id);
+        self.cancel_deadline = None;
         self.assistant_output.clear();
         Ok(())
-    }
-
-    pub(crate) fn cancel(&mut self, session_id: &str) -> Result<(), ClaurstAcpTransportError> {
-        if !self.initialized || session_id.is_empty() {
-            return Err(ClaurstAcpTransportError::InvalidSession);
-        }
-        self.write(json!({
-            "jsonrpc": "2.0",
-            "method": "session/cancel",
-            "params": {"sessionId": session_id},
-        }))?;
-        self.queued_permissions.clear();
-        let held = std::mem::take(&mut self.held_permissions)
-            .into_iter()
-            .map(|(pending, _)| pending);
-        for pending in self.pending_permission.take().into_iter().chain(held) {
-            self.write(json!({
-                "jsonrpc": "2.0",
-                "id": pending.json_rpc_id,
-                "result": {"outcome": {"outcome": "cancelled"}},
-            }))?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn drain(
-        &mut self,
-        limit: u16,
-    ) -> Result<ClaurstAcpDrain, ClaurstAcpTransportError> {
-        let limit = usize::from(limit.clamp(1, 64));
-        let mut drain = ClaurstAcpDrain::default();
-        while drain.facts.len() < limit && drain.permissions.is_empty() {
-            if let Some(fact) = self.queued.pop_front() {
-                drain.facts.push(fact);
-                continue;
-            }
-            if let Some(permission) = self.queued_permissions.pop_front() {
-                drain.permissions.push(permission);
-                continue;
-            }
-            if let Some(terminal) = self.pending_terminal.take() {
-                drain.terminal = Some(terminal);
-                break;
-            }
-            let Some(frame) = self.read_frame()? else {
-                break;
-            };
-            if let Some(terminal) = self.handle_frame(frame)? {
-                self.pending_terminal = Some(terminal);
-            }
-        }
-        Ok(drain)
     }
 
     pub(crate) fn respond_permission(
@@ -269,13 +221,21 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         {
             return Err(ClaurstAcpTransportError::InvalidPermission);
         }
+        if matches!(reply, ClaurstPermissionReply::AllowOnce)
+            && self
+                .pending_permission
+                .as_ref()
+                .is_some_and(|pending| pending.allow_once_option.is_none())
+        {
+            return Err(ClaurstAcpTransportError::InvalidPermission);
+        }
         let pending = self
             .pending_permission
             .take()
             .ok_or(ClaurstAcpTransportError::InvalidPermission)?;
         let result = match reply {
             ClaurstPermissionReply::AllowOnce => {
-                json!({"outcome": {"outcome": "selected", "optionId": "allow_once"}})
+                json!({"outcome": {"outcome": "selected", "optionId": pending.allow_once_option}})
             }
             ClaurstPermissionReply::Deny => json!({"outcome": {"outcome": "cancelled"}}),
         };
@@ -297,3 +257,21 @@ mod updates;
 #[cfg(test)]
 #[path = "claurst_acp_transport_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "claurst_acp_transport_unanswered_tests.rs"]
+mod unanswered_tests;
+
+#[cfg(all(test, windows))]
+#[path = "claurst_acp_transport_cwd_tests.rs"]
+mod cwd_tests;
+
+#[path = "claurst_acp_transport_authority.rs"]
+mod authority;
+
+#[cfg(test)]
+#[path = "claurst_acp_permission_wire_tests.rs"]
+mod exact_permission_wire_tests;
+
+#[path = "claurst_acp_transport_prompt.rs"]
+mod prompt;

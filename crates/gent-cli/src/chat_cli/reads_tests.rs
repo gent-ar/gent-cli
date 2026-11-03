@@ -190,6 +190,7 @@ fn test_summary(conversation_id: &str) -> AgentChatConversationSummary {
             effort: AgentChatEffort::Low,
             mode: AgentChatMode::Ask,
         },
+        containment: gent_types::Containment::Unsandboxed,
     }
 }
 
@@ -202,6 +203,7 @@ fn event(cursor: u64) -> NormalizedTranscriptEvent {
         kind: NormalizedTranscriptKind::AssistantMessage,
         text: "ok".into(),
         is_partial: false,
+        failure_code: None,
         origin: None,
         attachments: Vec::new(),
     }

@@ -72,6 +72,9 @@ download "$base.manifest.json.sigstore.json" "$name.manifest.json.sigstore.json"
 helper_base="$release_base/gent-activate-install.py"
 download "$helper_base" 'gent-activate-install.py'
 download "$helper_base.sigstore.json" 'gent-activate-install.py.sigstore.json'
+support_base="$release_base/gent-activate-install-support.py"
+download "$support_base" 'activate_install_support.py'
+download "$support_base.sigstore.json" 'activate_install_support.py.sigstore.json'
 auto_update_base="$release_base/gent-auto-update.py"
 download "$auto_update_base" 'gent-auto-update.py'
 download "$auto_update_base.sigstore.json" 'gent-auto-update.py.sigstore.json'
@@ -102,6 +105,9 @@ cosign verify-blob "$temp/$name.manifest.json" --bundle "$temp/$name.manifest.js
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 cosign verify-blob "$temp/gent-activate-install.py" --bundle "$temp/gent-activate-install.py.sigstore.json" \
+  --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
+cosign verify-blob "$temp/activate_install_support.py" --bundle "$temp/activate_install_support.py.sigstore.json" \
   --certificate-identity-regexp "^https://github.com/$repo/.github/workflows/release.yml@refs/tags/$tag_identity_regex$" \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' >/dev/null
 cosign verify-blob "$temp/gent-auto-update.py" --bundle "$temp/gent-auto-update.py.sigstore.json" \
@@ -190,15 +196,10 @@ fi
 bin_dir="$install_root/bin"
 runtime_root="$install_root/lib/gent"
 release_name="$version-$target"
-install_auto_updater() {
-  temporary="$runtime_root/.gent-auto-update.$$"
-  cp "$temp/gent-auto-update.py" "$temporary"
-  chmod 700 "$temporary"
-  mv -f "$temporary" "$runtime_root/gent-auto-update.py"
-}
 enable_auto_updates() {
   [ -e "$runtime_root/.gent-auto-update-disabled" ] && return
-  "$bin_dir/gent" update auto enable
+  if [ -n "$idle_data_dir" ]; then "$bin_dir/gent" --data-dir "$idle_data_dir" update auto enable
+  else "$bin_dir/gent" update auto enable; fi
 }
 if [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
   set -- python3 "$temp/gent-supervise-runtime-activation.py" \
@@ -210,7 +211,6 @@ if [ -n "$idle_data_dir" ] && [ -L "$runtime_root/current" ]; then
     set -- "$@" --source-update-material "$temp/update-material"
   fi
   "$@"
-  install_auto_updater
   enable_auto_updates
   printf 'Updated Gent %s in %s\n' "$version" "$bin_dir"
   exit 0
@@ -230,7 +230,6 @@ if [ -n "$idle_data_dir" ]; then
   set -- "$@" --idle-data-dir "$idle_data_dir"
 fi
 python3 "$temp/gent-activate-install.py" "$@"
-install_auto_updater
 enable_auto_updates
 printf 'Installed Gent %s in %s\n' "$version" "$bin_dir"
 printf 'Add %s to PATH, then run: gent doctor\n' "$bin_dir"

@@ -26,6 +26,14 @@ pub(crate) struct Args {
     /// `GENT_DATA_DIR` and platform-default resolution rules.
     #[arg(long)]
     pub(crate) print_data_dir: bool,
+    /// Prepare only this already delegated systemd service root; never moves processes.
+    #[cfg(target_os = "linux")]
+    #[arg(
+        long,
+        requires = "standalone_authority",
+        conflicts_with = "verify_standalone_authority_release"
+    )]
+    pub(crate) prepare_linux_service_delegation: bool,
     /// Explicit Unix socket path, primarily for supervised Unix launches and tests.
     #[cfg(unix)]
     #[arg(long)]
@@ -49,6 +57,14 @@ pub(crate) struct Args {
     pub(crate) standalone_authority_release: Option<PathBuf>,
     #[arg(long, requires = "standalone_authority")]
     pub(crate) verify_standalone_authority_release: bool,
+    /// Verify the signed Linux companion and finite resource closure, without launching providers.
+    #[cfg(target_os = "linux")]
+    #[arg(
+        long,
+        requires = "standalone_authority",
+        conflicts_with = "prepare_linux_service_delegation"
+    )]
+    pub(crate) verify_linux_sandbox_release: bool,
     #[arg(
         long = "standalone-authority-key",
         env = "GENT_STANDALONE_AUTHORITY_KEY"
@@ -99,6 +115,10 @@ pub(crate) struct Args {
 }
 
 pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    if crate::runtime_activation_maintenance::requested()? {
+        crate::runtime_activation_maintenance::run_stdio()?;
+        return Ok(());
+    }
     let args = Args::parse();
     if args.data_dir.is_none() {
         gent_types::migrate_legacy_default_data_dir().map_err(|error| {
@@ -113,8 +133,13 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", data_dir.display());
         return Ok(());
     }
+    #[cfg(target_os = "linux")]
+    if args.prepare_linux_service_delegation {
+        gent_linux_sandbox::delegation::prepare_current_service()
+            .map_err(|error| format!("Linux service delegation preparation failed: {error}"))?;
+    }
     if args.standalone_authority {
-        return crate::standalone_authority_bootstrap::run(args).await;
+        return Box::pin(crate::standalone_authority_bootstrap::run(args)).await;
     }
     enforce_hard_observer(&crate::authority_profile::shipped_observer_profile())?;
     if updates::verify_staged_material(&args)? {
@@ -128,7 +153,8 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     private_paths::prepare_data_dir(&data_dir)?;
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
-    let _host_lock = host_lock::acquire(&data_dir)?;
+    let host_lock = host_lock::acquire(&data_dir)?;
+    crate::runtime_owner_identity::initialize(&host_lock)?;
     let _provider_groups = stop_provider_groups_left_behind(&data_dir)?;
     let update_checks = updates::configure_update_checks(&args)?;
     let capability_profile = RuntimeCapabilityProfile::new(

@@ -25,6 +25,18 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             &args.standalone_authority_keys,
             &data_dir,
         )?;
+    #[cfg(target_os = "linux")]
+    if args.verify_linux_sandbox_release {
+        let release = authority_release
+            .as_ref()
+            .ok_or("Linux companion verification requires a signed ordinary release")?;
+        let runtime = release
+            .runtime()
+            .ok_or("Linux companion verification requires the bound Node runtime")?;
+        let node = runtime.rechecked_lock()?;
+        release.linux_deployment(startup::unix_seconds(), &node)?;
+        return Ok(());
+    }
     if args.verify_standalone_authority_release {
         authority_release
             .as_ref()
@@ -36,7 +48,8 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     crate::private_paths::prepare_data_dir(&data_dir)?;
     #[cfg(windows)]
     std::fs::create_dir_all(&data_dir)?;
-    let _host_lock = host_lock::acquire(&data_dir)?;
+    let host_lock = host_lock::acquire(&data_dir)?;
+    crate::runtime_owner_identity::initialize(&host_lock)?;
     let _provider_groups = daemon_bootstrap::stop_provider_groups_left_behind(&data_dir)?;
     let mcp = stages::mcp_settings(&args, &data_dir)?;
     let mcp_config = mcp.config;
@@ -104,9 +117,10 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             claurst_bridge: authority.claurst_side_question_bridge(),
         };
     let provider_auth: std::sync::Arc<dyn crate::provider_auth_api::ProviderAuthPort> =
-        std::sync::Arc::new(crate::provider_auth_api::StandaloneProviderAuthPort::new(
-            executables.clone(),
-        ));
+        std::sync::Arc::new(
+            crate::provider_auth_api::StandaloneProviderAuthPort::new(executables.clone())
+                .with_lifecycle_control(authority.lifecycle_control()),
+        );
     let model_catalog = crate::runtime_facade::model_catalog::compose_standalone(
         &data_dir,
         crate::runtime_facade::model_catalog::StandaloneModelCatalogConfig {
@@ -152,6 +166,8 @@ fn standalone_capability_profile(provider_provision: bool) -> RuntimeCapabilityP
         RuntimeCapabilityFeature::ReviewedPlans,
         RuntimeCapabilityFeature::ProviderReadiness,
         RuntimeCapabilityFeature::ProviderAuth,
+        RuntimeCapabilityFeature::ProviderAuthHandoff,
+        RuntimeCapabilityFeature::RuntimeOwnerControl,
         RuntimeCapabilityFeature::LocalModels,
         RuntimeCapabilityFeature::PromptTemplates,
         RuntimeCapabilityFeature::WorkspaceDocuments,

@@ -27,14 +27,18 @@ impl crate::standalone_provider_readiness::StandalonePublicProviderReadiness for
     }
 }
 
-struct Held {
-    conversation: String,
-    run: String,
-    receipt: String,
-    turn_id: String,
+pub(super) struct Held {
+    pub(super) conversation: String,
+    pub(super) run: String,
+    pub(super) receipt: String,
+    pub(super) turn_id: String,
 }
 
-fn held(ledger: &SqliteLedger, readiness: &StandaloneReadiness, name: &'static str) -> Held {
+pub(super) fn held(
+    ledger: &SqliteLedger,
+    readiness: &StandaloneReadiness,
+    name: &'static str,
+) -> Held {
     let conversation = format!("conversation-{name}");
     let run = format!("run-{name}");
     let receipt = format!("receipt-{name}");
@@ -101,7 +105,7 @@ fn wake(held: &Held) -> PromptWake {
     }
 }
 
-fn setup() -> (tempfile::TempDir, SqliteLedger, StandaloneReadiness) {
+pub(super) fn setup() -> (tempfile::TempDir, SqliteLedger, StandaloneReadiness) {
     let directory = tempfile::tempdir().unwrap();
     let ledger = SqliteLedger::open(directory.path().join("gent.db")).unwrap();
     let readiness = StandaloneReadiness::new_with_public_readiness(
@@ -113,7 +117,7 @@ fn setup() -> (tempfile::TempDir, SqliteLedger, StandaloneReadiness) {
     (directory, ledger, readiness)
 }
 
-fn restored(ledger: &SqliteLedger, held: &Held) -> Vec<ConversationActivityFact> {
+pub(super) fn restored(ledger: &SqliteLedger, held: &Held) -> Vec<ConversationActivityFact> {
     ledger
         .read_conversation_activity_page(&held.conversation, &held.run, 0, 50)
         .unwrap()
@@ -208,8 +212,8 @@ fn reserve_install(
         event_id: format!("provision-{}-accepted", held.receipt),
         receipt_id: command.receipt_id.clone(),
         host_epoch: HostEpoch(1),
-        kind: "accepted".into(),
-        payload: serde_json::json!({}),
+        kind: "privatePromptProvisionAccepted".into(),
+        payload: command.payload.clone(),
     };
     let ReceiptClaim::Accepted(receipt) = ledger.claim_command(&command, &accepted).unwrap() else {
         panic!("a new install command is accepted");
@@ -230,8 +234,17 @@ fn canceling_one_install_hold_leaves_the_other_waiting_and_its_conversation_usab
 
     assert_cancelled(&ledger, &second);
     assert_still_held(&ledger, &first);
-    send(&ledger, &second.conversation, "second-again");
-    assert!(!readiness.cancel_held_prompts(&second.run).unwrap());
+    let next = send(&ledger, &second.conversation, "second-again");
+    assert!(
+        !readiness
+            .cancel_held_turn(&second.run, &second.turn_id)
+            .unwrap()
+    );
+    assert!(
+        readiness
+            .cancel_held_turn(&second.run, &next.message.turn_id)
+            .unwrap()
+    );
 }
 
 #[test]
@@ -265,3 +278,6 @@ fn a_running_install_cannot_be_cancelled_but_its_prompt_is_cancellable_once_it_i
     assert!(readiness.cancel_held_prompts(&second.run).unwrap());
     assert_cancelled(&ledger, &second);
 }
+
+#[path = "ordinary_lifecycle_install_uncertainty_cancel_tests.rs"]
+mod uncertainty_cancel_tests;

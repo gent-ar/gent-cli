@@ -36,6 +36,9 @@ impl AgentChatProjectionLedger for SqliteLedger {
         let mut events = rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
         let has_next = events.len() > usize::from(limit);
         events.truncate(usize::from(limit));
+        for event in &mut events {
+            super::historical_tool_output::project(&connection, event)?;
+        }
         super::transcript_attachments::attach_to_projection(&connection, &mut events)?;
         Ok(AgentChatProjectionPage {
             conversation_id: conversation_id.0.clone(),
@@ -94,7 +97,7 @@ fn latest(
     limit: u16,
 ) -> Result<(Vec<AgentChatProjectionEvent>, bool), LedgerError> {
     let mut statement = connection
-        .prepare(&format!("{COLUMNS} WHERE conversation_id = ?1 AND kind = ?2 AND cursor <= ?3 ORDER BY cursor DESC"))
+        .prepare(&format!("{COLUMNS} WHERE conversation_id = ?1 AND (kind = ?2 OR (?2 = 'activity' AND kind = 'lifecycle' AND json_extract(payload, '$.lifecycle.event.type') = 'toolOutputDelta')) AND cursor <= ?3 ORDER BY cursor DESC"))
         .map_err(storage_error)?;
     let mut rows = statement
         .query_map(params![conversation_id.0, kind, through_cursor], event)
@@ -102,7 +105,11 @@ fn latest(
     let mut settled = HashSet::new();
     let mut window = Vec::new();
     for row in rows.by_ref() {
-        let event = row.map_err(storage_error)?;
+        let mut event = row.map_err(storage_error)?;
+        super::historical_tool_output::project(connection, &mut event)?;
+        if event.kind != kind {
+            continue;
+        }
         if kind == "transcript" && superseded(&event, &mut settled) {
             continue;
         }

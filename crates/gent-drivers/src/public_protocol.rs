@@ -1,5 +1,3 @@
-//! Pure, documented Claude stream-JSON and Codex app-server frame normalization.
-
 use crate::PublicProvider;
 use gent_types::{
     AgentChatCompactionFailure, NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity,
@@ -275,7 +273,14 @@ fn tool_activity(
         (Some(tool_use_id), Some(tool_name))
             if !tool_use_id.is_empty() && !tool_name.is_empty() =>
         {
-            claude_protocol::activity(tool_use_id, tool_name, phase, None, None)
+            claude_protocol::activity_with_input(
+                tool_use_id,
+                tool_name,
+                phase,
+                None,
+                None,
+                value.get("input"),
+            )
         }
         _ => diagnostic(invalid),
     }

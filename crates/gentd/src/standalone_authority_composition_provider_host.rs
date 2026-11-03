@@ -28,6 +28,9 @@ pub(super) struct LazyStandaloneProviderHost {
     mcp_config: Option<StandaloneMcpConfig>,
     readiness: StandalonePublicProviderReadinessPort,
     host: Option<Box<dyn OrdinaryLifecycleHost>>,
+    control: std::sync::Arc<
+        std::sync::OnceLock<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
+    >,
 }
 
 impl LazyStandaloneProviderHost {
@@ -38,6 +41,9 @@ impl LazyStandaloneProviderHost {
         coordinator_id: String,
         host_epoch: gent_types::HostEpoch,
         readiness: StandalonePublicProviderReadinessPort,
+        control: std::sync::Arc<
+            std::sync::OnceLock<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
+        >,
     ) -> Self {
         Self {
             provider,
@@ -50,6 +56,7 @@ impl LazyStandaloneProviderHost {
             mcp_config: config.mcp_config.clone(),
             readiness,
             host: None,
+            control,
         }
     }
 
@@ -77,7 +84,15 @@ impl LazyStandaloneProviderHost {
     }
 
     fn start_with(&mut self) -> Result<(), ()> {
-        let launcher = crate::node_runtime_lock::standalone_provider_launcher(STREAM_CAPTURE_BYTES);
+        let launcher = crate::sandbox_provider_launcher::SandboxProviderLauncher::new(
+            crate::node_runtime_lock::standalone_provider_launcher(STREAM_CAPTURE_BYTES),
+            self.ledger.clone(),
+            self.coordinator.clone(),
+            self.data_dir.join("provider-state"),
+            STREAM_CAPTURE_BYTES,
+        )
+        .with_managed_providers(self.executables.clone())
+        .with_lifecycle_control(self.control.get().ok_or(())?.clone());
         let mcp_config = self.mcp_config.as_ref().map(|config| config.path().into());
         let host: Box<dyn OrdinaryLifecycleHost> = match self.provider {
             AgentChatProvider::Claude => Box::new(OrdinaryProviderHost::new(
@@ -92,6 +107,10 @@ impl LazyStandaloneProviderHost {
                             host_epoch: self.host_epoch,
                             executables: self.executables.clone(),
                             mcp_config,
+                            mcp_injection: self
+                                .mcp_config
+                                .as_ref()
+                                .and_then(StandaloneMcpConfig::injection),
                         },
                         launcher,
                     )
@@ -116,6 +135,10 @@ impl LazyStandaloneProviderHost {
                                 .transpose()
                                 .map_err(|_| ())?,
                             mcp_config,
+                            mcp_injection: self
+                                .mcp_config
+                                .as_ref()
+                                .and_then(StandaloneMcpConfig::injection),
                         },
                         launcher,
                     )
@@ -205,6 +228,12 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
 
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.host.as_mut().ok_or(())?.interrupt_run(run_id)
+    }
+    fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
+        self.host
+            .as_mut()
+            .ok_or(())?
+            .interrupt_turn(run_id, turn_id)
     }
 
     fn begin_shutdown_after_recovery(&mut self) -> Result<(), ()> {

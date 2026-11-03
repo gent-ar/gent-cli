@@ -24,8 +24,11 @@ function Require-PlainFile([string]$Path, [string]$Name) {
 function Current-Release {
     $pointer = Join-Path $RuntimeRoot "current.json"
     Require-PlainFile $pointer "current runtime pointer"
-    $release = [string]((Get-Content -Raw -LiteralPath $pointer | ConvertFrom-Json).release)
-    if ($release -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+-x86_64-pc-windows-msvc$') { Fail "current runtime pointer is invalid" }
+    $value = Get-Content -Raw -LiteralPath $pointer | ConvertFrom-Json
+    $names = @($value.PSObject.Properties.Name)
+    if ($names.Count -ne 1 -or $names[0] -ne "release") { Fail "current runtime pointer schema is invalid" }
+    $release = [string]$value.release
+    if ($release -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:\+[0-9a-f]{16}\.(?:[0-9a-f]{8}|[0-9a-f]{64}))?-x86_64-pc-windows-msvc$') { Fail "current runtime pointer is invalid" }
     $path = Join-Path (Join-Path $RuntimeRoot "releases") $release
     foreach ($name in @("gent.exe", "gentd.exe")) { Require-PlainFile (Join-Path $path $name) "current $name" }
     return $release
@@ -72,7 +75,10 @@ function Latest-Tag {
     if ($release.draft -or $release.prerelease -or $tag -notmatch $TagPattern) { Fail "release discovery did not return a stable semantic version tag" }
     return $tag
 }
-function Version-Number([string]$Tag) { return [version]($Tag.TrimStart("v")) }
+function Version-Number([string]$Tag) {
+    if ($Tag -notmatch '^v([0-9]+\.[0-9]+\.[0-9]+)(?:[+-]|$)') { Fail "runtime version is invalid" }
+    return [version]$Matches[1]
+}
 function Download([string]$Base, [string]$Name, [string]$Directory) {
     $path = Join-Path $Directory $Name
     Invoke-WebRequest -Uri "$Base/$Name" -OutFile $path -TimeoutSec $TimeoutSeconds
@@ -87,7 +93,14 @@ function Install-Latest([string]$Tag) {
         if ($LASTEXITCODE -ne 0) { Fail "signed installer bootstrap verification failed" }
         & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installer -Version $Tag -InstallDir $RuntimeRoot -IdleDataDir $DataDir -Force -RequireHealth
         if ($LASTEXITCODE -ne 0) { Fail "signed installer rejected the update" }
-    } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -Recurse } }
+    } finally {
+        if (Test-Path -LiteralPath $temporary) {
+            $item = Get-Item -LiteralPath $temporary -Force
+            $parent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or [IO.Path]::GetDirectoryName($item.FullName).TrimEnd('\') -ne $parent -or -not $item.Name.StartsWith("gent-auto-update-", [StringComparison]::Ordinal)) { Fail "automatic updater cleanup escaped its private directory" }
+            Remove-Item -LiteralPath $item.FullName -Force -Recurse
+        }
+    }
 }
 function Update-Once {
     Current-Release | Out-Null; $state = Read-State; $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()

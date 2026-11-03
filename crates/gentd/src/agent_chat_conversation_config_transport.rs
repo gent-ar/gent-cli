@@ -46,7 +46,13 @@ where
     match runtime.agent_chat_conversation_config(frame) {
         Ok(response) => write_json_frame(stream, &response).await?,
         Err(message) => {
-            write_error(stream, "agentChatConversationConfigRejected", &message).await?;
+            let blocked = gent_types::AgentChatRejection::SelectionSwitchBlockedByActiveTurn.code();
+            let code = if message == blocked {
+                blocked
+            } else {
+                "agentChatConversationConfigRejected"
+            };
+            write_error(stream, code, &message).await?;
         }
     }
     Ok(true)

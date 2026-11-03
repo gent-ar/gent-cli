@@ -38,15 +38,30 @@ pub(crate) fn compose(
         verified.compatibility(),
         Some(release.provision_config()),
     );
-    Ok(Arc::new(PromptProviderProvisionBoundary::new(
+    let prompt = Arc::new(PromptProviderProvisionBoundary::new(
         state.ledger().clone(),
         DependencyCatalog::with_private_prefix(
             verified.compatibility(),
             state.data_dir().join("providers").join("npm-global"),
         ),
         release.clone(),
-        provisioner,
+        provisioner.clone(),
         SystemAuthorityClock,
         verified.artifact_digest_sha256().into(),
-    )))
+    ));
+    let actions = Arc::new(
+        crate::private_provider_provisioning::managed_actions::ManagedProviderActions::new(
+            state.ledger().clone(),
+            release.clone(),
+            provisioner,
+            SystemAuthorityClock,
+            verified.artifact_digest_sha256().into(),
+        ),
+    );
+    Ok(Arc::new(
+        crate::private_provider_provisioning::managed_actions::ManagedProvisionPorts {
+            prompt,
+            actions,
+        },
+    ))
 }

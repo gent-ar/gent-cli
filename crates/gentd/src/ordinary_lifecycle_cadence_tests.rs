@@ -277,6 +277,7 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
         git_branch: None,
         updated_at_unix_ms: 0,
         selection: selection(provider),
+        containment: gent_types::Containment::Unsandboxed,
     }
 }
 
@@ -331,6 +332,9 @@ async fn a_completed_provider_install_wakes_its_released_prompt_without_a_restar
         cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
     let task = tokio::spawn(cadence.run());
     wait_for_ready(&control).await;
+    // Admission opens before the initial recovery drive. Wait for that drive so
+    // it cannot be mistaken for a wake caused by the failed install below.
+    wait_for(&events, 2).await;
     events.lock().unwrap().clear();
 
     let failed = crate::ordinary_lifecycle_cadence::wake::ProvisionedPromptWake::new(

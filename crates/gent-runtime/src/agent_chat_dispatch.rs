@@ -135,6 +135,7 @@ impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
         coordinator_id: &str,
         host_epoch: HostEpoch,
         error: &str,
+        failure_code: Option<gent_types::AgentChatFailureCode>,
     ) -> Result<(), RuntimeError> {
         if self.authority == AgentChatPromptDispatchAuthority::Approved {
             self.ledger.fail_agent_chat_prompt_prelaunch(
@@ -142,6 +143,7 @@ impl<L: AgentChatPromptDispatchLedger> AgentChatPromptDispatchService<L> {
                 coordinator_id,
                 host_epoch,
                 error,
+                failure_code,
             )?;
         }
         Ok(())

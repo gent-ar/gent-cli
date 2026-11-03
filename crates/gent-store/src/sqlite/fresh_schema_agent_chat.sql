@@ -28,6 +28,7 @@ CREATE TABLE agent_chat_conversation_configs (
     max_turns INTEGER,
     thinking_enabled INTEGER,
     disallowed_tools TEXT NOT NULL DEFAULT '[]',
+    containment TEXT NOT NULL DEFAULT 'unsandboxed' CHECK (containment IN ('unsandboxed', 'sandboxed')),
     UNIQUE (conversation_id, revision)
 );
 CREATE TABLE agent_chat_run_selections (

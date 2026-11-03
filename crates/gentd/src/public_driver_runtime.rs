@@ -32,6 +32,7 @@ pub(crate) struct PublicDriversRuntime<L, D, R> {
     goal_resolver: Option<Arc<dyn ActiveGoalResolver>>,
     attachment_root: Option<PathBuf>,
     codex_attachment_root: Option<PathBuf>,
+    internal_mcp: Option<crate::standalone_mcp_config::InjectedInternalMcp>,
 }
 impl<L, D, R> PublicDriversRuntime<L, D, R>
 where
@@ -44,6 +45,19 @@ where
     D: PublicProviderRunner + Clone,
     R: PublicProviderResolver,
 {
+    pub(crate) fn with_internal_mcp(
+        mut self,
+        injection: Option<crate::standalone_mcp_config::InjectedInternalMcp>,
+    ) -> Self {
+        self.internal_mcp = injection;
+        self
+    }
+    pub(crate) fn internal_mcp(
+        &self,
+    ) -> Option<&crate::standalone_mcp_config::InjectedInternalMcp> {
+        self.internal_mcp.as_ref()
+    }
+
     #[must_use]
     pub(crate) fn with_active_goal_resolver(
         mut self,
@@ -181,6 +195,24 @@ where
             .map_err(RuntimeError::from)
     }
 }
+impl<L, D, R> PublicDriversRuntime<L, D, R>
+where
+    L: gent_ports::PolicyLedger + gent_ports::AgentChatConversationConfigLedger,
+{
+    pub(crate) fn conversation_policy(
+        &self,
+        conversation_id: &str,
+        workspace_id: &str,
+    ) -> Result<gent_types::PolicyRecord, RuntimeError> {
+        crate::permission_workspace::policy_for_conversation(
+            &self.ledger,
+            conversation_id,
+            workspace_id,
+        )
+        .map_err(RuntimeError::from)
+    }
+}
+
 impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {
     pub(crate) fn selection_for_run(
         &self,

@@ -150,3 +150,54 @@ fn conversation(ledger: &SqliteLedger) -> AgentChatConversationId {
         .unwrap();
     conversation_id
 }
+
+#[test]
+fn settled_session_shutdown_still_requires_owned_exit_before_completion() {
+    for terminal in [gent_types::TurnPhase::Ready, gent_types::TurnPhase::Failed] {
+        let ledger = SqliteLedger::in_memory().unwrap();
+        let conversation_id = conversation(&ledger);
+        prompt(&ledger, &conversation_id, "a");
+        let runner = Runner::default();
+        let mut supervisor = PrivateClaudeSupervisor::new(host(&ledger, runner.clone()));
+        supervisor.wake().unwrap();
+        assert!(supervisor.needs_drive());
+        runner.0.lock().unwrap().effects.push_back(vec![
+            ClaudeRunnerEffect::Fact(
+                gent_drivers::public_protocol::PublicWireFact::SessionStarted {
+                    provider_session_id: "retained-session".into(),
+                },
+            ),
+            ClaudeRunnerEffect::Fact(gent_drivers::public_protocol::PublicWireFact::Lifecycle(
+                gent_types::NormalizedLifecycleSignal::RootPhase { phase: terminal },
+            )),
+        ]);
+        supervisor.wake().unwrap();
+        assert!(!supervisor.needs_drive());
+        assert!(runner.0.lock().unwrap().active);
+        assert_eq!(
+            supervisor.request_shutdown().unwrap(),
+            PrivateClaudeShutdown::Draining {
+                active_runs: 1,
+                signal: ProcessTreeSignal::Interrupt,
+            }
+        );
+        assert!(supervisor.needs_drive());
+        assert!(!supervisor.shutdown_complete());
+        supervisor.wake().unwrap();
+        assert!(!supervisor.shutdown_complete());
+        assert!(supervisor.needs_drive());
+        runner
+            .0
+            .lock()
+            .unwrap()
+            .effects
+            .push_back(vec![ClaudeRunnerEffect::Exited { code: Some(0) }]);
+        supervisor.wake().unwrap();
+        assert!(supervisor.shutdown_complete());
+        assert!(!supervisor.needs_drive());
+        assert_eq!(
+            runner.0.lock().unwrap().signals,
+            [ProcessTreeSignal::Interrupt]
+        );
+    }
+}

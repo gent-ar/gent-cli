@@ -8,7 +8,6 @@ use gent_drivers::{
     ProcessLauncher,
     interrupt::{ProcessTreeControl, ProcessTreeSignal},
     lock::capture,
-    process::SystemProcess,
     supervisor::{LaunchIntent, ProviderLaunch, ProviderProcess},
 };
 use gent_types::{
@@ -17,6 +16,8 @@ use gent_types::{
 };
 use sha2::{Digest, Sha256};
 
+pub(super) use crate::admitted_process::AdmittedProcess as AuthProcess;
+use crate::ordinary_lifecycle_control::OrdinaryLifecycleControl;
 use crate::provider_launch_budget::{ProviderLaunchError, launch_budget};
 
 const AUTH_OUTPUT_BYTES: usize = 64 * 1024;
@@ -28,12 +29,14 @@ pub(super) fn identified_lock(
     provider: ProviderAuthProvider,
     executable: &Path,
     timeout: Duration,
+    control: &OrdinaryLifecycleControl,
 ) -> Result<RunVersionLock, ProviderLaunchError> {
     let failed = |message: &str| ProviderLaunchError::Failed(message.into());
     let name = provider_name(provider);
     let before = capture(name, executable, "unprobed", "provider-auth")
         .map_err(|_| failed("provider executable could not be locked"))?;
-    let process = launch(provider, &before, &["--version"]).map_err(|error| failed(&error))?;
+    let process =
+        launch(provider, &before, &["--version"], control).map_err(|error| failed(&error))?;
     let success = exit_code_bounded(&process, timeout)? == Some(0);
     let output = process.output().stdout.bytes;
     if !success {
@@ -62,12 +65,13 @@ pub(super) fn authentication(
     provider: ProviderAuthProvider,
     lock: &RunVersionLock,
     timeout: Duration,
+    control: &OrdinaryLifecycleControl,
 ) -> Result<ProviderAuthLifecycle, ProviderLaunchError> {
     let arguments = match provider {
         ProviderAuthProvider::Claude => &["auth", "status", "--json"][..],
         ProviderAuthProvider::Codex => &["login", "status"][..],
     };
-    let Ok(process) = launch(provider, lock, arguments) else {
+    let Ok(process) = launch(provider, lock, arguments, control) else {
         return Ok(ProviderAuthLifecycle::Failed);
     };
     let code = match exit_code_bounded(&process, timeout) {
@@ -109,7 +113,7 @@ pub(super) fn classify(
 }
 
 fn exit_code_bounded(
-    process: &SystemProcess,
+    process: &AuthProcess,
     timeout: Duration,
 ) -> Result<Option<i32>, ProviderLaunchError> {
     let deadline = Instant::now() + timeout;
@@ -136,7 +140,24 @@ pub(super) fn launch(
     provider: ProviderAuthProvider,
     lock: &RunVersionLock,
     arguments: &[&str],
-) -> Result<SystemProcess, String> {
+    control: &OrdinaryLifecycleControl,
+) -> Result<AuthProcess, String> {
+    let process = launch_interactive(provider, lock, arguments, control)?;
+    process
+        .close_stdin()
+        .map_err(|_| "provider authentication process could not start".to_owned())?;
+    Ok(process)
+}
+
+pub(super) fn launch_interactive(
+    provider: ProviderAuthProvider,
+    lock: &RunVersionLock,
+    arguments: &[&str],
+    control: &OrdinaryLifecycleControl,
+) -> Result<AuthProcess, String> {
+    let permit = control.acquire_operation().map_err(|_| {
+        "provider authentication is unavailable during runtime maintenance".to_owned()
+    })?;
     let limit = if arguments == ["--version"] {
         VERSION_OUTPUT_BYTES
     } else {
@@ -144,6 +165,8 @@ pub(super) fn launch(
     };
     let process = crate::node_runtime_lock::standalone_provider_launcher(limit)
         .launch(&ProviderLaunch {
+            permission_binding: None,
+            run_id: None,
             lock: lock.clone(),
             provider: provider_name(provider).into(),
             executable: PathBuf::from(&lock.canonical_path),
@@ -153,10 +176,7 @@ pub(super) fn launch(
             workspace_access: SandboxWorkspaceAccess::ReadOnly,
         })
         .map_err(|_| "provider authentication process could not start".to_owned())?;
-    process
-        .close_stdin()
-        .map_err(|_| "provider authentication process could not start".to_owned())?;
-    Ok(process)
+    Ok(AuthProcess::new(process, permit))
 }
 
 pub(super) fn login_arguments(provider: ProviderAuthProvider) -> &'static [&'static str] {

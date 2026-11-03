@@ -8,6 +8,8 @@ use crate::ordinary_lifecycle_cadence::OrdinaryPromptIngress;
 
 #[path = "agent_chat_permission_api_decision.rs"]
 mod decision;
+#[path = "permission_policy_grant.rs"]
+pub(crate) mod grant;
 #[path = "agent_chat_permission_api_receipt.rs"]
 pub(crate) mod receipt;
 
@@ -64,7 +66,11 @@ impl AgentChatPermissionPort for StandaloneAgentChatPermissionPort {
                 {
                     return Err("permission response binding is invalid".into());
                 }
-                let receipt = match self.provider_for(&response)? {
+                let provider = self.provider_for(&response)?;
+                if provider == gent_types::AgentChatProvider::Claurst && response.input.is_some() {
+                    return Err("Claurst cannot receive an edited permission response or question answer through its current ACP permission channel".into());
+                }
+                let receipt = match provider {
                     gent_types::AgentChatProvider::Claurst => {
                         self.ingress
                             .respond_claurst_permission_with_receipt(response.clone(), receipt_id)

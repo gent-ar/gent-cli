@@ -48,6 +48,7 @@ impl AgentChatReadLedger for Ledger {
             git_branch: None,
             updated_at_unix_ms: 0,
             selection: selection(),
+            containment: gent_types::Containment::Unsandboxed,
         })
     }
 

@@ -44,14 +44,24 @@ pub(crate) struct LlamaSummaryEndpoint {
 pub(crate) struct LlamaContextSummarizer {
     client: reqwest::Client,
     endpoint: LlamaSummaryEndpoint,
+    contained_model: Option<crate::contained_model::ModelEndpoint>,
 }
 
 impl LlamaContextSummarizer {
+    pub(crate) fn with_contained_model(
+        mut self,
+        model: Option<crate::contained_model::ModelEndpoint>,
+    ) -> Self {
+        self.contained_model = model;
+        self
+    }
+
     #[must_use]
     pub(crate) fn new(endpoint: LlamaSummaryEndpoint) -> Self {
         Self {
             client: reqwest::Client::new(),
             endpoint,
+            contained_model: None,
         }
     }
 }
@@ -77,6 +87,14 @@ impl ContextSummarizer for LlamaContextSummarizer {
     ) -> Result<ContextSummary, ContextCompactionFailure> {
         let body = serde_json::to_vec(&completion_body(&self.endpoint.model, &request))
             .map_err(|_| ContextCompactionFailure::RuntimeUnavailable)?;
+        if let Some(model) = &self.contained_model {
+            let model = model.clone();
+            let value = tokio::task::spawn_blocking(move || model.json(body))
+                .await
+                .map_err(|_| ContextCompactionFailure::RuntimeUnavailable)?
+                .map_err(|_| ContextCompactionFailure::RuntimeUnavailable)?;
+            return completion_summary(&value);
+        }
         let response = self
             .client
             .post(format!("{}/v1/chat/completions", self.endpoint.server_url))

@@ -38,10 +38,9 @@ fn provider(directory: &Path) -> PathBuf {
 }
 
 fn port(directory: &Path, probe_timeout: Duration) -> StandaloneProviderAuthPort {
-    StandaloneProviderAuthPort::new(crate::provider_executables::ProviderExecutables::explicit(
-        Some(provider(directory)),
-        None,
-    ))
+    StandaloneProviderAuthPort::for_test(
+        crate::provider_executables::ProviderExecutables::explicit(Some(provider(directory)), None),
+    )
     .with_probe_budget(probe_timeout, RETRY, Duration::from_millis(50))
 }
 

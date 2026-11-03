@@ -18,15 +18,19 @@ pub(crate) fn lock() -> RunVersionLock {
     }
 }
 pub(crate) fn compatibility() -> CompatibilityAssessment {
+    compatibility_for_lock(&lock())
+}
+
+pub(crate) fn compatibility_for_lock(lock: &RunVersionLock) -> CompatibilityAssessment {
     let key = SigningKey::from_bytes(&[8; 32]);
     let payload = CompatibilityManifest {
         manifest_version: 1,
         expires_at_unix_seconds: 20,
         entries: vec![CompatibilityEntry {
-            id: "claude-2.1.0".into(),
+            id: lock.compatibility_entry.clone(),
             provider: "claude".into(),
-            version: "2.1.0".into(),
-            digest_sha256: "b".repeat(64),
+            version: lock.version.clone(),
+            digest_sha256: lock.digest_sha256.clone(),
             revoked: false,
         }],
     };

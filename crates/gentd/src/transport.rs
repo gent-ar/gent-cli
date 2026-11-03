@@ -22,6 +22,8 @@ use crate::api::RuntimeApi;
 mod commands;
 #[path = "transport_dispatch.rs"]
 mod dispatch;
+#[path = "runtime_owner_transport.rs"]
+mod owner_control;
 
 use commands::command_frame;
 use dispatch::dispatch_extension;
@@ -86,10 +88,25 @@ where
             Err(error) if error.kind() == ErrorKind::UnexpectedEof => return Ok(()),
             Err(error) => return Err(error.into()),
         };
+        if owner_control::dispatch(&mut stream, &runtime, &extensions, &raw).await? {
+            continue;
+        }
+        let operation = match runtime
+            .runtime_owner_control_port()
+            .map(|owner| owner.acquire_operation())
+            .transpose()
+        {
+            Ok(permit) => permit,
+            Err(message) => {
+                write_error(&mut stream, "runtimeOwnerNotReady", &message).await?;
+                continue;
+            }
+        };
         if extensions.supports(EVENT_STREAM_CAPABILITY) {
             if let Ok(EventStreamFrame::Attach { after_cursor }) =
                 serde_json::from_value(raw.clone())
             {
+                drop(operation);
                 return crate::event_stream::serve(stream, runtime, after_cursor).await;
             }
         }
@@ -100,6 +117,7 @@ where
                 after_cursor,
             }) = serde_json::from_value(raw.clone())
             {
+                drop(operation);
                 return crate::agent_chat_subscription::serve(
                     stream,
                     runtime,
@@ -119,6 +137,7 @@ where
                 after_cursor,
             }) = serde_json::from_value(raw.clone())
             {
+                drop(operation);
                 return crate::agent_chat_turn_follow::serve(
                     stream,
                     runtime,
@@ -138,6 +157,7 @@ where
                 after_cursor,
             }) = serde_json::from_value(raw.clone())
             {
+                drop(operation);
                 return crate::agent_chat_projection_transport::serve(
                     stream,
                     runtime,

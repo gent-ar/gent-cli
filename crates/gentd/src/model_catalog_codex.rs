@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 
 use super::{
     probe::{ProbeStep, ProviderProbe},
+    provider_models,
     service::{ModelCatalogSource, ProviderListing, effort, public_availability},
-    suggestions,
 };
 use crate::{provider_auth_api::ProviderAuthPort, provider_launch_budget::ProviderLaunchError};
 
@@ -19,6 +19,8 @@ const FIRST_PAGE_REQUEST_ID: u64 = 2;
 const MAX_PAGES: u64 = 8;
 
 pub(crate) struct CodexModelSource {
+    pub(crate) lifecycle_control:
+        Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
     pub(crate) executables: crate::provider_executables::ProviderExecutables,
     pub(crate) auth: Arc<dyn ProviderAuthPort>,
     pub(crate) timeout: Duration,
@@ -46,7 +48,7 @@ impl ModelCatalogSource for CodexModelSource {
         let Some(executable) = self.executables.executable(AgentChatProvider::Codex) else {
             return Ok(ProviderListing {
                 availability,
-                models: suggestions::models("codex"),
+                models: provider_models::discovered(Vec::new()),
             });
         };
         let mut opening =
@@ -54,6 +56,7 @@ impl ModelCatalogSource for CodexModelSource {
         opening.push(model_list_request(FIRST_PAGE_REQUEST_ID, None)?);
         let mut listing = ModelListPages::default();
         let models = ProviderProbe {
+            lifecycle_control: self.lifecycle_control.clone(),
             provider: PublicProvider::Codex,
             executable,
             arguments: gent_drivers::launch_spec::codex_app_server_arguments(),
@@ -63,7 +66,7 @@ impl ModelCatalogSource for CodexModelSource {
         .exchange(&opening, |value, process| listing.accept(value, process))?;
         Ok(ProviderListing {
             availability,
-            models: suggestions::merge("codex", models),
+            models: provider_models::discovered(models),
         })
     }
 }
@@ -112,7 +115,11 @@ impl ModelListPages {
                     .map_err(|error| error.to_string())?;
                 Ok(ProbeStep::Continue)
             }
-            _ => Ok(ProbeStep::Done(std::mem::take(&mut self.models))),
+            Some(_) => Err(
+                "codex model catalog is incomplete: pagination exceeded its bounded page limit"
+                    .into(),
+            ),
+            None => Ok(ProbeStep::Done(std::mem::take(&mut self.models))),
         }
     }
 }
@@ -176,3 +183,7 @@ fn codex_model(entry: &Value) -> Option<CatalogModel> {
         local: None,
     })
 }
+
+#[cfg(test)]
+#[path = "model_catalog_codex_pagination_tests.rs"]
+mod pagination_tests;

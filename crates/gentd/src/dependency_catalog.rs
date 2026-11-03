@@ -57,10 +57,11 @@ impl DependencyCatalog {
         let providers = [DependencyProvider::Claude, DependencyProvider::Codex]
             .into_iter()
             .map(|provider| {
+                let executable = standalone.and_then(|doctor| doctor.executable(provider));
                 observe_provider(
                     provider,
                     &self.compatibility,
-                    standalone.and_then(|doctor| doctor.executable(provider)),
+                    executable.as_deref(),
                     self.provider_prefix.as_deref(),
                     standalone,
                 )
@@ -127,7 +128,12 @@ fn observe_provider(
     let executable = explicit
         .filter(|path| path.is_file())
         .map(Path::to_path_buf)
-        .or_else(|| find_executable(provider, name, provider_prefix));
+        .or_else(|| {
+            standalone
+                .is_none()
+                .then(|| find_executable(provider, name, provider_prefix))
+                .flatten()
+        });
     let standalone_remediation =
         standalone.map(|doctor| doctor.remediation(name, executable.is_some()));
     let remediation = standalone_remediation
@@ -234,7 +240,14 @@ fn plan(provider: DependencyProvider, action: DependencyAction) -> DependencyPla
             "Use OpenAI's supported Codex updater after reviewing its terms."
         }
     };
-    DependencyPlan::reviewed(provider, action, instruction, true)
+    DependencyPlan::reviewed(
+        provider,
+        action,
+        format!(
+            "{instruction} Gent will install and verify a clean copy for this request. Previous incomplete installations are left unchanged."
+        ),
+        true,
+    )
 }
 
 #[path = "standalone_doctor.rs"]

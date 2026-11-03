@@ -48,9 +48,19 @@ where
             .cloned()
             .ok_or_else(missing_binding)?;
         let ledger = self.runtime.ledger();
+        // The polling epoch comes from the composed owner, not provider/client input.
+        // Fence before sending any auto-approval if a successor closed/replaced this owner.
+        let ingress = ledger.host_ingress()?;
+        if ingress.epoch != host_epoch || ingress.mode != gent_ports::IngressMode::Open {
+            return Err(missing_binding());
+        }
         let workspace =
             ledger.agent_chat_workspace_for_run(&binding.prompt.message.conversation_id, run_id)?;
-        let policy = crate::permission_workspace::policy_for(&ledger, &workspace.workspace_id)?;
+        let policy = crate::permission_workspace::policy_for_conversation(
+            &ledger,
+            &binding.prompt.message.conversation_id,
+            &workspace.workspace_id,
+        )?;
         let category = crate::permission_category::for_tool(&request.tool_name);
         let normalized = PermissionRequest::new(
             request.tool_name.clone(),
@@ -58,7 +68,21 @@ where
             request.input.clone(),
             None,
         );
-        match crate::permission_preflight::evaluate(&policy, &normalized) {
+        let config = ledger.current_conversation_config(&binding.prompt.message.conversation_id)?;
+        let disallowed = config
+            .as_ref()
+            .map_or(&[][..], |config| config.disallowed_tools.as_slice());
+        match self.runner.permission_preflight(
+            &crate::permission_preflight::PreflightContext {
+                run_id,
+                conversation_id: &binding.prompt.message.conversation_id,
+                disallowed,
+                injection: self.runtime.internal_mcp(),
+                host_epoch,
+            },
+            &policy,
+            &normalized,
+        ) {
             crate::permission_preflight::PermissionPreflight::Allow => {
                 self.runner
                     .respond_codex_control(
@@ -77,6 +101,10 @@ where
                             tool_name: request.tool_name,
                             phase: ToolPhase::Started,
                             output_digest: None,
+                            input: request
+                                .input
+                                .as_ref()
+                                .and_then(gent_types::operation_preview),
                             parent_tool_use_id: None,
                         },
                     }),
@@ -101,6 +129,10 @@ where
                             tool_name: request.tool_name,
                             phase: ToolPhase::Failed,
                             output_digest: None,
+                            input: request
+                                .input
+                                .as_ref()
+                                .and_then(gent_types::operation_preview),
                             parent_tool_use_id: None,
                         },
                     }),
@@ -145,6 +177,10 @@ where
                     tool_name: request.tool_name,
                     phase: ToolPhase::WaitingPermission,
                     output_digest: None,
+                    input: request
+                        .input
+                        .as_ref()
+                        .and_then(gent_types::operation_preview),
                     parent_tool_use_id: None,
                 },
             }),

@@ -27,6 +27,11 @@ pub(super) fn settings_command(state: &mut UiState, argument: &str) -> Option<Ui
         workspace_id,
         mode,
         bypass_consent,
+        expected_provider: state
+            .view
+            .as_ref()
+            .and_then(|view| view.selection())
+            .map(|selection| selection.provider),
     }))
 }
 

@@ -51,6 +51,7 @@ mod tests {
             max_turns: Some(10),
             thinking_enabled: None,
             disallowed_tools: vec!["shell:rm".into()],
+            containment: gent_types::Containment::Unsandboxed,
         }
     }
 

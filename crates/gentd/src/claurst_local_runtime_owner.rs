@@ -82,6 +82,10 @@ fn replace_materialized_file(temporary: &Path, destination: &Path) -> Result<(),
 
 /// One owned local runtime child. Implementations must make repeated shutdown safe.
 pub(crate) trait LocalRuntimeProcess {
+    fn contained_model(&self) -> Option<crate::contained_model::ModelEndpoint> {
+        None
+    }
+
     fn exited(&mut self) -> Result<Option<String>, String>;
     fn shutdown(&mut self) -> Result<(), String>;
 }
@@ -100,6 +104,7 @@ pub(crate) struct SystemLocalRuntimeLauncher;
 pub(crate) struct SystemLocalRuntimeProcess {
     child: Child,
     tree_stopped: bool,
+    alive: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(crate) struct SystemClaurstAcpStdio {
@@ -139,6 +144,7 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
         Ok(SystemLocalRuntimeProcess {
             child,
             tree_stopped: false,
+            alive: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         })
     }
 }
@@ -270,38 +276,8 @@ mod tests {
     }
 }
 
-impl SystemLocalRuntimeProcess {
-    #[must_use]
-    pub(crate) fn process_id(&self) -> u32 {
-        self.child.id()
-    }
-}
-
-impl LocalRuntimeProcess for SystemLocalRuntimeProcess {
-    fn exited(&mut self) -> Result<Option<String>, String> {
-        self.child
-            .try_wait()
-            .map_err(|error| error.to_string())
-            .map(|status| status.map(|status| format!("local process exited with {status}")))
-    }
-
-    fn shutdown(&mut self) -> Result<(), String> {
-        if self.tree_stopped {
-            return Ok(());
-        }
-        shutdown_process_tree(&mut self.child)?;
-        self.tree_stopped = true;
-        Ok(())
-    }
-}
-
-impl Drop for SystemLocalRuntimeProcess {
-    fn drop(&mut self) {
-        if !self.tree_stopped {
-            let _ = shutdown_process_tree(&mut self.child);
-        }
-    }
-}
+#[path = "claurst_local_runtime_lifetime.rs"]
+mod lifetime;
 
 #[path = "claurst_local_runtime_owner_lifecycle.rs"]
 mod lifecycle;

@@ -13,6 +13,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+from windows_build_binding import require_windows_provider_coverage, verify_windows_build_binding
+
 
 TAR_EXECUTABLES = frozenset({
     "gent",
@@ -36,6 +38,15 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--claurst-runtime-dir", type=Path, required=True)
     parser.add_argument("--authority-release", type=Path, required=True)
     parser.add_argument("--authority-root-keys", type=Path, required=True)
+    parser.add_argument("--windows-sandbox-runtime-dir", type=Path)
+    parser.add_argument("--windows-sandbox-descriptor-sha256")
+    parser.add_argument("--windows-proxy-package", type=Path)
+    parser.add_argument("--windows-sign-tool", type=Path)
+    parser.add_argument("--windows-build-binding", type=Path)
+    parser.add_argument("--linux-sandbox-bundle-root",type=Path)
+    parser.add_argument("--linux-sandbox-descriptor-sha256")
+    parser.add_argument("--linux-sandbox-verifier",type=Path)
+    parser.add_argument("--linux-sandbox-verifier-sha256")
     return parser.parse_args()
 
 
@@ -169,7 +180,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def write_metadata(out_dir: Path, name: str, version: str, target: str, files: list[Path]) -> None:
+def write_metadata(out_dir: Path, name: str, version: str, target: str, files: list[Path], windows_sandbox: bool = False, linux_sandbox: bool = False) -> None:
     archive = out_dir / name
     checksum = sha256(archive)
     (out_dir / f"{name}.sha256").write_text(f"{checksum}  {name}\n", encoding="utf-8")
@@ -197,8 +208,13 @@ def write_metadata(out_dir: Path, name: str, version: str, target: str, files: l
             "provider-readiness-v2",
             "permission-policy-v2",
             "prompt-provider-provision-v1",
+            "agent-chat-steer-turn-v1",
+            "agent-chat-steer-enqueue-v1",
+            "runtime-owner-control-v1",
+            "provider-auth-handoff-v1",
+            "permission-policy-provider-binding-v1",
         ],
-        "runtimes": ["runtime/node", "runtime/claurst"],
+        "runtimes": ["runtime/node", "runtime/claurst"] + (["runtime/windows"] if windows_sandbox else []) + (["runtime/linux-sandbox"] if linux_sandbox else []),
     }
     (out_dir / f"{name}.manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -211,17 +227,65 @@ def main() -> None:
     runtime = runtime_files(args.node_runtime_dir, args.suffix)
     claurst = claurst_files(args.claurst_runtime_dir, args.suffix)
     authority = authority_files(args.authority_release, args.authority_root_keys)
+    sandbox = []
+    sandbox_args = (args.windows_sandbox_runtime_dir, args.windows_sandbox_descriptor_sha256,
+                    args.windows_proxy_package, args.windows_sign_tool)
+    binding = getattr(args, "windows_build_binding", None)
+    bound_binaries = None
+    if any(sandbox_args) or binding:
+        if not all(sandbox_args) or not binding or args.suffix != ".exe" or args.format != "zip":
+            raise SystemExit("Windows sandbox packaging requires a built binding, runtime, reviewed descriptor pin, signed proxy MSIX and SDK SignTool")
+        from windows_sandbox_package import collect
+        sandbox = collect(*sandbox_args, args.target, claurst_runtime=args.claurst_runtime_dir)
+        require_windows_provider_coverage(args.windows_sandbox_runtime_dir, args.windows_sandbox_descriptor_sha256)
+        bound_binaries = verify_windows_build_binding(binding, args.target, files, sandbox)
+
+    if sandbox:
+        from windows_sandbox_package import merge_components
+        merged = merge_components([(path, f"runtime/claurst/{name}") for path, name in claurst], sandbox)
+        claurst = []
+        sandbox = merged
+
+    linux = []
+    linux_args=(args.linux_sandbox_bundle_root,args.linux_sandbox_descriptor_sha256,args.linux_sandbox_verifier,args.linux_sandbox_verifier_sha256)
+    if any(linux_args):
+        if not all(linux_args) or sandbox or args.suffix or args.format!="tar.gz":
+            raise SystemExit("Linux companion packaging requires bundle, descriptor pin, independent verifier+pin and native tar target")
+        from linux_release_archive import collect
+        base={p.name:p for p in files}
+        base.update({"runtime/node/"+n:p for p,n in runtime})
+        base.update({"runtime/claurst/"+n:p for p,n in claurst})
+        base.update({n:p for p,n in authority})
+        linux=collect(*linux_args[:2],args.target,*linux_args[2:],Path(__file__).resolve().parents[1]/"platform/authority/root-keys.json",base)
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
     name = archive_name(args.version, args.target, args.format)
     archive = args.out_dir / name
     root = f"gent-{args.version}-{args.target}"
     if archive.exists():
+        if linux:raise SystemExit("refusing to replace an existing Linux companion archive")
         archive.unlink()
     if args.format == "tar.gz":
-        write_tar(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst] + authority, root, source_date_epoch())
+        write_tar(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst] + authority + sandbox + linux, root, source_date_epoch())
     else:
-        write_zip(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst] + authority, root, source_date_epoch())
-    write_metadata(args.out_dir, name, args.version, args.target, files)
+        write_zip(archive, [(path, path.name) for path in files] + [(path, f"runtime/node/{name}") for path, name in runtime] + [(path, f"runtime/claurst/{name}") for path, name in claurst] + authority + sandbox + linux, root, source_date_epoch())
+    if sandbox:
+        from windows_sandbox_package import verify_archive
+        verify_archive(archive, root, sandbox)
+        with zipfile.ZipFile(archive) as package:
+            for filename, expected in bound_binaries.items():
+                with package.open(root + "/" + filename) as content:
+                    if hashlib.file_digest(content, "sha256").hexdigest() != expected:
+                        raise ValueError("archived Windows binary differs from its build binding: " + filename)
+    if linux:
+        from linux_release_archive import verify_archive
+        generation=archive.stat()
+        try:verify_archive(archive,root,linux)
+        except BaseException:
+            current=archive.stat()
+            if (current.st_dev,current.st_ino)==(generation.st_dev,generation.st_ino):archive.unlink()
+            raise
+    write_metadata(args.out_dir, name, args.version, args.target, files, bool(sandbox), bool(linux))
 
 
 if __name__ == "__main__":

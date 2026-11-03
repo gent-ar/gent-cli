@@ -57,6 +57,21 @@ impl<L> AgentChatPromptService<L> {
 }
 
 impl<L: AgentChatPromptLedger> AgentChatPromptService<L> {
+    pub fn submit_for_steer(
+        &self,
+        request: &AgentChatPromptRequest,
+        run: &AgentChatRunId,
+        turn: &str,
+    ) -> Result<AgentChatPromptResult, RuntimeError> {
+        if self.authority != AgentChatPromptAuthority::Approved {
+            return Ok(AgentChatPromptResult::DeniedObserver);
+        }
+        Ok(AgentChatPromptResult::Saved(Box::new(
+            self.ledger
+                .save_agent_chat_prompt_for_steer(&to_create(request), run, turn)?,
+        )))
+    }
+
     /// Persists one user prompt without starting, signaling, or resolving a provider.
     ///
     /// # Errors
@@ -131,6 +146,28 @@ impl<L: AgentChatQueuedPromptLedger> AgentChatPromptService<L> {
         Ok(self
             .ledger
             .interrupt_active_turn_for_steer(host_epoch, conversation_id, run_id)?)
+    }
+
+    pub fn steer_queued_for_turn(
+        &self,
+        receipt_id: &ReceiptId,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+        message_id: &str,
+        run_id: &AgentChatRunId,
+        turn_id: &str,
+    ) -> Result<Option<(Receipt, AgentChatRunId)>, RuntimeError> {
+        if self.authority != AgentChatPromptAuthority::Approved {
+            return Ok(None);
+        }
+        Ok(Some(self.ledger.steer_queued_agent_chat_prompt_for_turn(
+            receipt_id,
+            host_epoch,
+            conversation_id,
+            message_id,
+            run_id,
+            turn_id,
+        )?))
     }
 
     pub fn steer_queued(

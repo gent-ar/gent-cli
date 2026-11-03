@@ -63,6 +63,33 @@ impl StandaloneAuthorityRelease {
         SignedOrdinaryAuthorityRelease::load_bound(&self.path, &self.root_keys, runtime, now)
     }
 
+    #[cfg(target_os = "linux")]
+    pub(crate) fn linux_deployment(
+        &self,
+        now: u64,
+        node: &gent_drivers::node_runtime_lock::NodeRuntimeLock,
+    ) -> Result<crate::linux_provider_deployment::VerifiedLinuxDeployment, String> {
+        let ordinary = self
+            .load(now)
+            .map_err(|_| "Ordinary release authority is unavailable")?;
+        node.recheck()
+            .map_err(|_| "Verified packaged Node runtime changed")?;
+        let root = crate::linux_provider_deployment::resource_root_for_node(node.node_path())
+            .map_err(str::to_owned)?;
+        if self.path != root.join("authority/ordinary-authority.json") {
+            return Err(
+                "Linux ordinary authority must belong to the verified packaged Node release".into(),
+            );
+        }
+        crate::linux_provider_deployment::VerifiedLinuxDeployment::load(
+            &root.join("authority/linux-sandbox.json"),
+            &root,
+            &self.root_keys,
+            ordinary.artifact_digest_sha256(),
+            now,
+        )
+        .map_err(str::to_owned)
+    }
     pub(crate) fn runtime(&self) -> Option<&AppNodeRuntimeLock> {
         self.runtime.as_ref()
     }

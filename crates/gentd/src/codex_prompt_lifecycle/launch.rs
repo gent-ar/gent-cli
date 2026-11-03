@@ -61,8 +61,21 @@ impl LaunchSetup {
             selected_mcp_source_names
                 .extend(crate::standalone_mcp_config::INTERNAL_SERVER_NAMES.map(str::to_owned));
         }
-        let permission =
-            crate::permission_workspace::policy_for(&runtime.ledger(), &workspace.workspace_id)?;
+        let permission = runtime
+            .conversation_policy(&prompt.message.conversation_id, &workspace.workspace_id)?;
+        runtime.runner().validate_permission_binding(
+            gent_types::SandboxPermissionBinding::new(
+                prompt.message.conversation_id.clone(),
+                run_id.clone(),
+                permission.clone(),
+                runtime.ledger().host_ingress()?.epoch,
+            )
+            .map_err(|_| {
+                gent_ports::PublicProviderRunError::Failed(
+                    "invalid provider permission binding".into(),
+                )
+            })?,
+        )?;
         let conversation_config = runtime
             .ledger()
             .current_conversation_config(&prompt.message.conversation_id)

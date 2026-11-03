@@ -34,6 +34,10 @@ mod provider_auth_challenge;
 
 #[path = "provider_auth_check.rs"]
 mod provider_auth_check;
+#[path = "provider_auth_codex.rs"]
+mod provider_auth_codex;
+#[path = "provider_auth_handoff.rs"]
+mod provider_auth_handoff;
 
 pub(crate) trait ProviderAuthPort: Send + Sync {
     fn exchange(&self, frame: ProviderAuthFrame) -> Result<ProviderAuthFrame, String>;
@@ -50,9 +54,16 @@ pub(crate) struct StandaloneProviderAuthPort {
     probe_timeout: Duration,
     probe_retry: ProbeRetry,
     answer_window: Duration,
+    lifecycle_control: Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
 }
 
 impl StandaloneProviderAuthPort {
+    #[cfg(test)]
+    fn for_test(executables: crate::provider_executables::ProviderExecutables) -> Self {
+        let control = crate::ordinary_lifecycle_control::OrdinaryLifecycleControl::new();
+        control.open_after_recovery();
+        Self::new(executables).with_lifecycle_control(control)
+    }
     pub(crate) fn new(executables: crate::provider_executables::ProviderExecutables) -> Self {
         Self {
             executables,
@@ -63,7 +74,24 @@ impl StandaloneProviderAuthPort {
             probe_timeout: PROBE_TIMEOUT,
             probe_retry: ProbeRetry::BACKGROUND,
             answer_window: STATUS_ANSWER_WINDOW,
+            lifecycle_control: None,
         }
+    }
+
+    pub(crate) fn with_lifecycle_control(
+        mut self,
+        control: crate::ordinary_lifecycle_control::OrdinaryLifecycleControl,
+    ) -> Self {
+        self.lifecycle_control = Some(control);
+        self
+    }
+
+    fn control(
+        &self,
+    ) -> Result<&crate::ordinary_lifecycle_control::OrdinaryLifecycleControl, String> {
+        self.lifecycle_control
+            .as_ref()
+            .ok_or_else(|| "provider authentication admission is unavailable".into())
     }
 
     #[cfg(all(test, unix))]
@@ -101,7 +129,8 @@ impl StandaloneProviderAuthPort {
                 status: self.checked_status(provider),
             });
         };
-        let lock = match identified_lock(provider, &executable, self.probe_timeout) {
+        let control = self.control()?;
+        let lock = match identified_lock(provider, &executable, self.probe_timeout, control) {
             Ok(lock) => lock,
             Err(ProviderLaunchError::TimedOut(_)) => return Ok(checking(request_id)),
             Err(ProviderLaunchError::Failed(message)) => return Err(message),
@@ -110,6 +139,7 @@ impl StandaloneProviderAuthPort {
         if let Some(index) = sessions.iter().position(|item| item.provider == provider) {
             refresh(&mut sessions[index], self.probe_timeout);
             if sessions[index].login.is_some()
+                || sessions[index].device_login.is_some()
                 || sessions[index].status().lifecycle == ProviderAuthLifecycle::Authenticated
             {
                 return Ok(ProviderAuthFrame::Status {
@@ -119,20 +149,26 @@ impl StandaloneProviderAuthPort {
             }
             sessions.remove(index);
         }
-        let Ok(lifecycle) = authentication(provider, &lock, self.probe_timeout) else {
+        let Ok(lifecycle) = authentication(provider, &lock, self.probe_timeout, control) else {
             return Ok(checking(request_id));
         };
         match lifecycle {
             ProviderAuthLifecycle::Unauthenticated => {}
             ProviderAuthLifecycle::Authenticated => {
-                let session =
-                    ProviderAuthSession::new(provider, lock, ProviderAuthLifecycle::Authenticated);
+                let session = ProviderAuthSession::new(
+                    provider,
+                    lock,
+                    ProviderAuthLifecycle::Authenticated,
+                    Some(control.clone()),
+                );
                 let status = session.status();
                 sessions.push(session);
                 return Ok(ProviderAuthFrame::Status { request_id, status });
             }
             lifecycle => {
-                let status = ProviderAuthSession::new(provider, lock, lifecycle).status();
+                let status =
+                    ProviderAuthSession::new(provider, lock, lifecycle, Some(control.clone()))
+                        .status();
                 return Ok(ProviderAuthFrame::Status { request_id, status });
             }
         }
@@ -152,6 +188,8 @@ impl StandaloneProviderAuthPort {
             state,
             lock,
             login: None,
+            device_login: None,
+            lifecycle_control: Some(control.clone()),
         });
         match effect {
             ProviderAuthEffect::AskTool(challenge) => Ok(ProviderAuthFrame::AskTool {
@@ -170,6 +208,25 @@ impl StandaloneProviderAuthPort {
 impl ProviderAuthPort for StandaloneProviderAuthPort {
     fn exchange(&self, frame: ProviderAuthFrame) -> Result<ProviderAuthFrame, String> {
         match frame {
+            ProviderAuthFrame::HandoffStatusRequest {
+                request_id,
+                provider,
+            } => {
+                let _ = self.checked_status(provider);
+                Ok(self.handoff_state(request_id, provider))
+            }
+            ProviderAuthFrame::HandoffLoginRequest {
+                request_id,
+                provider,
+            } => {
+                let _ = self.login(request_id.clone(), provider)?;
+                Ok(self.handoff_state(request_id, provider))
+            }
+            ProviderAuthFrame::HandoffSelectMethod {
+                request_id,
+                challenge_id,
+                method,
+            } => self.select_handoff(request_id, challenge_id, method),
             ProviderAuthFrame::StatusRequest {
                 request_id,
                 provider,
@@ -205,3 +262,13 @@ fn recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 #[path = "provider_auth_api_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "provider_auth_admission_tests.rs"]
+mod admission_tests;
+#[cfg(all(test, unix))]
+#[path = "provider_auth_handoff_integration_tests.rs"]
+mod handoff_integration_tests;
+#[cfg(test)]
+#[path = "provider_auth_status_tests.rs"]
+mod status_tests;

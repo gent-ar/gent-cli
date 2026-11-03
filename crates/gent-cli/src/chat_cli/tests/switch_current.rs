@@ -195,6 +195,7 @@ fn detail() -> AgentChatConversationDetail {
             git_branch: None,
             updated_at_unix_ms: 1,
             selection: selection.clone(),
+            containment: gent_types::Containment::Unsandboxed,
         },
         current_run_id: "run-current".into(),
         runs: vec![AgentChatRun {

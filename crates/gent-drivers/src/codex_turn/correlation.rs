@@ -29,6 +29,9 @@ impl CodexTurnDriver {
         } else {
             normalize_public_frame(PublicProvider::Codex, frame)
         };
+        if let Some(reasoning) = self.reasoning.receive(frame) {
+            facts = reasoning;
+        }
         if facts.iter().any(|fact| {
             matches!(
                 fact,

@@ -5,7 +5,6 @@ use gent_protocol::PermissionPolicyFrame;
 use gent_runtime::Coordinator;
 use gent_types::{PermissionMode, PolicyScope};
 
-/// Handles one local policy exchange without provider, process, or terminal dependencies.
 pub(crate) fn exchange<L>(
     coordinator: &Coordinator<L>,
     frame: PermissionPolicyFrame,
@@ -24,6 +23,7 @@ where
             request_id,
             policy,
             bypass_consent,
+            ..
         } => save(coordinator, request_id, policy, bypass_consent),
         PermissionPolicyFrame::CurrentPolicy { .. } | PermissionPolicyFrame::Saved { .. } => {
             Err("permission policy response frames are server-only".into())
@@ -58,8 +58,16 @@ where
     if policy.mode == PermissionMode::Bypass && !bypass_consent {
         return Err("changing to bypass mode requires explicit bypass consent".into());
     }
+    if coordinator
+        .current_policy(&policy.workspace_id, policy.scope)
+        .map_err(|error| error.to_string())?
+        .as_ref()
+        == Some(&policy)
+    {
+        return Ok(PermissionPolicyFrame::Saved { request_id, policy });
+    }
     coordinator
-        .save_policy(&policy)
+        .save_provider_permission_policy(&policy)
         .map_err(|error| error.to_string())?;
     Ok(PermissionPolicyFrame::Saved { request_id, policy })
 }
@@ -79,13 +87,14 @@ mod tests {
             scope: PolicyScope::ProviderPermissions,
             revision: 1,
             mode,
+            containment: gent_types::Containment::Sandboxed,
             allowed_tools: Vec::new(),
             allowed_categories: Vec::new(),
         }
     }
 
     #[test]
-    fn bypass_requires_one_time_consent_then_persists_as_the_selected_mode() {
+    fn broad_modes_save_without_probing_a_sandbox_because_containment_is_per_conversation() {
         let coordinator =
             Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
         coordinator
@@ -94,44 +103,83 @@ mod tests {
                 canonical_path: "/workspace".into(),
             })
             .unwrap();
-        let denied = exchange(
+        coordinator
+            .save_policy(&policy(PermissionMode::AutoAcceptEdits))
+            .unwrap();
+        let mut next = policy(PermissionMode::Bypass);
+        next.policy_id = "policy-2".into();
+        next.revision = 2;
+        let unconsented = exchange(
             &coordinator,
             PermissionPolicyFrame::Save {
-                request_id: "request-1".into(),
-                policy: policy(PermissionMode::Bypass),
+                request_id: "request".into(),
+                policy: next.clone(),
                 bypass_consent: false,
+                expected_provider: None,
             },
         );
-        assert!(denied.unwrap_err().contains("requires explicit"));
-        let saved = exchange(
+        assert!(unconsented.unwrap_err().contains("bypass consent"));
+        exchange(
             &coordinator,
             PermissionPolicyFrame::Save {
-                request_id: "request-2".into(),
-                policy: policy(PermissionMode::Bypass),
+                request_id: "request".into(),
+                policy: next,
                 bypass_consent: true,
+                expected_provider: None,
+            },
+        )
+        .unwrap();
+        let current = coordinator
+            .current_policy("workspace-1", PolicyScope::ProviderPermissions)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (current.mode, current.revision),
+            (PermissionMode::Bypass, 2)
+        );
+    }
+
+    #[test]
+    fn bypass_still_requires_explicit_consent() {
+        let coordinator =
+            Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
+        let error = exchange(
+            &coordinator,
+            PermissionPolicyFrame::Save {
+                request_id: "request".into(),
+                policy: policy(PermissionMode::Bypass),
+                bypass_consent: false,
+                expected_provider: None,
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("requires explicit"));
+    }
+
+    #[test]
+    fn supported_mode_is_saved_and_returned() {
+        let coordinator =
+            Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
+        coordinator
+            .create_workspace(&WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/workspace".into(),
+            })
+            .unwrap();
+        let reply = exchange(
+            &coordinator,
+            PermissionPolicyFrame::Save {
+                request_id: "request".into(),
+                policy: policy(PermissionMode::AutoAcceptEdits),
+                bypass_consent: false,
+                expected_provider: None,
             },
         )
         .unwrap();
         assert!(
-            matches!(saved, PermissionPolicyFrame::Saved { policy, .. } if policy.mode == PermissionMode::Bypass)
+            matches!(reply, PermissionPolicyFrame::Saved {policy, ..} if policy.mode == PermissionMode::AutoAcceptEdits)
         );
-        let current = exchange(
-            &coordinator,
-            PermissionPolicyFrame::Current {
-                request_id: "request-3".into(),
-                workspace_id: "workspace-1".into(),
-            },
-        )
-        .unwrap();
-        assert!(matches!(
-            current,
-            PermissionPolicyFrame::CurrentPolicy {
-                policy: Some(policy),
-                ..
-            } if policy.mode == PermissionMode::Bypass
-        ));
     }
-
     #[test]
     fn conservative_default_is_idempotent_and_an_explicit_revision_remains_authoritative() {
         let coordinator =
@@ -155,6 +203,7 @@ mod tests {
             revision: 2,
             policy_id: "policy-2".into(),
             mode: PermissionMode::AskEveryTime,
+            containment: gent_types::Containment::Sandboxed,
             ..first
         };
         coordinator.save_policy(&revised).unwrap();

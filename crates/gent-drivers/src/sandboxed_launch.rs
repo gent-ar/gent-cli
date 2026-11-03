@@ -6,10 +6,124 @@
 
 use std::sync::Arc;
 
-use gent_types::{SandboxLaunchPolicy, SandboxedLaunchRequest};
+use gent_types::{
+    RunVersionLock, SandboxBackendId, SandboxEnforcement, SandboxLaunchAttestation,
+    SandboxLaunchPolicy, SandboxProviderGateway, SandboxedLaunchRequest,
+};
 
+use crate::interrupt::ProcessTreeControl;
 use crate::lock::LockError;
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
+
+#[derive(Debug)]
+pub struct ProcessSandboxEvidence {
+    run_id: String,
+    process_generation: String,
+    attestation: SandboxLaunchAttestation,
+    lock: RunVersionLock,
+    network_peer: Option<crate::SandboxNetworkPeer>,
+    permission_binding: Option<gent_types::SandboxPermissionBinding>,
+    workspace_root: std::path::PathBuf,
+    workspace_access: gent_types::SandboxWorkspaceAccess,
+}
+
+impl ProcessSandboxEvidence {
+    pub fn new(
+        request: &SandboxedLaunchRequest,
+        rechecked_lock: &RunVersionLock,
+        run_id: String,
+        process_generation: String,
+        backend: SandboxBackendId,
+    ) -> Result<Self, SandboxedProviderLaunchError> {
+        if run_id.trim().is_empty() || process_generation.trim().is_empty() {
+            return Err(SandboxedProviderLaunchError::ContainmentRejected);
+        }
+        if request
+            .profile
+            .permission_binding()
+            .is_some_and(|binding| binding.run_id() != run_id)
+        {
+            return Err(SandboxedProviderLaunchError::ContainmentRejected);
+        }
+        let attestation = request
+            .attest_after_lock_recheck(rechecked_lock, backend, SandboxEnforcement::Enforced)
+            .map_err(|_| SandboxedProviderLaunchError::LockChanged)?;
+        Ok(Self {
+            run_id,
+            process_generation,
+            attestation,
+            lock: rechecked_lock.clone(),
+            network_peer: None,
+            permission_binding: request.profile.permission_binding().cloned(),
+            workspace_root: request.profile.workspace_root().into(),
+            workspace_access: if request
+                .profile
+                .writable_roots()
+                .contains(&request.profile.workspace_root().to_path_buf())
+            {
+                gent_types::SandboxWorkspaceAccess::ReadWrite
+            } else {
+                gent_types::SandboxWorkspaceAccess::ReadOnly
+            },
+        })
+    }
+
+    #[must_use]
+    pub fn run_id(&self) -> &str {
+        &self.run_id
+    }
+
+    #[must_use]
+    pub fn process_generation(&self) -> &str {
+        &self.process_generation
+    }
+
+    #[must_use]
+    pub fn attestation(&self) -> &SandboxLaunchAttestation {
+        &self.attestation
+    }
+
+    #[must_use]
+    pub fn with_network_peer(mut self, peer: crate::SandboxNetworkPeer) -> Self {
+        self.network_peer = Some(peer);
+        self
+    }
+
+    pub fn network_peer(&self) -> Option<&crate::SandboxNetworkPeer> {
+        self.network_peer.as_ref()
+    }
+
+    pub fn permission_binding(&self) -> Option<&gent_types::SandboxPermissionBinding> {
+        self.permission_binding.as_ref()
+    }
+
+    #[must_use]
+    pub(crate) fn matches_provider_launch(&self, launch: &ProviderLaunch) -> bool {
+        launch.run_id.as_deref() == Some(self.run_id.as_str())
+            && self.lock == launch.lock
+            && launch.provider == self.lock.provider
+            && launch.executable == std::path::Path::new(&self.lock.canonical_path)
+            && launch.workspace_root.as_deref() == Some(self.workspace_root.as_path())
+            && launch.workspace_access == self.workspace_access
+            && self.permission_binding.is_some()
+            && self.permission_binding.as_ref() == launch.permission_binding.as_ref()
+    }
+
+    pub fn matches(&self, request: &SandboxedLaunchRequest, run_id: &str) -> bool {
+        self.run_id == run_id
+            && self.permission_binding.as_ref() == request.profile.permission_binding()
+            && self.network_peer.is_some() == request.profile.gateway().is_some()
+            && match (request.profile.gateway(), self.network_peer.as_ref()) {
+                (Some(gateway), Some(peer)) => peer.matches_active_gateway(gateway.peer_nonce()),
+                (None, None) => true,
+                _ => false,
+            }
+            && self.lock == request.lock
+            && self.attestation.profile_digest_sha256 == request.profile.digest_sha256()
+            && self.attestation.executable_digest_sha256 == request.lock.digest_sha256
+            && self.attestation.executable_file_identity == request.lock.file_identity
+    }
+}
 
 /// Failure from the platform-owned containment and spawn operation.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -29,7 +143,6 @@ pub enum SandboxedProviderLaunchError {
 /// The only process-spawning port accepted by a sandbox-required authority.
 ///
 /// Implementations must recheck `request.lock`, apply `request.profile`, and start the exact
-/// `launch` as one trusted platform operation. Returning a process means the launched process is
 pub trait SandboxedProviderLaunch: Send + Sync {
     /// The process tree owned after a successful contained spawn.
     type Process: ProviderProcess + 'static;
@@ -55,10 +168,10 @@ pub trait SandboxedProviderLaunch: Send + Sync {
 pub struct SandboxedLauncher<S> {
     policy: SandboxLaunchPolicy,
     inner: Arc<S>,
+    gateway: Option<(String, SandboxProviderGateway)>,
 }
 
 impl<S> SandboxedLauncher<S> {
-    /// Binds a platform containment-and-spawn port to one path-free Gent-owned policy.
     ///
     /// The exact executable lock comes from each daemon-resolved [`ProviderLaunch`], avoiding a
     /// second configuration lock that could diverge before contained spawning.
@@ -67,7 +180,20 @@ impl<S> SandboxedLauncher<S> {
         Self {
             policy,
             inner: Arc::new(inner),
+            gateway: None,
         }
+    }
+
+    pub fn with_gateway_for_run(
+        mut self,
+        run_id: String,
+        gateway: SandboxProviderGateway,
+    ) -> Result<Self, SandboxedProviderLaunchError> {
+        if run_id.trim().is_empty() {
+            return Err(SandboxedProviderLaunchError::ProfileRejected);
+        }
+        self.gateway = Some((run_id, gateway));
+        Ok(self)
     }
 }
 
@@ -78,6 +204,13 @@ where
     type Process = S::Process;
 
     fn launch(&self, launch: &ProviderLaunch) -> Result<Self::Process, SupervisorError> {
+        let run_id = launch
+            .run_id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| {
+                SupervisorError::Launch("sandboxed launch lacks a durable run".into())
+            })?;
         let lock = &launch.lock;
         (launch.provider == lock.provider
             && launch.executable.to_string_lossy() == lock.canonical_path)
@@ -87,17 +220,43 @@ where
             .workspace_root
             .as_deref()
             .ok_or_else(|| SupervisorError::Launch("sandboxed launch lacks a workspace".into()))?;
-        let profile = self
+        let mut profile = self
             .policy
             .profile_for_workspace(workspace_root, launch.workspace_access)
             .map_err(|_| SupervisorError::Launch("sandbox profile was rejected".into()))?;
+        if profile.permission_binding() != launch.permission_binding.as_ref() {
+            return Err(map_error(SandboxedProviderLaunchError::ProfileRejected));
+        }
+        if profile
+            .private_state()
+            .is_some_and(|state| state.run_id() != run_id)
+        {
+            return Err(map_error(SandboxedProviderLaunchError::ProfileRejected));
+        }
+        if let Some((gateway_run, gateway)) = &self.gateway {
+            if gateway_run != run_id || launch.provider != gateway.api().provider_id() {
+                return Err(map_error(SandboxedProviderLaunchError::ProfileRejected));
+            }
+            profile = profile
+                .with_gateway(gateway.clone())
+                .map_err(|_| map_error(SandboxedProviderLaunchError::ProfileRejected))?;
+        }
         let request = SandboxedLaunchRequest {
             lock: lock.clone(),
             profile,
         };
-        self.inner
+        let process = self
+            .inner
             .launch_sandboxed(&request, launch)
-            .map_err(map_error)
+            .map_err(map_error)?;
+        if !process
+            .sandbox_evidence()
+            .is_some_and(|proof| proof.matches(&request, run_id))
+        {
+            let _ = process.signal_tree(crate::interrupt::ProcessTreeSignal::Kill);
+            return Err(map_error(SandboxedProviderLaunchError::ContainmentRejected));
+        }
+        Ok(process)
     }
 }
 
@@ -111,135 +270,5 @@ fn map_error(error: SandboxedProviderLaunchError) -> SupervisorError {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::sync::Mutex;
-
-    use gent_types::{
-        RunVersionLock, SandboxLaunchPolicy, SandboxNetworkPolicy, SandboxResourceLimits,
-        SandboxWorkspaceAccess,
-    };
-
-    use super::*;
-    use crate::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
-    use crate::supervisor::LaunchIntent;
-
-    #[derive(Debug)]
-    struct Process;
-    impl ProcessTreeControl for Process {
-        fn signal_tree(&self, _: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-            Ok(())
-        }
-    }
-    impl ProviderProcess for Process {
-        fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
-            Ok(())
-        }
-
-        fn close_stdin(&self) -> Result<(), ProcessTreeError> {
-            Ok(())
-        }
-    }
-
-    #[derive(Default)]
-    struct LaunchPort(Mutex<Vec<(SandboxedLaunchRequest, ProviderLaunch)>>);
-    impl SandboxedProviderLaunch for LaunchPort {
-        type Process = Process;
-        fn launch_sandboxed(
-            &self,
-            request: &SandboxedLaunchRequest,
-            launch: &ProviderLaunch,
-        ) -> Result<Process, SandboxedProviderLaunchError> {
-            self.0
-                .lock()
-                .unwrap()
-                .push((request.clone(), launch.clone()));
-            Ok(Process)
-        }
-    }
-
-    fn policy() -> SandboxLaunchPolicy {
-        SandboxLaunchPolicy::new(
-            vec![],
-            SandboxNetworkPolicy::Disabled,
-            SandboxResourceLimits {
-                max_processes: 1,
-                max_memory_bytes: 1,
-                max_cpu_time_ms: 1,
-            },
-        )
-        .unwrap()
-    }
-
-    fn request() -> SandboxedLaunchRequest {
-        SandboxedLaunchRequest {
-            lock: RunVersionLock {
-                provider: "codex".into(),
-                canonical_path: "/private/codex".into(),
-                file_identity: "1:2".into(),
-                digest_sha256: "a".repeat(64),
-                version: "1".into(),
-                compatibility_entry: "codex-1".into(),
-            },
-            profile: policy()
-                .profile_for_workspace(
-                    &gent_testkit::host_absolute_path("/workspace"),
-                    SandboxWorkspaceAccess::ReadOnly,
-                )
-                .unwrap(),
-        }
-    }
-
-    fn launch(provider: &str, executable: &str) -> ProviderLaunch {
-        ProviderLaunch {
-            lock: request().lock,
-            provider: provider.into(),
-            executable: executable.into(),
-            arguments: vec![],
-            intent: LaunchIntent::Start,
-            workspace_root: Some(gent_testkit::host_absolute_path("/workspace")),
-            workspace_access: SandboxWorkspaceAccess::ReadOnly,
-        }
-    }
-
-    #[test]
-    fn atomic_port_receives_the_bound_profile_with_the_exact_spawn() {
-        let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(policy(), port);
-        launcher.launch(&launch("codex", "/private/codex")).unwrap();
-        let calls = launcher.inner.0.lock().unwrap();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0.lock.provider, "codex");
-        assert_eq!(calls[0].0.lock, calls[0].1.lock);
-        assert_eq!(calls[0].1.executable, PathBuf::from("/private/codex"));
-    }
-
-    #[test]
-    fn altered_launch_never_reaches_the_atomic_port() {
-        let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(policy(), port);
-        assert!(matches!(
-            launcher.launch(&launch("claude", "/private/claude")),
-            Err(SupervisorError::Lock(LockError::ProviderChanged))
-        ));
-        assert!(launcher.inner.0.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn each_launch_derives_its_profile_from_its_own_workspace_and_mode() {
-        let port = LaunchPort::default();
-        let launcher = SandboxedLauncher::new(policy(), port);
-        let mut first = launch("codex", "/private/codex");
-        first.workspace_root = Some(gent_testkit::host_absolute_path("/workspace-a"));
-        let mut second = first.clone();
-        second.workspace_root = Some(gent_testkit::host_absolute_path("/workspace-b"));
-        second.workspace_access = SandboxWorkspaceAccess::ReadWrite;
-        launcher.launch(&first).unwrap();
-        launcher.launch(&second).unwrap();
-        let calls = launcher.inner.0.lock().unwrap();
-        assert_ne!(
-            calls[0].0.profile.digest_sha256(),
-            calls[1].0.profile.digest_sha256()
-        );
-    }
-}
+#[path = "sandboxed_launch_tests.rs"]
+mod tests;

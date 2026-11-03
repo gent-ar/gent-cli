@@ -35,6 +35,29 @@ fn assert_resumed_once(daemon: &FakeCodexDaemon, thread: &str) {
 }
 
 #[test]
+fn interrupt_turn_rejects_a_previous_turn_without_stopping_the_current_turn() {
+    let mut daemon = FakeCodexDaemon::start();
+    let (conversation, run) = daemon.conversation("interrupt-target");
+    let previous = daemon.prompt(&conversation, "hello");
+    assert_eq!(daemon.settle(&previous), DurableTurnPhase::Completed);
+    let current = daemon.prompt(&conversation, "WAIT for me");
+    daemon.drive_until("streamed output", |daemon| {
+        !daemon.reply(&current).is_empty()
+    });
+    assert!(
+        daemon
+            .router
+            .interrupt_turn(AgentChatProvider::Codex, &run.0, &previous.message.turn_id)
+            .is_err()
+    );
+    daemon
+        .router
+        .interrupt_turn(AgentChatProvider::Codex, &run.0, &current.message.turn_id)
+        .unwrap();
+    assert_eq!(daemon.settle(&current), DurableTurnPhase::Interrupted);
+}
+
+#[test]
 fn mcp_change_resumes_the_bound_thread_with_its_long_history() {
     let mut daemon = FakeCodexDaemon::start();
     let (conversation, run, thread) =

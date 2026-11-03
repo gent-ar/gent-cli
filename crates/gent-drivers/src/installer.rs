@@ -9,6 +9,13 @@ use gent_ports::ApprovedPackageInstall;
 
 use crate::node_runtime_lock::{NodeRuntimeLock, NodeRuntimeLockError};
 
+#[path = "installer_npm_paths.rs"]
+mod npm_paths;
+pub(super) use npm_paths::{
+    archive_argument as npm_archive_argument, filesystem_path as npm_archive_path,
+};
+use npm_paths::{checked_filesystem_path, filesystem_path};
+
 /// A reviewed installer command. Arguments are never interpreted by a shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstallerInvocation {
@@ -35,12 +42,12 @@ impl NpmGlobalPrefix {
         InstallerInvocation {
             executable: self.runtime.node_path().to_string_lossy().into_owned(),
             arguments: vec![
-                self.runtime.npm_cli_path().to_string_lossy().into_owned(),
+                filesystem_path(self.runtime.npm_cli_path()),
                 "pack".into(),
                 "--ignore-scripts".into(),
                 "--json".into(),
                 "--pack-destination".into(),
-                staging.to_string_lossy().into_owned(),
+                filesystem_path(staging),
                 package.selector(),
             ],
         }
@@ -52,14 +59,14 @@ impl NpmGlobalPrefix {
         InstallerInvocation {
             executable: self.runtime.node_path().to_string_lossy().into_owned(),
             arguments: vec![
-                self.runtime.npm_cli_path().to_string_lossy().into_owned(),
+                filesystem_path(self.runtime.npm_cli_path()),
                 "install".into(),
                 "--ignore-scripts".into(),
                 "--global".into(),
                 "--prefix".into(),
-                self.prefix.to_string_lossy().into_owned(),
+                filesystem_path(&self.prefix),
                 "--offline".into(),
-                archive.to_string_lossy().into_owned(),
+                npm_archive_argument(archive),
             ],
         }
     }
@@ -69,16 +76,26 @@ impl NpmGlobalPrefix {
         InstallerInvocation {
             executable: self.runtime.node_path().to_string_lossy().into_owned(),
             arguments: vec![
-                self.runtime.npm_cli_path().to_string_lossy().into_owned(),
+                filesystem_path(self.runtime.npm_cli_path()),
                 "install".into(),
                 "--global".into(),
                 "--prefix".into(),
-                self.prefix.to_string_lossy().into_owned(),
+                filesystem_path(&self.prefix),
                 "--no-audit".into(),
                 "--no-fund".into(),
                 package.into(),
             ],
         }
+    }
+
+    /// Rejects unsupported npm global roots before staging or executing a package operation.
+    pub(super) fn validate_prefix(&self) -> Result<(), InstallerError> {
+        npm_paths::require_supported_prefix(&self.prefix)?;
+        checked_filesystem_path(&self.prefix).map(|_| ())
+    }
+
+    pub(super) fn validate_filesystem_path(path: &Path) -> Result<(), InstallerError> {
+        checked_filesystem_path(path).map(|_| ())
     }
 
     /// Returns the daemon-owned package prefix, used to make private staging directories.
@@ -100,21 +117,41 @@ impl NpmGlobalPrefix {
     /// # Errors
     /// Returns when the captured Node binary cannot supply a safe command environment.
     pub fn configure_command(&self, command: &mut Command) -> Result<(), InstallerError> {
+        self.validate_prefix()?;
+        let prefix = checked_filesystem_path(&self.prefix)?;
+        checked_filesystem_path(self.runtime.npm_cli_path())?;
         let node_bin =
             self.runtime.node_path().parent().ok_or_else(|| {
                 InstallerError::Runtime("locked Node has no bin directory".into())
             })?;
-        crate::process::configure_locked_node_environment(command, node_bin)
+        let node_bin = checked_filesystem_path(node_bin)?;
+        crate::process::configure_locked_node_environment(command, Path::new(&node_bin))
             .map_err(|error| InstallerError::Launch(error.to_string()))?;
-        let cache = self.prefix.join(".npm-cache");
-        let config = self.prefix.join(".npmrc");
+        // Remove every inherited npm configuration control before setting private paths.
+        let controls = std::env::vars_os()
+            .map(|(key, _)| key)
+            .chain(command.get_envs().map(|(key, _)| key.to_owned()))
+            .filter(|key| {
+                key.to_string_lossy()
+                    .to_ascii_uppercase()
+                    .starts_with("NPM_CONFIG_")
+            })
+            .collect::<Vec<_>>();
+        for key in controls {
+            command.env_remove(key);
+        }
+        let cache = checked_filesystem_path(&self.prefix.join(".npm-cache"))?;
+        let config = checked_filesystem_path(&self.prefix.join(".npmrc"))?;
+        let global = checked_filesystem_path(&self.prefix.join("etc").join("npmrc"))?;
         command
-            .env("npm_config_prefix", &self.prefix)
-            .env("NPM_CONFIG_PREFIX", &self.prefix)
-            .env("npm_config_cache", cache)
-            .env("NPM_CONFIG_CACHE", self.prefix.join(".npm-cache"))
-            .env("npm_config_userconfig", config)
-            .env("NPM_CONFIG_USERCONFIG", self.prefix.join(".npmrc"));
+            .env("npm_config_prefix", &prefix)
+            .env("NPM_CONFIG_PREFIX", &prefix)
+            .env("npm_config_cache", &cache)
+            .env("NPM_CONFIG_CACHE", &cache)
+            .env("npm_config_userconfig", &config)
+            .env("NPM_CONFIG_USERCONFIG", &config)
+            .env("npm_config_globalconfig", &global)
+            .env("NPM_CONFIG_GLOBALCONFIG", &global);
         Ok(())
     }
 }
@@ -161,6 +198,11 @@ pub enum InstallerError {
     PackOutput,
     #[error("npm pack returned an unsafe artifact path")]
     InvalidArtifact,
+    /// Returned before any package staging or npm process, never after an install effect.
+    #[error(
+        "npm global installation requires a local Windows drive; UNC prefixes are unsupported by the bundled npm filesystem resolver"
+    )]
+    UnsupportedPrefix,
     #[error("signed package integrity is not a SHA-512 SRI digest")]
     InvalidIntegrity,
     #[error("packed tarball does not match signed package integrity")]
@@ -168,125 +210,5 @@ pub enum InstallerError {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-        process::Command,
-    };
-
-    use gent_ports::ApprovedPackageInstall;
-
-    #[test]
-    fn npm_commands_use_only_the_private_prefix_and_fixed_arguments() {
-        let root = tempfile::tempdir().unwrap();
-        let npm = super::NpmGlobalPrefix::new(
-            runtime(root.path()),
-            PathBuf::from("/private/gentd/providers/npm-global"),
-        );
-        let package = ApprovedPackageInstall {
-            provider: "codex".into(),
-            package_name: "@openai/codex".into(),
-            version: "0.147.0".into(),
-            integrity: "sha512-test".into(),
-            package_policy_digest_sha256: "a".repeat(64),
-        };
-        let packed = npm.pack(&package, std::path::Path::new("/private/staging"));
-        assert!(Path::new(&packed.executable).ends_with("bin/node"));
-        assert_eq!(packed.arguments[0], npm_cli(root.path()).to_string_lossy());
-        assert_eq!(packed.arguments[1], "pack");
-        assert_eq!(packed.arguments[2], "--ignore-scripts");
-        assert_eq!(packed.arguments[3], "--json");
-        assert_eq!(packed.arguments[4], "--pack-destination");
-        assert_eq!(packed.arguments[5], "/private/staging");
-        assert_eq!(packed.arguments[6], "@openai/codex@0.147.0");
-        let installed = npm.install_archive(std::path::Path::new("/private/staging/codex.tgz"));
-        assert_eq!(
-            installed.arguments[5],
-            "/private/gentd/providers/npm-global"
-        );
-        assert_eq!(installed.arguments[6], "--offline");
-        assert_eq!(installed.arguments[7], "/private/staging/codex.tgz");
-        assert_eq!(installed.arguments[2], "--ignore-scripts");
-        let package = npm.install_package("@openai/codex");
-        assert_eq!(package.arguments[1], "install");
-        assert_eq!(package.arguments[2], "--global");
-        assert_eq!(package.arguments[3], "--prefix");
-        assert_eq!(package.arguments[4], "/private/gentd/providers/npm-global");
-        assert_eq!(package.arguments[7], "@openai/codex");
-    }
-
-    #[test]
-    fn private_npm_command_clears_host_node_and_npm_controls() {
-        let root = tempfile::tempdir().unwrap();
-        let prefix = root.path().join("private-prefix");
-        let npm = super::NpmGlobalPrefix::new(runtime(root.path()), prefix.clone());
-        let mut command = Command::new("ignored");
-        for name in ["NODE_OPTIONS", "NODE_PATH", "NPM_CONFIG_REGISTRY"] {
-            command.env(name, "host-value");
-        }
-        npm.configure_command(&mut command).unwrap();
-        let values = command
-            .get_envs()
-            .map(|(name, value)| (name.to_string_lossy().into_owned(), value.is_some()))
-            .collect::<std::collections::BTreeMap<_, _>>();
-        assert_eq!(values.get("NODE_OPTIONS"), Some(&false));
-        assert_eq!(values.get("NODE_PATH"), Some(&false));
-        assert_eq!(values.get("NPM_CONFIG_REGISTRY"), Some(&false));
-        assert_eq!(
-            values.get("npm_config_prefix"),
-            Some(&true),
-            "npm receives only the private prefix"
-        );
-        assert_eq!(values.get("npm_config_userconfig"), Some(&true));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn private_npm_path_contains_only_locked_node_and_system_interpreters() {
-        let root = tempfile::tempdir().unwrap();
-        let npm = super::NpmGlobalPrefix::new(runtime(root.path()), root.path().join("prefix"));
-        let mut command = Command::new("ignored");
-        npm.configure_command(&mut command).unwrap();
-        let path = command
-            .get_envs()
-            .find_map(|(name, value)| (name == "PATH").then_some(value))
-            .flatten()
-            .unwrap();
-        assert_eq!(
-            std::env::split_paths(path).collect::<Vec<_>>(),
-            vec![
-                root.path().join("bin").canonicalize().unwrap(),
-                "/usr/bin".into(),
-                "/bin".into()
-            ]
-        );
-    }
-
-    fn runtime(root: &Path) -> crate::node_runtime_lock::NodeRuntimeLock {
-        let bin = root.join("bin");
-        fs::create_dir_all(&bin).unwrap();
-        fs::write(bin.join("node"), "node").unwrap();
-        fs::write(bin.join(npm_name()), "npm").unwrap();
-        let cli = root.join("lib/node_modules/npm/bin");
-        fs::create_dir_all(&cli).unwrap();
-        fs::write(cli.join("npm-cli.js"), "npm cli").unwrap();
-        crate::node_runtime_lock::NodeRuntimeLock::capture(&bin.join("node")).unwrap()
-    }
-
-    fn npm_cli(root: &Path) -> PathBuf {
-        root.join("lib/node_modules/npm/bin/npm-cli.js")
-            .canonicalize()
-            .unwrap()
-    }
-
-    #[cfg(windows)]
-    const fn npm_name() -> &'static str {
-        "npm.cmd"
-    }
-
-    #[cfg(not(windows))]
-    const fn npm_name() -> &'static str {
-        "npm"
-    }
-}
+#[path = "installer_tests.rs"]
+mod tests;

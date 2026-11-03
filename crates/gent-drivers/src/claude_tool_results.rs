@@ -20,6 +20,11 @@ pub(crate) fn remember(
         if activity.phase == ToolPhase::Started {
             started_tools
                 .entry(activity.tool_use_id.clone())
+                .and_modify(|started| {
+                    if activity.input.is_some() {
+                        started.input.clone_from(&activity.input);
+                    }
+                })
                 .or_insert_with(|| activity.clone());
         }
     }
@@ -95,10 +100,10 @@ fn string<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use gent_types::{NormalizedProviderEvent, ToolActivity, ToolPhase};
+    use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, ToolActivity, ToolPhase};
     use serde_json::json;
 
-    use super::results;
+    use super::{remember, results};
     use crate::public_protocol::PublicWireFact;
 
     fn started() -> BTreeMap<String, ToolActivity> {
@@ -109,6 +114,7 @@ mod tests {
                 tool_name: "Read".into(),
                 phase: ToolPhase::Started,
                 output_digest: None,
+                input: None,
                 parent_tool_use_id: None,
             },
         )])
@@ -140,5 +146,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(facts.len(), 1);
+    }
+
+    #[test]
+    fn completed_tool_keeps_arguments_that_arrived_after_the_empty_start() {
+        let mut tools = started();
+        let mut complete = tools["tool-1"].clone();
+        complete.input = Some(json!({"file_path":"main.rs"}));
+        remember(
+            &[PublicWireFact::Lifecycle(
+                NormalizedLifecycleSignal::ToolActivity {
+                    activity: complete.clone(),
+                },
+            )],
+            &mut tools,
+        );
+        let mut empty = complete.clone();
+        empty.input = None;
+        remember(
+            &[PublicWireFact::Lifecycle(
+                NormalizedLifecycleSignal::ToolActivity { activity: empty },
+            )],
+            &mut tools,
+        );
+        let facts = results(&mut tools, &json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"done"}]}})).unwrap();
+        assert!(facts.iter().any(|fact| matches!(fact,
+            PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity })
+            if activity.phase == ToolPhase::Completed && activity.input == complete.input
+        )));
     }
 }

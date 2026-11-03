@@ -23,6 +23,7 @@ fn manifest_normalizes_content_safe_tool_activity() {
                 tool_name: "read_file".into(),
                 phase: ToolPhase::WaitingPermission,
                 output_digest: Some("sha256:abc".into()),
+                input: None,
                 parent_tool_use_id: None,
             }
         })
@@ -39,5 +40,22 @@ fn incomplete_tool_activity_is_rejected() {
     assert_eq!(
         manifest.interpret_lifecycle(&json!({ "type": "tool", "phase": "started" })),
         None
+    );
+}
+
+#[test]
+fn manifest_tools_use_the_shared_operation_preview_contract() {
+    let manifest = DeclarativeAdapterManifest {
+        id: "fixture".into(),
+        protocol_version: 1,
+        event_map: BTreeMap::from([("tool".into(), "toolActivity".into())]),
+    };
+    let Some(NormalizedLifecycleSignal::ToolActivity { activity }) = manifest.interpret_lifecycle(&json!({
+        "type":"tool", "tool_use_id":"write-1", "tool_name":"write_file", "phase":"started",
+        "input":{"file_path":"main.rs", "content":"fn main() {}", "environment":{"secret":"hidden"}}
+    })) else { panic!("expected tool activity"); };
+    assert_eq!(
+        activity.input,
+        Some(json!({"file_path":"main.rs", "content":"fn main() {}"}))
     );
 }

@@ -59,6 +59,14 @@ where
                     );
                 }
                 CodexRunnerEffect::Steer(outcome) => {
+                    if terminal.is_some()
+                        && !matches!(
+                            &outcome,
+                            gent_drivers::codex_session::CodexSteerOutcome::Rejected { .. }
+                        )
+                    {
+                        self.retire_targeted_steers(run_id, host_epoch)?;
+                    }
                     self.resolve_steer(run_id, host_epoch, outcome)?;
                     facts = facts.saturating_add(1);
                 }
@@ -86,6 +94,7 @@ where
             }
         }
         if let Some(phase) = terminal {
+            self.retire_targeted_steers(run_id, host_epoch)?;
             self.settle_if_open(run_id, host_epoch, phase)?;
             if phase == DurableTurnPhase::Completed {
                 if let Some(binding) = self.active.get(run_id) {

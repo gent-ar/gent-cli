@@ -2,8 +2,7 @@
 //! It accepts only Claude/Codex identities; private bridges remain outside this crate.
 use crate::buffering::{BufferPolicy, OfferResult, ReadDirective};
 use crate::interrupt::{
-    InterruptEvent, InterruptPolicy, InterruptState, ProcessTreeControl, ProcessTreeError,
-    transition,
+    InterruptEvent, InterruptPolicy, InterruptState, ProcessTreeError, transition,
 };
 pub use crate::launch_spec::LaunchIntent;
 use crate::lock::{LockError, recheck};
@@ -14,6 +13,8 @@ use std::path::PathBuf;
 /// An immutable, public executable launch request passed to infrastructure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderLaunch {
+    pub permission_binding: Option<gent_types::SandboxPermissionBinding>,
+    pub run_id: Option<String>,
     pub lock: RunVersionLock,
     pub provider: String,
     pub executable: PathBuf,
@@ -23,37 +24,6 @@ pub struct ProviderLaunch {
     pub workspace_root: Option<PathBuf>,
     /// Exact filesystem authority derived from the durable run selection.
     pub workspace_access: SandboxWorkspaceAccess,
-}
-
-/// A live public provider process. Platform implementations own its tree and standard input.
-pub trait ProviderProcess: ProcessTreeControl {
-    /// Writes one complete provider-native frame to the process standard input.
-    ///
-    /// # Errors
-    /// Returns an error when the owned process cannot accept the frame.
-    fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError>;
-
-    fn close_stdin(&self) -> Result<(), ProcessTreeError>;
-    /// Returns one bounded stdout chunk without blocking when no process output is available.
-    ///
-    /// Implementations that cannot provide live output return `Ok(None)`.
-    ///
-    /// # Errors
-    /// Returns an error when reading the process-owned output source fails.
-    fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
-        Ok(None)
-    }
-
-    /// Reports a completed process after preserving any remaining stdout for later reads.
-    ///
-    /// The runner drains that output before it reduces the terminal session fact. Process
-    /// implementations that cannot observe child exit leave this at its safe default.
-    ///
-    /// # Errors
-    /// Returns an error when checking the process tree fails.
-    fn try_exit_code(&self) -> Result<Option<Option<i32>>, ProcessTreeError> {
-        Ok(None)
-    }
 }
 
 /// Process-spawning infrastructure. Production implementations belong at an outer edge.
@@ -66,6 +36,23 @@ pub trait ProcessLauncher: Send + Sync {
     /// # Errors
     /// Returns an error when the operating system cannot create the provider process tree.
     fn launch(&self, launch: &ProviderLaunch) -> Result<Self::Process, SupervisorError>;
+
+    /// Whether this launch must fail before protocol I/O without live OS evidence.
+    fn requires_sandbox_evidence(&self, _launch: &ProviderLaunch) -> bool {
+        false
+    }
+
+    fn validate_permission_binding(
+        &self,
+        binding: &gent_types::SandboxPermissionBinding,
+    ) -> Result<(), SupervisorError> {
+        if binding.policy().requires_sandbox() {
+            return Err(SupervisorError::SandboxUnavailable(
+                "verified contained provider composition unavailable".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Errors returned by the supervised public-provider boundary.
@@ -75,6 +62,10 @@ pub enum SupervisorError {
     Lock(#[from] LockError),
     #[error("unsupported public provider: {0}")]
     UnsupportedProvider(String),
+    #[error("the sandbox is unavailable on this device: {0}")]
+    SandboxUnavailable(String),
+    #[error("the sandbox refused this launch: {0}")]
+    SandboxAdmission(String),
     #[error("a provider process is already active")]
     ProcessAlreadyActive,
     #[error("no provider process is active")]
@@ -282,6 +273,8 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
             ));
         }
         Ok(ProviderLaunch {
+            permission_binding: None,
+            run_id: None,
             lock: self.lock.clone(),
             provider: self.lock.provider.clone(),
             executable: PathBuf::from(&self.lock.canonical_path),
@@ -298,3 +291,5 @@ impl<P: ProviderProcess> ProviderSupervisor<P> {
         transition.effects
     }
 }
+
+pub use crate::provider_process::ProviderProcess;

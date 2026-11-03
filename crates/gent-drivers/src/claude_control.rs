@@ -3,16 +3,25 @@
 use serde_json::{Value, json};
 
 const MAX_UPDATED_INPUT_BYTES: usize = 16 * 1024;
+// Leave room under the native 1MiB write-frame bound for control metadata and
+// bounded permission suggestions. This is private retained input, never a preview.
+pub(crate) const MAX_PRESERVED_INPUT_BYTES: usize = 512 * 1024;
+pub(crate) const MAX_PERMISSION_REPLY_BYTES: usize = 1024 * 1024;
+pub(crate) fn valid_explicit_updated_input(input: &Value) -> bool {
+    input.is_object()
+        && serde_json::to_vec(input).is_ok_and(|bytes| bytes.len() <= MAX_UPDATED_INPUT_BYTES)
+}
 
 /// The public identifiers needed to classify one Claude permission request.
 ///
-/// Raw tool input and permission suggestions deliberately remain in the process runner. They are
-/// neither durable facts nor client-facing values.
+/// Raw tool input and permission suggestions remain in the process runner. Only a
+/// bounded, redacted operation preview crosses the client-facing boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaudePermissionRequest {
     pub request_id: String,
     pub tool_use_id: String,
     pub tool_name: String,
+    pub operation_preview: Option<Value>,
     pub child_id: Option<String>,
 }
 
@@ -24,7 +33,7 @@ pub enum ClaudePermissionBehavior {
 }
 
 /// Parses the documented `can_use_tool` control request and retains its suggestions for a later
-/// response. No native input or suggestion data crosses this boundary.
+/// response. Only the shared presentation preview of input crosses this boundary.
 pub fn parse_permission_request(
     frame: &Value,
 ) -> Result<(ClaudePermissionRequest, Vec<Value>), &'static str> {
@@ -55,6 +64,7 @@ pub fn parse_permission_request(
             request_id: request_id.into(),
             tool_use_id: tool_use_id.into(),
             tool_name: tool_name.into(),
+            operation_preview: request.get("input").and_then(gent_types::operation_preview),
             child_id: string(request, "agent_id")
                 .or_else(|| string(frame, "agent_id"))
                 .filter(|value| !value.is_empty())
@@ -109,6 +119,47 @@ pub fn encode_permission_response_with_input(
     suggestions: &[Value],
     updated_input: Option<&Value>,
 ) -> Vec<u8> {
+    encode_permission_response_bounded(
+        request_id,
+        behavior,
+        persist_suggestions,
+        suggestions,
+        updated_input,
+        MAX_UPDATED_INPUT_BYTES,
+    )
+}
+
+pub(crate) fn encode_permission_response_preserving_input(
+    request_id: &str,
+    behavior: ClaudePermissionBehavior,
+    persist_suggestions: bool,
+    suggestions: &[Value],
+    input: &Value,
+) -> Option<Vec<u8>> {
+    if !input.is_object()
+        || !serde_json::to_vec(input).is_ok_and(|bytes| bytes.len() <= MAX_PRESERVED_INPUT_BYTES)
+    {
+        return None;
+    }
+    let bytes = encode_permission_response_bounded(
+        request_id,
+        behavior,
+        persist_suggestions,
+        suggestions,
+        Some(input),
+        MAX_PRESERVED_INPUT_BYTES,
+    );
+    (!bytes.is_empty() && bytes.len() <= MAX_PERMISSION_REPLY_BYTES).then_some(bytes)
+}
+
+fn encode_permission_response_bounded(
+    request_id: &str,
+    behavior: ClaudePermissionBehavior,
+    persist_suggestions: bool,
+    suggestions: &[Value],
+    updated_input: Option<&Value>,
+    max_input_bytes: usize,
+) -> Vec<u8> {
     let mut response = json!({
         "behavior": match behavior {
             ClaudePermissionBehavior::Allow => "allow",
@@ -127,8 +178,7 @@ pub fn encode_permission_response_with_input(
             updated_input
                 .filter(|value| value.is_object())
                 .filter(|value| {
-                    serde_json::to_vec(value)
-                        .is_ok_and(|encoded| encoded.len() <= MAX_UPDATED_INPUT_BYTES)
+                    serde_json::to_vec(value).is_ok_and(|encoded| encoded.len() <= max_input_bytes)
                 })
         {
             response["updatedInput"] = updated_input.clone();
@@ -198,13 +248,33 @@ mod tests {
     };
 
     #[test]
-    fn permission_request_retains_only_identifiers_and_private_suggestions() {
+    fn native_windows_powershell_permission_preserves_the_actual_command_schema() {
+        for command in [
+            "powershell.exe -NoProfile -Command Write-Output",
+            "powershell.exe -NoProfile -Command Write-Output GENT-PARITY-COMMAND-OK",
+        ] {
+            let (request, _) = parse_permission_request(&json!({
+                "type":"control_request", "request_id":"permission-powershell",
+                "request":{"subtype":"can_use_tool", "tool_name":"PowerShell", "tool_use_id":"tool-powershell",
+                    "input":{"command":command,"description":"Print a verification marker from a child PowerShell"}}
+            })).unwrap();
+            let preview = request.operation_preview.unwrap();
+            assert_eq!(preview["command"], command);
+            assert_eq!(
+                preview["description"],
+                "Print a verification marker from a child PowerShell"
+            );
+        }
+    }
+
+    #[test]
+    fn permission_request_exposes_operation_details_but_keeps_suggestions_private() {
         let (request, suggestions) = parse_permission_request(&json!({
             "type": "control_request",
             "request_id": "request-1",
             "request": {
                 "subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "tool-1",
-                "input": {"command": "private"},
+                "input": {"command": "cargo test", "environment":{"TOKEN":"private"}},
                 "permission_suggestions": [{"type": "addDirectories", "path": "/private"}],
             }
         }))
@@ -212,6 +282,10 @@ mod tests {
         assert_eq!(request.request_id, "request-1");
         assert_eq!(request.tool_use_id, "tool-1");
         assert_eq!(request.tool_name, "Bash");
+        assert_eq!(
+            request.operation_preview,
+            Some(json!({"command":"cargo test"}))
+        );
         assert!(!format!("{request:?}").contains("private"));
         assert_eq!(suggestions.len(), 1);
         assert_eq!(request.child_id, None);

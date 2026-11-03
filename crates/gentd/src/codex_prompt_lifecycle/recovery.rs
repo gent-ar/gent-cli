@@ -63,7 +63,11 @@ where
             &prompt,
             Some(history),
         )?;
-        self.runner.prepare_codex_prompt(run_id.into(), recreated)?;
+        self.runner.prepare_codex_prompt(
+            run_id.into(),
+            prompt.message.conversation_id.clone(),
+            recreated,
+        )?;
         let started =
             self.runtime
                 .runs()

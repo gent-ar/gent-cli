@@ -43,17 +43,28 @@ pub(crate) enum InitializeState {
 }
 
 pub(crate) struct ClaudeInitialize {
+    lifecycle_control: Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
     executables: crate::provider_executables::ProviderExecutables,
     timeout: Duration,
     slots: Mutex<BTreeMap<SlotKey, Arc<Mutex<Slot>>>>,
 }
 
 impl ClaudeInitialize {
+    #[cfg(test)]
     pub(crate) fn new(
         executables: crate::provider_executables::ProviderExecutables,
         timeout: Duration,
     ) -> Arc<Self> {
+        Self::new_with_lifecycle_control(executables, timeout, None)
+    }
+
+    pub(crate) fn new_with_lifecycle_control(
+        executables: crate::provider_executables::ProviderExecutables,
+        timeout: Duration,
+        lifecycle_control: Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
+    ) -> Arc<Self> {
         Arc::new(Self {
+            lifecycle_control,
             executables,
             timeout,
             slots: Mutex::new(BTreeMap::new()),
@@ -147,6 +158,7 @@ impl ClaudeInitialize {
         let mut frame = serde_json::to_vec(&initialize).map_err(|error| error.to_string())?;
         frame.push(b'\n');
         ProviderProbe {
+            lifecycle_control: self.lifecycle_control.clone(),
             provider: PublicProvider::Claude,
             executable,
             arguments,

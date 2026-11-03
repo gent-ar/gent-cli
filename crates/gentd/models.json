@@ -11,7 +11,7 @@
       "context_tokens": 32768,
       "agent_profile": "compact",
       "chat_template_file": "qwen3-tool-use.jinja",
-      "runtime_memory_bytes": 3388964864
+      "runtime_memory_bytes": 4294967296
     },
     {
       "id": "qwen3-8b-q4-k-m",

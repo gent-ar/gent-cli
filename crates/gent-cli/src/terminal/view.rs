@@ -212,6 +212,7 @@ mod tests {
                     kind: NormalizedTranscriptKind::AssistantMessage,
                     text: "must not render".into(),
                     is_partial: false,
+                    failure_code: None,
                     origin: None,
                     attachments: Vec::new(),
                 }],
@@ -290,6 +291,7 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: text.into(),
             is_partial,
+            failure_code: None,
             origin: None,
             attachments: Vec::new(),
         }

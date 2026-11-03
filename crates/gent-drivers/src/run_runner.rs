@@ -252,9 +252,20 @@ fn lock_runs<P: ProviderProcess>(
 }
 
 fn map_error(error: SupervisorError) -> PublicProviderRunError {
+    public_launch_error(error)
+}
+
+#[must_use]
+pub fn public_launch_error(error: SupervisorError) -> PublicProviderRunError {
     match error {
         SupervisorError::Lock(LockError::ProviderChanged) => {
             PublicProviderRunError::ProviderChanged
+        }
+        SupervisorError::SandboxUnavailable(reason) => {
+            PublicProviderRunError::SandboxUnavailable(reason)
+        }
+        SupervisorError::SandboxAdmission(reason) => {
+            PublicProviderRunError::SandboxAdmissionFailed(reason)
         }
         other => PublicProviderRunError::Failed(other.to_string()),
     }

@@ -1,9 +1,23 @@
 use gent_ports::{ForgeConnectorLedger, LedgerError};
-use gent_types::ForgeConnectorRecord;
+use gent_types::{Command, ForgeConnectorRecord, Receipt, ToolSourceRecord};
 
 use super::{SqliteLedger, forge_connectors};
 
+#[path = "managed_forge_registration.rs"]
+mod registration;
+
 impl ForgeConnectorLedger for SqliteLedger {
+    fn commit_managed_forge_registration(
+        &self,
+        command: &Command,
+        source: &ToolSourceRecord,
+        connector: &ForgeConnectorRecord,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<Receipt, LedgerError> {
+        registration::commit(self, command, source, connector, conversation_id, run_id)
+    }
+
     fn create_forge_connector(&self, connector: &ForgeConnectorRecord) -> Result<(), LedgerError> {
         forge_connectors::create(self, connector)
     }

@@ -169,7 +169,33 @@ fn a_steer_request_is_receipt_bound_to_one_waiting_queued_prompt() {
         "steer-2",
         &queued
     )));
-    assert_eq!(activity_types(&ledger, &queued), ["promptQueued"]);
+    assert_eq!(
+        activity_types(&ledger, &queued),
+        ["promptQueued", "promptSteerRequested"]
+    );
+    // A viewer attaching after the RPC can restore the same pending state before delivery.
+    let events = ledger
+        .agent_chat_projection_page(&conversation_id, 0, 100)
+        .unwrap()
+        .events;
+    let requested = events
+        .iter()
+        .filter(|event| event.payload["activity"]["type"] == "promptSteerRequested")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        requested.len(),
+        1,
+        "idempotent retries and conflicts must not duplicate request activity"
+    );
+    let activity = &requested[0].payload["activity"];
+    assert_eq!(activity["messageId"], queued.message.message_id);
+    assert_eq!(activity["receiptId"], "steer-1");
+    assert_eq!(requested[0].payload["turnId"], queued.message.turn_id);
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.payload["activity"]["type"] == "promptSteered")
+    );
 }
 
 #[test]
@@ -260,7 +286,7 @@ fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_tur
     );
     assert_eq!(
         activity_types(&ledger, &queued),
-        ["promptQueued", "promptSteered"]
+        ["promptQueued", "promptSteerRequested", "promptSteered"]
     );
     let steered = ledger
         .read_conversation_activity_page(&conversation_id.0, &send.run_id.0, 0, 50)
@@ -421,7 +447,13 @@ fn a_steer_the_provider_runs_as_its_own_turn_is_released_and_settles_normally() 
 
     assert_eq!(
         activity_types(&ledger, &queued),
-        ["promptQueued", "terminal", "promptReleased", "terminal"]
+        [
+            "promptQueued",
+            "promptSteerRequested",
+            "terminal",
+            "promptReleased",
+            "terminal"
+        ]
     );
     assert_eq!(
         ledger

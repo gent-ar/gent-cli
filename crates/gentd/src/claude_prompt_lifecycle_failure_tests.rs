@@ -1,3 +1,10 @@
+#[cfg(windows)]
+#[path = "claude_idle_process_tests.rs"]
+mod idle_process;
+
+#[path = "claude_idle_owner_tests.rs"]
+mod idle_owner;
+
 use gent_drivers::{claude_runner::ClaudeRunnerEffect, public_protocol::PublicWireFact};
 use gent_ports::{
     AgentChatPromptLedger, AgentChatReadLedger, AgentChatWorkspaceLedger,
@@ -155,6 +162,7 @@ fn accepted_user_interrupt_settles_claude_as_interrupted_instead_of_failed() {
                 request_id: "permission-a".into(),
                 tool_use_id: "tool-a".into(),
                 tool_name: "write_file".into(),
+                operation_preview: None,
                 child_id: None,
             },
         ),
@@ -166,7 +174,16 @@ fn accepted_user_interrupt_settles_claude_as_interrupted_instead_of_failed() {
             .unwrap()
             .is_some()
     );
-    host.interrupt("run-a").unwrap();
+    assert!(host.interrupt_turn("run-a", "a-previous-turn").is_err());
+    assert!(runner.0.lock().unwrap().signals.is_empty());
+    assert!(
+        ledger
+            .pending_permission(&conversation_id, &AgentChatRunId("run-a".into()))
+            .unwrap()
+            .is_some()
+    );
+    host.interrupt_turn("run-a", &saved.message.turn_id)
+        .unwrap();
     runner.0.lock().unwrap().effects.push_back(vec![
         ClaudeRunnerEffect::Fact(PublicWireFact::Event(
             NormalizedProviderEvent::ProviderFailure {

@@ -22,6 +22,9 @@ use crate::{
 };
 
 mod effect;
+mod generation;
+#[path = "managed_provider_actions.rs"]
+pub(crate) mod managed_actions;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ReleaseAuthorityConfig {
@@ -202,7 +205,17 @@ impl<
         request: &PrivateProvisionRequest,
         command: &gent_types::Command,
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
-        effect::provision(self, request, command)
+        effect::provision(self, request, command, None)
+    }
+
+    /// Executes an explicit update bound to the package and release in its reviewed plan.
+    pub(crate) fn provision_reviewed_with_command(
+        &self,
+        request: &PrivateProvisionRequest,
+        command: &gent_types::Command,
+        review: &crate::private_provider_provisioning::managed_actions::ReviewedPackage,
+    ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
+        effect::provision(self, request, command, Some(review))
     }
 
     /// Runs a prompt-scoped installation only when its complete private command binding matches.
@@ -251,3 +264,12 @@ mod receipt_tests;
 #[cfg(test)]
 #[path = "private_provider_provisioning_compatibility_tests.rs"]
 mod compatibility_tests;
+
+/// One process-wide effect gate shared by prompt installs and explicit managed updates.
+pub(crate) fn effect_serial() -> std::sync::Arc<std::sync::Mutex<()>> {
+    static SERIAL: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<()>>> =
+        std::sync::OnceLock::new();
+    SERIAL
+        .get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(())))
+        .clone()
+}

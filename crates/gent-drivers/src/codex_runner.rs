@@ -23,6 +23,8 @@ use crate::supervisor::{
 
 mod control;
 mod output;
+#[path = "codex_runner_sandbox.rs"]
+mod sandbox;
 
 use output::{drain, write};
 
@@ -85,6 +87,7 @@ struct OwnedRun<P> {
 /// One synchronous owner for bounded Codex app-server processes.
 #[derive(Debug)]
 pub struct CodexAppServerRunner<L, P> {
+    permission_bindings: BTreeMap<String, gent_types::SandboxPermissionBinding>,
     launcher: L,
     policy: BufferPolicy,
     runs: BTreeMap<String, OwnedRun<P>>,
@@ -95,10 +98,21 @@ where
     L: ProcessLauncher<Process = P>,
     P: ProviderProcess,
 {
+    pub fn sandbox_evidence(&self, run_id: &str) -> Option<&crate::ProcessSandboxEvidence> {
+        let process = &self.runs.get(run_id)?.process;
+        if process.try_exit_code().ok()?.is_some() {
+            return None;
+        }
+        process
+            .sandbox_evidence()
+            .filter(|proof| proof.run_id() == run_id)
+    }
+
     /// Creates an inert process owner. Provider discovery and authorization do not occur here.
     #[must_use]
     pub fn new(launcher: L, policy: BufferPolicy) -> Self {
         Self {
+            permission_bindings: BTreeMap::new(),
             launcher,
             policy,
             runs: BTreeMap::new(),
@@ -112,7 +126,7 @@ where
         if start.lock.provider != "codex" {
             return Err(CodexRunnerError::UnsupportedProvider);
         }
-        let (turn, initial) = CodexTurnDriver::start_with_attachments(
+        let (mut turn, initial) = CodexTurnDriver::start_with_attachments(
             start.session,
             &start.prompt,
             start.attachments,
@@ -126,6 +140,8 @@ where
         )?;
         recheck(&start.lock)?;
         let launch = ProviderLaunch {
+            permission_binding: self.permission_bindings.remove(&start.run_id),
+            run_id: Some(start.run_id.clone()),
             lock: start.lock.clone(),
             provider: "codex".into(),
             executable: PathBuf::from(&start.lock.canonical_path),
@@ -134,7 +150,14 @@ where
             workspace_root: Some(start.workspace_root),
             workspace_access: start.workspace_access,
         };
+        let require_evidence = self.launcher.requires_sandbox_evidence(&launch);
         let process = self.launcher.launch(&launch)?;
+        if let Err(error) =
+            sandbox::bind_external_process(&process, &launch, require_evidence, &mut turn)
+        {
+            let _ = process.signal_tree(crate::interrupt::ProcessTreeSignal::Terminate);
+            return Err(error);
+        }
         for effect in initial {
             if let Err(error) = write(&process, effect) {
                 let _ = process.signal_tree(crate::interrupt::ProcessTreeSignal::Terminate);
@@ -160,7 +183,17 @@ where
         let run = self.run_mut(run_id)?;
         if let Some(chunk) = run.process.next_stdout_chunk()? {
             run.output.accept_chunk(&chunk)?;
-            return drain(run);
+            let mut effects = drain(run)?.unwrap_or_default();
+            // Reduce each chunk before reading more to preserve pump backpressure and FIFO.
+            // A single 4 KiB read per tick otherwise delays large tool results and controls.
+            for _ in 1..crate::output_pump::MAX_OUTPUT_CHUNKS_PER_POLL {
+                let Some(chunk) = run.process.next_stdout_chunk()? else {
+                    break;
+                };
+                run.output.accept_chunk(&chunk)?;
+                effects.extend(drain(run)?.unwrap_or_default());
+            }
+            return Ok((!effects.is_empty()).then_some(effects));
         }
         let Some(code) = run.process.try_exit_code()? else {
             return Ok(None);

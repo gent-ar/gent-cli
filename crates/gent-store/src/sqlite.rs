@@ -14,10 +14,12 @@ mod agent_chat_conversation_config_ledger;
 mod agent_chat_ledger;
 mod agent_chat_projection_ledger;
 mod agent_chat_queue_activity;
+mod agent_chat_queue_commands;
 mod agent_chat_read_ledger;
 mod agent_chat_run_context_ledger;
 mod agent_chat_sessions;
 mod agent_chat_steer_interrupt;
+mod agent_chat_steer_target;
 mod agent_chat_terminal_settlement;
 #[cfg(test)]
 mod agent_chat_terminal_settlement_tests;
@@ -45,6 +47,8 @@ mod git_operations;
 mod goal_ledger;
 #[cfg(test)]
 mod goal_ledger_tests;
+mod historical_tool_output;
+mod host_mcp_journal;
 mod leases;
 mod mcp_connector_ledger;
 mod mcp_connectors;
@@ -68,6 +72,7 @@ mod run_checkpoint_ledger;
 mod run_checkpoints;
 mod run_lifecycle_facts;
 mod runs;
+mod runtime_owner;
 mod runtime_update_journal;
 mod tool_source_ledger;
 mod tool_sources;
@@ -93,49 +98,10 @@ impl Ledger for SqliteLedger {
         host_ingress(&*self.lock()?)
     }
     fn close_ingress(&self, epoch: HostEpoch) -> Result<HostIngress, LedgerError> {
-        let mut connection = self.lock()?;
-        let transaction = connection.transaction().map_err(storage_error)?;
-        let state = host_ingress(&transaction)?;
-        require_epoch(epoch, state.epoch)?;
-        transaction
-            .execute(
-                "UPDATE host_state SET ingress = 'closed' WHERE singleton = 1",
-                [],
-            )
-            .map_err(storage_error)?;
-        transaction.commit().map_err(storage_error)?;
-        Ok(HostIngress {
-            epoch,
-            mode: IngressMode::Closed,
-        })
+        epoch::close_ingress(self, epoch)
     }
     fn fence_and_open(&self, epoch: HostEpoch) -> Result<HostIngress, LedgerError> {
-        let mut connection = self.lock()?;
-        let transaction = connection.transaction().map_err(storage_error)?;
-        let state = host_ingress(&transaction)?;
-        require_epoch(epoch, state.epoch)?;
-        if state.mode != IngressMode::Closed {
-            return Err(LedgerError::Invariant(
-                "ingress must be closed before fencing".into(),
-            ));
-        }
-        let next = HostEpoch(
-            epoch
-                .0
-                .checked_add(1)
-                .ok_or_else(|| LedgerError::Invariant("host epoch overflow".into()))?,
-        );
-        transaction
-            .execute(
-                "UPDATE host_state SET epoch = ?1, ingress = 'open' WHERE singleton = 1",
-                [next.0],
-            )
-            .map_err(storage_error)?;
-        transaction.commit().map_err(storage_error)?;
-        Ok(HostIngress {
-            epoch: next,
-            mode: IngressMode::Open,
-        })
+        epoch::fence_and_open(self, epoch)
     }
     fn claim_command(
         &self,

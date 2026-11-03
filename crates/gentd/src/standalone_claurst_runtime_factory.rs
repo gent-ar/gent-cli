@@ -15,9 +15,9 @@ use crate::{
     claurst_acp_bridge::ClaurstBridgeHandle,
     claurst_local_readiness::ClaurstLocalReadinessService,
     claurst_local_runtime::ClaurstLocalRuntimeRequest,
-    claurst_local_runtime_owner::{SystemClaurstAcpStdio, SystemLocalRuntimeProcess},
     claurst_metadata_summary::ClaurstMetadataSummaryRunner,
     claurst_runtime_factory::{ClaurstRuntimeFactory, ContextSummarizer},
+    claurst_sandbox_stdio::ClaurstOwnedAcpStdio,
     claurst_standalone_owner::ClaurstStandaloneRuntime,
 };
 
@@ -25,8 +25,11 @@ use crate::{
 mod launch;
 use crate::standalone_claurst_runtime_identity::RuntimeIdentity;
 
-type SystemRuntime = ClaurstStandaloneRuntime<SystemLocalRuntimeProcess, SystemClaurstAcpStdio>;
-type SystemBridge = ClaurstBridgeHandle<SystemClaurstAcpStdio>;
+type SystemRuntime = ClaurstStandaloneRuntime<
+    crate::claurst_sandbox_launcher::model_launch::RoutedModelProcess,
+    ClaurstOwnedAcpStdio,
+>;
+type SystemBridge = ClaurstBridgeHandle<ClaurstOwnedAcpStdio>;
 
 struct ActiveRuntime {
     identity: RuntimeIdentity,
@@ -64,6 +67,7 @@ pub(crate) struct StandaloneClaurstRuntimeFactory {
     ledger: SqliteLedger,
     readiness: ClaurstLocalReadinessService,
     config: Option<StandaloneClaurstRuntimeConfig>,
+    mcp_control: Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
     active: tokio::sync::Mutex<Option<ActiveRuntime>>,
 }
 
@@ -81,10 +85,18 @@ impl StandaloneClaurstRuntimeFactory {
             ledger,
             readiness: ClaurstLocalReadinessService::new(models.provisioner),
             config,
+            mcp_control: None,
             active: tokio::sync::Mutex::new(None),
         }
     }
 
+    pub(crate) fn with_mcp_control(
+        mut self,
+        control: crate::ordinary_lifecycle_control::OrdinaryLifecycleControl,
+    ) -> Self {
+        self.mcp_control = Some(control);
+        self
+    }
     #[must_use]
     pub(crate) fn bridge(self: &Arc<Self>) -> StandaloneClaurstBridge {
         StandaloneClaurstBridge(Arc::clone(self))
@@ -225,6 +237,19 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
 
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
         self.0.active_bridge().await?.drain(request).await
+    }
+
+    async fn permission_enforcement(
+        &self,
+        binding: ClaurstSessionBinding,
+        policy: gent_types::PolicyRecord,
+        epoch: gent_types::HostEpoch,
+    ) -> Result<gent_types::SandboxEnforcement, PortError> {
+        self.0
+            .active_bridge()
+            .await?
+            .permission_enforcement(binding, policy, epoch)
+            .await
     }
 
     async fn respond_permission(

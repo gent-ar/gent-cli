@@ -305,6 +305,7 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
         git_branch: None,
         updated_at_unix_ms: 0,
         selection: selection(provider),
+        containment: gent_types::Containment::Unsandboxed,
     }
 }
 

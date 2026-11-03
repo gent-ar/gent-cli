@@ -28,10 +28,29 @@ pub enum PermissionMode {
 }
 
 impl PermissionMode {
-    /// Returns whether unattended execution for this mode requires verified OS containment.
+    #[must_use]
+    pub const fn is_unattended(self) -> bool {
+        matches!(self, Self::Autonomous | Self::Bypass)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Containment {
+    #[default]
+    Unsandboxed,
+    Sandboxed,
+}
+
+impl Containment {
     #[must_use]
     pub const fn requires_sandbox(self) -> bool {
-        matches!(self, Self::Autonomous | Self::Bypass)
+        matches!(self, Self::Sandboxed)
+    }
+
+    #[must_use]
+    pub const fn unresolved() -> Self {
+        Self::Sandboxed
     }
 }
 
@@ -122,12 +141,33 @@ pub struct PolicyRecord {
     /// Canonically sorted broad approvals. These are intentionally typed rather than globbed.
     #[serde(default)]
     pub allowed_categories: Vec<PermissionCategory>,
+    #[serde(skip, default = "Containment::unresolved")]
+    pub containment: Containment,
+}
+
+impl PolicyRecord {
+    #[must_use]
+    pub const fn requires_sandbox(&self) -> bool {
+        self.containment.requires_sandbox()
+    }
+
+    #[must_use]
+    pub const fn unattended_requires_sandbox(&self) -> bool {
+        self.mode.is_unattended() && self.requires_sandbox()
+    }
+
+    #[must_use]
+    pub fn for_conversation(mut self, containment: Containment) -> Self {
+        self.containment = containment;
+        self
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        PermissionCategory, PermissionMode, PolicyRecord, PolicyScope, SandboxEnforcement,
+        Containment, PermissionCategory, PermissionMode, PolicyRecord, PolicyScope,
+        SandboxEnforcement,
     };
     use serde_json::json;
 
@@ -157,10 +197,43 @@ mod tests {
     }
 
     #[test]
-    fn broad_modes_require_a_daemon_verified_sandbox() {
-        assert!(PermissionMode::Autonomous.requires_sandbox());
-        assert!(PermissionMode::Bypass.requires_sandbox());
-        assert!(!PermissionMode::AskEveryTime.requires_sandbox());
+    fn only_a_sandboxed_conversation_requires_a_daemon_verified_sandbox() {
+        assert!(PermissionMode::Autonomous.is_unattended());
+        assert!(PermissionMode::Bypass.is_unattended());
+        assert!(!PermissionMode::AskEveryTime.is_unattended());
+        assert!(Containment::Sandboxed.requires_sandbox());
+        assert!(!Containment::Unsandboxed.requires_sandbox());
+        assert_eq!(Containment::default(), Containment::Unsandboxed);
+        assert_eq!(
+            serde_json::to_value(Containment::Sandboxed).unwrap(),
+            json!("sandboxed")
+        );
+        assert_eq!(
+            serde_json::to_value(Containment::Unsandboxed).unwrap(),
+            json!("unsandboxed")
+        );
         let _ = SandboxEnforcement::Enforced;
+    }
+
+    #[test]
+    fn workspace_policy_json_never_carries_conversation_containment() {
+        let policy: PolicyRecord = serde_json::from_value(json!({
+            "policyId": "policy-1", "workspaceId": "workspace-1",
+            "scope": "providerPermissions", "revision": 1, "mode": "bypass",
+            "containment": "unsandboxed"
+        }))
+        .unwrap();
+        assert_eq!(policy.containment, Containment::Sandboxed);
+        assert!(
+            serde_json::to_value(&policy)
+                .unwrap()
+                .get("containment")
+                .is_none()
+        );
+        assert!(
+            !policy
+                .for_conversation(Containment::Unsandboxed)
+                .requires_sandbox()
+        );
     }
 }

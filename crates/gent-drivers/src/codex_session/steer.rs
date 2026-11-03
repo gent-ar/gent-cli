@@ -8,6 +8,7 @@ use super::{CodexSessionError, CodexSessionPhase, MAX_PROMPT_BYTES, wire::encode
 pub enum CodexSteerOutcome {
     Consumed { message_id: String },
     Rejected { message_id: String },
+    Unconfirmed { message_id: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,7 +21,7 @@ pub(super) enum CodexSteerResponse {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CodexSteers {
     requests: BTreeMap<u64, String>,
-    outstanding: BTreeSet<String>,
+    outstanding: BTreeMap<String, (String, String)>,
 }
 
 impl CodexSteers {
@@ -58,7 +59,8 @@ impl CodexSteers {
             }
         }))?;
         self.requests.insert(request_id, message_id.into());
-        self.outstanding.insert(message_id.into());
+        self.outstanding
+            .insert(message_id.into(), (thread_id.clone(), turn_id.clone()));
         Ok(frame)
     }
 
@@ -82,7 +84,11 @@ impl CodexSteers {
             return CodexSteerResponse::Accepted;
         }
         self.outstanding.remove(&message_id);
-        CodexSteerResponse::Outcome(CodexSteerOutcome::Rejected { message_id })
+        CodexSteerResponse::Outcome(if frame.get("error").is_some() {
+            CodexSteerOutcome::Rejected { message_id }
+        } else {
+            CodexSteerOutcome::Unconfirmed { message_id }
+        })
     }
 
     pub(super) fn consumed(&mut self, frame: &Value) -> Option<CodexSteerOutcome> {
@@ -94,8 +100,15 @@ impl CodexSteers {
             return None;
         }
         let message_id = item.get("clientId").and_then(Value::as_str)?;
+        let (thread, turn) = self.outstanding.get(message_id)?;
+        if frame.pointer("/params/threadId").and_then(Value::as_str) != Some(thread.as_str())
+            || frame.pointer("/params/turnId").and_then(Value::as_str) != Some(turn.as_str())
+        {
+            return None;
+        }
         self.outstanding
             .remove(message_id)
+            .is_some()
             .then(|| CodexSteerOutcome::Consumed {
                 message_id: message_id.into(),
             })
@@ -105,7 +118,7 @@ impl CodexSteers {
         let awaiting_response = self.requests.values().cloned().collect::<BTreeSet<_>>();
         let unconsumed = self
             .outstanding
-            .iter()
+            .keys()
             .filter(|message_id| !awaiting_response.contains(*message_id))
             .cloned()
             .collect::<Vec<_>>();
@@ -113,7 +126,7 @@ impl CodexSteers {
             .into_iter()
             .map(|message_id| {
                 self.outstanding.remove(&message_id);
-                CodexSteerOutcome::Rejected { message_id }
+                CodexSteerOutcome::Unconfirmed { message_id }
             })
             .collect()
     }

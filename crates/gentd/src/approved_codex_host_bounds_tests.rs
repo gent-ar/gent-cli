@@ -1,4 +1,6 @@
 use crate::approved_codex_host::ApprovedCodexHost;
+#[path = "codex_targeted_steer_tests.rs"]
+mod targeted_steer;
 use crate::codex_prompt_lifecycle::CodexPromptDispatchOutcome;
 use crate::codex_prompt_lifecycle_tests::{Resolver, Runner, compatibility, profile, selection};
 use crate::public_driver_runtime::PublicDriversRuntime;
@@ -153,7 +155,10 @@ fn interrupt_with_a_pending_approval_settles_and_a_restarted_process_can_ask_aga
         .unwrap()
         .unwrap();
 
-    host.interrupt("run-a").unwrap();
+    assert!(host.interrupt_turn("run-a", "a-previous-turn").is_err());
+    assert!(runner.state.lock().unwrap().turn_interrupts.is_empty());
+    host.interrupt_turn("run-a", &ledger.list_run_turns("run-a").unwrap()[0].turn_id)
+        .unwrap();
     push(vec![root_phase(TurnPhase::Interrupted)]);
     host.tick().unwrap();
     push(vec![CodexRunnerEffect::Exited { code: Some(0) }]);
@@ -175,6 +180,8 @@ fn interrupt_with_a_pending_approval_settles_and_a_restarted_process_can_ask_aga
         .pending_permission(&conversation_id, &run_id)
         .unwrap()
         .unwrap();
+    assert!(host.interrupt_turn("run-a", &turns[0].turn_id).is_err());
+    assert_eq!(runner.state.lock().unwrap().turn_interrupts, ["run-a"]);
     assert_eq!(second.binding.decision_id, first.binding.decision_id);
     assert_ne!(second.binding.turn_id, first.binding.turn_id);
     assert_ne!(

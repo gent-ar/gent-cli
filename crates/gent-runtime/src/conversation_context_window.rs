@@ -81,6 +81,7 @@ impl UnfinishedReplies {
                 .or_insert_with(|| NormalizedTranscriptEvent {
                     text: String::new(),
                     is_partial: false,
+                    failure_code: None,
                     ..event.clone()
                 });
         reply.text.push_str(&event.text);

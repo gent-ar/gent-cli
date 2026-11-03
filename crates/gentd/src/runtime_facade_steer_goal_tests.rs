@@ -157,20 +157,7 @@ async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_p
     else {
         panic!("standalone Claurst creation must succeed")
     };
-    let goals = GoalService::new(ledger.clone(), GoalAuthority::Approved);
-    let GoalResult::Goal(Some(_)) = goals
-        .set(
-            "goal",
-            conversation_id,
-            "Keep going".into(),
-            None,
-            HostEpoch(1),
-            1_000,
-        )
-        .unwrap()
-    else {
-        panic!("goal must be set")
-    };
+    set_goal(&ledger, conversation_id);
     let active = running(&ledger, conversation_id);
     let queued = prompt(
         &ledger,
@@ -178,6 +165,19 @@ async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_p
         "queued",
         AgentChatPromptDisposition::Queue,
     );
+
+    let targeted = runtime
+        .agent_chat_intent(AgentChatIntentFrame::SteerQueuedPromptForTurn {
+            request_id: AgentChatRequestId("targeted-steer".into()),
+            receipt_id: ReceiptId("steer-receipt".into()),
+            conversation_id: conversation_id.clone(),
+            message_id: queued.message.message_id.clone(),
+            expected_run_id: run_id.clone(),
+            expected_turn_id: active.message.turn_id.clone(),
+        })
+        .unwrap_err();
+    assert_eq!(targeted.code, "nativeSteerUnavailable");
+    assert!(interrupts.lock().unwrap().is_empty());
 
     let steered = runtime
         .agent_chat_intent(AgentChatIntentFrame::SteerQueuedPrompt {
@@ -232,6 +232,7 @@ async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_p
             receipt_id: ReceiptId("stop-receipt".into()),
             conversation_id: conversation_id.clone(),
             run_id: AgentChatRunId(run_id.0.clone()),
+            expected_turn_id: None,
         })
         .unwrap();
     let paused = ledger.current_goal(&conversation_id.0).unwrap().unwrap();
@@ -261,4 +262,21 @@ fn terminal_fact(
         gent_types::ConversationActivityFact::Terminal { phase, cause, .. } => Some((phase, cause)),
         _ => None,
     })
+}
+
+fn set_goal(ledger: &SqliteLedger, conversation_id: &AgentChatConversationId) {
+    let goals = GoalService::new(ledger.clone(), GoalAuthority::Approved);
+    let GoalResult::Goal(Some(_)) = goals
+        .set(
+            "goal",
+            conversation_id,
+            "Keep going".into(),
+            None,
+            HostEpoch(1),
+            1_000,
+        )
+        .unwrap()
+    else {
+        panic!("goal must be set")
+    };
 }

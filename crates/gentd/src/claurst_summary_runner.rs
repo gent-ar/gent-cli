@@ -11,16 +11,14 @@ use gent_types::{AgentChatConversationId, FrozenConversationContext, NormalizedP
 use sha2::{Digest, Sha256};
 
 use crate::standalone_claurst_runtime_factory::StandaloneClaurstBridge;
-use crate::{
-    claurst_acp_bridge::ClaurstBridgeHandle, claurst_local_runtime_owner::SystemClaurstAcpStdio,
-};
+use crate::{claurst_acp_bridge::ClaurstBridgeHandle, claurst_sandbox_stdio::ClaurstOwnedAcpStdio};
 
 const DRAIN_LIMIT: u16 = 64;
 const MAX_DRAINS: usize = 3_000;
 const DRAIN_INTERVAL: Duration = Duration::from_millis(20);
 const MAX_OUTPUT_BYTES: usize = 16 * 1024;
 
-type SystemBridge = ClaurstBridgeHandle<SystemClaurstAcpStdio>;
+type SystemBridge = ClaurstBridgeHandle<ClaurstOwnedAcpStdio>;
 
 impl ConversationSummaryRunner for StandaloneClaurstBridge {
     fn run_summary(

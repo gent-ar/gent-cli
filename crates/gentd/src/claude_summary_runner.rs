@@ -72,6 +72,8 @@ impl ConversationSummaryRunner for ClaudeSummaryRunner {
             .resolve("claude")
             .map_err(|error| PortError::Unavailable(error.to_string()))?;
         let launch = ProviderLaunch {
+            permission_binding: None,
+            run_id: None,
             executable: PathBuf::from(&lock.canonical_path),
             lock,
             provider: "claude".into(),

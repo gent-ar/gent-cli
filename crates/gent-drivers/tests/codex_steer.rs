@@ -51,7 +51,7 @@ fn steers(driver: &mut CodexTurnDriver, frame: Value) -> Vec<CodexSteerOutcome> 
 }
 
 fn consumed(client_id: &str) -> Value {
-    json!({"method": "item/started", "params": {"threadId": "thread-private", "turnId": "turn-1", "item": {"type": "userMessage", "id": "item", "clientId": client_id, "content": []}}})
+    json!({"method": "item/started", "params": {"threadId": "thread-private", "turnId": "turn-1", "startedAtMs": 1, "item": {"type": "userMessage", "id": "item", "clientId": client_id, "content": []}}})
 }
 
 #[test]
@@ -102,7 +102,27 @@ fn a_rejected_steer_is_reported_without_failing_the_session() {
 }
 
 #[test]
-fn an_accepted_steer_the_turn_ends_without_is_returned_to_gent() {
+fn a_consumption_echo_requires_the_exact_native_thread_and_turn_written() {
+    let mut driver = live_turn();
+    driver.steer("message-1", "also this", &[]).unwrap();
+    for field in ["threadId", "turnId"] {
+        let mut wrong = consumed("message-1");
+        wrong["params"][field] = "other-scope".into();
+        assert!(steers(&mut driver, wrong).is_empty());
+        let mut missing = consumed("message-1");
+        missing["params"].as_object_mut().unwrap().remove(field);
+        assert!(steers(&mut driver, missing).is_empty());
+    }
+    assert_eq!(
+        steers(&mut driver, consumed("message-1")),
+        [CodexSteerOutcome::Consumed {
+            message_id: "message-1".into()
+        }]
+    );
+}
+
+#[test]
+fn a_turn_end_without_consumption_or_a_late_acceptance_is_unconfirmed() {
     let mut driver = live_turn();
     driver.steer("accepted", "held", &[]).unwrap();
     driver.steer("unanswered", "held", &[]).unwrap();
@@ -113,7 +133,7 @@ fn an_accepted_steer_the_turn_ends_without_is_returned_to_gent() {
     let ended = json!({"method": "turn/completed", "params": {"threadId": "thread-private", "turn": {"id": "turn-1", "status": "interrupted"}}});
     assert_eq!(
         steers(&mut driver, ended),
-        [CodexSteerOutcome::Rejected {
+        [CodexSteerOutcome::Unconfirmed {
             message_id: "accepted".into()
         }]
     );
@@ -122,7 +142,7 @@ fn an_accepted_steer_the_turn_ends_without_is_returned_to_gent() {
             &mut driver,
             json!({"id": 5, "result": {"turnId": "turn-1"}})
         ),
-        [CodexSteerOutcome::Rejected {
+        [CodexSteerOutcome::Unconfirmed {
             message_id: "unanswered".into()
         }]
     );

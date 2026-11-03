@@ -89,6 +89,7 @@ fn tool(tool_use_id: &str, phase: ToolPhase) -> ToolActivity {
         tool_name: "Bash".into(),
         phase,
         output_digest: None,
+        input: None,
         parent_tool_use_id: None,
     }
 }

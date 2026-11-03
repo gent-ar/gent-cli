@@ -16,6 +16,28 @@ use crate::{
     transport::tests::{FakeRuntime, hello},
 };
 
+#[tokio::test]
+async fn legacy_auth_capability_does_not_authorize_public_device_handoff() {
+    let (mut client, mut server) = duplex(2048);
+    let request = serde_json::to_value(ProviderAuthFrame::HandoffLoginRequest {
+        request_id: "handoff".into(),
+        provider: ProviderAuthProvider::Codex,
+    })
+    .unwrap();
+    let handled = crate::provider_auth_transport::dispatch(
+        &mut server,
+        &FakeRuntime,
+        &gent_types::CapabilitySet(vec![PROVIDER_AUTH_CAPABILITY.into()]),
+        &request,
+    )
+    .await
+    .unwrap();
+    assert!(handled);
+    assert!(
+        matches!(read_frame(&mut client).await.unwrap(), WireFrame::Error {code,..} if code=="unsupportedCapability")
+    );
+}
+
 #[test]
 fn observer_neither_advertises_nor_starts_provider_authentication() {
     let directory = tempfile::tempdir().unwrap();

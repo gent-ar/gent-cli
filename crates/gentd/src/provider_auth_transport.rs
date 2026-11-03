@@ -3,7 +3,9 @@
 //! The shipped observer never advertises this capability. This boundary is deliberately inert
 //! until a future authority composition supplies a reviewed provider-auth runtime port.
 
-use gent_protocol::{PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame, write_json_frame};
+use gent_protocol::{
+    PROVIDER_AUTH_CAPABILITY, PROVIDER_AUTH_HANDOFF_CAPABILITY, ProviderAuthFrame, write_json_frame,
+};
 use gent_types::CapabilitySet;
 use serde_json::Value;
 use tokio::io::AsyncWrite;
@@ -31,6 +33,25 @@ where
     let Ok(frame) = serde_json::from_value::<ProviderAuthFrame>(raw.clone()) else {
         return Ok(false);
     };
+    if matches!(
+        &frame,
+        ProviderAuthFrame::HandoffStatusRequest { .. }
+            | ProviderAuthFrame::HandoffLoginRequest { .. }
+            | ProviderAuthFrame::HandoffSelectMethod { .. }
+            | ProviderAuthFrame::HandoffState { .. }
+    ) && !capabilities
+        .0
+        .iter()
+        .any(|capability| capability == PROVIDER_AUTH_HANDOFF_CAPABILITY)
+    {
+        write_error(
+            stream,
+            "unsupportedCapability",
+            "provider authentication handoff is unavailable",
+        )
+        .await?;
+        return Ok(true);
+    }
     if frame.validate().is_err() {
         write_error(
             stream,
@@ -59,7 +80,10 @@ where
 fn is_client_request(frame: &ProviderAuthFrame) -> bool {
     matches!(
         frame,
-        ProviderAuthFrame::StatusRequest { .. }
+        ProviderAuthFrame::HandoffStatusRequest { .. }
+            | ProviderAuthFrame::HandoffLoginRequest { .. }
+            | ProviderAuthFrame::HandoffSelectMethod { .. }
+            | ProviderAuthFrame::StatusRequest { .. }
             | ProviderAuthFrame::LoginRequest { .. }
             | ProviderAuthFrame::SelectMethod { .. }
             | ProviderAuthFrame::Cancel { .. }

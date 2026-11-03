@@ -36,7 +36,12 @@ where
         AgentChatConversationConfigFrame::Save { request_id, config } => {
             coordinator
                 .save_conversation_config(&config)
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| match error {
+                    gent_runtime::RuntimeError::Ledger(gent_ports::LedgerError::Rejected(
+                        rejection,
+                    )) => rejection.code().to_owned(),
+                    error => error.to_string(),
+                })?;
             let unsupported_for_provider =
                 unsupported_fields(reads, &config.conversation_id.0, Some(&config));
             Ok(AgentChatConversationConfigFrame::Saved {
@@ -113,6 +118,7 @@ mod tests {
             max_turns: Some(5),
             thinking_enabled: Some(false),
             disallowed_tools: vec!["shell:rm".into()],
+            containment: gent_types::Containment::Unsandboxed,
         }
     }
 
@@ -247,6 +253,43 @@ mod tests {
             unsupported_for_provider.contains(
                 &gent_types::AgentChatConversationConfigUnsupportedField::ThinkingEnabled
             )
+        );
+    }
+
+    #[test]
+    fn a_sandboxed_conversation_is_persisted_and_projected_on_its_summary() {
+        use gent_ports::AgentChatReadLedger;
+        let ledger = SqliteLedger::in_memory().unwrap();
+        conversation(&ledger, "conversation-1");
+        assert_eq!(
+            ledger
+                .read_agent_chat_summary("conversation-1")
+                .unwrap()
+                .containment,
+            gent_types::Containment::Unsandboxed
+        );
+        let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
+        let mut sandboxed = config(1);
+        sandboxed.containment = gent_types::Containment::Sandboxed;
+        exchange(
+            &coordinator,
+            None,
+            AgentChatConversationConfigFrame::Save {
+                request_id: "request-1".into(),
+                config: sandboxed,
+            },
+        )
+        .unwrap();
+        let summary = ledger.read_agent_chat_summary("conversation-1").unwrap();
+        assert_eq!(summary.containment, gent_types::Containment::Sandboxed);
+        assert_eq!(
+            serde_json::to_value(&summary).unwrap()["containment"],
+            serde_json::json!("sandboxed")
+        );
+        assert_eq!(
+            crate::permission_workspace::conversation_containment(&ledger, "conversation-1")
+                .unwrap(),
+            gent_types::Containment::Sandboxed
         );
     }
 }

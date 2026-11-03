@@ -83,9 +83,11 @@ fn decode_turn(row: &rusqlite::Row<'_>) -> rusqlite::Result<TurnRecord> {
 }
 
 fn decode_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<NormalizedTranscriptEvent> {
+    let event_id: String = row.get(1)?;
     Ok(NormalizedTranscriptEvent {
         cursor: row.get(0)?,
-        event_id: row.get(1)?,
+        failure_code: gent_types::AgentChatFailureCode::from_event_id(&event_id),
+        event_id,
         turn_id: row.get(2)?,
         run_id: row.get(3)?,
         kind: decode_kind(&row.get::<_, String>(4)?)?,

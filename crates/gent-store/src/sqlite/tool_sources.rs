@@ -8,12 +8,18 @@ use super::SqliteLedger;
 use super::queries::storage_error;
 
 pub(super) fn create(ledger: &SqliteLedger, source: &ToolSourceRecord) -> Result<(), LedgerError> {
+    let connection = ledger.lock()?;
+    insert(&connection, source)
+}
+
+pub(super) fn insert(
+    connection: &rusqlite::Connection,
+    source: &ToolSourceRecord,
+) -> Result<(), LedgerError> {
     validate(source)?;
     let tools = serde_json::to_string(&source.declared_tools)
         .map_err(|error| LedgerError::Storage(error.to_string()))?;
-    ledger
-        .lock()?
-        .execute(
+    connection.execute(
             "INSERT INTO tool_sources (tool_source_id, workspace_id, kind, source_name, declared_tools) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 source.tool_source_id,
@@ -62,6 +68,7 @@ fn validate(source: &ToolSourceRecord) -> Result<(), LedgerError> {
     if source.tool_source_id.is_empty()
         || source.workspace_id.is_empty()
         || !valid_name(&source.source_name)
+        || gent_types::internal_tools::reserved_server(&source.source_name)
         || source.declared_tools.is_empty()
         || source
             .declared_tools
@@ -119,5 +126,33 @@ fn decode_kind(kind: &str) -> rusqlite::Result<ToolSourceKind> {
         "builtIn" => Ok(ToolSourceKind::BuiltIn),
         "hostIntegration" => Ok(ToolSourceKind::HostIntegration),
         _ => Err(rusqlite::Error::InvalidQuery),
+    }
+}
+
+#[cfg(test)]
+mod reserved_tests {
+    use super::*;
+    #[test]
+    fn external_declarations_cannot_claim_internal_names_or_sdk_aliases() {
+        for server in gent_types::internal_tools::INTERNAL_SERVER_NAMES {
+            for name in [server.to_owned(), server.replace('-', "_")] {
+                let source = ToolSourceRecord {
+                    tool_source_id: "source".into(),
+                    workspace_id: "workspace".into(),
+                    kind: ToolSourceKind::McpServer,
+                    source_name: name,
+                    declared_tools: vec!["arbitrary".into()],
+                };
+                assert!(validate(&source).is_err());
+            }
+        }
+        let source = ToolSourceRecord {
+            tool_source_id: "source".into(),
+            workspace_id: "workspace".into(),
+            kind: ToolSourceKind::McpServer,
+            source_name: "external-tools".into(),
+            declared_tools: vec!["arbitrary".into()],
+        };
+        assert!(validate(&source).is_ok());
     }
 }

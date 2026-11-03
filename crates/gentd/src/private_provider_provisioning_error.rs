@@ -11,6 +11,12 @@ pub(crate) enum PrivateProvisionError {
     ReceiptUnavailable(String),
     #[error("durable provisioning receipt no longer matches the accepted request")]
     ReceiptMismatch,
+    #[error("a fresh private provider installation directory is unavailable: {0}")]
+    Generation(String),
+    #[error(
+        "npm provider installation needs a local Windows drive; UNC install prefixes are unsupported"
+    )]
+    UnsupportedPrefix,
     #[error("prompt provision command does not match its daemon-derived binding")]
     PromptBindingMismatch,
     #[error("signed package policy changed after the reviewed prompt binding")]
@@ -53,6 +59,8 @@ impl PrivateProvisionError {
             Self::ReceiptNotAccepted
             | Self::ReceiptUnavailable(_)
             | Self::ReceiptMismatch
+            | Self::Generation(_)
+            | Self::UnsupportedPrefix
             | Self::PromptBindingMismatch
             | Self::PromptPackageMismatch
             | Self::Runtime(_)

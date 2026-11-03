@@ -21,6 +21,7 @@ pub(super) fn fail_prelaunch(
     coordinator_id: &str,
     host_epoch: gent_types::HostEpoch,
     error: &str,
+    failure_code: Option<gent_types::AgentChatFailureCode>,
 ) -> Result<(), LedgerError> {
     valid_owner(coordinator_id)?;
     if message_id.trim().is_empty() || error.is_empty() || error.len() > 64 * 1024 {
@@ -40,10 +41,13 @@ pub(super) fn fail_prelaunch(
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(storage_error)?;
+    // An OS process may have started but exited before announcing its provider
+    // session. It still needs an owned, durable explanation. Never admit an
+    // announced session, unknown launch state, foreign coordinator or epoch here.
     let changed = transaction
         .execute(
-            "UPDATE agent_chat_prompt_dispatches SET state = 'settled' WHERE message_id = ?1 AND state = 'claimed' AND coordinator_id = ?2 AND host_epoch = ?3",
-            params![message_id, coordinator_id, host_epoch.0],
+            "UPDATE agent_chat_prompt_dispatches SET state = 'settled' WHERE message_id = ?1 AND coordinator_id = ?2 AND host_epoch = ?3 AND (state = 'claimed' OR (state = 'started' AND NOT EXISTS (SELECT 1 FROM run_session_bindings WHERE run_id = ?4)))",
+            params![message_id, coordinator_id, host_epoch.0, run_id],
         )
         .map_err(storage_error)?;
     if changed != 1 {
@@ -71,7 +75,7 @@ pub(super) fn fail_prelaunch(
     transaction
         .execute(
             "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, 'notice', ?6, 0)",
-            params![conversation_id, cursor, format!("prelaunch-failed:{message_id}"), turn_id, run_id, error],
+            params![conversation_id, cursor, format!("{}{message_id}", failure_code.map_or("prelaunch-failed:", gent_types::AgentChatFailureCode::event_prefix)), turn_id, run_id, error],
         )
         .map_err(storage_error)?;
     transaction.commit().map_err(storage_error)
@@ -173,6 +177,14 @@ pub(super) fn transition(
         return Err(LedgerError::Invariant(
             "agent chat dispatch is not owned by this coordinator".into(),
         ));
+    }
+    if expected == "launching" && state == "pending" {
+        super::super::super::agent_chat_steer_target::expire(
+            &transaction,
+            message_id,
+            host_epoch,
+            "deliveryRejected",
+        )?;
     }
     transaction.commit().map_err(storage_error)
 }

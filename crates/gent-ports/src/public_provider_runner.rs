@@ -12,6 +12,25 @@ pub enum PublicProviderRunError {
     NotActive,
     #[error("provider lifecycle failed: {0}")]
     Failed(String),
+    #[error("the sandbox is unavailable on this device: {0}")]
+    SandboxUnavailable(String),
+    #[error("the sandbox refused this launch: {0}")]
+    SandboxAdmissionFailed(String),
+}
+
+impl PublicProviderRunError {
+    #[must_use]
+    pub const fn failure_code(&self) -> Option<gent_types::AgentChatFailureCode> {
+        match self {
+            Self::SandboxUnavailable(_) => {
+                Some(gent_types::AgentChatFailureCode::SandboxUnavailable)
+            }
+            Self::SandboxAdmissionFailed(_) => {
+                Some(gent_types::AgentChatFailureCode::SandboxAdmissionFailed)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Daemon-owned public provider lifecycle boundary.

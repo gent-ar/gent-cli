@@ -51,6 +51,7 @@ fn autonomous_save_requires_the_exact_revisioned_policy_reply() {
         scope: PolicyScope::ProviderPermissions,
         revision: 2,
         mode: PermissionMode::Autonomous,
+        containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec!["workspace.read".into()],
         allowed_categories: vec![],
     };
@@ -58,6 +59,7 @@ fn autonomous_save_requires_the_exact_revisioned_policy_reply() {
         request_id: "request-1".into(),
         policy: policy.clone(),
         bypass_consent: false,
+        expected_provider: None,
     };
     let matching = PermissionPolicyFrame::Saved {
         request_id: "request-1".into(),
@@ -88,6 +90,7 @@ fn current_policy_reply_stays_bound_to_the_requested_workspace() {
             scope: PolicyScope::ProviderPermissions,
             revision: 1,
             mode: PermissionMode::AskEveryTime,
+            containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
         }),
@@ -197,6 +200,7 @@ async fn set_saves_the_next_revision_for_the_resolved_workspace() {
                             scope: PolicyScope::ProviderPermissions,
                             revision: 1,
                             mode: PermissionMode::AskEveryTime,
+                            containment: gent_types::Containment::Sandboxed,
                             allowed_tools: vec![],
                             allowed_categories: vec![],
                         }),

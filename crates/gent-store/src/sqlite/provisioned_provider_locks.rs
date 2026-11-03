@@ -1,6 +1,6 @@
 //! Append-only trusted public-provider installation locks.
 
-use gent_ports::{LedgerError, ProvisionedProviderLockLedger};
+use gent_ports::{IngressMode, LedgerError, ProvisionedProviderLockLedger};
 use gent_types::{
     Event, ProviderInstallProvenance, ProvisionedProviderInstallation, ProvisionedProviderLock,
     Receipt, ReceiptStatus, RunVersionLock,
@@ -9,7 +9,8 @@ use rusqlite::{OptionalExtension, params};
 
 use super::{
     SqliteLedger,
-    queries::{append_event, encode_status, find_receipt, storage_error},
+    epoch::require_epoch,
+    queries::{append_event, encode_status, find_receipt, host_ingress, storage_error},
 };
 
 impl ProvisionedProviderLockLedger for SqliteLedger {
@@ -23,6 +24,13 @@ impl ProvisionedProviderLockLedger for SqliteLedger {
         require_terminal(receipt, installation, &status, terminal)?;
         let mut connection = self.lock()?;
         let transaction = connection.transaction().map_err(storage_error)?;
+        let ingress = host_ingress(&transaction)?;
+        require_epoch(receipt.host_epoch, ingress.epoch)?;
+        if ingress.mode == IngressMode::Closed {
+            return Err(LedgerError::IngressClosed {
+                epoch: ingress.epoch,
+            });
+        }
         let mut durable = find_receipt(&transaction, &receipt.idempotency_key)?
             .ok_or_else(|| LedgerError::Invariant("provisioning receipt is missing".into()))?;
         if durable.receipt_id != receipt.receipt_id

@@ -26,6 +26,7 @@ impl<L: AgentChatReadLedger> OrdinaryPromptIngress<L> {
             return self.interrupt_run(provider, &prompt.run_id.0);
         }
         OrdinaryPromptWake {
+            control: self.control.clone(),
             router: Arc::clone(&self.wake.router),
             notify: Arc::clone(&self.wake.notify),
         }
@@ -51,6 +52,24 @@ impl<L> ProvisionedPromptWake<L> {
 impl<L: AgentChatReadLedger + Send + Sync + 'static> PromptProviderProvisionPort
     for ProvisionedPromptWake<L>
 {
+    fn managed_plan(
+        &self,
+        request: gent_protocol::DependencyPlanRequest,
+    ) -> Option<gent_protocol::DependencyPlan> {
+        self.provision.managed_plan(request)
+    }
+    fn managed_action(
+        &self,
+        request: gent_protocol::DependencyActionRequest,
+    ) -> Option<Result<gent_protocol::DependencyActionResult, String>> {
+        if request.action != gent_protocol::DependencyAction::Update {
+            return self.provision.managed_action(request);
+        }
+        crate::private_provider_provisioning::managed_actions::with_operation(
+            &self.ingress.control,
+            || self.provision.managed_action(request),
+        )
+    }
     fn confirm(
         &self,
         frame: PromptProviderProvisionFrame,
@@ -73,6 +92,7 @@ impl<L: AgentChatReadLedger + Send + Sync + 'static> PromptProviderProvisionPort
             match &self.ingress.standalone_readiness {
                 Some(readiness) => self.ingress.wake.schedule(prompt, Arc::clone(readiness)),
                 None => OrdinaryPromptWake {
+                    control: self.ingress.control.clone(),
                     router: Arc::clone(&self.ingress.wake.router),
                     notify: Arc::clone(&self.ingress.wake.notify),
                 }
@@ -85,9 +105,13 @@ impl<L: AgentChatReadLedger + Send + Sync + 'static> PromptProviderProvisionPort
 
 impl<L: AgentChatReadLedger + 'static> OrdinaryPromptWake<L> {
     pub(super) fn schedule(&self, prompt: PromptWake, readiness: Arc<dyn StandalonePromptRelease>) {
+        let control = self.control.clone();
         let router = Arc::clone(&self.router);
         let notify = Arc::clone(&self.notify);
         std::thread::spawn(move || {
+            let Ok(_operation) = control.acquire_operation() else {
+                return;
+            };
             let result = router
                 .lock()
                 .map_err(|_| "ordinary lifecycle router is unavailable".to_owned())

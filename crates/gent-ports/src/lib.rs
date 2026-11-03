@@ -19,12 +19,14 @@ mod conversation_ledger;
 mod conversation_link_ledger;
 mod conversation_prompt_ledger;
 mod conversation_summary;
+mod credential_store;
 mod dependency_action_executor;
 mod exports;
 mod forge_connector_ledger;
 mod git_executor;
 mod git_operation_ledger;
 mod goal_ledger;
+mod host_mcp_journal;
 mod ingress;
 mod ledger;
 mod mcp_connector_executor;
@@ -70,6 +72,9 @@ pub use conversation_ledger::{ConversationLedger, TurnPhaseUpdate};
 pub use conversation_link_ledger::*;
 pub use conversation_prompt_ledger::{ConversationPromptLedger, ConversationPromptSave};
 pub use conversation_summary::ConversationSummaryRunner;
+pub use credential_store::{
+    CredentialCommit, CredentialKey, CredentialStore, CredentialStoreError, SecretValue,
+};
 pub use dependency_action_executor::{
     DependencyActionExecutor, DependencyActionExecutorError, DependencyActionOperation,
 };

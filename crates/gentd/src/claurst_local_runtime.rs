@@ -5,6 +5,9 @@ use serde_json::json;
 
 use crate::{claurst_runtime_factory::LlamaSummaryEndpoint, local_model_catalog::LocalModelRecord};
 
+#[path = "claurst_local_thread_budget.rs"]
+mod thread_budget;
+
 const LLAMA_CPP_PROVIDER: &str = "llama-cpp";
 const KV_CACHE_TYPE: &str = "q8_0";
 
@@ -39,6 +42,10 @@ pub(crate) struct LocalProcessLaunch {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaurstLocalRuntimePlan {
+    pub(crate) model_record: LocalModelRecord,
+    pub(crate) model_effort: AgentChatEffort,
+    pub(crate) model_mode: AgentChatMode,
+    pub(crate) model_configuration: serde_json::Value,
     pub(crate) model_path: PathBuf,
     pub(crate) server_url: String,
     pub(crate) settings_path: PathBuf,
@@ -153,7 +160,22 @@ impl ClaurstLocalRuntimePlan {
         };
 
         let history_input_bytes = profile::history_input_bytes(model, effort);
+        let reasoning = profile::qwen3_reasoning_arguments(model, effort);
+        let budget = reasoning
+            .windows(2)
+            .find(|p| p[0] == "--reasoning-budget")
+            .and_then(|p| p[1].parse::<u32>().ok())
+            .unwrap_or(0);
+        let output = profile::local_max_tokens(effort).min(model.context_tokens.saturating_sub(1));
+        let model_configuration = json!({"schema":1,"modelPath":model_path,"modelSha256":model.sha256,
+            "modelId":model.provider_model_id,"contextTokens":model.context_tokens,"maxOutputTokens":output,
+            "threads":thread_budget::threads(),"reasoningBudget":budget,"enableThinking":budget != 0,
+            "templateKwargs":serde_json::from_str::<serde_json::Value>(&profile::template_kwargs(model, effort, request.mode)).expect("compiled model kwargs")});
         Ok(Self {
+            model_record: model.clone(),
+            model_effort: effort,
+            model_mode: request.mode,
+            model_configuration,
             summary_endpoint: summary_endpoint(model, &server_url, history_input_bytes),
             model_path,
             server_url,
@@ -250,9 +272,12 @@ fn local_settings(
 
 fn claurst_permission_mode(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::AskEveryTime => "default",
-        PermissionMode::AutoAcceptEdits | PermissionMode::Autonomous => "acceptEdits",
-        PermissionMode::Bypass => "bypassPermissions",
+        // Broad policies are evaluated by Gent against live containment evidence.
+        // Keep the adapter callback active so per-chat Ask/Plan still takes effect.
+        PermissionMode::AskEveryTime | PermissionMode::Autonomous | PermissionMode::Bypass => {
+            "default"
+        }
+        PermissionMode::AutoAcceptEdits => "default",
     }
 }
 
@@ -262,3 +287,7 @@ mod profile;
 #[cfg(test)]
 #[path = "claurst_local_runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "claurst_contained_model_plan_tests.rs"]
+mod contained_plan_tests;

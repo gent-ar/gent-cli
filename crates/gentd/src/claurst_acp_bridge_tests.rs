@@ -21,7 +21,10 @@ impl ClaurstAcpStdio for Fake {
         Ok(self.reads.pop_front())
     }
 }
-fn frame(value: serde_json::Value) -> Vec<u8> {
+fn frame(mut value: serde_json::Value) -> Vec<u8> {
+    if value.get("id") == Some(&serde_json::json!(1)) && value.get("result").is_some() {
+        value["result"]["_meta"]["gentPermissionBinding"] = serde_json::json!(1);
+    }
     serde_json::to_vec(&value).unwrap()
 }
 fn request() -> ClaurstStartRequest {
@@ -251,6 +254,7 @@ async fn a_start_renders_history_within_the_local_model_budget() {
             kind: gent_types::NormalizedTranscriptKind::ToolActivity,
             text: format!("HEAD{}TAIL", "x".repeat(40_000)),
             is_partial: false,
+            failure_code: None,
             origin: None,
             attachments: Vec::new(),
         };

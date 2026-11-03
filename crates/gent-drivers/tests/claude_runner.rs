@@ -677,3 +677,71 @@ fn an_over_ceiling_claude_frame_is_skipped_with_a_typed_diagnostic_and_the_strea
         })) if text == "after"
     )));
 }
+
+#[test]
+fn steer_ack_behind_large_output_is_drained_with_a_bounded_poll_budget() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = ClaudeStreamRunner::new(
+        Launcher(Arc::clone(&state)),
+        BufferPolicy::new(4, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
+    );
+    runner
+        .start(start("run-1", directory.path(), None))
+        .unwrap();
+    runner
+        .steer("run-1", "steer-1", "change direction", &[])
+        .unwrap();
+    let sent: serde_json::Value =
+        serde_json::from_slice(state.writes.lock().unwrap().last().unwrap()).unwrap();
+    let ack = serde_json::json!({"type":"user", "isReplay":true,"uuid":sent["uuid"]});
+    assert!(
+        runner.poll("run-1").unwrap().is_none(),
+        "a write is not acceptance"
+    );
+    // A real-size provider frame fragmented exactly like the OS reader's 4 KiB chunks.
+    let frame = serde_json::json!({"type":"diagnostic","method":"diagnostic","payload":"x".repeat(1024 * 1024)});
+    let bytes = format!("{frame}\n{ack}\n").into_bytes();
+    let chunks = bytes
+        .chunks(4096)
+        .map(<[u8]>::to_vec)
+        .collect::<VecDeque<_>>();
+    let chunk_count = chunks.len();
+    *state.output.lock().unwrap() = chunks;
+    let started = std::time::Instant::now();
+    let mut accepted = false;
+    let mut polls = 0;
+    while polls < 300 {
+        polls += 1;
+        let effects = runner.poll("run-1").unwrap().unwrap_or_default();
+        if polls == 1 {
+            let remaining = state.output.lock().unwrap().len();
+            assert!(
+                remaining < chunk_count && remaining >= chunk_count - 16,
+                "one busy session must yield after its bounded backlog"
+            );
+        }
+        if effects.contains(&ClaudeRunnerEffect::SteerConsumed {
+            message_id: "steer-1".into(),
+        }) {
+            accepted = true;
+            break;
+        }
+    }
+    assert!(
+        accepted,
+        "a ready steer acknowledgment must eventually arrive"
+    );
+    eprintln!(
+        "claude 1MiB backlog: {chunk_count} chunks, {polls} polls, {:?} CPU/wall elapsed (excludes scheduler waits)",
+        started.elapsed()
+    );
+    assert!(
+        polls <= 17,
+        "a ready acknowledgment took {polls} scheduler ticks behind 1 MiB output"
+    );
+    assert!(
+        runner.poll("run-1").unwrap().is_none(),
+        "acceptance is emitted once"
+    );
+}

@@ -24,12 +24,12 @@ try {
     Assert-True ($text.Contains("Register-ScheduledTask")) "helper must register a scheduled task"
     Assert-True ($text.Contains("verify-blob")) "helper must verify its tag-bound bootstrap"
     Assert-True ($text.Contains("RequireHealth")) "helper must require staged runtime health"
-    $runtime = Join-Path $work "runtime"; $release = Join-Path $runtime "releases\v1.2.3-x86_64-pc-windows-msvc"
+    $runtime = Join-Path $work "runtime"; $generation = "v1.2.3+0123456789abcdef.12345678-x86_64-pc-windows-msvc"; $release = Join-Path $runtime "releases\$generation"
     $files = Join-Path $work "files"; $fake = Join-Path $work "fake"; $scheduler = Join-Path $work "scheduler"; $record = Join-Path $work "record"
     New-Item -ItemType Directory -Force -Path $release, $files, $fake | Out-Null
     Write-Utf8File (Join-Path $release "gent.exe") "fixture"
     Write-Utf8File (Join-Path $release "gentd.exe") "fixture"
-    Write-Utf8File (Join-Path $runtime "current.json") (@{ release = "v1.2.3-x86_64-pc-windows-msvc" } | ConvertTo-Json -Compress)
+    Write-Utf8File (Join-Path $runtime "current.json") (@{ release = $generation } | ConvertTo-Json -Compress)
     $tagDir = Join-Path $files "v1.2.4"; New-Item -ItemType Directory -Force -Path $tagDir | Out-Null
     Write-Utf8File (Join-Path $files "latest") (@{ tag_name = "v1.2.4"; draft = $false; prerelease = $false } | ConvertTo-Json -Compress)
     Write-Utf8File (Join-Path $tagDir "gent-install.ps1") @'
@@ -47,6 +47,14 @@ param([string]$Version,[string]$InstallDir,[string]$IdleDataDir,[switch]$Force,[
         Assert-True (Test-Path (Join-Path $scheduler "gent-auto-update.task.ps1")) "scheduler wrapper missing"
         $status = & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper status -RuntimeRoot $runtime -DataDir (Join-Path $work "data") -SchedulerDir $scheduler | ConvertFrom-Json
         Assert-True $status.enabled "scheduler status is not enabled"
+        $operationGeneration = "v1.2.3+0123456789abcdef.$('b' * 64)-x86_64-pc-windows-msvc"
+        $operationRelease = Join-Path $runtime "releases\$operationGeneration"
+        New-Item -ItemType Directory -Path $operationRelease | Out-Null
+        Write-Utf8File (Join-Path $operationRelease "gent.exe") "fixture"
+        Write-Utf8File (Join-Path $operationRelease "gentd.exe") "fixture"
+        Write-Utf8File (Join-Path $runtime "current.json") (@{ release = $operationGeneration } | ConvertTo-Json -Compress)
+        $operationStatus = & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper status -RuntimeRoot $runtime -DataDir (Join-Path $work "data") -SchedulerDir $scheduler | ConvertFrom-Json
+        Assert-True $operationStatus.enabled "operation generation is not accepted by updater status"
         $result = & powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $helper run -RuntimeRoot $runtime -DataDir (Join-Path $work "data") | ConvertFrom-Json
         Assert-True ($result.result -eq "updated") "newer verified tag was not delegated"
         Assert-True ((Get-Content -Raw $record) -match 'v1.2.4\|.*\|.*\|True\|True') "installer lacks forced staged-health delegation"

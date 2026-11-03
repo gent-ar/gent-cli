@@ -51,7 +51,6 @@ pub(crate) use command_model::{
     Args, AutomationCommand, CommandLine, ConversationCommand, DependencyCommand, ForgeCommand,
     SessionCommand,
 };
-pub(crate) use runtime_activation::RuntimeCommand;
 
 use clap::Parser;
 

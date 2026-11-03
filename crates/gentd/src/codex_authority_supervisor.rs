@@ -146,6 +146,19 @@ where
         self.host.interrupt(run_id)
     }
 
+    pub(crate) fn interrupt_turn(
+        &mut self,
+        run_id: &str,
+        turn_id: &str,
+    ) -> Result<(), RuntimeError> {
+        if self.state != PrivateCodexSupervisorState::Running {
+            return Err(RuntimeError::ProviderRun(
+                gent_ports::PublicProviderRunError::Failed("interrupt owner is unavailable".into()),
+            ));
+        }
+        self.host.interrupt_turn(run_id, turn_id)
+    }
+
     /// Recovers once, then executes one bounded host tick for each private wake.
     ///
     /// # Errors

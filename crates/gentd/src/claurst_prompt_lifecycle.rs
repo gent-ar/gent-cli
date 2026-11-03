@@ -232,6 +232,16 @@ where
     async fn interrupt_claurst_run(&mut self, run_id: &str) -> Result<(), String> {
         self.interrupt_run(run_id).await
     }
+    async fn interrupt_claurst_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), String> {
+        // The cadence holds this lifecycle's mutex until cancel completes;
+        // neither provider advancement nor compaction can replace the target.
+        if !self.active.values().any(|active| {
+            active.saved.run_id.0 == run_id && active.saved.message.turn_id == turn_id
+        }) {
+            return Err("the interrupt target turn is no longer active".into());
+        }
+        self.interrupt_run(run_id).await
+    }
     async fn activate_recovery(&mut self) -> Result<(), String> {
         self.dispatches.recover(self.host_epoch).map_err(display)?;
         self.recovery_complete = true;
@@ -268,6 +278,10 @@ where
 
     fn shutdown_complete(&self) -> bool {
         self.shutdown_requested && self.active.is_empty()
+    }
+
+    fn is_idle(&self) -> bool {
+        self.recovery_complete && self.active.is_empty()
     }
 }
 

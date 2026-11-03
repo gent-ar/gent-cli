@@ -1,5 +1,6 @@
 //! Daemon-facing runtime port. Transport adapters depend only on this boundary.
 
+use crate::runtime_facade::RuntimeOwnerControlPort;
 use gent_protocol::{
     AgentChatCheckpointFrame, AgentChatConversationConfigFrame, AgentChatConversationFrame,
     AgentChatIntentFrame, AgentChatProjectionDelta, AgentChatProjectionFrame,
@@ -31,7 +32,7 @@ pub(crate) fn stamped_status(
         .map_err(|error| error.to_string())
 }
 
-fn executable_digest() -> Option<&'static str> {
+pub(crate) fn executable_digest() -> Option<&'static str> {
     static DIGEST: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     DIGEST
         .get_or_init(|| {
@@ -41,6 +42,9 @@ fn executable_digest() -> Option<&'static str> {
 }
 
 pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
+    fn runtime_owner_control_port(&self) -> Option<RuntimeOwnerControlPort> {
+        None
+    }
     fn agent_chat_permission_port(
         &self,
     ) -> Option<std::sync::Arc<dyn crate::agent_chat_permission_api::AgentChatPermissionPort>> {

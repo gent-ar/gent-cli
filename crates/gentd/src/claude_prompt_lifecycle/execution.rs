@@ -44,6 +44,7 @@ pub(crate) struct ClaudePromptRunner<L, P> {
     pending: Arc<Mutex<BTreeMap<String, ClaudePromptStart>>>,
     conversation_configs: Arc<Mutex<BTreeMap<String, PathBuf>>>,
     mcp_config: Option<PathBuf>,
+    launched_mcp: Arc<Mutex<BTreeMap<String, (String, serde_json::Value)>>>,
 }
 
 impl<L, P> Clone for ClaudePromptRunner<L, P> {
@@ -53,6 +54,7 @@ impl<L, P> Clone for ClaudePromptRunner<L, P> {
             pending: Arc::clone(&self.pending),
             conversation_configs: Arc::clone(&self.conversation_configs),
             mcp_config: self.mcp_config.clone(),
+            launched_mcp: Arc::clone(&self.launched_mcp),
         }
     }
 }
@@ -63,6 +65,7 @@ where
     P: ProviderProcess,
 {
     fn cleanup_config(&self, run_id: &str) {
+        lock(&self.launched_mcp).remove(run_id);
         if let Some(path) = lock(&self.conversation_configs).remove(run_id) {
             let _ = std::fs::remove_file(path);
         }
@@ -79,6 +82,7 @@ where
             pending: Arc::new(Mutex::new(BTreeMap::new())),
             conversation_configs: Arc::new(Mutex::new(BTreeMap::new())),
             mcp_config,
+            launched_mcp: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -190,6 +194,12 @@ where
         if let Some(path) = &mcp_config {
             lock(&self.conversation_configs).insert(run_id.into(), path.clone());
         }
+        let conversation_id = prompt.conversation_id.clone();
+        let selected = mcp_config
+            .as_deref()
+            .map(mcp::configured_servers)
+            .transpose()?;
+        lock(&self.launched_mcp).remove(run_id);
         let result = lock(&self.runner)
             .start(ClaudeRunStart {
                 run_id: run_id.into(),
@@ -213,6 +223,8 @@ where
             .map_err(map_error);
         if result.is_err() {
             self.cleanup_config(run_id);
+        } else if let Some(selected) = selected {
+            lock(&self.launched_mcp).insert(run_id.into(), (conversation_id, selected));
         }
         result
     }
@@ -263,6 +275,9 @@ fn map_error(error: gent_drivers::claude_runner::ClaudeRunnerError) -> PublicPro
         gent_drivers::claude_runner::ClaudeRunnerError::Lock(
             gent_drivers::lock::LockError::ProviderChanged,
         ) => PublicProviderRunError::ProviderChanged,
+        gent_drivers::claude_runner::ClaudeRunnerError::Launch(error) => {
+            gent_drivers::run_runner::public_launch_error(error)
+        }
         other => PublicProviderRunError::Failed(other.to_string()),
     }
 }

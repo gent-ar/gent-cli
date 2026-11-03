@@ -39,8 +39,8 @@ impl StandaloneDoctor {
         (Path::new(&lock.canonical_path) == executable.canonicalize().ok()?).then_some(lock.version)
     }
 
-    pub(crate) fn executable(&self, provider: DependencyProvider) -> Option<&Path> {
-        self.executables.explicit_path(match provider {
+    pub(crate) fn executable(&self, provider: DependencyProvider) -> Option<PathBuf> {
+        self.executables.executable(match provider {
             DependencyProvider::Claude => gent_types::AgentChatProvider::Claude,
             DependencyProvider::Codex => gent_types::AgentChatProvider::Codex,
         })

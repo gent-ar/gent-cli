@@ -1,10 +1,7 @@
 use std::time::Duration;
 use std::{
     collections::VecDeque,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
 use async_trait::async_trait;
@@ -24,6 +21,7 @@ pub(super) const ACTIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Debug)]
 pub(crate) struct OrdinaryPromptWake<L> {
+    control: OrdinaryLifecycleControl,
     router: Arc<Mutex<OrdinaryPublicLifecycleRouter<L>>>,
     notify: Arc<Notify>,
 }
@@ -35,7 +33,7 @@ pub(crate) struct OrdinaryPromptIngress<L> {
     standalone_readiness: Option<Arc<dyn StandalonePromptRelease>>,
     async_claurst_notify: Option<Arc<Notify>>,
     async_claurst: Arc<tokio::sync::Mutex<Option<Box<dyn AsyncOrdinaryLifecycleHost>>>>,
-    async_claurst_interrupts: Arc<Mutex<VecDeque<String>>>,
+    async_claurst_interrupts: Arc<Mutex<VecDeque<PendingClaurstInterrupt>>>,
     async_claurst_attached: Arc<AtomicBool>,
 }
 
@@ -60,110 +58,53 @@ pub(crate) trait AsyncOrdinaryLifecycleHost: Send + std::fmt::Debug {
     async fn interrupt_claurst_run(&mut self, _run_id: &str) -> Result<(), String> {
         Err("Claurst interrupt owner is unavailable".into())
     }
+    async fn interrupt_claurst_turn(
+        &mut self,
+        _run_id: &str,
+        _turn_id: &str,
+    ) -> Result<(), String> {
+        Err("Claurst turn-bound interrupt owner is unavailable".into())
+    }
     fn shutdown_complete(&self) -> bool;
-}
-
-impl<L> OrdinaryPromptIngress<L> {
-    /// Acquires admission before a durable prompt transaction begins.
-    pub(crate) fn acquire_prompt(
-        &self,
-    ) -> Result<OrdinaryPromptPermit, OrdinaryPromptAdmissionError> {
-        self.control.acquire_prompt()
-    }
-
-    pub(crate) fn respond_codex_permission(
-        &self,
-        run_id: &str,
-        request_id: &str,
-        decision: gent_drivers::codex_control::CodexControlDecision,
-        answers: Option<serde_json::Value>,
-    ) -> Result<(), String> {
-        self.wake
-            .router
-            .lock()
-            .map_err(|_| "standalone lifecycle router is unavailable".to_owned())?
-            .respond_codex_permission(run_id, request_id, decision, answers)
-            .map_err(|_| "Codex permission owner is unavailable".to_owned())
-    }
-
-    pub(crate) fn respond_claude_permission(
-        &self,
-        run_id: &str,
-        request_id: &str,
-        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
-        persist_suggestions: bool,
-    ) -> Result<(), String> {
-        self.respond_claude_permission_with_input(
-            run_id,
-            request_id,
-            behavior,
-            persist_suggestions,
-            None,
-        )
-    }
-
-    pub(crate) fn respond_claude_permission_with_input(
-        &self,
-        run_id: &str,
-        request_id: &str,
-        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
-        persist_suggestions: bool,
-        updated_input: Option<serde_json::Value>,
-    ) -> Result<(), String> {
-        self.wake
-            .router
-            .lock()
-            .map_err(|_| "standalone lifecycle router is unavailable".to_owned())?
-            .respond_claude_permission_with_input(
-                run_id,
-                request_id,
-                behavior,
-                persist_suggestions,
-                updated_input,
-            )
-            .map_err(|_| "Claude permission owner is unavailable".to_owned())
-    }
-
-    pub(crate) fn interrupt_run(
-        &self,
-        provider: AgentChatProvider,
-        run_id: &str,
-    ) -> Result<(), String> {
-        if let Some(readiness) = &self.standalone_readiness
-            && readiness.cancel_held_prompts(run_id)?
-        {
-            return Ok(());
-        }
-        if provider == AgentChatProvider::Claurst {
-            if !self.async_claurst_attached.load(Ordering::Acquire) {
-                return Err("Claurst interrupt owner is unavailable".into());
-            }
-            self.async_claurst_interrupts
-                .lock()
-                .map_err(|_| "Claurst interrupt queue is unavailable".to_owned())?
-                .push_back(run_id.to_owned());
-            if let Some(notify) = &self.async_claurst_notify {
-                notify.notify_one();
-            }
-            return Ok(());
-        }
-        self.wake
-            .router
-            .lock()
-            .map_err(|_| "standalone lifecycle router is unavailable".to_owned())?
-            .interrupt_run(provider, run_id)
-            .map_err(|_| "provider interrupt owner is unavailable".to_owned())
+    fn is_idle(&self) -> bool {
+        false
     }
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct InterruptGoalStop {
+    pub(crate) goals: gent_runtime::GoalService<SqliteLedger>,
+    pub(crate) conversation_id: gent_types::AgentChatConversationId,
+    pub(crate) host_epoch: HostEpoch,
+}
+impl InterruptGoalStop {
+    fn apply(self) {
+        if let Err(error) = self.goals.stop(
+            &self.conversation_id,
+            self.host_epoch,
+            crate::startup::unix_seconds(),
+        ) {
+            eprintln!("goal stop after validated interruption was not recorded: {error}");
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct PendingClaurstInterrupt {
+    run_id: String,
+    expected_turn_id: Option<String>,
+    goal_stop: Option<InterruptGoalStop>,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct OrdinaryLifecycleCadence<L> {
+    standalone_recovery: Option<Arc<dyn held_recovery::StandaloneHeldRecovery>>,
     pub(super) router: Arc<Mutex<OrdinaryPublicLifecycleRouter<L>>>,
     pub(super) notify: Arc<Notify>,
     pub(super) control: OrdinaryLifecycleControl,
     pub(super) async_claurst: Arc<tokio::sync::Mutex<Option<Box<dyn AsyncOrdinaryLifecycleHost>>>>,
     pub(super) async_claurst_notify: Arc<Notify>,
-    pub(super) async_claurst_interrupts: Arc<Mutex<VecDeque<String>>>,
+    pub(super) async_claurst_interrupts: Arc<Mutex<VecDeque<PendingClaurstInterrupt>>>,
 }
 
 #[must_use]
@@ -185,6 +126,7 @@ pub(crate) fn pair<L>(
         OrdinaryPromptIngress {
             control: control.clone(),
             wake: OrdinaryPromptWake {
+                control: control.clone(),
                 router: Arc::clone(&router),
                 notify: Arc::clone(&notify),
             },
@@ -195,6 +137,7 @@ pub(crate) fn pair<L>(
             async_claurst_attached,
         },
         OrdinaryLifecycleCadence {
+            standalone_recovery: None,
             router,
             notify,
             control,
@@ -215,10 +158,7 @@ pub(crate) fn pair_with_standalone_readiness(
     OrdinaryPromptIngress<SqliteLedger>,
     OrdinaryLifecycleCadence<SqliteLedger>,
 ) {
-    let (control, mut ingress, cadence) = pair(router);
-    ingress.standalone_readiness =
-        Some(Arc::new(StandaloneReadiness::new(ledger, host_epoch, None)));
-    (control, ingress, cadence)
+    pair_with_readiness(router, StandaloneReadiness::new(ledger, host_epoch, None))
 }
 
 #[must_use]
@@ -233,13 +173,28 @@ pub(crate) fn pair_with_standalone_models(
     OrdinaryPromptIngress<SqliteLedger>,
     OrdinaryLifecycleCadence<SqliteLedger>,
 ) {
-    let (control, mut ingress, cadence) = pair(router);
-    ingress.standalone_readiness = Some(Arc::new(StandaloneReadiness::new_with_public_readiness(
-        ledger,
-        host_epoch,
-        Some(models),
-        public_readiness,
-    )));
+    pair_with_readiness(
+        router,
+        StandaloneReadiness::new_with_public_readiness(
+            ledger,
+            host_epoch,
+            Some(models),
+            public_readiness,
+        ),
+    )
+}
+
+fn pair_with_readiness(
+    router: Arc<Mutex<OrdinaryPublicLifecycleRouter<SqliteLedger>>>,
+    readiness: StandaloneReadiness,
+) -> (
+    OrdinaryLifecycleControl,
+    OrdinaryPromptIngress<SqliteLedger>,
+    OrdinaryLifecycleCadence<SqliteLedger>,
+) {
+    let (control, mut ingress, mut cadence) = pair(router);
+    ingress.standalone_readiness = Some(Arc::new(readiness));
+    cadence.standalone_recovery = Some(Arc::new(ingress.clone()));
     (control, ingress, cadence)
 }
 
@@ -298,3 +253,11 @@ mod ordinary_lifecycle_cadence_shutdown_tests;
 #[cfg(test)]
 #[path = "ordinary_lifecycle_cadence_tests.rs"]
 mod ordinary_lifecycle_cadence_tests;
+
+#[path = "ordinary_lifecycle_cadence_ingress.rs"]
+mod ingress;
+#[path = "ordinary_lifecycle_owner_control.rs"]
+mod owner_control;
+
+#[path = "ordinary_lifecycle_held_recovery.rs"]
+mod held_recovery;

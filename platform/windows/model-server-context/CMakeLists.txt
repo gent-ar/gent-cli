@@ -1,0 +1,6 @@
+add_executable(gent-contained-server-context main.cpp)
+target_include_directories(gent-contained-server-context SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/tools/server" "${CMAKE_SOURCE_DIR}/common" "${CMAKE_SOURCE_DIR}/vendor" "${CMAKE_SOURCE_DIR}/include" "${CMAKE_SOURCE_DIR}/ggml/include")
+target_link_libraries(gent-contained-server-context PRIVATE server-context bcrypt)
+target_compile_features(gent-contained-server-context PRIVATE cxx_std_17)
+target_compile_options(gent-contained-server-context PRIVATE /W4 /WX /guard:cf /sdl)
+target_link_options(gent-contained-server-context PRIVATE /guard:cf /DYNAMICBASE /NXCOMPAT /DEPENDENTLOADFLAG:0x800)

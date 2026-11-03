@@ -22,6 +22,8 @@ fn refused_launch() -> ProviderLaunch {
 fn launch(executable: &std::path::Path, arguments: Vec<String>) -> ProviderLaunch {
     let lock = gent_drivers::lock::capture("claude", executable, "test", "test").unwrap();
     ProviderLaunch {
+        permission_binding: None,
+        run_id: None,
         executable: lock.canonical_path.clone().into(),
         lock,
         provider: "claude".into(),

@@ -8,8 +8,15 @@ pub(super) fn create(
     ledger: &SqliteLedger,
     connector: &ForgeConnectorRecord,
 ) -> Result<(), LedgerError> {
-    validate(connector)?;
     let connection = ledger.lock()?;
+    insert(&connection, connector)
+}
+
+pub(super) fn insert(
+    connection: &rusqlite::Connection,
+    connector: &ForgeConnectorRecord,
+) -> Result<(), LedgerError> {
+    validate(connector)?;
     let source = connection
         .query_row(
             "SELECT workspace_id, tool_source_id, phase FROM mcp_connectors WHERE connector_id = ?1",
@@ -176,14 +183,34 @@ mod tests {
             connector_id: "connector-1".into(),
             workspace_id: "workspace-1".into(),
             tool_source_id: "source-1".into(),
-            name: "gent-forge".into(),
+            name: "example-forge".into(),
             description: "Gent Forge".into(),
             category: "gent".into(),
             phase: McpConnectorPhase::Requested,
-            declared_tools: vec!["gent-forge.apply".into(), "gent-forge.plan".into()],
-            discovered_tools: vec!["gent-forge.plan".into()],
+            declared_tools: vec!["example-forge.apply".into(), "example-forge.plan".into()],
+            discovered_tools: vec!["example-forge.plan".into()],
             enabled: true,
         }
+    }
+
+    #[test]
+    fn generic_registration_cannot_persist_reserved_internal_forge_source() {
+        let ledger = SqliteLedger::in_memory().unwrap();
+        ledger
+            .create_workspace(&WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: "/tmp/project".into(),
+            })
+            .unwrap();
+        let reserved = ToolSourceRecord {
+            tool_source_id: "source-1".into(),
+            workspace_id: "workspace-1".into(),
+            kind: ToolSourceKind::McpServer,
+            source_name: "gent-forge".into(),
+            declared_tools: vec!["gent_forge_list".into()],
+        };
+        assert!(ledger.create_tool_source(&reserved).is_err());
+        assert!(ledger.list_tool_sources("workspace-1").unwrap().is_empty());
     }
 
     #[test]
@@ -200,8 +227,8 @@ mod tests {
                 tool_source_id: "source-1".into(),
                 workspace_id: "workspace-1".into(),
                 kind: ToolSourceKind::McpServer,
-                source_name: "gent-forge".into(),
-                declared_tools: vec!["gent-forge.apply".into(), "gent-forge.plan".into()],
+                source_name: "example-forge".into(),
+                declared_tools: vec!["example-forge.apply".into(), "example-forge.plan".into()],
             })
             .unwrap();
         ledger
@@ -219,7 +246,7 @@ mod tests {
             vec![value]
         );
         let mut invalid = connector();
-        invalid.discovered_tools = vec!["gent-forge.unknown".into()];
+        invalid.discovered_tools = vec!["example-forge.unknown".into()];
         assert!(ledger.replace_forge_connector(&invalid).is_err());
     }
 }

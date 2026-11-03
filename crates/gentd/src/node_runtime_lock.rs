@@ -333,6 +333,8 @@ mod tests {
                 .unwrap();
         let process = launcher
             .launch(&ProviderLaunch {
+                permission_binding: None,
+                run_id: None,
                 executable: lock.canonical_path.clone().into(),
                 lock,
                 provider: "codex".into(),

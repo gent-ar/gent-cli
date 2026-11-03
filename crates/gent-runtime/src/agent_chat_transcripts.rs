@@ -124,6 +124,7 @@ mod tests {
                 kind: append.kind,
                 text: append.text.clone(),
                 is_partial: append.is_partial,
+                failure_code: None,
                 origin: None,
                 attachments: Vec::new(),
             })

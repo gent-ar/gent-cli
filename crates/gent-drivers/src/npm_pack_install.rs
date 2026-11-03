@@ -31,10 +31,15 @@ impl VerifiedNpmInstaller {
         npm: &NpmGlobalPrefix,
         package: &ApprovedPackageInstall,
     ) -> Result<(), InstallerError> {
+        npm.validate_prefix()?;
         let staging = staging_directory(npm.prefix())?;
         let archive = pack(npm, package, staging.path())?;
         verify_integrity(&archive, &package.integrity)?;
-        run(npm, &npm.install_archive(&archive))
+        NpmGlobalPrefix::validate_filesystem_path(&archive)?;
+        let invocation = npm.install_archive(&archive);
+        let consumer_path = PathBuf::from(crate::installer::npm_archive_path(&archive));
+        verify_archive_argument(&archive, &consumer_path)?;
+        run(npm, &invocation)
     }
 }
 
@@ -57,6 +62,7 @@ fn pack(
 ) -> Result<PathBuf, InstallerError> {
     npm.recheck()
         .map_err(|error| InstallerError::Runtime(error.to_string()))?;
+    NpmGlobalPrefix::validate_filesystem_path(staging)?;
     let invocation = npm.pack(package, staging);
     let mut command = Command::new(&invocation.executable);
     command.args(&invocation.arguments);
@@ -79,6 +85,20 @@ fn pack(
         return Err(InstallerError::InvalidArtifact);
     }
     Ok(archive)
+}
+
+// Recheck the consumer spelling after integrity verification: removing a Windows
+// verbatim prefix must not make npm open a different file (for example, a name
+// whose trailing dot has different ordinary Win32 semantics).
+fn verify_archive_argument(
+    verified_archive: &Path,
+    consumer_path: &Path,
+) -> Result<(), InstallerError> {
+    let consumer_archive = fs::canonicalize(consumer_path).map_err(|error| io_error(&error))?;
+    if consumer_archive != verified_archive {
+        return Err(InstallerError::InvalidArtifact);
+    }
+    Ok(())
 }
 
 fn pack_filename(output: &[u8]) -> Result<String, InstallerError> {
@@ -174,6 +194,22 @@ mod tests {
     #[cfg(unix)]
     use super::staging_directory;
     use super::{pack_filename, verify_integrity};
+
+    #[test]
+    fn npm_consumer_argument_must_resolve_to_the_integrity_checked_archive() {
+        let root = tempfile::tempdir().unwrap();
+        let verified = root.path().join("verified.tgz");
+        let other = root.path().join("other.tgz");
+        fs::write(&verified, b"verified").unwrap();
+        fs::write(&other, b"other").unwrap();
+        let canonical = verified.canonicalize().unwrap();
+        let consumer = std::path::PathBuf::from(crate::installer::npm_archive_path(&canonical));
+        super::verify_archive_argument(&canonical, &consumer).unwrap();
+        assert!(super::verify_archive_argument(&canonical, &other).is_err());
+        assert!(
+            super::verify_archive_argument(&canonical, &root.path().join("missing.tgz")).is_err()
+        );
+    }
 
     #[test]
     fn accepts_only_a_single_safe_tarball_filename() {

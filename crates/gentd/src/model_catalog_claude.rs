@@ -6,10 +6,10 @@ use serde_json::Value;
 
 use super::{
     claude_initialize::ClaudeInitialize,
+    provider_models,
     service::{
         ModelCatalogSource, PROVIDER_DEFAULT_MODEL, ProviderListing, effort, public_availability,
     },
-    suggestions,
 };
 use crate::{provider_auth_api::ProviderAuthPort, provider_launch_budget::ProviderLaunchError};
 
@@ -40,7 +40,7 @@ impl ModelCatalogSource for ClaudeModelSource {
         if !self.initialize.installed() {
             return Ok(ProviderListing {
                 availability,
-                models: suggestions::models("claude"),
+                models: provider_models::discovered(Vec::new()),
             });
         }
         let response = self.initialize.load(None, true)?;
@@ -51,7 +51,7 @@ impl ModelCatalogSource for ClaudeModelSource {
         };
         Ok(ProviderListing {
             availability,
-            models: suggestions::merge("claude", entries.iter().filter_map(claude_model).collect()),
+            models: provider_models::discovered(entries.iter().filter_map(claude_model).collect()),
         })
     }
 }
@@ -85,11 +85,20 @@ fn claude_model(entry: &Value) -> Option<CatalogModel> {
             .and_then(Value::as_str)
             .filter(|description| !description.trim().is_empty())
             .map(str::to_owned),
-        is_default: id == PROVIDER_DEFAULT_MODEL,
-        default_effort: efforts
-            .contains(&gent_types::AgentChatEffort::Medium)
-            .then_some(gent_types::AgentChatEffort::Medium),
+        is_default: entry
+            .get("isDefault")
+            .and_then(Value::as_bool)
+            .unwrap_or(id == PROVIDER_DEFAULT_MODEL),
+        default_effort: entry
+            .get("defaultEffortLevel")
+            .and_then(Value::as_str)
+            .and_then(effort)
+            .filter(|default| efforts.contains(default)),
         efforts,
         local: None,
     })
 }
+
+#[cfg(test)]
+#[path = "model_catalog_claude_parser_tests.rs"]
+mod tests;

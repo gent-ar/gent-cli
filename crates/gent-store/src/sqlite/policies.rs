@@ -11,7 +11,47 @@ use super::queries::storage_error;
 pub(super) fn save(ledger: &SqliteLedger, policy: &PolicyRecord) -> Result<(), LedgerError> {
     validate(policy)?;
     let connection = ledger.lock()?;
-    if let Some(existing) = by_id(&connection, &policy.policy_id)? {
+    save_record(&connection, policy)
+}
+
+pub(super) fn save_guarded(
+    ledger: &SqliteLedger,
+    policy: &PolicyRecord,
+) -> Result<(), LedgerError> {
+    validate(policy)?;
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    let latest = current(&transaction, &policy.workspace_id, policy.scope)?;
+    if latest
+        .as_ref()
+        .is_some_and(|record| policy.revision < record.revision)
+    {
+        return Err(LedgerError::Invariant(
+            "The workspace permission policy changed; refresh before saving another mode.".into(),
+        ));
+    }
+    if latest.as_ref() != Some(policy)
+        && (policy.mode.is_unattended()
+            || latest
+                .as_ref()
+                .is_some_and(|record| record.mode.is_unattended()))
+    {
+        let active: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM turns t JOIN agent_chat_conversations c ON c.conversation_id=t.conversation_id WHERE c.workspace_id=?1 AND t.phase IN ('active','waitingPermission','waitingQuestion'))", [&policy.workspace_id], |row| row.get(0)).map_err(storage_error)?;
+        if active {
+            return Err(LedgerError::Invariant("Finish or stop active work before changing the workspace's contained permission policy; the current mode remains in effect.".into()));
+        }
+    }
+    save_record(&transaction, policy)?;
+    transaction.commit().map_err(storage_error)
+}
+
+fn save_record(
+    connection: &rusqlite::Connection,
+    policy: &PolicyRecord,
+) -> Result<(), LedgerError> {
+    if let Some(existing) = by_id(connection, &policy.policy_id)? {
         if existing == *policy {
             return Ok(());
         }
@@ -19,7 +59,7 @@ pub(super) fn save(ledger: &SqliteLedger, policy: &PolicyRecord) -> Result<(), L
             "policy identity is bound to another immutable revision".into(),
         ));
     }
-    let latest = current(&connection, &policy.workspace_id, policy.scope)?;
+    let latest = current(connection, &policy.workspace_id, policy.scope)?;
     let next = latest.as_ref().map_or(Ok(1), |current| {
         current
             .revision
@@ -74,6 +114,7 @@ pub(super) fn ensure_default_provider_permission_policy(
         scope: PolicyScope::ProviderPermissions,
         revision: 1,
         mode: PermissionMode::AskEveryTime,
+        containment: gent_types::Containment::Sandboxed,
         allowed_tools: Vec::new(),
         allowed_categories: Vec::new(),
     };
@@ -182,6 +223,7 @@ fn decode_policy(row: &rusqlite::Row<'_>) -> rusqlite::Result<PolicyRecord> {
         revision: row.get(3)?,
         allowed_tools: serde_json::from_str(&tools).map_err(|_| rusqlite::Error::InvalidQuery)?,
         mode: decode_mode(&row.get::<_, String>(5)?)?,
+        containment: gent_types::Containment::Sandboxed,
         allowed_categories: serde_json::from_str(&categories)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
     })
@@ -203,3 +245,7 @@ fn decode_scope(scope: &str) -> rusqlite::Result<PolicyScope> {
         _ => Err(rusqlite::Error::InvalidQuery),
     }
 }
+
+#[cfg(test)]
+#[path = "policy_transition_tests.rs"]
+mod transition_tests;

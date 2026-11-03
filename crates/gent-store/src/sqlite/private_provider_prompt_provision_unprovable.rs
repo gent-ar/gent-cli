@@ -51,7 +51,9 @@ pub(super) fn settle(
     append_event(&transaction, terminal)?;
     let changed = transaction
         .execute(
-            "UPDATE agent_chat_prompt_dispatches SET state = 'unprovable' WHERE message_id = ?1 AND state = 'provisioning'",
+            // The installer may have changed its private prefix. The agent has never
+            // been dispatched: only a Completed install can release this reservation.
+            "UPDATE agent_chat_prompt_dispatches SET state = 'awaiting_readiness' WHERE message_id = ?1 AND state = 'provisioning' AND coordinator_id IS NULL AND host_epoch IS NULL",
             [message_id],
         )
         .map_err(storage_error)?;

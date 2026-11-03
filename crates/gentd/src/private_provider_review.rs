@@ -39,3 +39,7 @@ pub(crate) fn install_review<P: PackageInstallPolicy, C: AuthorityClock>(
         .then_some(review)
         .ok_or_else(|| "signed package policy produced an invalid public review".into())
 }
+
+#[cfg(test)]
+#[path = "private_provider_review_tests.rs"]
+mod tests;

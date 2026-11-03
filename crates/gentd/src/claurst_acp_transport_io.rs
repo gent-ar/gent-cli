@@ -1,3 +1,4 @@
+use super::prompt::{prompt_failure, prompt_terminal};
 use super::{
     ClaurstAcpFact, ClaurstAcpPermissionRequest, ClaurstAcpStdio, ClaurstAcpTerminal,
     ClaurstAcpTransport, ClaurstAcpTransportError, HANDSHAKE_RETRY_DELAY, HANDSHAKE_TIMEOUT,
@@ -6,6 +7,8 @@ use super::{
 use gent_types::PermissionCategory;
 use serde_json::{Value, json};
 use std::time::Instant;
+#[path = "claurst_acp_mcp_call.rs"]
+mod mcp_call;
 
 impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
     pub(super) fn send_request(
@@ -131,7 +134,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             .get("id")
             .cloned()
             .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
-        let request_id = json_rpc_request_id(&id).ok_or(ClaurstAcpTransportError::InvalidFrame)?;
+
         let tool_call = value
             .pointer("/params/toolCall")
             .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
@@ -141,28 +144,87 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             .filter(|v| !v.trim().is_empty())
             .map(str::to_owned)
             .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
-        let category = permission_category(tool_call);
-        let tool = self.claim_permission_tool(tool_call);
+        let direct =
+            mcp_call::read(tool_call).map_err(|_| ClaurstAcpTransportError::InvalidFrame)?;
+        let request_id =
+            permission_request_id(&id).ok_or(ClaurstAcpTransportError::InvalidFrame)?;
+        // Wire uniqueness uses the original JSON-RPC ID across every tool kind.
+        // API identifiers below independently preserve the same string/number type.
+        let rpc_identity =
+            serde_json::to_string(&id).map_err(|_| ClaurstAcpTransportError::InvalidFrame)?;
+        if self.permission_rpc_ids.len() >= 4096 || self.permission_rpc_ids.contains(&rpc_identity)
+        {
+            return Err(ClaurstAcpTransportError::InvalidFrame);
+        }
+        let category = if direct.is_some() {
+            PermissionCategory::Provider
+        } else {
+            permission_category(tool_call)
+        };
+        let options = value
+            .pointer("/params/options")
+            .map(|options| {
+                options
+                    .as_array()
+                    .ok_or(ClaurstAcpTransportError::InvalidFrame)
+            })
+            .transpose()?;
+        let mut allow_once_id = None;
+        if let Some(options) = options {
+            if options.len() > 16 {
+                return Err(ClaurstAcpTransportError::InvalidFrame);
+            }
+            let mut ids = std::collections::BTreeSet::new();
+            for option in options {
+                let option_id = option
+                    .get("optionId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty() && id.len() <= 512)
+                    .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
+                if !ids.insert(option_id) {
+                    return Err(ClaurstAcpTransportError::InvalidFrame);
+                }
+                if option.get("kind").and_then(Value::as_str) == Some("allow_once") {
+                    if allow_once_id.is_some() {
+                        return Err(ClaurstAcpTransportError::InvalidFrame);
+                    }
+                    allow_once_id = Some(option_id.to_owned());
+                }
+            }
+        }
+        let tool = self
+            .claim_permission_tool(tool_call)
+            .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
         let pending = PendingPermission {
             request_id: request_id.clone(),
             json_rpc_id: id,
+            allow_once_option: allow_once_id,
         };
-        let request = match tool {
-            Some(tool) => ClaurstAcpPermissionRequest {
+        let request = if let Some((tool_name, input)) = direct {
+            if tool_use_id.len() > 256
+                || tool.tool_use_id != tool_use_id
+                || tool.tool_name != tool_name
+                || tool.input.as_ref() != Some(&input)
+            {
+                return Err(ClaurstAcpTransportError::InvalidFrame);
+            }
+            ClaurstAcpPermissionRequest {
+                request_id,
+                tool_use_id,
+                tool_name,
+                category: PermissionCategory::Provider,
+                input: Some(input),
+            }
+        } else {
+            ClaurstAcpPermissionRequest {
                 request_id,
                 tool_use_id: tool.tool_use_id,
                 tool_name: tool.tool_name,
                 category,
                 input: tool.input,
-            },
-            None => ClaurstAcpPermissionRequest {
-                request_id,
-                tool_use_id,
-                tool_name: safe_permission_tool_name(tool_call),
-                category,
-                input: None,
-            },
+            }
         };
+        self.permission_rpc_ids.insert(rpc_identity);
         if self.pending_permission.is_some() {
             self.held_permissions.push_back((pending, request));
         } else {
@@ -172,10 +234,15 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         Ok(())
     }
 }
-fn json_rpc_request_id(id: &Value) -> Option<String> {
+// A single injective encoding for ALL callback kinds. The string payload is
+// copied without normalization; a string can never occupy the numeric branch.
+// Preserve the prior 128-byte raw string bound; internal IDs are at most138 bytes.
+pub(super) fn permission_request_id(id: &Value) -> Option<String> {
     match id {
-        Value::String(v) if !v.trim().is_empty() && v.len() <= 128 => Some(v.clone()),
-        Value::Number(v) => Some(v.to_string()),
+        Value::String(v) if !v.trim().is_empty() && v.len() <= 128 => {
+            Some(format!("claurst:s:{v}"))
+        }
+        Value::Number(v) if v.is_i64() || v.is_u64() => Some(format!("claurst:n:{v}")),
         _ => None,
     }
 }
@@ -188,60 +255,9 @@ fn permission_category(call: &Value) -> PermissionCategory {
         _ => PermissionCategory::Provider,
     }
 }
-fn safe_permission_tool_name(call: &Value) -> String {
-    super::updates::safe_tool_name(
-        call.get("title")
-            .and_then(Value::as_str)
-            .or_else(|| call.get("kind").and_then(Value::as_str)),
-    )
-}
 fn parse_frame(frame: &[u8]) -> Result<Value, ClaurstAcpTransportError> {
     serde_json::from_slice(frame).map_err(|_| ClaurstAcpTransportError::InvalidFrame)
 }
-fn prompt_terminal(value: &Value, assistant_output: &str) -> ClaurstAcpTerminal {
-    match value.pointer("/result/stopReason").and_then(Value::as_str) {
-        Some("end_turn")
-            if !assistant_output.is_empty()
-                && unanswered_stop_reason(assistant_output).is_none() =>
-        {
-            ClaurstAcpTerminal::Completed
-        }
-        Some("cancelled") => ClaurstAcpTerminal::Interrupted,
-        _ => ClaurstAcpTerminal::Failed,
-    }
-}
-
-fn prompt_failure(
-    value: &Value,
-    assistant_output: &str,
-) -> (gent_types::ProviderFailureClassification, &'static str) {
-    use gent_types::ProviderFailureClassification::{ContextLimit, OutputLimit, Provider};
-    let stop_reason = unanswered_stop_reason(assistant_output)
-        .or_else(|| value.pointer("/result/stopReason").and_then(Value::as_str));
-    match stop_reason {
-        Some("end_turn") => (
-            Provider,
-            "Claurst ended the turn without an assistant response.",
-        ),
-        Some("max_tokens") => (
-            OutputLimit,
-            "Claurst exhausted its output limit before completing the turn.",
-        ),
-        Some("max_turn_requests") => (
-            OutputLimit,
-            "Claurst exhausted its turn-request limit before completing the turn.",
-        ),
-        Some("refusal") => (
-            ContextLimit,
-            "Claurst refused the request without completing the turn.",
-        ),
-        _ => (
-            Provider,
-            "Claurst stopped without a successful end-turn response.",
-        ),
-    }
-}
-
 pub(super) fn unanswered_stop_reason(output: &str) -> Option<&str> {
     output
         .trim()

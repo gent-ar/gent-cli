@@ -48,12 +48,27 @@ async fn started_source_projects_output_into_the_shared_conversation_transcript(
                 value: ClaurstFactValue::Event(NormalizedProviderEvent::ToolOutputDelta {
                     tool_use_id: "tool-1".into(),
                     text: format!("HEAD{}TAIL", "x".repeat(70 * 1024)),
+                    is_partial: true,
+                }),
+            },
+            ClaurstNormalizedFact {
+                source_id: binding.source_id.clone(),
+                cursor: 3,
+                value: ClaurstFactValue::Event(NormalizedProviderEvent::Thinking {
+                    text: "Provider supplied summary".into(),
                     is_partial: false,
+                }),
+            },
+            ClaurstNormalizedFact {
+                source_id: binding.source_id.clone(),
+                cursor: 4,
+                value: ClaurstFactValue::Event(NormalizedProviderEvent::PlanProposed {
+                    text: "Provider supplied plan".into(),
                 }),
             },
         ],
         permissions: vec![],
-        checkpoint: Some(checkpoint(2)),
+        checkpoint: Some(checkpoint(4)),
         session_binding: Some(binding.clone()),
         terminal: Some(gent_ports::ClaurstTerminal::Completed),
     });
@@ -73,8 +88,13 @@ async fn started_source_projects_output_into_the_shared_conversation_transcript(
     let page = ledger
         .normalized_transcript_page(&AgentChatConversationId("conversation-a".into()), 0, 8)
         .unwrap();
-    assert_eq!(page.events.len(), 3);
+    assert_eq!(page.events.len(), 5);
     assert_eq!(page.events[2].kind, NormalizedTranscriptKind::ToolActivity);
+    assert!(page.events[2].is_partial);
+    assert_eq!(page.events[3].kind, NormalizedTranscriptKind::Thinking);
+    assert_eq!(page.events[3].text, "Provider supplied summary");
+    assert_eq!(page.events[4].kind, NormalizedTranscriptKind::Plan);
+    assert_eq!(page.events[4].text, "Provider supplied plan");
     assert!(page.events[2].text.starts_with("HEAD") && page.events[2].text.ends_with("TAIL"));
     assert!(page.events[2].text.len() <= gent_types::MAX_TRANSCRIPT_TEXT_BYTES);
     assert_eq!(page.events[0].kind, NormalizedTranscriptKind::UserMessage);
@@ -86,13 +106,16 @@ async fn started_source_projects_output_into_the_shared_conversation_transcript(
     );
     assert_eq!(page.events[1].text, "local Claurst reply");
     assert!(page.events[1].is_partial);
-    assert!(
+    assert!(matches!(
         ledger
             .read_conversation_activity_page("conversation-a", "run-a", 0, 8)
             .unwrap()
             .facts
-            .is_empty()
-    );
+            .as_slice(),
+        [gent_types::ConversationActivityFact::ToolOutput {
+            tool_use_id, text, is_partial: true, ..
+        }] if tool_use_id == "tool-1" && text.starts_with("HEAD") && text.ends_with("TAIL")
+    ));
 }
 
 #[tokio::test]

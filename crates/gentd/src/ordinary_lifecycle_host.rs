@@ -39,6 +39,9 @@ pub(crate) trait OrdinaryLifecycleHost: Send {
     fn interrupt_run(&mut self, _: &str) -> Result<(), ()> {
         Err(())
     }
+    fn interrupt_turn(&mut self, _: &str, _: &str) -> Result<(), ()> {
+        Err(())
+    }
     fn begin_shutdown_after_recovery(&mut self) -> Result<(), ()> {
         Err(())
     }
@@ -144,6 +147,9 @@ where
 
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.host.interrupt_run(run_id)
+    }
+    fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
+        self.host.interrupt_turn(run_id, turn_id)
     }
 
     fn begin_shutdown_after_recovery(&mut self) -> Result<(), ()> {

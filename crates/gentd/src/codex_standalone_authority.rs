@@ -41,6 +41,7 @@ pub(crate) struct StandaloneCodexConfig {
     pub(crate) executables: crate::provider_executables::ProviderExecutables,
     pub(crate) mcp_servers: Option<serde_json::Value>,
     pub(crate) mcp_config: Option<PathBuf>,
+    pub(crate) mcp_injection: Option<crate::standalone_mcp_config::InjectedInternalMcp>,
 }
 
 type StandaloneCodexRunner<L> = CodexPromptRunner<L, <L as ProcessLauncher>::Process>;
@@ -125,6 +126,11 @@ where
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.supervisor.interrupt_run(run_id).map_err(|_| ())
     }
+    fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
+        self.supervisor
+            .interrupt_turn(run_id, turn_id)
+            .map_err(|_| ())
+    }
 }
 
 /// Failure before a standalone Codex lifecycle becomes reachable.
@@ -180,6 +186,7 @@ where
         runner,
         resolver,
     )?
+    .with_internal_mcp(config.mcp_injection.clone())
     .with_active_goal_resolver(goals)
     .with_attachment_roots(
         config.data_dir.join("attachments"),

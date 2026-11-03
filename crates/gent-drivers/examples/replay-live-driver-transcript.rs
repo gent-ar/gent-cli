@@ -175,6 +175,7 @@ fn claude_tool_result(block: &Value, tool_names: &mut BTreeMap<String, String>) 
             tool_name,
             phase,
             output_digest: None,
+            input: None,
             parent_tool_use_id: None,
         },
     })

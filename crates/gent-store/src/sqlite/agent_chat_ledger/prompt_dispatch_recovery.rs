@@ -8,12 +8,18 @@ use rusqlite::{Transaction, TransactionBehavior, params};
 use super::{SqliteLedger, require_open};
 use crate::sqlite::{conversation_activity_ledger, queries};
 
+#[path = "prompt_dispatch_install_recovery.rs"]
+mod install_recovery;
+
 pub(super) fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<(), LedgerError> {
     let mut connection = ledger.lock()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(queries::storage_error)?;
     require_open(&transaction, host_epoch)?;
+    // Older versions conflated an uncertain installer with agent delivery.
+    // Recover only proven, never-dispatched installer holds before failing turns.
+    install_recovery::restore(&transaction, host_epoch)?;
     transaction.execute(
         "UPDATE agent_chat_prompt_dispatches SET state = 'pending', coordinator_id = NULL, host_epoch = NULL WHERE state = 'claimed' AND host_epoch < ?1",
         [host_epoch.0],
@@ -29,6 +35,7 @@ pub(super) fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<()
         [host_epoch.0],
     ).map_err(queries::storage_error)?;
     fail_open_turns(&transaction, "d.state = 'unprovable'", None, host_epoch)?;
+    crate::sqlite::agent_chat_steer_target::expire_unprovable(&transaction, host_epoch)?;
     recover_permissions(&transaction, host_epoch)?;
     transaction.commit().map_err(queries::storage_error)
 }

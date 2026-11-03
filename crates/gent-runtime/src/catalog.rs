@@ -26,6 +26,7 @@ pub enum RuntimeCapability {
     Events,
     HostEpoch,
     PermissionPolicies,
+    PermissionProviderBinding,
     Receipts,
 }
 
@@ -39,18 +40,22 @@ impl RuntimeCapability {
             Self::Events => "events",
             Self::HostEpoch => "host-epoch",
             Self::PermissionPolicies => gent_protocol::PERMISSION_POLICY_CAPABILITY,
+            Self::PermissionProviderBinding => {
+                gent_protocol::PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY
+            }
             Self::Receipts => "receipts",
         }
     }
 }
 
-const DECLARED: [RuntimeCapability; 7] = [
+const DECLARED: [RuntimeCapability; 8] = [
     RuntimeCapability::Attachments,
     RuntimeCapability::Decisions,
     RuntimeCapability::EventStream,
     RuntimeCapability::Events,
     RuntimeCapability::HostEpoch,
     RuntimeCapability::PermissionPolicies,
+    RuntimeCapability::PermissionProviderBinding,
     RuntimeCapability::Receipts,
 ];
 
@@ -101,6 +106,13 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
     let agent_chat = profile.agent_chat_enabled();
     let profiled = [
         (agent_chat, RuntimeCapability::AgentChatIntents.wire_name()),
+        (agent_chat, gent_protocol::AGENT_CHAT_STEER_TURN_CAPABILITY),
+        (
+            agent_chat,
+            gent_protocol::AGENT_CHAT_STEER_ENQUEUE_CAPABILITY,
+        ),
+        (agent_chat, "agent-chat-steer-turn-claude-v1"),
+        (agent_chat, "agent-chat-steer-turn-codex-v1"),
         (agent_chat, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY),
         (agent_chat, AGENT_CHAT_CONVERSATIONS_CAPABILITY),
         (agent_chat, AGENT_CHAT_TRANSCRIPT_CAPABILITY),
@@ -152,6 +164,10 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
         ),
         (profile.provider_auth_enabled(), PROVIDER_AUTH_CAPABILITY),
         (
+            profile.provider_auth_handoff_enabled(),
+            gent_protocol::PROVIDER_AUTH_HANDOFF_CAPABILITY,
+        ),
+        (
             profile.prompt_provider_provision_enabled(),
             PROMPT_PROVIDER_PROVISION_CAPABILITY,
         ),
@@ -164,6 +180,18 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
             RUNTIME_MAINTENANCE_CAPABILITY,
         ),
         (profile.local_models_enabled(), LOCAL_MODELS_CAPABILITY),
+        (
+            profile.runtime_owner_control_enabled(),
+            gent_protocol::runtime_owner::RUNTIME_OWNER_CONTROL_CAPABILITY,
+        ),
+        (
+            profile.runtime_owner_control_enabled(),
+            gent_protocol::runtime_owner::RUNTIME_OWNER_QUIESCE_REJECTION_CAPABILITY,
+        ),
+        (
+            profile.runtime_owner_control_enabled(),
+            gent_protocol::runtime_owner::RUNTIME_OWNER_IDENTITY_CAPABILITY,
+        ),
         (
             profile.local_models_enabled(),
             gent_protocol::model_catalog::MODEL_CATALOG_CAPABILITY,

@@ -11,7 +11,7 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
         }
         self.activate_recovery().await?;
         self.control.open_after_recovery();
-        self.drive_until_idle().await?;
+        self.drive_until_idle(false).await?;
         if self.control.phase()
             == crate::ordinary_lifecycle_control::OrdinaryLifecyclePhase::Draining
         {
@@ -20,8 +20,8 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
         loop {
             tokio::select! {
                 () = self.control.shutdown_requested() => return self.drain_shutdown().await,
-                () = self.notify.notified() => self.drive_until_idle().await?,
-                () = self.async_claurst_notify.notified() => self.drive_until_idle().await?,
+                () = self.notify.notified() => self.drive_until_idle(false).await?,
+                () = self.async_claurst_notify.notified() => self.drive_until_idle(false).await?,
             }
         }
     }
@@ -40,11 +40,17 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
         if let Some(host) = self.async_claurst.lock().await.as_mut() {
             host.activate_recovery().await?;
         }
+        if let Some(recovery) = &self.standalone_recovery {
+            recovery.recover().await?;
+        }
         Ok(())
     }
 
-    async fn drive_until_idle(&self) -> Result<(), String> {
+    async fn drive_until_idle(&self, shutting_down: bool) -> Result<(), String> {
         loop {
+            if !shutting_down && self.control.is_quiesced() {
+                return Ok(());
+            }
             let router = Arc::clone(&self.router);
             let active = tokio::task::spawn_blocking(move || {
                 router
@@ -56,15 +62,33 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
             .await
             .map_err(|_| "ordinary lifecycle drive task failed".to_owned())??;
             let claurst_active = if let Some(host) = self.async_claurst.lock().await.as_mut() {
+                if !shutting_down && self.control.is_quiesced() {
+                    return Ok(());
+                }
                 let interrupts = self
                     .async_claurst_interrupts
                     .lock()
                     .map_err(|_| "Claurst interrupt queue is unavailable".to_owned())?
                     .drain(..)
                     .collect::<Vec<_>>();
-                for run_id in interrupts {
-                    if let Err(error) = host.interrupt_claurst_run(&run_id).await {
-                        eprintln!("Claurst interrupt for run {run_id} was not applied: {error}");
+                for interrupt in interrupts {
+                    let result = match &interrupt.expected_turn_id {
+                        Some(turn_id) => {
+                            host.interrupt_claurst_turn(&interrupt.run_id, turn_id)
+                                .await
+                        }
+                        None => host.interrupt_claurst_run(&interrupt.run_id).await,
+                    };
+                    match result {
+                        Ok(()) => {
+                            if let Some(stop) = interrupt.goal_stop {
+                                stop.apply();
+                            }
+                        }
+                        Err(error) => eprintln!(
+                            "Claurst interrupt for run {} was not applied: {error}",
+                            interrupt.run_id
+                        ),
                     }
                 }
                 host.drive_once().await?
@@ -93,7 +117,7 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
         if let Some(host) = self.async_claurst.lock().await.as_mut() {
             host.begin_shutdown_after_recovery().await?;
         }
-        self.drive_until_idle().await?;
+        self.drive_until_idle(true).await?;
         let router = Arc::clone(&self.router);
         let stopped = tokio::task::spawn_blocking(move || {
             router

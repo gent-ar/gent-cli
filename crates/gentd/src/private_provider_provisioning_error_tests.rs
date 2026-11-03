@@ -260,3 +260,6 @@ const fn npm_name() -> &'static str {
 const fn npm_name() -> &'static str {
     "npm"
 }
+
+#[path = "private_provider_provisioning_prefix_tests.rs"]
+mod prefix_tests;

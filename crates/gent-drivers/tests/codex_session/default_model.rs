@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn default_model_omits_the_provider_field_so_codex_uses_its_configured_default() {
+fn default_model_resolves_the_provider_published_default_before_the_thread_starts() {
     let turn_options = CodexTurnOptions::from_selection(
         &AgentChatSelection {
             provider: AgentChatProvider::Codex,
@@ -21,9 +21,12 @@ fn default_model_omits_the_provider_field_so_codex_uses_its_configured_default()
     .unwrap();
     let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
     let _ = session
-        .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
+        .receive(&json!({"id": 2, "result": {"data": [{"model": "published-default", "isDefault": true}], "nextCursor": null}}))
+        .unwrap();
+    let _ = session
+        .receive(&json!({"id": 3, "result": {"thread": {"id": "thread-1"}}}))
         .unwrap();
     let turn = decode(&session.start_turn("hello").unwrap());
-    assert!(turn["params"].get("model").is_none());
+    assert_eq!(turn["params"]["model"], "published-default");
     assert_eq!(turn["params"]["effort"], "medium");
 }

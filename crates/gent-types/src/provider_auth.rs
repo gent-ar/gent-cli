@@ -70,6 +70,8 @@ pub struct ProviderAuthMethodSelection {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderAuthStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub challenge_id: Option<String>,
     pub provider: ProviderAuthProvider,
     pub binary_lock: Option<ProviderAuthBinaryLock>,
     pub lifecycle: ProviderAuthLifecycle,
@@ -161,6 +163,19 @@ pub enum ProviderAuthContractError {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn active_status_adds_challenge_identity_while_old_status_remains_readable() {
+        let old = serde_json::json!({"provider":"claude", "binaryLock":null,
+            "lifecycle":"verifying", "selectedMethod":"accountBrowser", "expiresAtUnixSeconds":42});
+        let status: super::ProviderAuthStatus = serde_json::from_value(old.clone()).unwrap();
+        assert!(status.challenge_id.is_none());
+        assert_eq!(serde_json::to_value(status).unwrap(), old);
+        let mut current = old;
+        current["challengeId"] = serde_json::json!("challenge-1");
+        let status: super::ProviderAuthStatus = serde_json::from_value(current.clone()).unwrap();
+        assert_eq!(status.challenge_id.as_deref(), Some("challenge-1"));
+        assert_eq!(serde_json::to_value(status).unwrap(), current);
+    }
     use super::{
         ProviderAuthBinaryLock, ProviderAuthChallenge, ProviderAuthContractError,
         ProviderAuthMethod, ProviderAuthProvider,

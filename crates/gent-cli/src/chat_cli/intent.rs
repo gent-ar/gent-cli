@@ -175,6 +175,7 @@ pub(crate) fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIn
                 receipt_id,
                 conversation_id: expected_conversation_id,
                 run_id: expected_run_id,
+                ..
             },
             AgentChatIntentFrame::Interrupted {
                 request_id: reply,

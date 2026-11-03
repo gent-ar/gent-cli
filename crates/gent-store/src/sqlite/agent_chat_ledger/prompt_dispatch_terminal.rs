@@ -86,5 +86,6 @@ pub(super) fn abandon_unprovable(
             "agent chat unprovable turn is not active".into(),
         ));
     }
+    crate::sqlite::agent_chat_steer_target::expire_unprovable(&transaction, host_epoch)?;
     transaction.commit().map_err(queries::storage_error)
 }

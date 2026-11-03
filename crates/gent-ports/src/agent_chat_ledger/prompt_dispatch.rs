@@ -1,5 +1,3 @@
-//! Durable claim and settlement ownership for provider-bound agent-chat prompts.
-
 use gent_types::{
     AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, DurableTurnPhase, Event,
     HostEpoch, PromptHoldReason, ProviderPromptReadinessBinding,
@@ -15,14 +13,18 @@ pub enum PromptAdmission {
     Admitted,
 }
 
-/// Reads and transitions the durable outbox populated only for `SendPrompt` requests.
 pub trait AgentChatPromptDispatchLedger: Send + Sync {
-    /// Atomically records one verified provider-ready decision and releases its exact held prompt.
-    ///
-    /// The command binds the prompt receipt, conversation, current run, and selected provider. A
-    /// matching retry returns the original settled receipt without changing dispatch ownership.
-    /// This transition only makes the prompt claimable; it never wakes or starts a provider.
-    ///
+    fn read_awaiting_agent_chat_prompts(
+        &self,
+        _: Option<&str>,
+        _: &str,
+        _: u16,
+    ) -> Result<Vec<AgentChatPromptSaved>, LedgerError> {
+        Err(LedgerError::Invariant(
+            "durable held prompt inspection is unavailable".into(),
+        ))
+    }
+
     /// # Errors
     /// Returns when the proof, current-run/provider fence, epoch, or terminal event differs.
     fn release_verified_agent_chat_prompt_after_readiness(
@@ -53,6 +55,12 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
+    fn agent_chat_prompt_turn_id(&self, _: &ReceiptId) -> Result<String, LedgerError> {
+        Err(LedgerError::Invariant(
+            "agent chat prompt turn identity is unavailable".into(),
+        ))
+    }
+
     fn fail_verified_agent_chat_prompt_after_readiness(
         &self,
         _: &Command,
@@ -64,9 +72,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// Releases one exact prompt only after daemon-owned provider readiness is durably proven.
-    ///
-    /// The default fails closed so generic ledger fakes cannot bypass the readiness boundary.
     /// # Errors
     /// Returns when the implementation cannot atomically retain the current run fence.
     fn release_agent_chat_prompt_after_readiness(
@@ -80,7 +85,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// Atomically claims the oldest pre-launch prompt for this daemon epoch.
     /// # Errors
     /// Returns an error when ingress is closed, the epoch is stale, or persistence fails.
     fn claim_agent_chat_prompt_dispatch(
@@ -105,9 +109,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// Reports whether the current selection for `provider` has durable
-    /// pre-launch work waiting in the outbox. This does not claim work or
-    /// start a provider.
     fn has_pending_agent_chat_prompt_dispatch(
         &self,
         _: AgentChatProvider,
@@ -117,9 +118,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// Records the durable point after which a provider invocation may be ambiguous.
-    ///
-    /// Once this succeeds, crash recovery must never replay the prompt automatically.
     /// # Errors
     /// Returns an error when current durable ownership does not hold.
     fn begin_agent_chat_prompt_launch(
@@ -129,7 +127,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
-    /// Confirms that the provider process was launched under the current durable owner.
     /// # Errors
     /// Returns an error when the launch marker or owner fence no longer matches.
     fn confirm_agent_chat_prompt_started(
@@ -139,8 +136,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
-    /// Returns a prompt to the outbox only while it is still known not to have launched.
-    ///
     /// # Errors
     /// Returns an error when the host fence, owner binding, or durable transition rejects it.
     fn release_agent_chat_prompt_claim(
@@ -156,13 +151,26 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         _: &str,
         _: HostEpoch,
         _: &str,
+        _: Option<gent_types::AgentChatFailureCode>,
     ) -> Result<(), LedgerError> {
         Err(LedgerError::Invariant(
             "agent chat prelaunch failure settlement is unavailable".into(),
         ))
     }
 
-    /// Returns a launch-marked prompt only after a local result proves no runner was invoked.
+    fn record_agent_chat_prompt_failure_notice(
+        &self,
+        _: &str,
+        _: &str,
+        _: HostEpoch,
+        _: &str,
+        _: Option<gent_types::AgentChatFailureCode>,
+    ) -> Result<(), LedgerError> {
+        Err(LedgerError::Invariant(
+            "owned launch failure notices are unavailable".into(),
+        ))
+    }
+
     /// # Errors
     /// Returns an error when the launch marker or owner fence no longer matches.
     fn release_agent_chat_prompt_unstarted_launch(
@@ -171,6 +179,24 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
+
+    fn agent_chat_prompt_has_steer_target(&self, _: &str) -> Result<bool, LedgerError> {
+        Err(LedgerError::Invariant(
+            "steer target lookup is unavailable".into(),
+        ))
+    }
+
+    fn claim_steered_agent_chat_prompt_for_turn(
+        &self,
+        _: &str,
+        _: HostEpoch,
+        _: &AgentChatRunId,
+        _: &str,
+    ) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
+        Err(LedgerError::Invariant(
+            "targeted steer claim is unavailable".into(),
+        ))
+    }
 
     fn claim_steered_agent_chat_prompt(
         &self,
@@ -206,7 +232,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// Retires an ambiguous launch without permitting automatic replay.
     /// # Errors
     /// Returns an error when the launch marker or owner fence no longer matches.
     fn mark_agent_chat_prompt_unprovable(
@@ -216,8 +241,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
-    /// Permanently settles one started provider prompt only for its current owner.
-    ///
     /// # Errors
     /// Returns an error when the host fence, owner binding, or durable transition rejects it.
     fn settle_agent_chat_prompt_dispatch(
@@ -239,9 +262,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// Recovers pre-launch work after an already-fenced successor opens a new host epoch.
-    ///
-    /// Old `claimed` rows become pending; old `launching` or `started` rows become unprovable.
     /// # Errors
     /// Returns an error when the supplied epoch is not the open successor epoch.
     fn recover_agent_chat_prompt_dispatches(

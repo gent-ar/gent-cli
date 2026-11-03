@@ -198,6 +198,7 @@ mod tests {
             kind: NormalizedTranscriptKind::AssistantMessage,
             text: "normalized only".into(),
             is_partial: false,
+            failure_code: None,
             origin: None,
             attachments: Vec::new(),
         }

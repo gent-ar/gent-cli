@@ -20,6 +20,7 @@ pub mod goal_projection;
 pub mod installer;
 pub mod interrupt;
 pub mod launch_spec;
+pub mod linux_sandbox_config;
 pub mod lock;
 pub mod macos_provider_helper;
 pub mod message_encoding;
@@ -30,13 +31,18 @@ pub mod npm_pack_install;
 pub mod output_pump;
 pub mod process;
 mod process_streams;
+mod provider_process;
 pub mod public_protocol;
 pub mod read_only_host_launch;
 pub mod run_runner;
+mod sandbox_network_peer;
 pub mod sandboxed_launch;
+pub use sandbox_network_peer::SandboxNetworkPeer;
 pub mod session;
 mod session_frames;
 pub mod supervisor;
+#[cfg(windows)]
+pub mod windows_sandbox;
 
 pub use discovery::PublicProvider;
 pub use macos_provider_helper::{
@@ -50,7 +56,8 @@ pub use process::{CapturedStream, ProcessOutput, SystemLauncher, SystemProcess};
 pub use read_only_host_launch::{NodeReadOnlyHostLauncher, ReadOnlyHostLauncher};
 pub use run_runner::DriverRunRunner;
 pub use sandboxed_launch::{
-    SandboxedLauncher, SandboxedProviderLaunch, SandboxedProviderLaunchError,
+    ProcessSandboxEvidence, SandboxedLauncher, SandboxedProviderLaunch,
+    SandboxedProviderLaunchError,
 };
 pub use session::{DriverSession, OutputLimits, SessionEffect, SessionInput, SessionStatus};
 pub use supervisor::{

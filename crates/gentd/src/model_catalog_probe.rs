@@ -6,7 +6,7 @@ use std::{
 
 use gent_drivers::{
     PublicProvider, SystemProcess,
-    interrupt::{ProcessTreeControl, ProcessTreeSignal},
+    interrupt::ProcessTreeSignal,
     lock::capture,
     ndjson::NdjsonFramer,
     supervisor::{LaunchIntent, ProcessLauncher, ProviderLaunch, ProviderProcess},
@@ -25,6 +25,8 @@ pub(crate) enum ProbeStep<T> {
 }
 
 pub(crate) struct ProviderProbe {
+    pub(crate) lifecycle_control:
+        Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
     pub(crate) provider: PublicProvider,
     pub(crate) executable: PathBuf,
     pub(crate) arguments: Vec<String>,
@@ -36,10 +38,24 @@ impl ProviderProbe {
     pub(crate) fn exchange<T>(
         &self,
         opening_frames: &[Vec<u8>],
-        mut on_frame: impl FnMut(&Value, &SystemProcess) -> Result<ProbeStep<T>, String>,
+        mut on_frame: impl FnMut(&Value, &dyn ProviderProcess) -> Result<ProbeStep<T>, String>,
     ) -> Result<T, ProviderLaunchError> {
+        let operation = self
+            .lifecycle_control
+            .as_ref()
+            .map(|control| control.acquire_operation())
+            .transpose()
+            .map_err(|_| {
+                ProviderLaunchError::Failed("runtime owner is not accepting model probes".into())
+            })?;
         let process = self.launch().map_err(ProviderLaunchError::Failed)?;
-        let result = self.drive(&process, opening_frames, &mut on_frame);
+        let process: Box<dyn ProviderProcess> = match operation {
+            Some(permit) => Box::new(crate::admitted_process::AdmittedProcess::new(
+                process, permit,
+            )),
+            None => Box::new(process),
+        };
+        let result = self.drive(process.as_ref(), opening_frames, &mut on_frame);
         let _ = process.signal_tree(ProcessTreeSignal::Kill);
         result
     }
@@ -50,6 +66,8 @@ impl ProviderProbe {
             .map_err(|_| format!("{name} executable could not be locked"))?;
         crate::node_runtime_lock::standalone_provider_launcher(PROBE_OUTPUT_BYTES)
             .launch(&ProviderLaunch {
+                permission_binding: None,
+                run_id: None,
                 provider: name.into(),
                 executable: PathBuf::from(&lock.canonical_path),
                 lock,
@@ -63,9 +81,9 @@ impl ProviderProbe {
 
     fn drive<T>(
         &self,
-        process: &SystemProcess,
+        process: &dyn ProviderProcess,
         opening_frames: &[Vec<u8>],
-        on_frame: &mut impl FnMut(&Value, &SystemProcess) -> Result<ProbeStep<T>, String>,
+        on_frame: &mut impl FnMut(&Value, &dyn ProviderProcess) -> Result<ProbeStep<T>, String>,
     ) -> Result<T, ProviderLaunchError> {
         let name = self.provider.executable_name();
         let failed = ProviderLaunchError::Failed;

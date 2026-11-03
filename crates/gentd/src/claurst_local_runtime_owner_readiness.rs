@@ -49,6 +49,12 @@ impl LlamaServerReadiness for HttpLlamaServerReadiness {
         server_url: &str,
         process: &mut P,
     ) -> Result<(), String> {
+        if let Some(model) = process.contained_model() {
+            return model
+                .current()
+                .then_some(())
+                .ok_or("contained model readiness revoked".into());
+        }
         let address = server_url
             .strip_prefix("http://")
             .ok_or_else(|| "local llama.cpp server URL must use http".to_owned())?;

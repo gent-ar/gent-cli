@@ -87,6 +87,12 @@ fn normalized_tool_output_is_a_durable_tool_activity_transcript() {
             .map(|item| item.kind),
         Some(gent_types::NormalizedTranscriptKind::ToolActivity)
     );
+    assert!(matches!(
+        activity(&input),
+        Some(gent_types::ConversationActivityFact::ToolOutput {
+            tool_use_id, text, is_partial: true, ..
+        }) if tool_use_id == "tool-1" && text == "stdout chunk"
+    ));
 }
 
 #[test]
@@ -145,6 +151,7 @@ fn structured_tool_and_subagent_lifecycle_preserve_provider_neutral_correlations
                 tool_name: "mcp__linear_cloud__search_issues".into(),
                 phase: ToolPhase::WaitingPermission,
                 output_digest: Some("a".repeat(64)),
+                input: None,
                 parent_tool_use_id: None,
             },
         },

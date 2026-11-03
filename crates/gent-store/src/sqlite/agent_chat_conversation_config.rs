@@ -30,11 +30,22 @@ pub(super) fn save(
             "conversation config revision must be {next} for this conversation"
         )));
     }
+    if latest
+        .as_ref()
+        .map(|current| current.containment)
+        .unwrap_or_default()
+        != config.containment
+        && turn_is_active(&connection, &config.conversation_id.0)?
+    {
+        return Err(LedgerError::Rejected(
+            gent_types::AgentChatRejection::SelectionSwitchBlockedByActiveTurn,
+        ));
+    }
     let disallowed_tools = serde_json::to_string(&config.disallowed_tools)
         .map_err(|error| LedgerError::Storage(error.to_string()))?;
     connection
         .execute(
-            "INSERT INTO agent_chat_conversation_configs (conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools, thinking_enabled) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO agent_chat_conversation_configs (conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools, thinking_enabled, containment) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 config.conversation_id.0,
                 config.revision,
@@ -43,6 +54,7 @@ pub(super) fn save(
                 config.max_turns,
                 disallowed_tools,
                 config.thinking_enabled,
+                containment_name(config.containment),
             ],
         )
         .map(|_| ())
@@ -63,12 +75,27 @@ fn current(
 ) -> Result<Option<AgentChatConversationConfigRecord>, LedgerError> {
     connection
         .query_row(
-            "SELECT conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools, thinking_enabled FROM agent_chat_conversation_configs WHERE conversation_id = ?1 ORDER BY revision DESC LIMIT 1",
+            "SELECT conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools, thinking_enabled, containment FROM agent_chat_conversation_configs WHERE conversation_id = ?1 ORDER BY revision DESC LIMIT 1",
             [conversation_id],
             decode_config,
         )
         .optional()
         .map_err(storage_error)
+}
+
+fn turn_is_active(
+    connection: &rusqlite::Connection,
+    conversation_id: &str,
+) -> Result<bool, LedgerError> {
+    connection
+        .query_row(
+            "SELECT 1 FROM turns WHERE conversation_id = ?1 AND phase IN ('active', 'waitingPermission', 'waitingQuestion') LIMIT 1",
+            [conversation_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(storage_error)
+        .map(|row| row.is_some())
 }
 
 fn conversation_exists(
@@ -121,5 +148,17 @@ fn decode_config(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentChatConversat
         thinking_enabled: row.get(6)?,
         disallowed_tools: serde_json::from_str(&disallowed_tools)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        containment: match row.get::<_, String>(7)?.as_str() {
+            "sandboxed" => gent_types::Containment::Sandboxed,
+            "unsandboxed" => gent_types::Containment::Unsandboxed,
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        },
     })
+}
+
+pub(super) const fn containment_name(containment: gent_types::Containment) -> &'static str {
+    match containment {
+        gent_types::Containment::Sandboxed => "sandboxed",
+        gent_types::Containment::Unsandboxed => "unsandboxed",
+    }
 }

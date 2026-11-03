@@ -27,7 +27,7 @@ pub(super) fn conversation_config(
         .map_err(PublicProviderRunError::Failed)
 }
 
-fn configured_servers(path: &Path) -> Result<serde_json::Value, PublicProviderRunError> {
+pub(super) fn configured_servers(path: &Path) -> Result<serde_json::Value, PublicProviderRunError> {
     let metadata =
         std::fs::metadata(path).map_err(|_| failed("Claude MCP config is unavailable"))?;
     if !metadata.is_file() || metadata.len() > MAX_BYTES {

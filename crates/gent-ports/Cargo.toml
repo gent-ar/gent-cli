@@ -11,6 +11,7 @@ async-trait.workspace = true
 gent-types = { path = "../gent-types" }
 serde_json.workspace = true
 thiserror.workspace = true
+zeroize.workspace = true
 
 [lints]
 workspace = true

@@ -1,5 +1,7 @@
-//! `SQLite` outbox ownership for durable provider-bound agent-chat prompts.
-
+use super::super::SqliteLedger;
+use super::super::epoch::require_epoch;
+use super::super::queries::host_ingress;
+use super::prompt_dispatch_readiness;
 use gent_ports::{AgentChatPromptDispatchLedger, IngressMode, LedgerError};
 use gent_types::{
     AgentChatPromptSaved, AgentChatProvider, AgentChatRunId, Command, DurableTurnPhase, Event,
@@ -7,12 +9,15 @@ use gent_types::{
 };
 use rusqlite::Transaction;
 
-use super::super::SqliteLedger;
-use super::super::epoch::require_epoch;
-use super::super::queries::host_ingress;
-use super::prompt_dispatch_readiness;
-
 impl AgentChatPromptDispatchLedger for SqliteLedger {
+    fn read_awaiting_agent_chat_prompts(
+        &self,
+        run_id: Option<&str>,
+        after_message_id: &str,
+        limit: u16,
+    ) -> Result<Vec<AgentChatPromptSaved>, LedgerError> {
+        awaiting::read(self, run_id, after_message_id, limit)
+    }
     fn claim_agent_chat_prompt_dispatch(
         &self,
         coordinator_id: &str,
@@ -21,7 +26,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
         claim_excluding_runs(self, coordinator_id, host_epoch, provider, &[])
     }
-
     fn claim_agent_chat_prompt_dispatch_excluding_runs(
         &self,
         coordinator_id: &str,
@@ -31,14 +35,12 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
         claim_excluding_runs(self, coordinator_id, host_epoch, provider, excluded_run_ids)
     }
-
     fn has_pending_agent_chat_prompt_dispatch(
         &self,
         provider: AgentChatProvider,
     ) -> Result<bool, LedgerError> {
         helpers::has_pending(self, provider)
     }
-
     fn release_agent_chat_prompt_after_readiness(
         &self,
         message_id: &str,
@@ -47,7 +49,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         prompt_dispatch_readiness::release(self, message_id, expected_run_id, host_epoch)
     }
-
     fn hold_agent_chat_prompt_for_admission(
         &self,
         prompt_receipt_id: &gent_types::ReceiptId,
@@ -56,14 +57,18 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         super::prompt_admission_hold::hold(self, prompt_receipt_id, host_epoch, reason)
     }
-
     fn agent_chat_prompt_admission(
         &self,
         prompt_receipt_id: &gent_types::ReceiptId,
     ) -> Result<gent_ports::PromptAdmission, LedgerError> {
         super::prompt_admission_hold::admission(self, prompt_receipt_id)
     }
-
+    fn agent_chat_prompt_turn_id(
+        &self,
+        prompt_receipt_id: &gent_types::ReceiptId,
+    ) -> Result<String, LedgerError> {
+        super::prompt_admission_hold::turn_id(self, prompt_receipt_id)
+    }
     fn release_verified_agent_chat_prompt_after_readiness(
         &self,
         command: &Command,
@@ -72,7 +77,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<Receipt, LedgerError> {
         prompt_dispatch_readiness::release_verified(self, command, terminal, binding)
     }
-
     fn fail_verified_agent_chat_prompt_after_readiness(
         &self,
         command: &Command,
@@ -81,7 +85,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<Receipt, LedgerError> {
         prompt_dispatch_readiness::fail_verified(self, command, terminal, binding)
     }
-
     fn begin_agent_chat_prompt_launch(
         &self,
         message_id: &str,
@@ -98,7 +101,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             true,
         )
     }
-
     fn confirm_agent_chat_prompt_started(
         &self,
         message_id: &str,
@@ -115,7 +117,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             true,
         )
     }
-
     fn release_agent_chat_prompt_claim(
         &self,
         message_id: &str,
@@ -132,17 +133,23 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             false,
         )
     }
-
     fn fail_agent_chat_prompt_prelaunch(
         &self,
         message_id: &str,
         coordinator_id: &str,
         host_epoch: HostEpoch,
         error: &str,
+        failure_code: Option<gent_types::AgentChatFailureCode>,
     ) -> Result<(), LedgerError> {
-        helpers::fail_prelaunch(self, message_id, coordinator_id, host_epoch, error)
+        helpers::fail_prelaunch(
+            self,
+            message_id,
+            coordinator_id,
+            host_epoch,
+            error,
+            failure_code,
+        )
     }
-
     fn release_agent_chat_prompt_unstarted_launch(
         &self,
         message_id: &str,
@@ -159,7 +166,35 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             false,
         )
     }
-
+    fn record_agent_chat_prompt_failure_notice(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        error: &str,
+        failure_code: Option<gent_types::AgentChatFailureCode>,
+    ) -> Result<(), LedgerError> {
+        failure_notice::record(
+            self,
+            message_id,
+            coordinator_id,
+            host_epoch,
+            error,
+            failure_code,
+        )
+    }
+    fn agent_chat_prompt_has_steer_target(&self, message_id: &str) -> Result<bool, LedgerError> {
+        Ok(super::super::agent_chat_steer_target::target(&*self.lock()?, message_id)?.is_some())
+    }
+    fn claim_steered_agent_chat_prompt_for_turn(
+        &self,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+        run_id: &AgentChatRunId,
+        turn_id: &str,
+    ) -> Result<Option<(AgentChatPromptSaved, gent_types::ReceiptId)>, LedgerError> {
+        steer::claim_for_turn(self, coordinator_id, host_epoch, run_id, Some(turn_id))
+    }
     fn claim_steered_agent_chat_prompt(
         &self,
         coordinator_id: &str,
@@ -168,7 +203,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<Option<(AgentChatPromptSaved, gent_types::ReceiptId)>, LedgerError> {
         steer::claim(self, coordinator_id, host_epoch, run_id)
     }
-
     fn deliver_steered_agent_chat_prompt(
         &self,
         message_id: &str,
@@ -178,7 +212,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         steer::deliver(self, message_id, coordinator_id, host_epoch, turn_id)
     }
-
     fn start_steered_agent_chat_prompt_turn(
         &self,
         message_id: &str,
@@ -187,7 +220,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         steer::start_turn(self, message_id, coordinator_id, host_epoch)
     }
-
     fn mark_agent_chat_prompt_unprovable(
         &self,
         message_id: &str,
@@ -196,7 +228,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         terminal::abandon_unprovable(self, message_id, coordinator_id, host_epoch)
     }
-
     fn settle_agent_chat_prompt_dispatch(
         &self,
         message_id: &str,
@@ -213,7 +244,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             true,
         )
     }
-
     fn settle_agent_chat_prompt_terminal(
         &self,
         message_id: &str,
@@ -223,7 +253,6 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         terminal::settle(self, message_id, coordinator_id, host_epoch, phase)
     }
-
     fn recover_agent_chat_prompt_dispatches(
         &self,
         host_epoch: HostEpoch,
@@ -232,22 +261,21 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     }
 }
 
-#[path = "prompt_dispatch_helpers.rs"]
-mod helpers;
-
 #[path = "prompt_dispatch_claim.rs"]
 mod claim;
+#[path = "prompt_dispatch_helpers.rs"]
+mod helpers;
 use claim::claim_excluding_runs;
-
-#[path = "prompt_dispatch_terminal.rs"]
-mod terminal;
-
-#[path = "prompt_steer.rs"]
-mod steer;
-
+#[path = "prompt_dispatch_awaiting.rs"]
+mod awaiting;
+#[path = "prompt_dispatch_failure_notice.rs"]
+mod failure_notice;
 #[path = "prompt_dispatch_recovery.rs"]
 mod prompt_dispatch_recovery;
-
+#[path = "prompt_steer.rs"]
+mod steer;
+#[path = "prompt_dispatch_terminal.rs"]
+mod terminal;
 pub(super) fn require_open(
     transaction: &Transaction<'_>,
     host_epoch: HostEpoch,

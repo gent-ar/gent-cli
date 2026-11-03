@@ -423,21 +423,12 @@ async fn canceling_claurst_download_cancels_the_prompt_without_leaving_an_active
 
     tokio::time::timeout(std::time::Duration::from_secs(1), async {
         loop {
-            let started = ledger
-                .read_event_page(0, 10)
-                .unwrap()
-                .events
-                .into_iter()
-                .filter(|event| event.kind == "localModelDownload")
-                .map(|event| {
-                    serde_json::from_value::<gent_protocol::LocalModelFrame>(event.payload).unwrap()
-                })
-                .any(|frame| {
-                    matches!(
-                        frame,
-                        gent_protocol::LocalModelFrame::DownloadAccepted { .. }
-                    )
-                });
+            let started = download_frames(&ledger).into_iter().any(|frame| {
+                matches!(
+                    frame,
+                    gent_protocol::LocalModelFrame::DownloadAccepted { .. }
+                )
+            });
             if started {
                 return;
             }
@@ -446,20 +437,20 @@ async fn canceling_claurst_download_cancels_the_prompt_without_leaving_an_active
     })
     .await
     .unwrap();
-    assert!(readiness.cancel_held_prompts("run").unwrap());
+    assert!(
+        !readiness
+            .cancel_held_turn("run", "a-previous-turn")
+            .unwrap()
+    );
+    assert!(
+        readiness
+            .cancel_held_turn("run", &saved.message.turn_id)
+            .unwrap()
+    );
 
     let frames = tokio::time::timeout(std::time::Duration::from_secs(1), async {
         loop {
-            let frames = ledger
-                .read_event_page(0, 10)
-                .unwrap()
-                .events
-                .into_iter()
-                .filter(|event| event.kind == "localModelDownload")
-                .map(|event| {
-                    serde_json::from_value::<gent_protocol::LocalModelFrame>(event.payload).unwrap()
-                })
-                .collect::<Vec<_>>();
+            let frames = download_frames(&ledger);
             if matches!(
                 frames.last(),
                 Some(gent_protocol::LocalModelFrame::DownloadFailed { .. })
@@ -522,4 +513,15 @@ async fn canceling_claurst_download_cancels_the_prompt_without_leaving_an_active
             ..
         }
     )));
+}
+
+fn download_frames(ledger: &SqliteLedger) -> Vec<gent_protocol::LocalModelFrame> {
+    ledger
+        .read_event_page(0, 10)
+        .unwrap()
+        .events
+        .into_iter()
+        .filter(|event| event.kind == "localModelDownload")
+        .map(|event| serde_json::from_value(event.payload).unwrap())
+        .collect()
 }

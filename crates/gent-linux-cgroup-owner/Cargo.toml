@@ -1,0 +1,17 @@
+[package]
+name="gent-linux-cgroup-owner"
+version.workspace=true
+edition.workspace=true
+rust-version.workspace=true
+license.workspace=true
+repository.workspace=true
+publish=false
+[target.'cfg(target_os="linux")'.dependencies]
+gent-types={path="../gent-types"}
+rustix={version="1.1",features=["fs","process"]}
+[dev-dependencies]
+tempfile="3"
+serde_json.workspace=true
+
+[lints]
+workspace=true

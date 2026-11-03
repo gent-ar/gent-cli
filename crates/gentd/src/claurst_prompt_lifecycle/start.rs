@@ -66,7 +66,8 @@ where
         let source_id = source_id(&saved);
         let (request, boundary) = self.start_request(&saved, &source_id, &attachments)?;
         if let Err(error) = self.runtime.ensure_for_prompt(&saved).await {
-            return self.fail_prelaunch(&saved, &error);
+            let code = self.sandbox_failure_code(&saved);
+            return self.fail_prelaunch_with(&saved, &error, code);
         }
         let summarizer = self.runtime.context_summarizer().await;
         let fallback = match self.admission(
@@ -148,15 +149,45 @@ where
     }
 
     fn fail_prelaunch(&self, saved: &AgentChatPromptSaved, error: &str) -> Result<bool, String> {
+        self.fail_prelaunch_with(saved, error, None)
+    }
+
+    fn fail_prelaunch_with(
+        &self,
+        saved: &AgentChatPromptSaved,
+        error: &str,
+        code: Option<gent_types::AgentChatFailureCode>,
+    ) -> Result<bool, String> {
         self.dispatches
             .fail_prelaunch(
                 &saved.message.message_id,
                 &self.coordinator_id,
                 self.host_epoch,
                 error,
+                code,
             )
             .map_err(display)?;
         Ok(true)
+    }
+
+    fn sandbox_failure_code(
+        &self,
+        saved: &AgentChatPromptSaved,
+    ) -> Option<gent_types::AgentChatFailureCode> {
+        let containment = crate::permission_workspace::conversation_containment(
+            &self.ledger,
+            &saved.message.conversation_id,
+        )
+        .ok()?;
+        containment.requires_sandbox().then(|| {
+            if crate::permission_backend_registry::require(AgentChatProvider::Claurst, containment)
+                .is_err()
+            {
+                gent_types::AgentChatFailureCode::SandboxUnavailable
+            } else {
+                gent_types::AgentChatFailureCode::SandboxAdmissionFailed
+            }
+        })
     }
 
     fn start_request(

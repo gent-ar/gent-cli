@@ -103,6 +103,8 @@ fn shell_launch(script: &str) -> ProviderLaunch {
         gent_drivers::lock::capture("claude", std::path::Path::new("/bin/sh"), "test", "test")
             .unwrap();
     ProviderLaunch {
+        permission_binding: None,
+        run_id: None,
         executable: lock.canonical_path.clone().into(),
         lock,
         provider: "claude".into(),

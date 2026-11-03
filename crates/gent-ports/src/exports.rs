@@ -5,3 +5,4 @@ pub use super::agent_chat_ledger::{
     AgentChatQueuedPromptLedger, AgentChatReadLedger, AgentChatSelectionLedger,
     AgentChatWorkspaceLedger, PromptAdmission,
 };
+pub use super::host_mcp_journal::{HostMcpAdmission, HostMcpJournal, HostMcpScope};

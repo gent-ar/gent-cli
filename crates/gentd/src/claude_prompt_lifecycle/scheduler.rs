@@ -45,7 +45,9 @@ where
     /// Returns whether any owned run still needs stdout/exit polling.
     #[must_use]
     pub(crate) fn needs_poll(&self) -> bool {
-        !self.active.is_empty()
+        self.active
+            .values()
+            .any(|binding| !binding.settled || !binding.steers.is_empty())
     }
 
     pub(crate) fn poll_active(
@@ -81,8 +83,9 @@ where
     ///
     /// # Errors
     /// Returns an error when an owned process tree rejects the daemon-selected signal.
-    pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
+    pub(crate) fn signal_active(&mut self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
         let run_ids = self.active.keys().cloned().collect::<Vec<_>>();
+        self.shutdown_signaled |= !run_ids.is_empty();
         for run_id in &run_ids {
             self.runner.signal_claude_process(run_id, signal)?;
         }

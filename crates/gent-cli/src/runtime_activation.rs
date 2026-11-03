@@ -1,298 +1,112 @@
-use std::{
-    ffi::OsString,
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
+use gent_protocol::runtime_activation::{
+    ACTIVATION_MAINTENANCE_MAX_BYTES, ActivationMaintenanceReply, ActivationMaintenanceRequest,
 };
+use std::{
+    io::Write,
+    path::PathBuf,
+    process::{Command, Stdio},
+};
+#[path = "runtime_activation_command.rs"]
+mod command;
+pub(crate) use command::RuntimeCommand;
+#[path = "runtime_activation_delegate.rs"]
+mod delegate;
 
-use clap::Subcommand;
-use serde::Deserialize;
-
-#[path = "runtime_activation_files.rs"]
-mod files;
-use files::required_files;
-#[path = "runtime_activation_stage.rs"]
-mod stage;
-#[path = "runtime_activation_version.rs"]
-mod version;
-use version::{valid_version, version_of};
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum RuntimeCommand {
-    #[command(about = "Stage the release in a bootstrap directory and make it the current runtime")]
-    Activate {
-        #[arg(
-            long,
-            help = "Directory holding bootstrap.json and the release binaries"
-        )]
-        bootstrap_dir: PathBuf,
-        #[arg(
-            long,
-            help = "Runtime installation root [default: the installed runtime root]"
-        )]
-        runtime_root: Option<PathBuf>,
-    },
-}
-
-#[derive(Deserialize)]
-struct Bootstrap {
-    version: String,
-    target: String,
-}
-
-pub(crate) fn activate(
-    bootstrap: PathBuf,
-    root: Option<PathBuf>,
-    data_dir: PathBuf,
-) -> Result<PathBuf, String> {
-    match root {
-        Some(isolated) => activate_at(
-            &bootstrap,
-            &isolated,
-            &data_dir,
-            leave_scheduling_to_installed_runtime,
-        ),
-        None => activate_at(&bootstrap, &default_root(), &data_dir, enable_updates),
-    }
-}
-
-fn leave_scheduling_to_installed_runtime(_: &Path, _: &Path) -> Result<(), String> {
-    Ok(())
-}
-
-fn activate_at(
-    bootstrap: &Path,
-    root: &Path,
-    data_dir: &Path,
-    enable_scheduler: fn(&Path, &Path) -> Result<(), String>,
-) -> Result<PathBuf, String> {
-    let descriptor: Bootstrap = serde_json::from_str(
-        &fs::read_to_string(bootstrap.join("bootstrap.json")).map_err(display)?,
-    )
-    .map_err(display)?;
-    let target = expected_target()?;
-    if descriptor.target != target || !valid_version(&descriptor.version) {
-        return Err("Gent bootstrap metadata does not match this platform".into());
-    }
-    verify_bootstrap(bootstrap)?;
-    let release = format!("{}-{}", descriptor.version, descriptor.target);
-    let releases = root.join("releases");
-    let destination = releases.join(&release);
-    fs::create_dir_all(&releases).map_err(display)?;
-    stage::ensure_release(bootstrap, root, &destination, &release, required_files())?;
-    let current = selected_release(root)?;
-    if current
-        .as_ref()
-        .is_none_or(|value| version_of(&release) > version_of(value))
+pub(crate) fn execute(command: RuntimeCommand, data_dir: PathBuf) -> Result<String, String> {
+    let (pin, mut action, json) = command::request(command, data_dir)?;
+    let expected = pin
+        .expected_maintenance_daemon_sha256
+        .ok_or_else(|| {
+            error(
+                "maintenanceIdentityRequired",
+                "A trusted daemon digest is required",
+            )
+        })?
+        .to_ascii_lowercase();
+    let executable = delegate::pinned_sibling(&expected)?;
+    if let gent_protocol::runtime_activation::ActivationMaintenanceAction::Activate(command)
+    | gent_protocol::runtime_activation::ActivationMaintenanceAction::Plan(command) = &mut action
     {
-        select_release(root, &release)?;
+        command.maintenance_daemon_sha256.clone_from(&expected);
     }
-    refresh_auto_update_helper(root)?;
-    if let Err(error) = enable_scheduler(root, data_dir) {
-        eprintln!("Gent automatic-update scheduling was not refreshed: {error}");
-    }
-    Ok(active_daemon(root))
-}
-
-fn refresh_auto_update_helper(root: &Path) -> Result<(), String> {
-    let directory = if cfg!(windows) {
-        root.join("releases")
-            .join(selected_release(root)?.ok_or("Gent has no selected runtime")?)
-    } else {
-        root.join("current")
+    let request = ActivationMaintenanceRequest {
+        schema: 1,
+        expected_maintenance_daemon_sha256: expected,
+        action,
     };
-    let source = directory.join(auto_update_helper_name());
-    let metadata = fs::symlink_metadata(&source).map_err(display)?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err("Gent automatic-update helper is invalid".into());
+    let input = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
+    if input.len() > ACTIVATION_MAINTENANCE_MAX_BYTES {
+        return Err(error(
+            "maintenanceRequestTooLarge",
+            "Maintenance request exceeds its bound",
+        ));
     }
-    let destination = root.join(auto_update_helper_name());
-    let temporary = root.join(format!(".gent-auto-update-{}", std::process::id()));
-    files::remove_path(&temporary)?;
-    fs::write(&temporary, fs::read(source).map_err(display)?).map_err(display)?;
-    #[cfg(not(windows))]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o700)).map_err(display)?;
+    let mut child = Command::new(executable)
+        .arg("--runtime-activation-stdio")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| error("maintenanceUnavailable", &e.to_string()))?;
+    let stdout = child.stdout.take().ok_or("maintenance stdout missing")?;
+    let stderr = child.stderr.take().ok_or("maintenance stderr missing")?;
+    let output = std::thread::spawn(move || delegate::bounded_output(stdout));
+    let diagnostic = std::thread::spawn(move || delegate::bounded_output(stderr));
+    let write = child
+        .stdin
+        .take()
+        .ok_or("maintenance stdin missing")?
+        .write_all(&input);
+    let exit = child.wait().map_err(|e| e.to_string())?;
+    let output = output
+        .join()
+        .map_err(|_| "maintenance output reader failed")?;
+    let _diagnostic = diagnostic
+        .join()
+        .map_err(|_| "maintenance diagnostic reader failed")?;
+    if !exit.success() {
+        return Err(error(
+            "maintenanceUnsupported",
+            "Pinned daemon did not complete the maintenance protocol",
+        ));
     }
-    fs::rename(temporary, destination).map_err(display)
-}
-
-fn verify_bootstrap(root: &Path) -> Result<(), String> {
-    for name in required_files() {
-        if !fs::symlink_metadata(root.join(name))
-            .is_ok_and(|metadata| metadata.file_type().is_file())
-        {
-            return Err(format!(
-                "Gent bootstrap runtime is incomplete: {name} is missing"
-            ));
+    write.map_err(|e| e.to_string())?;
+    let reply: ActivationMaintenanceReply = serde_json::from_slice(&output?).map_err(|_| {
+        error(
+            "maintenanceUnsupported",
+            "Pinned daemon returned no valid maintenance reply",
+        )
+    })?;
+    match reply {
+        ActivationMaintenanceReply::Error { code, message } => Err(error(&code, &message)),
+        ActivationMaintenanceReply::Capabilities {
+            schema,
+            capabilities,
+        } => {
+            serde_json::to_string(&serde_json::json!({"schema":schema,"capabilities":capabilities}))
+                .map_err(|e| e.to_string())
         }
-    }
-    Ok(())
-}
-
-fn selected_release(root: &Path) -> Result<Option<String>, String> {
-    #[cfg(windows)]
-    {
-        let pointer = root.join("current.json");
-        if !pointer.exists() {
-            return Ok(None);
+        ActivationMaintenanceReply::BootstrapIdentity(value) => {
+            serde_json::to_string(&value).map_err(|e| e.to_string())
         }
-        let value: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(pointer).map_err(display)?)
-                .map_err(display)?;
-        value
-            .get("release")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| "Gent current runtime pointer is invalid".into())
-            .map(Some)
-    }
-    #[cfg(not(windows))]
-    {
-        let pointer = root.join("current");
-        if !pointer.exists() {
-            return Ok(None);
+        ActivationMaintenanceReply::Operation(value) => {
+            serde_json::to_string(&value).map_err(|e| e.to_string())
         }
-        let target = fs::read_link(pointer).map_err(display)?;
-        target
-            .file_name()
-            .and_then(|value| value.to_str())
-            .map(str::to_owned)
-            .ok_or_else(|| "Gent current runtime pointer is invalid".into())
-            .map(Some)
-    }
-}
-
-fn select_release(root: &Path, release: &str) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let bin = root.join("bin");
-        fs::create_dir_all(&bin).map_err(display)?;
-        let launcher = root
-            .join("releases")
-            .join(release)
-            .join("gent-launcher.exe");
-        for name in ["gent.exe", "gentd.exe"] {
-            replace_file(&launcher, &bin.join(name))?;
+        ActivationMaintenanceReply::Planned(value) => {
+            serde_json::to_string(&value).map_err(|e| e.to_string())
         }
-        replace_bytes(
-            serde_json::to_vec(&serde_json::json!({"release": release})).map_err(display)?,
-            &root.join("current.json"),
-        )?;
-    }
-    #[cfg(not(windows))]
-    {
-        use std::os::unix::fs::symlink;
-        let temporary = root.join(format!(".current-{}", std::process::id()));
-        files::remove_path(&temporary)?;
-        symlink(Path::new("releases").join(release), &temporary).map_err(display)?;
-        fs::rename(temporary, root.join("current")).map_err(display)?;
-    }
-    Ok(())
-}
-
-#[cfg(windows)]
-fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
-    replace_bytes(fs::read(source).map_err(display)?, destination)
-}
-
-#[cfg(windows)]
-fn replace_bytes(bytes: Vec<u8>, destination: &Path) -> Result<(), String> {
-    let temporary = destination.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&temporary, bytes).map_err(display)?;
-    fs::rename(temporary, destination).map_err(display)
-}
-
-fn active_daemon(root: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        root.join("bin").join("gentd.exe")
-    }
-    #[cfg(not(windows))]
-    {
-        root.join("current").join("gentd")
+        ActivationMaintenanceReply::Origin(value) => {
+            serde_json::to_string(&value).map_err(|e| e.to_string())
+        }
+        ActivationMaintenanceReply::Activated(value) if json => {
+            serde_json::to_string(&value).map_err(|e| e.to_string())
+        }
+        ActivationMaintenanceReply::Activated(value) => Ok(value.daemon_path.display().to_string()),
     }
 }
-
-fn enable_updates(root: &Path, data_dir: &Path) -> Result<(), String> {
-    let executable = active_cli(root);
-    let status = Command::new(executable)
-        .args(enable_update_arguments(data_dir))
-        .status()
-        .map_err(display)?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("Gent automatic updates could not be enabled".into())
-    }
+fn error(code: &str, message: &str) -> String {
+    serde_json::json!({"code":code,"message":message}).to_string()
 }
-
-fn enable_update_arguments(data_dir: &Path) -> Vec<OsString> {
-    vec![
-        OsString::from("--data-dir"),
-        data_dir.as_os_str().to_os_string(),
-        OsString::from("update"),
-        OsString::from("auto"),
-        OsString::from("enable"),
-    ]
-}
-
-fn active_cli(root: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        root.join("bin").join("gent.exe")
-    }
-    #[cfg(not(windows))]
-    {
-        root.join("current").join("gent")
-    }
-}
-
-#[cfg(windows)]
-const fn auto_update_helper_name() -> &'static str {
-    "gent-auto-update.ps1"
-}
-
-#[cfg(not(windows))]
-const fn auto_update_helper_name() -> &'static str {
-    "gent-auto-update.py"
-}
-
-fn default_root() -> PathBuf {
-    #[cfg(windows)]
-    {
-        PathBuf::from(std::env::var_os("LOCALAPPDATA").expect("LOCALAPPDATA is required"))
-            .join("Gent")
-    }
-    #[cfg(not(windows))]
-    {
-        PathBuf::from(std::env::var_os("HOME").expect("HOME is required")).join(".local/lib/gent")
-    }
-}
-
-fn expected_target() -> Result<String, String> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Ok("aarch64-apple-darwin".into())
-    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        Ok("x86_64-apple-darwin".into())
-    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Ok("x86_64-unknown-linux-gnu".into())
-    } else if cfg!(all(windows, target_arch = "x86_64")) {
-        Ok("x86_64-pc-windows-msvc".into())
-    } else {
-        Err("Gent bootstrap is unsupported on this platform".into())
-    }
-}
-
-fn display(error: impl std::fmt::Display) -> String {
-    error.to_string()
-}
-
 #[cfg(test)]
-#[path = "runtime_activation_tests.rs"]
+#[path = "runtime_activation_delegate_tests.rs"]
 mod tests;
-
-#[cfg(all(test, windows))]
-#[path = "runtime_activation_windows_tests.rs"]
-mod windows_tests;

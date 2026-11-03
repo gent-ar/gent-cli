@@ -25,9 +25,9 @@ class Server(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-def installed(root: Path, version: str = "v1.2.3") -> Path:
+def installed(root: Path, version: str = "v1.2.3", nonce: str = "12345678") -> Path:
     runtime = root / "install/lib/gent"
-    release = runtime / f"releases/{version}-x86_64-unknown-linux-gnu"
+    release = runtime / f"releases/{version}+0123456789abcdef.{nonce}-x86_64-unknown-linux-gnu"
     release.mkdir(parents=True)
     for name in ("gent", "gentd"):
         (release / name).write_text("binary", encoding="utf-8")
@@ -106,6 +106,9 @@ def main() -> None:
         test_macos_scheduler_replaces_existing_job(runtime, root, environment)
         test_tag_is_untrusted_but_installer_is_tag_bound(runtime, root, environment)
         test_concurrent_run_is_refused(runtime, root, environment)
+        operation_root = root / "operation-generation"
+        operation_runtime = installed(operation_root, nonce="b" * 64)
+        test_scheduler_files(operation_runtime, operation_root, environment)
     print("automatic runtime update checks passed")
 
 

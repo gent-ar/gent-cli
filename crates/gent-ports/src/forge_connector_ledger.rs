@@ -1,8 +1,17 @@
-use gent_types::ForgeConnectorRecord;
+use gent_types::{Command, ForgeConnectorRecord, Receipt, ToolSourceRecord};
 
 use crate::LedgerError;
 
 pub trait ForgeConnectorLedger: Send + Sync {
+    fn commit_managed_forge_registration(
+        &self,
+        command: &Command,
+        source: &ToolSourceRecord,
+        connector: &ForgeConnectorRecord,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<Receipt, LedgerError>;
+
     fn create_forge_connector(&self, connector: &ForgeConnectorRecord) -> Result<(), LedgerError>;
 
     fn find_forge_connector(

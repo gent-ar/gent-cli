@@ -58,6 +58,9 @@ impl std::fmt::Debug for StandaloneReadiness {
 }
 
 pub(super) trait StandalonePromptRelease: Send + Sync + std::fmt::Debug {
+    fn awaiting_prompts(&self, _: &str) -> Result<Vec<gent_types::AgentChatPromptSaved>, String> {
+        Ok(Vec::new())
+    }
     fn provider(&self, prompt: &PromptWake) -> Result<AgentChatProvider, String>;
     fn provision_claurst(
         &self,
@@ -67,6 +70,9 @@ pub(super) trait StandalonePromptRelease: Send + Sync + std::fmt::Debug {
     fn release(&self, prompt: &PromptWake) -> Result<StandalonePromptReleaseOutcome, String>;
     fn fail(&self, prompt: &PromptWake, reason: &str) -> Result<(), String>;
     fn cancel_held_prompts(&self, _: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn cancel_held_turn(&self, _: &str, _: &str) -> Result<bool, String> {
         Ok(false)
     }
 }
@@ -79,6 +85,14 @@ pub(super) enum StandalonePromptReleaseOutcome {
 }
 
 impl StandalonePromptRelease for StandaloneReadiness {
+    fn awaiting_prompts(
+        &self,
+        after: &str,
+    ) -> Result<Vec<gent_types::AgentChatPromptSaved>, String> {
+        self.dispatches
+            .read_awaiting_agent_chat_prompts(None, after, 128)
+            .map_err(|error| error.to_string())
+    }
     fn provider(&self, prompt: &PromptWake) -> Result<AgentChatProvider, String> {
         self.reads
             .run_selection(&prompt.conversation_id.0, &prompt.run_id.0)
@@ -163,6 +177,9 @@ impl StandalonePromptRelease for StandaloneReadiness {
 
     fn cancel_held_prompts(&self, run_id: &str) -> Result<bool, String> {
         self.cancel_held(run_id)
+    }
+    fn cancel_held_turn(&self, run_id: &str, turn_id: &str) -> Result<bool, String> {
+        self.cancel_held_matching(run_id, Some(turn_id))
     }
 
     fn release(&self, prompt: &PromptWake) -> Result<StandalonePromptReleaseOutcome, String> {

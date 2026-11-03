@@ -2,7 +2,7 @@ use gent_types::{NormalizedProviderEvent, ToolPhase, WorkPhase};
 use serde_json::Value;
 
 use super::super::PublicWireFact;
-use super::{activity, diagnostic, string, user};
+use super::{activity_with_input, diagnostic, string, user};
 
 pub(crate) fn child_parent(frame: &Value) -> Option<&str> {
     string(frame, "parent_tool_use_id").filter(|id| !id.is_empty())
@@ -28,12 +28,13 @@ fn child_content(block: &Value, parent_tool_use_id: &str) -> Vec<PublicWireFact>
             (Some(tool_use_id), Some(tool_name))
                 if !tool_use_id.is_empty() && !tool_name.is_empty() =>
             {
-                activity(
+                activity_with_input(
                     tool_use_id,
                     tool_name,
                     ToolPhase::Started,
                     None,
                     Some(parent_tool_use_id),
+                    block.get("input"),
                 )
             }
             _ => diagnostic("malformedClaudeToolUse"),

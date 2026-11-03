@@ -9,6 +9,17 @@ use crate::LedgerError;
 
 /// Persists a user prompt, its receipt, turn, message, and transcript ordinal in one transaction.
 pub trait AgentChatPromptLedger: Send + Sync {
+    fn save_agent_chat_prompt_for_steer(
+        &self,
+        _: &AgentChatPromptCreate,
+        _: &AgentChatRunId,
+        _: &str,
+    ) -> Result<AgentChatPromptSaved, LedgerError> {
+        Err(LedgerError::Invariant(
+            "atomic steer enqueue is unavailable".into(),
+        ))
+    }
+
     /// Resolves the durable current run for the supplied conversation and saves one prompt.
     ///
     /// The same request correlation returns the originally settled receipt and message. A changed
@@ -50,6 +61,20 @@ pub trait AgentChatPromptLedger: Send + Sync {
 }
 
 pub trait AgentChatQueuedPromptLedger: Send + Sync {
+    fn steer_queued_agent_chat_prompt_for_turn(
+        &self,
+        _: &ReceiptId,
+        _: HostEpoch,
+        _: &AgentChatConversationId,
+        _: &str,
+        _: &AgentChatRunId,
+        _: &str,
+    ) -> Result<(Receipt, AgentChatRunId), LedgerError> {
+        Err(LedgerError::Invariant(
+            "targeted steering is unavailable".into(),
+        ))
+    }
+
     fn cancel_queued_agent_chat_prompt(
         &self,
         receipt_id: &ReceiptId,

@@ -16,7 +16,7 @@ use super::PublicDriversRuntime;
 #[path = "session_mapping.rs"]
 mod mapping;
 
-pub(crate) use mapping::activity_for_lifecycle;
+pub(crate) use mapping::{activity_for_lifecycle, transcript_content};
 
 pub(crate) fn recorded_wire_fact(
     noticed: &mut std::collections::BTreeSet<String>,
@@ -42,7 +42,7 @@ pub(crate) fn recorded_wire_fact(
             })
         })
 }
-use mapping::{activity, terminal, transcript_content};
+use mapping::{activity, terminal};
 
 /// Daemon-owned identities and a provider-normalized fact for one durable recording batch.
 #[derive(Clone, Debug, Eq, PartialEq)]
