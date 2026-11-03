@@ -190,10 +190,7 @@ fn claude_models_come_only_from_the_installed_provider() {
     assert!(listing.models[0].is_default);
     assert_eq!(listing.models[0].label, "Default (recommended)");
     assert_eq!(listing.models[0].efforts.len(), 5);
-    assert_eq!(
-        listing.models[1].default_effort,
-        Some(AgentChatEffort::Medium)
-    );
+    assert_eq!(listing.models[1].default_effort, None);
     assert!(listing.models[2].efforts.is_empty());
     assert_eq!(listing.models[2].default_effort, None);
 }

@@ -88,12 +88,12 @@ fn same_snapshot(before: &fs::Metadata, after: &fs::Metadata) -> Result<bool, Lo
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        return Ok((
+        Ok((
             before.dev(),
             before.ino(),
             before.ctime(),
             before.ctime_nsec(),
-        ) == (after.dev(), after.ino(), after.ctime(), after.ctime_nsec()));
+        ) == (after.dev(), after.ino(), after.ctime(), after.ctime_nsec()))
     }
     #[cfg(not(unix))]
     Ok(true)

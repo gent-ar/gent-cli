@@ -11,7 +11,7 @@ use std::{
     process::Child,
     time::{Duration, Instant},
 };
-const CGROUP2_MAGIC: i64 = 0x63677270;
+const CGROUP2_MAGIC: i64 = 0x6367_7270;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     PrivilegedCaller,
@@ -90,7 +90,7 @@ fn nonce_ok(nonce: &str) -> bool {
 fn limits_budget(limits: SandboxResourceLimits) -> Result<u64, Error> {
     if limits.max_processes == 0
         || limits.max_memory_bytes == 0
-        || limits.max_memory_bytes % 4096 != 0
+        || !limits.max_memory_bytes.is_multiple_of(4096)
         || limits.max_cpu_time_ms == 0
     {
         return Err(Error::InvalidLimits);
@@ -467,12 +467,9 @@ impl CgroupScope {
                 return Err(e);
             }
         };
-        let m = match fd.metadata() {
-            Ok(m) => m,
-            Err(_) => {
-                let _ = unlinkat(&parent.fd, &name, AtFlags::REMOVEDIR);
-                return Err(Error::Io);
-            }
+        let Ok(m) = fd.metadata() else {
+            let _ = unlinkat(&parent.fd, &name, AtFlags::REMOVEDIR);
+            return Err(Error::Io);
         };
         let scope = Self {
             parent,

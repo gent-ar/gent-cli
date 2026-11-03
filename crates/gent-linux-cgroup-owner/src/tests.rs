@@ -56,9 +56,8 @@ fn kernel_counters_are_bounded_and_unambiguous() {
 fn ordinary_directory_cannot_fake_delegation() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("cgroup.controllers"), "memory pids cpu").unwrap();
-    let error = match DelegatedParent::inspect(root.path()) {
-        Ok(_) => panic!("ordinary tree admitted"),
-        Err(error) => error,
+    let Err(error) = DelegatedParent::inspect(root.path()) else {
+        panic!("ordinary tree admitted")
     };
     assert!(matches!(
         error,
@@ -71,9 +70,8 @@ fn ordinary_directory_cannot_fake_delegation() {
 }
 #[test]
 fn traversal_is_rejected_before_any_write() {
-    let error = match DelegatedParent::inspect(Path::new("/sys/fs/cgroup/../fs")) {
-        Ok(_) => panic!("traversal admitted"),
-        Err(error) => error,
+    let Err(error) = DelegatedParent::inspect(Path::new("/sys/fs/cgroup/../fs")) else {
+        panic!("traversal admitted")
     };
     assert!(matches!(
         error,

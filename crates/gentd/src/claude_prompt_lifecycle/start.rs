@@ -88,6 +88,7 @@ where
                         steers: Vec::new(),
                         session_recovery: super::SessionRecovery::NotNeeded,
                         failure_reported_turn: None,
+                        open_children: std::collections::BTreeSet::new(),
                     },
                 );
                 Ok(ClaudePromptDispatchOutcome::Started { run_id })

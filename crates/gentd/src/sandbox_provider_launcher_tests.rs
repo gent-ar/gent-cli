@@ -140,10 +140,6 @@ fn routed_factory_never_turns_a_broad_policy_into_a_host_launch() {
 fn windows_claude_and_codex_ordinary_modes_require_native_preparation_without_host_fallback() {
     for provider in [AgentChatProvider::Claude, AgentChatProvider::Codex] {
         let (_root, launcher, binding) = prepared_for(provider);
-        if cfg!(windows) {
-            assert!(launcher.validate_permission_binding(&binding).is_err());
-        } else {
-            launcher.validate_permission_binding(&binding).unwrap();
-        }
+        assert!(launcher.validate_permission_binding(&binding).is_err());
     }
 }

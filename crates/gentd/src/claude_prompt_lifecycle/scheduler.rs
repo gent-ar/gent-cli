@@ -45,9 +45,12 @@ where
     /// Returns whether any owned run still needs stdout/exit polling.
     #[must_use]
     pub(crate) fn needs_poll(&self) -> bool {
-        self.active
-            .values()
-            .any(|binding| !binding.settled || !binding.steers.is_empty())
+        self.active.values().any(|binding| {
+            !binding.settled
+                || binding.interrupt_requested
+                || !binding.steers.is_empty()
+                || !binding.open_children.is_empty()
+        })
     }
 
     pub(crate) fn poll_active(

@@ -14,6 +14,12 @@ static STARTUP_IDENTITY: OnceLock<StartupIdentity> = OnceLock::new();
 
 pub(crate) fn initialize(held: &crate::host_lock::HostLock) -> Result<(), std::io::Error> {
     let identity = capture(held)?;
+    #[cfg(test)]
+    {
+        let _ = STARTUP_IDENTITY.set(identity);
+        Ok(())
+    }
+    #[cfg(not(test))]
     STARTUP_IDENTITY
         .set(identity)
         .map_err(|_| std::io::Error::other("runtime owner identity was already captured"))
