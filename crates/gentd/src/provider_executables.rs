@@ -22,8 +22,10 @@ use crate::{
     },
 };
 
+#[cfg(any(windows, target_os = "linux"))]
 #[path = "provider_managed_runtime.rs"]
 mod managed_runtime;
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) use managed_runtime::ManagedProviderRuntime;
 
 #[derive(Clone, Default)]

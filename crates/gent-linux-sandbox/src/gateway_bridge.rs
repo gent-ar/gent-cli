@@ -1,5 +1,5 @@
 //! Fixed-destination HTTP proxy. The caller retains the real daemon lease and
-//! supplies its live RunFence check; an endpoint/token alone is never authority.
+//! supplies its live `RunFence` check; an endpoint/token alone is never authority.
 use std::{
     io::{Read, Write},
     net::{SocketAddrV4, TcpListener, TcpStream},
@@ -29,8 +29,7 @@ impl LiveGatewayLease for OwnerBoundLease {
         };
         owner
             .lock()
-            .map(|mut owner| owner.gateway_owner_current())
-            .unwrap_or(false)
+            .is_ok_and(|mut owner| owner.gateway_owner_current())
     }
 }
 pub struct GatewayBridge {
@@ -138,7 +137,10 @@ impl GatewayBridge {
         self.alive.clone()
     }
     pub fn diagnostic(&self) -> std::collections::BTreeMap<String, u64> {
-        self.diagnostic.lock().unwrap().clone()
+        self.diagnostic
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 }
 // The dispatcher also joins on unwinding; dropping JoinHandles alone would detach.
@@ -318,10 +320,7 @@ fn exchange(
                 if matches!(
                     e.kind(),
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                continue;
-            }
+                ) => {}
             _ => return Err("header read"),
         }
     }
@@ -338,13 +337,12 @@ fn exchange(
         .unwrap()
         .entry(format!("method:{key}"))
         .or_default() += 1;
-    let (head, body) = request_head(&head, target).map_err(|reason| {
+    let (head, body) = request_head(&head, target).inspect_err(|&reason| {
         *diagnostic
             .lock()
             .unwrap()
             .entry(format!("reject:{reason}"))
             .or_default() += 1;
-        reason
     })?;
     if !live() {
         return Err("stale lease");
@@ -373,10 +371,7 @@ fn exchange(
                     if matches!(
                         e.kind(),
                         std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    continue;
-                }
+                    ) => {}
                 _ => return Err("body read"),
             }
         }
@@ -385,77 +380,8 @@ fn exchange(
     if let Some(size) = body {
         copy_exact(size)?;
     } else {
-        // Decode framing solely to ensure one bounded request. Preserve validated chunks.
-        drop(copy_exact);
-        let mut total = 0usize;
-        loop {
-            let mut line = Vec::new();
-            while !line.ends_with(b"\r\n") {
-                if !live() || line.len() > 128 {
-                    return Err("chunk line bound");
-                }
-                match client.read(&mut byte) {
-                    Ok(1) => line.push(byte[0]),
-                    Err(e)
-                        if matches!(
-                            e.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) =>
-                    {
-                        continue;
-                    }
-                    _ => return Err("chunk EOF"),
-                }
-            }
-            let digits =
-                std::str::from_utf8(&line[..line.len() - 2]).map_err(|_| "chunk syntax")?;
-            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Err("chunk syntax");
-            }
-            let size = usize::from_str_radix(digits, 16).map_err(|_| "chunk size")?;
-            total = total.checked_add(size).ok_or("body bound")?;
-            if total > 8 * 1024 * 1024 {
-                return Err("body bound");
-            }
-            upstream.write_all(&line).map_err(|_| "chunk write")?;
-            let mut remaining = size;
-            while remaining > 0 {
-                if !live() {
-                    return Err("stale lease");
-                }
-                let count = remaining.min(buffer.len());
-                match client.read(&mut buffer[..count]) {
-                    Ok(0) => return Err("chunk EOF"),
-                    Ok(n) => {
-                        upstream
-                            .write_all(&buffer[..n])
-                            .map_err(|_| "chunk write")?;
-                        remaining -= n;
-                    }
-                    Err(e)
-                        if matches!(
-                            e.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) =>
-                    {
-                        continue;
-                    }
-                    _ => return Err("chunk read"),
-                }
-            }
-            let mut ending = [0; 2];
-            client.read_exact(&mut ending).map_err(|_| "chunk ending")?;
-            if ending != *b"\r\n" {
-                return Err("trailers unsupported");
-            }
-            upstream.write_all(&ending).map_err(|_| "chunk ending")?;
-            if size == 0 {
-                break;
-            }
-        }
+        copy_chunked(client, &mut upstream, &mut buffer, &live)?;
     }
-    // Never interpret a second request on this socket. Fixed upstream plus close
-    // also prevents an absolute URI from selecting an arbitrary host destination.
     while live() {
         match upstream.read(&mut buffer) {
             Ok(0) => return Ok(()),
@@ -466,14 +392,81 @@ fn exchange(
                 if matches!(
                     e.kind(),
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                continue;
-            }
+                ) => {}
             _ => return Err("response read"),
         }
     }
     Err("lease revoked or deadline")
+}
+
+fn copy_chunked(
+    client: &mut TcpStream,
+    upstream: &mut TcpStream,
+    buffer: &mut [u8],
+    live: &dyn Fn() -> bool,
+) -> Result<(), &'static str> {
+    let mut byte = [0; 1];
+    let mut total = 0usize;
+    loop {
+        let mut chunk_line = Vec::new();
+        while !chunk_line.ends_with(b"\r\n") {
+            if !live() || chunk_line.len() > 128 {
+                return Err("chunk line bound");
+            }
+            match client.read(&mut byte) {
+                Ok(1) => chunk_line.push(byte[0]),
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                _ => return Err("chunk EOF"),
+            }
+        }
+        let digits =
+            std::str::from_utf8(&chunk_line[..chunk_line.len() - 2]).map_err(|_| "chunk syntax")?;
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("chunk syntax");
+        }
+        let size = usize::from_str_radix(digits, 16).map_err(|_| "chunk size")?;
+        total = total.checked_add(size).ok_or("body bound")?;
+        if total > 8 * 1024 * 1024 {
+            return Err("body bound");
+        }
+        upstream.write_all(&chunk_line).map_err(|_| "chunk write")?;
+        let mut remaining = size;
+        while remaining > 0 {
+            if !live() {
+                return Err("stale lease");
+            }
+            let count = remaining.min(buffer.len());
+            match client.read(&mut buffer[..count]) {
+                Ok(0) => return Err("chunk EOF"),
+                Ok(n) => {
+                    upstream
+                        .write_all(&buffer[..n])
+                        .map_err(|_| "chunk write")?;
+                    remaining -= n;
+                }
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                _ => return Err("chunk read"),
+            }
+        }
+        let mut ending = [0; 2];
+        client.read_exact(&mut ending).map_err(|_| "chunk ending")?;
+        if ending != *b"\r\n" {
+            return Err("trailers unsupported");
+        }
+        upstream.write_all(&ending).map_err(|_| "chunk ending")?;
+        if size == 0 {
+            break;
+        }
+    }
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

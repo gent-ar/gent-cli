@@ -63,7 +63,7 @@ fn capture_observed(
     }
     let mut source = OpenOptions::new()
         .read(true)
-        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
         .open(path)
         .map_err(|_| "Node entry open")?;
     let before = source.metadata().map_err(|_| "Node entry metadata")?;
@@ -84,7 +84,7 @@ fn capture_observed(
         .map_err(|_| "Node nonexecutable snapshot")?,
     );
     let mut digest = Sha256::new();
-    let mut buffer = [0u8; 65536];
+    let mut buffer = vec![0u8; 65536];
     let mut count = 0u64;
     loop {
         let n = source.read(&mut buffer).map_err(|_| "Node entry read")?;
@@ -117,8 +117,9 @@ fn capture_observed(
             | rustix::fs::SealFlags::SEAL,
     )
     .map_err(|_| "Node entry seals")?;
-    let argv = crate::node_profile::arguments(target.as_raw_fd()).ok_or("Node entry descriptor")?;
-    Ok((target, argv))
+    let entry_arguments =
+        crate::node_profile::arguments(target.as_raw_fd()).ok_or("Node entry descriptor")?;
+    Ok((target, entry_arguments))
 }
 #[cfg(test)]
 mod tests {
@@ -145,7 +146,7 @@ mod tests {
     #[test]
     fn snapshot_is_sealed_nonexecutable_data() {
         let (_root, args) = entry();
-        let (mut snapshot, argv) = capture(&args).unwrap();
+        let (mut snapshot, entry_arguments) = capture(&args).unwrap();
         let seals = rustix::fs::fcntl_get_seals(&snapshot).unwrap();
         assert!(seals.contains(
             rustix::fs::SealFlags::WRITE
@@ -162,7 +163,7 @@ mod tests {
                 .kind(),
             std::io::ErrorKind::PermissionDenied
         );
-        assert_eq!(argv.len(), 3);
+        assert_eq!(entry_arguments.len(), 3);
     }
     #[test]
     fn path_replacement_during_capture_is_rejected() {

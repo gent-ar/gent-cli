@@ -47,7 +47,9 @@ pub fn validate_profile(program: &Path, args: &[String], env: &BTreeMap<String, 
 pub fn private_owner_directory(path: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     std::fs::metadata(path).is_ok_and(|m| {
-        m.is_dir() && m.uid() == rustix::process::geteuid().as_raw() && m.mode() & 0o077 == 0
+        m.is_dir()
+            && m.uid() == rustix::process::geteuid().as_raw()
+            && m.mode().trailing_zeros() >= 6
     })
 }
 
@@ -205,22 +207,22 @@ impl HostStdioChild {
         if !valid {
             return Err("native MCP finite Gent profile rejected");
         }
-        let (mut owner, input, _) = host_probe::start(
-            &config.delegation_parent,
-            &config.helper,
-            &config.program,
-            &config.cwd,
-            &config.args,
-            &config.env,
-            config.lifetime,
-            if node {
+        let (mut owner, input, _) = host_probe::start(host_probe::ProbeSpec {
+            parent: &config.delegation_parent,
+            helper: &config.helper,
+            provider: &config.program,
+            cwd: &config.cwd,
+            args: &config.args,
+            env: &config.env,
+            timeout: config.lifetime,
+            purpose: if node {
                 Purpose::NodeMcpStdio
             } else {
                 Purpose::GentMcpStdio
             },
-            initial,
-            authority,
-        )?;
+            initial_input: initial,
+            retained_authority: authority,
+        })?;
         // Startup has already attached the trusted blocked helper. Subsequent
         // bytes belong to the MCP stream; the helper consumes no read-ahead.
         owner.child.stdin = Some(input);

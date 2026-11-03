@@ -27,10 +27,10 @@ pub(crate) fn require(path: &Path) -> Result<(), &'static str> {
 mod tests {
     #[test]
     fn caller_owned_provider_image_cannot_be_promoted_by_a_digest() {
+        use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let image = root.path().join("provider");
         std::fs::write(&image, b"owned QA image").unwrap();
-        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
         assert!(
             super::require(&image).is_err(),

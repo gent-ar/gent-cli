@@ -72,7 +72,11 @@ where
                     terminal = terminal.or_else(|| terminal::phase(&fact));
                     self.record_wire(run_id, host_epoch, &fact)?;
                     let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
-                    track_child(&mut binding.open_children, &fact);
+                    track_child(
+                        &mut binding.open_children,
+                        &fact,
+                        terminal::phase(&fact).is_some(),
+                    );
                     if provider_failure {
                         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
                         binding.failure_reported_turn =
@@ -198,20 +202,25 @@ fn normalize_user_interrupt(
     Some(fact)
 }
 
-fn track_child(open: &mut std::collections::BTreeSet<String>, fact: &PublicWireFact) {
+fn track_child(
+    open: &mut std::collections::BTreeMap<String, bool>,
+    fact: &PublicWireFact,
+    root_terminal: bool,
+) {
     use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent};
     match fact {
         PublicWireFact::Event(NormalizedProviderEvent::ChildStarted { child_id, .. }) => {
-            open.insert(child_id.clone());
+            open.insert(child_id.clone(), false);
         }
         PublicWireFact::Event(NormalizedProviderEvent::ChildTerminal { child_id, .. }) => {
-            open.remove(child_id);
+            open.insert(child_id.clone(), true);
         }
         PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ChildPhase { child_id, phase })
             if !phase.is_live() =>
         {
-            open.remove(child_id);
+            open.insert(child_id.clone(), true);
         }
+        _ if root_terminal => open.retain(|_, finished| !*finished),
         _ => {}
     }
 }

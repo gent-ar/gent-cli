@@ -103,7 +103,7 @@ impl CpuSemantics {
             {
                 Ok(self)
             }
-            _ => Err("invalid monitored CPU policy"),
+            Self::MonitoredTotal { .. } => Err("invalid monitored CPU policy"),
         }
     }
 }

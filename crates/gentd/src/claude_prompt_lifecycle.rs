@@ -36,7 +36,7 @@ pub(super) struct Binding {
     steers: Vec<AgentChatPromptSaved>,
     session_recovery: SessionRecovery,
     failure_reported_turn: Option<String>,
-    open_children: std::collections::BTreeSet<String>,
+    open_children: std::collections::BTreeMap<String, bool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

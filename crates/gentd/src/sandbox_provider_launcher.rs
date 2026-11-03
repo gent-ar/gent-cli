@@ -13,8 +13,11 @@ use crate::sandbox_provider_process::RoutedProviderProcess;
 pub(crate) struct SandboxProviderLauncher {
     host: SystemLauncher,
     ledger: SqliteLedger,
+    #[cfg(any(windows, target_os = "linux"))]
     coordinator: Coordinator<SqliteLedger>,
+    #[cfg(any(windows, target_os = "linux"))]
     state_root: PathBuf,
+    #[cfg(any(windows, target_os = "linux"))]
     output_limit: usize,
     managed_providers: Option<crate::provider_executables::ProviderExecutables>,
     lifecycle_control: Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
@@ -31,11 +34,16 @@ impl SandboxProviderLauncher {
         state_root: PathBuf,
         output_limit: usize,
     ) -> Self {
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let _ = (coordinator, state_root, output_limit);
         Self {
             host,
             ledger,
+            #[cfg(any(windows, target_os = "linux"))]
             coordinator,
+            #[cfg(any(windows, target_os = "linux"))]
             state_root,
+            #[cfg(any(windows, target_os = "linux"))]
             output_limit,
             managed_providers: None,
             lifecycle_control: None,
@@ -209,9 +217,12 @@ impl ProcessLauncher for SandboxProviderLauncher {
                 .require(provider)
                 .map_err(SupervisorError::SandboxUnavailable);
             #[cfg(not(any(windows, target_os = "linux")))]
-            return Err(SupervisorError::SandboxUnavailable(
-                "native provider sandbox unavailable on this host".into(),
-            ));
+            {
+                let _ = provider;
+                return Err(SupervisorError::SandboxUnavailable(
+                    "native provider sandbox unavailable on this host".into(),
+                ));
+            }
         }
         Ok(())
     }

@@ -11,7 +11,7 @@ use std::{
 
 fn fixture(directory: &Path) -> StandaloneProviderAuthPort {
     let executable = directory.join("codex-fixture");
-    fs::write(&executable, r#"#!/usr/bin/env python3
+    fs::write(&executable, r"#!/usr/bin/env python3
 import json,sys,threading,time
 from pathlib import Path
 root=Path(__file__).parent
@@ -36,7 +36,7 @@ for line in sys.stdin:
  elif method=='account/login/cancel':
   stop.set();emit({'id':value['id'],'result':{'status':'canceled'}})
 stop.set()
-"#).unwrap();
+").unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     StandaloneProviderAuthPort::for_test(
         crate::provider_executables::ProviderExecutables::explicit(None, Some(executable)),

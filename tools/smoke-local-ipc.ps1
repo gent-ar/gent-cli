@@ -69,12 +69,12 @@ try {
     $defaultDaemon = Start-Process -FilePath $gentd -ArgumentList @("--standalone-authority") -PassThru `
         -RedirectStandardOutput (Join-Path $dataDir "default-gentd.stdout") `
         -RedirectStandardError (Join-Path $dataDir "default-gentd.stderr")
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    for ($attempt = 0; $attempt -lt 200; $attempt++) {
         try {
             $defaultStatusJson = Invoke-Gent "default status" @("status")
             break
         } catch {
-            if ($attempt -eq 39) { throw }
+            if ($attempt -eq 199) { throw }
         }
         Start-Sleep -Milliseconds 50
     }
@@ -90,12 +90,12 @@ try {
         -RedirectStandardOutput (Join-Path $dataDir "gentd.stdout") `
         -RedirectStandardError (Join-Path $dataDir "gentd.stderr")
 
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
+    for ($attempt = 0; $attempt -lt 200; $attempt++) {
         try {
             $statusJson = Invoke-Gent "status" @("--data-dir", $dataDir, "status")
             break
         } catch {
-            if ($attempt -eq 39) { throw }
+            if ($attempt -eq 199) { throw }
         }
         Start-Sleep -Milliseconds 50
     }

@@ -69,51 +69,6 @@ impl LaunchProfile {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn profile() -> LaunchProfile {
-        LaunchProfile {
-            executable: "/usr/bin/python3".into(),
-            arguments: vec!["a'b;$(touch /tmp/escape)".into()],
-            cwd: "/tmp/owned".into(),
-            readwrite: vec!["/tmp/owned".into()],
-            readonly: vec![],
-            denied: vec![],
-            environment: vec![("HOME".into(), "/tmp/owned/home".into())],
-            timeout_ms: 1000,
-        }
-    }
-    #[test]
-    fn valid_private_profile() {
-        assert!(profile().validate().is_ok());
-    }
-    #[test]
-    fn shell_atoms_are_quoted() {
-        assert_eq!(
-            profile().command(),
-            "exec '/usr/bin/python3' 'a'\\''b;$(touch /tmp/escape)'"
-        );
-    }
-    #[test]
-    fn broad_or_relative_paths_rejected() {
-        for path in ["/", "relative", "/tmp/../escape", "/tmp/./escape"] {
-            let mut p = profile();
-            p.readwrite.push(path.into());
-            assert!(p.validate().is_err());
-        }
-    }
-    #[test]
-    fn home_and_nul_rejected() {
-        let mut p = profile();
-        p.environment[0].1 = "/tmp/unowned/home".into();
-        assert!(p.validate().is_err());
-        let mut p = profile();
-        p.arguments.push("x\0y".into());
-        assert!(p.validate().is_err());
-    }
-}
-
 use mxc_sdk::v1::{
     self, ContainerRequest, Containment, FilesystemPolicy, MxcProcess, NetworkAction,
     NetworkEgressPolicy, NetworkIngressPolicy, NetworkPolicy, SpawnOptions, TelemetryConfig,
@@ -123,7 +78,7 @@ use mxc_sdk::v1::{
 fn containment() -> Result<Containment, String> {
     #[cfg(target_os = "linux")]
     {
-        return Ok(Containment::Bubblewrap);
+        Ok(Containment::Bubblewrap)
     }
     #[cfg(target_os = "macos")]
     {
@@ -168,7 +123,7 @@ pub fn request(profile: LaunchProfile) -> Result<ContainerRequest, String> {
 
 /// Returns the native process/stream owner. Caller must drain both output streams
 /// concurrently, supervise timeout/cancellation and retain all policy/lease pins.
-/// A PID alone is deliberately not represented as Gent SandboxEnforcement proof.
+/// A PID alone is deliberately not represented as Gent `SandboxEnforcement` proof.
 pub fn spawn(profile: LaunchProfile) -> Result<MxcProcess, String> {
     let request = request(profile)?;
     v1::spawn(
@@ -209,5 +164,50 @@ impl std::fmt::Debug for LaunchProfile {
             .field("arguments", &self.arguments.len())
             .field("environment", &"[REDACTED]")
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn profile() -> LaunchProfile {
+        LaunchProfile {
+            executable: "/usr/bin/python3".into(),
+            arguments: vec!["a'b;$(touch /tmp/escape)".into()],
+            cwd: "/tmp/owned".into(),
+            readwrite: vec!["/tmp/owned".into()],
+            readonly: vec![],
+            denied: vec![],
+            environment: vec![("HOME".into(), "/tmp/owned/home".into())],
+            timeout_ms: 1000,
+        }
+    }
+    #[test]
+    fn valid_private_profile() {
+        assert!(profile().validate().is_ok());
+    }
+    #[test]
+    fn shell_atoms_are_quoted() {
+        assert_eq!(
+            profile().command(),
+            "exec '/usr/bin/python3' 'a'\\''b;$(touch /tmp/escape)'"
+        );
+    }
+    #[test]
+    fn broad_or_relative_paths_rejected() {
+        for path in ["/", "relative", "/tmp/../escape", "/tmp/./escape"] {
+            let mut p = profile();
+            p.readwrite.push(path.into());
+            assert!(p.validate().is_err());
+        }
+    }
+    #[test]
+    fn home_and_nul_rejected() {
+        let mut p = profile();
+        p.environment[0].1 = "/tmp/unowned/home".into();
+        assert!(p.validate().is_err());
+        let mut p = profile();
+        p.arguments.push("x\0y".into());
+        assert!(p.validate().is_err());
     }
 }

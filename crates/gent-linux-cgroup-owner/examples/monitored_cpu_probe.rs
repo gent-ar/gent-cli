@@ -17,12 +17,12 @@ mod linux {
         };
         let data = serde_json::to_vec(&value).unwrap();
         let mut out = std::io::stdout().lock();
-        out.write_all(&((data.len() + 5) as u32).to_be_bytes())
+        out.write_all(&u32::try_from(data.len() + 5).unwrap().to_be_bytes())
             .unwrap();
         out.write_all(&[40, 0, 0, 0, 0]).unwrap();
         out.write_all(&data).unwrap();
         out.flush().unwrap();
-        std::process::exit(if value["passed"] == true { 0 } else { 1 });
+        std::process::exit(i32::from(value["passed"] != true));
     }
     fn run() -> Result<serde_json::Value, &'static str> {
         let mut input = std::io::stdin();

@@ -10,10 +10,11 @@ pub const FLAGS: &[(&str, &str)] = &[
     ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
 ];
 pub const MCP_TOKEN_ENV: &str = "GENT_MCP_BRIDGE_TOKEN";
+type Environment = Vec<(String, String)>;
 pub fn split_private(
     environment: &[(String, String)],
     arguments: &[String],
-) -> Result<(Vec<(String, String)>, Vec<(String, String)>), &'static str> {
+) -> Result<(Environment, Environment), &'static str> {
     let private_key = |key: &str| key == "ANTHROPIC_AUTH_TOKEN" || key == MCP_TOKEN_ENV;
     let secrets = environment
         .iter()
@@ -72,7 +73,7 @@ mod tests {
             private,
             vec![("ANTHROPIC_AUTH_TOKEN".into(), token.clone())]
         );
-        assert!(super::split_private(&environment, &[token.clone()]).is_err());
+        assert!(super::split_private(&environment, std::slice::from_ref(&token)).is_err());
         let mut duplicated = environment.clone();
         duplicated.push(("ANTHROPIC_AUTH_TOKEN".into(), token.clone()));
         assert!(super::split_private(&duplicated, &[]).is_err());
@@ -97,7 +98,7 @@ mod mcp_alias_tests {
         let mut different = env.clone();
         different[1].1 = "b".repeat(64);
         assert!(super::split_private(&different, &[]).is_err());
-        assert!(super::split_private(&env, &[token.clone()]).is_err());
+        assert!(super::split_private(&env, std::slice::from_ref(&token)).is_err());
         let mut leaked = env;
         leaked.push(("PUBLIC".into(), token));
         assert!(super::split_private(&leaked, &[]).is_err());

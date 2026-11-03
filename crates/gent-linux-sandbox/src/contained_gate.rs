@@ -42,14 +42,15 @@ pub fn namespaces(pid: u32) -> Result<BTreeMap<String, String>, &'static str> {
 pub fn line(input: &mut impl Read, max: u64) -> Result<Vec<u8>, &'static str> {
     let mut bytes = Vec::new();
     let mut byte = [0; 1];
-    while bytes.len() <= max as usize {
+    let max = usize::try_from(max).map_err(|_| "gate input bound")?;
+    while bytes.len() <= max {
         input.read_exact(&mut byte).map_err(|_| "gate input")?;
         bytes.push(byte[0]);
         if byte[0] == b'\n' {
             break;
         }
     }
-    if bytes.len() > max as usize || bytes.last() != Some(&b'\n') {
+    if bytes.len() > max || bytes.last() != Some(&b'\n') {
         return Err("gate input bound");
     }
     Ok(bytes)
@@ -90,7 +91,7 @@ pub fn run_guest() -> Result<(), &'static str> {
     serde_json::to_writer(std::io::stdout(), &ready).map_err(|_| "gate output")?;
     std::io::stdout()
         .write_all(b"\n")
-        .and_then(|_| std::io::stdout().flush())
+        .and_then(|()| std::io::stdout().flush())
         .map_err(|_| "gate output")?;
     if line(&mut input, 128)? != format!("GENT-CONTAINED-GO/1 {}\n", start.nonce).as_bytes() {
         return Err("gate release rejected");
@@ -134,12 +135,12 @@ pub fn run_guest() -> Result<(), &'static str> {
 pub struct KernelGateProof {
     pub pid: u32,
     pub birth: String,
-    _process: std::fs::File,
-    _pidfd: std::fs::File,
+    owned_process: std::fs::File,
+    owned_pidfd: std::fs::File,
     uid: u32,
     gid: u32,
     scope: String,
-    _namespaces: Vec<std::fs::File>,
+    owned_namespaces: Vec<std::fs::File>,
     image: crate::sealed_exec::RetainedImage,
     helper_device: u64,
     helper_inode: u64,
@@ -164,7 +165,7 @@ fn mount_path(value: &str) -> Result<std::path::PathBuf, &'static str> {
             if n == 0 || n > 255 {
                 return Err("mount path NUL");
             }
-            result.push(n as u8);
+            result.push(u8::try_from(n).map_err(|_| "mount path NUL")?);
             at += 4;
         } else {
             result.push(bytes[at]);
@@ -226,6 +227,7 @@ pub fn inspect(
     start: &crate::native_runtime::Start,
     ready: &GateReady,
 ) -> Result<KernelGateProof, &'static str> {
+    use std::os::unix::fs::MetadataExt;
     if ready.schema != 2 || ready.nonce != start.nonce || ready.namespaces.len() != 4 {
         return Err("gate readiness binding");
     }
@@ -283,8 +285,8 @@ pub fn inspect(
             return Err("gate cgroup changed");
         }
         let host_uid = rustix::process::geteuid().as_raw();
-        let host_gid = rustix::process::getegid().as_raw();
-        for (name, expected) in [("uid_map", host_uid), ("gid_map", host_gid)] {
+        let host_group = rustix::process::getegid().as_raw();
+        for (name, expected) in [("uid_map", host_uid), ("gid_map", host_group)] {
             let map = std::fs::read_to_string(format!("/proc/{pid}/{name}"))
                 .map_err(|_| "gate identity map")?;
             let fields = map.split_whitespace().collect::<Vec<_>>();
@@ -319,16 +321,15 @@ pub fn inspect(
             crate::sealed_exec::RetainedImage::inspect(pid, &ready.sealed_image, &start.lock)?;
         let helper_meta = std::fs::metadata(&start.helper_lock.canonical_path)
             .map_err(|_| "helper image metadata")?;
-        use std::os::unix::fs::MetadataExt;
         matched = Some(KernelGateProof {
             pid,
             birth,
-            _process: process,
-            _pidfd: pidfd,
+            owned_process: process,
+            owned_pidfd: pidfd,
             uid: host_uid,
-            gid: host_gid,
+            gid: host_group,
             scope: start.scope.clone(),
-            _namespaces: handles,
+            owned_namespaces: handles,
             image,
             helper_device: helper_meta.dev(),
             helper_inode: helper_meta.ino(),
@@ -363,12 +364,12 @@ fn pidfd_alive(fd: &std::fs::File) -> bool {
 }
 impl KernelGateProof {
     pub(crate) fn exited(&self) -> bool {
-        !pidfd_alive(&self._pidfd)
+        !pidfd_alive(&self.owned_pidfd)
     }
     fn proc_text(&self, name: &str) -> Result<String, &'static str> {
         let mut file = std::fs::File::from(
             rustix::fs::openat(
-                &self._process,
+                &self.owned_process,
                 name,
                 rustix::fs::OFlags::RDONLY
                     | rustix::fs::OFlags::CLOEXEC
@@ -397,7 +398,7 @@ impl KernelGateProof {
     }
     pub(crate) fn current_status(&self) -> Result<String, &'static str> {
         use std::os::unix::fs::MetadataExt;
-        if !pidfd_alive(&self._pidfd) {
+        if !pidfd_alive(&self.owned_pidfd) {
             return Err("worker exited");
         }
         if self.image.matches_executable(self.pid)? {
@@ -451,7 +452,10 @@ impl KernelGateProof {
         if self.proc_text("cgroup")?.trim() != format!("0::{}", self.scope) {
             return Err("worker cgroup changed");
         }
-        for (name, held) in ["user", "net", "pid", "mnt"].iter().zip(&self._namespaces) {
+        for (name, held) in ["user", "net", "pid", "mnt"]
+            .iter()
+            .zip(&self.owned_namespaces)
+        {
             let now = std::fs::metadata(format!("/proc/{}/ns/{name}", self.pid))
                 .map_err(|_| "worker namespace unavailable")?;
             let original = held
@@ -461,7 +465,7 @@ impl KernelGateProof {
                 return Err("worker namespace changed");
             }
         }
-        if !pidfd_alive(&self._pidfd) {
+        if !pidfd_alive(&self.owned_pidfd) {
             return Err("worker exited during proof");
         }
         Ok(status)

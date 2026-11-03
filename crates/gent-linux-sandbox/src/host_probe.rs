@@ -286,21 +286,29 @@ fn valid_env(env: &BTreeMap<String, String>) -> bool {
         && env.get("PATH").is_some_and(|v| v == "/usr/bin:/bin")
 }
 
-/// Host-only Claude auth probe. Caller supplies an existing reviewed delegation;
-/// root credentials stay in the host filesystem and are never mounted into MXC.
+pub(crate) struct ProbeSpec<'a> {
+    pub(crate) parent: &'a Path,
+    pub(crate) helper: &'a RunVersionLock,
+    pub(crate) provider: &'a RunVersionLock,
+    pub(crate) cwd: &'a Path,
+    pub(crate) args: &'a [String],
+    pub(crate) env: &'a BTreeMap<String, String>,
+    pub(crate) timeout: Duration,
+    pub(crate) purpose: Purpose,
+    pub(crate) initial_input: &'a [u8],
+    pub(crate) retained_authority: Option<std::sync::Arc<dyn Send + Sync>>,
+}
+
 pub(crate) fn start(
-    parent: &Path,
-    helper: &RunVersionLock,
-    provider: &RunVersionLock,
-    cwd: &Path,
-    args: &[String],
-    env: &BTreeMap<String, String>,
-    timeout: Duration,
-    purpose: Purpose,
-    initial_input: &[u8],
-    retained_authority: Option<std::sync::Arc<dyn Send + Sync>>,
+    spec: ProbeSpec<'_>,
 ) -> Result<(Owner, std::process::ChildStdin, Instant), &'static str> {
-    start_classified(
+    start_classified(spec).map_err(|failure| failure.reason())
+}
+
+fn start_classified(
+    spec: ProbeSpec<'_>,
+) -> Result<(Owner, std::process::ChildStdin, Instant), ProbeFailure> {
+    let ProbeSpec {
         parent,
         helper,
         provider,
@@ -311,22 +319,7 @@ pub(crate) fn start(
         purpose,
         initial_input,
         retained_authority,
-    )
-    .map_err(|failure| failure.reason())
-}
-
-fn start_classified(
-    parent: &Path,
-    helper: &RunVersionLock,
-    provider: &RunVersionLock,
-    cwd: &Path,
-    args: &[String],
-    env: &BTreeMap<String, String>,
-    timeout: Duration,
-    purpose: Purpose,
-    initial_input: &[u8],
-    retained_authority: Option<std::sync::Arc<dyn Send + Sync>>,
-) -> Result<(Owner, std::process::ChildStdin, Instant), ProbeFailure> {
+    } = spec;
     let (scope, child, deadline) = (|| -> Result<_, &'static str> {
         if UNKNOWN
             .get()
@@ -354,7 +347,11 @@ fn start_classified(
         std::fs::File::open("/dev/urandom")
             .and_then(|mut f| f.read_exact(&mut random))
             .map_err(|_| "host nonce")?;
-        let nonce: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let nonce = random.iter().fold(String::new(), |mut nonce, b| {
+            use std::fmt::Write as _;
+            let _ = write!(nonce, "{b:02x}");
+            nonce
+        });
         let limits = SandboxResourceLimits {
             max_memory_bytes: 1024 * 1024 * 1024,
             max_processes: 64,
@@ -472,7 +469,7 @@ pub fn run_classified(
     env: &BTreeMap<String, String>,
     timeout: Duration,
 ) -> Result<ProbeOutput, ProbeFailure> {
-    let (mut owner, input, deadline) = start_classified(
+    let (mut owner, input, deadline) = start_classified(ProbeSpec {
         parent,
         helper,
         provider,
@@ -480,10 +477,10 @@ pub fn run_classified(
         args,
         env,
         timeout,
-        Purpose::ClaudeCredentialProbe,
-        &[],
-        None,
-    )?;
+        purpose: Purpose::ClaudeCredentialProbe,
+        initial_input: &[],
+        retained_authority: None,
+    })?;
     let operation = (|| -> Result<_, &'static str> {
         drop(input);
         let mut output = owner.child.stdout.take().ok_or("host probe stdout")?;
@@ -584,6 +581,84 @@ fn drain(reader: &mut impl Read, bytes: &mut Vec<u8>) -> Result<(), &'static str
 }
 
 /// The private helper entry point; no SDK runs until cgroup/owner checks succeed.
+fn retained_scope(scope: &str) -> Result<(std::fs::File, std::fs::File), &'static str> {
+    use rustix::fs::{CWD, Mode, OFlags, ResolveFlags, openat2};
+    let scope = std::fs::File::from(
+        openat2(
+            CWD,
+            format!("/sys/fs/cgroup{scope}"),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::NO_SYMLINKS,
+        )
+        .map_err(|_| "host retained scope")?,
+    );
+    let kill = std::fs::File::from(
+        openat2(
+            &scope,
+            "cgroup.kill",
+            OFlags::WRONLY | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        )
+        .map_err(|_| "host retained tree kill")?,
+    );
+    Ok((scope, kill))
+}
+
+fn spawn_owner_monitor(
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    start: &Start,
+    mut kill: std::fs::File,
+    begun: Instant,
+) -> Result<thread::JoinHandle<()>, &'static str> {
+    let owner_pid = start.owner_pid;
+    let owner_birth = start.owner_birth.clone();
+    let wall_ms = start.wall_ms;
+    thread::Builder::new()
+        .name("gent-host-owner".into())
+        .spawn(move || {
+            while !stop.load(std::sync::atomic::Ordering::Acquire) {
+                if rustix::process::getppid().map(|p| p.as_raw_pid().cast_unsigned())
+                    != Some(owner_pid)
+                    || crate::native_runtime::birth(owner_pid).ok().as_deref()
+                        != Some(owner_birth.as_str())
+                    || begun.elapsed() >= Duration::from_millis(wall_ms)
+                {
+                    kill_retaining(&mut kill);
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        })
+        .map_err(|_| "host owner monitor spawn")
+}
+
+fn require_only_self(scope: &std::fs::File, kill: &mut std::fs::File) {
+    use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
+    let mut procs = String::new();
+    let mut file = std::fs::File::from(
+        openat2(
+            scope,
+            "cgroup.procs",
+            OFlags::RDONLY | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        )
+        .unwrap_or_else(|_| kill_retaining(kill)),
+    );
+    Read::by_ref(&mut file)
+        .take(8193)
+        .read_to_string(&mut procs)
+        .unwrap_or_else(|_| kill_retaining(kill));
+    if procs.len() > 8192
+        || procs
+            .lines()
+            .any(|p| p.parse::<u32>().ok() != Some(std::process::id()))
+    {
+        kill_retaining(kill);
+    }
+}
+
 fn kill_retaining(kill: &mut std::fs::File) -> ! {
     loop {
         let _ = kill.write_all(b"1");
@@ -594,7 +669,7 @@ fn kill_retaining(kill: &mut std::fs::File) -> ! {
 struct HostMonitor {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
-    _data: Option<std::fs::File>,
+    data: Option<std::fs::File>,
 }
 impl Drop for HostMonitor {
     fn drop(&mut self) {
@@ -626,7 +701,7 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
             .map_err(|_| "host startup contract")?;
     drop(private_input);
     let owner_current = || {
-        rustix::process::getppid().map(|v| v.as_raw_pid() as u32) == Some(start.owner_pid)
+        rustix::process::getppid().map(|v| v.as_raw_pid().cast_unsigned()) == Some(start.owner_pid)
             && crate::native_runtime::birth(start.owner_pid)
                 .ok()
                 .as_deref()
@@ -649,50 +724,14 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
     {
         return Err("host owner or scope changed");
     }
-    use rustix::fs::{CWD, Mode, OFlags, ResolveFlags, openat2};
-    let scope = std::fs::File::from(
-        openat2(
-            CWD,
-            format!("/sys/fs/cgroup{}", start.scope),
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-            ResolveFlags::NO_SYMLINKS,
-        )
-        .map_err(|_| "host retained scope")?,
-    );
-    let mut kill = std::fs::File::from(
-        openat2(
-            &scope,
-            "cgroup.kill",
-            OFlags::WRONLY | OFlags::CLOEXEC,
-            Mode::empty(),
-            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
-        )
-        .map_err(|_| "host retained tree kill")?,
-    );
-    // This dedicated helper is already attached to the retained host cgroup.
-    // Watch the API owner even while source hashing/sealing is in progress.
+    let (scope, mut kill) = retained_scope(&start.scope)?;
     let monitor_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let stop = monitor_stop.clone();
-    let owner_pid = start.owner_pid;
-    let owner_birth = start.owner_birth.clone();
-    let mut monitor_kill = kill.try_clone().map_err(|_| "host monitor kill handle")?;
-    let wall_ms = start.wall_ms;
-    let monitor = thread::Builder::new()
-        .name("gent-host-owner".into())
-        .spawn(move || {
-            while !stop.load(std::sync::atomic::Ordering::Acquire) {
-                if rustix::process::getppid().map(|p| p.as_raw_pid() as u32) != Some(owner_pid)
-                    || crate::native_runtime::birth(owner_pid).ok().as_deref()
-                        != Some(owner_birth.as_str())
-                    || begun.elapsed() >= Duration::from_millis(wall_ms)
-                {
-                    kill_retaining(&mut monitor_kill);
-                }
-                thread::sleep(Duration::from_millis(5));
-            }
-        })
-        .map_err(|_| "host owner monitor spawn")?;
+    let monitor = spawn_owner_monitor(
+        monitor_stop.clone(),
+        &start,
+        kill.try_clone().map_err(|_| "host monitor kill handle")?,
+        begun,
+    )?;
     let (data_pin, arguments) = if purpose == Purpose::GentMcpStdio {
         if !owner_current() {
             kill_retaining(&mut kill);
@@ -715,10 +754,10 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
     } else {
         (None, start.args.clone())
     };
-    let _monitor = HostMonitor {
+    let monitor = HostMonitor {
         stop: monitor_stop,
         thread: Some(monitor),
-        _data: data_pin,
+        data: data_pin,
     };
     nix::sys::prctl::set_no_new_privs().map_err(|_| "host no-new-privileges")?;
     let snapshot = crate::sealed_exec::SealedExecutable::capture(&start.lock)?;
@@ -731,8 +770,8 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
         kill_retaining(&mut kill);
     }
     let mut command = snapshot.host_command()?;
-    let inheritance = _monitor
-        ._data
+    let inheritance = monitor
+        .data
         .as_ref()
         .map(crate::host_stdio::DataInheritance::new)
         .transpose()?;
@@ -778,28 +817,7 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                let mut procs = String::new();
-                let mut file = std::fs::File::from(
-                    openat2(
-                        &scope,
-                        "cgroup.procs",
-                        OFlags::RDONLY | OFlags::CLOEXEC,
-                        Mode::empty(),
-                        ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
-                    )
-                    .unwrap_or_else(|_| kill_retaining(&mut kill)),
-                );
-                Read::by_ref(&mut file)
-                    .take(8193)
-                    .read_to_string(&mut procs)
-                    .unwrap_or_else(|_| kill_retaining(&mut kill));
-                if procs.len() > 8192
-                    || procs
-                        .lines()
-                        .any(|p| p.parse::<u32>().ok() != Some(std::process::id()))
-                {
-                    kill_retaining(&mut kill);
-                }
+                require_only_self(&scope, &mut kill);
                 return Ok(status.code().unwrap_or(125));
             }
             Ok(None) => thread::sleep(Duration::from_millis(5)),

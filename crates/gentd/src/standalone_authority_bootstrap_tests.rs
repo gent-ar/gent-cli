@@ -252,9 +252,11 @@ async fn an_authority_that_does_not_approve_gents_node_leaves_gentd_serving() {
     };
 
     assert!(
-        super::run(arguments(&["--verify-standalone-authority-release"]))
-            .await
-            .is_err()
+        Box::pin(super::run(arguments(&[
+            "--verify-standalone-authority-release"
+        ])))
+        .await
+        .is_err()
     );
     assert_serves(
         arguments(&[

@@ -109,13 +109,12 @@ impl SandboxedProviderLaunch for LinuxMxcLauncher {
         let (lease, runtime) = self
             .gateway_authority
             .as_ref()
-            .map(|authority| {
+            .map_or((None, None), |authority| {
                 (
                     Some(authority.lease.clone()),
                     Some(authority.runtime.clone()),
                 )
-            })
-            .unwrap_or((None, None));
+            });
         self.spawn_owned(
             request,
             launch,
@@ -148,12 +147,12 @@ pub struct LinuxMxcProcess {
     stop: Option<mpsc::Sender<()>>,
     watch: Option<thread::JoinHandle<()>>,
     gateway: Option<crate::gateway_bridge::GatewayBridge>,
-    _gate_proof: Arc<crate::contained_gate::KernelGateProof>,
+    gate_proof: Arc<crate::contained_gate::KernelGateProof>,
     evidence: Option<gent_drivers::sandboxed_launch::ProcessSandboxEvidence>,
 }
 impl LinuxMxcProcess {
     pub fn probe_execution_witness(&self) -> Option<ProbeExecutionWitness<'_>> {
-        if !self._gate_proof.executed() {
+        if !self.gate_proof.executed() {
             return None;
         }
         self.evidence
@@ -222,26 +221,7 @@ impl LinuxMxcLauncher {
             gateway_proxy: None,
             runtime_root,
         };
-        let mut command = Command::new(&self.helper_lock.canonical_path);
-        command.env_clear().env("PATH", "/usr/bin:/bin");
-        if let Some(runtime) = &start.runtime_root {
-            command.envs(runtime.helper_environment().map_err(str::to_owned)?);
-        }
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|_| "helper spawn")?;
-        let pid = child.id();
-        let generation = match birth(pid) {
-            Ok(generation) => generation,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("helper identity".into());
-            }
-        };
+        let (child, pid, generation) = spawn_helper(&self.helper_lock, &start)?;
         let owner = ScopedHelperOwner::adopt(
             scope,
             child,
@@ -253,143 +233,32 @@ impl LinuxMxcLauncher {
         .map_err(str::to_owned)?;
         let owner = Arc::new(Mutex::new(owner));
         let live_daemon = daemon.clone();
-        let gateway = if let (Some(descriptor), Some(daemon)) = (request.profile.gateway(), daemon)
-        {
-            let lease = Arc::new(crate::gateway_bridge::OwnerBoundLease {
-                owner: Arc::downgrade(&owner),
-                daemon,
-            });
-            let gateway = crate::gateway_bridge::GatewayBridge::start(descriptor.endpoint(), lease)
-                .map_err(str::to_owned)?;
-            start.gateway_proxy = Some(gateway.endpoint());
-            Some(gateway)
-        } else {
-            None
-        };
-        let mut bytes = serde_json::to_vec(&start).map_err(|_| "startup encode")?;
-        bytes.push(b'\n');
-        if bytes.len() > 65536 {
-            return Err("startup bound".into());
-        }
-        let (input, mut output, stderr) = {
-            let mut locked = owner.lock().map_err(|_| "owner mutex")?;
-            locked
-                .release_streaming_before(
-                    &bytes,
-                    (Instant::now() + Duration::from_millis(500))
-                        .min(begun + Duration::from_millis(u64::from(wall_ms))),
-                )
-                .map_err(str::to_owned)?;
-            locked.take_streaming_pipes().map_err(str::to_owned)?
-        };
-        let mut ready = Vec::new();
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut initial = VecDeque::new();
-        let _gate_proof = loop {
-            if begun.elapsed() >= Duration::from_millis(u64::from(wall_ms))
-                || live_daemon.as_ref().is_some_and(|v| !v.current())
-            {
-                return Err("startup wall or lease expired".into());
-            }
-            if owner
-                .lock()
-                .map_err(|_| "owner mutex")?
-                .poll()
-                .map_err(str::to_owned)?
-                .is_some()
-            {
-                return Err("helper exited during startup CPU enforcement".into());
-            }
-            let mut buffer = [0; 4096];
-            match output.read(&mut buffer) {
-                Ok(0) => return Err("helper startup EOF".into()),
-                Ok(n) => {
-                    ready.extend_from_slice(&buffer[..n]);
-                    if ready.len() > 65536 {
-                        return Err("ready bound".into());
-                    }
-                    if let Some(end) = ready.iter().position(|b| *b == b'\n') {
-                        if end + 1 < ready.len() {
-                            initial.push_back(ready[end + 1..].to_vec());
-                        }
-                        let ack: Ready =
-                            serde_json::from_slice(&ready[..end]).map_err(|_| "ready invalid")?;
-                        if ack.schema != 2
-                            || ack.nonce != nonce
-                            || ack.profile_digest != start.profile_digest
-                            || ack.scope != start.scope
-                            || ack.pid != pid
-                            || ack.birth != generation
-                        {
-                            return Err("ready identity mismatch".into());
-                        }
-                        let proof = crate::contained_gate::inspect(
-                            &start,
-                            &crate::contained_gate::GateReady {
-                                schema: 2,
-                                nonce: ack.nonce.clone(),
-                                namespaces: ack.worker_namespaces,
-                                sealed_image: ack.sealed_image,
-                            },
-                        )
-                        .map_err(str::to_owned)?;
-                        if proof.pid != ack.worker_pid || proof.birth != ack.worker_birth {
-                            return Err("worker proof mismatch".into());
-                        }
-                        break proof;
-                    }
-                }
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-                {
-                    thread::sleep(Duration::from_millis(2))
-                }
-                _ => return Err("ready timeout".into()),
-            }
-        };
-        let _gate_proof = Arc::new(_gate_proof);
-        let evidence = {
-            if request.profile.cpu_semantics()
-                != (gent_types::SandboxCpuSemantics::MonitoredTotal { poll_ms, wall_ms })
-            {
-                return Err("CPU semantics mismatch".into());
-            }
-            {
-                let mut locked = owner.lock().map_err(|_| "owner mutex")?;
-                if !locked.resource_limits_match(request.profile.limits())
-                    || !locked.gateway_owner_current()
-                {
-                    return Err("worker owner unavailable".into());
-                }
-            }
-            let current = gent_drivers::lock::rechecked_identity(&request.lock)
-                .map_err(|_| "provider changed")?;
-            let mut evidence = gent_drivers::sandboxed_launch::ProcessSandboxEvidence::new(
-                request,
-                &current,
-                launch.run_id.clone().ok_or("run binding")?,
-                _gate_proof.birth.clone(),
-                gent_types::SandboxBackendId::new("linux-mxc-cgroup-monitored-v1".into())
-                    .map_err(|_| "backend identity")?,
-            )
-            .map_err(|_| "attestation rejected")?;
-            if let (Some(descriptor), Some(bridge)) = (request.profile.gateway(), gateway.as_ref())
-            {
-                let peer = gent_drivers::SandboxNetworkPeer::linux_owned_proxy(
-                    request.profile.digest_sha256(),
-                    descriptor.peer_nonce().into(),
-                    bridge.endpoint().port(),
-                    std::process::id(),
-                    birth(std::process::id())
-                        .map_err(str::to_owned)?
-                        .parse()
-                        .map_err(|_| "peer birth")?,
-                )
-                .ok_or("network peer")?;
-                evidence = evidence.with_network_peer(peer);
-            }
-            Some(evidence)
-        };
+        let gateway = start_gateway(request, daemon, &owner)?;
+        start.gateway_proxy = gateway
+            .as_ref()
+            .map(crate::gateway_bridge::GatewayBridge::endpoint);
+        let (input, mut output, stderr) = release_startup(&owner, &start, begun, wall_ms)?;
+        let (gate_proof, initial) = await_ready(
+            &owner,
+            &mut output,
+            &start,
+            &ReadyExpectation {
+                pid,
+                generation: &generation,
+                begun,
+                wall_ms,
+                live_daemon: live_daemon.as_ref(),
+            },
+        )?;
+        let gate_proof = Arc::new(gate_proof);
+        let evidence = Some(startup_evidence(
+            request,
+            launch,
+            &owner,
+            &gate_proof,
+            gateway.as_ref(),
+            gent_types::SandboxCpuSemantics::MonitoredTotal { poll_ms, wall_ms },
+        )?);
         if begun.elapsed() >= Duration::from_millis(u64::from(wall_ms))
             || owner
                 .lock()
@@ -400,57 +269,27 @@ impl LinuxMxcLauncher {
         {
             return Err("startup exhausted resource budget before provider release".into());
         }
-        let gateway_live = gateway.as_ref().map(|gateway| gateway.liveness());
-        let gateway_cancel = gateway.as_ref().map(|gateway| gateway.cancellation());
-        let live_worker = _gate_proof.clone();
-        let weak = Arc::downgrade(&owner);
         let (stop, rx) = mpsc::channel();
-        let watch = thread::spawn(move || {
-            let mut exited_since = None;
-            while rx
-                .recv_timeout(Duration::from_millis(u64::from(poll_ms)))
-                .is_err()
-            {
-                let Some(owner) = weak.upgrade() else { break };
-                let worker_invalid = live_worker.current_status().is_err();
-                let worker_exited = live_worker.exited();
-                if worker_invalid || worker_exited {
-                    if let Some(cancel) = &gateway_cancel {
-                        cancel.store(true, std::sync::atomic::Ordering::Release);
-                    }
-                }
-                let grace_elapsed = if worker_exited {
-                    exited_since.get_or_insert_with(Instant::now).elapsed()
-                        >= Duration::from_millis(100)
-                } else {
-                    false
-                };
-                let worker_lost = (worker_invalid && !worker_exited) || grace_elapsed;
-                let lease_lost = live_daemon.as_ref().is_some_and(|lease| !lease.current())
-                    || (!worker_exited
-                        && gateway_live.as_ref().is_some_and(|alive| {
-                            !alive.load(std::sync::atomic::Ordering::Acquire)
-                        }));
-                let mut owner = owner.lock().unwrap_or_else(|e| e.into_inner());
-                if lease_lost || worker_lost {
-                    let _ = owner.finish(Duration::from_secs(2));
-                    break;
-                }
-                if begun.elapsed() >= Duration::from_millis(u64::from(wall_ms)) {
-                    let _ = owner.finish(Duration::from_secs(2));
-                    break;
-                }
-                match owner.poll() {
-                    Ok(Some(_)) | Err(_) => {
-                        let _ = owner.finish(Duration::from_secs(2));
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        });
+        let watch = OwnerWatch {
+            owner: Arc::downgrade(&owner),
+            worker: gate_proof.clone(),
+            gateway_live: gateway
+                .as_ref()
+                .map(crate::gateway_bridge::GatewayBridge::liveness),
+            gateway_cancel: gateway
+                .as_ref()
+                .map(crate::gateway_bridge::GatewayBridge::cancellation),
+            daemon: live_daemon.clone(),
+            begun,
+            poll_ms,
+            wall_ms,
+        }
+        .spawn(rx);
         let mut input = input;
-        if let Err(_) = input.write_all(format!("GENT-PROVIDER-GO/1 {}\n", start.nonce).as_bytes())
+        let execution_deadline = (Instant::now() + Duration::from_secs(3))
+            .min(begun + Duration::from_millis(u64::from(wall_ms)));
+        if let Err(failure) =
+            release_worker(&mut input, &start.nonce, &gate_proof, execution_deadline)
         {
             let _ = stop.send(());
             let _ = owner
@@ -458,29 +297,7 @@ impl LinuxMxcLauncher {
                 .map_err(|_| "owner mutex")?
                 .finish(Duration::from_secs(2));
             let _ = watch.join();
-            return Err("worker release".into());
-        }
-        let execution_deadline = (Instant::now() + Duration::from_secs(3))
-            .min(begun + Duration::from_millis(u64::from(wall_ms)));
-        let mut executed = false;
-        while Instant::now() < execution_deadline {
-            if _gate_proof.current_status().is_err() {
-                break;
-            }
-            if _gate_proof.executed() {
-                executed = true;
-                break;
-            }
-            thread::sleep(Duration::from_millis(1));
-        }
-        if !executed {
-            let _ = stop.send(());
-            let _ = owner
-                .lock()
-                .map_err(|_| "owner mutex")?
-                .finish(Duration::from_secs(2));
-            let _ = watch.join();
-            return Err("sealed provider execution not observed".into());
+            return Err(failure.into());
         }
         Ok(LinuxMxcProcess {
             owner,
@@ -492,8 +309,279 @@ impl LinuxMxcLauncher {
             stop: Some(stop),
             watch: Some(watch),
             gateway,
-            _gate_proof,
+            gate_proof,
             evidence,
+        })
+    }
+}
+fn start_gateway(
+    request: &SandboxedLaunchRequest,
+    daemon: Option<Arc<dyn crate::gateway_bridge::LiveGatewayLease>>,
+    owner: &Arc<Mutex<ScopedHelperOwner>>,
+) -> Result<Option<crate::gateway_bridge::GatewayBridge>, String> {
+    let (Some(descriptor), Some(daemon)) = (request.profile.gateway(), daemon) else {
+        return Ok(None);
+    };
+    let lease = Arc::new(crate::gateway_bridge::OwnerBoundLease {
+        owner: Arc::downgrade(owner),
+        daemon,
+    });
+    crate::gateway_bridge::GatewayBridge::start(descriptor.endpoint(), lease)
+        .map(Some)
+        .map_err(str::to_owned)
+}
+
+fn spawn_helper(
+    helper: &RunVersionLock,
+    start: &Start,
+) -> Result<(std::process::Child, u32, String), String> {
+    let mut command = Command::new(&helper.canonical_path);
+    command.env_clear().env("PATH", "/usr/bin:/bin");
+    if let Some(runtime) = &start.runtime_root {
+        command.envs(runtime.helper_environment().map_err(str::to_owned)?);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "helper spawn")?;
+    let pid = child.id();
+    let Ok(generation) = birth(pid) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("helper identity".into());
+    };
+    Ok((child, pid, generation))
+}
+
+fn release_startup(
+    owner: &Mutex<ScopedHelperOwner>,
+    start: &Start,
+    begun: Instant,
+    wall_ms: u32,
+) -> Result<(File, File, File), String> {
+    let mut bytes = serde_json::to_vec(start).map_err(|_| "startup encode")?;
+    bytes.push(b'\n');
+    if bytes.len() > 65536 {
+        return Err("startup bound".into());
+    }
+    let mut locked = owner.lock().map_err(|_| "owner mutex")?;
+    locked
+        .release_streaming_before(
+            &bytes,
+            (Instant::now() + Duration::from_millis(500))
+                .min(begun + Duration::from_millis(u64::from(wall_ms))),
+        )
+        .map_err(str::to_owned)?;
+    locked.take_streaming_pipes().map_err(str::to_owned)
+}
+
+fn release_worker(
+    input: &mut File,
+    nonce: &str,
+    gate_proof: &crate::contained_gate::KernelGateProof,
+    deadline: Instant,
+) -> Result<(), &'static str> {
+    input
+        .write_all(format!("GENT-PROVIDER-GO/1 {nonce}\n").as_bytes())
+        .map_err(|_| "worker release")?;
+    while Instant::now() < deadline {
+        if gate_proof.current_status().is_err() {
+            break;
+        }
+        if gate_proof.executed() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    Err("sealed provider execution not observed")
+}
+
+struct ReadyExpectation<'a> {
+    pid: u32,
+    generation: &'a str,
+    begun: Instant,
+    wall_ms: u32,
+    live_daemon: Option<&'a Arc<dyn crate::gateway_bridge::LiveGatewayLease>>,
+}
+
+fn await_ready(
+    owner: &Mutex<ScopedHelperOwner>,
+    output: &mut File,
+    start: &Start,
+    expect: &ReadyExpectation<'_>,
+) -> Result<(crate::contained_gate::KernelGateProof, VecDeque<Vec<u8>>), String> {
+    let mut ready = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut initial = VecDeque::new();
+    loop {
+        if expect.begun.elapsed() >= Duration::from_millis(u64::from(expect.wall_ms))
+            || expect.live_daemon.is_some_and(|v| !v.current())
+        {
+            return Err("startup wall or lease expired".into());
+        }
+        if owner
+            .lock()
+            .map_err(|_| "owner mutex")?
+            .poll()
+            .map_err(str::to_owned)?
+            .is_some()
+        {
+            return Err("helper exited during startup CPU enforcement".into());
+        }
+        let mut buffer = [0; 4096];
+        match output.read(&mut buffer) {
+            Ok(0) => return Err("helper startup EOF".into()),
+            Ok(n) => {
+                ready.extend_from_slice(&buffer[..n]);
+                if ready.len() > 65536 {
+                    return Err("ready bound".into());
+                }
+                if let Some(end) = ready.iter().position(|b| *b == b'\n') {
+                    if end + 1 < ready.len() {
+                        initial.push_back(ready[end + 1..].to_vec());
+                    }
+                    let ack: Ready =
+                        serde_json::from_slice(&ready[..end]).map_err(|_| "ready invalid")?;
+                    if ack.schema != 2
+                        || ack.nonce != start.nonce
+                        || ack.profile_digest != start.profile_digest
+                        || ack.scope != start.scope
+                        || ack.pid != expect.pid
+                        || ack.birth != expect.generation
+                    {
+                        return Err("ready identity mismatch".into());
+                    }
+                    let proof = crate::contained_gate::inspect(
+                        start,
+                        &crate::contained_gate::GateReady {
+                            schema: 2,
+                            nonce: ack.nonce.clone(),
+                            namespaces: ack.worker_namespaces,
+                            sealed_image: ack.sealed_image,
+                        },
+                    )
+                    .map_err(str::to_owned)?;
+                    if proof.pid != ack.worker_pid || proof.birth != ack.worker_birth {
+                        return Err("worker proof mismatch".into());
+                    }
+                    return Ok((proof, initial));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(2))
+            }
+            _ => return Err("ready timeout".into()),
+        }
+    }
+}
+
+fn startup_evidence(
+    request: &SandboxedLaunchRequest,
+    launch: &ProviderLaunch,
+    owner: &Mutex<ScopedHelperOwner>,
+    gate_proof: &crate::contained_gate::KernelGateProof,
+    gateway: Option<&crate::gateway_bridge::GatewayBridge>,
+    cpu: gent_types::SandboxCpuSemantics,
+) -> Result<gent_drivers::sandboxed_launch::ProcessSandboxEvidence, String> {
+    if request.profile.cpu_semantics() != cpu {
+        return Err("CPU semantics mismatch".into());
+    }
+    {
+        let mut locked = owner.lock().map_err(|_| "owner mutex")?;
+        if !locked.resource_limits_match(request.profile.limits())
+            || !locked.gateway_owner_current()
+        {
+            return Err("worker owner unavailable".into());
+        }
+    }
+    let current =
+        gent_drivers::lock::rechecked_identity(&request.lock).map_err(|_| "provider changed")?;
+    let mut evidence = gent_drivers::sandboxed_launch::ProcessSandboxEvidence::new(
+        request,
+        &current,
+        launch.run_id.clone().ok_or("run binding")?,
+        gate_proof.birth.clone(),
+        gent_types::SandboxBackendId::new("linux-mxc-cgroup-monitored-v1".into())
+            .map_err(|_| "backend identity")?,
+    )
+    .map_err(|_| "attestation rejected")?;
+    if let (Some(descriptor), Some(bridge)) = (request.profile.gateway(), gateway) {
+        let peer = gent_drivers::SandboxNetworkPeer::linux_owned_proxy(
+            request.profile.digest_sha256(),
+            descriptor.peer_nonce().into(),
+            bridge.endpoint().port(),
+            std::process::id(),
+            birth(std::process::id())
+                .map_err(str::to_owned)?
+                .parse()
+                .map_err(|_| "peer birth")?,
+        )
+        .ok_or("network peer")?;
+        evidence = evidence.with_network_peer(peer);
+    }
+    Ok(evidence)
+}
+
+struct OwnerWatch {
+    owner: std::sync::Weak<Mutex<ScopedHelperOwner>>,
+    worker: Arc<crate::contained_gate::KernelGateProof>,
+    gateway_live: Option<Arc<std::sync::atomic::AtomicBool>>,
+    gateway_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    daemon: Option<Arc<dyn crate::gateway_bridge::LiveGatewayLease>>,
+    begun: Instant,
+    poll_ms: u16,
+    wall_ms: u32,
+}
+
+impl OwnerWatch {
+    fn spawn(self, rx: mpsc::Receiver<()>) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            let mut exited_since = None;
+            while rx
+                .recv_timeout(Duration::from_millis(u64::from(self.poll_ms)))
+                .is_err()
+            {
+                let Some(owner) = self.owner.upgrade() else {
+                    break;
+                };
+                let worker_invalid = self.worker.current_status().is_err();
+                let worker_exited = self.worker.exited();
+                if worker_invalid || worker_exited {
+                    if let Some(cancel) = &self.gateway_cancel {
+                        cancel.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                }
+                let grace_elapsed = if worker_exited {
+                    exited_since.get_or_insert_with(Instant::now).elapsed()
+                        >= Duration::from_millis(100)
+                } else {
+                    false
+                };
+                let worker_lost = (worker_invalid && !worker_exited) || grace_elapsed;
+                let lease_lost = self.daemon.as_ref().is_some_and(|lease| !lease.current())
+                    || (!worker_exited
+                        && self.gateway_live.as_ref().is_some_and(|alive| {
+                            !alive.load(std::sync::atomic::Ordering::Acquire)
+                        }));
+                let mut owner = owner.lock().unwrap_or_else(|e| e.into_inner());
+                if lease_lost || worker_lost {
+                    let _ = owner.finish(Duration::from_secs(2));
+                    break;
+                }
+                if self.begun.elapsed() >= Duration::from_millis(u64::from(self.wall_ms)) {
+                    let _ = owner.finish(Duration::from_secs(2));
+                    break;
+                }
+                match owner.poll() {
+                    Ok(Some(_)) | Err(_) => {
+                        let _ = owner.finish(Duration::from_secs(2));
+                        break;
+                    }
+                    _ => {}
+                }
+            }
         })
     }
 }
@@ -534,11 +622,11 @@ impl LinuxMxcProcess {
         }
         let (helper_pid, scope, memory_max, pids_max, cpu_budget_usec) =
             owner.public_kernel_state()?;
-        if birth(self._gate_proof.pid).ok().as_deref() != Some(self._gate_proof.birth.as_str()) {
+        if birth(self.gate_proof.pid).ok().as_deref() != Some(self.gate_proof.birth.as_str()) {
             return Err("worker inactive");
         }
         let proof = self.evidence.as_ref().ok_or("proof unavailable")?;
-        let status = self._gate_proof.current_status()?;
+        let status = self.gate_proof.current_status()?;
         let cap_eff = u64::from_str_radix(
             status
                 .lines()
@@ -554,9 +642,9 @@ impl LinuxMxcProcess {
             provider_digest: proof.attestation().executable_digest_sha256.clone(),
             helper_pid,
             helper_birth: owner.helper_generation().into(),
-            worker_pid: self._gate_proof.pid,
-            worker_birth: self._gate_proof.birth.clone(),
-            namespaces: crate::contained_gate::namespaces(self._gate_proof.pid)?,
+            worker_pid: self.gate_proof.pid,
+            worker_birth: self.gate_proof.birth.clone(),
+            namespaces: crate::contained_gate::namespaces(self.gate_proof.pid)?,
             user_id: status
                 .lines()
                 .find_map(|line| line.strip_prefix("Uid:\t"))
@@ -569,7 +657,7 @@ impl LinuxMxcProcess {
             memory_max,
             pids_max,
             cpu_budget_usec,
-            sealed_image: self._gate_proof.image_proof()?,
+            sealed_image: self.gate_proof.image_proof()?,
             local_gateway_port: self
                 .gateway
                 .as_ref()
@@ -578,7 +666,7 @@ impl LinuxMxcProcess {
     }
 
     pub fn diagnostic_owner_current(&self) -> bool {
-        if self._gate_proof.current_status().is_err() {
+        if self.gate_proof.current_status().is_err() {
             return false;
         }
         if self
@@ -590,8 +678,7 @@ impl LinuxMxcProcess {
         }
         self.owner
             .lock()
-            .map(|mut owner| owner.gateway_owner_current())
-            .unwrap_or(false)
+            .is_ok_and(|mut owner| owner.gateway_owner_current())
     }
     fn settle(&self) -> Result<(), ProcessTreeError> {
         self.owner

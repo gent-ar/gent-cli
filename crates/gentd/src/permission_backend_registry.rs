@@ -3,6 +3,7 @@ use gent_types::{AgentChatProvider, Containment};
 
 /// Created by a managed factory after verifying its exact finite dependency set.
 /// This is preparation authority, never evidence that a process was contained.
+#[cfg(any(windows, target_os = "linux"))]
 pub(crate) trait VerifiedProviderFactoryResources {
     fn provider(&self) -> AgentChatProvider;
     fn executable_lock(&self) -> &gent_types::RunVersionLock;
@@ -10,6 +11,7 @@ pub(crate) trait VerifiedProviderFactoryResources {
     fn recheck(&self) -> Result<(), String>;
 }
 
+#[cfg(windows)]
 pub(crate) fn require_verified_launch(
     provider: AgentChatProvider,
     binding: &gent_types::SandboxPermissionBinding,
@@ -24,6 +26,7 @@ pub(crate) fn require_verified_launch(
     require_matching_resources(provider, lock, resources)
 }
 
+#[cfg(windows)]
 fn require_command_contract(
     provider: AgentChatProvider,
     containment: Containment,
@@ -37,6 +40,7 @@ fn require_command_contract(
     Ok(())
 }
 
+#[cfg(windows)]
 fn require_matching_resources(
     provider: AgentChatProvider,
     lock: &gent_types::RunVersionLock,

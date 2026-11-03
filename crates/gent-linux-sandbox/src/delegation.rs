@@ -1,4 +1,4 @@
-//! Read-only discovery for a service started with systemd DelegateSubgroup.
+//! Read-only discovery for a service started with systemd `DelegateSubgroup`.
 //! Never moves the caller or enables an existing ancestor's controllers.
 use std::path::PathBuf;
 pub fn current_service_parent(expected_leaf: &str) -> Result<PathBuf, &'static str> {
@@ -31,6 +31,13 @@ pub fn current_service_parent(expected_leaf: &str) -> Result<PathBuf, &'static s
         .map_err(|_| "nonroot memory/pids delegation unavailable")?;
     Ok(parent)
 }
+
+/// Explicit startup bootstrap for a service already in its `controller` subgroup.
+pub fn prepare_current_service() -> Result<(), &'static str> {
+    gent_linux_cgroup_owner::prepare_current_service()
+        .map_err(|_| "own nonroot service memory/pids delegation preparation failed")
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -39,10 +46,4 @@ mod tests {
             assert!(super::current_service_parent(leaf).is_err());
         }
     }
-}
-
-/// Explicit startup bootstrap for a service already in its `controller` subgroup.
-pub fn prepare_current_service() -> Result<(), &'static str> {
-    gent_linux_cgroup_owner::prepare_current_service()
-        .map_err(|_| "own nonroot service memory/pids delegation preparation failed")
 }

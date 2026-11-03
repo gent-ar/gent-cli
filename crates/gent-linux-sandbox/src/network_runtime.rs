@@ -61,7 +61,7 @@ impl RuntimePin {
         let file = root.join("manifest.json");
         immutable(&file, false)?;
         let bytes = std::fs::read(file).map_err(|_| "runtime manifest")?;
-        if bytes.len() > 131072 {
+        if bytes.len() > 131_072 {
             return Err("runtime manifest bound");
         }
         let pin = Self {
@@ -79,7 +79,7 @@ impl RuntimePin {
         immutable(root, true)?;
         ancestors(root)?;
         let bytes = std::fs::read(root.join("manifest.json")).map_err(|_| "runtime manifest")?;
-        if bytes.len() > 131072 || hash(&bytes) != self.manifest_sha256 {
+        if bytes.len() > 131_072 || hash(&bytes) != self.manifest_sha256 {
             return Err("runtime manifest changed");
         }
         immutable(&root.join("manifest.json"), false)?;

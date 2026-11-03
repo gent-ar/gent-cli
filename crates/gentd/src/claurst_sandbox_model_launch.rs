@@ -8,11 +8,13 @@ use crate::contained_model::ModelEndpoint;
 
 pub(crate) enum RoutedModelProcess {
     Host(SystemLocalRuntimeProcess),
+    #[cfg(windows)]
     Contained(ModelEndpoint),
 }
 impl LocalRuntimeProcess for RoutedModelProcess {
     fn contained_model(&self) -> Option<ModelEndpoint> {
         match self {
+            #[cfg(windows)]
             Self::Contained(model) => Some(model.clone()),
             Self::Host(_) => None,
         }
@@ -20,14 +22,18 @@ impl LocalRuntimeProcess for RoutedModelProcess {
     fn exited(&mut self) -> Result<Option<String>, String> {
         match self {
             Self::Host(process) => process.exited(),
+            #[cfg(windows)]
             Self::Contained(model) if model.current() => Ok(None),
+            #[cfg(windows)]
             Self::Contained(model) if model.settled() => Ok(Some("contained model retired".into())),
+            #[cfg(windows)]
             Self::Contained(_) => Err("contained model scope is unknown".into()),
         }
     }
     fn shutdown(&mut self) -> Result<(), String> {
         match self {
             Self::Host(process) => process.shutdown(),
+            #[cfg(windows)]
             Self::Contained(model) => model.revoke().map_err(|e| e.to_string()),
         }
     }

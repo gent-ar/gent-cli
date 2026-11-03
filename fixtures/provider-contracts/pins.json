@@ -186,8 +186,8 @@
           "binary": "llama-server"
         },
         "x86_64-pc-windows-msvc": {
-          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-win-cpu-x64.zip",
-          "sha256": "475e2720a6dec6e0e10c58b37461c140cf9523f4efb373cb5b65ae7e4ff6b4cf",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10545/llama-b10545-bin-win-vulkan-x64.zip",
+          "sha256": "286903014a7407d7fa5abf4a2e2de348666e7fd6788bb5034afcef9fc8f40629",
           "binary": "llama-server.exe"
         }
       }

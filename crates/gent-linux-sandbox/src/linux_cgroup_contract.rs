@@ -26,7 +26,7 @@ pub struct ScopedHelperOwner {
 }
 impl ScopedHelperOwner {
     /// Live ownership check, deliberately not an Enforced attestation. Every
-    /// gateway request must retain the real daemon RunFence as a second condition.
+    /// gateway request must retain the real daemon `RunFence` as a second condition.
     pub fn resource_limits_match(&self, limits: gent_types::SandboxResourceLimits) -> bool {
         self.scope.as_ref().is_some_and(|scope| {
             scope.memory_limit_bytes().ok() == Some(limits.max_memory_bytes)

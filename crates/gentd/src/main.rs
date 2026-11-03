@@ -206,6 +206,7 @@ mod provider_auth_transport;
 #[cfg(test)]
 mod provider_auth_transport_tests;
 mod provider_effects;
+#[cfg(any(windows, target_os = "linux"))]
 mod provider_egress;
 mod provider_executables;
 mod provider_launch_budget;

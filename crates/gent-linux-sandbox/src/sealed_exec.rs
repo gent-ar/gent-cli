@@ -93,7 +93,7 @@ impl RetainedImage {
             return Err("sealed kernel properties");
         }
         let mut reader = &image;
-        let mut buffer = [0u8; 65536];
+        let mut buffer = vec![0u8; 65536];
         let mut hash = Sha256::new();
         let mut count = 0u64;
         loop {
@@ -114,7 +114,7 @@ impl RetainedImage {
         }
         let source = OpenOptions::new()
             .read(true)
-            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
             .open(&expected.canonical_path)
             .map_err(|_| "origin retention")?;
         let retained = Self {
@@ -227,7 +227,7 @@ impl SealedExecutable {
         }
         let mut input = OpenOptions::new()
             .read(true)
-            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
             .open(path)
             .map_err(|_| "origin open")?;
         let before = input.metadata().map_err(|_| "origin metadata")?;
@@ -255,7 +255,7 @@ impl SealedExecutable {
             .map_err(|_| "executable memfd unavailable or denied")?,
         );
         let mut hash = Sha256::new();
-        let mut buffer = [0u8; 65536];
+        let mut buffer = vec![0u8; 65536];
         let mut count = 0u64;
         let mut first = true;
         loop {
@@ -427,7 +427,7 @@ impl SealedExecutable {
         {
             return Err("exec seals changed");
         }
-        let argv = std::iter::once(self.origin.canonical_path.as_str())
+        let exec_arguments = std::iter::once(self.origin.canonical_path.as_str())
             .chain(args.iter().map(String::as_str))
             .map(CString::new)
             .collect::<Result<Vec<_>, _>>()
@@ -440,7 +440,7 @@ impl SealedExecutable {
         nix::unistd::execveat(
             &self.file,
             c"",
-            &argv,
+            &exec_arguments,
             &env,
             nix::fcntl::AtFlags::AT_EMPTY_PATH,
         )
@@ -498,7 +498,7 @@ mod tests {
         let other_lock = gent_drivers::lock::capture("qa", &other_path, "qa", "qa").unwrap();
         let other = SealedExecutable::capture(&other_lock).unwrap();
         let mut forged = original.ready().unwrap();
-        forged.descriptor = other.as_fd().as_raw_fd() as u32;
+        forged.descriptor = other.as_fd().as_raw_fd().cast_unsigned();
         assert!(RetainedImage::inspect(std::process::id(), &forged, &lock).is_err());
     }
     #[test]
