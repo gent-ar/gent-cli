@@ -41,9 +41,7 @@ fn idle_released_session(
     let seed = daemon.prompt(&conversation, "Remember CODE-OSPREY", Send);
     assert_eq!(settled(daemon, &seed), DurableTurnPhase::Completed);
     let session = daemon.bound_session(&run);
-    let (other, _) = daemon.conversation(&format!("{key}-other"));
-    let unrelated = daemon.prompt(&other, "hello", Send);
-    assert_eq!(settled(daemon, &unrelated), DurableTurnPhase::Completed);
+    daemon.reap_idle_sessions();
     (seed, session)
 }
 

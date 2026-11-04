@@ -117,9 +117,7 @@ fn a_steer_is_taken_up_by_the_running_claude_turn_and_survives_a_resume() {
     assert!(activities(&daemon, &conversation, "promptReleased").is_empty());
     assert!(reply(&daemon, &first).is_empty());
 
-    let (other, _) = daemon.conversation("other");
-    let unrelated = daemon.prompt(&other, "hello", Send);
-    assert_eq!(settle(&mut daemon, &unrelated), DurableTurnPhase::Completed);
+    daemon.reap_idle_sessions();
     let recall = daemon.prompt(&conversation, "Which code did I give you?", Send);
     assert_eq!(settle(&mut daemon, &recall), DurableTurnPhase::Completed);
     assert_eq!(
