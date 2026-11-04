@@ -1,12 +1,12 @@
 //! Immutable provider executable identity checks; this module never spawns a provider.
 
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use gent_types::RunVersionLock;
-use sha2::{Digest, Sha256};
+
+use crate::verified_content::{self, ContentError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LockError {
@@ -34,69 +34,21 @@ fn capture_observed(
     executable: &Path,
     version: &str,
     entry: &str,
-    mut observed: impl FnMut(u64),
+    observed: impl FnMut(u64),
 ) -> Result<RunVersionLock, LockError> {
-    let canonical_path = fs::canonicalize(executable)?;
-    let mut options = fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.share_mode(1);
-    }
-    let mut file = options.open(&canonical_path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() {
-        return Err(LockError::ProviderChanged);
-    }
-    let mut digest = Sha256::new();
-    let mut buffer = vec![0_u8; 65536];
-    let mut total = 0_u64;
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-        total = total
-            .checked_add(count as u64)
-            .ok_or(LockError::ProviderChanged)?;
-        observed(total);
-    }
-    let after = file.metadata()?;
-    let path_after = fs::metadata(&canonical_path)?;
-    if total != metadata.len()
-        || !same_snapshot(&metadata, &after)?
-        || !same_snapshot(&metadata, &path_after)?
-    {
-        return Err(LockError::ProviderChanged);
-    }
+    let verified =
+        verified_content::sha256_observed(executable, observed).map_err(|error| match error {
+            ContentError::Changed => LockError::ProviderChanged,
+            ContentError::Io(error) => LockError::Io(error),
+        })?;
     Ok(RunVersionLock {
         provider: provider.into(),
-        canonical_path: canonical_path.display().to_string(),
-        file_identity: file_identity(&metadata)?,
-        digest_sha256: hex::encode(digest.finalize()),
+        canonical_path: verified.canonical_path.display().to_string(),
+        file_identity: file_identity(&verified.metadata)?,
+        digest_sha256: hex::encode(verified.sha256),
         version: version.into(),
         compatibility_entry: entry.into(),
     })
-}
-
-fn same_snapshot(before: &fs::Metadata, after: &fs::Metadata) -> Result<bool, LockError> {
-    if file_identity(before)? != file_identity(after)? {
-        return Ok(false);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        Ok((
-            before.dev(),
-            before.ino(),
-            before.ctime(),
-            before.ctime_nsec(),
-        ) == (after.dev(), after.ino(), after.ctime(), after.ctime_nsec()))
-    }
-    #[cfg(not(unix))]
-    Ok(true)
 }
 
 /// Rechecks an immutable run lock immediately before a spawn or resume.

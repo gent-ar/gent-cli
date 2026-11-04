@@ -143,7 +143,7 @@ where
         .await?;
         return Ok(true);
     };
-    match port.exchange(frame) {
+    match tokio::task::spawn_blocking(move || port.exchange(frame)).await? {
         Ok(reply) if reply.validate().is_ok() => write_json_frame(stream, &reply).await?,
         Ok(_) => {
             write_error(

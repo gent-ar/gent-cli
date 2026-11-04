@@ -17,6 +17,9 @@ serde.workspace = true
 thiserror.workspace = true
 tempfile.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+winapi-util = "=0.1.11"
+
 [dev-dependencies]
 clap.workspace = true
 gent-core = { path = "../gent-core" }

@@ -147,10 +147,14 @@ impl ModelCatalogService {
     }
 
     fn claim_due(&self, refresh: bool) -> Vec<usize> {
+        let revisions: Vec<_> = self
+            .sources
+            .iter()
+            .map(|source| source.revision())
+            .collect();
         let mut slots = self.slots();
         let mut due = Vec::new();
-        for (index, slot) in slots.iter_mut().enumerate() {
-            let revision = self.sources[index].revision();
+        for ((index, slot), revision) in slots.iter_mut().enumerate().zip(revisions) {
             let changed = slot.loaded_at.is_some() && slot.revision != revision;
             let stale = slot
                 .loaded_at

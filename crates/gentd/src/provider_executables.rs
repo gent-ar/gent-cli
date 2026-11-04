@@ -131,20 +131,25 @@ impl ProviderExecutables {
 
     pub(crate) fn revision(&self, provider: AgentChatProvider) -> Option<String> {
         if let Some(explicit) = self.explicit_path(provider) {
-            let metadata = std::fs::metadata(explicit).ok()?;
-            return Some(format!(
-                "{}:{}:{:?}",
-                explicit.display(),
-                metadata.len(),
-                metadata.modified().ok()?
-            ));
+            return stamp(explicit);
         }
-        match self.installed_readiness(provider) {
-            PrivateProviderReadiness::Ready(lock) => {
-                Some(format!("{}:{}", lock.canonical_path, lock.digest_sha256))
-            }
-            _ => None,
-        }
+        let installed = self.installed.as_ref()?;
+        let lock = installed
+            .installations
+            .find_provisioned_provider_installation(dependency(provider)?.as_str())
+            .ok()??
+            .lock
+            .run_lock;
+        let release = installed
+            .release
+            .as_ref()
+            .and_then(|release| stamp(release.path()))
+            .unwrap_or_default();
+        Some(format!(
+            "{}:{}:{release}",
+            stamp(Path::new(&lock.canonical_path))?,
+            lock.digest_sha256
+        ))
     }
 
     pub(crate) fn locks(
@@ -248,6 +253,16 @@ fn capture_explicit(
     let name = dependency(provider).ok_or(LocalProviderLockError::PathUnavailable)?;
     capture(name.as_str(), &path, LOCAL_VERSION, LOCAL_ENTRY)
         .map_err(|_| LocalProviderLockError::Capture)
+}
+
+fn stamp(path: &Path) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some(format!(
+        "{}:{}:{:?}",
+        path.display(),
+        metadata.len(),
+        metadata.modified().ok()?
+    ))
 }
 
 const fn dependency(provider: AgentChatProvider) -> Option<DependencyProvider> {

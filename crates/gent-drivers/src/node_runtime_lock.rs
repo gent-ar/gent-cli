@@ -3,11 +3,10 @@
 //! This module only captures and rechecks files. It never installs packages or
 //! spawns a process; `gentd` decides whether an approved authority may use it.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use sha2::{Digest, Sha256};
+use crate::verified_content::{self, ContentError};
 
 /// Canonical identity of the Node runtime and its required npm command files.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -112,20 +111,22 @@ fn npm_cli_path(node: &Path) -> Result<PathBuf, NodeRuntimeLockError> {
 
 impl LockedRuntimeFile {
     fn capture(path: &Path) -> Result<Self, NodeRuntimeLockError> {
-        let canonical_path = fs::canonicalize(path)?;
-        let metadata = fs::metadata(&canonical_path)?;
-        let bytes = fs::read(&canonical_path)?;
+        let verified = verified_content::sha256(path).map_err(|error| match error {
+            ContentError::Changed => NodeRuntimeLockError::RuntimeChanged,
+            ContentError::Io(error) => NodeRuntimeLockError::Io(error),
+        })?;
         Ok(Self {
-            canonical_path,
             file_identity: format!(
                 "{}:{}",
-                metadata.len(),
-                metadata
+                verified.metadata.len(),
+                verified
+                    .metadata
                     .modified()?
                     .duration_since(UNIX_EPOCH)
                     .map_or(0, |duration| duration.as_nanos())
             ),
-            digest_sha256: hex::encode(Sha256::digest(bytes)),
+            canonical_path: verified.canonical_path,
+            digest_sha256: hex::encode(verified.sha256),
         })
     }
 

@@ -41,6 +41,7 @@ pub use sandbox_network_peer::SandboxNetworkPeer;
 pub mod session;
 mod session_frames;
 pub mod supervisor;
+mod verified_content;
 #[cfg(windows)]
 pub mod windows_sandbox;
 

@@ -229,7 +229,7 @@ fn an_installed_claude_needs_a_release_that_authorizes_claude() {
 }
 
 #[test]
-fn the_revision_follows_the_verified_installation_and_explicit_rebuilds() {
+fn the_revision_changes_with_the_installation_binary_release_and_explicit_rebuilds() {
     let scenario = Scenario::new();
     let executables = scenario.executables(true);
     assert_eq!(executables.revision(AgentChatProvider::Codex), None);
@@ -245,8 +245,18 @@ fn the_revision_follows_the_verified_installation_and_explicit_rebuilds() {
     scenario.sign(&upgraded.digest_sha256, false);
     let second = executables.revision(AgentChatProvider::Codex).unwrap();
     assert_ne!(second, first);
-    fs::write(scenario.native_path(), "tampered codex").unwrap();
-    assert_eq!(executables.revision(AgentChatProvider::Codex), None);
+    fs::write(scenario.native_path(), "tampered codex binary").unwrap();
+    let tampered = executables.revision(AgentChatProvider::Codex).unwrap();
+    assert_ne!(tampered, second);
+    assert!(matches!(
+        readiness(&executables),
+        PrivateProviderReadiness::InvalidInstallation
+    ));
+    scenario.sign(&upgraded.digest_sha256, true);
+    assert_ne!(
+        executables.revision(AgentChatProvider::Codex).unwrap(),
+        tampered
+    );
 
     let explicit = scenario.directory.path().join("dev-claude");
     fs::write(&explicit, "developer claude").unwrap();

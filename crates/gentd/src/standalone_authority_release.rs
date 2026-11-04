@@ -90,6 +90,10 @@ impl StandaloneAuthorityRelease {
         )
         .map_err(str::to_owned)
     }
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     pub(crate) fn runtime(&self) -> Option<&AppNodeRuntimeLock> {
         self.runtime.as_ref()
     }
