@@ -188,6 +188,16 @@ impl CodexAppServerSession {
         )
     }
 
+    pub(crate) fn is_handshaking(&self) -> bool {
+        matches!(
+            self.phase,
+            CodexSessionPhase::AwaitInitialize { .. }
+                | CodexSessionPhase::AwaitThread { .. }
+                | CodexSessionPhase::AwaitDefaultModel { .. }
+                | CodexSessionPhase::ConfirmResumeUnavailable { .. }
+        )
+    }
+
     pub(crate) fn active_turn_id(&self) -> Option<&str> {
         match &self.phase {
             CodexSessionPhase::Ready {

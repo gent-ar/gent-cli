@@ -47,7 +47,16 @@ pub fn follow_up_input_frame(
     goal: Option<&gent_types::GoalProjection>,
     content: &[serde_json::Value],
 ) -> Result<Vec<u8>, ClaudeRunnerError> {
-    user_frame(prompt, goal, content, None)
+    user_frame(prompt, goal, content, None, None)
+}
+
+pub(super) fn resumed_first_input_frame(
+    prompt: &str,
+    goal: Option<&gent_types::GoalProjection>,
+    content: &[serde_json::Value],
+    session_id: &str,
+) -> Result<Vec<u8>, ClaudeRunnerError> {
+    user_frame(prompt, goal, content, None, Some(session_id))
 }
 
 pub(super) fn steer_uuid(message_id: &str) -> String {
@@ -69,7 +78,7 @@ pub(super) fn steer_input_frame(
     prompt: &str,
     content: &[serde_json::Value],
 ) -> Result<Vec<u8>, ClaudeRunnerError> {
-    user_frame(prompt, None, content, Some(uuid))
+    user_frame(prompt, None, content, Some(uuid), None)
 }
 
 fn user_frame(
@@ -77,6 +86,7 @@ fn user_frame(
     goal: Option<&gent_types::GoalProjection>,
     content: &[serde_json::Value],
     uuid: Option<&str>,
+    session_id: Option<&str>,
 ) -> Result<Vec<u8>, ClaudeRunnerError> {
     if prompt.trim().is_empty() || prompt.len() > MAX_CLAUDE_FRAME_BYTES {
         return Err(ClaudeRunnerError::InvalidPrompt);
@@ -89,6 +99,9 @@ fn user_frame(
     let mut value = serde_json::json!({"type":"user","message":{"role":"user","content":content},"parent_tool_use_id":null});
     if let Some(uuid) = uuid {
         value["uuid"] = serde_json::Value::String(uuid.into());
+    }
+    if let Some(session_id) = session_id {
+        value["session_id"] = serde_json::Value::String(session_id.into());
     }
     let mut frame = serde_json::to_vec(&value).map_err(|_| ClaudeRunnerError::InvalidPrompt)?;
     frame.push(b'\n');
