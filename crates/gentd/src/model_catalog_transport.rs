@@ -1,18 +1,51 @@
 use gent_protocol::{
-    model_catalog::{MODEL_CATALOG_CAPABILITY, ModelCatalogFrame, ModelCatalogSelection},
+    model_catalog::{
+        LOCAL_MODEL_FILES_CAPABILITY, MODEL_CATALOG_CAPABILITY, ModelCatalogFrame,
+        ModelCatalogSelection,
+    },
     write_json_frame,
 };
 use std::sync::Arc;
 
-use gent_types::{AgentChatSelection, CapabilitySet};
+use gent_types::{AgentChatProvider, AgentChatSelection, CapabilitySet};
 use serde_json::Value;
 use tokio::io::AsyncWrite;
 
 use super::{downloads::LocalModelDownloads, service::ModelCatalogService};
-use crate::{api::RuntimeApi, transport::write_error};
+use crate::{api::RuntimeApi, local_model_provisioning::UserModelError, transport::write_error};
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct ModelCatalogRejection {
+    pub(crate) code: &'static str,
+    pub(crate) message: String,
+}
+
+impl From<String> for ModelCatalogRejection {
+    fn from(message: String) -> Self {
+        Self {
+            code: "modelCatalogRejected",
+            message,
+        }
+    }
+}
+
+impl From<UserModelError> for ModelCatalogRejection {
+    fn from(error: UserModelError) -> Self {
+        match error {
+            UserModelError::Rejected(rejection) => Self {
+                code: rejection.code(),
+                message: error.to_string(),
+            },
+            UserModelError::Storage(message) => message.into(),
+        }
+    }
+}
 
 pub(crate) trait ModelCatalogPort: Send + Sync {
-    fn exchange(&self, frame: ModelCatalogFrame) -> Result<ModelCatalogFrame, String>;
+    fn exchange(
+        &self,
+        frame: ModelCatalogFrame,
+    ) -> Result<ModelCatalogFrame, ModelCatalogRejection>;
     fn default_selection(&self) -> AgentChatSelection;
     fn remember(&self, selection: &AgentChatSelection);
     fn validate(
@@ -36,7 +69,10 @@ pub(crate) struct StandaloneModelCatalog {
 }
 
 impl ModelCatalogPort for StandaloneModelCatalog {
-    fn exchange(&self, frame: ModelCatalogFrame) -> Result<ModelCatalogFrame, String> {
+    fn exchange(
+        &self,
+        frame: ModelCatalogFrame,
+    ) -> Result<ModelCatalogFrame, ModelCatalogRejection> {
         let (request_id, catalog) = match frame {
             ModelCatalogFrame::ReadModelCatalog {
                 request_id,
@@ -60,8 +96,21 @@ impl ModelCatalogPort for StandaloneModelCatalog {
                 self.downloads.cancel(&model_id)?;
                 (request_id, self.service.read(false))
             }
+            ModelCatalogFrame::AddLocalModel { request_id, path } => {
+                self.downloads.add_file(&path)?;
+                self.service.reload_uncached(AgentChatProvider::Claurst);
+                (request_id, self.service.snapshot())
+            }
+            ModelCatalogFrame::RemoveLocalModel {
+                request_id,
+                model_id,
+            } => {
+                self.downloads.remove_file(&model_id)?;
+                self.service.reload_uncached(AgentChatProvider::Claurst);
+                (request_id, self.service.snapshot())
+            }
             ModelCatalogFrame::ModelCatalog { .. } => {
-                return Err("model-catalog response frames are server-only".into());
+                return Err(String::from("model-catalog response frames are server-only").into());
             }
         };
         Ok(ModelCatalogFrame::ModelCatalog {
@@ -130,6 +179,18 @@ where
     let Ok(frame) = serde_json::from_value::<ModelCatalogFrame>(raw.clone()) else {
         return Ok(false);
     };
+    let local_files = capabilities
+        .0
+        .iter()
+        .any(|capability| capability == LOCAL_MODEL_FILES_CAPABILITY);
+    if !local_files
+        && matches!(
+            frame,
+            ModelCatalogFrame::AddLocalModel { .. } | ModelCatalogFrame::RemoveLocalModel { .. }
+        )
+    {
+        return Ok(false);
+    }
     if let Err(error) = frame.validate() {
         write_error(stream, "invalidModelCatalog", &error.to_string()).await?;
         return Ok(true);
@@ -144,7 +205,9 @@ where
         return Ok(true);
     };
     match tokio::task::spawn_blocking(move || port.exchange(frame)).await? {
-        Ok(reply) if reply.validate().is_ok() => write_json_frame(stream, &reply).await?,
+        Ok(reply) if reply.validate().is_ok() => {
+            write_json_frame(stream, &visible_to(reply, local_files)).await?;
+        }
         Ok(_) => {
             write_error(
                 stream,
@@ -153,11 +216,26 @@ where
             )
             .await?;
         }
-        Err(message) => write_error(stream, "modelCatalogRejected", &message).await?,
+        Err(rejection) => write_error(stream, rejection.code, &rejection.message).await?,
     }
     Ok(true)
+}
+
+fn visible_to(mut reply: ModelCatalogFrame, local_files: bool) -> ModelCatalogFrame {
+    if let (false, ModelCatalogFrame::ModelCatalog { catalog, .. }) = (local_files, &mut reply) {
+        for provider in &mut catalog.providers {
+            provider
+                .models
+                .retain(|model| !model.local.as_ref().is_some_and(|local| local.removable));
+        }
+    }
+    reply
 }
 
 #[cfg(test)]
 #[path = "model_catalog_transport_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "model_catalog_user_models_tests.rs"]
+pub(crate) mod user_models_tests;

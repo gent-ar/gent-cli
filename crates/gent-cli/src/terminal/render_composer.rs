@@ -99,6 +99,9 @@ fn local_model_status(state: &LocalModelInstallState, model: &str) -> String {
             )
         }
         LocalModelInstallState::Ready { .. } => format!("{model} is ready locally."),
+        LocalModelInstallState::Missing => {
+            format!("{model} is unavailable: its file is missing or changed.")
+        }
     }
 }
 

@@ -1,6 +1,9 @@
 use std::time::{Duration, Instant};
 
-use gent_protocol::model_catalog::{ModelListing, ProviderAvailability};
+use gent_protocol::{
+    LocalModelInstallState,
+    model_catalog::{ModelListing, ProviderAvailability},
+};
 use gent_types::{AgentChatProvider, AgentChatRejection, AgentChatSelection};
 
 use super::ModelCatalogService;
@@ -14,6 +17,7 @@ impl ModelCatalogService {
         selection: &AgentChatSelection,
     ) -> Result<(), AgentChatIntentError> {
         self.await_first_listing(selection.provider);
+        self.reload_uncached(selection.provider);
         let slots = self.slots();
         let Some(listing) = slots.iter().map(|slot| &slot.entry).find(|entry| {
             entry.provider == selection.provider
@@ -38,6 +42,22 @@ impl ModelCatalogService {
                 &models,
             ));
         };
+        if model
+            .local
+            .as_ref()
+            .is_some_and(|local| local.install == LocalModelInstallState::Missing)
+        {
+            return Err(rejected(
+                AgentChatRejection::SelectionModelUnavailable,
+                &format!("the file for `{}` is missing or changed", model.label),
+                &listing
+                    .models
+                    .iter()
+                    .filter(|other| other.id != model.id)
+                    .map(|other| other.id.as_str())
+                    .collect::<Vec<_>>(),
+            ));
+        }
         if model.efforts.is_empty() || model.efforts.contains(&selection.effort) {
             return Ok(());
         }
@@ -52,6 +72,31 @@ impl ModelCatalogService {
             &format!("{} does not offer this effort", model.label),
             &efforts.iter().map(String::as_str).collect::<Vec<_>>(),
         ))
+    }
+
+    pub(crate) fn reload_uncached(&self, provider: AgentChatProvider) {
+        let Some(index) = self
+            .sources
+            .iter()
+            .position(|source| source.provider() == provider && source.ttl().is_zero())
+        else {
+            return;
+        };
+        let deadline = Instant::now() + FIRST_LISTING_WAIT;
+        loop {
+            {
+                let mut slots = self.slots();
+                if !slots[index].loading {
+                    slots[index].loading = true;
+                    break;
+                }
+            }
+            if Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        self.load(index);
     }
 
     fn await_first_listing(&self, provider: AgentChatProvider) {

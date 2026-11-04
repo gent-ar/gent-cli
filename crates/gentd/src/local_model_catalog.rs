@@ -1,7 +1,5 @@
-//! Curated, read-only local GGUF model records for the Claurst adapter.
-
-use serde::Deserialize;
-use std::collections::BTreeSet;
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeSet, path::PathBuf};
 
 const SHIPPED_CATALOGUE: &str = include_str!("../models.json");
 
@@ -10,24 +8,82 @@ pub(crate) struct LocalModelCatalog {
     models: Vec<LocalModelRecord>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LocalModelRecord {
     pub(crate) id: String,
     pub(crate) label: String,
-    pub(crate) huggingface_url: String,
-    pub(crate) local_filename: String,
     pub(crate) provider_model_id: String,
     pub(crate) size_bytes: u64,
     pub(crate) sha256: String,
     pub(crate) context_tokens: u32,
     pub(crate) runtime_memory_bytes: u64,
     pub(crate) agent_profile: LocalAgentProfile,
-    #[serde(default)]
     pub(crate) chat_template_file: Option<String>,
+    pub(crate) source: LocalModelSource,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LocalModelSource {
+    Curated {
+        huggingface_url: String,
+        local_filename: String,
+    },
+    UserFile {
+        path: PathBuf,
+        modified_unix_nanos: u128,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CuratedModelRecord {
+    id: String,
+    label: String,
+    huggingface_url: String,
+    local_filename: String,
+    provider_model_id: String,
+    size_bytes: u64,
+    sha256: String,
+    context_tokens: u32,
+    runtime_memory_bytes: u64,
+    agent_profile: LocalAgentProfile,
+    #[serde(default)]
+    chat_template_file: Option<String>,
+}
+
+impl From<CuratedModelRecord> for LocalModelRecord {
+    fn from(record: CuratedModelRecord) -> Self {
+        Self {
+            id: record.id,
+            label: record.label,
+            provider_model_id: record.provider_model_id,
+            size_bytes: record.size_bytes,
+            sha256: record.sha256,
+            context_tokens: record.context_tokens,
+            runtime_memory_bytes: record.runtime_memory_bytes,
+            agent_profile: record.agent_profile,
+            chat_template_file: record.chat_template_file,
+            source: LocalModelSource::Curated {
+                huggingface_url: record.huggingface_url,
+                local_filename: record.local_filename,
+            },
+        }
+    }
+}
+
+impl LocalModelRecord {
+    pub(crate) fn curated(&self) -> Option<(&str, &str)> {
+        match &self.source {
+            LocalModelSource::Curated {
+                huggingface_url,
+                local_filename,
+            } => Some((huggingface_url, local_filename)),
+            LocalModelSource::UserFile { .. } => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum LocalAgentProfile {
     Compact,
@@ -47,7 +103,7 @@ pub(crate) enum LocalModelCatalogError {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CatalogueDocument {
-    models: Vec<LocalModelRecord>,
+    models: Vec<CuratedModelRecord>,
 }
 
 impl LocalModelCatalog {
@@ -70,7 +126,7 @@ impl LocalModelCatalog {
             }
         }
         Ok(Self {
-            models: document.models,
+            models: document.models.into_iter().map(Into::into).collect(),
         })
     }
 
@@ -85,7 +141,7 @@ impl LocalModelCatalog {
     }
 }
 
-fn validate(model: &LocalModelRecord) -> Result<(), LocalModelCatalogError> {
+fn validate(model: &CuratedModelRecord) -> Result<(), LocalModelCatalogError> {
     let identifier = |value: &str| {
         !value.is_empty()
             && value.len() <= 128

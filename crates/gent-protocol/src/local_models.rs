@@ -31,6 +31,7 @@ pub enum LocalModelInstallState {
     Ready {
         size_bytes: u64,
     },
+    Missing,
 }
 
 /// Typed reason that a local-model download could not start or complete.
@@ -43,6 +44,7 @@ pub enum LocalModelDownloadFailure {
     TransportFailed,
     VerificationFailed,
     Cancelled,
+    ModelFileMissing,
 }
 
 /// Request/reply frames for the local model catalogue and a single download stream.

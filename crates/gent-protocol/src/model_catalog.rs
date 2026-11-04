@@ -4,10 +4,12 @@ use serde::{Deserialize, Serialize};
 use crate::LocalModelInstallState;
 
 pub const MODEL_CATALOG_CAPABILITY: &str = "model-catalog-v1";
+pub const LOCAL_MODEL_FILES_CAPABILITY: &str = "local-model-files-v1";
 
 const MAX_MODELS_PER_PROVIDER: usize = 128;
 const MAX_MODEL_ID_BYTES: usize = 512;
 const MAX_TEXT_BYTES: usize = 512;
+const MAX_PATH_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(
@@ -31,6 +33,14 @@ pub enum ModelCatalogFrame {
         model_id: String,
     },
     CancelModelDownload {
+        request_id: String,
+        model_id: String,
+    },
+    AddLocalModel {
+        request_id: String,
+        path: String,
+    },
+    RemoveLocalModel {
         request_id: String,
         model_id: String,
     },
@@ -103,6 +113,33 @@ pub struct CatalogModel {
 pub struct LocalModelAvailability {
     pub size_bytes: u64,
     pub install: LocalModelInstallState,
+    pub removable: bool,
+    pub file_name: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LocalModelFileRejection {
+    NotGguf,
+    MissingChatTemplate,
+    ContextTooSmall,
+    UnsupportedPath,
+    Unreadable,
+    NotRemovable,
+}
+
+impl LocalModelFileRejection {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::NotGguf => "localModelNotGguf",
+            Self::MissingChatTemplate => "localModelMissingChatTemplate",
+            Self::ContextTooSmall => "localModelContextTooSmall",
+            Self::UnsupportedPath => "localModelUnsupportedPath",
+            Self::Unreadable => "localModelUnreadable",
+            Self::NotRemovable => "localModelNotRemovable",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, thiserror::Error, Eq, PartialEq)]
@@ -115,6 +152,8 @@ pub enum ModelCatalogFrameError {
     InvalidProvider,
     #[error("invalid model-catalog model entry")]
     InvalidModel,
+    #[error("invalid local model file path")]
+    InvalidPath,
 }
 
 impl ModelCatalogFrame {
@@ -124,6 +163,8 @@ impl ModelCatalogFrame {
             | Self::SetDefaultModel { request_id, .. }
             | Self::StartModelDownload { request_id, .. }
             | Self::CancelModelDownload { request_id, .. }
+            | Self::AddLocalModel { request_id, .. }
+            | Self::RemoveLocalModel { request_id, .. }
             | Self::ModelCatalog { request_id, .. } => request_id,
         };
         if !bounded_text(request_id, 128) || request_id.trim() != request_id {
@@ -135,9 +176,15 @@ impl ModelCatalogFrame {
             }
             Self::StartModelDownload { model_id, .. }
             | Self::CancelModelDownload { model_id, .. }
+            | Self::RemoveLocalModel { model_id, .. }
                 if !valid_model_id(model_id) =>
             {
                 Err(ModelCatalogFrameError::InvalidModelId)
+            }
+            Self::AddLocalModel { path, .. }
+                if !bounded_text(path, MAX_PATH_BYTES) || path.trim() != path =>
+            {
+                Err(ModelCatalogFrameError::InvalidPath)
             }
             Self::ModelCatalog { catalog, .. } => catalog.validate(),
             _ => Ok(()),
@@ -170,8 +217,13 @@ impl CatalogModel {
     fn validate(&self) -> Result<(), ModelCatalogFrameError> {
         let valid_local = self.local.as_ref().is_none_or(|local| {
             local.size_bytes > 0
+                && local.removable == local.file_name.is_some()
+                && local.file_name.as_deref().is_none_or(|name| {
+                    bounded_text(name, MAX_TEXT_BYTES) && !name.contains(['/', '\\'])
+                })
                 && match local.install {
                     LocalModelInstallState::NotInstalled => true,
+                    LocalModelInstallState::Missing => local.removable,
                     LocalModelInstallState::Downloading {
                         downloaded_bytes,
                         total_bytes,

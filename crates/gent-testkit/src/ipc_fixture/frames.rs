@@ -128,11 +128,15 @@ pub(super) fn validate_model_catalog(records: &[FixtureFrame]) -> Result<(), Str
                 ModelCatalogFrame::ModelCatalog { .. },
                 ModelCatalogFrame::SetDefaultModel { .. },
                 ModelCatalogFrame::StartModelDownload { .. },
-                ModelCatalogFrame::CancelModelDownload { .. }
+                ModelCatalogFrame::CancelModelDownload { .. },
+                ModelCatalogFrame::AddLocalModel { .. },
+                ModelCatalogFrame::RemoveLocalModel { .. }
             ]
         ))
     .then_some(())
-    .ok_or_else(|| "must contain valid read, catalog, default, download, and cancel frames".into())
+    .ok_or_else(|| {
+        "must contain valid read, catalog, default, download, cancel, add, and remove frames".into()
+    })
 }
 
 pub(super) fn validate_chat_commands(records: &[FixtureFrame]) -> Result<(), String> {

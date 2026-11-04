@@ -4,6 +4,7 @@ use super::defaults::ModelCatalogDefaults;
 use crate::{
     local_model_events::failure_text,
     local_model_jobs::{DownloadHolder, DownloadStart},
+    local_model_provisioning::UserModelError,
     standalone_authority_composition::StandaloneClaurstModels,
 };
 
@@ -41,6 +42,21 @@ impl LocalModelDownloads {
             .map_err(|failure| failure_text(failure).to_owned())?;
         self.defaults.decline(model_id)?;
         Ok(canceled)
+    }
+
+    pub(crate) fn add_file(&self, path: &str) -> Result<String, UserModelError> {
+        self.models.provisioner.add_user_model(path)
+    }
+
+    pub(crate) fn remove_file(&self, model_id: &str) -> Result<(), UserModelError> {
+        self.models.provisioner.remove_user_model(model_id)?;
+        let selection = self.defaults.selection();
+        if selection.provider == AgentChatProvider::Claurst && selection.model == model_id {
+            self.defaults
+                .save_selection(ModelCatalogDefaults::built_in())
+                .map_err(UserModelError::Storage)?;
+        }
+        Ok(())
     }
 
     fn begin(&self, model_id: &str) -> Result<bool, String> {

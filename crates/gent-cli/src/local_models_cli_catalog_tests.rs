@@ -28,6 +28,8 @@ fn local(id: &str, label: &str, is_default: bool, install: LocalModelInstallStat
         local: Some(LocalModelAvailability {
             size_bytes: 1_282_439_264,
             install,
+            removable: false,
+            file_name: None,
         }),
         ..model(id, label, is_default)
     }

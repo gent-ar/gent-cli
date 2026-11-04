@@ -121,6 +121,7 @@ fn install_state(state: &LocalModelInstallState) -> String {
         ),
         LocalModelInstallState::Downloading { .. } => "downloading".into(),
         LocalModelInstallState::Ready { .. } => "ready".into(),
+        LocalModelInstallState::Missing => "file missing".into(),
     }
 }
 
