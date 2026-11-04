@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "gent-adapters"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "gent-cli"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "clap",
@@ -1069,7 +1069,7 @@ dependencies = [
 
 [[package]]
 name = "gent-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "gent-drivers"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "clap",
@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "gent-git"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "gent-ports",
  "gent-types",
@@ -1109,7 +1109,7 @@ dependencies = [
 
 [[package]]
 name = "gent-linux-cgroup-owner"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "gent-types",
  "rustix 1.1.4",
@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "gent-linux-sandbox"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "gent-drivers",
  "gent-linux-cgroup-owner",
@@ -1135,14 +1135,14 @@ dependencies = [
 
 [[package]]
 name = "gent-mcp"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "gent-ports"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "gent-types",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "gent-protocol"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "gent-types",
  "hex",
@@ -1167,7 +1167,7 @@ dependencies = [
 
 [[package]]
 name = "gent-runtime"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "ed25519-dalek",
  "gent-core",
@@ -1187,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "gent-store"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "gent-core",
  "gent-ports",
@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "gent-testkit"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "gent-types"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "directories",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "gentd"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "base64",
