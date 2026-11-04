@@ -41,7 +41,12 @@ where
 {
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
-    let start = super::launch::LaunchSetup::read(runtime, &prompt)?;
+    let start = super::launch::LaunchSetup::read(
+        runtime,
+        &prompt.message.conversation_id,
+        &run_id,
+        &prompt.tool_source_ids,
+    )?;
     if runner.has_codex_session(&run_id) {
         return submit(runtime, runner, coordinator_id, active, prompt, host_epoch);
     }
@@ -84,6 +89,8 @@ where
                     steers: Vec::new(),
                     upgraded,
                     last_dispatch: 0,
+                    idle_since: None,
+                    awaits_first_input: false,
                 },
             );
             Ok(CodexPromptDispatchOutcome::Started { run_id })
@@ -127,7 +134,20 @@ where
     let goal = runtime.active_goal_for(&prompt.message.conversation_id)?;
     let (prompt_text, attachments) =
         super::launch::provider_input(runtime, &prompt.message, &run_id)?;
-    let interrupted_reply = runtime.interrupted_reply_before(&prompt.message)?;
+    let fresh_context = if active
+        .get(&run_id)
+        .is_some_and(|binding| binding.awaits_first_input)
+    {
+        runtime.launch_context(&prompt.message)?
+    } else {
+        None
+    };
+    let prompt_text =
+        gent_drivers::codex_prompt_runner::fresh_prompt(fresh_context.as_ref(), &prompt_text)?;
+    let interrupted_reply = match fresh_context {
+        Some(_) => None,
+        None => runtime.interrupted_reply_before(&prompt.message)?,
+    };
     runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch)?;
     if let Err(error) = runner.submit_codex_prompt(
         &run_id,
@@ -150,6 +170,7 @@ where
     binding.prompt = prompt;
     binding.settled = false;
     binding.releasing = false;
+    binding.awaits_first_input = false;
     Ok(CodexPromptDispatchOutcome::Started { run_id })
 }
 

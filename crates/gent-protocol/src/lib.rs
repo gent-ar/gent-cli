@@ -16,6 +16,7 @@ mod agent_chat_conversation_config;
 mod agent_chat_intent;
 mod agent_chat_permission;
 mod agent_chat_projection;
+mod agent_chat_provider_warm;
 mod agent_chat_sessions;
 mod agent_chat_side_question;
 mod agent_chat_steer;

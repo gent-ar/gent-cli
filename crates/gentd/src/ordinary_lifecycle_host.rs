@@ -39,6 +39,12 @@ pub(crate) trait OrdinaryLifecycleHost: Send {
     fn interrupt_run(&mut self, _: &str) -> Result<(), ()> {
         Err(())
     }
+    fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
+        Ok(request.refused(gent_protocol::ProviderWarmOutcome::UnsupportedProvider))
+    }
     fn interrupt_turn(&mut self, _: &str, _: &str) -> Result<(), ()> {
         Err(())
     }
@@ -147,6 +153,16 @@ where
 
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.host.interrupt_run(run_id)
+    }
+    fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
+        let outcome = self.host.tend_warm_pool(request)?;
+        if outcome == Some(gent_protocol::ProviderWarmOutcome::Warming) {
+            let _ = ProviderLifecycleWakePort::wake_after_prompt_commit(&mut self.host);
+        }
+        Ok(outcome)
     }
     fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
         self.host.interrupt_turn(run_id, turn_id)

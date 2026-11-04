@@ -16,6 +16,7 @@ mod permission;
 #[path = "codex_prompt_lifecycle_phase.rs"]
 mod phase;
 mod poll;
+mod prewarm;
 mod record;
 mod recovery;
 mod scheduler;
@@ -47,6 +48,8 @@ pub(super) struct Binding {
     steers: Vec<AgentChatPromptSaved>,
     upgraded: bool,
     last_dispatch: u64,
+    idle_since: Option<std::time::Instant>,
+    awaits_first_input: bool,
 }
 impl Binding {
     fn idle(&self) -> bool {
@@ -59,6 +62,7 @@ pub(crate) struct CodexPromptLifecycle<L, D, R> {
     runner: D,
     coordinator_id: String,
     active: BTreeMap<String, Binding>,
+    warm: BTreeMap<String, prewarm::WarmBinding>,
     summary_hook: Option<Arc<dyn CodexSummaryHook>>,
     compaction_notices: std::collections::BTreeSet<String>,
     warm_capacity: usize,
@@ -93,6 +97,7 @@ where
             runner,
             coordinator_id,
             active: BTreeMap::new(),
+            warm: BTreeMap::new(),
             summary_hook: None,
             compaction_notices: std::collections::BTreeSet::new(),
             warm_capacity: 1,
@@ -133,6 +138,10 @@ where
             AgentChatPromptDispatchResult::DeniedObserver => Ok(CodexPromptDispatchOutcome::Denied),
             AgentChatPromptDispatchResult::Empty => Ok(CodexPromptDispatchOutcome::Empty),
             AgentChatPromptDispatchResult::Claimed(prompt) => {
+                let held = match self.adopt_warm(&prompt) {
+                    Ok(held) => held,
+                    Err(error) => return self.fail_dispatch(&prompt, host_epoch, error),
+                };
                 match self.runner.refresh_codex_mcp_config(&prompt.run_id.0) {
                     Ok(true) => {
                         self.active.remove(&prompt.run_id.0);
@@ -167,14 +176,17 @@ where
                 )
                 .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error));
                 self.mark_dispatched(&prompt.run_id.0);
+                self.flush_held(&prompt.run_id.0, host_epoch, held)?;
                 outcome
             }
         }
     }
     pub(crate) fn has_settled_session(&self) -> bool {
-        self.active
-            .iter()
-            .any(|(run_id, binding)| binding.idle() && self.runner.has_codex_session(run_id))
+        !self.warm.is_empty()
+            || self
+                .active
+                .iter()
+                .any(|(run_id, binding)| binding.idle() && self.runner.has_codex_session(run_id))
     }
 
     fn settle_if_open(

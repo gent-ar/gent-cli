@@ -102,6 +102,13 @@ where
         self.lifecycle.interrupt(run_id)
     }
 
+    pub(crate) fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, RuntimeError> {
+        self.lifecycle.tend_warm_pool(request, self.host_epoch)
+    }
+
     pub(crate) fn interrupt_turn(
         &mut self,
         run_id: &str,

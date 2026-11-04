@@ -37,11 +37,18 @@ pub(crate) struct State {
     pub(crate) turn_interrupts: Vec<String>,
     pub(crate) steers: Vec<(String, String)>,
     pub(crate) releases: Vec<String>,
+    pub(crate) fail_starts: usize,
 }
 impl PublicProviderRunner for Runner {
     fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
         assert_eq!(lock.provider, "codex");
+        if state.fail_starts > 0 {
+            state.fail_starts -= 1;
+            return Err(PublicProviderRunError::Failed(
+                "codex is not installed".into(),
+            ));
+        }
         assert_eq!(
             state.pending.as_ref().map(|entry| entry.0.as_str()),
             Some(run_id)

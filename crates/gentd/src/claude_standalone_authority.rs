@@ -149,6 +149,14 @@ where
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.supervisor.interrupt_run(run_id).map_err(|_| ())
     }
+    fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
+        self.supervisor
+            .tend_warm_pool(request)
+            .map_err(|error| eprintln!("provider warm pool failed: {error}"))
+    }
     fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
         self.supervisor
             .interrupt_turn(run_id, turn_id)

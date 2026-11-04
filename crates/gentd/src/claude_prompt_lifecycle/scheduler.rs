@@ -39,7 +39,7 @@ where
 
     #[must_use]
     pub(crate) fn active_len(&self) -> usize {
-        self.active.len()
+        self.active.len() + self.warm.len()
     }
 
     /// Returns whether any owned run still needs stdout/exit polling.
@@ -73,6 +73,7 @@ where
                 }
             }
         }
+        self.poll_warm();
         batch.polled_runs = u16::try_from(run_ids.len()).expect("bounded poll count fits u16");
         Ok(batch)
     }
@@ -82,7 +83,12 @@ where
     /// # Errors
     /// Returns an error when an owned process tree rejects the daemon-selected signal.
     pub(crate) fn signal_active(&mut self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
-        let run_ids = self.active.keys().cloned().collect::<Vec<_>>();
+        let run_ids = self
+            .active
+            .keys()
+            .chain(self.warm.keys())
+            .cloned()
+            .collect::<Vec<_>>();
         self.shutdown_signaled |= !run_ids.is_empty();
         for run_id in &run_ids {
             self.runner.signal_claude_process(run_id, signal)?;
@@ -100,6 +106,7 @@ where
         // A settled stream consumes no turn slot. It must be offered its next
         // queued prompt even when this daemon has reached its process bound.
         let dispatch = (self.active_len() < maximum
+            || !self.warm.is_empty()
             || self
                 .active
                 .values()

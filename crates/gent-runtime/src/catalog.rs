@@ -109,6 +109,10 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
         (agent_chat, gent_protocol::AGENT_CHAT_STEER_TURN_CAPABILITY),
         (
             agent_chat,
+            gent_protocol::AGENT_CHAT_PROVIDER_WARM_CAPABILITY,
+        ),
+        (
+            agent_chat,
             gent_protocol::AGENT_CHAT_STEER_ENQUEUE_CAPABILITY,
         ),
         (agent_chat, "agent-chat-steer-turn-claude-v1"),

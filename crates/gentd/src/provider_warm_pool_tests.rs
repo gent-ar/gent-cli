@@ -47,3 +47,69 @@ fn a_capacity_of_zero_still_keeps_one_process() {
 
     assert_eq!(evictions(runs, "run-b", "b", 0), ["run-a"]);
 }
+
+fn idle(run_id: &str, minutes: u64, served: bool, current: bool) -> super::IdleRun<'_> {
+    super::IdleRun {
+        run_id,
+        idle_for: std::time::Duration::from_secs(minutes * 60),
+        served,
+        current,
+    }
+}
+
+#[test]
+fn a_warm_up_for_a_run_already_owned_is_already_warm_or_blocked_by_its_turn() {
+    use gent_protocol::ProviderWarmOutcome;
+    let idle_run = [run("run-a", "a", true, 1)];
+    let busy_run = [run("run-a", "a", false, 1)];
+    let busy_sibling = [run("run-a", "a", false, 1)];
+
+    assert_eq!(
+        super::admission(idle_run, "run-a", "a", 4),
+        Err(ProviderWarmOutcome::AlreadyWarm)
+    );
+    assert_eq!(
+        super::admission(busy_run, "run-a", "a", 4),
+        Err(ProviderWarmOutcome::TurnActive)
+    );
+    assert_eq!(
+        super::admission(busy_sibling, "run-a-child", "a", 4),
+        Err(ProviderWarmOutcome::TurnActive)
+    );
+}
+
+#[test]
+fn a_warm_up_into_a_pool_of_busy_runs_is_refused_but_may_evict_an_idle_one() {
+    use gent_protocol::ProviderWarmOutcome;
+    let busy = [run("run-a", "a", false, 1), run("run-b", "b", false, 2)];
+    let mixed = [run("run-a", "a", false, 1), run("run-b", "b", true, 2)];
+
+    assert_eq!(
+        super::admission(busy, "run-c", "c", 2),
+        Err(ProviderWarmOutcome::PoolFull)
+    );
+    assert_eq!(
+        super::admission(mixed, "run-c", "c", 2),
+        Ok(vec!["run-b".to_owned()])
+    );
+}
+
+#[test]
+fn an_unprompted_warm_process_expires_before_a_served_one() {
+    let runs = [
+        idle("fresh", 1, false, true),
+        idle("unprompted", 2, false, true),
+        idle("served", 9, true, true),
+        idle("served-long", 10, true, true),
+    ];
+
+    assert_eq!(super::expired(runs), ["unprompted", "served-long"]);
+}
+
+#[test]
+fn a_superseded_run_is_reaped_immediately() {
+    assert_eq!(
+        super::expired([idle("old", 0, false, false), idle("new", 0, false, true)]),
+        ["old"]
+    );
+}

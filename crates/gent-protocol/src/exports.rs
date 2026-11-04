@@ -20,6 +20,10 @@ pub use crate::agent_chat_projection::{
     AGENT_CHAT_PROJECTION_CAPABILITY, AgentChatProjectionDelta, AgentChatProjectionFrame,
     AgentChatProjectionSnapshot, DisplayRecord, ProjectionCatalog, ProjectionCursor,
 };
+pub use crate::agent_chat_provider_warm::{
+    AGENT_CHAT_PROVIDER_WARM_CAPABILITY, AgentChatProviderWarm, AgentChatProviderWarmResult,
+    ProviderWarmOutcome,
+};
 pub use crate::agent_chat_sessions::{AGENT_CHAT_SESSIONS_CAPABILITY, AgentChatSessionFrame};
 pub use crate::agent_chat_side_question::{
     AGENT_CHAT_SIDE_QUESTION_CAPABILITY, AgentChatSideQuestionFrame,

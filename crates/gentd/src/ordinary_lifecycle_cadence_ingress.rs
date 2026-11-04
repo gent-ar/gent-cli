@@ -64,6 +64,27 @@ impl<L> OrdinaryPromptIngress<L> {
             .map_err(|_| "Claude permission owner is unavailable".to_owned())
     }
 
+    pub(crate) fn tend_warm_pool(
+        &self,
+        provider: Option<AgentChatProvider>,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, String> {
+        let Ok(_permit) = self.control.acquire_prompt() else {
+            return Ok(request.unavailable());
+        };
+        let outcome = self
+            .wake
+            .router
+            .lock()
+            .map_err(|_| "standalone lifecycle router is unavailable".to_owned())?
+            .tend_warm_pool(provider, request)
+            .map_err(|_| "provider warm pool owner is unavailable".to_owned())?;
+        if outcome == Some(gent_protocol::ProviderWarmOutcome::Warming) {
+            self.wake.notify.notify_one();
+        }
+        Ok(outcome)
+    }
+
     pub(crate) fn interrupt_run(
         &self,
         provider: AgentChatProvider,

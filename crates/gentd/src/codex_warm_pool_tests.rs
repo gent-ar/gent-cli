@@ -14,15 +14,15 @@ use gent_types::{
     WorkspaceRecord,
 };
 
-struct Pool {
-    ledger: SqliteLedger,
-    runner: Runner,
-    host: ApprovedCodexHost<SqliteLedger, Runner, Resolver>,
+pub(crate) struct Pool {
+    pub(crate) ledger: SqliteLedger,
+    pub(crate) runner: Runner,
+    pub(crate) host: ApprovedCodexHost<SqliteLedger, Runner, Resolver>,
     prompts: u32,
 }
 
 impl Pool {
-    fn new(capacity: usize) -> Self {
+    pub(crate) fn new(capacity: usize) -> Self {
         let ledger = SqliteLedger::in_memory().unwrap();
         let runner = Runner::default();
         let compatibility = compatibility();
@@ -44,7 +44,7 @@ impl Pool {
         }
     }
 
-    fn conversation(&self, key: &str) -> AgentChatConversationId {
+    pub(crate) fn conversation(&self, key: &str) -> AgentChatConversationId {
         let conversation_id = AgentChatConversationId(format!("conversation-{key}"));
         self.ledger
             .create_agent_chat_conversation_in_workspace(
@@ -66,6 +66,12 @@ impl Pool {
     }
 
     fn complete_turn(&mut self, conversation_id: &AgentChatConversationId, text: &str) -> String {
+        let run_id = self.send(conversation_id, text);
+        self.finish(&run_id);
+        run_id
+    }
+
+    pub(crate) fn send(&mut self, conversation_id: &AgentChatConversationId, text: &str) -> String {
         self.prompts += 1;
         let id = format!("prompt-{}", self.prompts);
         let saved = self
@@ -88,12 +94,16 @@ impl Pool {
             matches!(dispatch, Some(CodexPromptDispatchOutcome::Started { .. })),
             "{text} was not started: {dispatch:?}"
         );
+        run_id
+    }
+
+    pub(crate) fn finish(&mut self, run_id: &str) {
         self.runner
             .state
             .lock()
             .unwrap()
             .run_effects
-            .entry(run_id.clone())
+            .entry(run_id.to_owned())
             .or_default()
             .push_back(vec![
                 CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
@@ -106,10 +116,9 @@ impl Pool {
                 )),
             ]);
         self.host.tick().unwrap();
-        run_id
     }
 
-    fn counts(&self) -> (usize, Vec<String>, Vec<String>) {
+    pub(crate) fn counts(&self) -> (usize, Vec<String>, Vec<String>) {
         let state = self.runner.state.lock().unwrap();
         (
             state.starts,

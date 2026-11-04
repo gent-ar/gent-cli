@@ -12,8 +12,10 @@ use crate::public_driver_runtime::{PublicDriverFact, PublicDriversRuntime};
 
 mod containment;
 mod execution;
+mod launch;
 mod permission;
 mod poll;
+mod prewarm;
 mod recovery;
 mod scheduler;
 mod start;
@@ -39,6 +41,8 @@ pub(super) struct Binding {
     failure_reported_turn: Option<String>,
     open_children: std::collections::BTreeMap<String, bool>,
     last_dispatch: u64,
+    idle_since: Option<std::time::Instant>,
+    awaits_first_input: bool,
 }
 
 impl Binding {
@@ -63,6 +67,7 @@ pub(crate) struct ClaudePromptLifecycle<L, D, R> {
     runner: D,
     coordinator_id: String,
     active: BTreeMap<String, Binding>,
+    warm: BTreeMap<String, prewarm::WarmBinding>,
     summary_hook: Option<Arc<dyn ClaudeSummaryHook>>,
     compaction_notices: std::collections::BTreeSet<String>,
     shutdown_signaled: bool,
@@ -99,6 +104,7 @@ where
             runner,
             coordinator_id,
             active: BTreeMap::new(),
+            warm: BTreeMap::new(),
             summary_hook: None,
             compaction_notices: std::collections::BTreeSet::new(),
             shutdown_signaled: false,
@@ -143,6 +149,10 @@ where
             }
             AgentChatPromptDispatchResult::Empty => Ok(ClaudePromptDispatchOutcome::Empty),
             AgentChatPromptDispatchResult::Claimed(prompt) => {
+                let held = match self.adopt_warm(&prompt) {
+                    Ok(held) => held,
+                    Err(error) => return self.fail_dispatch(&prompt, host_epoch, error),
+                };
                 if let Err(error) = self.release_outdated_session(&prompt.run_id.0) {
                     return self.fail_dispatch(&prompt, host_epoch, error);
                 }
@@ -161,6 +171,7 @@ where
                 )
                 .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error));
                 self.mark_dispatched(&prompt.run_id.0);
+                self.flush_held(&prompt.run_id.0, host_epoch, held)?;
                 outcome
             }
         }

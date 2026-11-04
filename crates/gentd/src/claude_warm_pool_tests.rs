@@ -23,22 +23,29 @@ use crate::claude_prompt_lifecycle_tests::{Resolver, compatibility, profile};
 use crate::public_driver_runtime::PublicDriversRuntime;
 
 #[derive(Default, Debug)]
-struct State {
-    pending: BTreeSet<String>,
-    sessions: BTreeSet<String>,
-    effects: BTreeMap<String, VecDeque<Vec<ClaudeRunnerEffect>>>,
-    starts: Vec<String>,
-    releases: Vec<String>,
-    submitted: Vec<String>,
+pub(crate) struct State {
+    pub(crate) pending: BTreeSet<String>,
+    pub(crate) sessions: BTreeSet<String>,
+    pub(crate) effects: BTreeMap<String, VecDeque<Vec<ClaudeRunnerEffect>>>,
+    pub(crate) starts: Vec<String>,
+    pub(crate) releases: Vec<String>,
+    pub(crate) submitted: Vec<String>,
+    pub(crate) fail_starts: usize,
 }
 
 #[derive(Clone, Default, Debug)]
-struct Runner(Arc<Mutex<State>>);
+pub(crate) struct Runner(pub(crate) Arc<Mutex<State>>);
 
 impl PublicProviderRunner for Runner {
     fn start(&self, run_id: &str, _: &RunVersionLock) -> Result<(), PublicProviderRunError> {
         let mut state = self.0.lock().unwrap();
         assert!(state.pending.remove(run_id));
+        if state.fail_starts > 0 {
+            state.fail_starts -= 1;
+            return Err(PublicProviderRunError::Failed(
+                "claude is not logged in".into(),
+            ));
+        }
         state.starts.push(run_id.into());
         state.sessions.insert(run_id.into());
         Ok(())
@@ -131,15 +138,15 @@ impl ClaudePromptExecution for Runner {
     }
 }
 
-struct Pool {
-    ledger: SqliteLedger,
-    runner: Runner,
-    host: ApprovedClaudeHost<SqliteLedger, Runner, Resolver>,
+pub(crate) struct Pool {
+    pub(crate) ledger: SqliteLedger,
+    pub(crate) runner: Runner,
+    pub(crate) host: ApprovedClaudeHost<SqliteLedger, Runner, Resolver>,
     prompts: u32,
 }
 
 impl Pool {
-    fn new(capacity: usize) -> Self {
+    pub(crate) fn new(capacity: usize) -> Self {
         let ledger = SqliteLedger::in_memory().unwrap();
         let runner = Runner::default();
         let compatibility = compatibility();
@@ -162,7 +169,7 @@ impl Pool {
         }
     }
 
-    fn conversation(&self, key: &str) -> AgentChatConversationId {
+    pub(crate) fn conversation(&self, key: &str) -> AgentChatConversationId {
         let conversation_id = AgentChatConversationId(format!("conversation-{key}"));
         self.ledger
             .create_agent_chat_conversation_in_workspace(
@@ -189,6 +196,11 @@ impl Pool {
     }
 
     fn complete_turn(&mut self, conversation_id: &AgentChatConversationId, text: &str) {
+        let run_id = self.send(conversation_id, text);
+        self.finish(run_id);
+    }
+
+    pub(crate) fn send(&mut self, conversation_id: &AgentChatConversationId, text: &str) -> String {
         self.prompts += 1;
         let id = format!("prompt-{}", self.prompts);
         let saved = self
@@ -210,7 +222,10 @@ impl Pool {
             matches!(dispatch, Some(ClaudePromptDispatchOutcome::Started { .. })),
             "{text} was not started: {dispatch:?}"
         );
-        let run_id = saved.run_id.0;
+        saved.run_id.0
+    }
+
+    pub(crate) fn finish(&mut self, run_id: String) {
         let ready = vec![
             ClaudeRunnerEffect::Fact(PublicWireFact::SessionStarted {
                 provider_session_id: format!("session-{run_id}"),
