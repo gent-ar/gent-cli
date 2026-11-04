@@ -34,6 +34,8 @@ fn settled_file(directory: &Path, name: &str, bytes: &[u8]) -> std::path::PathBu
     let path = directory.join(name);
     fs::write(&path, bytes).unwrap();
     age(&path, 60);
+    #[cfg(unix)]
+    std::thread::sleep(Duration::from_millis(2100));
     path
 }
 
