@@ -165,8 +165,9 @@ fn collect(
         if *visited > 40_000 {
             return Err("runtime source entry count exceeds its verification bound".into());
         }
-        let path = entry.map_err(super::display)?.path();
-        let metadata = fs::symlink_metadata(&path).map_err(super::display)?;
+        let entry = entry.map_err(super::display)?;
+        let path = entry.path();
+        let metadata = entry.metadata().map_err(super::display)?;
         if files::redirected(&metadata) {
             return Err("runtime source contains a redirected entry".into());
         }
