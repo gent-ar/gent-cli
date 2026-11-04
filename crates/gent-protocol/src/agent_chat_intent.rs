@@ -38,6 +38,8 @@ pub struct HistoricalTranscriptEntry {
 )]
 pub enum AgentChatIntentFrame {
     SteerPromptForTurn(crate::AgentChatSteerPrompt),
+    WarmProvider(crate::AgentChatProviderWarm),
+    ProviderWarm(crate::AgentChatProviderWarmResult),
     CreateConversation {
         request_id: AgentChatRequestId,
         receipt_id: gent_types::ReceiptId,

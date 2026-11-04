@@ -163,6 +163,24 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
             .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(provider))
     }
 
+    pub(crate) fn tend_warm_pool(
+        &mut self,
+        provider: Option<AgentChatProvider>,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, OrdinaryLifecycleRouterError> {
+        let mut outcome = None;
+        for host in &mut self.hosts {
+            if provider.is_some_and(|provider| provider != host.provider()) {
+                continue;
+            }
+            outcome = host
+                .tend_warm_pool(request)
+                .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?
+                .or(outcome);
+        }
+        Ok(outcome)
+    }
+
     pub(crate) fn interrupt_turn(
         &mut self,
         provider: AgentChatProvider,

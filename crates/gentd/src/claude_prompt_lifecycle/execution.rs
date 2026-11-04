@@ -6,10 +6,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use gent_drivers::claude_runner::{ClaudeRunStart, ClaudeRunnerEffect, ClaudeStreamRunner};
 use gent_drivers::claude_turn_options::ClaudeTurnOptions;
-use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_drivers::launch_spec::LaunchIntent;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
-use gent_ports::{PublicProviderRunError, PublicProviderRunner};
+use gent_ports::PublicProviderRunError;
 use gent_types::{
     FrozenConversationContext, GoalProjection, RunVersionLock, SandboxWorkspaceAccess,
 };
@@ -42,6 +41,7 @@ pub(crate) struct ClaudePromptStart {
 pub(crate) struct ClaudePromptRunner<L, P> {
     runner: Arc<Mutex<ClaudeStreamRunner<L, P>>>,
     pending: Arc<Mutex<BTreeMap<String, ClaudePromptStart>>>,
+    prewarmed: Arc<Mutex<std::collections::BTreeSet<String>>>,
     conversation_configs: Arc<Mutex<BTreeMap<String, PathBuf>>>,
     mcp_config: Option<PathBuf>,
     launched_mcp: Arc<Mutex<BTreeMap<String, (String, serde_json::Value)>>>,
@@ -52,6 +52,7 @@ impl<L, P> Clone for ClaudePromptRunner<L, P> {
         Self {
             runner: Arc::clone(&self.runner),
             pending: Arc::clone(&self.pending),
+            prewarmed: Arc::clone(&self.prewarmed),
             conversation_configs: Arc::clone(&self.conversation_configs),
             mcp_config: self.mcp_config.clone(),
             launched_mcp: Arc::clone(&self.launched_mcp),
@@ -80,6 +81,7 @@ where
         Self {
             runner: Arc::new(Mutex::new(ClaudeStreamRunner::new(launcher, policy))),
             pending: Arc::new(Mutex::new(BTreeMap::new())),
+            prewarmed: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
             conversation_configs: Arc::new(Mutex::new(BTreeMap::new())),
             mcp_config,
             launched_mcp: Arc::new(Mutex::new(BTreeMap::new())),
@@ -105,8 +107,23 @@ where
         Ok(())
     }
 
+    pub(crate) fn prepare_prewarm(
+        &self,
+        run_id: String,
+        start: ClaudePromptStart,
+    ) -> Result<(), PublicProviderRunError> {
+        if lock(&self.pending).insert(run_id.clone(), start).is_some() {
+            return Err(PublicProviderRunError::Failed(
+                "Claude prompt is already pending".into(),
+            ));
+        }
+        lock(&self.prewarmed).insert(run_id);
+        Ok(())
+    }
+
     pub(crate) fn cancel(&self, run_id: &str) {
         lock(&self.pending).remove(run_id);
+        lock(&self.prewarmed).remove(run_id);
     }
 
     pub(crate) fn poll(
@@ -175,7 +192,7 @@ where
             .map_err(map_error)
     }
 
-    fn launch(
+    pub(super) fn launch(
         &self,
         run_id: &str,
         lock_value: &RunVersionLock,
@@ -200,27 +217,34 @@ where
             .map(mcp::configured_servers)
             .transpose()?;
         lock(&self.launched_mcp).remove(run_id);
-        let result = lock(&self.runner)
-            .start(ClaudeRunStart {
-                run_id: run_id.into(),
-                lock: lock_value.clone(),
-                prompt: prompt.prompt,
-                content: prompt.content,
-                turn_options: prompt.turn_options,
-                goal: prompt.goal,
-                fresh_context: prompt.fresh_context,
-                mcp_config,
-                intent: match resume_session_id {
-                    Some(session_id) if prompt.recreate_session => {
-                        LaunchIntent::Recreate { session_id }
-                    }
-                    Some(session_id) => LaunchIntent::Resume { session_id },
-                    None => LaunchIntent::Start,
-                },
-                workspace_root: prompt.workspace_root,
-                workspace_access: prompt.workspace_access,
-            })
-            .map_err(map_error);
+        let prewarm = lock(&self.prewarmed).remove(run_id);
+        let start = ClaudeRunStart {
+            run_id: run_id.into(),
+            lock: lock_value.clone(),
+            prompt: prompt.prompt,
+            content: prompt.content,
+            turn_options: prompt.turn_options,
+            goal: prompt.goal,
+            fresh_context: prompt.fresh_context,
+            mcp_config,
+            intent: match resume_session_id {
+                Some(session_id) if prompt.recreate_session => {
+                    LaunchIntent::Recreate { session_id }
+                }
+                Some(session_id) => LaunchIntent::Resume { session_id },
+                None => LaunchIntent::Start,
+            },
+            workspace_root: prompt.workspace_root,
+            workspace_access: prompt.workspace_access,
+        };
+        let mut runner = lock(&self.runner);
+        let result = if prewarm {
+            runner.spawn_awaiting_input(start)
+        } else {
+            runner.start(start)
+        }
+        .map_err(map_error);
+        drop(runner);
         if result.is_err() {
             self.cleanup_config(run_id);
         } else if let Some(selected) = selected {
@@ -230,47 +254,15 @@ where
     }
 }
 
-impl<L, P> PublicProviderRunner for ClaudePromptRunner<L, P>
-where
-    L: ProcessLauncher<Process = P> + Send + Sync,
-    P: ProviderProcess + Send,
-{
-    fn start(
-        &self,
-        run_id: &str,
-        lock_value: &RunVersionLock,
-    ) -> Result<(), PublicProviderRunError> {
-        self.launch(run_id, lock_value, None)
-    }
-
-    fn resume(
-        &self,
-        run_id: &str,
-        lock_value: &RunVersionLock,
-        session_id: &str,
-    ) -> Result<(), PublicProviderRunError> {
-        if session_id.trim().is_empty() {
-            return Err(PublicProviderRunError::Failed(
-                "Claude resume session is invalid".into(),
-            ));
-        }
-        self.launch(run_id, lock_value, Some(session_id.into()))
-    }
-
-    fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
-        lock(&self.runner)
-            .signal(run_id, ProcessTreeSignal::Interrupt)
-            .map_err(map_error)
-    }
-}
-
-fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(super) fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn map_error(error: gent_drivers::claude_runner::ClaudeRunnerError) -> PublicProviderRunError {
+pub(super) fn map_error(
+    error: gent_drivers::claude_runner::ClaudeRunnerError,
+) -> PublicProviderRunError {
     match error {
         gent_drivers::claude_runner::ClaudeRunnerError::Lock(
             gent_drivers::lock::LockError::ProviderChanged,

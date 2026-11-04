@@ -59,13 +59,14 @@ where
 
     #[must_use]
     pub(crate) fn active_len(&self) -> usize {
-        self.active.len()
+        self.active.len() + self.warm.len()
     }
 
     /// Returns whether any owned run still needs stdout/exit polling.
     #[must_use]
     pub(crate) fn needs_poll(&self) -> bool {
         self.active.values().any(|binding| !binding.idle())
+            || self.warm.values().any(|warm| !warm.ready)
     }
 
     pub(crate) fn poll_active(
@@ -94,6 +95,7 @@ where
                 }
             }
         }
+        self.poll_warm();
         Ok(CodexPollBatch {
             polled_runs: u16::try_from(run_ids.len()).expect("bounded poll count fits u16"),
             facts,
@@ -106,7 +108,12 @@ where
     /// # Errors
     /// Returns an error when any owned process tree rejects the daemon-selected signal.
     pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
-        let run_ids = self.active.keys().cloned().collect::<Vec<_>>();
+        let run_ids = self
+            .active
+            .keys()
+            .chain(self.warm.keys())
+            .cloned()
+            .collect::<Vec<_>>();
         for run_id in &run_ids {
             self.runner.signal_codex_process(run_id, signal)?;
         }

@@ -69,7 +69,8 @@ where
         max_active: usize,
     ) -> Self {
         Self {
-            lifecycle: CodexPromptLifecycle::new(runtime, coordinator_id),
+            lifecycle: CodexPromptLifecycle::new(runtime, coordinator_id)
+                .with_warm_capacity(max_active),
             host_epoch,
             max_active: max_active.max(1),
         }
@@ -107,6 +108,13 @@ where
 
     pub(crate) fn interrupt(&self, run_id: &str) -> Result<(), RuntimeError> {
         self.lifecycle.interrupt(run_id)
+    }
+
+    pub(crate) fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, RuntimeError> {
+        self.lifecycle.tend_warm_pool(request, self.host_epoch)
     }
 
     pub(crate) fn interrupt_turn(&self, run_id: &str, turn_id: &str) -> Result<(), RuntimeError> {

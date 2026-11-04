@@ -137,6 +137,16 @@ where
             .respond_permission(run_id, request_id, decision, answers)
     }
 
+    pub(crate) fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, RuntimeError> {
+        if self.state != PrivateCodexSupervisorState::Running {
+            return Ok(request.unavailable());
+        }
+        self.host.tend_warm_pool(request)
+    }
+
     pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), RuntimeError> {
         if self.state != PrivateCodexSupervisorState::Running {
             return Err(RuntimeError::ProviderRun(

@@ -250,3 +250,21 @@ fn compact_runs_a_native_codex_compaction_turn_on_the_bound_thread_and_keeps_its
     assert_eq!(daemon.reply(&recall), "recall: CODE-OSPREY");
     assert_eq!(daemon.bound_session(&run), thread);
 }
+
+#[test]
+fn alternating_conversations_keep_each_codex_process_warm() {
+    let mut daemon = FakeCodexDaemon::start();
+    let (first, _) = daemon.conversation("warm-a");
+    let (second, _) = daemon.conversation("warm-b");
+    for text in ["hello", "again"] {
+        for conversation in [&first, &second] {
+            let prompt = daemon.prompt(conversation, text);
+            assert_eq!(daemon.settle(&prompt), DurableTurnPhase::Completed);
+        }
+    }
+
+    assert_eq!(daemon.requests("launch").len(), 2);
+    assert_eq!(daemon.requests("thread/start").len(), 2);
+    assert!(daemon.requests("thread/resume").is_empty());
+    assert_eq!(daemon.requests("turn/start").len(), 4);
+}

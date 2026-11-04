@@ -26,8 +26,9 @@ pub(crate) struct State {
     pub(crate) mcp_servers: Option<serde_json::Value>,
     pub(crate) starts: usize,
     pub(crate) effects: VecDeque<Vec<CodexRunnerEffect>>,
+    pub(crate) run_effects: std::collections::BTreeMap<String, VecDeque<Vec<CodexRunnerEffect>>>,
     pub(crate) poll_failure: bool,
-    session_active: bool,
+    pub(crate) sessions: std::collections::BTreeSet<String>,
     pub(crate) submitted: Vec<String>,
     pub(crate) prepared_goals: Vec<Option<gent_types::GoalProjection>>,
     pub(crate) submitted_goals: Vec<Option<gent_types::GoalProjection>>,
@@ -36,17 +37,24 @@ pub(crate) struct State {
     pub(crate) turn_interrupts: Vec<String>,
     pub(crate) steers: Vec<(String, String)>,
     pub(crate) releases: Vec<String>,
+    pub(crate) fail_starts: usize,
 }
 impl PublicProviderRunner for Runner {
     fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
         assert_eq!(lock.provider, "codex");
+        if state.fail_starts > 0 {
+            state.fail_starts -= 1;
+            return Err(PublicProviderRunError::Failed(
+                "codex is not installed".into(),
+            ));
+        }
         assert_eq!(
             state.pending.as_ref().map(|entry| entry.0.as_str()),
             Some(run_id)
         );
         state.starts += 1;
-        state.session_active = true;
+        state.sessions.insert(run_id.into());
         Ok(())
     }
 
@@ -62,7 +70,7 @@ impl PublicProviderRunner for Runner {
             Some(run_id)
         );
         state.resumes += 1;
-        state.session_active = true;
+        state.sessions.insert(run_id.into());
         Ok(())
     }
 
@@ -79,7 +87,11 @@ impl CodexPromptExecution for Runner {
         prompt: CodexPromptStart,
     ) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
-        if state.pending.is_some() {
+        if state
+            .pending
+            .as_ref()
+            .is_some_and(|(pending, _)| !state.sessions.contains(pending))
+        {
             return Err(PublicProviderRunError::Failed("duplicate prompt".into()));
         }
         state.prepared_goals.push(prompt.goal.clone());
@@ -94,7 +106,7 @@ impl CodexPromptExecution for Runner {
     }
     fn poll_codex_prompt(
         &self,
-        _: &str,
+        run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
         if state.poll_failure {
@@ -102,24 +114,34 @@ impl CodexPromptExecution for Runner {
                 "private runner detail".into(),
             ));
         }
-        let effects = state.effects.pop_front();
+        let effects = match state.run_effects.get_mut(run_id) {
+            Some(queue) => queue.pop_front(),
+            None => state.effects.pop_front(),
+        };
         if effects.as_ref().is_some_and(|effects| {
             effects
                 .iter()
                 .any(|effect| matches!(effect, CodexRunnerEffect::Exited { .. }))
         }) {
-            state.session_active = false;
+            state.sessions.remove(run_id);
             state.pending = None;
         }
         Ok(effects)
     }
-    fn has_codex_session(&self, _: &str) -> bool {
-        self.state.lock().unwrap().session_active
+    fn has_codex_session(&self, run_id: &str) -> bool {
+        self.state.lock().unwrap().sessions.contains(run_id)
     }
 
     fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
-        state.session_active = false;
+        state.sessions.remove(run_id);
+        if state
+            .pending
+            .as_ref()
+            .is_some_and(|(pending, _)| pending == run_id)
+        {
+            state.pending = None;
+        }
         state.releases.push(run_id.into());
         Ok(())
     }

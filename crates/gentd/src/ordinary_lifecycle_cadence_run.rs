@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use super::{ACTIVE_POLL_INTERVAL, OrdinaryLifecycleCadence};
 
+const WARM_POOL_REAP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+
 impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
     pub(crate) async fn run(self) -> Result<(), String> {
         if self.control.phase()
@@ -17,12 +19,39 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
         {
             return self.drain_shutdown().await;
         }
+        let mut reap = tokio::time::interval(WARM_POOL_REAP_INTERVAL);
+        reap.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {
                 () = self.control.shutdown_requested() => return self.drain_shutdown().await,
                 () = self.notify.notified() => self.drive_until_idle(false).await?,
                 () = self.async_claurst_notify.notified() => self.drive_until_idle(false).await?,
+                _ = reap.tick() => self.reap_warm_pool().await,
             }
+        }
+    }
+
+    async fn reap_warm_pool(&self) {
+        let router = Arc::clone(&self.router);
+        let reaped = tokio::task::spawn_blocking(move || {
+            router
+                .lock()
+                .map_err(|_| "ordinary lifecycle router is unavailable".to_owned())?
+                .tend_warm_pool(
+                    None,
+                    &crate::provider_warm_pool::WarmPoolRequest {
+                        now: std::time::Instant::now(),
+                        target: None,
+                    },
+                )
+                .map(|_| ())
+                .map_err(|_| "ordinary lifecycle warm pool was rejected".to_owned())
+        })
+        .await
+        .map_err(|_| "ordinary lifecycle warm pool task failed".to_owned())
+        .and_then(|reaped| reaped);
+        if let Err(error) = reaped {
+            eprintln!("{error}");
         }
     }
 

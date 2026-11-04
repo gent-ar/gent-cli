@@ -1,7 +1,7 @@
 use gent_protocol::{DependencyProvider, PublicRunStartRequest};
 use gent_types::HostEpoch;
 
-pub(super) fn request(
+pub(in crate::claude_prompt_lifecycle) fn request(
     run_id: &str,
     coordinator_id: &str,
     host_epoch: HostEpoch,

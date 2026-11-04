@@ -82,20 +82,39 @@ impl CodexTurnDriver {
         CodexAppServerSession::validate_prompt(&prompt)?;
         let (session, initialize) = CodexAppServerSession::start(config)?;
         Ok((
-            Self {
-                session,
-                prompt: Some(prompt),
-                attachments,
-                interrupted_reply,
-                child_parent_by_thread: BTreeMap::new(),
-                settled_child_threads: BTreeSet::new(),
-                tool_output_item_ids: BTreeSet::new(),
-                reported_root_failure: false,
-                reasoning: reasoning::ReasoningState::default(),
-                operation_inputs: operation_inputs::OperationInputs::default(),
-            },
+            Self::new(session, Some(prompt), attachments, interrupted_reply),
             vec![CodexTurnEffect::Write(initialize)],
         ))
+    }
+
+    pub fn awaiting_prompt(
+        config: CodexSessionConfig,
+    ) -> Result<(Self, Vec<CodexTurnEffect>), CodexTurnError> {
+        let (session, initialize) = CodexAppServerSession::start(config)?;
+        Ok((
+            Self::new(session, None, Vec::new(), None),
+            vec![CodexTurnEffect::Write(initialize)],
+        ))
+    }
+
+    fn new(
+        session: CodexAppServerSession,
+        prompt: Option<String>,
+        attachments: Vec<Value>,
+        interrupted_reply: Option<String>,
+    ) -> Self {
+        Self {
+            session,
+            prompt,
+            attachments,
+            interrupted_reply,
+            child_parent_by_thread: BTreeMap::new(),
+            settled_child_threads: BTreeSet::new(),
+            tool_output_item_ids: BTreeSet::new(),
+            reported_root_failure: false,
+            reasoning: reasoning::ReasoningState::default(),
+            operation_inputs: operation_inputs::OperationInputs::default(),
+        }
     }
 
     pub(crate) fn bind_external_sandbox(&mut self) -> Result<(), CodexTurnError> {
@@ -152,18 +171,16 @@ impl CodexTurnDriver {
                 effects.push(CodexTurnEffect::Fact(PublicWireFact::SessionStarted {
                     provider_session_id: thread_id,
                 }));
-                let prompt = self
-                    .prompt
-                    .take()
-                    .ok_or(CodexSessionError::TurnAlreadyActive)?;
-                let interrupted_reply = self.interrupted_reply.take();
-                effects.push(CodexTurnEffect::Write(
-                    self.session.start_turn_after_interrupted_reply(
-                        &prompt,
-                        &self.attachments,
-                        interrupted_reply.as_deref(),
-                    )?,
-                ));
+                if let Some(prompt) = self.prompt.take() {
+                    let interrupted_reply = self.interrupted_reply.take();
+                    effects.push(CodexTurnEffect::Write(
+                        self.session.start_turn_after_interrupted_reply(
+                            &prompt,
+                            &self.attachments,
+                            interrupted_reply.as_deref(),
+                        )?,
+                    ));
+                }
             }
             Ok(CodexSessionIngress::Steer(outcome)) => {
                 effects.push(CodexTurnEffect::Steer(outcome))
@@ -194,6 +211,16 @@ impl CodexTurnDriver {
     ) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
         let prompt =
             project_prompt(prompt, goal, 65_536).map_err(|_| CodexSessionError::InvalidPrompt)?;
+        if self.session.is_handshaking() {
+            CodexAppServerSession::validate_prompt(&prompt)?;
+            if self.prompt.is_some() {
+                return Err(CodexSessionError::TurnAlreadyActive.into());
+            }
+            self.prompt = Some(prompt);
+            self.attachments = attachments.to_vec();
+            self.interrupted_reply = interrupted_reply.map(str::to_owned);
+            return Ok(Vec::new());
+        }
         Ok(vec![CodexTurnEffect::Write(
             self.session.start_turn_after_interrupted_reply(
                 &prompt,

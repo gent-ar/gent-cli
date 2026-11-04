@@ -1,7 +1,7 @@
 //! Runner ownership/approval controls; fake evidence is not native containment proof.
 use super::super::*;
 use crate::{
-    ProcessSandboxEvidence,
+    MAX_PROVIDER_FRAME_BYTES, ProcessSandboxEvidence, ProviderLaunch,
     interrupt::{ProcessTreeControl, ProcessTreeError},
 };
 use gent_types::*;

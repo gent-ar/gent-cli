@@ -5,20 +5,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use gent_ports::PublicProviderRunError;
-use gent_types::{
-    FrozenConversationContext, GoalProjection, RunVersionLock, SandboxWorkspaceAccess,
-};
+use gent_types::{FrozenConversationContext, GoalProjection, SandboxWorkspaceAccess};
 
 use crate::buffering::BufferPolicy;
 use crate::codex_control::CodexControlDecision;
-use crate::codex_runner::{
-    CodexAppServerRunner, CodexRunStart, CodexRunnerEffect, CodexRunnerError,
-};
-use crate::codex_session::{CodexSessionConfig, CodexTurnOptions};
-use crate::conversation_context_input::{
-    MAX_FRESH_CONTEXT_INPUT_BYTES, render_fresh_conversation_input,
-};
+use crate::codex_runner::{CodexAppServerRunner, CodexRunnerEffect, CodexRunnerError};
+use crate::codex_session::CodexTurnOptions;
 use crate::supervisor::{ProcessLauncher, ProviderProcess};
+mod launch;
+pub use launch::fresh_prompt;
 mod mcp;
 mod sandbox;
 /// Prompt fields held only between daemon dispatch claim and locked process launch.
@@ -47,6 +42,7 @@ pub struct CodexPromptRunner<L, P> {
     mcp_config: Option<PathBuf>,
     launched_mcp: Arc<Mutex<BTreeMap<String, (String, serde_json::Value)>>>,
     pending_mcp_conversations: Arc<Mutex<BTreeMap<String, String>>>,
+    prewarmed: Arc<Mutex<std::collections::BTreeSet<String>>>,
     mcp_digests: Arc<Mutex<BTreeMap<String, String>>>,
 }
 impl<L, P> Clone for CodexPromptRunner<L, P> {
@@ -58,6 +54,7 @@ impl<L, P> Clone for CodexPromptRunner<L, P> {
             mcp_config: self.mcp_config.clone(),
             launched_mcp: Arc::clone(&self.launched_mcp),
             pending_mcp_conversations: Arc::clone(&self.pending_mcp_conversations),
+            prewarmed: Arc::clone(&self.prewarmed),
             mcp_digests: Arc::clone(&self.mcp_digests),
         }
     }
@@ -82,6 +79,7 @@ where
             mcp_config,
             launched_mcp: Arc::new(Mutex::new(BTreeMap::new())),
             pending_mcp_conversations: Arc::new(Mutex::new(BTreeMap::new())),
+            prewarmed: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
             mcp_digests: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
@@ -111,6 +109,7 @@ where
     /// Drops a prompt that failed before process ownership began so a daemon may release its outbox claim.
     pub fn cancel(&self, run_id: &str) {
         lock(&self.pending).remove(run_id);
+        lock(&self.prewarmed).remove(run_id);
         lock(&self.pending_mcp_conversations).remove(run_id);
     }
     /// Polls one owned Codex process without exposing provider-native protocol data.
@@ -213,66 +212,6 @@ where
         lock(&self.runner)
             .respond_control(run_id, request_id, decision, answers)
             .map_err(map_error)
-    }
-
-    fn launch(
-        &self,
-        run_id: &str,
-        lock_value: &RunVersionLock,
-        resume_thread_id: Option<String>,
-    ) -> Result<(), PublicProviderRunError> {
-        let prompt = lock(&self.pending).remove(run_id).ok_or_else(|| {
-            PublicProviderRunError::Failed("Codex run has no durable pending prompt".into())
-        })?;
-        if prompt.fresh_context.is_some() && resume_thread_id.is_some() {
-            return Err(PublicProviderRunError::Failed(
-                "fresh Codex context cannot resume a native session".into(),
-            ));
-        }
-        let rendered_prompt = prompt.fresh_context.as_ref().map_or_else(
-            || Ok(prompt.prompt.clone()),
-            |context| {
-                render_fresh_conversation_input(
-                    context,
-                    &prompt.prompt,
-                    MAX_FRESH_CONTEXT_INPUT_BYTES,
-                )
-                .map(|input| input.prompt().to_owned())
-                .map_err(|_| {
-                    PublicProviderRunError::Failed("Codex frozen context is invalid".into())
-                })
-            },
-        )?;
-        if let Some((_, digest)) = self.current_mcp_servers()? {
-            lock(&self.mcp_digests).insert(run_id.into(), digest);
-        }
-        let conversation = lock(&self.pending_mcp_conversations).remove(run_id);
-        let selected = prompt.mcp_servers.clone();
-        lock(&self.launched_mcp).remove(run_id);
-        let result = lock(&self.runner)
-            .start(CodexRunStart {
-                run_id: run_id.into(),
-                lock: lock_value.clone(),
-                session: CodexSessionConfig {
-                    working_directory: prompt.working_directory,
-                    resume_thread_id,
-                    turn_options: prompt.turn_options,
-                    mcp_servers: prompt.mcp_servers,
-                },
-                workspace_root: prompt.workspace_root,
-                workspace_access: prompt.workspace_access,
-                prompt: rendered_prompt,
-                goal: prompt.goal,
-                attachments: prompt.attachments,
-                interrupted_reply: prompt.interrupted_reply,
-            })
-            .map_err(map_error);
-        if result.is_ok() {
-            if let (Some(selected), Some(conversation)) = (selected, conversation) {
-                lock(&self.launched_mcp).insert(run_id.into(), (conversation, selected));
-            }
-        }
-        result
     }
 }
 

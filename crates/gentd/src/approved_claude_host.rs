@@ -62,7 +62,8 @@ where
     ) -> Self {
         Self {
             lifecycle: {
-                let lifecycle = ClaudePromptLifecycle::new(runtime, coordinator_id);
+                let lifecycle = ClaudePromptLifecycle::new(runtime, coordinator_id)
+                    .with_warm_capacity(max_active);
                 match summary_hook {
                     Some(hook) => lifecycle.with_summary_hook(hook),
                     None => lifecycle,
@@ -99,6 +100,13 @@ where
 
     pub(crate) fn interrupt(&mut self, run_id: &str) -> Result<(), RuntimeError> {
         self.lifecycle.interrupt(run_id)
+    }
+
+    pub(crate) fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, RuntimeError> {
+        self.lifecycle.tend_warm_pool(request, self.host_epoch)
     }
 
     pub(crate) fn interrupt_turn(

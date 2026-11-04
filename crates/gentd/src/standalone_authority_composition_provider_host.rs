@@ -226,6 +226,17 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
             .respond_codex_permission(run_id, request_id, decision, answers)
     }
 
+    fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
+        self.start_existing()?;
+        match self.host.as_mut() {
+            Some(host) => host.tend_warm_pool(request),
+            None => Ok(request.unavailable()),
+        }
+    }
+
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.host.as_mut().ok_or(())?.interrupt_run(run_id)
     }

@@ -248,6 +248,21 @@ impl FakeClaudeDaemon {
         &self.data_dir
     }
 
+    pub(crate) fn reap_idle_sessions(&mut self) {
+        let now = Instant::now();
+        for elapsed in [Duration::ZERO, Duration::from_secs(11 * 60)] {
+            self.router
+                .tend_warm_pool(
+                    None,
+                    &crate::provider_warm_pool::WarmPoolRequest {
+                        now: now + elapsed,
+                        target: None,
+                    },
+                )
+                .unwrap();
+        }
+    }
+
     pub(crate) fn fail_resumes_with_an_api_error(&self) {
         fs::write(self.root.path().join("cli/resume-api-error"), "").unwrap();
     }

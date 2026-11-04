@@ -92,7 +92,9 @@ pub(super) fn validate_chat_intents(records: &[FixtureFrame]) -> Result<(), Stri
             AgentChatIntentFrame::Subscribe { .. },
             AgentChatIntentFrame::SubscriptionEvent { .. },
             AgentChatIntentFrame::SubscriptionEnded { .. },
-            AgentChatIntentFrame::Accepted { .. }
+            AgentChatIntentFrame::Accepted { .. },
+            AgentChatIntentFrame::WarmProvider(_),
+            AgentChatIntentFrame::ProviderWarm(_)
         ]
     )
     .then_some(())

@@ -33,6 +33,14 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         conversation_id: String,
         prompt: CodexPromptStart,
     ) -> Result<(), PublicProviderRunError>;
+    fn prewarm_codex(
+        &self,
+        run_id: String,
+        conversation_id: String,
+        start: CodexPromptStart,
+    ) -> Result<(), PublicProviderRunError> {
+        self.prepare_codex_prompt(run_id, conversation_id, start)
+    }
     fn cancel_codex_prompt(&self, run_id: &str);
     fn poll_codex_prompt(
         &self,
@@ -123,6 +131,15 @@ where
         prompt: CodexPromptStart,
     ) -> Result<(), PublicProviderRunError> {
         self.prepare_for_conversation(run_id, conversation_id, prompt)
+    }
+
+    fn prewarm_codex(
+        &self,
+        run_id: String,
+        conversation_id: String,
+        start: CodexPromptStart,
+    ) -> Result<(), PublicProviderRunError> {
+        self.prepare_prewarm(run_id, conversation_id, start)
     }
 
     fn cancel_codex_prompt(&self, run_id: &str) {

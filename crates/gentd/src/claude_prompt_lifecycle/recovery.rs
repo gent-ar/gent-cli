@@ -8,7 +8,7 @@ use gent_protocol::{PublicRunOutcome, PublicRunResumeRequest};
 use gent_runtime::RuntimeError;
 use gent_types::{HostEpoch, NormalizedProviderEvent};
 
-use super::{ClaudePromptExecution, ClaudePromptLifecycle, missing_binding, start};
+use super::{ClaudePromptExecution, ClaudePromptLifecycle, missing_binding};
 
 impl<L, D, R> ClaudePromptLifecycle<L, D, R>
 where
@@ -49,7 +49,7 @@ where
             &prompt.message.conversation_id,
             &prompt.message.message_id,
         )?;
-        let mut recreated = start::prompt_start(&self.runtime, &prompt, Some(history))?;
+        let mut recreated = super::launch::prompt_start(&self.runtime, &prompt, Some(history))?;
         recreated.recreate_session = true;
         self.record_wire(
             run_id,

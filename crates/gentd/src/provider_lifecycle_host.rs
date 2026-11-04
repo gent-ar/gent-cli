@@ -150,6 +150,12 @@ where
     pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.lifecycle.interrupt_run(run_id)
     }
+    pub(crate) fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
+        self.lifecycle.tend_warm_pool(request)
+    }
     pub(crate) fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
         self.lifecycle.interrupt_turn(run_id, turn_id)
     }

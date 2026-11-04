@@ -3,6 +3,7 @@ use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_drivers::supervisor::{ProcessLauncher, ProviderProcess};
 use gent_ports::{PublicProviderRunError, PublicProviderRunner};
+use gent_types::RunVersionLock;
 
 pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
     fn validate_permission_binding(
@@ -28,6 +29,13 @@ pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
         run_id: String,
         prompt: ClaudePromptStart,
     ) -> Result<(), PublicProviderRunError>;
+    fn prewarm_claude_prompt(
+        &self,
+        run_id: String,
+        prompt: ClaudePromptStart,
+    ) -> Result<(), PublicProviderRunError> {
+        self.prepare_claude_prompt(run_id, prompt)
+    }
     fn cancel_claude_prompt(&self, run_id: &str);
     fn poll_claude_prompt(
         &self,
@@ -132,6 +140,13 @@ where
     ) -> Result<(), PublicProviderRunError> {
         self.prepare(run_id, prompt)
     }
+    fn prewarm_claude_prompt(
+        &self,
+        run_id: String,
+        prompt: ClaudePromptStart,
+    ) -> Result<(), PublicProviderRunError> {
+        self.prepare_prewarm(run_id, prompt)
+    }
     fn cancel_claude_prompt(&self, run_id: &str) {
         self.cancel(run_id);
         self.cleanup_config(run_id);
@@ -205,5 +220,39 @@ where
             persist_suggestions,
             updated_input,
         )
+    }
+}
+
+impl<L, P> PublicProviderRunner for ClaudePromptRunner<L, P>
+where
+    L: ProcessLauncher<Process = P> + Send + Sync,
+    P: ProviderProcess + Send,
+{
+    fn start(
+        &self,
+        run_id: &str,
+        lock_value: &RunVersionLock,
+    ) -> Result<(), PublicProviderRunError> {
+        self.launch(run_id, lock_value, None)
+    }
+
+    fn resume(
+        &self,
+        run_id: &str,
+        lock_value: &RunVersionLock,
+        session_id: &str,
+    ) -> Result<(), PublicProviderRunError> {
+        if session_id.trim().is_empty() {
+            return Err(PublicProviderRunError::Failed(
+                "Claude resume session is invalid".into(),
+            ));
+        }
+        self.launch(run_id, lock_value, Some(session_id.into()))
+    }
+
+    fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        super::lock(&self.runner)
+            .signal(run_id, ProcessTreeSignal::Interrupt)
+            .map_err(super::map_error)
     }
 }

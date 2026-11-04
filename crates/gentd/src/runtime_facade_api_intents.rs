@@ -5,11 +5,17 @@ use gent_types::HostEpoch;
 use super::{RuntimeFacade, prompt_admission};
 use crate::{agent_chat_api, agent_chat_intent_error::AgentChatIntentError};
 
+#[path = "runtime_facade_provider_warm.rs"]
+mod provider_warm;
+
 impl RuntimeFacade {
     pub(super) fn exchange_agent_chat_intent(
         &self,
         frame: AgentChatIntentFrame,
     ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
+        if let Some(reply) = self.provider_warm_intent(&frame)? {
+            return Ok(vec![reply]);
+        }
         if let Some(replies) = self.conversation_link_intent(&frame)? {
             return Ok(replies);
         }
@@ -72,6 +78,12 @@ impl RuntimeFacade {
             )
         }?;
         self.remember_switched_selection(switched, &replies);
+        if replies
+            .iter()
+            .any(|reply| matches!(reply, AgentChatIntentFrame::Switched { .. }))
+        {
+            self.reap_superseded_warm_processes();
+        }
         Ok(replies)
     }
 

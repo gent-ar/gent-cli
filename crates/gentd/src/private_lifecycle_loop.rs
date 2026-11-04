@@ -101,6 +101,12 @@ pub(crate) trait PrivateLifecycleOwner {
     fn interrupt_run(&mut self, _: &str) -> Result<(), ()> {
         Err(())
     }
+    fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
+        Ok(request.refused(gent_protocol::ProviderWarmOutcome::UnsupportedProvider))
+    }
     fn interrupt_turn(&mut self, _: &str, _: &str) -> Result<(), ()> {
         Err(())
     }
@@ -203,6 +209,12 @@ where
 
     pub(crate) fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
         self.owner.interrupt_run(run_id)
+    }
+    pub(crate) fn tend_warm_pool(
+        &mut self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
+        self.owner.tend_warm_pool(request)
     }
     pub(crate) fn interrupt_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), ()> {
         self.owner.interrupt_turn(run_id, turn_id)

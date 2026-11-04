@@ -3,13 +3,11 @@ use crate::claude_control::{ClaudePermissionBehavior, ClaudePermissionRequest};
 use crate::claude_permission_relay::ClaudePermissionRelay;
 use crate::claude_turn_options::ClaudeTurnOptions;
 use crate::interrupt::ProcessTreeSignal;
-use crate::launch_spec::{LaunchIntent, append_claude_mcp_config, arguments};
-use crate::lock::{LockError, recheck};
-use crate::output_pump::{
-    MAX_OUTPUT_CHUNK_BYTES, MAX_PROVIDER_FRAME_BYTES, OutputPumpError, ProviderOutputPump,
-};
+use crate::launch_spec::LaunchIntent;
+use crate::lock::LockError;
+use crate::output_pump::{OutputPumpError, ProviderOutputPump};
 use crate::public_protocol::PublicWireFact;
-use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
+use crate::supervisor::{ProcessLauncher, ProviderProcess, SupervisorError};
 use gent_types::{
     FrozenConversationContext, GoalProjection, RunVersionLock, SandboxWorkspaceAccess, ToolActivity,
 };
@@ -83,6 +81,7 @@ struct OwnedRun<P> {
     steers: BTreeMap<String, String>,
     plans_for_review: bool,
     awaiting_resumed_frame: bool,
+    pending_resume_session: Option<String>,
 }
 
 impl<L, P> ClaudeStreamRunner<L, P>
@@ -101,63 +100,6 @@ where
         }
     }
 
-    /// Rechecks and launches one locked Claude binary before writing its exact prompt frame.
-    ///
-    /// # Errors
-    /// Returns before launch for invalid input or a changed immutable executable lock.
-    pub fn start(&mut self, start: ClaudeRunStart) -> Result<(), ClaudeRunnerError> {
-        if self.runs.contains_key(&start.run_id) {
-            return Err(ClaudeRunnerError::AlreadyActive);
-        }
-        if start.lock.provider != "claude" {
-            return Err(ClaudeRunnerError::UnsupportedProvider);
-        }
-        let input = input_frame(&start)?;
-        let plans_for_review = start.turn_options.plans_for_review();
-        let output = ProviderOutputPump::new(
-            MAX_OUTPUT_CHUNK_BYTES,
-            MAX_PROVIDER_FRAME_BYTES,
-            self.policy,
-        )?;
-        recheck(&start.lock)?;
-        let intent = start.intent.clone();
-        let awaiting_resumed_frame = matches!(intent, LaunchIntent::Resume { .. });
-        let mut arguments = arguments("claude", &intent)
-            .map_err(|error| SupervisorError::Launch(error.to_string()))?;
-        start.turn_options.append_arguments(&mut arguments);
-        append_claude_mcp_config(&mut arguments, start.mcp_config.as_deref());
-        let launch = ProviderLaunch {
-            permission_binding: self.permission_bindings.remove(&start.run_id),
-            run_id: Some(start.run_id.clone()),
-            lock: start.lock.clone(),
-            provider: "claude".into(),
-            executable: PathBuf::from(&start.lock.canonical_path),
-            arguments,
-            intent,
-            workspace_root: Some(start.workspace_root),
-            workspace_access: start.workspace_access,
-        };
-        let process = sandbox::launch_checked(&self.launcher, &launch)?;
-        if let Err(error) = process.write_frame(&input) {
-            let _ = process.signal_tree(ProcessTreeSignal::Terminate);
-            return Err(error.into());
-        }
-        self.runs.insert(
-            start.run_id,
-            OwnedRun {
-                process,
-                output,
-                permissions: ClaudePermissionRelay::default(),
-                started_tools: BTreeMap::new(),
-                child_ids: BTreeMap::new(),
-                steers: BTreeMap::new(),
-                plans_for_review,
-                awaiting_resumed_frame,
-            },
-        );
-        Ok(())
-    }
-
     pub fn submit(
         &mut self,
         run_id: &str,
@@ -165,12 +107,18 @@ where
         goal: Option<&GoalProjection>,
         content: &[serde_json::Value],
     ) -> Result<(), ClaudeRunnerError> {
-        let input = input::follow_up_input_frame(prompt, goal, content)?;
         let run = self
             .runs
             .get_mut(run_id)
             .ok_or(ClaudeRunnerError::NotActive)?;
+        let input = match run.pending_resume_session.as_deref() {
+            Some(session_id) => {
+                input::resumed_first_input_frame(prompt, goal, content, session_id)?
+            }
+            None => input::follow_up_input_frame(prompt, goal, content)?,
+        };
         run.process.write_frame(&input)?;
+        run.pending_resume_session = None;
         Ok(())
     }
 
@@ -286,7 +234,8 @@ where
 mod frames;
 #[path = "claude_runner_input.rs"]
 mod input;
-use input::input_frame;
+#[path = "claude_runner_launch.rs"]
+mod launch;
 #[cfg(test)]
 #[path = "claude_runner_tests.rs"]
 mod tests;

@@ -5,7 +5,8 @@
 //! [`RuntimeApi`].
 
 use gent_protocol::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame,
+    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_PROVIDER_WARM_CAPABILITY,
+    AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame,
     conversation_links::{CONVERSATION_LINKS_CAPABILITY, is_conversation_link_frame},
     write_json_frame,
 };
@@ -58,12 +59,22 @@ where
 }
 
 fn waiting_frame(capabilities: &CapabilitySet, raw: &Value) -> Option<AgentChatIntentFrame> {
-    if !supports(capabilities) || !links_enabled(capabilities) {
-        return None;
-    }
-    serde_json::from_value::<AgentChatIntentFrame>(raw.clone())
-        .ok()
-        .filter(|frame| matches!(frame, AgentChatIntentFrame::WaitForConversations { .. }))
+    let frame = serde_json::from_value::<AgentChatIntentFrame>(raw.clone()).ok()?;
+    let off_thread = match frame {
+        AgentChatIntentFrame::WaitForConversations { .. } => {
+            supports(capabilities) && links_enabled(capabilities)
+        }
+        AgentChatIntentFrame::WarmProvider(_) => warm_enabled(capabilities),
+        _ => false,
+    };
+    off_thread.then_some(frame)
+}
+
+fn warm_enabled(capabilities: &CapabilitySet) -> bool {
+    capabilities
+        .0
+        .iter()
+        .any(|capability| capability == AGENT_CHAT_PROVIDER_WARM_CAPABILITY)
 }
 
 async fn wait_off_thread<S, R>(
@@ -157,6 +168,9 @@ where
     if is_conversation_link_frame(&request) && !links_enabled(capabilities) {
         return Ok(false);
     }
+    if matches!(request, AgentChatIntentFrame::WarmProvider(_)) && !warm_enabled(capabilities) {
+        return Ok(false);
+    }
     if !matches!(request, AgentChatIntentFrame::ImportTranscript { .. })
         && !is_conversation_link_frame(&request)
         && !capabilities
@@ -213,6 +227,7 @@ fn is_client_request(frame: &AgentChatIntentFrame) -> bool {
             | AgentChatIntentFrame::ContinueFromSavedHistory { .. }
             | AgentChatIntentFrame::SwitchSelection { .. }
             | AgentChatIntentFrame::Interrupt { .. }
+            | AgentChatIntentFrame::WarmProvider(_)
             | AgentChatIntentFrame::Decision { .. }
             | AgentChatIntentFrame::Subscribe { .. }
             | AgentChatIntentFrame::ForkConversation { .. }

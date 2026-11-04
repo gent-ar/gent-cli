@@ -6,8 +6,7 @@ use gent_types::{
 
 use super::{
     ClaudeRunStart, ClaudeRunnerError,
-    input::{follow_up_input_frame, steer_input_frame, steer_uuid},
-    input_frame,
+    input::{follow_up_input_frame, input_frame, steer_input_frame, steer_uuid},
 };
 use crate::claude_turn_options::ClaudeTurnOptions;
 
@@ -165,5 +164,23 @@ fn a_steer_frame_carries_a_stable_uuid_that_claude_replays_on_take_up() {
         .unwrap()
         .get("uuid")
         .is_none()
+    );
+}
+
+#[test]
+fn a_warm_process_first_input_matches_the_cold_launch_frame() {
+    let fresh = start();
+    let mut resumed = start();
+    resumed.intent = crate::launch_spec::LaunchIntent::Resume {
+        session_id: "session-1".into(),
+    };
+
+    assert_eq!(
+        follow_up_input_frame(&fresh.prompt, None, &[]).unwrap(),
+        input_frame(&fresh).unwrap()
+    );
+    assert_eq!(
+        super::input::resumed_first_input_frame(&resumed.prompt, None, &[], "session-1").unwrap(),
+        input_frame(&resumed).unwrap()
     );
 }

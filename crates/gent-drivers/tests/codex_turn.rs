@@ -73,3 +73,5 @@ mod children;
 mod control;
 #[path = "codex_turn/lifecycle.rs"]
 mod lifecycle;
+#[path = "codex_turn/prewarm.rs"]
+mod prewarm;

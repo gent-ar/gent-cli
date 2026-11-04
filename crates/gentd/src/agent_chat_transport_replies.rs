@@ -27,6 +27,16 @@ pub(super) fn validate_replies(request: &Frame, replies: &[Frame]) -> Result<(),
             shapes::queued_prompt_steered(request, replies)
         }
         Frame::Interrupt { .. } => shapes::interrupted(request, replies),
+        Frame::WarmProvider(warm) => match replies {
+            [Frame::ProviderWarm(result)]
+                if result.request_id == warm.request_id
+                    && result.conversation_id == warm.conversation_id
+                    && result.run_id == warm.run_id =>
+            {
+                Ok(())
+            }
+            _ => Err("a provider warm-up requires one matching result"),
+        },
         Frame::ForkConversation { .. } => shapes::forked(request, replies),
         Frame::CreateLinkedConversation { .. } => {
             links::linked_conversation_created(request, replies)
@@ -41,6 +51,7 @@ pub(super) fn validate_replies(request: &Frame, replies: &[Frame]) -> Result<(),
         | Frame::Switched { .. }
         | Frame::Accepted { .. }
         | Frame::Interrupted { .. }
+        | Frame::ProviderWarm(_)
         | Frame::QueuedPromptCanceled { .. }
         | Frame::QueuedPromptSteered { .. }
         | Frame::Forked { .. }

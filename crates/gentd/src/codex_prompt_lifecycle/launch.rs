@@ -18,12 +18,17 @@ pub(super) struct LaunchSetup {
     selected_mcp_source_names: Vec<String>,
     disallowed_mcp_tools: Vec<String>,
     turn_options: CodexTurnOptions,
+    permission: gent_types::PolicyRecord,
 }
+
+pub(super) type LaunchKey = (CodexPromptStart, gent_types::PolicyRecord);
 
 impl LaunchSetup {
     pub(super) fn read<L, D, R>(
         runtime: &PublicDriversRuntime<L, D, R>,
-        prompt: &AgentChatPromptSaved,
+        conversation_id: &str,
+        run_id: &str,
+        tool_source_ids: &[String],
     ) -> Result<Self, RuntimeError>
     where
         L: Clone
@@ -43,16 +48,13 @@ impl LaunchSetup {
         D: CodexPromptExecution + Clone,
         R: PublicProviderResolver,
     {
-        let run_id = prompt.run_id.0.clone();
-        let workspace = runtime.workspace_for_run(&prompt.message.conversation_id, &run_id)?;
+        let run_id = run_id.to_owned();
+        let workspace = runtime.workspace_for_run(conversation_id, &run_id)?;
         let working_directory = workspace.canonical_path;
         let workspace_root = std::path::PathBuf::from(&working_directory);
-        let selection = runtime.selection_for_run(&prompt.message.conversation_id, &run_id)?;
-        let selected_sources = runtime.validate_tool_sources_for_run(
-            &prompt.message.conversation_id,
-            &run_id,
-            &prompt.tool_source_ids,
-        )?;
+        let selection = runtime.selection_for_run(conversation_id, &run_id)?;
+        let selected_sources =
+            runtime.validate_tool_sources_for_run(conversation_id, &run_id, tool_source_ids)?;
         let mut selected_mcp_source_names = selected_sources
             .iter()
             .map(|source| source.source_name.clone())
@@ -61,11 +63,10 @@ impl LaunchSetup {
             selected_mcp_source_names
                 .extend(crate::standalone_mcp_config::INTERNAL_SERVER_NAMES.map(str::to_owned));
         }
-        let permission = runtime
-            .conversation_policy(&prompt.message.conversation_id, &workspace.workspace_id)?;
+        let permission = runtime.conversation_policy(conversation_id, &workspace.workspace_id)?;
         runtime.runner().validate_permission_binding(
             gent_types::SandboxPermissionBinding::new(
-                prompt.message.conversation_id.clone(),
+                conversation_id.to_owned(),
                 run_id.clone(),
                 permission.clone(),
                 runtime.ledger().host_ingress()?.epoch,
@@ -78,7 +79,7 @@ impl LaunchSetup {
         )?;
         let conversation_config = runtime
             .ledger()
-            .current_conversation_config(&prompt.message.conversation_id)
+            .current_conversation_config(conversation_id)
             .map_err(|error| gent_ports::PublicProviderRunError::Failed(error.to_string()))?;
         let turn_options =
             gent_drivers::codex_session::CodexTurnOptions::from_selection_with_permissions(
@@ -104,6 +105,7 @@ impl LaunchSetup {
                 .map(|config| config.disallowed_tools)
                 .unwrap_or_default(),
             turn_options,
+            permission,
         })
     }
 
@@ -139,6 +141,40 @@ impl LaunchSetup {
         let goal = runtime.active_goal_for(&prompt.message.conversation_id)?;
         let (prompt_text, attachments) =
             provider_input(runtime, &prompt.message, &prompt.run_id.0)?;
+        let (start, _) = self.key(runtime, &prompt.message.conversation_id)?;
+        Ok(CodexPromptStart {
+            prompt: prompt_text,
+            goal,
+            fresh_context,
+            attachments,
+            interrupted_reply,
+            ..start
+        })
+    }
+
+    pub(super) fn key<L, D, R>(
+        self,
+        runtime: &PublicDriversRuntime<L, D, R>,
+        conversation_id: &str,
+    ) -> Result<LaunchKey, RuntimeError>
+    where
+        L: Clone
+            + Ledger
+            + gent_ports::RunLifecycleFactLedger
+            + ConversationActivityLedger
+            + TranscriptLedger
+            + AgentChatPromptDispatchLedger
+            + gent_ports::AgentChatReadLedger
+            + gent_ports::AgentChatRunContextReader
+            + gent_ports::ConversationContentReader
+            + gent_ports::AgentChatWorkspaceLedger
+            + gent_ports::PolicyLedger
+            + gent_ports::ToolSourceLedger
+            + gent_ports::AttachmentLedger
+            + gent_ports::AgentChatConversationConfigLedger,
+        D: CodexPromptExecution + Clone,
+        R: PublicProviderResolver,
+    {
         let mcp_servers = runtime
             .runner()
             .codex_mcp_servers()?
@@ -146,7 +182,7 @@ impl LaunchSetup {
                 crate::conversation_scoped_mcp::scoped_servers(
                     &servers,
                     &self.selected_mcp_source_names,
-                    &prompt.message.conversation_id,
+                    conversation_id,
                 )
                 .map(|scoped| {
                     crate::conversation_scoped_mcp::filter_disallowed_servers(
@@ -157,18 +193,21 @@ impl LaunchSetup {
             })
             .transpose()
             .map_err(gent_ports::PublicProviderRunError::Failed)?;
-        Ok(CodexPromptStart {
-            working_directory: Some(self.working_directory),
-            workspace_root: self.workspace_root,
-            workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(self.mode),
-            prompt: prompt_text,
-            goal,
-            fresh_context,
-            turn_options: self.turn_options,
-            attachments,
-            mcp_servers,
-            interrupted_reply,
-        })
+        Ok((
+            CodexPromptStart {
+                working_directory: Some(self.working_directory),
+                workspace_root: self.workspace_root,
+                workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(self.mode),
+                prompt: String::new(),
+                goal: None,
+                fresh_context: None,
+                turn_options: self.turn_options,
+                attachments: Vec::new(),
+                mcp_servers,
+                interrupted_reply: None,
+            },
+            self.permission,
+        ))
     }
 }
 
