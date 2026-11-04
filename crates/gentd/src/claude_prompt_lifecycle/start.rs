@@ -89,6 +89,7 @@ where
                         session_recovery: super::SessionRecovery::NotNeeded,
                         failure_reported_turn: None,
                         open_children: std::collections::BTreeMap::new(),
+                        last_dispatch: 0,
                     },
                 );
                 Ok(ClaudePromptDispatchOutcome::Started { run_id })

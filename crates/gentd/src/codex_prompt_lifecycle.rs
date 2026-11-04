@@ -22,6 +22,7 @@ mod scheduler;
 mod start;
 mod steer;
 mod summary;
+mod warm_pool;
 pub(crate) use execution::CodexPromptExecution;
 pub(crate) use summary::CodexSummaryHook;
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,6 +46,7 @@ pub(super) struct Binding {
     releasing: bool,
     steers: Vec<AgentChatPromptSaved>,
     upgraded: bool,
+    last_dispatch: u64,
 }
 impl Binding {
     fn idle(&self) -> bool {
@@ -59,6 +61,8 @@ pub(crate) struct CodexPromptLifecycle<L, D, R> {
     active: BTreeMap<String, Binding>,
     summary_hook: Option<Arc<dyn CodexSummaryHook>>,
     compaction_notices: std::collections::BTreeSet<String>,
+    warm_capacity: usize,
+    dispatches: u64,
 }
 impl<L, D, R> CodexPromptLifecycle<L, D, R>
 where
@@ -91,7 +95,14 @@ where
             active: BTreeMap::new(),
             summary_hook: None,
             compaction_notices: std::collections::BTreeSet::new(),
+            warm_capacity: 1,
+            dispatches: 0,
         }
+    }
+
+    pub(crate) fn with_warm_capacity(mut self, capacity: usize) -> Self {
+        self.warm_capacity = capacity.max(1);
+        self
     }
 
     pub(crate) fn with_summary_hook(mut self, hook: Arc<dyn CodexSummaryHook>) -> Self {
@@ -135,16 +146,6 @@ where
                 let active_run = self.active.get(&prompt.run_id.0);
                 let reuses_settled_session = active_run.is_some_and(|binding| binding.settled)
                     && self.runner.has_codex_session(&prompt.run_id.0);
-                let other_settled_runs = self
-                    .active
-                    .iter()
-                    .filter(|(run_id, binding)| {
-                        run_id.as_str() != prompt.run_id.0.as_str()
-                            && binding.idle()
-                            && self.runner.has_codex_session(run_id)
-                    })
-                    .map(|(run_id, _)| run_id.clone())
-                    .collect::<Vec<_>>();
                 if active_run.is_some() && !reuses_settled_session {
                     self.runtime.release_prompt_claim(
                         &prompt.message.message_id,
@@ -153,11 +154,10 @@ where
                     )?;
                     return Ok(CodexPromptDispatchOutcome::Busy);
                 }
-                for run_id in &other_settled_runs {
-                    self.runner.release_codex_session(run_id)?;
-                    self.active.remove(run_id);
+                if !reuses_settled_session {
+                    self.make_room_for(&prompt)?;
                 }
-                start::prompt(
+                let outcome = start::prompt(
                     &self.runtime,
                     &self.runner,
                     &self.coordinator_id,
@@ -165,7 +165,9 @@ where
                     (*prompt).clone(),
                     host_epoch,
                 )
-                .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error))
+                .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error));
+                self.mark_dispatched(&prompt.run_id.0);
+                outcome
             }
         }
     }

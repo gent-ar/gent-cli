@@ -215,6 +215,7 @@ mod provider_lifecycle_host;
 mod provider_readiness_boundary;
 mod provider_readiness_transport;
 mod provider_resolver;
+mod provider_warm_pool;
 #[allow(dead_code)]
 mod public_driver_runtime;
 mod public_runs;

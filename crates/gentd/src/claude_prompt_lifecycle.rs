@@ -21,6 +21,7 @@ mod steer;
 mod summary;
 mod terminal;
 mod types;
+mod warm_pool;
 #[allow(unused_imports)]
 pub(crate) use execution::{ClaudePromptExecution, ClaudePromptRunner, ClaudePromptStart};
 pub(crate) use scheduler::ClaudeLifecycleTick;
@@ -37,6 +38,16 @@ pub(super) struct Binding {
     session_recovery: SessionRecovery,
     failure_reported_turn: Option<String>,
     open_children: std::collections::BTreeMap<String, bool>,
+    last_dispatch: u64,
+}
+
+impl Binding {
+    fn idle(&self) -> bool {
+        self.settled
+            && !self.interrupt_requested
+            && self.steers.is_empty()
+            && self.open_children.is_empty()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,6 +66,8 @@ pub(crate) struct ClaudePromptLifecycle<L, D, R> {
     summary_hook: Option<Arc<dyn ClaudeSummaryHook>>,
     compaction_notices: std::collections::BTreeSet<String>,
     shutdown_signaled: bool,
+    warm_capacity: usize,
+    dispatches: u64,
 }
 
 impl<L, D, R> ClaudePromptLifecycle<L, D, R>
@@ -89,7 +102,14 @@ where
             summary_hook: None,
             compaction_notices: std::collections::BTreeSet::new(),
             shutdown_signaled: false,
+            warm_capacity: 1,
+            dispatches: 0,
         }
+    }
+
+    pub(crate) fn with_warm_capacity(mut self, capacity: usize) -> Self {
+        self.warm_capacity = capacity.max(1);
+        self
     }
 
     pub(crate) fn with_summary_hook(mut self, hook: Arc<dyn ClaudeSummaryHook>) -> Self {
@@ -126,22 +146,12 @@ where
                 if let Err(error) = self.release_outdated_session(&prompt.run_id.0) {
                     return self.fail_dispatch(&prompt, host_epoch, error);
                 }
-                let other_settled = self
-                    .active
-                    .iter()
-                    .filter(|(run_id, binding)| {
-                        run_id.as_str() != prompt.run_id.0.as_str()
-                            && binding.settled
-                            && binding.steers.is_empty()
-                            && self.runner.has_claude_session(run_id)
-                    })
-                    .map(|(run_id, _)| run_id.clone())
-                    .collect::<Vec<_>>();
-                for run_id in other_settled {
-                    self.runner.release_claude_session(&run_id)?;
-                    self.active.remove(&run_id);
+                let reuses_session = self.active.contains_key(&prompt.run_id.0)
+                    && self.runner.has_claude_session(&prompt.run_id.0);
+                if !reuses_session {
+                    self.make_room_for(&prompt)?;
                 }
-                start::prompt(
+                let outcome = start::prompt(
                     &self.runtime,
                     &self.runner,
                     &self.coordinator_id,
@@ -149,7 +159,9 @@ where
                     (*prompt).clone(),
                     host_epoch,
                 )
-                .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error))
+                .or_else(|error| self.fail_dispatch(&prompt, host_epoch, error));
+                self.mark_dispatched(&prompt.run_id.0);
+                outcome
             }
         }
     }

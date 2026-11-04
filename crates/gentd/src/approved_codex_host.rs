@@ -69,7 +69,8 @@ where
         max_active: usize,
     ) -> Self {
         Self {
-            lifecycle: CodexPromptLifecycle::new(runtime, coordinator_id),
+            lifecycle: CodexPromptLifecycle::new(runtime, coordinator_id)
+                .with_warm_capacity(max_active),
             host_epoch,
             max_active: max_active.max(1),
         }

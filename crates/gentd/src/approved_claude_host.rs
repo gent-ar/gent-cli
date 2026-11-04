@@ -62,7 +62,8 @@ where
     ) -> Self {
         Self {
             lifecycle: {
-                let lifecycle = ClaudePromptLifecycle::new(runtime, coordinator_id);
+                let lifecycle = ClaudePromptLifecycle::new(runtime, coordinator_id)
+                    .with_warm_capacity(max_active);
                 match summary_hook {
                     Some(hook) => lifecycle.with_summary_hook(hook),
                     None => lifecycle,

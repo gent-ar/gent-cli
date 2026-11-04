@@ -83,6 +83,7 @@ where
                     releasing: false,
                     steers: Vec::new(),
                     upgraded,
+                    last_dispatch: 0,
                 },
             );
             Ok(CodexPromptDispatchOutcome::Started { run_id })
