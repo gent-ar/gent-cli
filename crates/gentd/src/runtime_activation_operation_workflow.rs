@@ -77,11 +77,14 @@ pub(super) fn activate(
         return Ok(existing);
     }
     authority::verify_bootstrap(&command.bootstrap_directory)?;
-    let actual = authority::bootstrap_identity(&command.bootstrap_directory)?;
-    if Some(actual.bootstrap_tree_sha256.as_str())
-        != command.expected_bootstrap_tree_sha256.as_deref()
-        || Some(actual.executable_digest_sha256.as_str())
-            != command.expected_daemon_sha256.as_deref()
+    let bootstrap_stat = authority::stage::stat(&command.bootstrap_directory)?;
+    let tree = authority::stage::scan(&command.bootstrap_directory)?;
+    let known = authority::record::Known {
+        executable: tree.digest(authority::daemon_name())?,
+        tree: tree.fingerprint.clone(),
+    };
+    if Some(known.tree.as_str()) != command.expected_bootstrap_tree_sha256.as_deref()
+        || Some(known.executable.as_str()) != command.expected_daemon_sha256.as_deref()
     {
         return Err("prepared bootstrap changed before durable acceptance".into());
     }
@@ -94,7 +97,7 @@ pub(super) fn activate(
     let selected_release = format!(
         "{}+{}.{}-{}",
         descriptor.version,
-        &actual.bootstrap_tree_sha256[..16],
+        &known.tree[..16],
         fingerprint,
         platform
     );
@@ -115,7 +118,24 @@ pub(super) fn activate(
     journal::write(&record, true)?;
     checkpoint("accepted")?;
     let mut completed_persisted = false;
-    let attempt = publish(&mut record, &held, &checkpoint, &mut completed_persisted);
+    let attempt = publish(
+        &mut record,
+        &held,
+        (&tree, &known),
+        &checkpoint,
+        &mut completed_persisted,
+    );
+    if attempt.is_ok()
+        && authority::stage::stat(&record.command.bootstrap_directory)? == bootstrap_stat
+    {
+        authority::record::write(
+            &held.root,
+            &record.selected_release,
+            &record.command.bootstrap_directory,
+            bootstrap_stat,
+            &known,
+        )?;
+    }
     match attempt {
         Ok(()) => Ok(record),
         Err(primary) => {
@@ -141,6 +161,7 @@ pub(super) fn activate(
 fn publish(
     record: &mut Record,
     held: &ActivationLease,
+    (tree, known): (&authority::stage::Tree, &authority::record::Known),
     checkpoint: &impl Fn(&str) -> Result<(), String>,
     completed_persisted: &mut bool,
 ) -> Result<(), String> {
@@ -149,14 +170,9 @@ fn publish(
     checkpoint("preparing")?;
     fs::create_dir_all(held.root.join("releases")).map_err(authority::display)?;
     authority::stage::publish(
-        &record.command.bootstrap_directory,
+        tree,
         &held.root,
         &held.root.join("releases").join(&record.selected_release),
-        record
-            .command
-            .expected_bootstrap_tree_sha256
-            .as_deref()
-            .ok_or("tree missing")?,
     )?;
     checkpoint("generationPublished")?;
     record.state = State::PublicationIntent;
@@ -170,18 +186,12 @@ fn publish(
     if !record.automatic_update_helper_verified {
         return Err("selected update helper was not verified".into());
     }
-    let result = authority::result(
+    record.result = Some(authority::result_known(
         &held.root,
         held,
         record.selected_release.clone(),
-        record.command.expected_daemon_sha256.as_deref(),
-    )?;
-    if Some(result.bootstrap_tree_sha256.as_str())
-        != record.command.expected_bootstrap_tree_sha256.as_deref()
-    {
-        return Err("activated tree changed before completion".into());
-    }
-    record.result = Some(result);
+        known,
+    )?);
     record.state = State::Completed;
     journal::write(record, false)?;
     *completed_persisted = true;

@@ -259,3 +259,5 @@ fn prepared_tree_identity_rejects_changed_non_daemon_files_before_publication() 
 
 #[path = "runtime_activation_cold_start_tests.rs"]
 mod cold_start_tests;
+#[path = "runtime_activation_fast_path_tests.rs"]
+mod fast_path_tests;

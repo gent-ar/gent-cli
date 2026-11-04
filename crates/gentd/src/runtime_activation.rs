@@ -18,6 +18,8 @@ mod files;
 use files::required_files;
 #[path = "runtime_activation_path.rs"]
 mod generation_path;
+#[path = "runtime_activation_record.rs"]
+mod record;
 #[path = "runtime_activation_stage.rs"]
 mod stage;
 #[path = "runtime_activation_version.rs"]
@@ -138,29 +140,45 @@ fn activate_at_expected(
         if expected_digest.is_some() || expected_tree.is_some() {
             return Err("a newer runtime was selected before repair activation".into());
         }
-        return result(
-            root,
-            &held,
-            current.ok_or("selected runtime missing")?,
-            None,
-        );
+        let current = current.ok_or("selected runtime missing")?;
+        return match record::release(root, &current) {
+            Some(known) => result_known(root, &held, current, &known),
+            None => result(root, &held, current, None),
+        };
     }
-    let daemon = bootstrap.join(if cfg!(windows) { "gentd.exe" } else { "gentd" });
-    let daemon_digest = stage::file_digest(&daemon)?;
-    if expected_digest.is_some_and(|expected| !daemon_digest.eq_ignore_ascii_case(expected)) {
+    let same_version = current.filter(|current| {
+        is_generation(current, &target) && version_of(current) == version_of(&descriptor.version)
+    });
+    let bootstrap_stat = stage::stat(&bootstrap)?;
+    if let Some(known) = same_version
+        .as_deref()
+        .and_then(|current| record::unchanged(root, current, &bootstrap, &bootstrap_stat))
+    {
+        if expected_digest.is_none_or(|expected| known.executable.eq_ignore_ascii_case(expected))
+            && expected_tree.is_none_or(|expected| known.tree.eq_ignore_ascii_case(expected))
+        {
+            let selected = same_version.ok_or("selected runtime missing")?;
+            let activated = result_known(root, &held, selected, &known)?;
+            schedule(scheduler, root, &held.data_dir);
+            return Ok(activated);
+        }
+    }
+    let tree = stage::scan(&bootstrap)?;
+    let known = record::Known {
+        executable: tree.digest(daemon_name())?,
+        tree: tree.fingerprint.clone(),
+    };
+    if expected_digest.is_some_and(|expected| !known.executable.eq_ignore_ascii_case(expected)) {
         return Err("prepared daemon no longer matches the planned executable digest".into());
     }
-    let fingerprint = stage::fingerprint(&bootstrap)?;
-    if expected_tree.is_some_and(|expected| !fingerprint.eq_ignore_ascii_case(expected)) {
+    if expected_tree.is_some_and(|expected| !known.tree.eq_ignore_ascii_case(expected)) {
         return Err("prepared runtime tree no longer matches the verified snapshot".into());
     }
-    let selected = current.filter(|current| {
-        is_generation(current, &target)
-            && version_of(current) == version_of(&descriptor.version)
-            && stage::fingerprint(&root.join("releases").join(current))
-                .ok()
-                .as_deref()
-                == Some(fingerprint.as_str())
+    let selected = same_version.filter(|current| {
+        record::release(root, current).map_or_else(
+            || stage::fingerprint(&root.join("releases").join(current)).ok(),
+            |release| Some(release.tree),
+        ) == Some(known.tree.clone())
     });
     let selected = if let Some(selected) = selected {
         selected
@@ -169,29 +187,32 @@ fn activate_at_expected(
         let generation = format!(
             "{}+{}.{}-{}",
             descriptor.version,
-            &fingerprint[..16],
+            &known.tree[..16],
             &nonce[..8],
             target
         );
         fs::create_dir_all(root.join("releases")).map_err(display)?;
-        stage::publish(
-            &bootstrap,
-            root,
-            &root.join("releases").join(&generation),
-            &fingerprint,
-        )?;
+        stage::publish(&tree, root, &root.join("releases").join(&generation))?;
         generation
     };
     select_release(root, &selected)?;
     refresh_auto_update_helper(root)?;
-    let activated = result(root, &held, selected, Some(&daemon_digest))?;
-    if activated.bootstrap_tree_sha256 != fingerprint {
-        return Err("activated runtime tree differs from the verified bootstrap".into());
+    let activated = result_known(root, &held, selected.clone(), &known)?;
+    if stage::stat(&bootstrap)? == bootstrap_stat {
+        record::write(root, &selected, &bootstrap, bootstrap_stat, &known)?;
     }
-    if let Err(error) = scheduler(root, &held.data_dir) {
+    schedule(scheduler, root, &held.data_dir);
+    Ok(activated)
+}
+
+fn schedule(scheduler: fn(&Path, &Path) -> Result<(), String>, root: &Path, data_dir: &Path) {
+    if let Err(error) = scheduler(root, data_dir) {
         eprintln!("Gent automatic-update scheduling was not refreshed: {error}");
     }
-    Ok(activated)
+}
+
+fn daemon_name() -> &'static str {
+    if cfg!(windows) { "gentd.exe" } else { "gentd" }
 }
 
 fn result(
@@ -200,29 +221,37 @@ fn result(
     selected: String,
     expected: Option<&str>,
 ) -> Result<ActivationResult, String> {
+    let verified = generation_path::open(root, &selected, daemon_name())?;
+    let known = record::Known {
+        executable: stage::file_digest_handle(&verified.file)?,
+        tree: stage::fingerprint(
+            verified
+                .path
+                .parent()
+                .ok_or("selected daemon has no runtime directory")?,
+        )?,
+    };
+    if expected.is_some_and(|expected| expected != known.executable) {
+        return Err("activated daemon differs from the verified bootstrap".into());
+    }
+    result_known(root, held, selected, &known)
+}
+
+fn result_known(
+    root: &Path,
+    held: &lease::ActivationLease,
+    selected: String,
+    known: &record::Known,
+) -> Result<ActivationResult, String> {
     if selected_release(root)?.as_deref() != Some(&selected) {
         return Err("runtime selection changed during activation".into());
     }
-    let verified = generation_path::open(
-        root,
-        &selected,
-        if cfg!(windows) { "gentd.exe" } else { "gentd" },
-    )?;
-    let daemon_path = verified.path.clone();
-    let executable_digest_sha256 = stage::file_digest_handle(&verified.file)?;
-    let bootstrap_tree_sha256 = stage::fingerprint(
-        daemon_path
-            .parent()
-            .ok_or("selected daemon has no runtime directory")?,
-    )?;
-    if expected.is_some_and(|expected| expected != executable_digest_sha256) {
-        return Err("activated daemon differs from the verified bootstrap".into());
-    }
+    let verified = generation_path::open(root, &selected, daemon_name())?;
     Ok(ActivationResult {
         schema: 1,
-        daemon_path,
-        executable_digest_sha256,
-        bootstrap_tree_sha256,
+        daemon_path: verified.path,
+        executable_digest_sha256: known.executable.clone(),
+        bootstrap_tree_sha256: known.tree.clone(),
         selected_release: selected,
         data_dir: held.data_dir.clone(),
         origin_host_epoch: held.origin_host_epoch,

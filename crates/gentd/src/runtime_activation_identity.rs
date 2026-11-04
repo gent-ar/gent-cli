@@ -13,13 +13,10 @@ pub(super) fn bootstrap_identity(source: &Path) -> Result<BootstrapIdentity, Str
     if descriptor.target != expected_target()? || !valid_version(&descriptor.version) {
         return Err("runtime bootstrap identity has incompatible metadata".into());
     }
+    let tree = stage::scan(&source)?;
     Ok(BootstrapIdentity {
         schema: 1,
-        bootstrap_tree_sha256: stage::fingerprint(&source)?,
-        executable_digest_sha256: stage::file_digest(&source.join(if cfg!(windows) {
-            "gentd.exe"
-        } else {
-            "gentd"
-        }))?,
+        executable_digest_sha256: tree.digest(super::daemon_name())?,
+        bootstrap_tree_sha256: tree.fingerprint,
     })
 }
