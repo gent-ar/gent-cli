@@ -259,3 +259,54 @@ async fn a_claurst_warm_up_reaches_its_async_owner_once_it_is_idle() {
     );
     task.abort();
 }
+
+#[derive(Debug)]
+struct StalledWarmHost;
+
+#[async_trait::async_trait]
+impl crate::ordinary_lifecycle_cadence::AsyncOrdinaryLifecycleHost for StalledWarmHost {
+    async fn activate_recovery(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    async fn drive_once(&mut self) -> Result<bool, String> {
+        Ok(false)
+    }
+    async fn begin_shutdown_after_recovery(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    async fn warm_claurst(&mut self, _: &str, _: &str) -> Result<(), String> {
+        std::future::pending().await
+    }
+    fn shutdown_complete(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn a_slow_claurst_warm_up_never_blocks_other_provider_prompts() {
+    let (control, cadence, mut wake, events, _, _, _) =
+        cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let task = tokio::spawn(cadence.run());
+    wait_for_ready(&control).await;
+    wake.attach_async_claurst(Box::new(StalledWarmHost))
+        .await
+        .unwrap();
+    let request = crate::provider_warm_pool::WarmPoolRequest {
+        now: std::time::Instant::now(),
+        target: Some(crate::provider_warm_pool::WarmTarget {
+            conversation_id: "conversation-claurst".into(),
+            run_id: "run-claurst".into(),
+        }),
+    };
+    assert_eq!(
+        wake.tend_warm_pool(Some(AgentChatProvider::Claurst), &request)
+            .unwrap(),
+        Some(gent_protocol::ProviderWarmOutcome::Warming)
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    events.lock().unwrap().clear();
+    wake.wake_after_prompt_commit(prompt()).unwrap();
+    wait_for(&events, 2).await;
+    assert!(events.lock().unwrap().contains(&"drive"));
+    task.abort();
+}
