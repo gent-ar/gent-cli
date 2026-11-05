@@ -7,6 +7,8 @@ const TARGET: &str = "aarch64-apple-darwin";
 const TARGET: &str = "x86_64-apple-darwin";
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const TARGET: &str = "x86_64-unknown-linux-gnu";
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const TARGET: &str = "aarch64-unknown-linux-gnu";
 
 #[cfg(not(windows))]
 #[test]
