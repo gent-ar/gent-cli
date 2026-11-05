@@ -35,17 +35,30 @@ def main():
             archive.writestr("bin/llama-server.exe", b"llama")
         claurst_digest = sha(tar_path.read_bytes())
         original = stage.ARTIFACTS
-        stage.ARTIFACTS = {"fixture": {"claurst": ("https://fixture.invalid/claurst.tar.gz", claurst_digest, "claurst.exe"), "llama": ("https://fixture.invalid/llama.zip", sha(zip_path.read_bytes()), "llama-server.exe")}}
+        stage.ARTIFACTS = {"fixture": {"claurst": ("https://fixture.invalid/claurst.tar.gz", claurst_digest, "claurst.exe"), "claurst_binary_sha256": sha(b"claurst"), "llama": ("https://fixture.invalid/llama.zip", sha(zip_path.read_bytes()), "llama-server.exe")}}
         import sys
         previous = sys.argv
         sys.argv = ["stage", "--target", "fixture", "--out-dir", str(output), "--source-dir", str(source)]
         stage.main()
         sys.argv = previous
+        original_fixture = stage.ARTIFACTS["fixture"]
         stage.ARTIFACTS = original
         assert (output / "claurst.exe").read_bytes() == b"claurst"
         assert (output / "llama/llama-server.exe").read_bytes() == b"llama"
         assert (output / "claurst.exe").stat().st_mode & 0o111
         assert (output / "llama/llama-server.exe").stat().st_mode & 0o111
+        stage.ARTIFACTS = {"fixture": {**original_fixture, "claurst_binary_sha256": sha(b"upstream")}}
+        sys.argv = ["stage", "--target", "fixture", "--out-dir", str(root / "rejected"), "--source-dir", str(source)]
+        try:
+            stage.main()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a Claurst binary other than the pinned Gent build was staged")
+        finally:
+            sys.argv = previous
+            stage.ARTIFACTS = original
+        assert not (root / "rejected" / "claurst.exe").exists()
         tampered = source / "claurst.tar.gz"
         tampered.write_bytes(b"bad")
         try:

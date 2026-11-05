@@ -243,3 +243,7 @@ impl ClaurstStandaloneLauncher for RoutedClaurstStandaloneLauncher {
             })
     }
 }
+
+#[cfg(test)]
+#[path = "claurst_staged_release_gate_tests.rs"]
+mod staged_release_gate_tests;

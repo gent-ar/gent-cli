@@ -198,8 +198,9 @@ jobs:
           tar -xf node-runtime.tar -C dist-runtime
           cp platform/authority/root-keys.json dist-runtime/authority/root-keys.json
           test -s dist-runtime/authority/ordinary-authority.json
-          python tools/stage-claurst-runtime.py --target "${{ matrix.target }}" --out-dir dist-runtime/claurst --profile release
+          python tools/stage-claurst-runtime.py --target "${{ matrix.target }}" --out-dir dist-runtime/claurst
           python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst --target "${{ matrix.target }}"
+          GENT_STAGED_CLAURST="dist-runtime/claurst/claurst${{ matrix.suffix }}" cargo test --locked --release -p gentd staged_release_gate -- --ignored
       - name: Verify signed authority against the staged runtime with this target's gentd
         shell: bash
         env:

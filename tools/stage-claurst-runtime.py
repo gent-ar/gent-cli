@@ -3,7 +3,6 @@ import argparse
 import hashlib
 import json
 import shutil
-import subprocess
 import tarfile
 import tempfile
 import urllib.request
@@ -23,6 +22,7 @@ def pinned_artifacts(path=PINS):
     return {
         target: {
             "claurst": (claurst[target]["url"], claurst[target]["sha256"], claurst[target]["binary"]),
+            "claurst_binary_sha256": claurst[target].get("binary_sha256"),
             "llama": (llama[target]["url"], llama[target]["sha256"], llama[target]["binary"]),
         }
         for target in claurst
@@ -36,9 +36,7 @@ def arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", required=True, choices=ARTIFACTS)
     parser.add_argument("--out-dir", type=Path, required=True)
-    parser.add_argument("--profile", choices=("debug", "release"), default="debug")
     parser.add_argument("--source-dir", type=Path)
-    parser.add_argument("--claurst-source-dir", type=Path)
     return parser.parse_args()
 
 
@@ -137,29 +135,10 @@ def source_for(directory, url, expected):
         raise
 
 
-def stage_claurst_source(source, destination, profile, target):
-    manifest = source / "src-rust" / "Cargo.toml"
-    if not manifest.is_file():
-        raise ValueError(f"Claurst source does not contain {manifest}")
-    command = [
-        "cargo",
-        "build",
-        "--manifest-path",
-        str(manifest),
-        "--bin",
-        "claurst",
-        "--target",
-        target,
-    ]
-    if profile == "release":
-        command.append("--release")
-    subprocess.run(command, check=True)
-    binary_name = "claurst.exe" if destination.suffix == ".exe" else "claurst"
-    binary = source / "src-rust" / "target" / target / profile / binary_name
-    if not binary.is_file():
-        raise ValueError(f"Claurst source did not build {binary}")
-    shutil.copy2(binary, destination)
-    destination.chmod(0o755)
+def require_gent_build(binary, expected):
+    if expected is None or digest(binary) != expected:
+        binary.unlink(missing_ok=True)
+        raise ValueError("staged Claurst is not the pinned Gent build")
 
 
 def main():
@@ -167,18 +146,16 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
     staged = []
     try:
-        for kind, (url, expected, name) in ARTIFACTS[args.target].items():
-            if kind == "claurst" and args.claurst_source_dir is not None:
-                stage_claurst_source(
-                    args.claurst_source_dir, args.out_dir / name, args.profile, args.target
-                )
-                continue
+        pinned = ARTIFACTS[args.target]
+        for kind in ("claurst", "llama"):
+            url, expected, name = pinned[kind]
             archive = source_for(args.source_dir, url, expected)
             staged.append(archive)
             if kind == "llama":
                 extract_llama_runtime(archive, args.out_dir / "llama")
             else:
                 extract(archive, name, args.out_dir / name)
+                require_gent_build(args.out_dir / name, pinned["claurst_binary_sha256"])
                 (args.out_dir / name).chmod(0o755)
     finally:
         for archive in staged:

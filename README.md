@@ -212,7 +212,7 @@ to prefetch one. The local runtime requires the packaged Claurst and llama.cpp f
 They require the explicit persistence profile's `orchestration-v1` capability, make/read only daemon-owned graph records, and never schedule or start a provider worker.
 ## Development
 
-For source-built standalone Claurst run `make bootstrap-dev-claurst-runtime` to stage the digest-checked upstream Claurst and llama.cpp runtime beside debug Gentd; for Claude or Codex prompts set `GENT_NODE_BINARY` to a Node executable with sibling npm files. Published releases bundle these runtimes automatically.
+For source-built standalone Claurst run `make bootstrap-dev-claurst-runtime` to stage the pinned Gent Claurst build and llama.cpp runtime beside debug Gentd; for Claude or Codex prompts set `GENT_NODE_BINARY` to a Node executable with sibling npm files. Published releases bundle these runtimes automatically.
 To reclaim build space, run `make clean-spaces` from any directory; it anchors itself here and removes only reproducible Cargo `target/` artifacts and optional `.cargo-cache/`, never `.gentd/`, `.gent/`, `GENT_DATA_DIR`, or the shared Cargo home cache.
 
 ```sh
