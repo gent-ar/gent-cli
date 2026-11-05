@@ -72,7 +72,7 @@ def main():
 
 
 def check_pinned_artifacts():
-    assert stage.ARTIFACTS["aarch64-apple-darwin"]["claurst"][0].endswith("/v0.1.7/claurst-macos-aarch64.tar.gz")
+    assert stage.ARTIFACTS["aarch64-apple-darwin"]["claurst"][0].endswith("/v0.1.7-gent.mcp1/claurst-macos-aarch64.tar.gz")
     assert stage.ARTIFACTS["aarch64-apple-darwin"]["llama"][2] == "llama-server"
     import json
     with tempfile.TemporaryDirectory() as directory:

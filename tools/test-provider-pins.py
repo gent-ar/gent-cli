@@ -121,7 +121,7 @@ def test_repository_pins_have_contract_snapshots_of_the_executed_native_binaries
     codex = pins["providers"]["codex"]["targets"]["darwin-arm64"]
     assert codex["package"]["version"] == pins["providers"]["codex"]["version"] + "-darwin-arm64"
     assert codex["executable"] == "@openai/codex/vendor/aarch64-apple-darwin/bin/codex"
-    assert pins["providers"]["claurst"]["release_tag"] == "v" + pins["providers"]["claurst"]["version"]
+    assert pins["providers"]["claurst"]["release_tag"] == "v" + pins["providers"]["claurst"]["version"] + "-gent.mcp1"
 
 
 def platform_tarball(root: Path, members: dict[str, bytes]) -> Path:
