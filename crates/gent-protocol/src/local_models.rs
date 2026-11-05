@@ -42,6 +42,7 @@ pub enum LocalModelDownloadFailure {
     AlreadyDownloading,
     StorageUnavailable,
     TransportFailed,
+    Stalled,
     VerificationFailed,
     Cancelled,
     ModelFileMissing,

@@ -19,13 +19,17 @@ struct VerifiedFile {
 }
 
 pub(crate) fn file_sha256(path: &Path) -> Result<String> {
+    file_digest(path).map(|hasher| hex::encode(hasher.finalize()))
+}
+
+pub(crate) fn file_digest(path: &Path) -> Result<Sha256> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 8_192];
     loop {
         let count = file.read(&mut buffer)?;
         if count == 0 {
-            return Ok(hex::encode(hasher.finalize()));
+            return Ok(hasher);
         }
         hasher.update(&buffer[..count]);
     }

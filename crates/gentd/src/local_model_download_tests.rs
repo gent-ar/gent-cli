@@ -207,3 +207,90 @@ async fn wrong_digest_removes_partial_so_the_next_attempt_starts_clean() {
     assert!(download_model(&plan, &retry, |_| {}).await.is_ok());
     assert_eq!(captured.lock().unwrap().as_ref().unwrap().range_start, None);
 }
+
+#[derive(Debug)]
+struct StallingTransport {
+    requests: Mutex<Vec<Option<u64>>>,
+    responses: Mutex<Vec<(u16, Vec<u8>)>>,
+}
+
+#[derive(Debug)]
+struct StallingResponse {
+    status: u16,
+    chunk: Vec<u8>,
+}
+
+#[async_trait]
+impl ModelDownloadTransport for StallingTransport {
+    async fn get(
+        &self,
+        request: DownloadRequest,
+    ) -> Result<Box<dyn ModelDownloadResponse>, ModelDownloadError> {
+        self.requests.lock().unwrap().push(request.range_start);
+        let mut responses = self.responses.lock().unwrap();
+        let (status, chunk) = responses.pop().unwrap_or((206, Vec::new()));
+        Ok(Box::new(StallingResponse { status, chunk }))
+    }
+}
+
+#[async_trait]
+impl ModelDownloadResponse for StallingResponse {
+    fn status(&self) -> u16 {
+        self.status
+    }
+
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ModelDownloadError> {
+        if self.chunk.is_empty() {
+            std::future::pending().await
+        } else {
+            Ok(Some(std::mem::take(&mut self.chunk)))
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stalled_response_resumes_from_the_bytes_already_received() {
+    let (_directory, plan) = plan(5);
+    let transport = StallingTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(vec![(206, b"cde".to_vec()), (200, b"ab".to_vec())]),
+    };
+    let path = download_model(&plan, &transport, |_| {}).await.unwrap();
+    assert_eq!(std::fs::read(path).unwrap(), b"abcde");
+    assert_eq!(*transport.requests.lock().unwrap(), vec![None, Some(2)]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_download_that_keeps_stalling_fails_typed_and_keeps_its_partial() {
+    let (_directory, plan) = plan(5);
+    let transport = StallingTransport {
+        requests: Mutex::new(Vec::new()),
+        responses: Mutex::new(vec![(200, b"ab".to_vec())]),
+    };
+    assert_eq!(
+        download_model(&plan, &transport, |_| {}).await,
+        Err(ModelDownloadError::Stalled(30))
+    );
+    assert_eq!(
+        *transport.requests.lock().unwrap(),
+        vec![None, Some(2), Some(2)]
+    );
+    assert_eq!(std::fs::read(&plan.partial_destination).unwrap(), b"ab");
+    assert!(!plan.destination.exists());
+}
+
+#[tokio::test]
+async fn a_complete_partial_is_verified_and_published_without_a_request() {
+    let (_directory, plan) = plan(5);
+    std::fs::create_dir_all(plan.partial_destination.parent().unwrap()).unwrap();
+    std::fs::write(&plan.partial_destination, b"abcde").unwrap();
+    let captured = Arc::new(Mutex::new(None));
+    let transport = FakeTransport {
+        request: Arc::clone(&captured),
+        status: 206,
+        chunks: Vec::new(),
+    };
+    let path = download_model(&plan, &transport, |_| {}).await.unwrap();
+    assert_eq!(std::fs::read(path).unwrap(), b"abcde");
+    assert!(captured.lock().unwrap().is_none());
+}
