@@ -34,8 +34,6 @@ def main():
                 str(output),
                 "--source-dir",
                 "cache",
-                "--claurst-source-dir",
-                "upstream",
             ]
             bootstrap.main()
         finally:
@@ -49,12 +47,8 @@ def main():
             "aarch64-apple-darwin",
             "--out-dir",
             str(output),
-            "--profile",
-            "debug",
             "--source-dir",
             "cache",
-            "--claurst-source-dir",
-            "upstream",
         ]
         calls.clear()
         try:

@@ -52,6 +52,7 @@ keyring = { version = "=3.6.3", default-features = false, features = ["sync-secr
 [dev-dependencies]
 rusqlite.workspace = true
 gent-testkit = { path = "../gent-testkit" }
+tokio = { workspace = true, features = ["test-util"] }
 
 [[bin]]
 name = "gentd"

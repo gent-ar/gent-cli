@@ -45,7 +45,11 @@ fn publish(
 }
 
 pub(crate) fn failure_for(message: &str) -> LocalModelDownloadFailure {
-    if message.contains("not in Gent's curated catalog") || message.contains("unknown curated") {
+    if message.contains("download stalled") {
+        LocalModelDownloadFailure::Stalled
+    } else if message.contains("not in Gent's curated catalog")
+        || message.contains("unknown curated")
+    {
         LocalModelDownloadFailure::UnknownModel
     } else if message.contains("already active") {
         LocalModelDownloadFailure::AlreadyDownloading
@@ -74,8 +78,14 @@ pub(crate) const fn failure_text(reason: LocalModelDownloadFailure) -> &'static 
         LocalModelDownloadFailure::AlreadyDownloading => "already downloading",
         LocalModelDownloadFailure::StorageUnavailable => "storage unavailable",
         LocalModelDownloadFailure::TransportFailed => "transport failed",
+        LocalModelDownloadFailure::Stalled => {
+            "the model download stopped receiving data; check the connection and send again"
+        }
         LocalModelDownloadFailure::VerificationFailed => "verification failed",
         LocalModelDownloadFailure::Cancelled => "download canceled",
+        LocalModelDownloadFailure::ModelFileMissing => {
+            "the local model file is missing or changed since it was added"
+        }
     }
 }
 
@@ -94,6 +104,10 @@ mod tests {
         assert_eq!(
             failure_for("local model file is not a regular file"),
             LocalModelDownloadFailure::StorageUnavailable
+        );
+        assert_eq!(
+            failure_for("download stalled: no data arrived for 30 seconds"),
+            LocalModelDownloadFailure::Stalled
         );
         assert_eq!(
             failure_for("download transport failed: connection reset"),

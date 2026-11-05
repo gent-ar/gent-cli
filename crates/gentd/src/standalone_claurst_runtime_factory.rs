@@ -149,7 +149,27 @@ impl StandaloneClaurstBridge {
 #[async_trait]
 impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
     async fn ensure_for_prompt(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
-        self.start_selected(saved).await
+        self.start_selected(
+            &saved.message.conversation_id,
+            &saved.run_id.0,
+            &saved.tool_source_ids,
+        )
+        .await
+    }
+
+    async fn warm(&self, conversation_id: &str, run_id: &str) -> Result<(), String> {
+        self.start_selected(conversation_id, run_id, &[]).await?;
+        let initialized = match self.active_bridge().await {
+            Ok(bridge) => bridge.initialize().await,
+            Err(error) => Err(error),
+        };
+        match initialized {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.stop_active().await?;
+                Err(error.to_string())
+            }
+        }
     }
 
     async fn after_prompt_settled(&self, conversation_id: &str) -> Result<(), String> {

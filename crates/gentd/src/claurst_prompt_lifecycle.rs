@@ -233,14 +233,15 @@ where
         self.interrupt_run(run_id).await
     }
     async fn interrupt_claurst_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), String> {
-        // The cadence holds this lifecycle's mutex until cancel completes;
-        // neither provider advancement nor compaction can replace the target.
         if !self.active.values().any(|active| {
             active.saved.run_id.0 == run_id && active.saved.message.turn_id == turn_id
         }) {
             return Err("the interrupt target turn is no longer active".into());
         }
         self.interrupt_run(run_id).await
+    }
+    async fn warm_claurst(&mut self, conversation_id: &str, run_id: &str) -> Result<(), String> {
+        self.warm(conversation_id, run_id).await
     }
     async fn activate_recovery(&mut self) -> Result<(), String> {
         self.dispatches.recover(self.host_epoch).map_err(display)?;

@@ -21,7 +21,10 @@ struct RecordingPort {
 }
 
 impl ModelCatalogPort for RecordingPort {
-    fn exchange(&self, frame: ModelCatalogFrame) -> Result<ModelCatalogFrame, String> {
+    fn exchange(
+        &self,
+        frame: ModelCatalogFrame,
+    ) -> Result<ModelCatalogFrame, super::ModelCatalogRejection> {
         self.requests.lock().unwrap().push(frame);
         Ok(ModelCatalogFrame::ModelCatalog {
             request_id: "catalog-1".into(),

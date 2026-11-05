@@ -8,6 +8,7 @@ use gent_types::{AgentChatEffort, AgentChatProvider};
 
 use super::service::{ModelCatalogSource, ProviderListing};
 use crate::{
+    local_model_catalog::LocalModelSource as RecordSource,
     provider_launch_budget::ProviderLaunchError,
     standalone_authority_composition::StandaloneClaurstModels,
 };
@@ -41,23 +42,32 @@ impl ModelCatalogSource for LocalModelSource {
     fn load(&self) -> Result<ProviderListing, ProviderLaunchError> {
         let models = self
             .models
-            .catalogue()
+            .provisioner
+            .models()
             .into_iter()
-            .map(|descriptor| {
+            .map(|record| {
                 let install = self
                     .models
-                    .install_state(&descriptor.id)
+                    .install_state(&record.id)
                     .map_err(|error| error.to_string())?;
+                let file_name = match &record.source {
+                    RecordSource::Curated { .. } => None,
+                    RecordSource::UserFile { path, .. } => path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned()),
+                };
                 Ok(CatalogModel {
-                    is_default: descriptor.id == DEFAULT_LOCAL_MODEL_ID,
-                    id: descriptor.id,
-                    label: descriptor.label,
+                    is_default: record.id == DEFAULT_LOCAL_MODEL_ID,
+                    id: record.id,
+                    label: record.label,
                     description: None,
                     efforts: LOCAL_EFFORTS.to_vec(),
                     default_effort: Some(AgentChatEffort::Medium),
                     local: Some(LocalModelAvailability {
-                        size_bytes: descriptor.size_bytes,
+                        size_bytes: record.size_bytes,
                         install,
+                        removable: file_name.is_some(),
+                        file_name,
                     }),
                 })
             })

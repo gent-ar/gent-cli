@@ -18,6 +18,8 @@ async fn local_models_report_size_and_install_state_with_the_small_model_as_defa
         Some(LocalModelAvailability {
             size_bytes: 1_282_439_264,
             install: LocalModelInstallState::NotInstalled,
+            removable: false,
+            file_name: None,
         })
     );
     assert!(listing.models[1..].iter().all(|model| !model.is_default));

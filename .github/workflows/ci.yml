@@ -142,8 +142,9 @@ jobs:
           node_args=()
           if [ "$RUNNER_OS" = "Windows" ]; then node_args+=(--windows); fi
           python tools/stage-node-runtime.py --node node --out-dir dist-runtime/node "${node_args[@]}"
-          python tools/stage-claurst-runtime.py --target "$RELEASE_TARGET" --out-dir dist-runtime/claurst --profile release
+          python tools/stage-claurst-runtime.py --target "$RELEASE_TARGET" --out-dir dist-runtime/claurst
           python tools/test-staged-claurst-runtime.py --runtime-dir dist-runtime/claurst --target "$RELEASE_TARGET"
+          GENT_STAGED_CLAURST="dist-runtime/claurst/claurst$RELEASE_SUFFIX" cargo test --locked --release -p gentd staged_release_gate -- --ignored
           python - <<'PY'
           import json, pathlib
           root = pathlib.Path('dist-runtime/authority')

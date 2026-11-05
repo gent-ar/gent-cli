@@ -1,6 +1,5 @@
 use gent_ports::ConversationLedger;
 use gent_protocol::{AgentChatIntentFrame, AgentChatProviderWarm, ProviderWarmOutcome};
-use gent_types::AgentChatProvider;
 
 use super::RuntimeFacade;
 use crate::agent_chat_intent_error::AgentChatIntentError;
@@ -32,9 +31,6 @@ impl RuntimeFacade {
             .ok_or("agent-chat reads are unavailable")?
             .run_selection(&warm.conversation_id.0, &warm.run_id.0)?
             .provider;
-        if provider == AgentChatProvider::Claurst {
-            return Ok(ProviderWarmOutcome::UnsupportedProvider);
-        }
         let active_turn = self
             .transcript_import_ledger
             .list_run_turns(&warm.run_id.0)

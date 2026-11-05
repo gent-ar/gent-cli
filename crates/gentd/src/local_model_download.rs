@@ -1,15 +1,19 @@
 //! Resumable HTTP download execution for a previously approved local-model plan.
 
 use crate::{
-    local_model_integrity::{matches_sha256, remember_sha256},
+    local_model_integrity::{file_digest, remember_sha256},
     local_model_provisioning::LocalModelDownloadPlan,
 };
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 const PROGRESS_INCREMENT_BYTES: u64 = 1_048_576;
+const STALL_TIMEOUT: Duration = Duration::from_secs(30);
+const STALL_RETRIES: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DownloadRequest {
@@ -57,6 +61,8 @@ pub(crate) enum ModelDownloadError {
     },
     #[error("download does not match the curated SHA-256")]
     DigestMismatch,
+    #[error("download stalled: no data arrived for {0} seconds")]
+    Stalled(u64),
     #[error("download transport failed: {0}")]
     Transport(String),
     #[error("local model download I/O failed: {0}")]
@@ -77,58 +83,9 @@ pub(crate) trait ModelDownloadResponse: std::fmt::Debug + Send {
     async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ModelDownloadError>;
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct ReqwestModelDownloadTransport {
-    client: reqwest::Client,
-}
-
-impl ReqwestModelDownloadTransport {
-    #[must_use]
-    pub(crate) fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
-    }
-}
-
-#[async_trait]
-impl ModelDownloadTransport for ReqwestModelDownloadTransport {
-    async fn get(
-        &self,
-        request: DownloadRequest,
-    ) -> Result<Box<dyn ModelDownloadResponse>, ModelDownloadError> {
-        let mut request_builder = self.client.get(request.url);
-        if let Some(start) = request.range_start {
-            request_builder =
-                request_builder.header(reqwest::header::RANGE, format!("bytes={start}-"));
-        }
-        let response = request_builder
-            .send()
-            .await
-            .map_err(|error| ModelDownloadError::Transport(error.to_string()))?;
-        Ok(Box::new(ReqwestModelDownloadResponse { response }))
-    }
-}
-
-#[derive(Debug)]
-struct ReqwestModelDownloadResponse {
-    response: reqwest::Response,
-}
-
-#[async_trait]
-impl ModelDownloadResponse for ReqwestModelDownloadResponse {
-    fn status(&self) -> u16 {
-        self.response.status().as_u16()
-    }
-
-    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, ModelDownloadError> {
-        self.response
-            .chunk()
-            .await
-            .map(|chunk| chunk.map(|chunk| chunk.to_vec()))
-            .map_err(|error| ModelDownloadError::Transport(error.to_string()))
-    }
-}
+#[path = "local_model_download_http.rs"]
+mod http;
+pub(crate) use http::ReqwestModelDownloadTransport;
 
 pub(crate) async fn download_model(
     plan: &LocalModelDownloadPlan,
@@ -152,22 +109,58 @@ pub(crate) async fn download_model(
         .parent()
         .ok_or_else(|| ModelDownloadError::Io("partial destination has no parent".into()))?;
     fs::create_dir_all(parent).map_err(io_error)?;
-    if resumed_bytes == plan.expected_bytes {
-        if !matches_sha256(&plan.partial_destination, &plan.expected_sha256).map_err(io_error)? {
-            remove_partial(&plan.partial_destination)?;
-            return Err(ModelDownloadError::DigestMismatch);
+    let mut received = Received {
+        bytes: resumed_bytes,
+        reported_bytes: resumed_bytes,
+        digest: if resumed_bytes == 0 {
+            Sha256::new()
+        } else {
+            file_digest(&plan.partial_destination).map_err(io_error)?
+        },
+    };
+    let mut stalls = 0;
+    while received.bytes < plan.expected_bytes {
+        match receive(plan, transport, &mut received, &mut report).await {
+            Err(ModelDownloadError::Stalled(_)) if stalls < STALL_RETRIES => stalls += 1,
+            result => {
+                result?;
+                break;
+            }
         }
-        return publish(plan, &mut report);
     }
-    let mut response = transport
-        .get(DownloadRequest {
-            url: plan.source_url.clone(),
-            range_start: (resumed_bytes != 0).then_some(resumed_bytes),
-        })
-        .await?;
-    validate_status(response.status(), resumed_bytes)?;
+    if received.bytes != plan.expected_bytes {
+        return Err(ModelDownloadError::SizeMismatch {
+            actual_bytes: received.bytes,
+            expected_bytes: plan.expected_bytes,
+        });
+    }
+    if hex::encode(received.digest.finalize()) != plan.expected_sha256 {
+        remove_partial(&plan.partial_destination)?;
+        return Err(ModelDownloadError::DigestMismatch);
+    }
+    publish(plan, &mut report)
+}
+
+struct Received {
+    bytes: u64,
+    reported_bytes: u64,
+    digest: Sha256,
+}
+
+async fn receive(
+    plan: &LocalModelDownloadPlan,
+    transport: &dyn ModelDownloadTransport,
+    received: &mut Received,
+    report: &mut impl FnMut(ModelDownloadProgress),
+) -> Result<(), ModelDownloadError> {
+    let mut response = within_stall_timeout(transport.get(DownloadRequest {
+        url: plan.source_url.clone(),
+        range_start: (received.bytes != 0).then_some(received.bytes),
+    }))
+    .await?;
+    validate_status(response.status(), received.bytes)?;
     report(ModelDownloadProgress::Started {
-        downloaded_bytes: resumed_bytes,
+        downloaded_bytes: received.bytes,
         total_bytes: plan.expected_bytes,
     });
     let mut output = OpenOptions::new()
@@ -175,22 +168,19 @@ pub(crate) async fn download_model(
         .append(true)
         .open(&plan.partial_destination)
         .map_err(io_error)?;
-    let mut downloaded_bytes = resumed_bytes;
-    let mut last_reported_bytes = resumed_bytes;
-    while let Some(chunk) = response.next_chunk().await? {
-        downloaded_bytes = downloaded_bytes.checked_add(chunk.len() as u64).ok_or(
-            ModelDownloadError::ExceededApprovedSize {
+    while let Some(chunk) = within_stall_timeout(response.next_chunk()).await? {
+        let downloaded_bytes = received
+            .bytes
+            .checked_add(chunk.len() as u64)
+            .filter(|bytes| *bytes <= plan.expected_bytes)
+            .ok_or(ModelDownloadError::ExceededApprovedSize {
                 expected_bytes: plan.expected_bytes,
-            },
-        )?;
-        if downloaded_bytes > plan.expected_bytes {
-            return Err(ModelDownloadError::ExceededApprovedSize {
-                expected_bytes: plan.expected_bytes,
-            });
-        }
+            })?;
         output.write_all(&chunk).map_err(io_error)?;
+        received.digest.update(&chunk);
+        received.bytes = downloaded_bytes;
         if downloaded_bytes == plan.expected_bytes
-            || downloaded_bytes.saturating_sub(last_reported_bytes) >= PROGRESS_INCREMENT_BYTES
+            || downloaded_bytes.saturating_sub(received.reported_bytes) >= PROGRESS_INCREMENT_BYTES
         {
             if plan.destination.exists() {
                 drop(output);
@@ -203,21 +193,18 @@ pub(crate) async fn download_model(
                 downloaded_bytes,
                 total_bytes: plan.expected_bytes,
             });
-            last_reported_bytes = downloaded_bytes;
+            received.reported_bytes = downloaded_bytes;
         }
     }
-    output.sync_all().map_err(io_error)?;
-    if downloaded_bytes != plan.expected_bytes {
-        return Err(ModelDownloadError::SizeMismatch {
-            actual_bytes: downloaded_bytes,
-            expected_bytes: plan.expected_bytes,
-        });
-    }
-    if !matches_sha256(&plan.partial_destination, &plan.expected_sha256).map_err(io_error)? {
-        remove_partial(&plan.partial_destination)?;
-        return Err(ModelDownloadError::DigestMismatch);
-    }
-    publish(plan, &mut report)
+    output.sync_all().map_err(io_error)
+}
+
+async fn within_stall_timeout<T>(
+    operation: impl Future<Output = Result<T, ModelDownloadError>>,
+) -> Result<T, ModelDownloadError> {
+    tokio::time::timeout(STALL_TIMEOUT, operation)
+        .await
+        .map_err(|_| ModelDownloadError::Stalled(STALL_TIMEOUT.as_secs()))?
 }
 
 fn publish(

@@ -36,9 +36,15 @@ fn model(id: &str, efforts: Vec<AgentChatEffort>) -> CatalogModel {
 }
 
 impl crate::runtime_facade::ModelCatalogPort for Catalog {
-    fn exchange(&self, frame: ModelCatalogFrame) -> Result<ModelCatalogFrame, String> {
+    fn exchange(
+        &self,
+        frame: ModelCatalogFrame,
+    ) -> Result<
+        ModelCatalogFrame,
+        crate::runtime_facade::model_catalog::transport::ModelCatalogRejection,
+    > {
         let ModelCatalogFrame::ReadModelCatalog { request_id, .. } = frame else {
-            return Err("unexpected".into());
+            return Err(String::from("unexpected").into());
         };
         let entry = |provider, models| ProviderModelCatalog {
             provider,

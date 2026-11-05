@@ -68,8 +68,12 @@ pub(crate) const fn failure_label(reason: LocalModelDownloadFailure) -> &'static
         LocalModelDownloadFailure::AlreadyDownloading => "it is already downloading",
         LocalModelDownloadFailure::StorageUnavailable => "the model storage is unavailable",
         LocalModelDownloadFailure::TransportFailed => "the download connection failed",
+        LocalModelDownloadFailure::Stalled => "the download stopped receiving data",
         LocalModelDownloadFailure::VerificationFailed => "the downloaded file failed verification",
         LocalModelDownloadFailure::Cancelled => "canceled",
+        LocalModelDownloadFailure::ModelFileMissing => {
+            "its file is missing or changed since it was added"
+        }
     }
 }
 

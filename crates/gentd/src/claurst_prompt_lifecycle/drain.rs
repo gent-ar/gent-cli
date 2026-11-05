@@ -10,6 +10,13 @@ where
     B: PrivateClaurstBridge,
     F: ClaurstRuntimeFactory,
 {
+    pub(super) async fn warm(&self, conversation_id: &str, run_id: &str) -> Result<(), String> {
+        if !self.recovery_complete || self.shutdown_requested || !self.active.is_empty() {
+            return Ok(());
+        }
+        self.runtime.warm(conversation_id, run_id).await
+    }
+
     pub(super) async fn drain_active(&mut self) -> Result<bool, String> {
         let sources: Vec<_> = self.active.keys().cloned().collect();
         let mut active = false;

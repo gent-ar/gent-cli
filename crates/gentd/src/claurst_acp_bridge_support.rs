@@ -3,7 +3,20 @@ use gent_ports::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::claurst_acp_transport::{ClaurstAcpFact, ClaurstAcpTerminal, ClaurstAcpTransportError};
+use crate::claurst_acp_transport::{
+    ClaurstAcpFact, ClaurstAcpStdio, ClaurstAcpTerminal, ClaurstAcpTransportError,
+};
+
+pub(super) fn initialize_blocking<S: ClaurstAcpStdio>(
+    state: &std::sync::Mutex<super::BridgeState<S>>,
+) -> Result<(), PortError> {
+    state
+        .lock()
+        .map_err(|_| unavailable("ACP bridge lock"))?
+        .transport
+        .initialize()
+        .map_err(provider)
+}
 
 pub(super) fn project(fact: ClaurstAcpFact) -> ClaurstFactValue {
     match fact {

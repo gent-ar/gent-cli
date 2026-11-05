@@ -40,6 +40,8 @@ pub(crate) fn catalog() -> ModelCatalog {
     small.local = Some(LocalModelAvailability {
         size_bytes: 1,
         install: LocalModelInstallState::NotInstalled,
+        removable: false,
+        file_name: None,
     });
     ModelCatalog {
         default_selection: ModelCatalogSelection {

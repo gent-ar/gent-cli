@@ -55,29 +55,26 @@ impl StandaloneClaurstModels {
         &self,
         model_id: &str,
     ) -> Result<StandaloneClaurstModelStatus, StandaloneAuthorityError> {
-        let plan = self
-            .provisioner
-            .plan(model_id)
-            .map_err(|_| StandaloneAuthorityError::UnknownClaurstModel)?;
-        match self
-            .provisioner
-            .state(model_id)
-            .map_err(|_| StandaloneAuthorityError::ClaurstStorage)?
-        {
-            ModelInstallState::NotInstalled => Ok(StandaloneClaurstModelStatus::DownloadRequired {
-                plan,
-                downloaded_bytes: 0,
-            }),
-            ModelInstallState::Downloading { downloaded_bytes } => {
-                Ok(StandaloneClaurstModelStatus::DownloadRequired {
-                    plan,
-                    downloaded_bytes,
-                })
+        let downloaded_bytes = match self.provisioner.state(model_id) {
+            Err(crate::local_model_provisioning::LocalModelProvisioningError::UnknownModel(_)) => {
+                return Err(StandaloneAuthorityError::UnknownClaurstModel);
             }
-            ModelInstallState::Ready { path } => {
-                Ok(StandaloneClaurstModelStatus::Ready { model_path: path })
+            Ok(ModelInstallState::Ready { path }) => {
+                return Ok(StandaloneClaurstModelStatus::Ready { model_path: path });
             }
-        }
+            Ok(ModelInstallState::NotInstalled) => 0,
+            Ok(ModelInstallState::Downloading { downloaded_bytes }) => downloaded_bytes,
+            Ok(ModelInstallState::Missing) | Err(_) => {
+                return Err(StandaloneAuthorityError::ClaurstStorage);
+            }
+        };
+        Ok(StandaloneClaurstModelStatus::DownloadRequired {
+            plan: self
+                .provisioner
+                .plan(model_id)
+                .map_err(|_| StandaloneAuthorityError::UnknownClaurstModel)?,
+            downloaded_bytes,
+        })
     }
 
     pub(crate) fn catalogue(&self) -> Vec<LocalModelDescriptor> {

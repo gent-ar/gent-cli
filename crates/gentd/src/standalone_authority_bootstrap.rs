@@ -153,7 +153,10 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         provider_release: authority_release.is_some(),
         provisioned: Some(std::sync::Arc::new(provisioned)),
     });
-    stages::serve_until_stopped(authority, runtime, &args, &data_dir).await
+    Box::pin(stages::serve_until_stopped(
+        authority, runtime, &args, &data_dir,
+    ))
+    .await
 }
 
 fn standalone_capability_profile(provider_provision: bool) -> RuntimeCapabilityProfile {

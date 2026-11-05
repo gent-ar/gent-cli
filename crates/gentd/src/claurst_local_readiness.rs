@@ -42,30 +42,25 @@ impl ClaurstLocalReadinessService {
         request: ClaurstLocalRuntimeRequest,
         port: u16,
     ) -> Result<ClaurstLocalReadiness, ClaurstLocalReadinessError> {
-        let plan = self.provisioner.plan(model_id)?;
-        match self.provisioner.state(model_id)? {
-            ModelInstallState::NotInstalled => Ok(ClaurstLocalReadiness::DownloadRequired {
-                plan,
-                downloaded_bytes: 0,
-            }),
-            ModelInstallState::Downloading { downloaded_bytes } => {
-                Ok(ClaurstLocalReadiness::DownloadRequired {
-                    plan,
-                    downloaded_bytes,
-                })
+        let downloaded_bytes = match self.provisioner.state(model_id)? {
+            ModelInstallState::NotInstalled => 0,
+            ModelInstallState::Downloading { downloaded_bytes } => downloaded_bytes,
+            ModelInstallState::Missing => {
+                return Err(LocalModelProvisioningError::ModelFileMissing(model_id.into()).into());
             }
             ModelInstallState::Ready { path } => {
                 let mut request = request;
                 request.model_path = path;
-                let model = self
-                    .provisioner
-                    .model(model_id)
-                    .expect("a successful curated download plan has its model record");
-                Ok(ClaurstLocalReadiness::Ready(Box::new(
-                    ClaurstLocalRuntimePlan::build(request, model, port)?,
-                )))
+                let model = self.provisioner.model(model_id)?;
+                return Ok(ClaurstLocalReadiness::Ready(Box::new(
+                    ClaurstLocalRuntimePlan::build(request, &model, port)?,
+                )));
             }
-        }
+        };
+        Ok(ClaurstLocalReadiness::DownloadRequired {
+            plan: self.provisioner.plan(model_id)?,
+            downloaded_bytes,
+        })
     }
 }
 

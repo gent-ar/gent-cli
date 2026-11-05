@@ -291,3 +291,7 @@ mod tests;
 #[cfg(test)]
 #[path = "claurst_contained_model_plan_tests.rs"]
 mod contained_plan_tests;
+
+#[cfg(test)]
+#[path = "claurst_user_model_plan_tests.rs"]
+mod user_model_plan_tests;

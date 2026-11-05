@@ -200,6 +200,10 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
             profile.local_models_enabled(),
             gent_protocol::model_catalog::MODEL_CATALOG_CAPABILITY,
         ),
+        (
+            profile.local_models_enabled(),
+            gent_protocol::model_catalog::LOCAL_MODEL_FILES_CAPABILITY,
+        ),
         (true, CONVERSATION_STATUS_CAPABILITY),
         (true, CONVERSATION_INDEX_CAPABILITY),
         (true, CONVERSATION_TIMELINE_CAPABILITY),

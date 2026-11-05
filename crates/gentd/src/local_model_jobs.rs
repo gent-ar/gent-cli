@@ -109,7 +109,10 @@ impl LocalModelDownloadJobs {
         &self,
         model_id: &str,
     ) -> Result<LocalModelInstallState, LocalModelDownloadFailure> {
-        let plan = self.plan(model_id)?;
+        let model = self
+            .provisioner
+            .model(model_id)
+            .map_err(|_| LocalModelDownloadFailure::UnknownModel)?;
         if let Some(job) = self.jobs().get(model_id)
             && let DownloadProgress::Downloading {
                 downloaded_bytes,
@@ -123,8 +126,9 @@ impl LocalModelDownloadJobs {
         }
         match self.provisioner.state(model_id) {
             Ok(ModelInstallState::Ready { .. }) => Ok(LocalModelInstallState::Ready {
-                size_bytes: plan.expected_bytes,
+                size_bytes: model.size_bytes,
             }),
+            Ok(ModelInstallState::Missing) => Ok(LocalModelInstallState::Missing),
             Ok(_) => Ok(LocalModelInstallState::NotInstalled),
             Err(error) => Err(failure_for(&error.to_string())),
         }
@@ -140,6 +144,18 @@ impl LocalModelDownloadJobs {
             .map(|control| control.acquire_operation())
             .transpose()
             .map_err(|_| LocalModelDownloadFailure::TransportFailed)?;
+        let model = self
+            .provisioner
+            .model(model_id)
+            .map_err(|_| LocalModelDownloadFailure::UnknownModel)?;
+        if model.curated().is_none() {
+            return match self.provisioner.state(model_id) {
+                Ok(ModelInstallState::Ready { .. }) => Ok(DownloadStart::Ready {
+                    size_bytes: model.size_bytes,
+                }),
+                _ => Err(LocalModelDownloadFailure::ModelFileMissing),
+            };
+        }
         let plan = self.plan(model_id)?;
         let mut jobs = self.jobs();
         if let Some(job) = jobs.get_mut(model_id) {
@@ -152,7 +168,7 @@ impl LocalModelDownloadJobs {
                     size_bytes: plan.expected_bytes,
                 });
             }
-            Ok(ModelInstallState::NotInstalled) => 0,
+            Ok(ModelInstallState::NotInstalled | ModelInstallState::Missing) => 0,
             Ok(ModelInstallState::Downloading { downloaded_bytes }) => downloaded_bytes,
             Err(error) => return Err(failure_for(&error.to_string())),
         };

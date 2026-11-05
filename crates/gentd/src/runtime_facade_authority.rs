@@ -1,6 +1,4 @@
-//! Explicit non-observer facade constructors kept outside the default composition.
-
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 
 use gent_runtime::{AgentChatSelectionGate, ProviderModeSelectionGate};
 use gent_types::{AgentChatMode, AgentChatProvider};
@@ -54,7 +52,7 @@ impl RuntimeFacade {
                 )
                     as std::sync::Arc<dyn crate::agent_chat_permission_api::AgentChatPermissionPort>
             });
-        let selection_gate = StandaloneSelectionGate::new(local_models.catalogue());
+        let selection_gate = StandaloneSelectionGate::new(local_models.provisioner.clone());
         Self::from_state_inner(
             state,
             runtime_update_checks,
@@ -75,11 +73,11 @@ impl RuntimeFacade {
 #[derive(Debug)]
 struct StandaloneSelectionGate {
     provider_modes: ProviderModeSelectionGate,
-    claurst_models: BTreeSet<String>,
+    claurst_models: crate::local_model_provisioning::LocalModelProvisioner,
 }
 
 impl StandaloneSelectionGate {
-    fn new(models: Vec<gent_protocol::LocalModelDescriptor>) -> Self {
+    fn new(claurst_models: crate::local_model_provisioning::LocalModelProvisioner) -> Self {
         Self {
             provider_modes: ProviderModeSelectionGate::new(
                 [
@@ -93,7 +91,7 @@ impl StandaloneSelectionGate {
                     AgentChatMode::Agent,
                 ],
             ),
-            claurst_models: models.into_iter().map(|model| model.id).collect(),
+            claurst_models,
         }
     }
 }
@@ -102,7 +100,7 @@ impl AgentChatSelectionGate for StandaloneSelectionGate {
     fn allows(&self, selection: &gent_types::AgentChatSelection) -> bool {
         self.provider_modes.allows(selection)
             && (selection.provider != AgentChatProvider::Claurst
-                || self.claurst_models.contains(&selection.model))
+                || self.claurst_models.model(&selection.model).is_ok())
     }
 }
 

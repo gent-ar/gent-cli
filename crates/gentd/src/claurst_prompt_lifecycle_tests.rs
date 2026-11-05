@@ -29,6 +29,7 @@ use super::{AsyncOrdinaryLifecycleHost, ClaurstPromptLifecycle};
 #[derive(Clone, Debug, Default)]
 struct TrackingRuntime {
     failures: Arc<AtomicUsize>,
+    warms: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -41,6 +42,41 @@ impl ClaurstRuntimeFactory for TrackingRuntime {
         self.failures.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
+
+    async fn warm(&self, _: &str, _: &str) -> Result<(), String> {
+        self.warms.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_warm_up_starts_the_runtime_only_between_recovery_and_shutdown() {
+    let runtime = TrackingRuntime::default();
+    let warms = Arc::clone(&runtime.warms);
+    let mut lifecycle = ClaurstPromptLifecycle::new_with_runtime(
+        SqliteLedger::in_memory().unwrap(),
+        FakePrivateClaurstBridge::default(),
+        runtime,
+        "gentd-1".into(),
+        HostEpoch(1),
+    );
+    lifecycle
+        .warm_claurst("conversation-1", "run-1")
+        .await
+        .unwrap();
+    assert_eq!(warms.load(Ordering::SeqCst), 0);
+    lifecycle.activate_recovery().await.unwrap();
+    lifecycle
+        .warm_claurst("conversation-1", "run-1")
+        .await
+        .unwrap();
+    assert_eq!(warms.load(Ordering::SeqCst), 1);
+    lifecycle.begin_shutdown_after_recovery().await.unwrap();
+    lifecycle
+        .warm_claurst("conversation-1", "run-1")
+        .await
+        .unwrap();
+    assert_eq!(warms.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
