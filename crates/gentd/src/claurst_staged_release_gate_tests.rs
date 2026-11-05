@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use gent_ports::ClaurstPermissionReply;
@@ -140,7 +140,9 @@ fn gate_roster(root: &Path) -> (Value, Value) {
 #[test]
 #[ignore = "release gate: set GENT_STAGED_CLAURST to the staged Claurst executable"]
 fn staged_claurst_completes_the_gent_handshake_and_binds_every_permission() {
-    let claurst = PathBuf::from(std::env::var("GENT_STAGED_CLAURST").expect("GENT_STAGED_CLAURST"));
+    let claurst = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(std::env::var("GENT_STAGED_CLAURST").expect("GENT_STAGED_CLAURST"));
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     let workspace = root.join("workspace");
