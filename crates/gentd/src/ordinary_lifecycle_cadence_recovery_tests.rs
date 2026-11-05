@@ -214,3 +214,48 @@ async fn steering_wakes_a_native_steer_owner_but_interrupts_claurst() {
     assert_eq!(&*interrupts.lock().unwrap(), &["run-claurst"]);
     task.abort();
 }
+
+#[tokio::test]
+async fn a_claurst_warm_up_reaches_its_async_owner_once_it_is_idle() {
+    let (control, cadence, wake, _, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let task = tokio::spawn(cadence.run());
+    wait_for_ready(&control).await;
+    let request = crate::provider_warm_pool::WarmPoolRequest {
+        now: std::time::Instant::now(),
+        target: Some(crate::provider_warm_pool::WarmTarget {
+            conversation_id: "conversation-claurst".into(),
+            run_id: "run-claurst".into(),
+        }),
+    };
+    assert_eq!(
+        wake.tend_warm_pool(Some(AgentChatProvider::Claurst), &request)
+            .unwrap(),
+        Some(gent_protocol::ProviderWarmOutcome::Unavailable)
+    );
+    let warms = Arc::new(Mutex::new(Vec::new()));
+    wake.attach_async_claurst(Box::new(AsyncHost {
+        events: Arc::new(Mutex::new(Vec::new())),
+        interrupts: Arc::clone(&warms),
+        active: false,
+        stopping: false,
+    }))
+    .await
+    .unwrap();
+    assert_eq!(
+        wake.tend_warm_pool(Some(AgentChatProvider::Claurst), &request)
+            .unwrap(),
+        Some(gent_protocol::ProviderWarmOutcome::Warming)
+    );
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while warms.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        &*warms.lock().unwrap(),
+        &["warm:conversation-claurst:run-claurst"]
+    );
+    task.abort();
+}

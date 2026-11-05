@@ -58,6 +58,8 @@ pub(crate) enum ClaurstAcpTransportError {
     FrameTooLarge,
     #[error("Claurst ACP handshake did not return its required response")]
     HandshakeIncomplete,
+    #[error("Claurst ACP rejected the request with JSON-RPC error {code}: {message}")]
+    Rejected { code: i64, message: String },
     #[error("Claurst ACP returned an invalid session identifier")]
     InvalidSession,
     #[error("Claurst ACP I/O failed: {0}")]
@@ -143,6 +145,26 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             return Err(ClaurstAcpTransportError::InvalidSession);
         }
         let fixed = fixed_mcp::matches(self.stdio.fixed_mcp_roster_sha256(), &mcp_servers)?;
+        self.initialize_with(fixed)?;
+        let session_id = self.send_request(
+            "session/new",
+            json!({"cwd": provider_spelling(workspace), "mcpServers": if fixed{Vec::<Value>::new()}else{mcp_servers}}),
+        )?;
+        let response = self.wait_for_response(session_id)?;
+        response
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty() && value.len() <= 256)
+            .map(ToOwned::to_owned)
+            .ok_or(ClaurstAcpTransportError::InvalidSession)
+    }
+
+    pub(crate) fn initialize(&mut self) -> Result<(), ClaurstAcpTransportError> {
+        let fixed = fixed_mcp::matches(self.stdio.fixed_mcp_roster_sha256(), &self.mcp_servers)?;
+        self.initialize_with(fixed)
+    }
+
+    fn initialize_with(&mut self, fixed: bool) -> Result<(), ClaurstAcpTransportError> {
         if !self.initialized {
             let initialize_id = self.send_request(
                 "initialize",
@@ -164,17 +186,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 .unwrap_or(false);
             self.initialized = true;
         }
-        let session_id = self.send_request(
-            "session/new",
-            json!({"cwd": provider_spelling(workspace), "mcpServers": if fixed{Vec::<Value>::new()}else{mcp_servers}}),
-        )?;
-        let response = self.wait_for_response(session_id)?;
-        response
-            .get("sessionId")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty() && value.len() <= 256)
-            .map(ToOwned::to_owned)
-            .ok_or(ClaurstAcpTransportError::InvalidSession)
+        Ok(())
     }
 
     pub(crate) fn prompt_content(

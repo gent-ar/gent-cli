@@ -222,6 +222,16 @@ impl<S> ClaurstBridgeHandle<S> {
     {
         self.0.start_summary(request).await
     }
+
+    pub(crate) async fn initialize(&self) -> Result<(), PortError>
+    where
+        S: ClaurstAcpStdio + Send + 'static,
+    {
+        let state = Arc::clone(&self.0.state);
+        tokio::task::spawn_blocking(move || support::initialize_blocking(&state))
+            .await
+            .map_err(|_| unavailable("ACP initialize worker"))?
+    }
 }
 
 #[async_trait]

@@ -72,6 +72,9 @@ impl<L> OrdinaryPromptIngress<L> {
         let Ok(_permit) = self.control.acquire_prompt() else {
             return Ok(request.unavailable());
         };
+        if provider == Some(AgentChatProvider::Claurst) {
+            return self.warm_claurst(request);
+        }
         let outcome = self
             .wake
             .router
@@ -83,6 +86,26 @@ impl<L> OrdinaryPromptIngress<L> {
             self.wake.notify.notify_one();
         }
         Ok(outcome)
+    }
+
+    fn warm_claurst(
+        &self,
+        request: &crate::provider_warm_pool::WarmPoolRequest,
+    ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, String> {
+        let Some(target) = &request.target else {
+            return Ok(None);
+        };
+        if !self.async_claurst_attached.load(Ordering::Acquire) {
+            return Ok(request.unavailable());
+        }
+        *self
+            .async_claurst_warm
+            .lock()
+            .map_err(|_| "Claurst warm-up slot is unavailable".to_owned())? = Some(target.clone());
+        if let Some(notify) = &self.async_claurst_notify {
+            notify.notify_one();
+        }
+        Ok(Some(gent_protocol::ProviderWarmOutcome::Warming))
     }
 
     pub(crate) fn interrupt_run(

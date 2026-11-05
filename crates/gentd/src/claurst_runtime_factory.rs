@@ -14,6 +14,9 @@ pub(crate) use summarizer::{
 #[async_trait]
 pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug {
     async fn ensure_for_prompt(&self, saved: &AgentChatPromptSaved) -> Result<(), String>;
+    async fn warm(&self, _conversation_id: &str, _run_id: &str) -> Result<(), String> {
+        Ok(())
+    }
     async fn after_prompt_settled(&self, _: &str) -> Result<(), String> {
         Ok(())
     }

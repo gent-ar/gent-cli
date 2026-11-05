@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use gent_ports::{AgentChatConversationConfigLedger, AgentChatWorkspaceLedger, ToolSourceLedger};
 use gent_runtime::AgentChatReadService;
-use gent_types::{AgentChatPromptSaved, ToolSourceRecord};
+use gent_types::ToolSourceRecord;
 
 use super::{ActiveRuntime, StandaloneClaurstRuntimeFactory};
 use crate::standalone_claurst_runtime_identity::{RuntimeIdentity, RuntimeReuse};
@@ -14,19 +14,24 @@ use crate::{
 };
 
 impl StandaloneClaurstRuntimeFactory {
-    pub(super) async fn start_selected(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
+    pub(super) async fn start_selected(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+        tool_source_ids: &[String],
+    ) -> Result<(), String> {
         let selection = AgentChatReadService::new(self.ledger.clone())
-            .run_selection(&saved.message.conversation_id, &saved.run_id.0)
+            .run_selection(conversation_id, run_id)
             .map_err(|error| error.to_string())?;
         let workspace_record = self
             .ledger
-            .agent_chat_workspace_for_run(&saved.message.conversation_id, &saved.run_id.0)
+            .agent_chat_workspace_for_run(conversation_id, run_id)
             .map_err(|error| error.to_string())?;
         let workspace_id = workspace_record.workspace_id.clone();
         let workspace = PathBuf::from(workspace_record.canonical_path);
         let permission = crate::permission_workspace::policy_for_conversation(
             &self.ledger,
-            &saved.message.conversation_id,
+            conversation_id,
             &workspace_id,
         )
         .map_err(|error| error.to_string())?;
@@ -43,10 +48,10 @@ impl StandaloneClaurstRuntimeFactory {
             "Claurst is selected but its local Claurst and llama.cpp executables are not installed"
                 .to_owned()
         })?;
-        let selected_sources = self.selected_tool_sources(saved, &workspace_id)?;
+        let selected_sources = self.selected_tool_sources(tool_source_ids, &workspace_id)?;
         let conversation_config = self
             .ledger
-            .current_conversation_config(&saved.message.conversation_id)
+            .current_conversation_config(conversation_id)
             .map_err(|error| error.to_string())?;
         let disallowed_tools = conversation_config
             .as_ref()
@@ -66,14 +71,14 @@ impl StandaloneClaurstRuntimeFactory {
                 )
             });
         let permission_mode = permission.mode;
-        let conversation_id = saved.message.conversation_id.clone();
+        let conversation_id = conversation_id.to_owned();
         let mut identity = RuntimeIdentity::new(
             &selection,
             conversation_id.clone(),
             workspace.clone(),
             permission_mode,
             mcp_config_digest,
-            &saved.tool_source_ids,
+            tool_source_ids,
         );
         let binding = if permission.requires_sandbox() {
             let epoch = gent_ports::Ledger::host_ingress(&self.ledger)
@@ -82,7 +87,7 @@ impl StandaloneClaurstRuntimeFactory {
             Some(
                 gent_types::SandboxPermissionBinding::new(
                     conversation_id.clone(),
-                    saved.run_id.0.clone(),
+                    run_id.to_owned(),
                     permission.clone(),
                     epoch,
                 )
@@ -141,11 +146,10 @@ impl StandaloneClaurstRuntimeFactory {
 
     fn selected_tool_sources(
         &self,
-        saved: &AgentChatPromptSaved,
+        tool_source_ids: &[String],
         workspace_id: &str,
     ) -> Result<Vec<ToolSourceRecord>, String> {
-        let selected_sources = saved
-            .tool_source_ids
+        let selected_sources = tool_source_ids
             .iter()
             .map(|source_id| {
                 self.ledger

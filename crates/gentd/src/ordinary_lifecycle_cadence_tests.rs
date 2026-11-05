@@ -100,6 +100,14 @@ impl AsyncOrdinaryLifecycleHost for AsyncHost {
         Ok(())
     }
 
+    async fn warm_claurst(&mut self, conversation_id: &str, run_id: &str) -> Result<(), String> {
+        self.interrupts
+            .lock()
+            .unwrap()
+            .push(format!("warm:{conversation_id}:{run_id}"));
+        Ok(())
+    }
+
     fn shutdown_complete(&self) -> bool {
         self.stopping && !self.active
     }

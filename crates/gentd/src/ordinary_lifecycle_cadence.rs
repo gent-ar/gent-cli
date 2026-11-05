@@ -34,6 +34,7 @@ pub(crate) struct OrdinaryPromptIngress<L> {
     async_claurst_notify: Option<Arc<Notify>>,
     async_claurst: Arc<tokio::sync::Mutex<Option<Box<dyn AsyncOrdinaryLifecycleHost>>>>,
     async_claurst_interrupts: Arc<Mutex<VecDeque<PendingClaurstInterrupt>>>,
+    async_claurst_warm: Arc<Mutex<Option<crate::provider_warm_pool::WarmTarget>>>,
     async_claurst_attached: Arc<AtomicBool>,
 }
 
@@ -64,6 +65,9 @@ pub(crate) trait AsyncOrdinaryLifecycleHost: Send + std::fmt::Debug {
         _turn_id: &str,
     ) -> Result<(), String> {
         Err("Claurst turn-bound interrupt owner is unavailable".into())
+    }
+    async fn warm_claurst(&mut self, _conversation_id: &str, _run_id: &str) -> Result<(), String> {
+        Ok(())
     }
     fn shutdown_complete(&self) -> bool;
     fn is_idle(&self) -> bool {
@@ -105,6 +109,7 @@ pub(crate) struct OrdinaryLifecycleCadence<L> {
     pub(super) async_claurst: Arc<tokio::sync::Mutex<Option<Box<dyn AsyncOrdinaryLifecycleHost>>>>,
     pub(super) async_claurst_notify: Arc<Notify>,
     pub(super) async_claurst_interrupts: Arc<Mutex<VecDeque<PendingClaurstInterrupt>>>,
+    pub(super) async_claurst_warm: Arc<Mutex<Option<crate::provider_warm_pool::WarmTarget>>>,
 }
 
 #[must_use]
@@ -119,6 +124,7 @@ pub(crate) fn pair<L>(
     let async_claurst_notify = Arc::new(Notify::new());
     let async_claurst = Arc::new(tokio::sync::Mutex::new(None));
     let async_claurst_interrupts = Arc::new(Mutex::new(VecDeque::new()));
+    let async_claurst_warm = Arc::new(Mutex::new(None));
     let async_claurst_attached = Arc::new(AtomicBool::new(false));
     let control = OrdinaryLifecycleControl::new();
     (
@@ -134,6 +140,7 @@ pub(crate) fn pair<L>(
             async_claurst_notify: Some(Arc::clone(&async_claurst_notify)),
             async_claurst: Arc::clone(&async_claurst),
             async_claurst_interrupts: Arc::clone(&async_claurst_interrupts),
+            async_claurst_warm: Arc::clone(&async_claurst_warm),
             async_claurst_attached,
         },
         OrdinaryLifecycleCadence {
@@ -144,6 +151,7 @@ pub(crate) fn pair<L>(
             async_claurst,
             async_claurst_notify,
             async_claurst_interrupts,
+            async_claurst_warm,
         },
     )
 }

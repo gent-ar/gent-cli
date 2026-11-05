@@ -120,7 +120,23 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
                         ),
                     }
                 }
-                host.drive_once().await?
+                let active = host.drive_once().await?;
+                let warm = self
+                    .async_claurst_warm
+                    .lock()
+                    .map_err(|_| "Claurst warm-up slot is unavailable".to_owned())?
+                    .take();
+                if let Some(target) = warm.filter(|_| !active)
+                    && let Err(error) = host
+                        .warm_claurst(&target.conversation_id, &target.run_id)
+                        .await
+                {
+                    eprintln!(
+                        "Claurst warm-up for run {} was unavailable: {error}",
+                        target.run_id
+                    );
+                }
+                active
             } else {
                 false
             };

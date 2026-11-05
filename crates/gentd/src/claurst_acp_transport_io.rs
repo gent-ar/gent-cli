@@ -34,13 +34,25 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             };
             inspected += 1;
             let value = parse_frame(&frame)?;
-            if value.get("id") == Some(&json!(request_id))
-                && (value.get("result").is_some() || value.get("error").is_some())
-            {
-                return value
-                    .get("result")
-                    .cloned()
-                    .ok_or(ClaurstAcpTransportError::HandshakeIncomplete);
+            if value.get("id") == Some(&json!(request_id)) {
+                if let Some(error) = value.get("error") {
+                    return Err(ClaurstAcpTransportError::Rejected {
+                        code: error
+                            .get("code")
+                            .and_then(Value::as_i64)
+                            .unwrap_or_default(),
+                        message: error
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .chars()
+                            .take(1_024)
+                            .collect(),
+                    });
+                }
+                if let Some(result) = value.get("result") {
+                    return Ok(result.clone());
+                }
             }
             self.project(value)?;
         }

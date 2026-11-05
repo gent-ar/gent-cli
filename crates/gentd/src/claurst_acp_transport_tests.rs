@@ -726,3 +726,56 @@ fn cancels_only_the_requested_session_without_inventing_a_prompt_terminal() {
     assert!(cancel.get("id").is_none());
     assert_eq!(transport.drain(1).unwrap().terminal, None);
 }
+
+#[test]
+fn a_rejected_handshake_reports_the_provider_json_rpc_error() {
+    let fake = Fake {
+        writes: vec![],
+        reads: VecDeque::from([frame(serde_json::json!({
+            "jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"llama-server refused the model"}
+        }))]),
+    };
+    let mut transport = ClaurstAcpTransport::new(fake);
+    let error = transport
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
+        .unwrap_err();
+    assert_eq!(
+        error,
+        super::ClaurstAcpTransportError::Rejected {
+            code: -32603,
+            message: "llama-server refused the model".into(),
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "Claurst ACP rejected the request with JSON-RPC error -32603: llama-server refused the model"
+    );
+}
+
+#[test]
+fn an_early_initialize_leaves_only_session_creation_for_the_first_prompt() {
+    let fake = Fake {
+        writes: vec![],
+        reads: VecDeque::from([
+            frame(serde_json::json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}})),
+            frame(serde_json::json!({"jsonrpc":"2.0","id":2,"result":{"sessionId":"acp-1"}})),
+        ]),
+    };
+    let mut transport = ClaurstAcpTransport::new(fake);
+    transport.initialize().unwrap();
+    transport.initialize().unwrap();
+    assert_eq!(transport.stdio.writes.len(), 1);
+    assert_eq!(
+        transport
+            .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
+            .unwrap(),
+        "acp-1"
+    );
+    let methods = transport
+        .stdio
+        .writes
+        .iter()
+        .map(|write| serde_json::from_slice::<serde_json::Value>(write).unwrap()["method"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(methods, ["initialize", "session/new"]);
+}
