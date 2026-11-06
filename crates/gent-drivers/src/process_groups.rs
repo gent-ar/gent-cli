@@ -31,8 +31,11 @@ impl ProcessGroups {
         })
     }
 
-    pub fn record(&self, pid: u32) -> io::Result<()> {
-        fs::write(self.record_path(pid), identity(pid).unwrap_or_default())
+    pub fn record(&self, pid: u32, executable: &Path) -> io::Result<()> {
+        fs::write(
+            self.record_path(pid),
+            recorded_identity(pid, executable).unwrap_or_default(),
+        )
     }
 
     pub fn forget(&self, pid: u32) {
@@ -86,9 +89,9 @@ pub fn install(directory: &Path) -> io::Result<(StopRecordedOnExit, Vec<u32>)> {
     Ok((StopRecordedOnExit::new(groups), survivors))
 }
 
-pub fn spawned(pid: u32) {
+pub fn spawned(pid: u32, executable: &Path) {
     if let Some(groups) = ACTIVE.get() {
-        let _ = groups.record(pid);
+        let _ = groups.record(pid, executable);
     }
 }
 
@@ -142,7 +145,29 @@ fn identity(pid: u32) -> Option<String> {
     (output.status.success() && !started.is_empty()).then_some(started)
 }
 
-#[cfg(not(unix))]
+#[cfg(unix)]
+fn recorded_identity(pid: u32, _: &Path) -> Option<String> {
+    identity(pid)
+}
+
+#[cfg(windows)]
+fn recorded_identity(_: u32, executable: &Path) -> Option<String> {
+    executable
+        .file_name()
+        .map(|name| name.to_string_lossy().to_lowercase())
+}
+
+#[cfg(windows)]
+fn identity(pid: u32) -> Option<String> {
+    super::windows::image_name(pid)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn recorded_identity(_: u32, _: &Path) -> Option<String> {
+    None
+}
+
+#[cfg(not(any(unix, windows)))]
 const fn identity(_: u32) -> Option<String> {
     None
 }

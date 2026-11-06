@@ -74,11 +74,64 @@ fn process_exists(pid: i32) -> Result<bool, ProcessTreeError> {
     }))
 }
 
+pub(super) fn image_name(pid: u32) -> Option<String> {
+    let output = Command::new("tasklist")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    image_name_from(&String::from_utf8_lossy(&output.stdout), pid)
+}
+
+fn image_name_from(listing: &str, pid: u32) -> Option<String> {
+    listing.lines().find_map(|line| {
+        let mut fields = line.trim().trim_matches('"').split("\",\"");
+        let image = fields.next()?;
+        (fields.next()?.parse::<u32>().ok()? == pid).then(|| image.to_lowercase())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::windows::process::ExitStatusExt;
     use std::process::Stdio;
+
+    #[test]
+    fn a_listed_process_is_identified_by_its_image_name() {
+        let listing = "\"llama-server.exe\",\"4242\",\"Console\",\"1\",\"3,900,000 K\"
+";
+        assert_eq!(
+            image_name_from(listing, 4242).as_deref(),
+            Some("llama-server.exe")
+        );
+        assert_eq!(image_name_from(listing, 4243), None);
+        assert_eq!(
+            image_name_from(
+                "INFO: No tasks are running which match the specified criteria.",
+                4242
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_recorded_process_tree_is_reaped_when_its_image_still_owns_the_pid() {
+        let directory = std::env::temp_dir().join(format!("gent-groups-{}", std::process::id()));
+        let groups = crate::process::groups::ProcessGroups::open(&directory).unwrap();
+        let mut child = Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        groups
+            .record(child.id(), std::path::Path::new("PING.EXE"))
+            .unwrap();
+        assert_eq!(groups.stop_recorded().unwrap(), [child.id()]);
+        assert!(child.wait().is_ok());
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
 
     #[test]
     fn soft_refusal_escalates_only_the_owned_process_tree() {

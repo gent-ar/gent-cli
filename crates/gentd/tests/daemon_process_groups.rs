@@ -95,7 +95,7 @@ fn exited(gentd: &mut Gentd) -> Option<ExitStatus> {
 fn record(data_dir: &Path, pid: u32) {
     ProcessGroups::open(&data_dir.join("process-groups"))
         .unwrap()
-        .record(pid)
+        .record(pid, Path::new("sh"))
         .unwrap();
 }
 
