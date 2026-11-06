@@ -22,6 +22,9 @@ mod codex_probe;
 mod composition;
 #[path = "provider_egress_credential_capture.rs"]
 mod credential_capture;
+#[cfg(windows)]
+#[path = "provider_egress_credential_reuse.rs"]
+mod credential_reuse;
 #[path = "provider_mcp_bridge.rs"]
 pub(crate) mod mcp;
 #[cfg(any(windows, target_os = "linux"))]

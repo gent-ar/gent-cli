@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 
 use super::{EgressError, wire};
 
+#[derive(Clone)]
 pub(super) struct CapturedProviderAuth {
     pub headers: Vec<(String, String)>,
 }

@@ -12,9 +12,11 @@ pub(super) struct CodexOwnerContext {
     workspace_ids: Vec<String>,
 }
 
+#[derive(Clone)]
 pub(super) struct CodexOwnerCredential {
     pub(super) upstream: &'static str,
     pub(super) headers: Vec<(String, String)>,
+    pub(super) expires: u64,
 }
 
 impl fmt::Debug for CodexOwnerCredential {
@@ -156,6 +158,7 @@ impl CodexOwnerContext {
                 Ok(CodexOwnerCredential {
                     upstream: "https://api.openai.com/v1/",
                     headers: vec![("authorization".into(), format!("Bearer {key}"))],
+                    expires: u64::MAX,
                 })
             }
             "chatgpt" => self.chatgpt(&auth, now),
@@ -232,6 +235,7 @@ impl CodexOwnerContext {
                 ("authorization".into(), format!("Bearer {token}")),
                 ("chatgpt-account-id".into(), account.into()),
             ],
+            expires: expiry.saturating_sub(60),
         })
     }
 }
