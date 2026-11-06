@@ -80,8 +80,6 @@ pub(super) fn launch(
             "claurst-acp-v1",
         )
         .map_err(|_| "Claurst image unavailable")?;
-        let helper = crate::windows_sandbox_runtime::PinnedSandboxHelper::packaged()?;
-        drop(crate::windows_claurst_resources::resources(&helper, &lock)?);
         let workspace = gent_ports::AgentChatWorkspaceLedger::agent_chat_workspace_for_run(
             &ledger,
             binding.conversation_id(),

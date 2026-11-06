@@ -42,6 +42,7 @@ pub mod session;
 mod session_frames;
 pub mod supervisor;
 mod verified_content;
+pub use verified_content::sha256_held;
 #[cfg(windows)]
 pub mod windows_sandbox;
 

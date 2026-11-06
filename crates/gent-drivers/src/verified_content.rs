@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::Read,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock, PoisonError},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -56,13 +56,7 @@ pub(crate) fn sha256_observed(
         return Err(ContentError::Changed);
     }
     let before = stamp(&file, &metadata)?;
-    let known = verified()
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(&canonical_path)
-        .filter(|(stamp, _)| *stamp == before)
-        .map(|(_, sha256)| *sha256);
-    if let Some(sha256) = known {
+    if let Some(sha256) = known(&canonical_path, before) {
         return Ok(VerifiedContent {
             canonical_path,
             metadata,
@@ -76,17 +70,50 @@ pub(crate) fn sha256_observed(
     if after != before || stamp(&reopened, &reopened.metadata()?)? != before {
         return Err(ContentError::Changed);
     }
-    if settled(before, started) {
-        verified()
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(canonical_path.clone(), (before, sha256));
-    }
+    remember(&canonical_path, before, started, sha256);
     Ok(VerifiedContent {
         canonical_path,
         metadata,
         sha256,
     })
+}
+
+pub fn sha256_held(path: &Path, mut file: &fs::File) -> Result<[u8; 32], ContentError> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(ContentError::Changed);
+    }
+    let before = stamp(file, &metadata)?;
+    if let Some(sha256) = known(path, before) {
+        return Ok(sha256);
+    }
+    let started = SystemTime::now();
+    file.seek(SeekFrom::Start(0))?;
+    let sha256 = stream(file, metadata.len(), |_| {})?;
+    file.seek(SeekFrom::Start(0))?;
+    if stamp(file, &file.metadata()?)? != before {
+        return Err(ContentError::Changed);
+    }
+    remember(path, before, started, sha256);
+    Ok(sha256)
+}
+
+fn known(path: &Path, stamp: Stamp) -> Option<[u8; 32]> {
+    verified()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(path)
+        .filter(|(known, _)| *known == stamp)
+        .map(|(_, sha256)| *sha256)
+}
+
+fn remember(path: &Path, stamp: Stamp, started: SystemTime, sha256: [u8; 32]) {
+    if settled(stamp, started) {
+        verified()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(path.to_path_buf(), (stamp, sha256));
+    }
 }
 
 fn open(path: &Path) -> std::io::Result<fs::File> {

@@ -5,11 +5,11 @@ use gent_types::{
     SandboxResourceLimits, SandboxWorkspaceAccess,
 };
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use std::sync::Arc;
 use std::{
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom},
+    io::Read,
     os::windows::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
@@ -73,7 +73,7 @@ fn pin(path: &Path, expected: &str) -> Result<(PathBuf, File), ModelError> {
         return Err(ModelError::Request);
     }
     let path = no_reparse(path)?;
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .share_mode(1)
         .custom_flags(0x0020_0000)
@@ -82,20 +82,10 @@ fn pin(path: &Path, expected: &str) -> Result<(PathBuf, File), ModelError> {
     if !file.metadata().map_err(|_| ModelError::Request)?.is_file() {
         return Err(ModelError::Request);
     }
-    let mut hash = Sha256::new();
-    let mut bytes = vec![0; 65536];
-    loop {
-        let n = file.read(&mut bytes).map_err(|_| ModelError::Request)?;
-        if n == 0 {
-            break;
-        }
-        hash.update(&bytes[..n]);
-    }
-    if format!("{:x}", hash.finalize()) != expected {
+    let digest = gent_drivers::sha256_held(&path, &file).map_err(|_| ModelError::Request)?;
+    if hex::encode(digest) != expected {
         return Err(ModelError::Request);
     }
-    file.seek(SeekFrom::Start(0))
-        .map_err(|_| ModelError::Request)?;
     Ok((path, file))
 }
 impl SelectedModel {

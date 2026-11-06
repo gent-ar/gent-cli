@@ -1,7 +1,6 @@
 use std::{
     collections::BTreeSet,
     fs::File,
-    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -9,7 +8,6 @@ use gent_types::{
     AgentChatProvider, ContainedProviderRoute, RunVersionLock, SandboxResourceGrant,
     SandboxShellRuntime,
 };
-use sha2::{Digest, Sha256};
 
 use crate::{
     provider_executables::ManagedProviderRuntime, windows_sandbox_runtime::PinnedSandboxHelper,
@@ -250,23 +248,12 @@ pub(crate) fn pin(
     if path.canonicalize().ok().as_deref() != Some(path) {
         return Err("runtime resource is missing or redirected".into());
     }
-    let mut file = manifest::open_immutable(path)?;
-    let mut hash = Sha256::new();
-    let mut buffer = vec![0; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|_| "runtime resource is unreadable")?;
-        if read == 0 {
-            break;
-        }
-        hash.update(&buffer[..read]);
-    }
-    if hex::encode(hash.finalize()) != expected {
+    let file = manifest::open_immutable(path)?;
+    let digest =
+        gent_drivers::sha256_held(path, &file).map_err(|_| "runtime resource is unreadable")?;
+    if hex::encode(digest) != expected {
         return Err("runtime resource differs from its authenticated identity".into());
     }
-    file.seek(SeekFrom::Start(0))
-        .map_err(|_| "runtime resource is unavailable")?;
     grants.push(SandboxResourceGrant::RuntimeReadOnly(path.to_path_buf()));
     handles.push(file);
     Ok(())
