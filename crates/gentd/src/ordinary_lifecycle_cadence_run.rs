@@ -90,43 +90,67 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
             })
             .await
             .map_err(|_| "ordinary lifecycle drive task failed".to_owned())??;
-            let claurst_active = if let Some(host) = self.async_claurst.lock().await.as_mut() {
-                if !shutting_down && self.control.is_quiesced() {
-                    return Ok(());
+            let claurst_active = match Arc::clone(&self.async_claurst).try_lock_owned() {
+                Err(_) => true,
+                Ok(host) => match self.drive_claurst(host, shutting_down).await? {
+                    Some(active) => active,
+                    None => return Ok(()),
+                },
+            };
+            if !active && !claurst_active {
+                return Ok(());
+            }
+            tokio::time::sleep(ACTIVE_POLL_INTERVAL).await;
+        }
+    }
+
+    async fn drive_claurst(
+        &self,
+        mut guard: tokio::sync::OwnedMutexGuard<Option<Box<dyn super::AsyncOrdinaryLifecycleHost>>>,
+        shutting_down: bool,
+    ) -> Result<Option<bool>, String> {
+        let Some(host) = guard.as_mut() else {
+            return Ok(Some(false));
+        };
+        if !shutting_down && self.control.is_quiesced() {
+            return Ok(None);
+        }
+        let interrupts = self
+            .async_claurst_interrupts
+            .lock()
+            .map_err(|_| "Claurst interrupt queue is unavailable".to_owned())?
+            .drain(..)
+            .collect::<Vec<_>>();
+        for interrupt in interrupts {
+            let result = match &interrupt.expected_turn_id {
+                Some(turn_id) => {
+                    host.interrupt_claurst_turn(&interrupt.run_id, turn_id)
+                        .await
                 }
-                let interrupts = self
-                    .async_claurst_interrupts
-                    .lock()
-                    .map_err(|_| "Claurst interrupt queue is unavailable".to_owned())?
-                    .drain(..)
-                    .collect::<Vec<_>>();
-                for interrupt in interrupts {
-                    let result = match &interrupt.expected_turn_id {
-                        Some(turn_id) => {
-                            host.interrupt_claurst_turn(&interrupt.run_id, turn_id)
-                                .await
-                        }
-                        None => host.interrupt_claurst_run(&interrupt.run_id).await,
-                    };
-                    match result {
-                        Ok(()) => {
-                            if let Some(stop) = interrupt.goal_stop {
-                                stop.apply();
-                            }
-                        }
-                        Err(error) => eprintln!(
-                            "Claurst interrupt for run {} was not applied: {error}",
-                            interrupt.run_id
-                        ),
+                None => host.interrupt_claurst_run(&interrupt.run_id).await,
+            };
+            match result {
+                Ok(()) => {
+                    if let Some(stop) = interrupt.goal_stop {
+                        stop.apply();
                     }
                 }
-                let active = host.drive_once().await?;
-                let warm = self
-                    .async_claurst_warm
-                    .lock()
-                    .map_err(|_| "Claurst warm-up slot is unavailable".to_owned())?
-                    .take();
-                if let Some(target) = warm.filter(|_| !active)
+                Err(error) => eprintln!(
+                    "Claurst interrupt for run {} was not applied: {error}",
+                    interrupt.run_id
+                ),
+            }
+        }
+        let active = host.drive_once().await?;
+        let warm = self
+            .async_claurst_warm
+            .lock()
+            .map_err(|_| "Claurst warm-up slot is unavailable".to_owned())?
+            .take();
+        if let Some(target) = warm.filter(|_| !active) {
+            let notify = Arc::clone(&self.async_claurst_notify);
+            tokio::spawn(async move {
+                if let Some(host) = guard.as_mut()
                     && let Err(error) = host
                         .warm_claurst(&target.conversation_id, &target.run_id)
                         .await
@@ -136,15 +160,11 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
                         target.run_id
                     );
                 }
-                active
-            } else {
-                false
-            };
-            if !active && !claurst_active {
-                return Ok(());
-            }
-            tokio::time::sleep(ACTIVE_POLL_INTERVAL).await;
+                drop(guard);
+                notify.notify_one();
+            });
         }
+        Ok(Some(active))
     }
 
     async fn drain_shutdown(&self) -> Result<(), String> {

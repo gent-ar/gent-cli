@@ -4,7 +4,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use super::sha256;
+use super::{sha256, sha256_held};
 
 std::thread_local! {
     pub(crate) static CONTENT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -100,4 +100,30 @@ fn a_recently_modified_file_is_never_trusted_from_its_identity() {
     let before = reads();
     sha256(&path).unwrap();
     assert_eq!(reads(), before + 1);
+}
+
+#[test]
+fn a_held_settled_file_is_read_once_and_then_trusted_by_its_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = settled_file(directory.path(), "runtime", b"held content");
+    let file = fs::File::open(&path).unwrap();
+    let first = sha256_held(&path, &file).unwrap();
+    let before = reads();
+    let second = sha256_held(&path, &file).unwrap();
+    assert_eq!(reads(), before);
+    assert_eq!(second, first);
+    assert_eq!(first, sha256(&path).unwrap().sha256);
+}
+
+#[test]
+fn a_held_rewritten_file_is_read_again_and_reports_its_new_content() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = settled_file(directory.path(), "runtime", b"held content");
+    let first = sha256_held(&path, &fs::File::open(&path).unwrap()).unwrap();
+    fs::write(&path, b"other bytes!").unwrap();
+    age(&path, 30);
+    let before = reads();
+    let second = sha256_held(&path, &fs::File::open(&path).unwrap()).unwrap();
+    assert_eq!(reads(), before + 1);
+    assert_ne!(second, first);
 }

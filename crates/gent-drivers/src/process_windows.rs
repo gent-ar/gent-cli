@@ -74,11 +74,121 @@ fn process_exists(pid: i32) -> Result<bool, ProcessTreeError> {
     }))
 }
 
+pub(super) fn bind_to_daemon(child: &std::process::Child) {
+    use std::os::windows::io::AsRawHandle;
+    static DAEMON: std::sync::OnceLock<Option<win32job::Job>> = std::sync::OnceLock::new();
+    let job = DAEMON.get_or_init(|| {
+        let mut limits = win32job::ExtendedLimitInfo::new();
+        limits.limit_kill_on_job_close().limit_breakaway_ok();
+        win32job::Job::create_with_limit_info(&limits).ok()
+    });
+    if let Some(job) = job {
+        let _ = job.assign_process(child.as_raw_handle() as isize);
+    }
+}
+
+pub(super) fn image_name(pid: u32) -> Option<String> {
+    let output = Command::new("tasklist")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    image_name_from(&String::from_utf8_lossy(&output.stdout), pid)
+}
+
+fn image_name_from(listing: &str, pid: u32) -> Option<String> {
+    listing.lines().find_map(|line| {
+        let mut fields = line.trim().trim_matches('"').split("\",\"");
+        let image = fields.next()?;
+        (fields.next()?.parse::<u32>().ok()? == pid).then(|| image.to_lowercase())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::windows::process::ExitStatusExt;
     use std::process::Stdio;
+
+    #[test]
+    fn a_listed_process_is_identified_by_its_image_name() {
+        let listing = "\"llama-server.exe\",\"4242\",\"Console\",\"1\",\"3,900,000 K\"
+";
+        assert_eq!(
+            image_name_from(listing, 4242).as_deref(),
+            Some("llama-server.exe")
+        );
+        assert_eq!(image_name_from(listing, 4243), None);
+        assert_eq!(
+            image_name_from(
+                "INFO: No tasks are running which match the specified criteria.",
+                4242
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_recorded_process_tree_is_reaped_when_its_image_still_owns_the_pid() {
+        let directory = std::env::temp_dir().join(format!("gent-groups-{}", std::process::id()));
+        let groups = crate::process::groups::ProcessGroups::open(&directory).unwrap();
+        let mut child = Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        groups
+            .record(child.id(), std::path::Path::new("PING.EXE"))
+            .unwrap();
+        assert_eq!(groups.stop_recorded().unwrap(), [child.id()]);
+        assert!(child.wait().is_ok());
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn a_hard_killed_owner_takes_its_provider_processes_with_it() {
+        if std::env::var_os("GENT_DAEMON_JOB_OWNER").is_some() {
+            let mut child = Command::new("ping")
+                .args(["-n", "120", "127.0.0.1"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap();
+            crate::process::groups::spawned(&child, std::path::Path::new("PING.EXE"));
+            println!("provider-pid={}", child.id());
+            let _ = child.wait();
+            return;
+        }
+        let mut owner = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "process::windows::tests::a_hard_killed_owner_takes_its_provider_processes_with_it",
+                "--nocapture",
+            ])
+            .env("GENT_DAEMON_JOB_OWNER", "1")
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = std::io::BufReader::new(owner.stdout.take().unwrap());
+        let pid = std::io::BufRead::lines(stdout)
+            .map_while(Result::ok)
+            .find_map(|line| {
+                line.split("provider-pid=")
+                    .nth(1)
+                    .and_then(|pid| pid.trim().parse::<u32>().ok())
+            })
+            .unwrap();
+        assert_eq!(image_name(pid).as_deref(), Some("ping.exe"));
+        owner.kill().unwrap();
+        owner.wait().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while image_name(pid).is_some() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(image_name(pid), None);
+    }
 
     #[test]
     fn soft_refusal_escalates_only_the_owned_process_tree() {

@@ -175,7 +175,9 @@ fn dropping_a_provider_kills_descendants_that_left_its_process_group() {
 fn a_group_left_by_a_killed_daemon_is_stopped_with_its_escaped_descendants() {
     let (directory, groups) = ledger();
     let (mut leader, escaped) = provider_group(&escaped_session_script("wait"));
-    groups.record(leader.id()).unwrap();
+    groups
+        .record(leader.id(), std::path::Path::new("sh"))
+        .unwrap();
     assert_ne!(process_group(escaped), leader.id());
 
     let restarted = ProcessGroups::open(&directory.path().join("process-groups")).unwrap();
@@ -204,7 +206,9 @@ fn a_launched_provider_is_recorded_until_it_is_reaped() {
 fn a_group_left_by_a_killed_daemon_is_stopped_on_the_next_start() {
     let (directory, groups) = ledger();
     let (mut leader, grandchild) = provider_group("sleep 60 & echo $!; wait");
-    groups.record(leader.id()).unwrap();
+    groups
+        .record(leader.id(), std::path::Path::new("sh"))
+        .unwrap();
 
     let restarted = ProcessGroups::open(&directory.path().join("process-groups")).unwrap();
     assert_eq!(restarted.stop_recorded().unwrap(), vec![leader.id()]);
@@ -218,7 +222,9 @@ fn a_group_left_by_a_killed_daemon_is_stopped_on_the_next_start() {
 fn a_group_whose_leader_already_exited_is_still_stopped() {
     let (directory, groups) = ledger();
     let (mut leader, grandchild) = provider_group("sleep 60 & echo $!");
-    groups.record(leader.id()).unwrap();
+    groups
+        .record(leader.id(), std::path::Path::new("sh"))
+        .unwrap();
     leader.wait().unwrap();
     assert!(alive(grandchild));
 
@@ -254,7 +260,9 @@ fn a_record_whose_pid_now_names_another_process_is_discarded_without_killing_it(
 fn a_panicking_daemon_stops_its_recorded_groups_while_unwinding() {
     let (_directory, groups) = ledger();
     let (mut leader, grandchild) = provider_group("sleep 60 & echo $!; wait");
-    groups.record(leader.id()).unwrap();
+    groups
+        .record(leader.id(), std::path::Path::new("sh"))
+        .unwrap();
 
     let unwound = std::panic::catch_unwind(|| {
         let _stop = StopRecordedOnExit::new(groups.clone());

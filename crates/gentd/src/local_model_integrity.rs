@@ -25,7 +25,7 @@ pub(crate) fn file_sha256(path: &Path) -> Result<String> {
 pub(crate) fn file_digest(path: &Path) -> Result<Sha256> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 8_192];
+    let mut buffer = vec![0_u8; 1024 * 1024];
     loop {
         let count = file.read(&mut buffer)?;
         if count == 0 {

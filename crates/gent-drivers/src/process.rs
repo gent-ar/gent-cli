@@ -78,7 +78,7 @@ impl ProcessLauncher for SystemLauncher {
         let mut child = command
             .spawn()
             .map_err(|error| SupervisorError::Launch(error.to_string()))?;
-        groups::spawned(child.id());
+        groups::spawned(&child, &launch.executable);
         let stdout = child
             .stdout
             .take()
