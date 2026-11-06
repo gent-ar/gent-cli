@@ -140,7 +140,7 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
         }
         command.envs(&launch.environment);
         let child = command.spawn().map_err(|error| error.to_string())?;
-        gent_drivers::process::groups::spawned(child.id(), &launch.executable);
+        gent_drivers::process::groups::spawned(&child, &launch.executable);
         Ok(SystemLocalRuntimeProcess {
             child,
             tree_stopped: false,
@@ -165,7 +165,7 @@ impl ClaurstStandaloneLauncher for SystemClaurstStandaloneLauncher {
             .stderr(Stdio::piped());
         configure_process_tree(&mut command);
         let mut child = command.spawn().map_err(|error| error.to_string())?;
-        gent_drivers::process::groups::spawned(child.id(), &launch.executable);
+        gent_drivers::process::groups::spawned(&child, &launch.executable);
         let stdin = child
             .stdin
             .take()

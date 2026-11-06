@@ -74,6 +74,19 @@ fn process_exists(pid: i32) -> Result<bool, ProcessTreeError> {
     }))
 }
 
+pub(super) fn bind_to_daemon(child: &std::process::Child) {
+    use std::os::windows::io::AsRawHandle;
+    static DAEMON: std::sync::OnceLock<Option<win32job::Job>> = std::sync::OnceLock::new();
+    let job = DAEMON.get_or_init(|| {
+        let mut limits = win32job::ExtendedLimitInfo::new();
+        limits.limit_kill_on_job_close().limit_breakaway_ok();
+        win32job::Job::create_with_limit_info(&limits).ok()
+    });
+    if let Some(job) = job {
+        let _ = job.assign_process(child.as_raw_handle() as isize);
+    }
+}
+
 pub(super) fn image_name(pid: u32) -> Option<String> {
     let output = Command::new("tasklist")
         .creation_flags(CREATE_NO_WINDOW)
@@ -131,6 +144,50 @@ mod tests {
         assert_eq!(groups.stop_recorded().unwrap(), [child.id()]);
         assert!(child.wait().is_ok());
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn a_hard_killed_owner_takes_its_provider_processes_with_it() {
+        if std::env::var_os("GENT_DAEMON_JOB_OWNER").is_some() {
+            let mut child = Command::new("ping")
+                .args(["-n", "120", "127.0.0.1"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap();
+            crate::process::groups::spawned(&child, std::path::Path::new("PING.EXE"));
+            println!("provider-pid={}", child.id());
+            let _ = child.wait();
+            return;
+        }
+        let mut owner = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "process::windows::tests::a_hard_killed_owner_takes_its_provider_processes_with_it",
+                "--nocapture",
+            ])
+            .env("GENT_DAEMON_JOB_OWNER", "1")
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = std::io::BufReader::new(owner.stdout.take().unwrap());
+        let pid = std::io::BufRead::lines(stdout)
+            .map_while(Result::ok)
+            .find_map(|line| {
+                line.split("provider-pid=")
+                    .nth(1)
+                    .and_then(|pid| pid.trim().parse::<u32>().ok())
+            })
+            .unwrap();
+        assert_eq!(image_name(pid).as_deref(), Some("ping.exe"));
+        owner.kill().unwrap();
+        owner.wait().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while image_name(pid).is_some() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(image_name(pid), None);
     }
 
     #[test]

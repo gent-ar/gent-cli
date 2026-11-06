@@ -89,9 +89,11 @@ pub fn install(directory: &Path) -> io::Result<(StopRecordedOnExit, Vec<u32>)> {
     Ok((StopRecordedOnExit::new(groups), survivors))
 }
 
-pub fn spawned(pid: u32, executable: &Path) {
+pub fn spawned(child: &std::process::Child, executable: &Path) {
+    #[cfg(windows)]
+    super::windows::bind_to_daemon(child);
     if let Some(groups) = ACTIVE.get() {
-        let _ = groups.record(pid, executable);
+        let _ = groups.record(child.id(), executable);
     }
 }
 
