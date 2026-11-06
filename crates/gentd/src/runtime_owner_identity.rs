@@ -33,9 +33,9 @@ fn capture(held: &crate::host_lock::HostLock) -> Result<StartupIdentity, std::io
             "runtime executable identity is unavailable",
         ));
     }
-    let executable_digest_sha256 =
-        crate::local_model_integrity::file_sha256(&canonical_executable_path)
-            .map_err(std::io::Error::other)?;
+    let executable_digest_sha256 = crate::api::executable_digest()
+        .ok_or_else(|| std::io::Error::other("runtime executable digest is unavailable"))?
+        .to_owned();
     Ok(StartupIdentity {
         process_id: std::process::id(),
         executable_digest_sha256,
