@@ -1,4 +1,4 @@
-use gent_protocol::model_catalog::ProviderAvailability;
+use gent_protocol::model_catalog::{ModelCatalogSelection, ProviderAvailability};
 use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider};
 
 use super::{ModelCatalogService, ProviderListing, gated, model};
@@ -12,8 +12,9 @@ fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named(
     let directory = tempfile::tempdir().unwrap();
     let (claude, claude_gate) = gated(AgentChatProvider::Claude);
     let (codex, codex_gate) = gated(AgentChatProvider::Codex);
+    let (local, local_gate) = gated(AgentChatProvider::Claurst);
     let service = ModelCatalogService::new(
-        vec![claude, codex],
+        vec![claude, codex, local],
         ModelCatalogDefaults::open(directory.path()),
     );
     let selection = |provider, model: &str, effort| gent_types::AgentChatSelection {
@@ -33,16 +34,29 @@ fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named(
     codex_gate
         .send(Err(ProviderLaunchError::Failed("codex exited".into())))
         .unwrap();
+    local_gate
+        .send(Ok(ProviderListing {
+            availability: ProviderAvailability::Ready,
+            models: vec![
+                model("qwen3-1-7b-q4-k-m", None),
+                model("qwen3-8b-q4-k-m", None),
+            ],
+        }))
+        .unwrap();
 
     let unknown = service
         .validate(&selection(
-            AgentChatProvider::Claude,
+            AgentChatProvider::Claurst,
             "not-a-model",
             AgentChatEffort::Low,
         ))
         .unwrap_err();
     assert_eq!(unknown.code, "selectionModelUnavailable");
-    assert!(unknown.message.ends_with("choose one of: sonnet, haiku"));
+    assert!(
+        unknown
+            .message
+            .ends_with("choose one of: qwen3-1-7b-q4-k-m, qwen3-8b-q4-k-m")
+    );
     let effort = service
         .validate(&selection(
             AgentChatProvider::Claude,
@@ -108,4 +122,72 @@ fn a_provider_that_is_not_installed_accepts_any_model_so_the_prompt_can_be_held_
                 .is_ok()
         );
     }
+}
+
+#[test]
+fn claude_and_codex_accept_unlisted_models_while_gent_stays_strict() {
+    let directory = tempfile::tempdir().unwrap();
+    let (claude, claude_gate) = gated(AgentChatProvider::Claude);
+    let (codex, codex_gate) = gated(AgentChatProvider::Codex);
+    let (local, local_gate) = gated(AgentChatProvider::Claurst);
+    let service = ModelCatalogService::new(
+        vec![claude, codex, local],
+        ModelCatalogDefaults::open(directory.path()),
+    );
+    for (gate, listed) in [
+        (claude_gate, "sonnet"),
+        (codex_gate, "gpt-5.6"),
+        (local_gate, "qwen3-1-7b-q4-k-m"),
+    ] {
+        gate.send(Ok(ProviderListing {
+            availability: ProviderAvailability::Ready,
+            models: vec![model(listed, Some(AgentChatEffort::Medium))],
+        }))
+        .unwrap();
+    }
+    let selection = |provider, model: &str| gent_types::AgentChatSelection {
+        provider,
+        model: model.into(),
+        effort: AgentChatEffort::Ultra,
+        mode: AgentChatMode::Agent,
+    };
+    let default = |provider, model: &str| ModelCatalogSelection {
+        provider,
+        model: model.into(),
+    };
+
+    for (provider, unlisted) in [
+        (AgentChatProvider::Claude, "claude-custom-preview"),
+        (AgentChatProvider::Codex, "gpt-custom-preview"),
+    ] {
+        assert!(service.validate(&selection(provider, unlisted)).is_ok());
+        let saved = service.set_default(default(provider, unlisted)).unwrap();
+        assert_eq!(saved.default_selection, default(provider, unlisted));
+        assert_eq!(
+            service
+                .set_default(default(provider, " "))
+                .unwrap_err()
+                .code,
+            "selectionModelUnavailable"
+        );
+    }
+
+    assert_eq!(
+        service
+            .validate(&selection(AgentChatProvider::Claurst, "custom-local"))
+            .unwrap_err()
+            .code,
+        "selectionModelUnavailable"
+    );
+    assert_eq!(
+        service
+            .set_default(default(AgentChatProvider::Claurst, "custom-local"))
+            .unwrap_err()
+            .code,
+        "selectionModelUnavailable"
+    );
+    assert_eq!(
+        ModelCatalogDefaults::open(directory.path()).selection(),
+        default(AgentChatProvider::Codex, "gpt-custom-preview")
+    );
 }
