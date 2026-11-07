@@ -218,13 +218,15 @@ fn defaults_to_the_small_local_model_until_a_listed_default_is_saved() {
             .iter()
             .all(|entry| entry.listing == ModelListing::Ready)
     });
-    assert!(
+    assert_eq!(
         service
             .set_default(ModelCatalogSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt-unlisted".into(),
+                provider: AgentChatProvider::Claurst,
+                model: "unlisted-local".into(),
             })
-            .is_err()
+            .unwrap_err()
+            .code,
+        "selectionModelUnavailable"
     );
     let saved = service
         .set_default(ModelCatalogSelection {

@@ -29,7 +29,15 @@ async fn local_models_report_size_and_install_state_with_the_small_model_as_defa
     fs::write(&plan.partial_destination, [1_u8; 16]).unwrap();
     let inactive = source.load().unwrap();
     assert_eq!(
-        inactive.models[1].local.as_ref().unwrap().install,
+        inactive
+            .models
+            .iter()
+            .find(|model| model.id == "qwen3-8b-q4-k-m")
+            .unwrap()
+            .local
+            .as_ref()
+            .unwrap()
+            .install,
         LocalModelInstallState::NotInstalled
     );
     models
@@ -41,7 +49,15 @@ async fn local_models_report_size_and_install_state_with_the_small_model_as_defa
         .unwrap();
     let downloading = source.load().unwrap();
     assert_eq!(
-        downloading.models[1].local.as_ref().unwrap().install,
+        downloading
+            .models
+            .iter()
+            .find(|model| model.id == "qwen3-8b-q4-k-m")
+            .unwrap()
+            .local
+            .as_ref()
+            .unwrap()
+            .install,
         LocalModelInstallState::Downloading {
             downloaded_bytes: 16,
             total_bytes: plan.expected_bytes,

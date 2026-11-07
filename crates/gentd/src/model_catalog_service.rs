@@ -7,9 +7,11 @@ use gent_protocol::model_catalog::{
     CatalogModel, ModelCatalog, ModelCatalogSelection, ModelListing, ProviderAvailability,
     ProviderModelCatalog,
 };
-use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection};
+use gent_types::{
+    AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRejection, AgentChatSelection,
+};
 
-use super::defaults::ModelCatalogDefaults;
+use super::{defaults::ModelCatalogDefaults, transport::ModelCatalogRejection};
 use crate::provider_launch_budget::{ProbeRetry, ProviderLaunchError};
 
 #[path = "model_catalog_values.rs"]
@@ -103,9 +105,23 @@ impl ModelCatalogService {
     pub(crate) fn set_default(
         &self,
         selection: ModelCatalogSelection,
-    ) -> Result<ModelCatalog, String> {
-        if self.listed_without(&selection) {
-            return Err("the default model is not in Gent's model catalog".into());
+    ) -> Result<ModelCatalog, ModelCatalogRejection> {
+        let well_formed = AgentChatSelection {
+            provider: selection.provider,
+            model: selection.model.clone(),
+            effort: AgentChatEffort::Medium,
+            mode: AgentChatMode::Agent,
+        }
+        .validate()
+        .is_ok();
+        if !well_formed
+            || (!selection::accepts_unlisted_models(selection.provider)
+                && self.listed_without(&selection))
+        {
+            return Err(ModelCatalogRejection {
+                code: AgentChatRejection::SelectionModelUnavailable.code(),
+                message: format!("`{}` cannot be the default model", selection.model),
+            });
         }
         self.defaults.save_selection(selection)?;
         Ok(self.snapshot())

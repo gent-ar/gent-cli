@@ -31,6 +31,9 @@ impl ModelCatalogService {
             .iter()
             .find(|model| model.id == selection.model)
         else {
+            if accepts_unlisted_models(selection.provider) {
+                return Ok(());
+            }
             let models = listing
                 .models
                 .iter()
@@ -110,6 +113,13 @@ impl ModelCatalogService {
             std::thread::sleep(Duration::from_millis(25));
         }
     }
+}
+
+pub(super) const fn accepts_unlisted_models(provider: AgentChatProvider) -> bool {
+    matches!(
+        provider,
+        AgentChatProvider::Claude | AgentChatProvider::Codex
+    )
 }
 
 fn rejected(
