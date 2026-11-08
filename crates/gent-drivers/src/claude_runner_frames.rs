@@ -16,6 +16,9 @@ pub(super) fn normalize<P: ProviderProcess>(
     if std::mem::take(&mut run.awaiting_resumed_frame) && resumed_session_unavailable(&frame) {
         return vec![ClaudeRunnerEffect::ResumeUnavailable];
     }
+    if let Some(effects) = run.retry.intercept(&frame) {
+        return effects;
+    }
     if frame.get("type").and_then(Value::as_str) == Some("control_request") {
         return match run.permissions.accept(&frame) {
             Ok(request) if run.plans_for_review && request.tool_name == "ExitPlanMode" => {
@@ -169,7 +172,9 @@ pub(super) fn drain<P: ProviderProcess>(run: &mut OwnedRun<P>) -> Option<Vec<Cla
     while run.output.queued_frames() > 0 {
         let (frame, _) = run.output.take_frame();
         let Some(frame) = frame else { break };
-        effects.extend(normalize(run, &frame));
+        let normalized = normalize(run, &frame);
+        run.retry.observe(&normalized);
+        effects.extend(normalized);
     }
     effects.extend(
         crate::public_protocol::oversized_frames_skipped(run.output.take_skipped_frames())

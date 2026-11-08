@@ -98,6 +98,11 @@ provider's `gentd` lifecycle directory.
     `providerSessionUnavailable` and offers "Continue from saved history".
   - The model catalog relists a provider as soon as its verified executable changes, not only
     after the TTL.
+  - Until Claude or Codex lists its own models (not installed, signed out, or the listing
+    failed), the catalog offers that provider's last successful live listing
+    (`<data dir>/model-catalog-last-known.json`), and only without one the static
+    `crates/gentd/provider-models.json`. Put only ids a real installed CLI listed in that file,
+    and update the verified-id test in `model_catalog_provider_models_tests.rs` with it.
 - **Explicit `--standalone-<provider>-executable` developer paths** bypass signed verification
   only in development (debug) builds of `gentd`. A release build refuses to start with them.
 - **Codex environment:** Gentd runs `vendor/<triple>/bin/codex` directly.

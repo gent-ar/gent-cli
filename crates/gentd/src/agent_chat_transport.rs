@@ -15,7 +15,9 @@ use serde_json::Value;
 use tokio::io::AsyncWrite;
 
 use crate::{
-    agent_chat_intent_error::AgentChatIntentError, api::RuntimeApi, transport::write_error,
+    agent_chat_intent_error::AgentChatIntentError,
+    api::RuntimeApi,
+    transport::{off_runtime, write_error},
 };
 
 #[path = "agent_chat_transport_replies.rs"]
@@ -86,9 +88,8 @@ where
     S: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    let runtime = runtime.clone();
     let waited = request.clone();
-    let result = tokio::task::spawn_blocking(move || runtime.agent_chat_intent(waited)).await?;
+    let result = off_runtime(runtime, move |runtime| runtime.agent_chat_intent(waited)).await?;
     match result {
         Ok(replies) => match validate_replies(&request, &replies) {
             Ok(()) => {

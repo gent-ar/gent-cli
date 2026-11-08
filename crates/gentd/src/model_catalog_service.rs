@@ -11,6 +11,7 @@ use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRejection, AgentChatSelection,
 };
 
+use super::provider_models::{LAST_KNOWN_FILE, LastKnownModels, settle};
 use super::{defaults::ModelCatalogDefaults, transport::ModelCatalogRejection};
 use crate::provider_launch_budget::{ProbeRetry, ProviderLaunchError};
 
@@ -48,6 +49,7 @@ pub(crate) struct ModelCatalogService {
     sources: Arc<Vec<Arc<dyn ModelCatalogSource>>>,
     slots: Arc<Mutex<Vec<Slot>>>,
     defaults: ModelCatalogDefaults,
+    last_known: LastKnownModels,
     retry: ProbeRetry,
 }
 
@@ -56,6 +58,7 @@ impl ModelCatalogService {
         sources: Vec<Arc<dyn ModelCatalogSource>>,
         defaults: ModelCatalogDefaults,
     ) -> Self {
+        let last_known = LastKnownModels::open(defaults.sibling(LAST_KNOWN_FILE));
         let slots = sources
             .iter()
             .map(|source| Slot {
@@ -64,7 +67,7 @@ impl ModelCatalogService {
                     label: source.label().into(),
                     availability: ProviderAvailability::Checking,
                     listing: ModelListing::Loading,
-                    models: Vec::new(),
+                    models: settle(source.provider(), Vec::new(), &last_known),
                 },
                 loaded_at: None,
                 loading: false,
@@ -76,6 +79,7 @@ impl ModelCatalogService {
             sources: Arc::new(sources),
             slots: Arc::new(Mutex::new(slots)),
             defaults,
+            last_known,
             retry: ProbeRetry::BACKGROUND,
         }
     }
@@ -206,6 +210,11 @@ impl ModelCatalogService {
                 result => break result,
             }
         };
+        let provider = self.sources[index].provider();
+        let result = result.map(|listing| ProviderListing {
+            models: settle(provider, listing.models, &self.last_known),
+            ..listing
+        });
         let revision = self.sources[index].revision();
         let mut slots = self.slots();
         let slot = &mut slots[index];

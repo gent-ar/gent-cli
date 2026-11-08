@@ -1,4 +1,7 @@
-use crate::{api::RuntimeApi, transport::write_error};
+use crate::{
+    api::RuntimeApi,
+    transport::{off_runtime, write_error},
+};
 use gent_protocol::{WORKSPACE_GIT_CAPABILITY, WorkspaceGitFrame, write_json_frame};
 use gent_types::CapabilitySet;
 use serde_json::Value;
@@ -38,7 +41,7 @@ where
         .await?;
         return Ok(true);
     }
-    match runtime.workspace_git(frame) {
+    match off_runtime(runtime, move |runtime| runtime.workspace_git(frame)).await? {
         Ok(reply) => write_json_frame(stream, &reply).await?,
         Err(rejection) => write_error(stream, rejection.code, &rejection.message).await?,
     }

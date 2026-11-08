@@ -10,7 +10,10 @@ use gent_types::CapabilitySet;
 use serde_json::Value;
 use tokio::io::AsyncWrite;
 
-use crate::{api::RuntimeApi, transport::write_error};
+use crate::{
+    api::RuntimeApi,
+    transport::{off_runtime, write_error},
+};
 
 /// Decodes and responds to one provider-auth request after capability negotiation.
 pub(crate) async fn dispatch<S, R>(
@@ -70,7 +73,7 @@ where
         .await?;
         return Ok(true);
     }
-    match runtime.provider_auth(frame) {
+    match off_runtime(runtime, move |runtime| runtime.provider_auth(frame)).await? {
         Ok(response) => write_json_frame(stream, &response).await?,
         Err(message) => write_error(stream, "providerAuthRejected", &message).await?,
     }

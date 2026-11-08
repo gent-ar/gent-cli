@@ -232,6 +232,18 @@ impl ExtensionSupport {
     }
 }
 
+pub(crate) async fn off_runtime<R, T>(
+    runtime: &R,
+    work: impl FnOnce(R) -> T + Send + 'static,
+) -> Result<T, tokio::task::JoinError>
+where
+    R: RuntimeApi,
+    T: Send + 'static,
+{
+    let runtime = runtime.clone();
+    tokio::task::spawn_blocking(move || work(runtime)).await
+}
+
 pub(crate) async fn write_error<S>(
     stream: &mut S,
     code: &str,

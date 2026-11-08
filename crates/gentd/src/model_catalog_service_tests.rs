@@ -413,3 +413,51 @@ fn an_installed_repaired_or_upgraded_provider_is_relisted_before_its_ttl() {
     }
     assert_eq!(source.loads.load(Ordering::SeqCst), 3);
 }
+
+#[test]
+fn claude_and_codex_offer_curated_models_until_a_live_listing_takes_over() {
+    let fallback = crate::runtime_facade::model_catalog::provider_models::fallback;
+    let directory = tempfile::tempdir().unwrap();
+    let (local, local_gate) = gated(AgentChatProvider::Claurst);
+    let (claude, claude_gate) = gated(AgentChatProvider::Claude);
+    let (codex, codex_gate) = gated(AgentChatProvider::Codex);
+    let service = ModelCatalogService::new(
+        vec![local, claude, codex],
+        ModelCatalogDefaults::open(directory.path()),
+    );
+
+    let first = service.read(false);
+    assert!(first.providers[0].models.is_empty());
+    assert_eq!(
+        first.providers[1].models,
+        fallback(AgentChatProvider::Claude)
+    );
+    assert_eq!(
+        first.providers[2].models,
+        fallback(AgentChatProvider::Codex)
+    );
+
+    claude_gate
+        .send(Ok(ProviderListing {
+            availability: ProviderAvailability::Ready,
+            models: vec![model("claude-live", None)],
+        }))
+        .unwrap();
+    codex_gate
+        .send(Err(ProviderLaunchError::Failed("codex exited".into())))
+        .unwrap();
+    eventually(&service, |catalog| {
+        catalog.providers[1].listing == ModelListing::Ready
+            && matches!(catalog.providers[2].listing, ModelListing::Failed { .. })
+    });
+    let catalog = service.snapshot();
+    assert_eq!(
+        catalog.providers[1].models,
+        vec![model("claude-live", None)]
+    );
+    assert_eq!(
+        catalog.providers[2].models,
+        fallback(AgentChatProvider::Codex)
+    );
+    drop(local_gate);
+}

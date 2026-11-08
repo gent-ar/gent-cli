@@ -8,7 +8,10 @@ use gent_types::CapabilitySet;
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::{api::RuntimeApi, transport::write_error};
+use crate::{
+    api::RuntimeApi,
+    transport::{off_runtime, write_error},
+};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -77,7 +80,7 @@ where
     ) {
         return Ok(false);
     }
-    match runtime.agent_chat_projection(frame) {
+    match off_runtime(runtime, move |runtime| runtime.agent_chat_projection(frame)).await? {
         Ok(reply @ AgentChatProjectionFrame::ConversationSnapshot { .. }) => {
             write_json_frame(stream, &reply).await?;
         }

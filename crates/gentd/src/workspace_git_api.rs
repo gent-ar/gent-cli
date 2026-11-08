@@ -1,11 +1,15 @@
 //! Daemon-only workspace resolution for read-only git status and sub-repository discovery.
 
+#[path = "single_flight.rs"]
+mod single_flight;
+
 use gent_git::executor::SystemGitExecutor;
 use gent_ports::{GitExecutor, GitExecutorError, Ledger, WorkspaceLedger};
 use gent_protocol::WorkspaceGitFrame;
 use gent_runtime::Coordinator;
 use gent_types::WorkspaceGitReport;
-use std::path::Path;
+use single_flight::SingleFlight;
+use std::{path::Path, sync::LazyLock};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct WorkspaceGitRejection {
@@ -108,6 +112,16 @@ fn resolve<L: Ledger + WorkspaceLedger>(
 }
 
 pub(crate) fn status(workspace_canonical_path: &str) -> Result<Option<WorkspaceGitReport>, String> {
+    static STATUS: LazyLock<SingleFlight<Result<Option<WorkspaceGitReport>, String>>> =
+        LazyLock::new(SingleFlight::new);
+    STATUS.run(workspace_canonical_path, || {
+        uncoalesced_status(workspace_canonical_path)
+    })
+}
+
+fn uncoalesced_status(
+    workspace_canonical_path: &str,
+) -> Result<Option<WorkspaceGitReport>, String> {
     let root = match SystemGitExecutor.repository_root(workspace_canonical_path) {
         Ok(root) => root,
         Err(GitExecutorError::NotRepository) => return Ok(None),
