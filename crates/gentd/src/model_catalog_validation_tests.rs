@@ -1,11 +1,44 @@
-use gent_protocol::model_catalog::{ModelCatalogSelection, ProviderAvailability};
+use std::time::{Duration, Instant};
+
+use gent_protocol::model_catalog::{ModelCatalogSelection, ModelListing, ProviderAvailability};
 use gent_types::{AgentChatEffort, AgentChatMode, AgentChatProvider};
 
-use super::{ModelCatalogService, ProviderListing, gated, model};
+use super::{ModelCatalogService, ProviderListing, eventually, gated, model};
 use crate::{
     provider_launch_budget::ProviderLaunchError,
     runtime_facade::model_catalog::defaults::ModelCatalogDefaults,
 };
+
+fn listed(service: &ModelCatalogService) {
+    service.read(false);
+    eventually(service, |catalog| {
+        catalog
+            .providers
+            .iter()
+            .all(|provider| provider.listing != ModelListing::Loading)
+    });
+}
+
+#[test]
+fn a_selection_is_answered_at_once_while_its_provider_is_still_listing_models() {
+    let directory = tempfile::tempdir().unwrap();
+    let (codex, _codex_gate) = gated(AgentChatProvider::Codex);
+    let service =
+        ModelCatalogService::new(vec![codex], ModelCatalogDefaults::open(directory.path()));
+    service.read(false);
+    let started = Instant::now();
+    assert!(
+        service
+            .validate(&gent_types::AgentChatSelection {
+                provider: AgentChatProvider::Codex,
+                model: "gpt-5.5".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Agent,
+            })
+            .is_ok()
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
+}
 
 #[test]
 fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named() {
@@ -43,6 +76,7 @@ fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named(
             ],
         }))
         .unwrap();
+    listed(&service);
 
     let unknown = service
         .validate(&selection(
@@ -107,6 +141,7 @@ fn a_provider_that_is_not_installed_accepts_any_model_so_the_prompt_can_be_held_
             models: vec![super::super::provider_default_model()],
         }))
         .unwrap();
+    listed(&service);
     for (model, effort) in [
         ("default", AgentChatEffort::Medium),
         ("haiku", AgentChatEffort::Ultra),
@@ -145,6 +180,7 @@ fn claude_and_codex_accept_unlisted_models_while_gent_stays_strict() {
         }))
         .unwrap();
     }
+    listed(&service);
     let selection = |provider, model: &str| gent_types::AgentChatSelection {
         provider,
         model: model.into(),

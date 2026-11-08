@@ -1,7 +1,9 @@
 #![cfg(unix)]
 
+mod support;
+
 use std::path::PathBuf;
-use std::process::{Child, Command as ProcessCommand, Stdio};
+use std::process::{Command as ProcessCommand, Stdio};
 
 use gent_protocol::{
     ATTACHMENTS_CAPABILITY, AttachmentFrame, DependencyAction, DependencyPlanRequest,
@@ -13,11 +15,12 @@ use gent_types::{
     Command, HostEpoch, McpPermissionStatus, PROTOCOL_MAX, PROTOCOL_MIN, ReceiptId,
 };
 use serde_json::json;
+use support::{Gentd, gentd};
 use tempfile::TempDir;
 use tokio::net::UnixStream;
 
 struct Daemon {
-    child: Child,
+    _child: Gentd,
     _directory: TempDir,
     socket: PathBuf,
 }
@@ -35,9 +38,9 @@ fn daemon_prints_its_package_version_without_opening_ipc() {
 #[test]
 fn daemon_prints_its_resolved_data_dir_without_binding_ipc_or_the_host_lock() {
     let directory = tempfile::tempdir().unwrap();
-    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_gentd"))
-        .args(["--print-data-dir", "--data-dir"])
-        .arg(directory.path())
+    let output = gentd(directory.path())
+        .arg("--print-data-dir")
+        .stdout(Stdio::piped())
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -49,42 +52,31 @@ fn daemon_prints_its_resolved_data_dir_without_binding_ipc_or_the_host_lock() {
     assert!(!directory.path().join("gentd.lock").exists());
 }
 
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 async fn daemon() -> Daemon {
     let directory = tempfile::tempdir().unwrap();
     let empty_path = directory.path().join("empty-path");
     std::fs::create_dir(&empty_path).unwrap();
-    let mut child = ProcessCommand::new(env!("CARGO_BIN_EXE_gentd"))
-        .args(["--data-dir", directory.path().to_str().unwrap()])
-        .env("PATH", empty_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut child = Gentd(
+        gentd(directory.path())
+            .env("PATH", empty_path)
+            .spawn()
+            .unwrap(),
+    );
     let socket = directory.path().join("gentd.sock");
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     while tokio::time::Instant::now() < deadline {
         if UnixStream::connect(&socket).await.is_ok() {
             return Daemon {
-                child,
+                _child: child,
                 _directory: directory,
                 socket,
             };
         }
-        if let Some(status) = child.try_wait().unwrap() {
+        if let Some(status) = child.0.try_wait().unwrap() {
             panic!("gentd exited before creating its local socket: {status}");
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
-    let _ = child.kill();
-    let _ = child.wait();
     panic!("gentd did not create its local socket");
 }
 

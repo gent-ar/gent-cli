@@ -69,6 +69,7 @@ pub struct ClaudeStreamRunner<L, P> {
     launcher: L,
     policy: BufferPolicy,
     runs: BTreeMap<String, OwnedRun<P>>,
+    transient_retry_step: std::time::Duration,
 }
 
 #[derive(Debug)]
@@ -82,6 +83,7 @@ struct OwnedRun<P> {
     plans_for_review: bool,
     awaiting_resumed_frame: bool,
     pending_resume_session: Option<String>,
+    retry: retry::TransientRetry,
 }
 
 impl<L, P> ClaudeStreamRunner<L, P>
@@ -97,6 +99,7 @@ where
             launcher,
             policy,
             runs: BTreeMap::new(),
+            transient_retry_step: retry::TRANSIENT_RETRY_STEP,
         }
     }
 
@@ -119,6 +122,7 @@ where
         };
         run.process.write_frame(&input)?;
         run.pending_resume_session = None;
+        run.retry.sent(&input);
         Ok(())
     }
 
@@ -135,6 +139,9 @@ where
             .runs
             .get_mut(run_id)
             .ok_or(ClaudeRunnerError::NotActive)?;
+        if let Some(retried) = run.retry.flush() {
+            run.process.write_frame(&retried)?;
+        }
         run.process.write_frame(&input)?;
         run.steers.insert(uuid, message_id.into());
         Ok(())
@@ -160,6 +167,9 @@ where
             .runs
             .get_mut(run_id)
             .ok_or(ClaudeRunnerError::NotActive)?;
+        if let Some(input) = run.retry.due(std::time::Instant::now()) {
+            run.process.write_frame(&input)?;
+        }
         if let Some(chunk) = run.process.next_stdout_chunk()? {
             run.output.accept_chunk(&chunk)?;
             let mut effects = drain(run).unwrap_or_default();
@@ -236,6 +246,11 @@ mod frames;
 mod input;
 #[path = "claude_runner_launch.rs"]
 mod launch;
+#[path = "claude_runner_retry.rs"]
+mod retry;
+#[cfg(test)]
+#[path = "claude_runner_retry_tests.rs"]
+mod retry_tests;
 #[cfg(test)]
 #[path = "claude_runner_tests.rs"]
 mod tests;

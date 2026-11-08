@@ -8,6 +8,8 @@ use std::{
     io::Read,
     path::Path,
     process::{Command, Stdio},
+    sync::mpsc,
+    time::Duration,
 };
 
 use gent_ports::{GitExecutor, GitExecutorError, GitReport, GitStatusOperation, GitStatusSummary};
@@ -17,6 +19,7 @@ use sha2::{Digest, Sha256};
 use crate::parse_porcelain_v1_z;
 
 const MAX_STATUS_BYTES: usize = 1_048_576;
+const GIT_DEADLINE: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemGitExecutor;
@@ -52,26 +55,24 @@ impl GitExecutor for SystemGitExecutor {
 
     fn report(&self, canonical_repository_root: &str) -> Result<GitReport, GitExecutorError> {
         let root = canonical_worktree(canonical_repository_root)?;
-        let output = git_output(&root, &["status", "--porcelain=v1", "-z"])?;
-        let entries = parse_porcelain_v1_z(&output).map_err(|_| GitExecutorError::InvalidOutput)?;
-        let files = entries
-            .into_iter()
-            .map(|entry| WorkspaceGitFileStatus {
-                index_status: entry.index_status,
-                worktree_status: entry.worktree_status,
-                path: entry.path,
-                original_path: entry.original_path,
+        let root = root.as_path();
+        std::thread::scope(|scope| {
+            let files = scope.spawn(|| status_files(root));
+            let branch = scope.spawn(|| report::branch_name(root));
+            let branches = scope.spawn(|| report::branches(root));
+            let worktrees = scope.spawn(|| report::list_worktrees(root));
+            let recent_commits = scope.spawn(|| report::recent_commits(root));
+            let stashes = scope.spawn(|| report::stashes(root));
+            let branches = joined(branches)?;
+            Ok(GitReport {
+                branch: joined(branch)?,
+                files: joined(files)?,
+                worktrees: joined(worktrees)?,
+                recent_commits: joined(recent_commits)?,
+                remote_status: report::remote_status(&branches),
+                branches,
+                stashes: joined(stashes)?,
             })
-            .collect();
-        let branches = report::branches(&root)?;
-        Ok(GitReport {
-            branch: report::branch_name(&root)?,
-            files,
-            worktrees: report::list_worktrees(&root)?,
-            recent_commits: report::recent_commits(&root)?,
-            remote_status: report::remote_status(&branches),
-            branches,
-            stashes: report::stashes(&root)?,
         })
     }
 
@@ -103,23 +104,58 @@ impl GitExecutor for SystemGitExecutor {
     }
 }
 
+fn status_files(root: &Path) -> Result<Vec<WorkspaceGitFileStatus>, GitExecutorError> {
+    let output = git_output(root, &["status", "--porcelain=v1", "-z"])?;
+    let entries = parse_porcelain_v1_z(&output).map_err(|_| GitExecutorError::InvalidOutput)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| WorkspaceGitFileStatus {
+            index_status: entry.index_status,
+            worktree_status: entry.worktree_status,
+            path: entry.path,
+            original_path: entry.original_path,
+        })
+        .collect())
+}
+
+fn joined<T>(
+    handle: std::thread::ScopedJoinHandle<'_, Result<T, GitExecutorError>>,
+) -> Result<T, GitExecutorError> {
+    handle.join().unwrap_or(Err(GitExecutorError::StatusFailed))
+}
+
 pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, GitExecutorError> {
-    let mut child = Command::new("git")
-        .args(args)
-        .current_dir(root)
+    bounded_output(
+        Command::new("git")
+            .arg("--no-optional-locks")
+            .args(args)
+            .current_dir(root),
+        GIT_DEADLINE,
+    )
+}
+
+fn bounded_output(command: &mut Command, deadline: Duration) -> Result<Vec<u8>, GitExecutorError> {
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| GitExecutorError::SpawnFailed)?;
-    let output = read_bounded(
-        child.stdout.take().ok_or(GitExecutorError::SpawnFailed)?,
-        &mut child,
-    )?;
-    child
+    let stdout = child.stdout.take().ok_or(GitExecutorError::SpawnFailed)?;
+    let (sender, finished) = mpsc::channel();
+    std::thread::spawn(move || sender.send(read_bounded(stdout)));
+    let output = finished
+        .recv_timeout(deadline)
+        .unwrap_or(Err(GitExecutorError::StatusFailed));
+    if output.is_err() {
+        let _ = child.kill();
+    }
+    let succeeded = child
         .wait()
         .map_err(|_| GitExecutorError::StatusFailed)?
-        .success()
+        .success();
+    let output = output?;
+    succeeded
         .then_some(output)
         .ok_or(GitExecutorError::StatusFailed)
 }
@@ -137,24 +173,17 @@ fn canonical_worktree(value: &str) -> Result<std::path::PathBuf, GitExecutorErro
         .ok_or(GitExecutorError::InvalidWorktree)
 }
 
-fn read_bounded(
-    mut stdout: impl Read,
-    child: &mut std::process::Child,
-) -> Result<Vec<u8>, GitExecutorError> {
+fn read_bounded(mut stdout: impl Read) -> Result<Vec<u8>, GitExecutorError> {
     let mut output = Vec::new();
     let mut chunk = [0_u8; 8_192];
     loop {
         let Ok(read) = stdout.read(&mut chunk) else {
-            let _ = child.kill();
-            let _ = child.wait();
             return Err(GitExecutorError::StatusFailed);
         };
         if read == 0 {
             return Ok(output);
         }
         if output.len().saturating_add(read) > MAX_STATUS_BYTES {
-            let _ = child.kill();
-            let _ = child.wait();
             return Err(GitExecutorError::OutputTooLarge);
         }
         output.extend_from_slice(&chunk[..read]);

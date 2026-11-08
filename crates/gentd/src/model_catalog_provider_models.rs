@@ -1,8 +1,67 @@
+use std::sync::OnceLock;
+
 use gent_protocol::model_catalog::CatalogModel;
+use gent_types::AgentChatProvider;
+use serde::Deserialize;
 
-use super::service::{PROVIDER_DEFAULT_MODEL, provider_default_model};
+use super::service::{PROVIDER_DEFAULT_MODEL, effort, provider_default_model};
 
-pub(crate) fn discovered(mut models: Vec<CatalogModel>) -> Vec<CatalogModel> {
+#[path = "model_catalog_last_known.rs"]
+mod last_known;
+pub(crate) use last_known::{LAST_KNOWN_FILE, LastKnownModels};
+
+const BUNDLED: &str = include_str!("../provider-models.json");
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Bundled {
+    claude: Vec<Curated>,
+    codex: Vec<Curated>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Curated {
+    id: String,
+    label: String,
+    efforts: Vec<String>,
+    default_effort: Option<String>,
+}
+
+pub(crate) fn fallback(provider: AgentChatProvider) -> Vec<CatalogModel> {
+    let curated = match provider {
+        AgentChatProvider::Claude => &bundled().claude,
+        AgentChatProvider::Codex => &bundled().codex,
+        AgentChatProvider::Claurst => return Vec::new(),
+    };
+    with_default(curated.iter().map(model).collect())
+}
+
+pub(crate) fn discovered(models: Vec<CatalogModel>) -> Vec<CatalogModel> {
+    if models.is_empty() {
+        return models;
+    }
+    with_default(models)
+}
+
+pub(crate) fn settle(
+    provider: AgentChatProvider,
+    models: Vec<CatalogModel>,
+    last_known: &LastKnownModels,
+) -> Vec<CatalogModel> {
+    if provider == AgentChatProvider::Claurst {
+        return models;
+    }
+    if models.is_empty() {
+        return last_known
+            .get(provider)
+            .unwrap_or_else(|| fallback(provider));
+    }
+    last_known.remember(provider, &models);
+    models
+}
+
+fn with_default(mut models: Vec<CatalogModel>) -> Vec<CatalogModel> {
     if !models
         .iter()
         .any(|model| model.id == PROVIDER_DEFAULT_MODEL)
@@ -14,36 +73,32 @@ pub(crate) fn discovered(mut models: Vec<CatalogModel>) -> Vec<CatalogModel> {
     models
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gent_types::AgentChatEffort;
+fn bundled() -> &'static Bundled {
+    static BUNDLED_MODELS: OnceLock<Bundled> = OnceLock::new();
+    BUNDLED_MODELS.get_or_init(|| serde_json::from_str(BUNDLED).unwrap_or_default())
+}
 
-    #[test]
-    fn no_install_offers_only_provider_default() {
-        assert_eq!(discovered(Vec::new()), vec![provider_default_model()]);
-    }
-
-    #[test]
-    fn discovered_models_keep_provider_metadata_without_curated_additions() {
-        let mut model = provider_default_model();
-        model.id = "future-provider-model".into();
-        model.label = "Provider supplied name".into();
-        model.description = Some("Provider supplied details".into());
-        model.efforts = vec![AgentChatEffort::High];
-        model.default_effort = Some(AgentChatEffort::High);
-        let result = discovered(vec![model.clone()]);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], model);
-        assert_eq!(result[1].id, PROVIDER_DEFAULT_MODEL);
-        assert!(!result[1].is_default);
-    }
-
-    #[test]
-    fn provider_default_metadata_is_preserved_without_duplicate_alias() {
-        let mut model = provider_default_model();
-        model.label = "Provider recommended".into();
-        model.efforts = vec![AgentChatEffort::Medium];
-        assert_eq!(discovered(vec![model.clone()]), vec![model]);
+fn model(curated: &Curated) -> CatalogModel {
+    let efforts = curated
+        .efforts
+        .iter()
+        .filter_map(|value| effort(value))
+        .collect::<Vec<_>>();
+    CatalogModel {
+        id: curated.id.clone(),
+        label: curated.label.clone(),
+        description: None,
+        is_default: false,
+        default_effort: curated
+            .default_effort
+            .as_deref()
+            .and_then(effort)
+            .filter(|default| efforts.contains(default)),
+        efforts,
+        local: None,
     }
 }
+
+#[cfg(test)]
+#[path = "model_catalog_provider_models_tests.rs"]
+mod tests;

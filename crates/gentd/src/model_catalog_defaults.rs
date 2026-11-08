@@ -36,6 +36,10 @@ impl ModelCatalogDefaults {
         }
     }
 
+    pub(crate) fn sibling(&self, file_name: &str) -> PathBuf {
+        self.path.with_file_name(file_name)
+    }
+
     pub(crate) fn built_in() -> ModelCatalogSelection {
         ModelCatalogSelection {
             provider: AgentChatProvider::Claurst,

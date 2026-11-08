@@ -40,7 +40,7 @@ impl ModelCatalogSource for ClaudeModelSource {
         if !self.initialize.installed() {
             return Ok(ProviderListing {
                 availability,
-                models: provider_models::discovered(Vec::new()),
+                models: Vec::new(),
             });
         }
         let response = self.initialize.load(None, true)?;

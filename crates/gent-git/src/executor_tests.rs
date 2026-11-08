@@ -244,3 +244,22 @@ fn checkout_paths_restores_tracked_content() {
         "original"
     );
 }
+
+#[test]
+fn a_git_process_that_outlives_its_deadline_is_stopped() {
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("ping");
+        command.args(["-n", "30", "127.0.0.1"]);
+        command
+    } else {
+        let mut command = Command::new("sleep");
+        command.arg("30");
+        command
+    };
+    let started = std::time::Instant::now();
+
+    let outcome = super::bounded_output(&mut command, std::time::Duration::from_millis(300));
+
+    assert_eq!(outcome, Err(GitExecutorError::StatusFailed));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+}

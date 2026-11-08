@@ -1,8 +1,6 @@
-use std::{
-    path::Path,
-    process::{Child, Command, Stdio},
-    time::Duration,
-};
+mod support;
+
+use std::{path::Path, time::Duration};
 
 use gent_protocol::{
     Hello, WireFrame,
@@ -11,16 +9,8 @@ use gent_protocol::{
 };
 use gent_types::{CapabilitySet, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde_json::{Value, json};
+use support::{Gentd, gentd};
 use tokio::io::{AsyncRead, AsyncWrite};
-
-struct Daemon(Child);
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
 
 fn tiny_gguf(name: &str) -> Vec<u8> {
     let mut entries = Vec::new();
@@ -61,7 +51,7 @@ fn open(data_dir: &Path) -> std::io::Result<impl AsyncRead + AsyncWrite + Unpin>
         .open(gent_types::windows_pipe_name(data_dir))
 }
 
-async fn connect(data_dir: &Path, daemon: &mut Daemon) -> impl AsyncRead + AsyncWrite + Unpin {
+async fn connect(data_dir: &Path, daemon: &mut Gentd) -> impl AsyncRead + AsyncWrite + Unpin {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut stream = loop {
         if let Ok(stream) = open(data_dir) {
@@ -117,20 +107,11 @@ fn user_model(reply: &Value) -> Option<Value> {
 async fn a_picked_gguf_is_registered_listed_selected_and_removed_over_real_ipc() {
     let data = tempfile::tempdir().unwrap();
     let picked = tempfile::tempdir().unwrap();
-    std::fs::write(
-        data.path().join("model-catalog.json"),
-        json!({"defaultSelection":null,"declinedDownloads":["qwen3-1-7b-q4-k-m"]}).to_string(),
-    )
-    .unwrap();
     let model = picked.path().join("Tiny.gguf");
     std::fs::write(&model, tiny_gguf("Tiny Llama")).unwrap();
-    let mut daemon = Daemon(
-        Command::new(env!("CARGO_BIN_EXE_gentd"))
-            .args(["--standalone-authority", "--data-dir"])
-            .arg(data.path())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+    let mut daemon = Gentd(
+        gentd(data.path())
+            .arg("--standalone-authority")
             .spawn()
             .unwrap(),
     );
@@ -191,6 +172,6 @@ async fn a_picked_gguf_is_registered_listed_selected_and_removed_over_real_ipc()
     assert!(user_model(&removed).is_none());
     assert_eq!(
         removed["body"]["catalog"]["defaultSelection"]["model"],
-        "qwen3-1-7b-q4-k-m"
+        gent_protocol::DEFAULT_LOCAL_MODEL_ID
     );
 }

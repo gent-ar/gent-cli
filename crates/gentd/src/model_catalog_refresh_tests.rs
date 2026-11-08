@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     provider_launch_budget::ProviderLaunchError,
-    runtime_facade::model_catalog::defaults::ModelCatalogDefaults,
+    runtime_facade::model_catalog::{defaults::ModelCatalogDefaults, provider_models::fallback},
 };
 
 #[test]
@@ -33,7 +33,10 @@ fn repeated_refreshes_during_a_probe_coalesce_and_never_publish_the_obsolete_res
         service.snapshot().providers[0].listing,
         ModelListing::Loading
     );
-    assert!(service.snapshot().providers[0].models.is_empty());
+    assert_eq!(
+        service.snapshot().providers[0].models,
+        fallback(AgentChatProvider::Codex)
+    );
     gate.send(Ok(listing("current-provider-model"))).unwrap();
     eventually(&service, |catalog| {
         catalog.providers[0].listing == ModelListing::Ready
@@ -87,7 +90,10 @@ fn an_executable_change_during_discovery_cannot_stamp_an_old_catalog_with_the_ne
     *source.revision.lock().unwrap() = "new-binary".into();
     gate.send(Ok(listing("old-model"))).unwrap();
     wait_loads(&inner, 2);
-    assert!(service.snapshot().providers[0].models.is_empty());
+    assert_eq!(
+        service.snapshot().providers[0].models,
+        fallback(AgentChatProvider::Codex)
+    );
     gate.send(Ok(listing("new-model"))).unwrap();
     eventually(&service, |catalog| {
         catalog.providers[0].listing == ModelListing::Ready

@@ -1,5 +1,7 @@
 #![cfg(unix)]
 
+mod support;
+
 use std::{
     io::{BufRead, BufReader},
     os::unix::net::UnixStream,
@@ -9,27 +11,14 @@ use std::{
 };
 
 use gent_drivers::process::{configure_process_tree, groups::ProcessGroups};
-
-struct Gentd(Child);
-
-impl Drop for Gentd {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
+use support::{Gentd, gentd};
 
 fn start(data_dir: &Path) -> Gentd {
     let empty_path = data_dir.parent().unwrap().join("empty-path");
     std::fs::create_dir_all(&empty_path).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_gentd"))
+    let mut child = gentd(data_dir)
         .arg("--standalone-authority")
-        .arg("--data-dir")
-        .arg(data_dir)
         .env("PATH", empty_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .spawn()
         .unwrap();
     let socket = data_dir.join("gentd.sock");

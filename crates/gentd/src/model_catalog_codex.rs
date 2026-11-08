@@ -48,7 +48,7 @@ impl ModelCatalogSource for CodexModelSource {
         let Some(executable) = self.executables.executable(AgentChatProvider::Codex) else {
             return Ok(ProviderListing {
                 availability,
-                models: provider_models::discovered(Vec::new()),
+                models: Vec::new(),
             });
         };
         let mut opening =

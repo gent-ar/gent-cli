@@ -145,7 +145,7 @@ fn codex_signed_out_and_list_errors_stay_typed() {
 }
 
 #[test]
-fn a_missing_provider_offers_only_its_delegated_default_before_install() {
+fn a_missing_provider_lists_no_models_of_its_own_before_install() {
     let listing = CodexModelSource {
         lifecycle_control: None,
         executables: crate::provider_executables::ProviderExecutables::explicit(None, None),
@@ -155,8 +155,7 @@ fn a_missing_provider_offers_only_its_delegated_default_before_install() {
     .load()
     .unwrap();
     assert_eq!(listing.availability, ProviderAvailability::NotInstalled);
-    assert_eq!(listing.models[0].id, "default");
-    assert_eq!(listing.models.len(), 1);
+    assert!(listing.models.is_empty());
     let claude = ClaudeModelSource {
         initialize: ClaudeInitialize::new(
             crate::provider_executables::ProviderExecutables::explicit(None, None),
@@ -167,8 +166,7 @@ fn a_missing_provider_offers_only_its_delegated_default_before_install() {
     .load()
     .unwrap();
     assert_eq!(claude.availability, ProviderAvailability::NotInstalled);
-    assert_eq!(claude.models[0].id, "default");
-    assert_eq!(claude.models.len(), 1);
+    assert!(claude.models.is_empty());
 }
 
 #[test]

@@ -2,8 +2,8 @@ use gent_protocol::{
     AGENT_CHAT_TURN_FOLLOW_CAPABILITY, CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame,
     DecisionRecoveryEvidence, DependencyAction, DependencyActionRequest, DependencyActionState,
     DependencyPlan, DependencyPlanRequest, DependencyProvider, Hello, PublicRunOutcome,
-    PublicRunResponse, PublicRunStartRequest, WireFrame, read_frame, read_json_frame, write_frame,
-    write_json_frame,
+    PublicRunResponse, PublicRunStartRequest, WORKSPACE_GIT_CAPABILITY, WireFrame,
+    WorkspaceGitFrame, read_frame, read_json_frame, write_frame, write_json_frame,
 };
 use gent_runtime::{TurnFollowRead, TurnFollowRequest};
 use gent_types::{
@@ -23,6 +23,7 @@ impl RuntimeApi for FakeRuntime {
         Ok(CapabilitySet(vec![
             CONVERSATION_STATUS_CAPABILITY.into(),
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY.into(),
+            WORKSPACE_GIT_CAPABILITY.into(),
             "events".into(),
         ]))
     }
@@ -157,7 +158,27 @@ impl RuntimeApi for FakeRuntime {
     fn agent_chat_turn_follow(&self, _: TurnFollowRequest) -> Result<TurnFollowRead, String> {
         Ok(super::turn_follow_tests::read())
     }
+    fn workspace_git(
+        &self,
+        frame: WorkspaceGitFrame,
+    ) -> Result<WorkspaceGitFrame, crate::workspace_git_api::WorkspaceGitRejection> {
+        let WorkspaceGitFrame::StatusRequest {
+            request_id,
+            workspace_id,
+        } = frame
+        else {
+            return Err("not used".into());
+        };
+        std::thread::sleep(SLOW_GIT_STATUS);
+        Ok(WorkspaceGitFrame::Status {
+            request_id,
+            workspace_id,
+            report: None,
+        })
+    }
 }
+
+pub(crate) const SLOW_GIT_STATUS: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub(crate) fn hello() -> WireFrame {
     WireFrame::Hello(Hello {
@@ -309,4 +330,47 @@ async fn onboarding_is_read_only_and_returns_the_closed_provider_model() {
     ));
     drop(client);
     assert!(task.await.unwrap().is_ok());
+}
+
+#[tokio::test]
+async fn a_slow_workspace_git_request_leaves_the_runtime_free_for_other_clients() {
+    let started = std::time::Instant::now();
+    let (mut busy, server) = duplex(4096);
+    tokio::spawn(serve_connection(server, FakeRuntime));
+    write_frame(
+        &mut busy,
+        &WireFrame::Hello(Hello {
+            protocol_min: PROTOCOL_MIN,
+            protocol_max: PROTOCOL_MAX,
+            capabilities: CapabilitySet(vec![WORKSPACE_GIT_CAPABILITY.into()]),
+        }),
+    )
+    .await
+    .unwrap();
+    let _ = read_frame(&mut busy).await.unwrap();
+    write_json_frame(
+        &mut busy,
+        &WorkspaceGitFrame::StatusRequest {
+            request_id: "request-1".into(),
+            workspace_id: "workspace-1".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let (mut other, server) = duplex(4096);
+    tokio::spawn(serve_connection(server, FakeRuntime));
+    write_frame(&mut other, &hello()).await.unwrap();
+
+    assert!(matches!(
+        read_frame(&mut other).await.unwrap(),
+        WireFrame::Negotiated(_)
+    ));
+    assert!(started.elapsed() < SLOW_GIT_STATUS / 3);
+    assert!(matches!(
+        read_json_frame::<_, WorkspaceGitFrame>(&mut busy)
+            .await
+            .unwrap(),
+        WorkspaceGitFrame::Status { .. }
+    ));
 }

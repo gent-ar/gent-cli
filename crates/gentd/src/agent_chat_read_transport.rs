@@ -8,7 +8,10 @@ use gent_types::CapabilitySet;
 use serde_json::Value;
 use tokio::io::AsyncWrite;
 
-use crate::{api::RuntimeApi, transport::write_error};
+use crate::{
+    api::RuntimeApi,
+    transport::{off_runtime, write_error},
+};
 
 /// Dispatches one read-only agent-chat frame after capability negotiation.
 pub(crate) async fn dispatch<S, R>(
@@ -56,7 +59,11 @@ where
         .await?;
         return Ok(true);
     }
-    match runtime.agent_chat_conversation(frame) {
+    match off_runtime(runtime, move |runtime| {
+        runtime.agent_chat_conversation(frame)
+    })
+    .await?
+    {
         Ok(
             reply
             @ (AgentChatConversationFrame::Summary(_) | AgentChatConversationFrame::Detail(_)),

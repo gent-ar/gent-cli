@@ -9,14 +9,13 @@ use gent_types::{AgentChatProvider, AgentChatRejection, AgentChatSelection};
 use super::ModelCatalogService;
 use crate::agent_chat_intent_error::AgentChatIntentError;
 
-const FIRST_LISTING_WAIT: Duration = Duration::from_secs(25);
+const RELOAD_WAIT: Duration = Duration::from_secs(25);
 
 impl ModelCatalogService {
     pub(crate) fn validate(
         &self,
         selection: &AgentChatSelection,
     ) -> Result<(), AgentChatIntentError> {
-        self.await_first_listing(selection.provider);
         self.reload_uncached(selection.provider);
         let slots = self.slots();
         let Some(listing) = slots.iter().map(|slot| &slot.entry).find(|entry| {
@@ -85,7 +84,7 @@ impl ModelCatalogService {
         else {
             return;
         };
-        let deadline = Instant::now() + FIRST_LISTING_WAIT;
+        let deadline = Instant::now() + RELOAD_WAIT;
         loop {
             {
                 let mut slots = self.slots();
@@ -100,18 +99,6 @@ impl ModelCatalogService {
             std::thread::sleep(Duration::from_millis(25));
         }
         self.load(index);
-    }
-
-    fn await_first_listing(&self, provider: AgentChatProvider) {
-        self.read(false);
-        let deadline = Instant::now() + FIRST_LISTING_WAIT;
-        while Instant::now() < deadline
-            && self.slots().iter().any(|slot| {
-                slot.entry.provider == provider && slot.loading && slot.loaded_at.is_none()
-            })
-        {
-            std::thread::sleep(Duration::from_millis(25));
-        }
     }
 }
 

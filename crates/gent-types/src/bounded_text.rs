@@ -13,6 +13,9 @@ pub const PROVIDER_CONTEXT_COMPACTION_FAILED_NOTICE: &str =
 pub const PROVIDER_SESSION_RECOVERED_DIAGNOSTIC: &str = "providerSessionRecovered";
 pub const PROVIDER_SESSION_RECOVERED_NOTICE: &str =
     "The provider session could not be resumed; continued from Gent's saved history.";
+pub const PROVIDER_TRANSIENT_RETRY_DIAGNOSTIC: &str = "providerTransientRetry";
+pub const PROVIDER_TRANSIENT_RETRY_NOTICE: &str =
+    "Claude reported a temporary error before starting this turn; retrying automatically.";
 pub const PROVIDER_SESSION_UNAVAILABLE_NOTICE: &str = "The provider no longer has this conversation's session. Continue from Gent's saved history to keep going.";
 
 #[must_use]

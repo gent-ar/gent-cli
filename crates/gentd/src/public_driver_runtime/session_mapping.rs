@@ -58,6 +58,9 @@ fn diagnostic_notice(classification: &str) -> Option<&'static str> {
         gent_types::PROVIDER_CONTEXT_COMPACTION_FAILED_DIAGNOSTIC => {
             Some(gent_types::PROVIDER_CONTEXT_COMPACTION_FAILED_NOTICE)
         }
+        gent_types::PROVIDER_TRANSIENT_RETRY_DIAGNOSTIC => {
+            Some(gent_types::PROVIDER_TRANSIENT_RETRY_NOTICE)
+        }
         _ => None,
     }
 }
