@@ -32,10 +32,7 @@ pub(super) async fn initial_metadata(
             let running = with_status
                 && crate::conversation_status::request(data_dir, no_autostart, conversation_id)
                     .await
-                    .ok()
-                    .is_some_and(|status| {
-                        status.runs.iter().any(|run| run.active_turn_id.is_some())
-                    });
+                    .is_ok_and(|status| status.runs.iter().any(|run| run.active_turn_id.is_some()));
             Some((summary, running))
         });
     }
