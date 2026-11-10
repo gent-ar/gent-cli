@@ -278,13 +278,14 @@ pub trait PrivateClaurstBridge: Send + Sync {
         ))
     }
 
-    async fn permission_enforcement(
+    async fn permission_authority(
         &self,
         _binding: ClaurstSessionBinding,
-        _policy: gent_types::PolicyRecord,
         _epoch: gent_types::HostEpoch,
-    ) -> Result<gent_types::SandboxEnforcement, PortError> {
-        Ok(gent_types::SandboxEnforcement::Unavailable)
+    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
+        Err(PortError::Unavailable(
+            "private Claurst permission authority".into(),
+        ))
     }
 
     /// Drains one bounded ordered batch from one daemon-owned private source.

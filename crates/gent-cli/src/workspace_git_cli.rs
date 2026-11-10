@@ -4,6 +4,7 @@ use crate::{
 };
 use clap::{Args, Subcommand};
 use gent_protocol::{WORKSPACE_GIT_CAPABILITY, WorkspaceGitFrame};
+use gent_types::WorkspaceGitReport;
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -74,6 +75,29 @@ pub(crate) async fn execute(
         }
     };
     Ok(serde_json::to_value(exchange(&mut stream, &frame).await?)?)
+}
+
+pub(crate) async fn status(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    workspace_id: String,
+) -> Result<Option<WorkspaceGitReport>, Box<dyn std::error::Error>> {
+    let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
+    if !capabilities
+        .0
+        .iter()
+        .any(|value| value == WORKSPACE_GIT_CAPABILITY)
+    {
+        return Ok(None);
+    }
+    let frame = WorkspaceGitFrame::StatusRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        workspace_id,
+    };
+    match exchange(&mut stream, &frame).await? {
+        WorkspaceGitFrame::Status { report, .. } => Ok(report),
+        _ => Err("gentd did not return workspace Git status".into()),
+    }
 }
 
 async fn resolve(

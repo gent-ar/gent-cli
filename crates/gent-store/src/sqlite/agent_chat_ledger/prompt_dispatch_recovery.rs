@@ -62,15 +62,28 @@ fn fail_open_turns(
             .map_err(queries::storage_error)?
     };
     for turn_id in turn_ids {
-        crate::sqlite::turn_terminal::settle(
+        if crate::sqlite::turn_terminal::settle(
             transaction,
             &turn_id,
             host_epoch,
             gent_types::DurableTurnPhase::Failed,
-        )?;
+        )? {
+            crate::sqlite::turn_terminal::append_failure_notice(
+                transaction,
+                &turn_id,
+                &format!(
+                    "{}{turn_id}",
+                    gent_types::AgentChatFailureCode::GentdRestarted.event_prefix()
+                ),
+                GENTD_RESTARTED_NOTICE,
+            )?;
+        }
     }
     Ok(())
 }
+
+const GENTD_RESTARTED_NOTICE: &str =
+    "Gentd restarted while this turn was running. Send the prompt again to continue.";
 
 fn recover_permissions(
     transaction: &Transaction<'_>,

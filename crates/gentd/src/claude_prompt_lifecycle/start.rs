@@ -43,7 +43,7 @@ where
     let run_id = prompt.run_id.0.clone();
     let message_id = prompt.message.message_id.clone();
     let fresh_context = runtime.launch_context(&prompt.message)?;
-    let start = prompt_start(runtime, &prompt, fresh_context)?;
+    let (start, permission) = prompt_start(runtime, &prompt, fresh_context)?;
     if runner.has_claude_session(&run_id) {
         return submit(
             runtime,
@@ -91,6 +91,8 @@ where
                         last_dispatch: 0,
                         idle_since: None,
                         awaits_first_input: false,
+                        permission,
+                        queued_permissions: std::collections::VecDeque::new(),
                     },
                 );
                 Ok(ClaudePromptDispatchOutcome::Started { run_id })

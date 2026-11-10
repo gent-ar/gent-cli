@@ -129,13 +129,17 @@ async fn selected_claurst_model_claims_one_daemon_owned_download_until_released(
             .unwrap(),
         crate::local_model_jobs::DownloadStart::Downloading(_)
     ));
-    assert!(matches!(
+    assert_eq!(
         models.install_state("qwen3-1-7b-q4-k-m").unwrap(),
         gent_protocol::LocalModelInstallState::Downloading {
             downloaded_bytes: 0,
-            total_bytes: 1_282_439_264
+            total_bytes: models
+                .provisioner
+                .plan("qwen3-1-7b-q4-k-m")
+                .unwrap()
+                .expected_bytes
         }
-    ));
+    );
     models.downloads.release("qwen3-1-7b-q4-k-m", &holder);
     assert_eq!(
         models.install_state("qwen3-1-7b-q4-k-m").unwrap(),

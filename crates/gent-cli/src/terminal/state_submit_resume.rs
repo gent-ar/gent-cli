@@ -4,7 +4,7 @@ pub(super) fn command(state: &mut UiState, argument: &str) -> UiEffect {
     if argument.is_empty() {
         state.input.clear();
         state.commands.picker = Some(state.selected_index().unwrap_or(0));
-        return UiEffect::Continue;
+        return UiEffect::LoadConversations;
     }
     let (candidate, prompt) = argument
         .split_once(char::is_whitespace)

@@ -111,7 +111,7 @@ fn resolve<L: Ledger + WorkspaceLedger>(
         })
 }
 
-pub(crate) fn status(workspace_canonical_path: &str) -> Result<Option<WorkspaceGitReport>, String> {
+fn status(workspace_canonical_path: &str) -> Result<Option<WorkspaceGitReport>, String> {
     static STATUS: LazyLock<SingleFlight<Result<Option<WorkspaceGitReport>, String>>> =
         LazyLock::new(SingleFlight::new);
     STATUS.run(workspace_canonical_path, || {

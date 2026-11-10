@@ -24,7 +24,7 @@ impl RuntimeFacade {
             return Ok(vec![reply]);
         }
         let frame = self.with_default_selection(frame)?;
-        self.validate_catalog_selection(&frame)?;
+        let frame = self.fit_catalog_selection(frame)?;
         let switched = super::model_catalog::switched_selection(&frame);
         if let AgentChatIntentFrame::SwitchSelection { parent_run_id, .. } = &frame {
             self.require_settled_selection_parent(&parent_run_id.0)?;

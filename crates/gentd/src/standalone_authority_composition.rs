@@ -26,7 +26,7 @@ mod claurst_runtime;
 #[path = "standalone_authority_composition_provider_host.rs"]
 mod provider_host;
 
-pub(crate) use claurst_models::StandaloneClaurstModels;
+pub(crate) use claurst_models::{StandaloneClaurstModelStatus, StandaloneClaurstModels};
 use claurst_runtime::RetainedClaurstRuntime;
 use provider_host::LazyStandaloneProviderHost;
 

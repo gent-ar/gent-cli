@@ -1,6 +1,6 @@
 use super::{
-    input, render,
-    state::{UiCommand, UiEffect, UiRequest, UiRequestResult, UiState},
+    effects, input, render,
+    state::{UiCommand, UiRequest, UiRequestResult, UiState},
 };
 use crossterm::{
     event::{self, DisableBracketedPaste, EnableBracketedPaste, Event},
@@ -11,7 +11,7 @@ use gent_types::PromptTemplateVariable;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     io::{self, IsTerminal, Stdout},
-    time::{Duration, Instant},
+    time::Duration,
 };
 pub(crate) struct TerminalPorts<'a> {
     pub(crate) request: Box<dyn FnMut(UiRequest) -> Result<UiRequestResult, String> + 'a>,
@@ -28,12 +28,25 @@ pub(crate) struct TerminalPorts<'a> {
     >,
     pub(crate) login: Box<dyn FnMut(gent_types::AgentChatProvider) -> Result<String, String> + 'a>,
     pub(crate) save_thinking: Box<dyn FnMut(bool) -> Result<(), String> + 'a>,
+    pub(crate) workspace_git: Box<dyn FnMut(Option<String>) -> Option<WorkspaceGitResult> + 'a>,
+    pub(crate) conversations: Box<dyn FnMut() -> Result<ConversationList, String> + 'a>,
 }
+
+pub(crate) type WorkspaceGitResult = (
+    String,
+    Result<Option<gent_types::WorkspaceGitReport>, String>,
+);
+
+pub(crate) type ConversationList = (
+    Vec<gent_types::ConversationListItem>,
+    std::collections::BTreeMap<String, super::ConversationMetadata>,
+);
 
 pub(crate) fn run(mut state: UiState, mut ports: TerminalPorts<'_>) -> io::Result<()> {
     require_interactive()?;
     let mut terminal = TerminalSession::open()?;
-    let mut last_live_refresh = Instant::now();
+    let mut clock = effects::LiveClock::new();
+    effects::refresh_workspace_git(&mut state, &mut ports, false);
     loop {
         terminal
             .terminal
@@ -45,97 +58,23 @@ pub(crate) fn run(mut state: UiState, mut ports: TerminalPorts<'_>) -> io::Resul
                 _ => None,
             };
             if let Some(command) = command {
-                let previous_thinking = state.show_thinking();
-                match state.apply(command) {
-                    UiEffect::Quit => return Ok(()),
-                    UiEffect::Request(value) => {
-                        let clears_composer = matches!(
-                            &value,
-                            UiRequest::Send { .. }
-                                | UiRequest::Queue { .. }
-                                | UiRequest::InvokeCommand { .. }
-                        );
-                        match (ports.request)(value) {
-                            Ok(result) => {
-                                if clears_composer {
-                                    state.clear_sent_prompt();
-                                }
-                                state.apply_request(result);
-                                if let Some(conversation_id) =
-                                    state.selected().map(|item| item.conversation_id.clone())
-                                {
-                                    match (ports.refresh)(conversation_id) {
-                                        Ok(view) => state.apply_view(view),
-                                        Err(error) => state.set_notice(error),
-                                    }
-                                }
-                            }
-                            Err(error) => state.set_notice(error),
+                let quit =
+                    effects::apply_command(&mut state, &mut ports, command, &mut |suspend| {
+                        if suspend {
+                            terminal.suspend()
+                        } else {
+                            terminal.resume()
                         }
-                    }
-                    UiEffect::RenderTemplate {
-                        template_id,
-                        variables,
-                    } => match (ports.render_template)(template_id, variables) {
-                        Ok(prompt) => {
-                            state.replace_input(prompt);
-                            state.set_notice("Template rendered. Press Enter to send.".into());
-                        }
-                        Err(error) => state.set_notice(error),
-                    },
-                    UiEffect::Refresh(conversation_id) => match (ports.refresh)(conversation_id) {
-                        Ok(view) => state.apply_view(view),
-                        Err(error) => state.set_notice(error),
-                    },
-                    UiEffect::ListDocuments {
-                        workspace_id,
-                        attach_id,
-                    } => match (ports.list_documents)(workspace_id) {
-                        Ok(documents) => state.set_documents(documents, attach_id),
-                        Err(error) => state.set_notice(error),
-                    },
-                    UiEffect::ListTemplates => match (ports.list_templates)() {
-                        Ok(templates) => state.set_templates(templates),
-                        Err(error) => state.set_notice(error),
-                    },
-                    UiEffect::CreateSession(session) => match (ports.create_session)(session) {
-                        Ok(session) => state.add_session(session),
-                        Err(error) => state.set_notice(error),
-                    },
-                    UiEffect::Login(provider) => {
-                        terminal.suspend()?;
-                        let result = (ports.login)(provider);
-                        terminal.resume()?;
-                        match result {
-                            Ok(notice) => state.set_notice(notice),
-                            Err(error) => state.set_notice(error),
-                        }
-                    }
-                    UiEffect::Continue => {}
-                }
-                if previous_thinking != state.show_thinking()
-                    && let Err(error) = (ports.save_thinking)(state.show_thinking())
-                {
-                    state.set_notice(error);
+                    })?;
+                if quit {
+                    return Ok(());
                 }
             }
         }
-        if last_live_refresh.elapsed() >= Duration::from_millis(250) {
-            last_live_refresh = Instant::now();
-            if state.awaiting_turn() || state.selected_status().is_some_and(status_is_live) {
-                if let Some(conversation_id) =
-                    state.selected().map(|item| item.conversation_id.clone())
-                {
-                    match (ports.refresh)(conversation_id) {
-                        Ok(view) => state.apply_view(view),
-                        Err(error) => state.set_notice(error),
-                    }
-                }
-            }
-        }
+        effects::live_tick(&mut state, &mut ports, &mut clock);
     }
 }
-fn status_is_live(status: &gent_types::ConversationStatus) -> bool {
+pub(crate) fn status_is_live(status: &gent_types::ConversationStatus) -> bool {
     status.runs.iter().any(|run| {
         run.active_turn_id.is_some()
             || run.live_status.as_ref().is_some_and(|live| {

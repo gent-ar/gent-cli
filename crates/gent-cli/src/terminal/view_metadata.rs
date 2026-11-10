@@ -14,6 +14,6 @@ pub(crate) struct ConversationMetadata {
     pub(crate) automation_runs: Vec<gent_types::AutomationRunSummary>,
     pub(crate) forge_count: u16,
     pub(crate) forge_names: Vec<String>,
-    pub(crate) changed_file_count: Option<u32>,
-    pub(crate) git_branch: Option<String>,
+    pub(crate) updated_at_unix_ms: u64,
+    pub(crate) running: bool,
 }

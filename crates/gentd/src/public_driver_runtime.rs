@@ -211,6 +211,18 @@ where
         )
         .map_err(RuntimeError::from)
     }
+
+    pub(crate) fn run_policy(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<gent_types::PolicyRecord, RuntimeError>
+    where
+        L: gent_ports::AgentChatWorkspaceLedger,
+    {
+        let workspace = self.workspace_for_run(conversation_id, run_id)?;
+        self.conversation_policy(conversation_id, &workspace.workspace_id)
+    }
 }
 
 impl<L: AgentChatReadLedger, D, R> PublicDriversRuntime<L, D, R> {

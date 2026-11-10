@@ -475,3 +475,50 @@ fn switching_from_a_superseded_parent_is_a_typed_rejection() {
         "the selection can change only from the conversation's current run"
     );
 }
+
+#[test]
+fn conversation_reads_never_inspect_the_workspace_git_repository() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(
+        workspace.path().join(".git"),
+        "gitdir: missing-repository-metadata\n",
+    )
+    .unwrap();
+    let runtime = chat_runtime(directory.path());
+    let created = runtime
+        .agent_chat_intent(AgentChatIntentFrame::CreateConversation {
+            request_id: AgentChatRequestId("create-broken-git".into()),
+            receipt_id: ReceiptId("receipt-create-broken-git".into()),
+            workspace_path: workspace.path().display().to_string(),
+            selection: Some(AgentChatSelection {
+                provider: AgentChatProvider::Claude,
+                model: "sonnet".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Agent,
+            }),
+        })
+        .unwrap();
+    let [
+        AgentChatIntentFrame::Created {
+            conversation_id, ..
+        },
+    ] = created.as_slice()
+    else {
+        panic!("conversation creation must return a durable identity");
+    };
+    let started = std::time::Instant::now();
+    let summary = runtime
+        .agent_chat_conversation(AgentChatConversationFrame::SummaryRequest {
+            conversation_id: conversation_id.0.clone(),
+        })
+        .unwrap();
+    let detail = runtime
+        .agent_chat_conversation(AgentChatConversationFrame::DetailRequest {
+            conversation_id: conversation_id.0.clone(),
+        })
+        .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(matches!(summary, AgentChatConversationFrame::Summary(_)));
+    assert!(matches!(detail, AgentChatConversationFrame::Detail(_)));
+}

@@ -190,3 +190,61 @@ async fn deltas(client: &mut DuplexStream, count: usize, after: u64) -> Vec<(u64
     }
     received
 }
+
+type FollowScript = Vec<Result<Vec<AgentChatProjectionDelta>, String>>;
+
+#[derive(Clone)]
+struct ScriptedFollow(std::sync::Arc<std::sync::Mutex<FollowScript>>);
+
+impl super::ProjectionFollowPort for ScriptedFollow {
+    fn projection_deltas(
+        &self,
+        _: &str,
+        _: &ProjectionCursor,
+    ) -> Result<Vec<AgentChatProjectionDelta>, String> {
+        let mut script = self.0.lock().unwrap();
+        if script.is_empty() {
+            Ok(Vec::new())
+        } else {
+            script.remove(0)
+        }
+    }
+}
+
+fn scripted(after: u64, script: FollowScript) -> DuplexStream {
+    let (client, server) = duplex(64 * 1024);
+    tokio::spawn(super::serve(
+        server,
+        ScriptedFollow(std::sync::Arc::new(std::sync::Mutex::new(script))),
+        "follow".into(),
+        "conversation".into(),
+        ProjectionCursor { value: after },
+    ));
+    client
+}
+
+#[tokio::test]
+async fn a_failed_follow_read_ends_with_a_typed_error_frame_instead_of_a_dropped_pipe() {
+    let mut client = scripted(0, vec![Err("store read failed".into())]);
+    let WireFrame::Error { code, message } = read_frame(&mut client).await.unwrap() else {
+        panic!("a failed follow must answer with a typed error frame");
+    };
+    assert_eq!(code, "projectionFollowFailed");
+    assert_eq!(message, "store read failed");
+}
+
+#[tokio::test]
+async fn a_cursor_that_does_not_advance_asks_the_client_to_resync() {
+    let resync = AgentChatProjectionDelta::ResyncRequired {
+        cursor: ProjectionCursor { value: 7 },
+    };
+    let mut client = scripted(7, vec![Ok(vec![resync.clone()])]);
+    let AgentChatProjectionFrame::Delta { delta, .. } = read_json_frame(&mut client).await.unwrap()
+    else {
+        panic!("a stalled cursor must be answered with a projection delta");
+    };
+    assert!(matches!(
+        delta,
+        AgentChatProjectionDelta::ResyncRequired { cursor } if cursor.value == 7
+    ));
+}

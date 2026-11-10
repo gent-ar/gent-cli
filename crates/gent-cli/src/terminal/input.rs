@@ -31,6 +31,7 @@ pub(crate) fn command(event: KeyEvent, chat_enabled: bool) -> Option<UiCommand> 
         KeyCode::F(2) => Some(UiCommand::ToggleActivity),
         KeyCode::Backspace => Some(UiCommand::DeleteInput),
         KeyCode::Tab => Some(UiCommand::CycleProvider),
+        KeyCode::BackTab => Some(UiCommand::CyclePermissionMode),
         KeyCode::Char('n') if event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(UiCommand::CreateConversation)
         }

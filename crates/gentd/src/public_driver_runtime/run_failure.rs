@@ -78,3 +78,10 @@ impl<L: AgentChatPromptDispatchLedger, D, R> PublicDriversRuntime<L, D, R> {
         }
     }
 }
+
+pub(crate) fn provider_exited(provider: &str, code: Option<i32>) -> RuntimeError {
+    let status = code.map_or_else(|| "unknown".into(), |code| code.to_string());
+    RuntimeError::ProviderRun(gent_ports::PublicProviderRunError::Failed(format!(
+        "{provider} exited before completing the turn (process status {status})."
+    )))
+}

@@ -51,6 +51,7 @@ impl UiState {
             scroll_limit: std::cell::Cell::new(0),
             attachments: Vec::new(),
             metadata: BTreeMap::new(),
+            workspace_git: BTreeMap::new(),
             sessions: Vec::new(),
             session_focus: false,
             selected_session: None,
@@ -83,6 +84,7 @@ impl UiState {
             awaiting_turn: false,
             conversation_filter: String::new(),
             commands: super::super::commands::CommandState::default(),
+            inline: super::state_inline::InlineState::default(),
         }
     }
 }

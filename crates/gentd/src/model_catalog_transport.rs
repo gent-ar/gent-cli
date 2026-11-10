@@ -48,10 +48,10 @@ pub(crate) trait ModelCatalogPort: Send + Sync {
     ) -> Result<ModelCatalogFrame, ModelCatalogRejection>;
     fn default_selection(&self) -> AgentChatSelection;
     fn remember(&self, selection: &AgentChatSelection);
-    fn validate(
+    fn fit(
         &self,
         selection: &AgentChatSelection,
-    ) -> Result<(), crate::agent_chat_intent_error::AgentChatIntentError>;
+    ) -> Result<AgentChatSelection, crate::agent_chat_intent_error::AgentChatIntentError>;
     fn provider_commands(
         &self,
         _: gent_types::AgentChatProvider,
@@ -123,11 +123,11 @@ impl ModelCatalogPort for StandaloneModelCatalog {
         self.service.default_agent_selection()
     }
 
-    fn validate(
+    fn fit(
         &self,
         selection: &AgentChatSelection,
-    ) -> Result<(), crate::agent_chat_intent_error::AgentChatIntentError> {
-        self.service.validate(selection)
+    ) -> Result<AgentChatSelection, crate::agent_chat_intent_error::AgentChatIntentError> {
+        self.service.fit(selection)
     }
 
     fn provider_commands(

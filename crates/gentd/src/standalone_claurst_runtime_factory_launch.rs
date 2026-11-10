@@ -19,7 +19,7 @@ impl StandaloneClaurstRuntimeFactory {
         conversation_id: &str,
         run_id: &str,
         tool_source_ids: &[String],
-    ) -> Result<(), String> {
+    ) -> Result<gent_types::PolicyRecord, String> {
         let selection = AgentChatReadService::new(self.ledger.clone())
             .run_selection(conversation_id, run_id)
             .map_err(|error| error.to_string())?;
@@ -101,7 +101,7 @@ impl StandaloneClaurstRuntimeFactory {
         }
         let reuse = self.retire_unless_reusable(&identity).await?;
         if reuse == RuntimeReuse::Ready {
-            return Ok(());
+            return Ok(permission);
         }
         let mut request = config.request.clone();
         request.effort = selection.effort;
@@ -124,7 +124,7 @@ impl StandaloneClaurstRuntimeFactory {
             disallowed_tools,
         )?;
         match reuse {
-            RuntimeReuse::Ready => Ok(()),
+            RuntimeReuse::Ready => Ok(permission),
             RuntimeReuse::RebindSession
                 if self
                     .rebind_session(
@@ -135,12 +135,12 @@ impl StandaloneClaurstRuntimeFactory {
                     )
                     .await? =>
             {
-                Ok(())
+                Ok(permission)
             }
-            RuntimeReuse::RebindSession | RuntimeReuse::Relaunch => {
-                self.launch_runtime(identity, request, workspace, launch_mcp_servers)
-                    .await
-            }
+            RuntimeReuse::RebindSession | RuntimeReuse::Relaunch => self
+                .launch_runtime(identity, request, workspace, launch_mcp_servers)
+                .await
+                .map(|()| permission),
         }
     }
 

@@ -44,14 +44,17 @@ where
                 "provider poll unavailable".into(),
             ))
         })?;
-        let Some(effects) = effects else {
+        let promoted = self.promote_queued_permission(run_id, host_epoch)?;
+        let Some(effects) = effects.or_else(|| promoted.map(|_| Vec::new())) else {
             return Ok(None);
         };
         if !self.active.contains_key(run_id) {
             return Err(missing_binding());
         }
-        let mut facts: u16 = 0;
-        let mut terminal = None;
+        let mut facts: u16 = promoted.map_or(0, |record| record.facts);
+        let mut terminal = promoted
+            .filter(|record| record.terminal)
+            .map(|_| DurableTurnPhase::Failed);
         for effect in effects {
             match effect {
                 ClaudeRunnerEffect::Fact(fact) => {
@@ -85,7 +88,7 @@ where
                     facts = facts.saturating_add(1);
                 }
                 ClaudeRunnerEffect::PermissionRequest(request) => {
-                    let permission = self.record_permission_request(run_id, host_epoch, request)?;
+                    let permission = self.admit_permission_request(run_id, host_epoch, request)?;
                     if permission.terminal {
                         terminal = Some(DurableTurnPhase::Failed);
                     }
@@ -117,12 +120,9 @@ where
                             != Some(binding.prompt.message.turn_id.as_str())
                         && binding.session_recovery != super::SessionRecovery::Unavailable
                     {
-                        let status = code.map_or_else(|| "unknown".into(), |code| code.to_string());
-                        let error = RuntimeError::ProviderRun(PublicProviderRunError::Failed(
-                            format!(
-                                "Claude exited before completing the turn (process status {status})."
-                            ),
-                        ));
+                        let error = crate::public_driver_runtime::run_failure::provider_exited(
+                            "Claude", code,
+                        );
                         self.runtime.fail_claimed_prompt(
                             &binding.prompt.message.message_id,
                             &self.coordinator_id,

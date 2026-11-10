@@ -108,9 +108,8 @@ fn narrow_terminal_uses_compact_workspace_facts() {
     metadata.insert(
         "conversation".into(),
         crate::terminal::ConversationMetadata {
+            workspace_id: Some("workspace".into()),
             workspace_path: Some("/Users/example/Clouseau/gent-cli".into()),
-            git_branch: Some("main".into()),
-            changed_file_count: Some(12),
             mcp_server_count: 2,
             mcp_server_names: vec!["gent-automations".into(), "gent-forge".into()],
             ..crate::terminal::ConversationMetadata::default()
@@ -127,7 +126,13 @@ fn narrow_terminal_uses_compact_workspace_facts() {
                     run_count: 1,
                 }])
                 .with_chat_input(true)
-                .with_metadata(metadata),
+                .with_metadata(metadata)
+                .with_workspace_git(
+                    "workspace",
+                    Some(crate::terminal::state::state_workspace_git::tests::report(
+                        "main", 12,
+                    )),
+                ),
             )
         })
         .unwrap();

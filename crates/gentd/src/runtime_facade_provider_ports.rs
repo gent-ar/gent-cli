@@ -38,10 +38,6 @@ impl RuntimeFacade {
         &self,
         frame: gent_protocol::PermissionPolicyFrame,
     ) -> Result<gent_protocol::PermissionPolicyFrame, String> {
-        crate::permission_policy_transition::require_idle_transition(
-            &self.transcript_import_ledger,
-            &frame,
-        )?;
         crate::permission_policy_api::exchange(&self.coordinator, frame)
     }
 

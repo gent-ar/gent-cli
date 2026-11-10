@@ -371,20 +371,14 @@ fn slash_goal_is_invoked_through_the_catalog_for_the_selected_conversation() {
 
 #[test]
 fn slash_git_reads_the_selected_workspace_projection() {
-    let mut metadata = BTreeMap::new();
-    metadata.insert(
-        "one".into(),
-        ConversationMetadata {
-            workspace_path: Some("/workspace".into()),
-            git_branch: Some("feature/chat".into()),
-            changed_file_count: Some(3),
-            ..ConversationMetadata::default()
-        },
-    );
     let mut state = UiState::new(vec![item("one")])
         .with_chat_input(true)
         .with_command_catalog(Some(crate::terminal::commands::tests::catalog()))
-        .with_metadata(metadata);
+        .with_metadata(super::state_workspace_git::tests::metadata("one"))
+        .with_workspace_git(
+            "workspace",
+            Some(super::state_workspace_git::tests::report("feature/chat", 3)),
+        );
     for character in "/git".chars() {
         state.apply(UiCommand::Insert(character));
     }
@@ -437,7 +431,10 @@ fn slash_resume_without_text_opens_the_conversation_picker() {
     for character in "/resume".chars() {
         state.apply(UiCommand::Insert(character));
     }
-    assert_eq!(state.apply(UiCommand::SubmitPrompt), UiEffect::Continue);
+    assert_eq!(
+        state.apply(UiCommand::SubmitPrompt),
+        UiEffect::LoadConversations
+    );
     assert_eq!(state.conversation_picker(), Some(0));
     assert_eq!(state.apply(UiCommand::SelectNext), UiEffect::Continue);
     assert_eq!(state.selected().unwrap().conversation_id, "one");
@@ -999,7 +996,7 @@ fn settled_response_clears_the_live_thinking_notice() {
             next_after_cursor: None,
         }),
     ));
-    assert_eq!(state.notice(), Some("Ready for your next message."));
+    assert_eq!(state.notice(), None);
 }
 
 #[test]

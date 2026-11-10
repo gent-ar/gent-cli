@@ -211,13 +211,7 @@ fn fitted_effort(
     else {
         return selection.effort;
     };
-    if model.efforts.is_empty() || model.efforts.contains(&selection.effort) {
-        return selection.effort;
-    }
-    model
-        .default_effort
-        .or_else(|| model.efforts.first().copied())
-        .unwrap_or(selection.effort)
+    selection.effort.nearest_in(&model.efforts)
 }
 
 fn model_catalog(facade: &RuntimeFacade) -> Option<ModelCatalog> {

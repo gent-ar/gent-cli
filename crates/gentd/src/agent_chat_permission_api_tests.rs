@@ -808,7 +808,7 @@ fn canonical_grant_fixture(
 }
 
 #[test]
-fn codex_and_claude_commit_the_same_canonical_grant_and_reject_stale_once_bindings() {
+fn codex_and_claude_commit_the_same_canonical_grant_and_answer_after_a_newer_revision() {
     for provider in [AgentChatProvider::Codex, AgentChatProvider::Claude] {
         let (ledger, port, response, _, _) = canonical_grant_fixture(provider);
         let receipt = if provider == AgentChatProvider::Codex {
@@ -841,14 +841,18 @@ fn codex_and_claude_commit_the_same_canonical_grant_and_reject_stale_once_bindin
         } else {
             port.respond_claude_with_receipt(&response, &ReceiptId("stale-approval".into()))
         };
-        assert!(result.is_err());
-        assert!(codex.lock().unwrap().is_empty());
-        assert!(claude.lock().unwrap().is_empty());
-        assert!(
+        assert_eq!(result.unwrap().status, gent_types::ReceiptStatus::Settled);
+        assert_eq!(
+            codex.lock().unwrap().len() + claude.lock().unwrap().len(),
+            1
+        );
+        assert_eq!(
             ledger
-                .pending_permission(&response.binding.conversation_id, &response.binding.run_id)
+                .current_policy("workspace", gent_types::PolicyScope::ProviderPermissions)
                 .unwrap()
-                .is_some()
+                .unwrap()
+                .policy_id,
+            "newer-policy"
         );
     }
 }

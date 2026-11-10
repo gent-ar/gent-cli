@@ -34,6 +34,7 @@ struct BridgeState<S> {
     sources: BTreeMap<ClaurstSourceId, SourceState>,
     run_sessions: BTreeMap<String, RunSession>,
     history_input_bytes: usize,
+    turn_policy: Option<gent_types::PolicyRecord>,
 }
 
 /// A private ACP bridge that keeps upstream session identifiers inside the daemon.
@@ -54,6 +55,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
                 run_sessions: BTreeMap::new(),
                 history_input_bytes:
                     gent_drivers::conversation_context_input::MAX_FRESH_CONTEXT_INPUT_BYTES,
+                turn_policy: None,
             })),
         }
     }
@@ -141,28 +143,6 @@ where
             .map_err(|_| unavailable("ACP drain worker"))?
     }
 
-    async fn permission_enforcement(
-        &self,
-        binding: ClaurstSessionBinding,
-        policy: gent_types::PolicyRecord,
-        epoch: gent_types::HostEpoch,
-    ) -> Result<gent_types::SandboxEnforcement, PortError> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| unavailable("ACP permission authority"))?;
-        if !state
-            .sources
-            .get(&binding.source_id)
-            .is_some_and(|source| source.binding == binding && !source.terminal)
-        {
-            return Ok(gent_types::SandboxEnforcement::Unavailable);
-        }
-        Ok(state
-            .transport
-            .permission_enforcement(&binding.run_id, &policy, epoch))
-    }
-
     async fn respond_permission(
         &self,
         binding: ClaurstSessionBinding,
@@ -232,6 +212,13 @@ impl<S> ClaurstBridgeHandle<S> {
             .await
             .map_err(|_| unavailable("ACP initialize worker"))?
     }
+
+    pub(crate) fn bind_turn_policy(
+        &self,
+        policy: gent_types::PolicyRecord,
+    ) -> Result<(), PortError> {
+        support::bind_turn_policy(&self.0.state, policy)
+    }
 }
 
 #[async_trait]
@@ -262,15 +249,6 @@ where
         self.0.drain(request).await
     }
 
-    async fn permission_enforcement(
-        &self,
-        binding: ClaurstSessionBinding,
-        policy: gent_types::PolicyRecord,
-        epoch: gent_types::HostEpoch,
-    ) -> Result<gent_types::SandboxEnforcement, PortError> {
-        self.0.permission_enforcement(binding, policy, epoch).await
-    }
-
     async fn respond_permission(
         &self,
         binding: ClaurstSessionBinding,
@@ -278,6 +256,14 @@ where
         reply: ClaurstPermissionReply,
     ) -> Result<(), PortError> {
         self.0.respond_permission(binding, request_id, reply).await
+    }
+
+    async fn permission_authority(
+        &self,
+        binding: ClaurstSessionBinding,
+        epoch: gent_types::HostEpoch,
+    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
+        support::permission_authority(&self.0.state, &binding, epoch)
     }
 }
 

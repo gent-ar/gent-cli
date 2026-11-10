@@ -18,6 +18,7 @@ pub(crate) enum UiCommand {
     CycleEffort,
     CycleMode,
     CyclePermission,
+    CyclePermissionMode,
     CycleContext,
     SwitchSelection,
     FocusSessions,

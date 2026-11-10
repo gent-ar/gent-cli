@@ -24,17 +24,13 @@ pub(super) fn conversation(
         AgentChatConversationFrame::SummaryRequest { conversation_id } => reads
             .summary(&conversation_id)
             .map_err(AgentChatIntentError::from)
-            .and_then(|summary| {
-                summary_with_mcp(facade, summary)
-                    .map(AgentChatConversationFrame::Summary)
-                    .map_err(AgentChatIntentError::from)
-            }),
+            .map(|summary| AgentChatConversationFrame::Summary(summary_with_mcp(facade, summary))),
         AgentChatConversationFrame::DetailRequest { conversation_id } => reads
             .detail(&conversation_id)
             .map_err(AgentChatIntentError::from)
-            .and_then(|mut detail| {
-                detail.summary = summary_with_mcp(facade, detail.summary)?;
-                Ok(AgentChatConversationFrame::Detail(detail))
+            .map(|mut detail| {
+                detail.summary = summary_with_mcp(facade, detail.summary);
+                AgentChatConversationFrame::Detail(detail)
             }),
         AgentChatConversationFrame::Summary(_) | AgentChatConversationFrame::Detail(_) => {
             Err("agent-chat conversation response frames are server-only".into())
@@ -45,20 +41,12 @@ pub(super) fn conversation(
 fn summary_with_mcp(
     facade: &RuntimeFacade,
     mut summary: gent_types::AgentChatConversationSummary,
-) -> Result<gent_types::AgentChatConversationSummary, String> {
+) -> gent_types::AgentChatConversationSummary {
     summary.mcp_server_count = facade.mcp_server_count;
     summary
         .mcp_server_names
         .clone_from(&facade.mcp_server_names);
-    let git = match summary.workspace_path.as_deref() {
-        Some(path) => crate::workspace_git_api::status(path)?,
-        None => None,
-    };
-    summary.changed_file_count = git
-        .as_ref()
-        .map(|report| u32::try_from(report.files.len()).unwrap_or(u32::MAX));
-    summary.git_branch = git.and_then(|report| report.branch);
-    Ok(summary)
+    summary
 }
 
 pub(super) fn transcript(
@@ -101,7 +89,7 @@ pub(super) fn projection(
     let mut detail = reads
         .detail(&conversation_id)
         .map_err(AgentChatIntentError::from)?;
-    detail.summary = summary_with_mcp(facade, detail.summary)?;
+    detail.summary = summary_with_mcp(facade, detail.summary);
     let tail = reads
         .projection_tail(&conversation_id, transcript_limit, activity_limit)
         .map_err(AgentChatIntentError::from)?;
@@ -140,13 +128,32 @@ pub(super) fn follow(
     conversation_id: &str,
     after_cursor: &ProjectionCursor,
 ) -> Result<Vec<AgentChatProjectionDelta>, String> {
-    projection_reads(facade)?
+    let events = projection_reads(facade)?
         .projection(conversation_id, after_cursor.value, 100)
         .map_err(|error| error.to_string())?
-        .events
-        .into_iter()
-        .map(delta)
-        .collect()
+        .events;
+    Ok(deltas_until_unreadable(events))
+}
+
+fn deltas_until_unreadable(events: Vec<AgentChatProjectionEvent>) -> Vec<AgentChatProjectionDelta> {
+    let mut deltas = Vec::new();
+    for event in events {
+        let cursor = ProjectionCursor {
+            value: event.cursor,
+        };
+        match delta(event) {
+            Ok(delta) => deltas.push(delta),
+            Err(error) => {
+                eprintln!(
+                    "projection event {} requires a resync: {error}",
+                    cursor.value
+                );
+                deltas.push(AgentChatProjectionDelta::ResyncRequired { cursor });
+                break;
+            }
+        }
+    }
+    deltas
 }
 
 fn projection_reads(
@@ -212,7 +219,7 @@ fn normalize_projection_transcript(mut payload: serde_json::Value) -> serde_json
 
 #[cfg(test)]
 mod tests {
-    use super::{delta, normalize_projection_transcript};
+    use super::{delta, deltas_until_unreadable, normalize_projection_transcript};
     use gent_protocol::AgentChatProjectionDelta;
     use gent_types::{AgentChatProjectionEvent, AttachmentReference};
     use serde_json::json;
@@ -253,6 +260,22 @@ mod tests {
         assert_eq!(
             normalize_projection_transcript(json!({"isPartial": 1})),
             json!({"isPartial": true})
+        );
+    }
+
+    #[test]
+    fn an_unreadable_event_ends_the_batch_with_a_resync_at_its_cursor() {
+        let event = |cursor: u64, kind: &str| AgentChatProjectionEvent {
+            cursor,
+            source_event_id: format!("source-{cursor}"),
+            kind: kind.into(),
+            payload: json!({"lifecycle": "not a lifecycle fact"}),
+        };
+        assert_eq!(
+            deltas_until_unreadable(vec![event(4, "lifecycle"), event(5, "lifecycle")]),
+            [AgentChatProjectionDelta::ResyncRequired {
+                cursor: gent_protocol::ProjectionCursor { value: 4 },
+            }]
         );
     }
 }

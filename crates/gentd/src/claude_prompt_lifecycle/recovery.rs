@@ -45,11 +45,16 @@ where
         }
         binding.session_recovery = super::SessionRecovery::Recovered;
         let prompt = binding.prompt.clone();
+        let launched = binding.permission.clone();
         let history = self.runtime.contexts.fresh_context_before_message(
             &prompt.message.conversation_id,
             &prompt.message.message_id,
         )?;
-        let mut recreated = super::launch::prompt_start(&self.runtime, &prompt, Some(history))?;
+        let (mut recreated, permission) =
+            super::launch::prompt_start(&self.runtime, &prompt, Some(history))?;
+        if permission != launched {
+            return Ok(false);
+        }
         recreated.recreate_session = true;
         self.record_wire(
             run_id,

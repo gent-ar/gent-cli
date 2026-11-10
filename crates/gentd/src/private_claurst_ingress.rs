@@ -31,6 +31,7 @@ struct BoundSource {
     after_cursor: u64,
     terminal: bool,
     cancellation_requested: bool,
+    queued_permissions: std::collections::VecDeque<gent_ports::ClaurstPermissionRequest>,
 }
 
 #[derive(Debug)]
@@ -154,6 +155,7 @@ where
                 after_cursor,
                 terminal,
                 cancellation_requested: false,
+                queued_permissions: std::collections::VecDeque::new(),
             },
         );
         Ok(())
@@ -227,10 +229,8 @@ where
         };
         let batch = self.bridge.drain(request.clone()).await?;
         let checkpoint = validate_batch(&request, &state.binding, &batch)?;
-        for permission in &batch.permissions {
-            self.record_permission_request(&state, permission, host_epoch)
-                .await?;
-        }
+        self.admit_permissions(&state, &batch.permissions, host_epoch)
+            .await?;
         for fact in &batch.facts {
             self.record_fact(&state, fact, host_epoch)?;
         }
@@ -265,6 +265,9 @@ where
             .expect("bound source remains present");
         saved.after_cursor = after_cursor;
         saved.terminal = terminal;
+        if terminal {
+            self.deny_queued_permissions(source_id).await?;
+        }
         Ok(PrivateClaurstDrain {
             facts: u16::try_from(batch.facts.len()).expect("bridge fact bound fits u16"),
             terminal,

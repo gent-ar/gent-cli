@@ -109,6 +109,10 @@ impl LaunchSetup {
         })
     }
 
+    pub(super) const fn permission(&self) -> &gent_types::PolicyRecord {
+        &self.permission
+    }
+
     pub(super) fn start<L, D, R>(
         self,
         runtime: &PublicDriversRuntime<L, D, R>,

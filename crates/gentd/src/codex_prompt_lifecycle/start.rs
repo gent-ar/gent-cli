@@ -53,6 +53,7 @@ where
     let fresh_context = runtime.launch_context(&prompt.message)?;
     let upgraded =
         fresh_context.is_none() && !runtime.runs().launched_executable_is_current(&run_id)?;
+    let permission = start.permission().clone();
     runner.prepare_codex_prompt(
         run_id.clone(),
         prompt.message.conversation_id.clone(),
@@ -91,6 +92,8 @@ where
                     last_dispatch: 0,
                     idle_since: None,
                     awaits_first_input: false,
+                    permission,
+                    queued_permissions: std::collections::VecDeque::new(),
                 },
             );
             Ok(CodexPromptDispatchOutcome::Started { run_id })

@@ -13,6 +13,7 @@ mod execution;
 mod interrupt;
 mod launch;
 mod permission;
+mod permission_queue;
 #[path = "codex_prompt_lifecycle_phase.rs"]
 mod phase;
 mod poll;
@@ -50,6 +51,9 @@ pub(super) struct Binding {
     last_dispatch: u64,
     idle_since: Option<std::time::Instant>,
     awaits_first_input: bool,
+    permission: gent_types::PolicyRecord,
+    queued_permissions:
+        std::collections::VecDeque<gent_drivers::codex_control::CodexControlRequest>,
 }
 impl Binding {
     fn idle(&self) -> bool {
@@ -204,6 +208,8 @@ where
                 phase,
             )?;
             binding.settled = true;
+            let queued = std::mem::take(&mut binding.queued_permissions);
+            self.deny_queued_permissions(run_id, queued);
         }
         Ok(())
     }

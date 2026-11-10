@@ -44,8 +44,6 @@ impl AgentChatReadLedger for Ledger {
             workspace_path: None,
             mcp_server_count: 0,
             mcp_server_names: Vec::new(),
-            changed_file_count: None,
-            git_branch: None,
             updated_at_unix_ms: 0,
             selection: selection(),
             containment: gent_types::Containment::Unsandboxed,

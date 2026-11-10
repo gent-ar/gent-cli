@@ -41,10 +41,11 @@ where
                 "provider poll unavailable".into(),
             ))
         })?;
-        let Some(effects) = effects else {
+        let promoted = self.promote_queued_permission(run_id, host_epoch)?;
+        let Some(effects) = effects.or_else(|| promoted.map(|_| Vec::new())) else {
             return Ok(None);
         };
-        let mut facts: u16 = 0;
+        let mut facts: u16 = promoted.unwrap_or(0);
         let mut terminal = None;
         for effect in effects {
             match effect {
@@ -55,7 +56,7 @@ where
                 }
                 CodexRunnerEffect::ControlRequest(request) => {
                     facts = facts.saturating_add(
-                        self.record_permission_request(run_id, host_epoch, request)?,
+                        self.admit_permission_request(run_id, host_epoch, request)?,
                     );
                 }
                 CodexRunnerEffect::Steer(outcome) => {
@@ -82,6 +83,29 @@ where
                     facts = facts.saturating_add(1);
                 }
                 CodexRunnerEffect::Exited { code } => {
+                    if let Some(message_id) = self
+                        .active
+                        .get(run_id)
+                        .filter(|binding| !binding.settled && !binding.releasing)
+                        .map(|binding| binding.prompt.message.message_id.clone())
+                    {
+                        let error = crate::public_driver_runtime::run_failure::provider_exited(
+                            "Codex", code,
+                        );
+                        self.runtime.fail_claimed_prompt(
+                            &message_id,
+                            &self.coordinator_id,
+                            host_epoch,
+                            &error,
+                        )?;
+                        crate::public_driver_runtime::run_failure::tolerate_run_scoped(
+                            self.record_wire(
+                                run_id,
+                                host_epoch,
+                                &crate::public_driver_runtime::run_failure::failure_fact(&error),
+                            ),
+                        )?;
+                    }
                     self.record_exit(run_id, host_epoch, code)?;
                     self.settle_if_open(run_id, host_epoch, DurableTurnPhase::Failed)?;
                     self.release_steers(run_id, host_epoch)?;

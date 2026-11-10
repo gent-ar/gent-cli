@@ -12,17 +12,28 @@ pub(super) fn settings_command(state: &mut UiState, argument: &str) -> Option<Ui
             return Some(UiEffect::Continue);
         }
     };
+    let effect = mode_request(state, mode, bypass_consent);
+    if matches!(effect, UiEffect::Request(_)) {
+        state.input.clear();
+    }
+    Some(effect)
+}
+
+pub(super) fn mode_request(
+    state: &mut UiState,
+    mode: gent_types::PermissionMode,
+    bypass_consent: bool,
+) -> UiEffect {
     let Some(conversation_id) = state.selected().map(|item| item.conversation_id.clone()) else {
         state.notice = Some("Select a conversation before changing permissions.".into());
-        return Some(UiEffect::Continue);
+        return UiEffect::Continue;
     };
     let Some(workspace_id) = state.selected_workspace_id().map(str::to_owned) else {
         state.notice =
             Some("Workspace details are unavailable; refresh the conversation first.".into());
-        return Some(UiEffect::Continue);
+        return UiEffect::Continue;
     };
-    state.input.clear();
-    Some(UiEffect::Request(UiRequest::SetPermissionMode {
+    UiEffect::Request(UiRequest::SetPermissionMode {
         conversation_id,
         workspace_id,
         mode,
@@ -32,7 +43,7 @@ pub(super) fn settings_command(state: &mut UiState, argument: &str) -> Option<Ui
             .as_ref()
             .and_then(|view| view.selection())
             .map(|selection| selection.provider),
-    }))
+    })
 }
 
 pub(super) fn command(state: &mut UiState, command: &str, argument: &str) -> Option<UiEffect> {

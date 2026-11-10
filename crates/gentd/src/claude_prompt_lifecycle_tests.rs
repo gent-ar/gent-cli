@@ -158,6 +158,12 @@ impl PublicProviderResolver for Resolver {
     }
 }
 
+#[path = "claude_permission_queue_tests.rs"]
+mod permission_queue;
+#[path = "claude_policy_binding_tests.rs"]
+mod policy_binding;
+#[path = "claude_restart_notice_tests.rs"]
+mod restart_notice;
 #[path = "claude_steer_lifecycle_tests.rs"]
 mod steer;
 #[path = "claude_prompt_lifecycle_test_support.rs"]

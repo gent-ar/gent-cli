@@ -36,7 +36,11 @@ impl StandaloneAuthorityRuntime {
     pub(crate) async fn attach_lazy_claurst_runtime(
         &self,
         config: Option<crate::standalone_claurst_runtime_factory::StandaloneClaurstRuntimeConfig>,
+        local_model_id: String,
     ) -> Result<(), String> {
+        let llama_server = config
+            .as_ref()
+            .map(|config| config.request.llama_server_executable.clone());
         let factory = std::sync::Arc::new(
             crate::standalone_claurst_runtime_factory::StandaloneClaurstRuntimeFactory::new(
                 self.ledger.clone(),
@@ -45,6 +49,20 @@ impl StandaloneAuthorityRuntime {
             )
             .with_mcp_control(self.control.clone()),
         );
+        if let Some(llama_server) = llama_server {
+            let busy = std::sync::Arc::clone(&factory);
+            let control = self.control.clone();
+            crate::local_runtime_prewarm::spawn(
+                self.claurst_models.clone(),
+                local_model_id,
+                llama_server,
+                move || {
+                    busy.has_active_runtime()
+                        || control.phase()
+                            == crate::ordinary_lifecycle_control::OrdinaryLifecyclePhase::Draining
+                },
+            );
+        }
         if let Ok(mut bridge) = self.claurst_side_question_bridge.lock() {
             *bridge = Some(factory.bridge());
         }

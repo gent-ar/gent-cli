@@ -13,6 +13,8 @@ use crate::claurst_permission_policy::ClaurstPermissionDecision;
 
 #[path = "private_claurst_ingress_permission_decision.rs"]
 mod decision;
+#[path = "private_claurst_ingress_permission_queue.rs"]
+mod queue;
 
 impl<L, B> PrivateClaurstIngress<L, B>
 where
@@ -47,11 +49,10 @@ where
         let workspace = self
             .ledger
             .agent_chat_workspace_for_run(&conversation_id.0, &state.binding.run_id)?;
-        let policy = crate::permission_workspace::policy_for_conversation(
-            &self.ledger,
-            &conversation_id.0,
-            &workspace.workspace_id,
-        )?;
+        let (policy, enforcement) = self
+            .bridge
+            .permission_authority(state.binding.clone(), host_epoch)
+            .await?;
         let mode = gent_runtime::AgentChatReadService::new(self.ledger.clone())
             .run_selection(&conversation_id.0, &state.binding.run_id)?
             .mode;
@@ -61,10 +62,6 @@ where
             request.input.clone(),
             None,
         );
-        let enforcement = self
-            .bridge
-            .permission_enforcement(state.binding.clone(), policy.clone(), host_epoch)
-            .await?;
         match crate::claurst_permission_policy::decide_with_enforcement(
             mode,
             &policy,

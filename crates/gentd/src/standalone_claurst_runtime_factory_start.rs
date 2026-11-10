@@ -45,3 +45,11 @@ impl StandaloneClaurstRuntimeFactory {
         Ok(())
     }
 }
+
+impl StandaloneClaurstRuntimeFactory {
+    pub(crate) fn has_active_runtime(&self) -> bool {
+        self.active
+            .try_lock()
+            .map_or(true, |active| active.is_some())
+    }
+}

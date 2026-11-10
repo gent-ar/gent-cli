@@ -2,36 +2,41 @@ use std::time::{Duration, Instant};
 
 use gent_protocol::{
     LocalModelInstallState,
-    model_catalog::{ModelListing, ProviderAvailability},
+    model_catalog::{ModelListing, ProviderAvailability, ProviderModelCatalog},
 };
-use gent_types::{AgentChatProvider, AgentChatRejection, AgentChatSelection};
+use gent_types::{AgentChatEffort, AgentChatProvider, AgentChatRejection, AgentChatSelection};
 
 use super::ModelCatalogService;
 use crate::agent_chat_intent_error::AgentChatIntentError;
 
 const RELOAD_WAIT: Duration = Duration::from_secs(25);
+const FIRST_LISTING_WAIT: Duration = Duration::from_secs(3);
 
 impl ModelCatalogService {
-    pub(crate) fn validate(
+    pub(crate) fn fit(
         &self,
         selection: &AgentChatSelection,
-    ) -> Result<(), AgentChatIntentError> {
+    ) -> Result<AgentChatSelection, AgentChatIntentError> {
         self.reload_uncached(selection.provider);
-        let slots = self.slots();
-        let Some(listing) = slots.iter().map(|slot| &slot.entry).find(|entry| {
-            entry.provider == selection.provider
-                && entry.listing == ModelListing::Ready
-                && entry.availability == ProviderAvailability::Ready
-        }) else {
-            return Ok(());
+        let Some(listing) = self.first_listing(selection.provider) else {
+            return Ok(selection.clone());
         };
+        if listing.listing != ModelListing::Ready {
+            return Ok(AgentChatSelection {
+                effort: AgentChatEffort::Medium,
+                ..selection.clone()
+            });
+        }
+        if listing.availability != ProviderAvailability::Ready {
+            return Ok(selection.clone());
+        }
         let Some(model) = listing
             .models
             .iter()
             .find(|model| model.id == selection.model)
         else {
             if accepts_unlisted_models(selection.provider) {
-                return Ok(());
+                return Ok(selection.clone());
             }
             let models = listing
                 .models
@@ -60,20 +65,25 @@ impl ModelCatalogService {
                     .collect::<Vec<_>>(),
             ));
         }
-        if model.efforts.is_empty() || model.efforts.contains(&selection.effort) {
-            return Ok(());
+        Ok(AgentChatSelection {
+            effort: selection.effort.nearest_in(&model.efforts),
+            ..selection.clone()
+        })
+    }
+
+    fn first_listing(&self, provider: AgentChatProvider) -> Option<ProviderModelCatalog> {
+        let deadline = Instant::now() + FIRST_LISTING_WAIT;
+        loop {
+            let entry = self
+                .read(false)
+                .providers
+                .into_iter()
+                .find(|entry| entry.provider == provider)?;
+            if entry.listing != ModelListing::Loading || Instant::now() >= deadline {
+                return Some(entry);
+            }
+            std::thread::sleep(Duration::from_millis(25));
         }
-        let efforts = model
-            .efforts
-            .iter()
-            .filter_map(|effort| serde_json::to_value(effort).ok())
-            .filter_map(|effort| effort.as_str().map(str::to_owned))
-            .collect::<Vec<_>>();
-        Err(rejected(
-            AgentChatRejection::SelectionEffortUnavailable,
-            &format!("{} does not offer this effort", model.label),
-            &efforts.iter().map(String::as_str).collect::<Vec<_>>(),
-        ))
     }
 
     pub(crate) fn reload_uncached(&self, provider: AgentChatProvider) {

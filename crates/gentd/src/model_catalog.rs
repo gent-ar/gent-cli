@@ -113,21 +113,22 @@ impl super::RuntimeFacade {
         }
     }
 
-    pub(super) fn validate_catalog_selection(
+    pub(super) fn fit_catalog_selection(
         &self,
-        frame: &AgentChatIntentFrame,
-    ) -> Result<(), crate::agent_chat_intent_error::AgentChatIntentError> {
-        let (AgentChatIntentFrame::CreateConversation {
-            selection: Some(selection),
-            ..
+        mut frame: AgentChatIntentFrame,
+    ) -> Result<AgentChatIntentFrame, crate::agent_chat_intent_error::AgentChatIntentError> {
+        if let (
+            Some(catalog),
+            AgentChatIntentFrame::CreateConversation {
+                selection: Some(selection),
+                ..
+            }
+            | AgentChatIntentFrame::SwitchSelection { selection, .. },
+        ) = (&self.model_catalog, &mut frame)
+        {
+            *selection = catalog.fit(selection)?;
         }
-        | AgentChatIntentFrame::SwitchSelection { selection, .. }) = frame
-        else {
-            return Ok(());
-        };
-        self.model_catalog
-            .as_ref()
-            .map_or(Ok(()), |catalog| catalog.validate(selection))
+        Ok(frame)
     }
 
     pub(super) fn remember_switched_selection(

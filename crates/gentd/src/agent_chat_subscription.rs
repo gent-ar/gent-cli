@@ -10,7 +10,10 @@ use gent_types::{AgentChatConversationId, AgentChatRequestId, NormalizedTranscri
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::api::RuntimeApi;
+use crate::{
+    api::RuntimeApi,
+    transport::{off_runtime, write_error},
+};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PAGE_LIMIT: u16 = 100;
@@ -40,8 +43,13 @@ where
                 Err(error) => return Err(Box::new(error)),
             },
             () = tokio::time::sleep(POLL_INTERVAL) => {
-                if let Ok(events) = page(&runtime, &conversation_id, cursor) {
-                    cursor = send_events(&mut writer, &request_id, cursor, events).await?;
+                let conversation = conversation_id.clone();
+                let read = off_runtime(&runtime, move |runtime| page(&runtime, &conversation, cursor)).await;
+                if let Ok(Ok(events)) = read {
+                    cursor = match send_events(&mut writer, &request_id, cursor, events).await {
+                        Ok(cursor) => cursor,
+                        Err(error) => return write_error(&mut writer, "subscriptionFailed", &error.to_string()).await,
+                    };
                 } else {
                     write_json_frame(&mut writer, &AgentChatIntentFrame::SubscriptionEnded {
                         request_id,
@@ -119,20 +127,6 @@ where
         write_json_frame(writer, &frame).await?;
     }
     Ok(cursor)
-}
-
-async fn write_error<W>(writer: &mut W, code: &str, message: &str) -> io::Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    gent_protocol::write_frame(
-        writer,
-        &gent_protocol::WireFrame::Error {
-            code: code.into(),
-            message: message.into(),
-        },
-    )
-    .await
 }
 
 #[cfg(test)]

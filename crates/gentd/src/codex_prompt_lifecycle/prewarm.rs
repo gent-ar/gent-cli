@@ -179,6 +179,8 @@ where
                 last_dispatch: warm.last_dispatch,
                 idle_since: None,
                 awaits_first_input: true,
+                permission: warm.key.1,
+                queued_permissions: std::collections::VecDeque::new(),
             },
         );
         Ok(warm.held)

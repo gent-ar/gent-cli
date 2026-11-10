@@ -94,7 +94,7 @@ fn an_added_file_is_listed_ready_removable_and_selectable_in_place() {
             size_bytes: std::fs::metadata(&path).unwrap().len()
         }
     );
-    port.validate(&selection(&model.id)).unwrap();
+    port.fit(&selection(&model.id)).unwrap();
     assert!(!data.path().join("models").exists());
     assert!(data.path().join("user-models.json").is_file());
     assert_eq!(
@@ -104,7 +104,7 @@ fn an_added_file_is_listed_ready_removable_and_selectable_in_place() {
     );
 
     std::fs::remove_file(&path).unwrap();
-    let rejected = port.validate(&selection(&model.id)).unwrap_err();
+    let rejected = port.fit(&selection(&model.id)).unwrap_err();
     assert_eq!(rejected.code, "selectionModelUnavailable");
     let missing = user_models(&port.service.snapshot());
     assert_eq!(missing.len(), 1);
@@ -126,7 +126,7 @@ fn a_changed_file_is_missing_until_it_is_added_again() {
     grown.extend([0; 16]);
     std::fs::write(&path, grown).unwrap();
     assert_eq!(
-        port.validate(&selection(&id)).unwrap_err().code,
+        port.fit(&selection(&id)).unwrap_err().code,
         "selectionModelUnavailable"
     );
     let ready = user_models(&add(&port, &path).unwrap());

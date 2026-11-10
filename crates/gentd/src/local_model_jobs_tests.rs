@@ -86,11 +86,26 @@ impl ModelDownloadResponse for GatedChunk {
 }
 
 pub(crate) fn models(directory: &Path) -> StandaloneClaurstModels {
-    StandaloneClaurstModels::from_data_dir(
+    placeholder_models(
         directory,
         LocalModelEvents::new(SqliteLedger::in_memory().unwrap(), HostEpoch(1)),
     )
-    .unwrap()
+}
+
+pub(crate) fn placeholder_models(
+    directory: &Path,
+    events: LocalModelEvents,
+) -> StandaloneClaurstModels {
+    let mut catalog: serde_json::Value =
+        serde_json::from_str(include_str!("../models.json")).unwrap();
+    for model in catalog["models"].as_array_mut().unwrap() {
+        model["size_bytes"] = (4 * CHUNK).into();
+    }
+    StandaloneClaurstModels::with_catalog(
+        directory,
+        crate::local_model_catalog::LocalModelCatalog::from_json(&catalog.to_string()).unwrap(),
+        events,
+    )
 }
 
 pub(crate) async fn eventually(condition: impl Fn() -> bool) {
@@ -116,3 +131,18 @@ pub(crate) fn download_frames(ledger: &SqliteLedger) -> Vec<LocalModelFrame> {
 
 #[path = "local_model_jobs_behavior_tests.rs"]
 mod behavior;
+
+pub(crate) fn in_temp_dir<F, Fut>(body: F)
+where
+    F: FnOnce(std::path::PathBuf) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(body(directory.path().to_path_buf()));
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    directory.close().unwrap();
+}

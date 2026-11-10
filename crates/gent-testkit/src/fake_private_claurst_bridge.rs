@@ -21,6 +21,7 @@ struct BridgeState {
     batches: VecDeque<Result<ClaurstDrainBatch, String>>,
     settled: BTreeSet<ClaurstSourceId>,
     permission_replies: Vec<(String, ClaurstPermissionReply)>,
+    turn_policy: Option<gent_types::PolicyRecord>,
 }
 
 /// Deterministic fake that enforces the private bridge's ordering and secrecy contract.
@@ -88,6 +89,10 @@ impl FakePrivateClaurstBridge {
     /// Returns every permission reply the daemon relayed, in order.
     pub fn permission_replies(&self) -> Vec<(String, ClaurstPermissionReply)> {
         self.state().permission_replies.clone()
+    }
+
+    pub fn bind_turn_policy(&self, policy: gent_types::PolicyRecord) {
+        self.state().turn_policy = Some(policy);
     }
 }
 
@@ -163,6 +168,17 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
             .permission_replies
             .push((request_id.into(), reply));
         Ok(())
+    }
+
+    async fn permission_authority(
+        &self,
+        _binding: ClaurstSessionBinding,
+        _epoch: gent_types::HostEpoch,
+    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
+        let policy = self.state().turn_policy.clone();
+        policy
+            .map(|policy| (policy, gent_types::SandboxEnforcement::Unavailable))
+            .ok_or_else(|| PortError::Unavailable("fake turn has no launch policy".into()))
     }
 
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {

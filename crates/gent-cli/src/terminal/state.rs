@@ -25,7 +25,11 @@ mod state_templates;
 mod state_thinking_commands;
 #[path = "state_updates.rs"]
 mod state_updates;
+#[path = "state_workspace_git.rs"]
+pub(super) mod state_workspace_git;
 pub(crate) use state_navigation::TranscriptScroll;
+#[path = "state_inline.rs"]
+pub(crate) mod state_inline;
 #[path = "state_queue.rs"]
 mod state_queue;
 pub(crate) use state_requests::{UiEffect, UiRequest, UiRequestResult};
@@ -45,6 +49,7 @@ pub(crate) struct UiState {
     pub(super) scroll_limit: std::cell::Cell<u16>,
     pub(super) attachments: Vec<PathBuf>,
     pub(super) metadata: BTreeMap<String, super::ConversationMetadata>,
+    workspace_git: BTreeMap<String, Option<gent_types::WorkspaceGitReport>>,
     pub(super) sessions: Vec<AgentChatSession>,
     session_focus: bool,
     selected_session: Option<usize>,
@@ -71,6 +76,7 @@ pub(crate) struct UiState {
     awaiting_turn: bool,
     conversation_filter: String,
     pub(super) commands: super::commands::CommandState,
+    inline: state_inline::InlineState,
 }
 impl UiState {
     #[must_use]
@@ -156,6 +162,9 @@ impl UiState {
         }
     }
     pub(crate) fn apply(&mut self, command: UiCommand) -> UiEffect {
+        if let Some(effect) = self.inline_apply(&command) {
+            return effect;
+        }
         match command {
             UiCommand::Quit => UiEffect::Quit,
             UiCommand::Dismiss => self.dismiss(),
@@ -163,6 +172,7 @@ impl UiState {
             UiCommand::CancelQueued if self.chat_enabled => self.cancel_queued(),
             UiCommand::ToggleHelp => {
                 self.help_visible = !self.help_visible;
+                self.inline.help_scroll = 0;
                 UiEffect::Continue
             }
             UiCommand::ToggleActivity => {

@@ -38,6 +38,7 @@ pub(crate) struct State {
     pub(crate) steers: Vec<(String, String)>,
     pub(crate) releases: Vec<String>,
     pub(crate) fail_starts: usize,
+    pub(crate) controls: Vec<(String, gent_drivers::codex_control::CodexControlDecision)>,
 }
 impl PublicProviderRunner for Runner {
     fn start(&self, run_id: &str, lock: &RunVersionLock) -> Result<(), PublicProviderRunError> {
@@ -200,10 +201,15 @@ impl CodexPromptExecution for Runner {
     fn respond_codex_control(
         &self,
         _: &str,
-        _: &str,
-        _: gent_drivers::codex_control::CodexControlDecision,
+        request_key: &str,
+        decision: gent_drivers::codex_control::CodexControlDecision,
         _: Option<serde_json::Value>,
     ) -> Result<(), PublicProviderRunError> {
+        self.state
+            .lock()
+            .unwrap()
+            .controls
+            .push((request_key.into(), decision));
         Ok(())
     }
 }

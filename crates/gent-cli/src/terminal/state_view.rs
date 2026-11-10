@@ -24,6 +24,9 @@ impl UiState {
                 .is_some_and(|item| item.conversation_id == view.conversation_id())
         });
         self.parent_run_id = self.view.as_ref().and_then(run_id);
+        if let Some(view) = self.view.clone() {
+            self.store_metadata(&view);
+        }
         if let Some(selection) = self.view.as_ref().and_then(ConversationView::selection) {
             self.set_selection(selection.clone());
         }
@@ -119,20 +122,6 @@ impl UiState {
             .map_or(&[], |metadata| &metadata.forge_names)
     }
 
-    #[must_use]
-    pub(crate) fn selected_changed_file_count(&self) -> Option<u32> {
-        self.selected()
-            .and_then(|item| self.metadata(&item.conversation_id))
-            .and_then(|metadata| metadata.changed_file_count)
-    }
-
-    #[must_use]
-    pub(crate) fn selected_git_branch(&self) -> Option<&str> {
-        self.selected()
-            .and_then(|item| self.metadata(&item.conversation_id))
-            .and_then(|metadata| metadata.git_branch.as_deref())
-    }
-
     #[cfg(test)]
     #[must_use]
     pub(crate) fn with_status(self, status: Option<ConversationStatus>) -> Self {
@@ -225,9 +214,8 @@ impl UiState {
             .selected()
             .is_some_and(|item| item.conversation_id == view.conversation_id())
         {
-            if view.transcript().iter().any(|event| {
-                event.kind == NormalizedTranscriptKind::AssistantMessage && !event.is_partial
-            }) {
+            let was_active = self.turn_active();
+            if settled_prompt(&view) {
                 self.finish_awaiting_turn();
             }
             if let Some(status) = view.status() {
@@ -240,33 +228,45 @@ impl UiState {
             if let Some(selection) = view.selection() {
                 self.set_selection(selection.clone());
             }
-            let permission_mode = self
-                .metadata
-                .get(view.conversation_id())
-                .map_or(gent_types::PermissionMode::AskEveryTime, |metadata| {
-                    metadata.permission_mode
-                });
-            let mut metadata = view.metadata().clone();
-            metadata.permission_mode = permission_mode;
-            self.metadata
-                .insert(view.conversation_id().into(), metadata);
-            if settled_prompt(&view)
-                && self
-                    .notice
-                    .as_deref()
-                    .is_some_and(|notice| notice.starts_with("Gent is "))
-            {
-                self.notice = Some("Ready for your next message.".into());
+            self.store_metadata(&view);
+            let progress = self
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.starts_with("Gent is "));
+            let active = view
+                .status()
+                .is_some_and(|status| status.runs.iter().any(|run| run.active_turn_id.is_some()));
+            if (settled_prompt(&view) && (was_active || progress)) || (active && progress) {
+                self.notice = None;
             }
             self.view = Some(view);
         }
     }
 }
 
+impl UiState {
+    fn store_metadata(&mut self, view: &ConversationView) {
+        if view.metadata() == &ConversationMetadata::default() {
+            return;
+        }
+        let mut metadata = view.metadata().clone();
+        if let Some(previous) = self.metadata.get(view.conversation_id()) {
+            metadata.updated_at_unix_ms = previous.updated_at_unix_ms;
+            metadata.running = previous.running;
+        }
+        self.metadata
+            .insert(view.conversation_id().into(), metadata);
+    }
+}
+
 fn settled_prompt(view: &ConversationView) -> bool {
-    view.transcript()
-        .iter()
-        .any(|event| event.kind == NormalizedTranscriptKind::AssistantMessage && !event.is_partial)
+    view.pending_permission().is_none()
+        && view
+            .status()
+            .is_none_or(|status| status.runs.iter().all(|run| run.active_turn_id.is_none()))
+        && view.transcript().last().is_some_and(|event| {
+            event.kind != NormalizedTranscriptKind::UserMessage && !event.is_partial
+        })
 }
 
 fn run_id(view: &ConversationView) -> Option<String> {

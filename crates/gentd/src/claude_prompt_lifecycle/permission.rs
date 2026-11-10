@@ -92,13 +92,7 @@ where
         if ingress.epoch != host_epoch || ingress.mode != gent_ports::IngressMode::Open {
             return Err(missing_binding());
         }
-        let workspace =
-            ledger.agent_chat_workspace_for_run(&binding.prompt.message.conversation_id, run_id)?;
-        let policy = crate::permission_workspace::policy_for_conversation(
-            &ledger,
-            &binding.prompt.message.conversation_id,
-            &workspace.workspace_id,
-        )?;
+        let policy = binding.permission.clone();
         let category = crate::permission_category::for_tool(&request.tool_name);
         let normalized = PermissionRequest::new(
             request.tool_name.clone(),

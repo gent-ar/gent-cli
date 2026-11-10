@@ -139,6 +139,7 @@ mod local_model_provisioning;
 mod local_model_transport;
 #[allow(dead_code)]
 mod local_provider_locks;
+mod local_runtime_prewarm;
 mod locked_provider_resolver;
 #[allow(dead_code)]
 mod node_runtime_lock;
@@ -157,9 +158,9 @@ mod packaged_claurst_runtime;
 mod permission_backend_registry;
 mod permission_category;
 mod permission_policy_api;
-mod permission_policy_transition;
 mod permission_policy_transport;
 mod permission_preflight;
+mod permission_queue;
 mod permission_workspace;
 #[cfg(test)]
 mod private_claurst_goal_tests;

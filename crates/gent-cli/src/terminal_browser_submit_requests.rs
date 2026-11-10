@@ -139,7 +139,7 @@ pub(super) async fn set_permission_mode(
     let mut saved = result(
         conversation_id,
         None,
-        "Permission posture saved for this workspace.",
+        "Permission mode saved; it applies from the next turn.",
     );
     saved.permission_mode = Some(mode);
     Ok(saved)

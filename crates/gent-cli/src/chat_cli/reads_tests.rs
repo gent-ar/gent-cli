@@ -181,8 +181,6 @@ fn test_summary(conversation_id: &str) -> AgentChatConversationSummary {
         workspace_path: None,
         mcp_server_count: 0,
         mcp_server_names: Vec::new(),
-        changed_file_count: None,
-        git_branch: None,
         updated_at_unix_ms: 1,
         selection: AgentChatSelection {
             provider: AgentChatProvider::Codex,

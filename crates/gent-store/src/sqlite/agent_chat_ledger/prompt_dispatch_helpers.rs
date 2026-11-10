@@ -34,11 +34,11 @@ pub(super) fn fail_prelaunch(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
     require_open(&transaction, host_epoch)?;
-    let (conversation_id, run_id, turn_id): (String, String, String) = transaction
+    let (run_id, turn_id): (String, String) = transaction
         .query_row(
-            "SELECT conversation_id, run_id, turn_id FROM conversation_messages WHERE message_id = ?1",
+            "SELECT run_id, turn_id FROM conversation_messages WHERE message_id = ?1",
             [message_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(storage_error)?;
     // An OS process may have started but exited before announcing its provider
@@ -65,19 +65,18 @@ pub(super) fn fail_prelaunch(
             "agent chat terminal turn is not active".into(),
         ));
     }
-    let cursor: u64 = transaction
-        .query_row(
-            "SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1",
-            [&conversation_id],
-            |row| row.get(0),
-        )
-        .map_err(storage_error)?;
-    transaction
-        .execute(
-            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, 'notice', ?6, 0)",
-            params![conversation_id, cursor, format!("{}{message_id}", failure_code.map_or("prelaunch-failed:", gent_types::AgentChatFailureCode::event_prefix)), turn_id, run_id, error],
-        )
-        .map_err(storage_error)?;
+    crate::sqlite::turn_terminal::append_failure_notice(
+        &transaction,
+        &turn_id,
+        &format!(
+            "{}{message_id}",
+            failure_code.map_or(
+                "prelaunch-failed:",
+                gent_types::AgentChatFailureCode::event_prefix
+            )
+        ),
+        error,
+    )?;
     transaction.commit().map_err(storage_error)
 }
 

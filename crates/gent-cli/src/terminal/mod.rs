@@ -1,4 +1,11 @@
 mod commands;
+mod effects;
+mod inline_items;
+mod inline_live;
+mod inline_loop;
+mod inline_popups;
+mod inline_tools;
+mod inline_view;
 mod input;
 mod render;
 mod render_activity;
@@ -23,6 +30,13 @@ mod state_view;
 mod terminal_loop;
 mod view;
 
+pub(crate) use inline_loop::run_inline;
 pub(crate) use state::{UiRequest, UiRequestResult, UiState};
-pub(crate) use terminal_loop::{TerminalPorts, require_interactive, run};
+pub(crate) use terminal_loop::{TerminalPorts, WorkspaceGitResult, require_interactive, run};
 pub(crate) use view::{ConversationMetadata, ConversationView};
+#[cfg(test)]
+mod inline_tests;
+#[cfg(test)]
+mod inline_tests_live;
+#[cfg(test)]
+mod inline_tests_scrollback;

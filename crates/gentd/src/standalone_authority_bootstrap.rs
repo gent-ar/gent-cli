@@ -108,7 +108,10 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let gent_runtime = claurst_runtime.is_some();
     let doctor_mcp_servers = mcp_server_names.clone();
     authority
-        .attach_lazy_claurst_runtime(claurst_runtime)
+        .attach_lazy_claurst_runtime(
+            claurst_runtime,
+            crate::local_runtime_prewarm::local_model_id(&data_dir),
+        )
         .await?;
     let side_question_runners =
         crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources {

@@ -20,28 +20,27 @@ fn listed(service: &ModelCatalogService) {
 }
 
 #[test]
-fn a_selection_is_answered_at_once_while_its_provider_is_still_listing_models() {
+fn an_unlisted_provider_never_forwards_the_raw_effort_after_a_bounded_wait() {
     let directory = tempfile::tempdir().unwrap();
     let (codex, _codex_gate) = gated(AgentChatProvider::Codex);
     let service =
         ModelCatalogService::new(vec![codex], ModelCatalogDefaults::open(directory.path()));
-    service.read(false);
     let started = Instant::now();
-    assert!(
-        service
-            .validate(&gent_types::AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt-5.5".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
-            })
-            .is_ok()
-    );
-    assert!(started.elapsed() < Duration::from_secs(2));
+    let fitted = service
+        .fit(&gent_types::AgentChatSelection {
+            provider: AgentChatProvider::Codex,
+            model: "gpt-5.5".into(),
+            effort: AgentChatEffort::Ultra,
+            mode: AgentChatMode::Agent,
+        })
+        .unwrap();
+    assert_eq!(fitted.effort, AgentChatEffort::Medium);
+    assert_eq!(fitted.model, "gpt-5.5");
+    assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 #[test]
-fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named() {
+fn unsupported_efforts_move_to_the_nearest_listed_effort_instead_of_being_rejected() {
     let directory = tempfile::tempdir().unwrap();
     let (claude, claude_gate) = gated(AgentChatProvider::Claude);
     let (codex, codex_gate) = gated(AgentChatProvider::Codex);
@@ -57,11 +56,13 @@ fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named(
         mode: AgentChatMode::Ask,
     };
     let mut sonnet = model("sonnet", Some(AgentChatEffort::Medium));
-    sonnet.efforts = vec![AgentChatEffort::Low, AgentChatEffort::Medium];
+    sonnet.efforts = vec![AgentChatEffort::Medium, AgentChatEffort::High];
+    let mut haiku = model("haiku", None);
+    haiku.efforts = Vec::new();
     claude_gate
         .send(Ok(ProviderListing {
             availability: ProviderAvailability::Ready,
-            models: vec![sonnet, model("haiku", None)],
+            models: vec![sonnet, haiku],
         }))
         .unwrap();
     codex_gate
@@ -79,7 +80,7 @@ fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named(
     listed(&service);
 
     let unknown = service
-        .validate(&selection(
+        .fit(&selection(
             AgentChatProvider::Claurst,
             "not-a-model",
             AgentChatEffort::Low,
@@ -91,41 +92,42 @@ fn selections_are_checked_against_a_loaded_listing_with_the_valid_choices_named(
             .message
             .ends_with("choose one of: qwen3-1-7b-q4-k-m, qwen3-8b-q4-k-m")
     );
-    let effort = service
-        .validate(&selection(
-            AgentChatProvider::Claude,
-            "sonnet",
-            AgentChatEffort::Ultra,
-        ))
-        .unwrap_err();
-    assert_eq!(effort.code, "selectionEffortUnavailable");
-    assert!(effort.message.ends_with("choose one of: low, medium"));
-    assert!(
+    for (requested, fitted) in [
+        (AgentChatEffort::Low, AgentChatEffort::Medium),
+        (AgentChatEffort::Medium, AgentChatEffort::Medium),
+        (AgentChatEffort::High, AgentChatEffort::High),
+        (AgentChatEffort::XHigh, AgentChatEffort::High),
+        (AgentChatEffort::Ultra, AgentChatEffort::High),
+    ] {
+        assert_eq!(
+            service
+                .fit(&selection(AgentChatProvider::Claude, "sonnet", requested))
+                .unwrap()
+                .effort,
+            fitted
+        );
+    }
+    assert_eq!(
         service
-            .validate(&selection(
-                AgentChatProvider::Claude,
-                "sonnet",
-                AgentChatEffort::Medium
-            ))
-            .is_ok()
-    );
-    assert!(
-        service
-            .validate(&selection(
+            .fit(&selection(
                 AgentChatProvider::Claude,
                 "haiku",
-                AgentChatEffort::High
+                AgentChatEffort::Ultra
             ))
-            .is_ok()
+            .unwrap()
+            .effort,
+        AgentChatEffort::Ultra
     );
-    assert!(
+    assert_eq!(
         service
-            .validate(&selection(
+            .fit(&selection(
                 AgentChatProvider::Codex,
                 "anything",
                 AgentChatEffort::Ultra
             ))
-            .is_ok()
+            .unwrap()
+            .effort,
+        AgentChatEffort::Medium
     );
 }
 
@@ -148,7 +150,7 @@ fn a_provider_that_is_not_installed_accepts_any_model_so_the_prompt_can_be_held_
     ] {
         assert!(
             service
-                .validate(&gent_types::AgentChatSelection {
+                .fit(&gent_types::AgentChatSelection {
                     provider: AgentChatProvider::Claude,
                     model: model.into(),
                     effort,
@@ -196,7 +198,7 @@ fn claude_and_codex_accept_unlisted_models_while_gent_stays_strict() {
         (AgentChatProvider::Claude, "claude-custom-preview"),
         (AgentChatProvider::Codex, "gpt-custom-preview"),
     ] {
-        assert!(service.validate(&selection(provider, unlisted)).is_ok());
+        assert!(service.fit(&selection(provider, unlisted)).is_ok());
         let saved = service.set_default(default(provider, unlisted)).unwrap();
         assert_eq!(saved.default_selection, default(provider, unlisted));
         assert_eq!(
@@ -210,7 +212,7 @@ fn claude_and_codex_accept_unlisted_models_while_gent_stays_strict() {
 
     assert_eq!(
         service
-            .validate(&selection(AgentChatProvider::Claurst, "custom-local"))
+            .fit(&selection(AgentChatProvider::Claurst, "custom-local"))
             .unwrap_err()
             .code,
         "selectionModelUnavailable"

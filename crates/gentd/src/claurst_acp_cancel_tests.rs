@@ -212,6 +212,16 @@ async fn uncertain_claurst_permission_write_returns_receipt_without_replay() {
         peer,
         vec![],
     )));
+    bridge
+        .bind_turn_policy(
+            crate::permission_workspace::policy_for_conversation(
+                &ledger,
+                &conversation.0,
+                "workspace-a",
+            )
+            .unwrap(),
+        )
+        .unwrap();
     let mut lifecycle =
         ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
     lifecycle.activate_recovery().await.unwrap();
@@ -288,6 +298,16 @@ async fn interrupt_with_a_pending_permission_cancels_it_and_settles_the_turn() {
         peer,
         vec![],
     )));
+    bridge
+        .bind_turn_policy(
+            crate::permission_workspace::policy_for_conversation(
+                &ledger,
+                &conversation.0,
+                "workspace-a",
+            )
+            .unwrap(),
+        )
+        .unwrap();
     let mut lifecycle =
         ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
     lifecycle.activate_recovery().await.unwrap();

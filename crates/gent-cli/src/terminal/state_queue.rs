@@ -9,7 +9,7 @@ impl UiState {
         self.awaiting_turn()
             || self
                 .selected_status()
-                .is_some_and(|status| status.runs.iter().any(|run| run.active_turn_id.is_some()))
+                .is_some_and(super::super::terminal_loop::status_is_live)
     }
 
     #[must_use]

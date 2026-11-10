@@ -80,8 +80,11 @@ impl crate::runtime_facade::ModelCatalogPort for Catalog {
         selection(AgentChatProvider::Claude, "default")
     }
     fn remember(&self, _: &AgentChatSelection) {}
-    fn validate(&self, _: &AgentChatSelection) -> Result<(), AgentChatIntentError> {
-        Ok(())
+    fn fit(
+        &self,
+        selection: &AgentChatSelection,
+    ) -> Result<AgentChatSelection, AgentChatIntentError> {
+        Ok(selection.clone())
     }
     fn provider_commands(
         &self,

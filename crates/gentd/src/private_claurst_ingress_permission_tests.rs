@@ -42,18 +42,17 @@ async fn prepare_permissions(
     PrivateClaurstIngress<SqliteLedger, FakePrivateClaurstBridge>,
 ) {
     let ledger = prepared_ledger_in_mode(mode);
-    ledger
-        .save_policy(&PolicyRecord {
-            policy_id: "policy-a".into(),
-            workspace_id: "workspace-a".into(),
-            scope: PolicyScope::ProviderPermissions,
-            revision: 1,
-            mode: policy,
-            containment: gent_types::Containment::Sandboxed,
-            allowed_tools: vec![],
-            allowed_categories: vec![],
-        })
-        .unwrap();
+    let launched = PolicyRecord {
+        policy_id: "policy-a".into(),
+        workspace_id: "workspace-a".into(),
+        scope: PolicyScope::ProviderPermissions,
+        revision: 1,
+        mode: policy,
+        containment: gent_types::Containment::Sandboxed,
+        allowed_tools: vec![],
+        allowed_categories: vec![],
+    };
+    ledger.save_policy(&launched).unwrap();
     gent_ports::AgentChatConversationConfigLedger::save_conversation_config(
         &ledger,
         &gent_types::AgentChatConversationConfigRecord {
@@ -81,6 +80,7 @@ async fn prepare_permissions(
         })
         .unwrap();
     let bridge = FakePrivateClaurstBridge::default();
+    bridge.bind_turn_policy(launched);
     let binding = binding();
     bridge.push_start_binding(binding.clone());
     for permission in permissions {
@@ -224,7 +224,7 @@ async fn a_sandboxed_bypass_workspace_edit_waits_without_live_containment() {
 }
 
 #[tokio::test]
-async fn claurst_commits_canonical_grant_and_rejects_stale_once_before_bridge_delivery() {
+async fn claurst_commits_canonical_grant_and_answers_after_a_newer_revision() {
     use gent_types::{PermissionDecisionResponse, PermissionDecisionResponseKind};
     for stale in [false, true] {
         let (ledger, bridge, ingress) = prepare_permissions(
@@ -265,9 +265,12 @@ async fn claurst_commits_canonical_grant_and_rejects_stale_once_before_bridge_de
         };
         let result = ingress.respond_permission(response).await;
         if stale {
-            assert!(result.is_err());
-            assert!(bridge.permission_replies().is_empty());
-            assert!(pending(&ledger));
+            result.unwrap();
+            assert_eq!(
+                bridge.permission_replies(),
+                [("command".into(), ClaurstPermissionReply::AllowOnce)]
+            );
+            assert!(!pending(&ledger));
         } else {
             result.unwrap();
             let policy = ledger
@@ -287,4 +290,67 @@ async fn claurst_commits_canonical_grant_and_rejects_stale_once_before_bridge_de
             assert!(!pending(&ledger));
         }
     }
+}
+
+#[tokio::test]
+async fn a_mode_saved_mid_turn_leaves_the_turn_on_its_launch_policy_until_the_next_launch() {
+    use gent_types::{PermissionDecisionResponse, PermissionDecisionResponseKind};
+    let (ledger, bridge, mut ingress) =
+        prepare_permissions(AgentChatMode::Agent, PermissionMode::AskEveryTime, vec![]).await;
+    let mut saved = ledger
+        .current_policy("workspace-a", PolicyScope::ProviderPermissions)
+        .unwrap()
+        .unwrap();
+    saved.policy_id = "auto-accept-saved-mid-turn".into();
+    saved.revision = 2;
+    saved.mode = PermissionMode::AutoAcceptEdits;
+    ledger.save_provider_permission_policy(&saved).unwrap();
+    let edit = |id: &str| ClaurstDrainBatch {
+        facts: vec![],
+        permissions: vec![permission(
+            id,
+            "Edit",
+            PermissionCategory::Edit,
+            serde_json::json!({"file_path": "/workspace-a/src/app.py"}),
+        )],
+        checkpoint: Some(checkpoint(0)),
+        session_binding: Some(binding()),
+        terminal: None,
+    };
+    bridge.push_batch(edit("edit-1"));
+    ingress
+        .drain(&binding().source_id, HostEpoch(1))
+        .await
+        .unwrap();
+    assert!(bridge.permission_replies().is_empty());
+    let request = ledger
+        .pending_permission(
+            &AgentChatConversationId("conversation-a".into()),
+            &AgentChatRunId("run-a".into()),
+        )
+        .unwrap()
+        .expect("the launch-bound Ask policy still asks during the running turn");
+    assert_eq!(request.binding.policy_revision, 1);
+    ingress
+        .respond_permission(PermissionDecisionResponse {
+            binding: request.binding,
+            response: PermissionDecisionResponseKind::ApproveOnce,
+            input: None,
+        })
+        .await
+        .unwrap();
+    bridge.bind_turn_policy(saved.for_conversation(gent_types::Containment::Sandboxed));
+    bridge.push_batch(edit("edit-2"));
+    ingress
+        .drain(&binding().source_id, HostEpoch(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        bridge.permission_replies(),
+        [
+            ("edit-1".to_owned(), ClaurstPermissionReply::AllowOnce),
+            ("edit-2".to_owned(), ClaurstPermissionReply::AllowOnce),
+        ]
+    );
+    assert!(!pending(&ledger));
 }

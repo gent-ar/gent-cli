@@ -149,12 +149,17 @@ impl StandaloneClaurstBridge {
 #[async_trait]
 impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
     async fn ensure_for_prompt(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
-        self.start_selected(
-            &saved.message.conversation_id,
-            &saved.run_id.0,
-            &saved.tool_source_ids,
-        )
-        .await
+        let policy = self
+            .start_selected(
+                &saved.message.conversation_id,
+                &saved.run_id.0,
+                &saved.tool_source_ids,
+            )
+            .await?;
+        self.active_bridge()
+            .await
+            .and_then(|bridge| bridge.bind_turn_policy(policy))
+            .map_err(|error| error.to_string())
     }
 
     async fn warm(&self, conversation_id: &str, run_id: &str) -> Result<(), String> {
@@ -259,16 +264,15 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
         self.0.active_bridge().await?.drain(request).await
     }
 
-    async fn permission_enforcement(
+    async fn permission_authority(
         &self,
         binding: ClaurstSessionBinding,
-        policy: gent_types::PolicyRecord,
         epoch: gent_types::HostEpoch,
-    ) -> Result<gent_types::SandboxEnforcement, PortError> {
+    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
         self.0
             .active_bridge()
             .await?
-            .permission_enforcement(binding, policy, epoch)
+            .permission_authority(binding, epoch)
             .await
     }
 

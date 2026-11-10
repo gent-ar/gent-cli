@@ -99,18 +99,11 @@ impl RunFence {
         else {
             return false;
         };
-        let Ok(policy) = self.ledger.current_policy(
-            &self.workspace.workspace_id,
-            PolicyScope::ProviderPermissions,
-        ) else {
-            return false;
-        };
         epoch.host_epoch == self.host_epoch
             && self.ledger.host_ingress().is_ok_and(|ingress| {
                 ingress.epoch == self.host_epoch && ingress.mode == gent_ports::IngressMode::Open
             })
             && workspace == self.workspace
-            && policy.as_ref() == Some(&self.policy)
             && detail.current_run_id == self.run_id
             && detail
                 .runs

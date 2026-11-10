@@ -14,7 +14,7 @@ pub(super) fn prompt_start<L, D, R>(
     runtime: &PublicDriversRuntime<L, D, R>,
     prompt: &AgentChatPromptSaved,
     fresh_context: Option<gent_types::FrozenConversationContext>,
-) -> Result<ClaudePromptStart, RuntimeError>
+) -> Result<LaunchKey, RuntimeError>
 where
     L: Clone
         + Ledger
@@ -33,7 +33,7 @@ where
     D: ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {
-    let (start, _) = launch_key(
+    let (start, permission) = launch_key(
         runtime,
         &prompt.message.conversation_id,
         &prompt.run_id.0,
@@ -41,13 +41,16 @@ where
     )?;
     let goal = runtime.active_goal_for(&prompt.message.conversation_id)?;
     let (prompt_text, content) = provider_input(runtime, &prompt.message)?;
-    Ok(ClaudePromptStart {
-        prompt: prompt_text,
-        goal,
-        fresh_context,
-        content,
-        ..start
-    })
+    Ok((
+        ClaudePromptStart {
+            prompt: prompt_text,
+            goal,
+            fresh_context,
+            content,
+            ..start
+        },
+        permission,
+    ))
 }
 
 pub(super) fn fresh_input(

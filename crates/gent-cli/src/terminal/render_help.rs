@@ -16,7 +16,7 @@ pub(super) fn lines(state: &UiState) -> Vec<Line<'static>> {
         ),
         (
             "Navigate",
-            "↑/↓ chooses a chat. PgUp/PgDn reads history.",
+            "/resume opens another chat. Your terminal scrollback holds the history; gent --conversations opens the full-screen browser.",
         ),
         (
             "Send",
@@ -25,6 +25,10 @@ pub(super) fn lines(state: &UiState) -> Vec<Line<'static>> {
         (
             "Selection",
             "Tab provider · Ctrl+L model · Ctrl+E effort · Ctrl+O mode. Enter applies a context-preserving switch; Ctrl+P changes permissions; Ctrl+G opens sessions.",
+        ),
+        (
+            "Permissions",
+            "Shift+Tab cycles ask, auto-accept edits, autonomous and bypass; the change applies from the next turn. Answer a permission with 1-4 or ↑↓ and Enter.",
         ),
         (
             "Context",
@@ -40,7 +44,7 @@ pub(super) fn lines(state: &UiState) -> Vec<Line<'static>> {
         ),
         (
             "Thinking",
-            "Ctrl+T shows or summarizes provider-emitted thinking and saves that preference. Ctrl+C interrupts the active prompt.",
+            "Ctrl+T shows or summarizes provider-emitted thinking and saves that preference. Ctrl+C interrupts the active prompt; twice while idle quits. Ctrl+R sends queued prompts now, Ctrl+K removes the last one.",
         ),
         ("Close", "F1, ?, or Esc returns to the chat. Ctrl+Q quits."),
     ]
@@ -58,8 +62,8 @@ pub(super) fn lines(state: &UiState) -> Vec<Line<'static>> {
                 .collect::<Vec<_>>()
         },
     );
-    let mut lines = section("Commands", commands);
-    lines.extend(shortcuts);
+    let mut lines = shortcuts;
+    lines.extend(section("Commands", commands));
     lines
 }
 

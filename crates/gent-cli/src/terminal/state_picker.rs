@@ -182,26 +182,7 @@ fn permission_request(state: &mut UiState, index: usize) -> super::UiEffect {
         2 => gent_types::PermissionMode::Autonomous,
         _ => gent_types::PermissionMode::Bypass,
     };
-    let Some(conversation_id) = state.selected().map(|item| item.conversation_id.clone()) else {
-        state.notice = Some("Select a conversation before changing permissions.".into());
-        return super::UiEffect::Continue;
-    };
-    let Some(workspace_id) = state.selected_workspace_id().map(str::to_owned) else {
-        state.notice =
-            Some("Workspace details are unavailable; refresh the conversation first.".into());
-        return super::UiEffect::Continue;
-    };
-    super::UiEffect::Request(super::UiRequest::SetPermissionMode {
-        conversation_id,
-        workspace_id,
-        mode,
-        bypass_consent: mode == gent_types::PermissionMode::Bypass,
-        expected_provider: state
-            .view
-            .as_ref()
-            .and_then(|view| view.selection())
-            .map(|selection| selection.provider),
-    })
+    super::permissions::mode_request(state, mode, mode == gent_types::PermissionMode::Bypass)
 }
 
 fn permission_name(mode: gent_types::PermissionMode) -> &'static str {

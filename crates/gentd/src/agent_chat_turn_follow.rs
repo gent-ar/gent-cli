@@ -11,7 +11,7 @@ use gent_types::{AgentChatConversationId, AgentChatRequestId, AgentChatRunId, Ho
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::api::RuntimeApi;
+use crate::{api::RuntimeApi, transport::write_error};
 
 const PAGE_LIMIT: u16 = 100;
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -169,20 +169,6 @@ where
         return Ok(true);
     }
     Ok(false)
-}
-
-async fn write_error<W>(writer: &mut W, code: &str, message: &str) -> io::Result<()>
-where
-    W: AsyncWrite + Unpin,
-{
-    gent_protocol::write_frame(
-        writer,
-        &gent_protocol::WireFrame::Error {
-            code: code.into(),
-            message: message.into(),
-        },
-    )
-    .await
 }
 
 /// The daemon's read-only authority boundary for one turn-follow poll.

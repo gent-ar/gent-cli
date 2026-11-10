@@ -24,7 +24,7 @@ pub(crate) async fn serve<S, R>(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    R: RuntimeApi,
+    R: ProjectionFollowPort,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut cursor = after_cursor;
@@ -32,25 +32,53 @@ where
     loop {
         tokio::select! {
             input = read_json_frame::<_, Value>(&mut reader) => match input {
-                Ok(_) => return Err(Box::new(io::Error::other("only disconnect is valid after projection follow"))),
+                Ok(_) => return write_error(&mut writer, "invalidProjectionFollowFrame", "only disconnect is valid after projection follow").await,
                 Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(Box::new(error)),
             },
             () = tokio::time::sleep(delay) => {
-                let deltas = runtime
-                    .agent_chat_projection_follow(&conversation_id, &cursor)
-                    .map_err(io::Error::other)?;
+                let (conversation, after) = (conversation_id.clone(), cursor.clone());
+                let deltas = match off_runtime(&runtime, move |runtime| runtime.projection_deltas(&conversation, &after)).await {
+                    Ok(Ok(deltas)) => deltas,
+                    Ok(Err(message)) => return write_error(&mut writer, "projectionFollowFailed", &message).await,
+                    Err(error) => return write_error(&mut writer, "projectionFollowFailed", &error.to_string()).await,
+                };
                 delay = if deltas.is_empty() { POLL_INTERVAL } else { Duration::ZERO };
                 for delta in deltas {
                     let next = delta_cursor(&delta);
-                    if next.value <= cursor.value {
-                        return Err(Box::new(io::Error::other("projection cursor did not advance")));
+                    let stalled = next.value <= cursor.value;
+                    let resync = stalled || matches!(delta, AgentChatProjectionDelta::ResyncRequired { .. });
+                    let delta = if stalled {
+                        AgentChatProjectionDelta::ResyncRequired { cursor: cursor.clone() }
+                    } else {
+                        delta
+                    };
+                    write_json_frame(&mut writer, &AgentChatProjectionFrame::Delta { request_id: request_id.clone(), delta }).await?;
+                    if resync {
+                        return Ok(());
                     }
                     cursor = next;
-                    write_json_frame(&mut writer, &AgentChatProjectionFrame::Delta { request_id: request_id.clone(), delta }).await?;
                 }
             }
         }
+    }
+}
+
+pub(crate) trait ProjectionFollowPort: Clone + Send + Sync + 'static {
+    fn projection_deltas(
+        &self,
+        conversation_id: &str,
+        after_cursor: &ProjectionCursor,
+    ) -> Result<Vec<AgentChatProjectionDelta>, String>;
+}
+
+impl<R: RuntimeApi> ProjectionFollowPort for R {
+    fn projection_deltas(
+        &self,
+        conversation_id: &str,
+        after_cursor: &ProjectionCursor,
+    ) -> Result<Vec<AgentChatProjectionDelta>, String> {
+        self.agent_chat_projection_follow(conversation_id, after_cursor)
     }
 }
 

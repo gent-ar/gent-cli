@@ -33,13 +33,18 @@ where
     R: PublicProviderResolver,
 {
     pub(super) fn release_outdated_session(&mut self, run_id: &str) -> Result<(), RuntimeError> {
-        let idle = self
+        let Some(binding) = self
             .active
             .get(run_id)
-            .is_some_and(|binding| binding.settled && binding.steers.is_empty());
-        if idle
-            && self.runner.has_claude_session(run_id)
-            && !self.runtime.runs().launched_executable_is_current(run_id)?
+            .filter(|binding| binding.settled && binding.steers.is_empty())
+        else {
+            return Ok(());
+        };
+        let launched = binding.permission.clone();
+        let conversation_id = binding.prompt.message.conversation_id.clone();
+        if self.runner.has_claude_session(run_id)
+            && (!self.runtime.runs().launched_executable_is_current(run_id)?
+                || self.runtime.run_policy(&conversation_id, run_id)? != launched)
         {
             self.runner.release_claude_session(run_id)?;
             self.active.remove(run_id);

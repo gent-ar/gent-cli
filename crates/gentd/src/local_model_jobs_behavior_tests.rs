@@ -17,11 +17,10 @@ const CHUNK: usize = 1 << 20;
 fn gated(directory: &Path) -> (SqliteLedger, Arc<GatedChunks>, StandaloneClaurstModels) {
     let ledger = SqliteLedger::open(directory.join("gent.db")).unwrap();
     let transport = Arc::new(GatedChunks::default());
-    let models = StandaloneClaurstModels::from_data_dir(
+    let models = super::placeholder_models(
         directory,
         LocalModelEvents::new(ledger.clone(), HostEpoch(1)),
     )
-    .unwrap()
     .with_download_transport(Arc::new(Arc::clone(&transport)));
     (ledger, transport, models)
 }
@@ -45,40 +44,41 @@ fn verify_in_place(models: &StandaloneClaurstModels, model_id: &str) {
     crate::local_model_integrity::remember_sha256(&plan.destination, &plan.expected_sha256);
 }
 
-#[tokio::test]
-async fn every_holder_shares_one_transfer_and_one_announced_request() {
-    let directory = tempfile::tempdir().unwrap();
-    let (ledger, transport, models) = gated(directory.path());
+#[test]
+fn every_holder_shares_one_transfer_and_one_announced_request() {
+    super::in_temp_dir(|directory| async move {
+        let (ledger, transport, models) = gated(&directory);
 
-    let first = models
-        .downloads
-        .start(MODEL, DownloadHolder::Background)
-        .unwrap();
-    let second = models
-        .downloads
-        .start(MODEL, DownloadHolder::Prompt("prompt".into()))
-        .unwrap();
-    assert!(matches!(first, DownloadStart::Downloading(_)));
-    assert!(matches!(second, DownloadStart::Downloading(_)));
-    transport.gate.notify_one();
-    eventually(|| downloaded(&models) == CHUNK as u64).await;
+        let first = models
+            .downloads
+            .start(MODEL, DownloadHolder::Background)
+            .unwrap();
+        let second = models
+            .downloads
+            .start(MODEL, DownloadHolder::Prompt("prompt".into()))
+            .unwrap();
+        assert!(matches!(first, DownloadStart::Downloading(_)));
+        assert!(matches!(second, DownloadStart::Downloading(_)));
+        transport.gate.notify_one();
+        eventually(|| downloaded(&models) == CHUNK as u64).await;
 
-    assert_eq!(*transport.ranges.lock().unwrap(), vec![None]);
-    let frames = download_frames(&ledger);
-    let request_ids = frames
-        .iter()
-        .map(|frame| match frame {
-            LocalModelFrame::DownloadAccepted { request_id, .. }
-            | LocalModelFrame::DownloadProgress { request_id, .. } => request_id.clone(),
-            frame => panic!("unexpected {frame:?}"),
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(request_ids.len(), 1);
-    assert!(matches!(
-        frames[0],
-        LocalModelFrame::DownloadAccepted { .. }
-    ));
-    models.downloads.cancel(MODEL).unwrap();
+        assert_eq!(*transport.ranges.lock().unwrap(), vec![None]);
+        let frames = download_frames(&ledger);
+        let request_ids = frames
+            .iter()
+            .map(|frame| match frame {
+                LocalModelFrame::DownloadAccepted { request_id, .. }
+                | LocalModelFrame::DownloadProgress { request_id, .. } => request_id.clone(),
+                frame => panic!("unexpected {frame:?}"),
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(request_ids.len(), 1);
+        assert!(matches!(
+            frames[0],
+            LocalModelFrame::DownloadAccepted { .. }
+        ));
+        models.downloads.cancel(MODEL).unwrap();
+    });
 }
 
 #[tokio::test]
@@ -142,31 +142,32 @@ async fn cancel_without_a_running_transfer_still_removes_a_left_behind_partial()
     assert!(!plan.partial_destination.exists());
 }
 
-#[tokio::test]
-async fn the_last_holder_leaving_pauses_the_transfer_and_the_next_start_resumes_it() {
-    let directory = tempfile::tempdir().unwrap();
-    let (_ledger, transport, models) = gated(directory.path());
-    let holder = DownloadHolder::Prompt("prompt".into());
-    models.downloads.start(MODEL, holder.clone()).unwrap();
-    transport.gate.notify_one();
-    eventually(|| downloaded(&models) == CHUNK as u64).await;
+#[test]
+fn the_last_holder_leaving_pauses_the_transfer_and_the_next_start_resumes_it() {
+    super::in_temp_dir(|directory| async move {
+        let (_ledger, transport, models) = gated(&directory);
+        let holder = DownloadHolder::Prompt("prompt".into());
+        models.downloads.start(MODEL, holder.clone()).unwrap();
+        transport.gate.notify_one();
+        eventually(|| downloaded(&models) == CHUNK as u64).await;
 
-    models.downloads.release(MODEL, &holder);
+        models.downloads.release(MODEL, &holder);
 
-    assert_eq!(
-        models.install_state(MODEL).unwrap(),
-        LocalModelInstallState::NotInstalled
-    );
-    models
-        .downloads
-        .start(MODEL, DownloadHolder::Background)
-        .unwrap();
-    eventually(|| transport.ranges.lock().unwrap().len() == 2).await;
-    assert_eq!(
-        *transport.ranges.lock().unwrap(),
-        vec![None, Some(CHUNK as u64)]
-    );
-    models.downloads.cancel(MODEL).unwrap();
+        assert_eq!(
+            models.install_state(MODEL).unwrap(),
+            LocalModelInstallState::NotInstalled
+        );
+        models
+            .downloads
+            .start(MODEL, DownloadHolder::Background)
+            .unwrap();
+        eventually(|| transport.ranges.lock().unwrap().len() == 2).await;
+        assert_eq!(
+            *transport.ranges.lock().unwrap(),
+            vec![None, Some(CHUNK as u64)]
+        );
+        models.downloads.cancel(MODEL).unwrap();
+    });
 }
 
 #[tokio::test]

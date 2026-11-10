@@ -252,3 +252,69 @@ fn save(ledger: &SqliteLedger, conversation_id: &AgentChatConversationId, id: &s
         .unwrap();
     crate::readiness_test_support::release(ledger, &saved);
 }
+
+#[test]
+fn parallel_codex_approvals_surface_one_at_a_time_and_the_turn_completes() {
+    use gent_drivers::codex_control::CodexControlDecision;
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation_id = setup_conversation(&ledger);
+    let run_id = AgentChatRunId("run-a".into());
+    save(&ledger, &conversation_id, "prompt-1", "first");
+    let runner = Runner::default();
+    let mut host = host(&ledger, runner.clone());
+    let approval = |key: &str| {
+        CodexRunnerEffect::ControlRequest(CodexControlRequest {
+            request_id: serde_json::json!(key),
+            request_key: key.into(),
+            method: "item/commandExecution/requestApproval".into(),
+            tool_use_id: format!("call-{key}"),
+            tool_name: "Bash".into(),
+            input: None,
+        })
+    };
+    host.tick().unwrap();
+    runner.state.lock().unwrap().effects.push_back(vec![
+        CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
+            provider_session_id: "thread-1".into(),
+        }),
+        approval("0"),
+        approval("1"),
+    ]);
+    host.tick().unwrap();
+    let pending = |ledger: &SqliteLedger| {
+        ledger
+            .pending_permission(&conversation_id, &run_id)
+            .unwrap()
+    };
+    for key in ["0", "1"] {
+        let request = pending(&ledger).expect("one approval is pending at a time");
+        assert_eq!(request.binding.decision_id.0, key);
+        ledger.settle_pending_permission(&request.binding).unwrap();
+        host.respond_permission("run-a", key, CodexControlDecision::Allow, None)
+            .unwrap();
+        host.tick().unwrap();
+    }
+    runner
+        .state
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        ))]);
+    host.tick().unwrap();
+    assert!(pending(&ledger).is_none());
+    assert_eq!(
+        ledger.list_run_turns("run-a").unwrap()[0].phase,
+        DurableTurnPhase::Completed
+    );
+    assert_eq!(
+        runner.state.lock().unwrap().controls,
+        [
+            ("0".to_owned(), CodexControlDecision::Allow),
+            ("1".to_owned(), CodexControlDecision::Allow),
+        ]
+    );
+}

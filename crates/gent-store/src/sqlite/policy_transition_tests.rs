@@ -1,5 +1,5 @@
 use super::*;
-use gent_ports::{AgentChatWorkspaceLedger, ConversationLedger, PolicyLedger, WorkspaceLedger};
+use gent_ports::{AgentChatWorkspaceLedger, ConversationLedger, PolicyLedger};
 use gent_types::*;
 
 fn fixture() -> (SqliteLedger, PolicyRecord) {
@@ -49,16 +49,15 @@ fn fixture() -> (SqliteLedger, PolicyRecord) {
 }
 
 #[test]
-fn durable_commit_rechecks_active_work_even_if_an_earlier_preflight_was_idle() {
-    let (ledger, current) = fixture();
-    let mut next = current.clone();
-    next.policy_id = "next".into();
-    next.revision += 1;
-    next.mode = PermissionMode::Autonomous;
-    for phase in [
-        DurableTurnPhase::Active,
-        DurableTurnPhase::WaitingPermission,
-        DurableTurnPhase::WaitingQuestion,
+fn unattended_modes_save_while_work_in_the_workspace_is_active_or_waiting() {
+    let (ledger, mut latest) = fixture();
+    for (phase, mode) in [
+        (DurableTurnPhase::Active, PermissionMode::Autonomous),
+        (DurableTurnPhase::WaitingPermission, PermissionMode::Bypass),
+        (
+            DurableTurnPhase::WaitingQuestion,
+            PermissionMode::AskEveryTime,
+        ),
     ] {
         if phase != DurableTurnPhase::Active {
             ledger
@@ -73,66 +72,40 @@ fn durable_commit_rechecks_active_work_even_if_an_earlier_preflight_was_idle() {
                 )
                 .unwrap();
         }
-        assert!(ledger.save_provider_permission_policy(&next).is_err());
+        let mut next = latest.clone();
+        next.policy_id = format!("next-{mode:?}");
+        next.revision += 1;
+        next.mode = mode;
+        ledger.save_provider_permission_policy(&next).unwrap();
         assert_eq!(
             ledger
                 .current_policy("workspace", PolicyScope::ProviderPermissions)
                 .unwrap(),
-            Some(current.clone())
+            Some(next.clone())
         );
+        latest = next;
     }
-    ledger
-        .replace_turn_phase(
-            "turn",
-            DurableTurnPhase::WaitingQuestion,
-            DurableTurnPhase::Completed,
-        )
-        .unwrap();
-    ledger.save_provider_permission_policy(&next).unwrap();
-    assert_eq!(
-        ledger
-            .current_policy("workspace", PolicyScope::ProviderPermissions)
-            .unwrap(),
-        Some(next)
-    );
 }
 
 #[test]
-fn exact_broad_revalidation_is_idempotent_while_a_new_binding_revision_is_rejected() {
+fn exact_revalidation_is_idempotent_and_the_next_revision_becomes_current() {
     let (ledger, mut broad) = fixture();
     broad.policy_id = "broad".into();
     broad.revision += 1;
     broad.mode = PermissionMode::Bypass;
-    // Raw persistence intentionally seeds a legacy/live-bound fixture; product commits use the guarded port.
-    ledger.save_policy(&broad).unwrap();
+    ledger.save_provider_permission_policy(&broad).unwrap();
     ledger.save_provider_permission_policy(&broad).unwrap();
     let mut changed = broad.clone();
     changed.policy_id = "changed".into();
     changed.revision += 1;
-    assert!(ledger.save_provider_permission_policy(&changed).is_err());
     changed.mode = PermissionMode::AskEveryTime;
-    assert!(ledger.save_provider_permission_policy(&changed).is_err());
+    ledger.save_provider_permission_policy(&changed).unwrap();
     assert_eq!(
         ledger
             .current_policy("workspace", PolicyScope::ProviderPermissions)
             .unwrap(),
-        Some(broad)
+        Some(changed)
     );
-}
-
-#[test]
-fn unrelated_workspace_activity_does_not_block_a_policy_commit() {
-    let (ledger, mut policy) = fixture();
-    ledger
-        .create_workspace(&WorkspaceRecord {
-            workspace_id: "other".into(),
-            canonical_path: "/other".into(),
-        })
-        .unwrap();
-    policy.policy_id = "other".into();
-    policy.workspace_id = "other".into();
-    policy.mode = PermissionMode::Autonomous;
-    ledger.save_provider_permission_policy(&policy).unwrap();
 }
 
 #[test]

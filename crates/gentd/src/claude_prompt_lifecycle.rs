@@ -14,6 +14,7 @@ mod containment;
 mod execution;
 mod launch;
 mod permission;
+mod permission_queue;
 mod poll;
 mod prewarm;
 mod recovery;
@@ -43,6 +44,9 @@ pub(super) struct Binding {
     last_dispatch: u64,
     idle_since: Option<std::time::Instant>,
     awaits_first_input: bool,
+    permission: gent_types::PolicyRecord,
+    queued_permissions:
+        std::collections::VecDeque<gent_drivers::claude_control::ClaudePermissionRequest>,
 }
 
 impl Binding {
@@ -260,11 +264,13 @@ where
                 phase,
             )?;
             binding.settled = true;
+            let queued = std::mem::take(&mut binding.queued_permissions);
             if phase == DurableTurnPhase::Completed {
                 if let Some(hook) = &self.summary_hook {
                     let _ = hook.schedule(&binding.prompt.message.conversation_id);
                 }
             }
+            self.deny_queued_permissions(run_id, queued);
         }
         Ok(())
     }

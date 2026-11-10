@@ -1,8 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
 
 use gent_protocol::{
-    AGENT_CHAT_CONVERSATIONS_CAPABILITY, AUTOMATIONS_CAPABILITY, CONVERSATION_CONTENT_CAPABILITY,
-    FORGE_CONNECTORS_CAPABILITY,
+    AGENT_CHAT_CONVERSATIONS_CAPABILITY, AUTOMATIONS_CAPABILITY, FORGE_CONNECTORS_CAPABILITY,
 };
 use gent_types::ConversationListItem;
 
@@ -13,6 +12,7 @@ pub(super) async fn initial_metadata(
     capabilities: &[String],
     data_dir: Option<PathBuf>,
     no_autostart: bool,
+    with_status: bool,
 ) -> BTreeMap<String, terminal::ConversationMetadata> {
     if !capabilities
         .iter()
@@ -20,69 +20,41 @@ pub(super) async fn initial_metadata(
     {
         return BTreeMap::new();
     }
-    let mut metadata = BTreeMap::new();
+    let mut tasks = tokio::task::JoinSet::new();
     for item in index {
-        if let Ok(summary) =
-            chat_cli::summary(data_dir.clone(), no_autostart, item.conversation_id.clone()).await
-        {
-            let catalog = catalog(
-                data_dir.clone(),
-                no_autostart,
-                summary.workspace_id.as_deref(),
-                capabilities,
-            )
-            .await;
-            let permission_mode = match summary.workspace_id.as_deref() {
-                Some(workspace_id) => crate::permissions_cli::current_for(
-                    data_dir.clone(),
-                    no_autostart,
-                    workspace_id.into(),
-                )
-                .await
-                .ok()
-                .flatten()
-                .map_or(gent_types::PermissionMode::AskEveryTime, |policy| {
-                    policy.mode
-                }),
-                None => gent_types::PermissionMode::AskEveryTime,
-            };
-            let preview = if capabilities
-                .iter()
-                .any(|value| value == CONVERSATION_CONTENT_CAPABILITY)
-            {
-                crate::conversation_content::request(
-                    data_dir.clone(),
-                    no_autostart,
-                    item.conversation_id.clone(),
-                    None,
-                    1,
-                )
-                .await
-                .ok()
-                .and_then(|page| page.entries.into_iter().next())
-                .map(|entry| entry.text)
-            } else {
-                None
-            };
+        let data_dir = data_dir.clone();
+        let conversation_id = item.conversation_id.clone();
+        tasks.spawn(async move {
+            let summary =
+                chat_cli::summary(data_dir.clone(), no_autostart, conversation_id.clone())
+                    .await
+                    .ok()?;
+            let running = with_status
+                && crate::conversation_status::request(data_dir, no_autostart, conversation_id)
+                    .await
+                    .ok()
+                    .is_some_and(|status| {
+                        status.runs.iter().any(|run| run.active_turn_id.is_some())
+                    });
+            Some((summary, running))
+        });
+    }
+    let mut metadata = BTreeMap::new();
+    while let Some(result) = tasks.join_next().await {
+        if let Ok(Some((summary, running))) = result {
             metadata.insert(
-                item.conversation_id.clone(),
+                summary.conversation_id.clone(),
                 terminal::ConversationMetadata {
-                    permission_mode,
                     title: summary.title,
+                    preview: summary.recap.clone(),
                     recap: summary.recap,
-                    preview,
                     workspace_id: summary.workspace_id,
                     workspace_path: summary.workspace_path,
                     mcp_server_count: summary.mcp_server_count,
                     mcp_server_names: summary.mcp_server_names,
-                    automation_count: count(&catalog.automation_names),
-                    automation_names: catalog.automation_names,
-                    automations: catalog.automations,
-                    automation_runs: catalog.automation_runs,
-                    forge_count: count(&catalog.forge_names),
-                    forge_names: catalog.forge_names,
-                    changed_file_count: summary.changed_file_count,
-                    git_branch: summary.git_branch,
+                    updated_at_unix_ms: summary.updated_at_unix_ms,
+                    running,
+                    ..terminal::ConversationMetadata::default()
                 },
             );
         }

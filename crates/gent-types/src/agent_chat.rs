@@ -56,7 +56,7 @@ impl AgentChatSelection {
 }
 
 /// The bounded effort choices which a compatible agent-chat client may render.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum AgentChatEffort {
     Low,
@@ -65,6 +65,17 @@ pub enum AgentChatEffort {
     XHigh,
     Max,
     Ultra,
+}
+
+impl AgentChatEffort {
+    #[must_use]
+    pub fn nearest_in(self, supported: &[Self]) -> Self {
+        supported
+            .iter()
+            .copied()
+            .min_by_key(|effort| ((*effort as u8).abs_diff(self as u8), *effort))
+            .unwrap_or(self)
+    }
 }
 
 /// The bounded interaction modes which a compatible agent-chat client may render.
@@ -92,10 +103,6 @@ pub struct AgentChatConversationSummary {
     pub mcp_server_count: u16,
     #[serde(default)]
     pub mcp_server_names: Vec<String>,
-    #[serde(default)]
-    pub changed_file_count: Option<u32>,
-    #[serde(default)]
-    pub git_branch: Option<String>,
     pub updated_at_unix_ms: u64,
     pub selection: AgentChatSelection,
     #[serde(default)]
@@ -170,6 +177,7 @@ pub struct NormalizedTranscriptEvent {
 pub enum AgentChatFailureCode {
     SandboxUnavailable,
     SandboxAdmissionFailed,
+    GentdRestarted,
 }
 
 impl AgentChatFailureCode {
@@ -178,14 +186,19 @@ impl AgentChatFailureCode {
         match self {
             Self::SandboxUnavailable => "sandbox-unavailable:",
             Self::SandboxAdmissionFailed => "sandbox-admission-failed:",
+            Self::GentdRestarted => "gentd-restarted:",
         }
     }
 
     #[must_use]
     pub fn from_event_id(event_id: &str) -> Option<Self> {
-        [Self::SandboxUnavailable, Self::SandboxAdmissionFailed]
-            .into_iter()
-            .find(|code| event_id.starts_with(code.event_prefix()))
+        [
+            Self::SandboxUnavailable,
+            Self::SandboxAdmissionFailed,
+            Self::GentdRestarted,
+        ]
+        .into_iter()
+        .find(|code| event_id.starts_with(code.event_prefix()))
     }
 }
 

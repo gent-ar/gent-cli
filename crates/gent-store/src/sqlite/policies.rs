@@ -32,17 +32,6 @@ pub(super) fn save_guarded(
             "The workspace permission policy changed; refresh before saving another mode.".into(),
         ));
     }
-    if latest.as_ref() != Some(policy)
-        && (policy.mode.is_unattended()
-            || latest
-                .as_ref()
-                .is_some_and(|record| record.mode.is_unattended()))
-    {
-        let active: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM turns t JOIN agent_chat_conversations c ON c.conversation_id=t.conversation_id WHERE c.workspace_id=?1 AND t.phase IN ('active','waitingPermission','waitingQuestion'))", [&policy.workspace_id], |row| row.get(0)).map_err(storage_error)?;
-        if active {
-            return Err(LedgerError::Invariant("Finish or stop active work before changing the workspace's contained permission policy; the current mode remains in effect.".into()));
-        }
-    }
     save_record(&transaction, policy)?;
     transaction.commit().map_err(storage_error)
 }

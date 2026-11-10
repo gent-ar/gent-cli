@@ -237,7 +237,7 @@ pub(crate) async fn off_runtime<R, T>(
     work: impl FnOnce(R) -> T + Send + 'static,
 ) -> Result<T, tokio::task::JoinError>
 where
-    R: RuntimeApi,
+    R: Clone + Send + 'static,
     T: Send + 'static,
 {
     let runtime = runtime.clone();

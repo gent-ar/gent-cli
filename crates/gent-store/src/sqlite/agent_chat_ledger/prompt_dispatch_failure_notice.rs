@@ -33,7 +33,7 @@ pub(super) fn record(
     let scope:Option<(String,String,String)>=transaction.query_row(
         "SELECT m.conversation_id,m.run_id,m.turn_id FROM conversation_messages m JOIN agent_chat_prompt_dispatches d ON d.message_id=m.message_id WHERE m.message_id=?1 AND d.coordinator_id=?2 AND d.host_epoch=?3 AND d.state IN ('launching','unprovable')",
         params![message_id,coordinator,epoch.0],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional().map_err(storage_error)?;
-    let (conversation, run, turn) = scope.ok_or_else(|| {
+    let (conversation, _, turn) = scope.ok_or_else(|| {
         LedgerError::Invariant("launch failure notice is not owned by this coordinator".into())
     })?;
     let existing:bool=transaction.query_row(
@@ -42,9 +42,13 @@ pub(super) fn record(
     if existing {
         return transaction.commit().map_err(storage_error);
     }
-    let cursor:u64=transaction.query_row("SELECT COALESCE(MAX(cursor),0)+1 FROM agent_chat_transcript_events WHERE conversation_id=?1",[&conversation],|row|row.get(0)).map_err(storage_error)?;
-    transaction.execute(
-        "INSERT INTO agent_chat_transcript_events(conversation_id,cursor,event_id,turn_id,run_id,kind,text,is_partial) VALUES(?1,?2,?3,?4,?5,'notice',?6,0)",
-        params![conversation,cursor,format!("{}{message_id}", failure_code.map_or("launch-failure-notice:", gent_types::AgentChatFailureCode::event_prefix)),turn,run,error]).map_err(storage_error)?;
+    let event_id = format!(
+        "{}{message_id}",
+        failure_code.map_or(
+            "launch-failure-notice:",
+            gent_types::AgentChatFailureCode::event_prefix
+        )
+    );
+    crate::sqlite::turn_terminal::append_failure_notice(&transaction, &turn, &event_id, error)?;
     transaction.commit().map_err(storage_error)
 }

@@ -84,6 +84,7 @@ pub(crate) enum UiEffect {
         variables: Vec<PromptTemplateVariable>,
     },
     Refresh(String),
+    LoadConversations,
     ListDocuments {
         workspace_id: String,
         attach_id: Option<String>,

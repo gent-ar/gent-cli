@@ -65,8 +65,6 @@ fn summary(
         workspace_path,
         mcp_server_count: 0,
         mcp_server_names: Vec::new(),
-        changed_file_count: None,
-        git_branch: None,
         updated_at_unix_ms,
         selection,
         containment: if containment.as_deref() == Some("sandboxed") {

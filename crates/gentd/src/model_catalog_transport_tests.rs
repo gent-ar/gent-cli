@@ -40,11 +40,11 @@ impl ModelCatalogPort for RecordingPort {
 
     fn remember(&self, _: &AgentChatSelection) {}
 
-    fn validate(
+    fn fit(
         &self,
-        _: &AgentChatSelection,
-    ) -> Result<(), crate::agent_chat_intent_error::AgentChatIntentError> {
-        Ok(())
+        selection: &AgentChatSelection,
+    ) -> Result<AgentChatSelection, crate::agent_chat_intent_error::AgentChatIntentError> {
+        Ok(selection.clone())
     }
 
     fn default_selection(&self) -> AgentChatSelection {

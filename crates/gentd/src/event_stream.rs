@@ -24,7 +24,12 @@ where
     R: RuntimeApi,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
-    let mut sent = send_page(&mut writer, &runtime, after_cursor, true).await?;
+    let mut sent = match send_page(&mut writer, &runtime, after_cursor, true).await {
+        Ok(sent) => sent,
+        Err(error) => {
+            return Ok(send_error(&mut writer, "eventStreamFailed", &error.to_string()).await?);
+        }
+    };
     let mut acknowledged = after_cursor;
     loop {
         tokio::select! {
@@ -47,7 +52,10 @@ where
             },
             () = tokio::time::sleep(POLL_INTERVAL) => {
                 if acknowledged == sent {
-                    sent = send_page(&mut writer, &runtime, sent, false).await?;
+                    sent = match send_page(&mut writer, &runtime, sent, false).await {
+                        Ok(sent) => sent,
+                        Err(error) => return Ok(send_error(&mut writer, "eventStreamFailed", &error.to_string()).await?),
+                    };
                 }
             }
         }
@@ -64,9 +72,11 @@ where
     W: AsyncWrite + Unpin,
     R: RuntimeApi,
 {
-    let page = runtime
-        .read_event_page(after_cursor, MAX_BATCH_EVENTS)
-        .map_err(io::Error::other)?;
+    let page = crate::transport::off_runtime(runtime, move |runtime| {
+        runtime.read_event_page(after_cursor, MAX_BATCH_EVENTS)
+    })
+    .await?
+    .map_err(io::Error::other)?;
     send_events(writer, page, after_cursor, initial).await
 }
 

@@ -33,8 +33,24 @@ where
     R: PublicProviderResolver,
 {
     pub(super) fn release_outdated_session(&mut self, run_id: &str) -> Result<(), RuntimeError> {
+        let launched = self
+            .active
+            .get(run_id)
+            .filter(|binding| binding.settled)
+            .map(|binding| {
+                (
+                    binding.prompt.message.conversation_id.clone(),
+                    binding.permission.clone(),
+                )
+            });
+        let policy_changed = match launched {
+            Some((conversation_id, permission)) => {
+                self.runtime.run_policy(&conversation_id, run_id)? != permission
+            }
+            None => false,
+        };
         if self.runner.has_codex_session(run_id)
-            && !self.runtime.runs().launched_executable_is_current(run_id)?
+            && (policy_changed || !self.runtime.runs().launched_executable_is_current(run_id)?)
         {
             self.runner.release_codex_session(run_id)?;
             self.active.remove(run_id);

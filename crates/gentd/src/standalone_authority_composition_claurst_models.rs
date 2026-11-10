@@ -32,14 +32,22 @@ impl StandaloneClaurstModels {
     ) -> Result<Self, StandaloneAuthorityError> {
         let catalog =
             LocalModelCatalog::shipped().map_err(|_| StandaloneAuthorityError::ClaurstCatalog)?;
+        Ok(Self::with_catalog(data_dir, catalog, events))
+    }
+
+    pub(crate) fn with_catalog(
+        data_dir: &std::path::Path,
+        catalog: LocalModelCatalog,
+        events: crate::local_model_events::LocalModelEvents,
+    ) -> Self {
         let provisioner = LocalModelProvisioner::new(data_dir, catalog);
-        Ok(Self {
+        Self {
             downloads: crate::local_model_jobs::LocalModelDownloadJobs::new(
                 provisioner.clone(),
                 events,
             ),
             provisioner,
-        })
+        }
     }
 
     #[must_use]

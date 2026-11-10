@@ -96,6 +96,11 @@ pub(in crate::terminal) fn operational_chips(state: &UiState, width: u16) -> Vec
         .collect()
 }
 fn context_label(facts: &[ConversationActivityFact]) -> Option<String> {
+    operational_context(facts).map(|value| format!("[ context {value} ]"))
+}
+pub(in crate::terminal) fn operational_context(
+    facts: &[ConversationActivityFact],
+) -> Option<String> {
     let (used_tokens, window_tokens) = facts.iter().rev().find_map(|fact| match fact {
         ConversationActivityFact::ContextUsage {
             used_tokens,
@@ -106,8 +111,8 @@ fn context_label(facts: &[ConversationActivityFact]) -> Option<String> {
         _ => None,
     })?;
     Some(window_tokens.filter(|value| *value > 0).map_or_else(
-        || format!("[ context {} ]", compact_number(used_tokens)),
-        |window| format!("[ context {}% ]", used_tokens.saturating_mul(100) / window),
+        || compact_number(used_tokens),
+        |window| format!("{}%", used_tokens.saturating_mul(100) / window),
     ))
 }
 fn compact_number(value: u64) -> String {

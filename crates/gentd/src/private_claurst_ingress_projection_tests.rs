@@ -193,6 +193,14 @@ async fn started_source_projects_pending_permission_into_shared_activity() {
         })
         .unwrap();
     let bridge = FakePrivateClaurstBridge::default();
+    bridge.bind_turn_policy(
+        crate::permission_workspace::policy_for_conversation(
+            &ledger,
+            "conversation-a",
+            "workspace-a",
+        )
+        .unwrap(),
+    );
     let binding = binding();
     bridge.push_start_binding(binding.clone());
     bridge.push_batch(ClaurstDrainBatch {

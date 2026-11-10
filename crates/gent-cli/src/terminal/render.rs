@@ -24,7 +24,7 @@ mod render_chips;
 mod render_index;
 #[path = "render_text.rs"]
 mod render_text;
-pub(super) use render_chips::operational_chips;
+pub(super) use render_chips::{operational_chips, operational_context};
 use render_index::widget as index_widget;
 use render_text::clip;
 pub(super) use render_text::selected_title;
@@ -163,7 +163,7 @@ fn transcript_widget(state: &UiState, area: ratatui::layout::Rect) -> Paragraph<
         .block(Block::default().borders(Borders::ALL).title(title))
 }
 
-fn active_turn_label(state: &UiState) -> String {
+pub(super) fn active_turn_label(state: &UiState) -> String {
     match state.selected_local_model_state() {
         Some(gent_protocol::LocalModelInstallState::Downloading {
             downloaded_bytes,
@@ -249,7 +249,13 @@ fn message_lines(
         ),
         Style::default().fg(color).add_modifier(Modifier::BOLD),
     )];
-    lines.extend(text.lines().map(|line| Line::from(format!("  {line}"))));
+    lines.extend(super::inline_items::tidy(&text).into_iter().map(|line| {
+        if line.is_empty() {
+            Line::default()
+        } else {
+            Line::from(format!("  {line}"))
+        }
+    }));
     lines.push(Line::default());
     lines
 }

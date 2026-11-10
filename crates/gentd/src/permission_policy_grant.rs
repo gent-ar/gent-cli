@@ -12,11 +12,8 @@ pub(crate) fn transition(
     if pending.binding != response.binding {
         return Err("permission response binding is stale");
     }
-    if policy.scope != PolicyScope::ProviderPermissions
-        || policy.policy_id != pending.binding.policy_id
-        || policy.revision != pending.binding.policy_revision
-    {
-        return Err("permission policy is stale");
+    if policy.scope != PolicyScope::ProviderPermissions {
+        return Err("permission policy scope is not provider permissions");
     }
     let mut revised = policy.clone();
     match response.response {

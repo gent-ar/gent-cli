@@ -57,16 +57,21 @@ fn canonical_grant_id_matches_an_independent_sha256_vector() {
 }
 
 #[test]
-fn stale_policy_and_changed_response_binding_cannot_publish_any_grant() {
-    let (mut policy, pending, mut response) = fixture();
+fn a_grant_extends_the_latest_revision_saved_after_the_request_was_bound() {
+    let (mut policy, pending, response) = fixture();
+    policy.policy_id = "mode-changed-mid-turn".into();
     policy.revision = 2;
-    assert!(transition(&policy, &pending, &response).is_err());
-    policy.revision = 1;
+    policy.mode = PermissionMode::Bypass;
+    let next = transition(&policy, &pending, &response).unwrap().unwrap();
+    assert_eq!(next.revision, 3);
+    assert_eq!(next.mode, PermissionMode::Bypass);
+    assert_eq!(next.allowed_tools, ["ExternalWrite"]);
+}
+
+#[test]
+fn a_changed_response_binding_cannot_publish_any_grant() {
+    let (policy, pending, mut response) = fixture();
     response.binding.host_epoch = HostEpoch(4);
-    assert!(transition(&policy, &pending, &response).is_err());
-    response.binding = pending.binding.clone();
-    response.response = PermissionDecisionResponseKind::ApproveOnce;
-    policy.policy_id = "different".into();
     assert!(transition(&policy, &pending, &response).is_err());
 }
 
