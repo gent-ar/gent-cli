@@ -118,6 +118,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
             print(provider_lifecycle_cli::execute(data_dir, no_autostart, action).await?)?;
         }
         CommandLine::Models { action } => models(data_dir, no_autostart, action).await?,
+        CommandLine::Speech { action } => {
+            print(crate::speech_cli::execute(data_dir, no_autostart, action).await?)?;
+        }
         CommandLine::Templates { action } => {
             print(prompt_templates_cli::execute(data_dir, no_autostart, action).await?)?
         }

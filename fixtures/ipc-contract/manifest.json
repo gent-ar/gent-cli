@@ -14,6 +14,7 @@
     { "name": "agent-chat-projection", "path": "agent-chat-projection.json" },
     { "name": "agent-chat-rejections", "path": "agent-chat-rejections.json" },
     { "name": "provider-auth", "path": "provider-auth.json" },
-    { "name": "agent-chat-commands", "path": "agent-chat-commands.json" }
+    { "name": "agent-chat-commands", "path": "agent-chat-commands.json" },
+    { "name": "speech-catalog", "path": "speech-catalog.json" }
   ]
 }

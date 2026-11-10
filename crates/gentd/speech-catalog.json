@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "cloudProviders": [
+    {
+      "id": "openai",
+      "label": "OpenAI Whisper",
+      "transcriptionUrl": "https://api.openai.com/v1/audio/transcriptions",
+      "modelsUrl": null,
+      "auth": "bearer",
+      "apiKeyHint": "sk-...",
+      "defaultModelId": "whisper-1",
+      "models": [{ "id": "whisper-1", "label": "Whisper" }]
+    },
+    {
+      "id": "together",
+      "label": "Together AI",
+      "transcriptionUrl": "https://api.together.xyz/v1/audio/transcriptions",
+      "modelsUrl": "https://api.together.xyz/v1/models",
+      "auth": "bearer",
+      "apiKeyHint": "tok-...",
+      "defaultModelId": "openai/whisper-large-v3",
+      "models": [{ "id": "openai/whisper-large-v3", "label": "Whisper large v3" }]
+    },
+    {
+      "id": "elevenlabs",
+      "label": "ElevenLabs",
+      "transcriptionUrl": "https://api.elevenlabs.io/v1/speech-to-text",
+      "modelsUrl": null,
+      "auth": "xiApiKey",
+      "apiKeyHint": "el-...",
+      "defaultModelId": "scribe_v1",
+      "models": [{ "id": "scribe_v1", "label": "Scribe v1" }]
+    },
+    {
+      "id": "resemble",
+      "label": "Resemble AI",
+      "transcriptionUrl": "https://app.resemble.ai/api/v2/speech-to-text",
+      "modelsUrl": null,
+      "auth": "bearer",
+      "apiKeyHint": "rs-...",
+      "defaultModelId": null,
+      "models": []
+    },
+    {
+      "id": "groq",
+      "label": "Groq",
+      "transcriptionUrl": "https://api.groq.com/openai/v1/audio/transcriptions",
+      "modelsUrl": null,
+      "auth": "bearer",
+      "apiKeyHint": "gsk_...",
+      "defaultModelId": "whisper-large-v3-turbo",
+      "models": [{ "id": "whisper-large-v3-turbo", "label": "Whisper large v3 turbo" }]
+    },
+    {
+      "id": "deepgram",
+      "label": "Deepgram",
+      "transcriptionUrl": "https://api.deepgram.com/v1/listen",
+      "modelsUrl": null,
+      "auth": "token",
+      "apiKeyHint": "dg-...",
+      "defaultModelId": "nova-3",
+      "models": [{ "id": "nova-3", "label": "Nova-3" }]
+    },
+    {
+      "id": "assemblyai",
+      "label": "AssemblyAI",
+      "transcriptionUrl": "https://api.assemblyai.com/v2/transcript",
+      "modelsUrl": null,
+      "auth": "authorization",
+      "apiKeyHint": "api key...",
+      "defaultModelId": null,
+      "models": []
+    }
+  ],
+  "localEngines": [
+    {
+      "id": "whisper",
+      "label": "Whisper",
+      "models": [
+        {
+          "id": "tiny.en",
+          "size": "tiny",
+          "label": "Tiny",
+          "filename": "ggml-tiny.en.bin",
+          "sizeBytes": 77704715,
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.en.bin",
+          "sha256": "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
+          "englishOnly": true
+        },
+        {
+          "id": "tiny",
+          "size": "tiny",
+          "label": "Tiny",
+          "filename": "ggml-tiny.bin",
+          "sizeBytes": 77691713,
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin",
+          "sha256": "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+          "englishOnly": false
+        },
+        {
+          "id": "base.en",
+          "size": "base",
+          "label": "Base",
+          "filename": "ggml-base.en.bin",
+          "sizeBytes": 147964211,
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin",
+          "sha256": "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
+          "englishOnly": true
+        },
+        {
+          "id": "base",
+          "size": "base",
+          "label": "Base",
+          "filename": "ggml-base.bin",
+          "sizeBytes": 147951465,
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin",
+          "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+          "englishOnly": false
+        },
+        {
+          "id": "small.en",
+          "size": "small",
+          "label": "Small",
+          "filename": "ggml-small.en.bin",
+          "sizeBytes": 487614201,
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en.bin",
+          "sha256": "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
+          "englishOnly": true
+        },
+        {
+          "id": "small",
+          "size": "small",
+          "label": "Small",
+          "filename": "ggml-small.bin",
+          "sizeBytes": 487601967,
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin",
+          "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+          "englishOnly": false
+        }
+      ]
+    }
+  ]
+}

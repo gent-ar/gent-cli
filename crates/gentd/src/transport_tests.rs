@@ -22,6 +22,7 @@ impl RuntimeApi for FakeRuntime {
     fn capabilities(&self) -> Result<CapabilitySet, String> {
         Ok(CapabilitySet(vec![
             CONVERSATION_STATUS_CAPABILITY.into(),
+            gent_protocol::speech_catalog::SPEECH_CATALOG_CAPABILITY.into(),
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY.into(),
             WORKSPACE_GIT_CAPABILITY.into(),
             "events".into(),

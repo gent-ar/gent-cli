@@ -16,6 +16,9 @@ use crate::{
     workspace_git_transport,
 };
 
+#[path = "speech_catalog_transport.rs"]
+mod speech_catalog_transport;
+
 pub(super) async fn dispatch_extension<S, R>(
     stream: &mut S,
     runtime: &R,
@@ -55,6 +58,7 @@ where
         || runtime_maintenance_transport::dispatch(stream, runtime, capabilities, raw).await?
         || local_model_transport::dispatch(stream, runtime, capabilities, raw).await?
         || model_catalog::transport::dispatch(stream, runtime, capabilities, raw).await?
+        || speech_catalog_transport::dispatch(stream, runtime, capabilities, raw).await?
     {
         return Ok(true);
     }

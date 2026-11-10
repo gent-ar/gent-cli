@@ -208,6 +208,10 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
         (true, CONVERSATION_INDEX_CAPABILITY),
         (true, CONVERSATION_TIMELINE_CAPABILITY),
         (true, CONVERSATION_CONTENT_CAPABILITY),
+        (
+            true,
+            gent_protocol::speech_catalog::SPEECH_CATALOG_CAPABILITY,
+        ),
     ];
     let mut capabilities = capability_set(DECLARED);
     capabilities.0.extend(

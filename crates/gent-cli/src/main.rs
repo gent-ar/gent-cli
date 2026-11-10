@@ -38,6 +38,7 @@ mod runtime_maintenance;
 mod runtime_update_check;
 mod session_cli;
 mod side_question_cli;
+mod speech_cli;
 mod terminal;
 mod terminal_browser;
 mod terminal_preferences;

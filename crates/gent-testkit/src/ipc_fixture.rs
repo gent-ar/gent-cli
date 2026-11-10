@@ -8,6 +8,7 @@ use frames::{
     validate_chat_commands, validate_chat_conversations, validate_chat_intents,
     validate_chat_transcript, validate_core, validate_event_stream, validate_goal,
     validate_handshake, validate_model_catalog, validate_permission_policy, validate_provider_auth,
+    validate_speech_catalog,
 };
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY,
@@ -102,7 +103,8 @@ pub fn validate_ipc_fixture_manifest(path: &Path) -> Result<(), String> {
         &entries,
         "agent-chat-commands",
         validate_chat_commands,
-    )
+    )?;
+    validate_fixture(root, &entries, "speech-catalog", validate_speech_catalog)
 }
 
 fn manifest_entries(entries: &[FixtureEntry]) -> Result<BTreeMap<String, PathBuf>, String> {
@@ -218,6 +220,13 @@ fn specs() -> BTreeMap<&'static str, FixtureSpec> {
                 capability: Some(
                     gent_protocol::agent_chat_commands::AGENT_CHAT_COMMANDS_CAPABILITY,
                 ),
+            },
+        ),
+        (
+            "speech-catalog",
+            FixtureSpec {
+                path: "speech-catalog.json",
+                capability: Some(gent_protocol::speech_catalog::SPEECH_CATALOG_CAPABILITY),
             },
         ),
     ]

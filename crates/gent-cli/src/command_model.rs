@@ -142,6 +142,11 @@ pub(crate) enum CommandLine {
         #[command(subcommand)]
         action: local_models_cli::LocalModelsCommand,
     },
+    #[command(about = "Read the speech-to-text catalogue gentd serves")]
+    Speech {
+        #[command(subcommand)]
+        action: crate::speech_cli::SpeechCommand,
+    },
     #[command(about = "Create, list, render, and delete prompt templates")]
     Templates {
         #[command(subcommand)]

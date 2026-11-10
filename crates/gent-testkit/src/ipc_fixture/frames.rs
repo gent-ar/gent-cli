@@ -200,6 +200,22 @@ pub(super) fn validate_provider_auth(records: &[FixtureFrame]) -> Result<(), Str
     })
 }
 
+pub(super) fn validate_speech_catalog(records: &[FixtureFrame]) -> Result<(), String> {
+    use gent_protocol::speech_catalog::SpeechCatalogFrame;
+    let frames: Vec<SpeechCatalogFrame> = canonical(records)?;
+    let valid = frames.iter().all(|frame| frame.validate().is_ok());
+    (valid
+        && matches!(
+            frames.as_slice(),
+            [
+                SpeechCatalogFrame::ReadSpeechCatalog { .. },
+                SpeechCatalogFrame::SpeechCatalog { .. }
+            ]
+        ))
+    .then_some(())
+    .ok_or_else(|| "must contain a valid read frame and a revision-matched catalog frame".into())
+}
+
 pub(super) fn validate_goal(records: &[FixtureFrame]) -> Result<(), String> {
     use gent_protocol::GoalFrame;
     let frames: Vec<GoalFrame> = canonical(records)?;

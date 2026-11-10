@@ -7,7 +7,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
-const FIXTURES: [&str; 12] = [
+const FIXTURES: [&str; 13] = [
     "handshake.json",
     "core.json",
     "event-stream.json",
@@ -20,6 +20,7 @@ const FIXTURES: [&str; 12] = [
     "agent-chat-rejections.json",
     "provider-auth.json",
     "agent-chat-commands.json",
+    "speech-catalog.json",
 ];
 
 #[derive(Debug, Parser)]
@@ -82,6 +83,9 @@ fn canonical_record(name: &str, value: &Value) -> Result<Value, String> {
         "provider-auth.json" => canonical::<gent_protocol::ProviderAuthFrame>(value)?,
         "agent-chat-commands.json" => {
             canonical::<gent_protocol::agent_chat_commands::AgentChatCommandFrame>(value)?
+        }
+        "speech-catalog.json" => {
+            canonical::<gent_protocol::speech_catalog::SpeechCatalogFrame>(value)?
         }
         _ => return Err(format!("unknown fixture {name}")),
     };

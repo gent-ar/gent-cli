@@ -49,6 +49,7 @@ pub mod runtime_activation;
 mod runtime_maintenance;
 pub mod runtime_owner;
 mod runtime_update;
+pub mod speech_catalog;
 mod turn_follow;
 mod workspace_documents;
 mod workspace_git;
