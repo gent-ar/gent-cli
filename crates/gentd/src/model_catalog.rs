@@ -44,10 +44,11 @@ pub(crate) fn compose_standalone(
 ) -> Arc<dyn transport::ModelCatalogPort> {
     let defaults = defaults::ModelCatalogDefaults::open(data_dir);
     let lifecycle_control = config.local_models.downloads.lifecycle_control();
-    let initialize = claude_initialize::ClaudeInitialize::new_with_lifecycle_control(
+    let initialize = claude_initialize::ClaudeInitialize::standalone(
         config.executables.clone(),
         PROVIDER_PROBE_TIMEOUT,
         lifecycle_control.clone(),
+        Arc::clone(&config.auth),
     );
     let service = service::ModelCatalogService::new(
         vec![

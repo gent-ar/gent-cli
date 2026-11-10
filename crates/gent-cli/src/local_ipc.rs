@@ -135,7 +135,10 @@ mod start;
 pub(crate) use start::connect_or_start;
 
 fn daemon_command(daemon: PathBuf, data_dir: &Path) -> tokio::process::Command {
-    let mut command = tokio::process::Command::new(daemon);
+    let mut command = tokio::process::Command::from(gent_types::hidden_command_with_flags(
+        daemon,
+        CREATE_NEW_PROCESS_GROUP,
+    ));
     command
         .args(daemon_arguments_from(data_dir))
         .stdin(Stdio::null())
@@ -143,14 +146,9 @@ fn daemon_command(daemon: PathBuf, data_dir: &Path) -> tokio::process::Command {
         .stderr(Stdio::null());
     #[cfg(unix)]
     command.process_group(0);
-    #[cfg(windows)]
-    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     command
 }
 
-#[cfg(windows)]
-const DETACHED_PROCESS: u32 = 0x0000_0008;
-#[cfg(windows)]
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 
 fn daemon_arguments_from(data_dir: &Path) -> Vec<OsString> {

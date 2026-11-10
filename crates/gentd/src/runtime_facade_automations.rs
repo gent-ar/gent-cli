@@ -1,7 +1,7 @@
 use std::{
     io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -201,7 +201,7 @@ fn execute_script(
     {
         return Err("automation script must be a workspace file".into());
     }
-    let mut child = Command::new(&executable)
+    let mut child = gent_types::hidden_command(&executable)
         .args(args)
         .current_dir(&root)
         .env_clear()

@@ -1,7 +1,6 @@
 //! External runtime update scheduler handoff.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use thiserror::Error;
 
@@ -27,7 +26,7 @@ pub(crate) fn invoke(action: &AutoUpdateAction, data_dir: PathBuf) -> Result<(),
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(AutoUpdateError::UnsafeHelper);
     }
-    let mut command = Command::new(helper_runner());
+    let mut command = gent_types::console_command(helper_runner());
     #[cfg(windows)]
     command
         .arg("-NoProfile")

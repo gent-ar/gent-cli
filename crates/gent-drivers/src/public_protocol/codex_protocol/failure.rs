@@ -5,14 +5,16 @@ pub(super) fn classify(
     error: Option<&Value>,
     fallback: &'static str,
 ) -> (ProviderFailureClassification, &'static str) {
-    let typed = error
-        .and_then(|error| error.get("codexErrorInfo"))
-        .and_then(Value::as_str);
-    match typed {
-        Some("unauthorized") => (
+    let typed = error.and_then(|error| error.get("codexErrorInfo"));
+    let unauthorized = typed
+        .is_some_and(|info| info.as_str() == Some("unauthorized") || rejected_credentials(info));
+    if unauthorized {
+        return (
             ProviderFailureClassification::Authentication,
             "Codex sign-in expired. Sign in again to continue.",
-        ),
+        );
+    }
+    match typed.and_then(Value::as_str) {
         Some("usageLimitExceeded") => (
             ProviderFailureClassification::RateLimited,
             "Codex usage limit reached.",
@@ -27,6 +29,14 @@ pub(super) fn classify(
         ),
         _ => from_message(error, fallback),
     }
+}
+
+fn rejected_credentials(info: &Value) -> bool {
+    info.as_object().is_some_and(|variant| {
+        variant
+            .values()
+            .any(|detail| detail.get("httpStatusCode").and_then(Value::as_u64) == Some(401))
+    })
 }
 
 fn from_message(

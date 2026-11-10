@@ -113,3 +113,14 @@ fn a_superseded_run_is_reaped_immediately() {
         ["old"]
     );
 }
+
+#[test]
+fn a_failed_warm_up_is_not_relaunched_until_its_backoff_elapses() {
+    let start = std::time::Instant::now();
+    let mut failures = super::WarmFailures::default();
+    assert!(!failures.backing_off("run-a", start));
+    failures.record("run-a", start);
+    assert!(failures.backing_off("run-a", start + std::time::Duration::from_secs(59)));
+    assert!(!failures.backing_off("run-b", start));
+    assert!(!failures.backing_off("run-a", start + std::time::Duration::from_secs(60)));
+}

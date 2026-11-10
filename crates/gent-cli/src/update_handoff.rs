@@ -53,7 +53,7 @@ fn download(
         .path()
         .join(format!("{}.sigstore.json", installer_name()));
     run(
-        Command::new("curl")
+        gent_types::console_command("curl")
             .args([
                 "--fail",
                 "--location",
@@ -66,7 +66,7 @@ fn download(
         "curl",
     )?;
     run(
-        Command::new("curl")
+        gent_types::console_command("curl")
             .args([
                 "--fail",
                 "--location",
@@ -83,7 +83,7 @@ fn download(
 fn verify_bootstrap(script: &std::path::Path, version: &str) -> Result<(), UpdateHandoffError> {
     let bundle = script.with_file_name(format!("{}.sigstore.json", installer_name()));
     run(
-        Command::new("cosign")
+        gent_types::console_command("cosign")
             .arg("verify-blob")
             .arg(script)
             .arg("--bundle")
@@ -102,7 +102,7 @@ fn invoke_installer(
     script: &std::path::Path,
     request: &UpdateRequest,
 ) -> Result<(), UpdateHandoffError> {
-    let mut command = Command::new(installer_runner());
+    let mut command = gent_types::console_command(installer_runner());
     installer_arguments(&mut command, script, request);
     command
         .status()

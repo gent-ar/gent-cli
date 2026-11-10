@@ -1,11 +1,10 @@
 use std::{
     ffi::OsString,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 pub(super) fn enable_updates(root: &Path, data_dir: &Path) -> Result<(), String> {
-    let status = Command::new(active_cli(root))
+    let status = gent_types::hidden_command(active_cli(root))
         .args(enable_update_arguments(data_dir))
         .status()
         .map_err(super::display)?;

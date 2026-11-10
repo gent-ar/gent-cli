@@ -18,7 +18,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     path::PathBuf,
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{Arc, Mutex, mpsc},
     thread,
     time::{Duration, Instant},
@@ -335,7 +335,7 @@ fn spawn_helper(
     helper: &RunVersionLock,
     start: &Start,
 ) -> Result<(std::process::Child, u32, String), String> {
-    let mut command = Command::new(&helper.canonical_path);
+    let mut command = gent_types::hidden_command(&helper.canonical_path);
     command.env_clear().env("PATH", "/usr/bin:/bin");
     if let Some(runtime) = &start.runtime_root {
         command.envs(runtime.helper_environment().map_err(str::to_owned)?);

@@ -1,8 +1,10 @@
 use gent_ports::ConversationLedger;
 use gent_protocol::{AgentChatIntentFrame, AgentChatProviderWarm, ProviderWarmOutcome};
+use gent_types::{AgentChatProvider, ProviderAuthProvider};
 
 use super::RuntimeFacade;
 use crate::agent_chat_intent_error::AgentChatIntentError;
+use crate::provider_auth_api::{LaunchAdmission, ProviderAuthPort, launch_admission};
 use crate::provider_warm_pool::{WarmPoolRequest, WarmTarget};
 
 impl RuntimeFacade {
@@ -31,6 +33,9 @@ impl RuntimeFacade {
             .ok_or("agent-chat reads are unavailable")?
             .run_selection(&warm.conversation_id.0, &warm.run_id.0)?
             .provider;
+        if !launch_admitted(self.provider_auth.as_deref(), provider) {
+            return Ok(ProviderWarmOutcome::Unavailable);
+        }
         let active_turn = self
             .transcript_import_ledger
             .list_run_turns(&warm.run_id.0)
@@ -59,6 +64,15 @@ impl RuntimeFacade {
     }
 }
 
+fn launch_admitted(auth: Option<&dyn ProviderAuthPort>, provider: AgentChatProvider) -> bool {
+    let account = match provider {
+        AgentChatProvider::Claude => ProviderAuthProvider::Claude,
+        AgentChatProvider::Codex => ProviderAuthProvider::Codex,
+        AgentChatProvider::Claurst => return true,
+    };
+    auth.is_none_or(|auth| launch_admission(auth, account) == LaunchAdmission::Admitted)
+}
+
 fn warm_request(warm: &AgentChatProviderWarm) -> WarmPoolRequest {
     WarmPoolRequest {
         now: std::time::Instant::now(),
@@ -66,5 +80,36 @@ fn warm_request(warm: &AgentChatProviderWarm) -> WarmPoolRequest {
             conversation_id: warm.conversation_id.0.clone(),
             run_id: warm.run_id.0.clone(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gent_types::{AgentChatProvider, ProviderAuthLifecycle};
+
+    use super::launch_admitted;
+    use crate::provider_auth_api::fixed::FixedProviderAuth;
+
+    #[test]
+    fn only_a_signed_in_public_provider_is_warmed() {
+        for (lifecycle, admitted) in [
+            (ProviderAuthLifecycle::Authenticated, true),
+            (ProviderAuthLifecycle::Checking, false),
+            (ProviderAuthLifecycle::Unauthenticated, false),
+            (ProviderAuthLifecycle::NotInstalled, false),
+            (ProviderAuthLifecycle::Expired, false),
+        ] {
+            let auth = FixedProviderAuth(lifecycle);
+            assert_eq!(
+                launch_admitted(Some(&auth), AgentChatProvider::Claude),
+                admitted
+            );
+            assert_eq!(
+                launch_admitted(Some(&auth), AgentChatProvider::Codex),
+                admitted
+            );
+            assert!(launch_admitted(Some(&auth), AgentChatProvider::Claurst));
+        }
+        assert!(launch_admitted(None, AgentChatProvider::Claude));
     }
 }

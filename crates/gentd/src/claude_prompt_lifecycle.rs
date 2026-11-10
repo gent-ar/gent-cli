@@ -72,6 +72,7 @@ pub(crate) struct ClaudePromptLifecycle<L, D, R> {
     coordinator_id: String,
     active: BTreeMap<String, Binding>,
     warm: BTreeMap<String, prewarm::WarmBinding>,
+    warm_failures: crate::provider_warm_pool::WarmFailures,
     summary_hook: Option<Arc<dyn ClaudeSummaryHook>>,
     compaction_notices: std::collections::BTreeSet<String>,
     shutdown_signaled: bool,
@@ -100,7 +101,6 @@ where
     D: ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {
-    #[must_use]
     pub(crate) fn new(runtime: PublicDriversRuntime<L, D, R>, coordinator_id: String) -> Self {
         let runner = runtime.runner();
         Self {
@@ -109,6 +109,7 @@ where
             coordinator_id,
             active: BTreeMap::new(),
             warm: BTreeMap::new(),
+            warm_failures: crate::provider_warm_pool::WarmFailures::default(),
             summary_hook: None,
             compaction_notices: std::collections::BTreeSet::new(),
             shutdown_signaled: false,

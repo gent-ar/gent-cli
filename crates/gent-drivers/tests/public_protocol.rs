@@ -622,6 +622,21 @@ fn codex_error_notifications_are_redacted_and_classified() {
             "Codex reported a provider error.",
         ),
         (
+            json!({"method":"error","params":{"error":{"message":"stream failed","codexErrorInfo":{"responseStreamConnectionFailed":{"httpStatusCode":401}}}}}),
+            ProviderFailureClassification::Authentication,
+            "Codex sign-in expired. Sign in again to continue.",
+        ),
+        (
+            json!({"method":"error","params":{"error":{"message":"retries exhausted","codexErrorInfo":{"responseTooManyFailedAttempts":{"httpStatusCode":401}}}}}),
+            ProviderFailureClassification::Authentication,
+            "Codex sign-in expired. Sign in again to continue.",
+        ),
+        (
+            json!({"method":"error","params":{"error":{"message":"connect failed","codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":503}}}}}),
+            ProviderFailureClassification::Provider,
+            "Codex reported a provider error.",
+        ),
+        (
             json!({"method":"error","params":{"error":{"message":"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 3:12 PM.","codexErrorInfo":"usageLimitExceeded","additionalDetails":null,"misalignment":null},"willRetry":false,"threadId":"t","turnId":"u"}}),
             ProviderFailureClassification::RateLimited,
             "Codex usage limit reached.",

@@ -1,11 +1,7 @@
 use gent_protocol::runtime_activation::{
     ACTIVATION_MAINTENANCE_MAX_BYTES, ActivationMaintenanceReply, ActivationMaintenanceRequest,
 };
-use std::{
-    io::Write,
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::{io::Write, path::PathBuf, process::Stdio};
 #[path = "runtime_activation_command.rs"]
 mod command;
 pub(crate) use command::RuntimeCommand;
@@ -41,7 +37,7 @@ pub(crate) fn execute(command: RuntimeCommand, data_dir: PathBuf) -> Result<Stri
             "Maintenance request exceeds its bound",
         ));
     }
-    let mut child = Command::new(executable)
+    let mut child = gent_types::hidden_command(executable)
         .arg("--runtime-activation-stdio")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

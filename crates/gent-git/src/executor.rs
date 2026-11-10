@@ -85,7 +85,7 @@ impl GitExecutor for SystemGitExecutor {
         if paths.is_empty() || paths.iter().any(|path| path.contains('\0')) {
             return Err(GitExecutorError::InvalidOutput);
         }
-        let mut command = Command::new("git");
+        let mut command = gent_types::hidden_command("git");
         command
             .arg("checkout")
             .arg("--")
@@ -126,7 +126,7 @@ fn joined<T>(
 
 pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, GitExecutorError> {
     bounded_output(
-        Command::new("git")
+        gent_types::hidden_command("git")
             .arg("--no-optional-locks")
             .args(args)
             .current_dir(root),

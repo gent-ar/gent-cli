@@ -7,7 +7,7 @@ use std::{
     collections::BTreeMap,
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -364,7 +364,7 @@ fn start_classified(
         )
         .map_err(|_| "host scope creation")?;
         let deadline = Instant::now() + timeout;
-        let child = Command::new(&helper.canonical_path)
+        let child = gent_types::hidden_command(&helper.canonical_path)
             .arg(match purpose {
                 Purpose::ClaudeCredentialProbe => "--host-credential-probe",
                 Purpose::GentMcpStdio => "--trusted-host-mcp",
@@ -831,6 +831,7 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     #[test]
     fn partial_start_and_unknown_cleanup_retain_same_process_authority() {
         use std::sync::{
@@ -1044,6 +1045,7 @@ mod tests {
 #[cfg(test)]
 mod typed_failure_tests {
     use super::*;
+    use std::process::Command;
     #[test]
     fn no_spawn_failure_is_known_without_executable_access() {
         let lock = RunVersionLock {

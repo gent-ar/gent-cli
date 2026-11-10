@@ -1,6 +1,5 @@
 use crate::{ProviderLaunch, SandboxedProviderLaunchError as Error};
 use gent_types::{RunVersionLock, SandboxedLaunchRequest};
-use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -15,8 +14,7 @@ pub(super) fn command(
     helper_root: &Path,
     run: &str,
 ) -> Result<Command, Error> {
-    let mut command = Command::new(&helper.canonical_path);
-    command.creation_flags(0x0800_0000);
+    let mut command = gent_types::hidden_command(&helper.canonical_path);
     command.current_dir(helper_root);
     command
         .arg("run")

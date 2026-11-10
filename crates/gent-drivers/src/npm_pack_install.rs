@@ -6,7 +6,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -64,7 +63,7 @@ fn pack(
         .map_err(|error| InstallerError::Runtime(error.to_string()))?;
     NpmGlobalPrefix::validate_filesystem_path(staging)?;
     let invocation = npm.pack(package, staging);
-    let mut command = Command::new(&invocation.executable);
+    let mut command = gent_types::hidden_command(&invocation.executable);
     command.args(&invocation.arguments);
     npm.configure_command(&mut command)?;
     let output = command
@@ -165,7 +164,7 @@ fn verify_integrity(archive: &Path, sri: &str) -> Result<(), InstallerError> {
 fn run(npm: &NpmGlobalPrefix, invocation: &InstallerInvocation) -> Result<(), InstallerError> {
     npm.recheck()
         .map_err(|error| InstallerError::Runtime(error.to_string()))?;
-    let mut command = Command::new(&invocation.executable);
+    let mut command = gent_types::hidden_command(&invocation.executable);
     command.args(&invocation.arguments);
     npm.configure_command(&mut command)?;
     let status = command

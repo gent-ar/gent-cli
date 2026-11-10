@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use std::collections::BTreeSet;
 #[cfg(unix)]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -164,7 +164,7 @@ fn frozen_escaped_descendants(group: i32) -> Vec<i32> {
 
 #[cfg(unix)]
 fn kill(signal: &str, targets: &[i32]) -> Result<(), ProcessTreeError> {
-    let status = Command::new("/bin/kill")
+    let status = gent_types::hidden_command("/bin/kill")
         .args(["-s", signal, "--"])
         .args(targets.iter().map(ToString::to_string))
         .stdout(Stdio::null())
@@ -237,7 +237,7 @@ fn process_table() -> Vec<ProcessEntry> {
 
 #[cfg(all(unix, not(target_os = "linux")))]
 fn process_table() -> Vec<ProcessEntry> {
-    let Ok(output) = Command::new("/bin/ps")
+    let Ok(output) = gent_types::hidden_command("/bin/ps")
         .args(["-axo", "pid=,ppid=,pgid="])
         .stderr(Stdio::null())
         .output()

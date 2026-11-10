@@ -121,7 +121,7 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
     type Process = SystemLocalRuntimeProcess;
 
     fn launch(&self, launch: &LocalProcessLaunch) -> Result<Self::Process, String> {
-        let mut command = Command::new(&launch.executable);
+        let mut command = gent_types::hidden_command(&launch.executable);
         command
             .args(&launch.arguments)
             .stdin(Stdio::null())
@@ -242,7 +242,7 @@ impl Drop for SystemClaurstAcpStdio {
 }
 
 fn local_command(launch: &LocalProcessLaunch) -> Command {
-    let mut command = Command::new(&launch.executable);
+    let mut command = gent_types::hidden_command(&launch.executable);
     command.args(&launch.arguments);
     if let Some(directory) = &launch.working_directory {
         command.current_dir(directory);

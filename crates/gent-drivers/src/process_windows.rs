@@ -1,9 +1,6 @@
-use std::os::windows::process::CommandExt;
-use std::process::{Command, ExitStatus};
+use std::process::ExitStatus;
 
 use crate::interrupt::{ProcessTreeError, ProcessTreeSignal};
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub(super) fn signal_tree(pid: i32, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
     signal_with(pid, signal, taskkill, process_exists)
@@ -42,8 +39,7 @@ where
 }
 
 fn taskkill(pid: i32, force: bool) -> Result<ExitStatus, ProcessTreeError> {
-    let mut command = Command::new("taskkill");
-    command.creation_flags(CREATE_NO_WINDOW);
+    let mut command = gent_types::hidden_command("taskkill");
     command.args(["/PID", &pid.to_string(), "/T"]);
     if force {
         command.arg("/F");
@@ -55,8 +51,7 @@ fn taskkill(pid: i32, force: bool) -> Result<ExitStatus, ProcessTreeError> {
 }
 
 fn process_exists(pid: i32) -> Result<bool, ProcessTreeError> {
-    let output = Command::new("tasklist")
-        .creation_flags(CREATE_NO_WINDOW)
+    let output = gent_types::hidden_command("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
         .output()
         .map_err(|error| ProcessTreeError::Failed(error.to_string()))?;
@@ -88,8 +83,7 @@ pub(super) fn bind_to_daemon(child: &std::process::Child) {
 }
 
 pub(super) fn image_name(pid: u32) -> Option<String> {
-    let output = Command::new("tasklist")
-        .creation_flags(CREATE_NO_WINDOW)
+    let output = gent_types::hidden_command("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
         .output()
         .ok()?;
@@ -132,9 +126,8 @@ mod tests {
     fn a_recorded_process_tree_is_reaped_when_its_image_still_owns_the_pid() {
         let directory = std::env::temp_dir().join(format!("gent-groups-{}", std::process::id()));
         let groups = crate::process::groups::ProcessGroups::open(&directory).unwrap();
-        let mut child = Command::new("ping")
+        let mut child = gent_types::hidden_command("ping")
             .args(["-n", "30", "127.0.0.1"])
-            .creation_flags(CREATE_NO_WINDOW)
             .stdout(Stdio::null())
             .spawn()
             .unwrap();
@@ -149,9 +142,8 @@ mod tests {
     #[test]
     fn a_hard_killed_owner_takes_its_provider_processes_with_it() {
         if std::env::var_os("GENT_DAEMON_JOB_OWNER").is_some() {
-            let mut child = Command::new("ping")
+            let mut child = gent_types::hidden_command("ping")
                 .args(["-n", "120", "127.0.0.1"])
-                .creation_flags(CREATE_NO_WINDOW)
                 .stdout(Stdio::null())
                 .spawn()
                 .unwrap();
@@ -160,14 +152,13 @@ mod tests {
             let _ = child.wait();
             return;
         }
-        let mut owner = Command::new(std::env::current_exe().unwrap())
+        let mut owner = gent_types::hidden_command(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "process::windows::tests::a_hard_killed_owner_takes_its_provider_processes_with_it",
                 "--nocapture",
             ])
             .env("GENT_DAEMON_JOB_OWNER", "1")
-            .creation_flags(CREATE_NO_WINDOW)
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
@@ -232,8 +223,7 @@ mod tests {
 
     #[test]
     fn real_windows_tree_stops_and_exited_process_is_detected() {
-        let mut command = Command::new("cmd");
-        command.creation_flags(CREATE_NO_WINDOW);
+        let mut command = gent_types::hidden_command("cmd");
         let mut child = command
             .args(["/C", "ping", "-n", "30", "127.0.0.1"])
             .stdin(Stdio::null())

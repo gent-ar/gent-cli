@@ -9,7 +9,7 @@ use gent_types::{ProviderAuthLifecycle, ProviderAuthProvider, ProviderAuthStatus
 
 use super::provider_auth_process::{authentication, identified_lock};
 use super::provider_auth_session::ProviderAuthSession;
-use super::{StandaloneProviderAuthPort, recover};
+use super::{ProviderAuthPort, StandaloneProviderAuthPort, recover};
 use crate::provider_launch_budget::{ProbeRetry, ProviderLaunchError};
 
 const SETTLED_POLL: Duration = Duration::from_millis(20);
@@ -45,6 +45,20 @@ impl StandaloneProviderAuthPort {
                 None => thread::sleep(SETTLED_POLL),
             }
         }
+    }
+
+    pub(super) fn settled_status(
+        &self,
+        provider: ProviderAuthProvider,
+    ) -> Option<ProviderAuthStatus> {
+        if let Some(status) = self.session_status(provider, false) {
+            return Some(status);
+        }
+        let Some(executable) = self.existing_executable(provider) else {
+            return Some(unlocked(provider, ProviderAuthLifecycle::NotInstalled));
+        };
+        self.start_check(provider, executable);
+        self.take_settled(provider)
     }
 
     fn session_status(
@@ -151,6 +165,24 @@ fn probe_once(
     Ok(ProviderAuthOutcome::Session(Box::new(
         ProviderAuthSession::new(provider, lock, lifecycle, Some(control.clone())),
     )))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LaunchAdmission {
+    Admitted,
+    Unknown,
+    SignedOut,
+}
+
+pub(crate) fn launch_admission(
+    auth: &dyn ProviderAuthPort,
+    provider: ProviderAuthProvider,
+) -> LaunchAdmission {
+    match auth.settled_lifecycle(provider) {
+        Some(ProviderAuthLifecycle::Authenticated) => LaunchAdmission::Admitted,
+        None | Some(ProviderAuthLifecycle::Checking) => LaunchAdmission::Unknown,
+        Some(_) => LaunchAdmission::SignedOut,
+    }
 }
 
 pub(super) fn unlocked(

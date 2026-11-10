@@ -265,5 +265,8 @@ pub use workspace_git::{
 };
 pub use workspaces::{RepositoryRecord, WorkspaceRecord, WorktreeRecord};
 
+mod hidden_command;
+pub use hidden_command::{console_command, hidden_command, hidden_command_with_flags};
+
 mod windows_pipe_client;
 pub use windows_pipe_client::windows_pipe_client_candidates;

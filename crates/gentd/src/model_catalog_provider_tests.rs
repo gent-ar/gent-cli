@@ -129,15 +129,18 @@ fn codex_models_come_from_every_model_list_page_with_supported_efforts_only() {
 }
 
 #[test]
-fn codex_signed_out_and_list_errors_stay_typed() {
+fn codex_signed_out_is_never_probed_and_list_errors_stay_typed() {
     let root = tempfile::tempdir().unwrap();
-    let source = codex(root.path(), ProviderAuthLifecycle::Unauthenticated);
-    assert_eq!(
-        source.load().unwrap().availability,
-        ProviderAvailability::SignedOut
-    );
+    let signed_out = codex(root.path(), ProviderAuthLifecycle::Unauthenticated)
+        .load()
+        .unwrap();
+    assert_eq!(signed_out.availability, ProviderAvailability::SignedOut);
+    assert!(!root.path().join("model-list-requests.jsonl").exists());
     fs::write(root.path().join("model-list-error"), "").unwrap();
-    let error = source.load().err().unwrap();
+    let error = codex(root.path(), ProviderAuthLifecycle::Authenticated)
+        .load()
+        .err()
+        .unwrap();
     assert!(
         matches!(&error, ProviderLaunchError::Failed(message) if message.contains("not signed in")),
         "{error}"

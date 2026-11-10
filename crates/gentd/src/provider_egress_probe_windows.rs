@@ -1,6 +1,6 @@
 use super::{
-    BTreeMap, Child, Command, Duration, File, Instant, ProbeFailure, ProbeOutput, RunVersionLock,
-    Stdio, await_with_authority, bounded, decode, rechecked_identity, thread,
+    BTreeMap, Child, Duration, File, Instant, ProbeFailure, ProbeOutput, RunVersionLock, Stdio,
+    await_with_authority, bounded, decode, rechecked_identity, thread,
 };
 #[cfg(test)]
 type EventLog = std::sync::Arc<std::sync::Mutex<Vec<(&'static str, bool)>>>;
@@ -93,8 +93,7 @@ fn run_observed(
     let worker = thread::Builder::new()
         .name("credential-probe-owner".into())
         .spawn(move || {
-            use std::os::windows::process::CommandExt;
-            let mut command = Command::new(&helper.canonical_path);
+            let mut command = gent_types::hidden_command(&helper.canonical_path);
             command
                 .arg("host-credential-probe")
                 .arg(&lock.canonical_path)
@@ -107,8 +106,7 @@ fn run_observed(
                 .envs(environment)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .creation_flags(0x0800_0000);
+                .stderr(Stdio::piped());
             let child = command.spawn().map_err(|_| ProbeFailure::known())?;
             let mut owner = NativeOwner {
                 child: Some(child),

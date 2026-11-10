@@ -75,6 +75,9 @@ where
             warm.since = now;
             return Ok(ProviderWarmOutcome::AlreadyWarm);
         }
+        if self.warm_failures.backing_off(run_id, now) {
+            return Ok(ProviderWarmOutcome::Unavailable);
+        }
         let evicted = match admission(
             self.pool_runs(),
             run_id,
@@ -100,6 +103,7 @@ where
             .runner
             .prewarm_claude_prompt(run_id.clone(), key.0.clone())
         {
+            self.warm_failures.record(run_id, now);
             return unavailable(run_id, error.into());
         }
         let started = self.runtime.runs().start_or_resume(super::start::request(
@@ -122,13 +126,12 @@ where
                 );
                 Ok(ProviderWarmOutcome::Warming)
             }
-            Ok(_) => {
+            refused => {
                 self.runner.cancel_claude_prompt(run_id);
-                Ok(ProviderWarmOutcome::Unavailable)
-            }
-            Err(error) => {
-                self.runner.cancel_claude_prompt(run_id);
-                unavailable(run_id, error)
+                self.warm_failures.record(run_id, now);
+                refused
+                    .map(|_| ProviderWarmOutcome::Unavailable)
+                    .or_else(|error| unavailable(run_id, error))
             }
         }
     }
@@ -202,6 +205,7 @@ where
                     let _ = self.runner.release_claude_session(&run_id);
                 }
                 self.warm.remove(&run_id);
+                self.warm_failures.record(&run_id, Instant::now());
             }
         }
     }

@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(unix)]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 #[cfg(windows)]
 pub(super) use super::super::windows::image_name as identity;
@@ -26,7 +26,7 @@ pub(super) fn identity(pid: u32) -> Option<String> {
 
 #[cfg(all(unix, not(target_os = "linux")))]
 pub(super) fn identity(pid: u32) -> Option<String> {
-    let output = Command::new("/bin/ps")
+    let output = gent_types::hidden_command("/bin/ps")
         .args(["-o", "lstart=", "-p", &pid.to_string()])
         .stderr(Stdio::null())
         .output()
@@ -42,7 +42,7 @@ pub(super) const fn identity(_: u32) -> Option<String> {
 
 #[cfg(unix)]
 fn group_alive(pid: u32) -> bool {
-    Command::new("/bin/kill")
+    gent_types::hidden_command("/bin/kill")
         .args(["-0", "--", &format!("-{pid}")])
         .stdout(Stdio::null())
         .stderr(Stdio::null())

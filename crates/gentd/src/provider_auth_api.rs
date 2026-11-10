@@ -11,6 +11,7 @@ use gent_types::{
     ProviderAuthStatus,
 };
 
+pub(crate) use self::provider_auth_check::{LaunchAdmission, launch_admission};
 use self::provider_auth_check::{ProviderAuthChecks, unlocked};
 use self::provider_auth_process::{
     PROBE_TIMEOUT, agent_provider, authentication, challenge_id, identified_lock, now, public_lock,
@@ -42,6 +43,9 @@ mod provider_auth_handoff;
 pub(crate) trait ProviderAuthPort: Send + Sync {
     fn exchange(&self, frame: ProviderAuthFrame) -> Result<ProviderAuthFrame, String>;
     fn check_status(&self, provider: ProviderAuthProvider) -> ProviderAuthStatus;
+    fn settled_lifecycle(&self, provider: ProviderAuthProvider) -> Option<ProviderAuthLifecycle> {
+        Some(self.check_status(provider).lifecycle)
+    }
 }
 
 #[derive(Clone)]
@@ -253,12 +257,19 @@ impl ProviderAuthPort for StandaloneProviderAuthPort {
     fn check_status(&self, provider: ProviderAuthProvider) -> ProviderAuthStatus {
         self.checked_status(provider)
     }
+
+    fn settled_lifecycle(&self, provider: ProviderAuthProvider) -> Option<ProviderAuthLifecycle> {
+        self.settled_status(provider).map(|status| status.lifecycle)
+    }
 }
 
 fn recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+#[cfg(test)]
+#[path = "provider_auth_fixed.rs"]
+pub(crate) mod fixed;
 #[cfg(test)]
 #[path = "provider_auth_api_tests.rs"]
 mod tests;

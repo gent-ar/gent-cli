@@ -119,13 +119,13 @@ pub(crate) async fn open(
                     return Err("Gent uses local models and does not require a login.".into());
                 }
             };
-            tokio::task::block_in_place(|| {
+            view::after_login(tokio::task::block_in_place(|| {
                 login_runtime.block_on(crate::provider_auth_cli::login_interactive(
                     login_data_dir.clone(),
                     no_autostart,
                     provider,
                 ))
-            })
+            }))
         }),
         save_thinking: Box::new(move |show_thinking| {
             crate::terminal_preferences::save(&preference_dir, show_thinking)

@@ -3,12 +3,12 @@ use super::super::probe_process::ProbeFailure;
 use super::{File, identity::Snapshot};
 use std::{
     io::Read,
-    process::{Command, Stdio},
+    process::Stdio,
     sync::Arc,
     time::{Duration, Instant},
 };
 pub(super) fn mark(file: &File, snapshot: Snapshot, deadline: Instant) -> Result<(), ProbeFailure> {
-    use std::os::windows::{fs::OpenOptionsExt, process::CommandExt};
+    use std::os::windows::fs::OpenOptionsExt;
     if Instant::now() >= deadline {
         return Err(ProbeFailure::known());
     }
@@ -30,7 +30,7 @@ pub(super) fn mark(file: &File, snapshot: Snapshot, deadline: Instant) -> Result
     let worker = std::thread::Builder::new()
         .name("probe-handle-unlink".into())
         .spawn(move || {
-            let mut command = Command::new(&lock.canonical_path);
+            let mut command = gent_types::hidden_command(&lock.canonical_path);
             command
                 .arg("host-unlink-probe-handle")
                 .arg(snapshot.volume.to_string())
@@ -46,8 +46,7 @@ pub(super) fn mark(file: &File, snapshot: Snapshot, deadline: Instant) -> Result
             command
                 .stdin(Stdio::from(input))
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .creation_flags(0x0800_0000);
+                .stderr(Stdio::null());
             let mut child = command.spawn().map_err(|_| ProbeFailure::known())?;
             let mut output = Vec::new();
             let read = match child.stdout.take() {

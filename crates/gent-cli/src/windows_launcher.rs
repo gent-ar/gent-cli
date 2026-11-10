@@ -21,7 +21,6 @@ fn main() {
 fn launch() -> Result<(), String> {
     use std::ffi::OsString;
     use std::path::Path;
-    use std::process::Command;
 
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     let binary = executable
@@ -43,7 +42,7 @@ fn launch() -> Result<(), String> {
     let target = selected.join(format!("{binary}.exe"));
     assert_plain_file(&target, "selected release binary")?;
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let status = Command::new(target)
+    let status = gent_types::console_command(target)
         .args(arguments)
         .status()
         .map_err(|error| format!("could not start selected release: {error}"))?;

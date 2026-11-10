@@ -379,7 +379,7 @@ impl SealedExecutable {
         {
             return Err("host exec seals changed");
         }
-        let mut command = std::process::Command::new(format!(
+        let mut command = gent_types::hidden_command(format!(
             "/proc/{}/fd/{}",
             std::process::id(),
             self.file.as_raw_fd()

@@ -63,7 +63,7 @@ impl ProcessLauncher for SystemLauncher {
             .ok_or(SupervisorError::Lock(
                 crate::lock::LockError::ProviderChanged,
             ))?;
-        let mut command = Command::new(&launch.executable);
+        let mut command = gent_types::hidden_command(&launch.executable);
         command
             .args(&launch.arguments)
             .stdin(Stdio::piped())
@@ -176,13 +176,15 @@ impl SystemProcess {
 
 impl ProcessTreeControl for SystemProcess {
     fn signal_tree(&self, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-        let pid = self
-            .child
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        let mut child = recover_lock(&self.child);
+        if cfg!(windows) && matches!(child.try_wait(), Ok(Some(_))) {
+            return Ok(());
+        }
+        let pid = child
             .id()
             .try_into()
             .map_err(|_| ProcessTreeError::Failed("provider process id overflowed".into()))?;
+        drop(child);
         signal_process_tree(pid, signal)
     }
 }

@@ -3,8 +3,8 @@ use crate::windows_sandbox_runtime::PinnedSandboxHelper;
 use std::{
     fs::OpenOptions,
     io::Read,
-    os::windows::{fs::OpenOptionsExt, process::CommandExt},
-    process::{Child, Command, Stdio},
+    os::windows::fs::OpenOptionsExt,
+    process::{Child, Stdio},
     time::{Duration, Instant},
 };
 
@@ -33,8 +33,7 @@ pub(crate) fn inspect<T: serde::de::DeserializeOwned>(
         return Err("reviewed inspector image changed".into());
     }
     let mut child = OwnedInspector(
-        Command::new(&lock.canonical_path)
-            .creation_flags(0x0800_0000)
+        gent_types::hidden_command(&lock.canonical_path)
             .arg(mode)
             .args(arguments)
             .stdin(Stdio::null())

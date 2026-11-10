@@ -6,7 +6,7 @@ use process_wrap::std::ChildWrapper;
 use process_wrap::std::CommandWrap;
 use serde_json::Value;
 #[cfg(not(target_os = "linux"))]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::{
     collections::BTreeMap,
     fs::File,

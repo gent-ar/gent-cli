@@ -178,6 +178,39 @@ fn a_failed_claude_warm_up_leaves_the_prompt_to_start_normally() {
 }
 
 #[test]
+fn a_failed_claude_warm_up_is_not_relaunched_by_repeated_requests_until_its_backoff() {
+    let mut pool = Pool::new(4);
+    let conversation = pool.conversation("a");
+    pool.runner.0.lock().unwrap().fail_starts = 1;
+    let failed_at = Instant::now();
+
+    assert_eq!(
+        warm(&mut pool, &conversation, failed_at),
+        ProviderWarmOutcome::Unavailable
+    );
+    for seconds in [0, 1, 30, 59] {
+        assert_eq!(
+            warm(
+                &mut pool,
+                &conversation,
+                failed_at + Duration::from_secs(seconds)
+            ),
+            ProviderWarmOutcome::Unavailable
+        );
+    }
+    assert!(observed(&pool).0.is_empty());
+    assert_eq!(
+        warm(
+            &mut pool,
+            &conversation,
+            failed_at + Duration::from_secs(61)
+        ),
+        ProviderWarmOutcome::Warming
+    );
+    assert_eq!(observed(&pool).0, ["run-a"]);
+}
+
+#[test]
 fn a_full_claude_pool_of_busy_runs_refuses_a_warm_up() {
     let mut pool = Pool::new(1);
     let busy = pool.conversation("a");

@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use gent_drivers::{
     PublicProvider, message_encoding::encode_codex_handshake, supervisor::ProviderProcess,
 };
-use gent_protocol::model_catalog::CatalogModel;
+use gent_protocol::model_catalog::{CatalogModel, ProviderAvailability};
 use gent_types::{AgentChatProvider, ProviderAuthProvider};
 use serde_json::{Value, json};
 
@@ -45,7 +45,11 @@ impl ModelCatalogSource for CodexModelSource {
 
     fn load(&self) -> Result<ProviderListing, ProviderLaunchError> {
         let availability = public_availability(self.auth.as_ref(), ProviderAuthProvider::Codex)?;
-        let Some(executable) = self.executables.executable(AgentChatProvider::Codex) else {
+        let Some(executable) = self
+            .executables
+            .executable(AgentChatProvider::Codex)
+            .filter(|_| availability == ProviderAvailability::Ready)
+        else {
             return Ok(ProviderListing {
                 availability,
                 models: Vec::new(),

@@ -1,9 +1,28 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 use gent_protocol::ProviderWarmOutcome;
 
 const UNPROMPTED_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const SERVED_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+const FAILED_WARM_BACKOFF: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Default)]
+pub(crate) struct WarmFailures(BTreeMap<String, Instant>);
+
+impl WarmFailures {
+    pub(crate) fn record(&mut self, run_id: &str, now: Instant) {
+        self.0.insert(run_id.to_owned(), now);
+    }
+
+    pub(crate) fn backing_off(&mut self, run_id: &str, now: Instant) -> bool {
+        self.0
+            .retain(|_, failed| now.saturating_duration_since(*failed) < FAILED_WARM_BACKOFF);
+        self.0.contains_key(run_id)
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct WarmTarget {

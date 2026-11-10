@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use gent_protocol::model_catalog::CatalogModel;
+use gent_protocol::model_catalog::{CatalogModel, ProviderAvailability};
 use gent_types::{AgentChatProvider, ProviderAuthProvider};
 use serde_json::Value;
 
@@ -37,7 +37,7 @@ impl ModelCatalogSource for ClaudeModelSource {
 
     fn load(&self) -> Result<ProviderListing, ProviderLaunchError> {
         let availability = public_availability(self.auth.as_ref(), ProviderAuthProvider::Claude)?;
-        if !self.initialize.installed() {
+        if availability != ProviderAvailability::Ready || !self.initialize.installed() {
             return Ok(ProviderListing {
                 availability,
                 models: Vec::new(),

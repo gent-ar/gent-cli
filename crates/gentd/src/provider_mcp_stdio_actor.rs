@@ -4,7 +4,7 @@ use super::{
     thread,
 };
 #[cfg(not(target_os = "linux"))]
-use super::{Command, CommandWrap, Stdio};
+use super::{CommandWrap, Stdio};
 
 type Reply = mpsc::SyncSender<Result<Value, Error>>;
 type Pending = BTreeMap<String, (Reply, Instant, bool)>;
@@ -42,7 +42,7 @@ fn write_retaining_operation(
 
 #[cfg(not(target_os = "linux"))]
 fn command(spec: &Spec) -> CommandWrap {
-    let mut command = Command::new(&spec.program);
+    let mut command = gent_types::hidden_command(&spec.program);
     command
         .args(&spec.args)
         .current_dir(&spec.cwd)

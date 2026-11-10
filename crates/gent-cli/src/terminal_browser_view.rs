@@ -4,6 +4,7 @@ use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
     CONVERSATION_ACTIVITY_CAPABILITY, CONVERSATION_STATUS_CAPABILITY,
     CONVERSATION_TIMELINE_CAPABILITY,
+    agent_chat_commands::{CommandCatalog, CommandListing},
 };
 
 use super::{metadata, model_state, pending_permission};
@@ -21,7 +22,7 @@ pub(super) async fn read_view(
     let has = |capability: &str| caps.iter().any(|value| value == capability);
     let text = |error: Box<dyn std::error::Error>| error.to_string();
     let id = || conversation_id.clone();
-    let (status, transcript, detail, timeline, commands) = tokio::join!(
+    let (status, transcript, detail, timeline) = tokio::join!(
         async {
             if has(CONVERSATION_STATUS_CAPABILITY) {
                 conversation_status::request(data_dir.clone(), no_autostart, id())
@@ -62,18 +63,12 @@ pub(super) async fn read_view(
                 Ok(None)
             }
         },
-        async {
-            crate::command_catalog_cli::read(data_dir.clone(), no_autostart, Some(id()))
-                .await
-                .ok()
-                .flatten()
-        },
     );
     let (status, transcript, detail, timeline) = (status?, transcript?, detail?, timeline?);
     let workspace_id = detail
         .as_ref()
         .and_then(|value| value.summary.workspace_id.clone());
-    let (activity, catalog, model, pending_permission, permission_mode) = tokio::join!(
+    let (activity, catalog, model, pending_permission, permission_mode, commands) = tokio::join!(
         async {
             if !has(CONVERSATION_ACTIVITY_CAPABILITY) {
                 return Ok(None);
@@ -116,6 +111,12 @@ pub(super) async fn read_view(
                 None => None,
             }
         },
+        command_catalog(
+            data_dir.clone(),
+            no_autostart,
+            &conversation_id,
+            detail.as_ref()
+        ),
     );
     let (activity, model, pending_permission) = (activity?, model?, pending_permission?);
     let install_hold = match (activity.as_deref(), detail.as_ref()) {
@@ -153,6 +154,72 @@ pub(super) async fn read_view(
             .with_install_hold(install_hold)
             .with_commands(commands),
     )
+}
+
+type CommandScope = (
+    String,
+    Option<gent_types::AgentChatProvider>,
+    Option<String>,
+);
+
+static COMMANDS: std::sync::Mutex<Option<(CommandScope, CommandCatalog)>> =
+    std::sync::Mutex::new(None);
+
+async fn command_catalog(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    conversation_id: &str,
+    detail: Option<&gent_types::AgentChatConversationDetail>,
+) -> Option<CommandCatalog> {
+    let scope = (
+        conversation_id.to_owned(),
+        detail.map(|value| value.summary.selection.provider),
+        detail.and_then(|value| value.summary.workspace_path.clone()),
+    );
+    if let Some(catalog) = remembered_for(&scope) {
+        return Some(catalog);
+    }
+    let catalog =
+        crate::command_catalog_cli::read(data_dir, no_autostart, Some(conversation_id.to_owned()))
+            .await
+            .ok()
+            .flatten()?;
+    remember(scope, catalog.clone());
+    Some(catalog)
+}
+
+fn remember(scope: CommandScope, catalog: CommandCatalog) {
+    *COMMANDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((scope, catalog));
+}
+
+pub(super) fn after_login<T, E>(result: Result<T, E>) -> Result<T, E> {
+    if result.is_ok() {
+        *COMMANDS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+    result
+}
+
+fn remembered_for(scope: &CommandScope) -> Option<CommandCatalog> {
+    let remembered = COMMANDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    settled_for(remembered, scope)
+}
+
+fn settled_for(
+    remembered: Option<(CommandScope, CommandCatalog)>,
+    scope: &CommandScope,
+) -> Option<CommandCatalog> {
+    remembered
+        .filter(|(remembered, catalog)| {
+            remembered == scope && catalog.listing != CommandListing::Loading
+        })
+        .map(|(_, catalog)| catalog)
 }
 
 fn conversation_metadata(
@@ -194,3 +261,7 @@ fn latest_preview(events: &[gent_types::NormalizedTranscriptEvent]) -> Option<St
         })
         .map(|event| event.text.clone())
 }
+
+#[cfg(test)]
+#[path = "terminal_browser_view_tests.rs"]
+mod tests;

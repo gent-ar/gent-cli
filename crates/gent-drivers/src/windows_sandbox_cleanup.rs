@@ -1,8 +1,7 @@
 use std::io::Read;
 use std::ops::{Deref, DerefMut};
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -47,7 +46,7 @@ impl CleanupContext {
             eprintln!("sandbox peer cleanup helper identity changed");
             return;
         }
-        let mut command = Command::new(&self.helper.canonical_path);
+        let mut command = gent_types::hidden_command(&self.helper.canonical_path);
         command
             .arg(if peer.is_some() {
                 "cleanup-peer"
@@ -56,7 +55,6 @@ impl CleanupContext {
             })
             .arg(root)
             .arg(identity)
-            .creation_flags(0x0800_0000)
             .env_clear()
             .stdin(Stdio::null())
             .stdout(Stdio::null())

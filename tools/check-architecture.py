@@ -110,7 +110,7 @@ def check_file_lengths() -> list[str]:
 
 
 def is_test_source(source: pathlib.Path) -> bool:
-    return "tests" in source.parts or source.stem.endswith("_tests")
+    return "tests" in source.parts or source.stem == "tests" or source.stem.endswith("_tests")
 
 
 def check_snapshot_contract() -> list[str]:
@@ -130,7 +130,7 @@ def test_module_lines(lines: list[str]) -> set[int]:
     pending = False
     depth = 0
     for index, line in enumerate(lines):
-        if line.strip() == "#[cfg(test)]":
+        if is_test_cfg(line.strip()):
             pending = True
             continue
         if pending and line.lstrip().startswith("mod ") and "{" in line:
@@ -144,6 +144,32 @@ def test_module_lines(lines: list[str]) -> set[int]:
             ignored.add(index)
             depth += line.count("{") - line.count("}")
     return ignored
+
+
+def is_test_cfg(attribute: str) -> bool:
+    return attribute == "#[cfg(test)]" or (
+        attribute.startswith("#[cfg(all(test,") and attribute.endswith("))]")
+    )
+
+
+HIDDEN_COMMAND_SOURCE = pathlib.Path("crates/gent-types/src/hidden_command.rs")
+
+
+def check_hidden_spawns() -> list[str]:
+    """Requires every production child process to start without a console window."""
+    errors = []
+    for source in (ROOT / "crates").glob("*/src/**/*.rs"):
+        relative = source.relative_to(ROOT)
+        if relative == HIDDEN_COMMAND_SOURCE or is_test_source(source):
+            continue
+        lines = source.read_text(encoding="utf-8").splitlines()
+        ignored = test_module_lines(lines)
+        for index, line in enumerate(lines):
+            if index not in ignored and "Command::new(" in line:
+                errors.append(
+                    f"{relative}:{index + 1} constructs a Command outside gent_types::hidden_command"
+                )
+    return errors
 
 
 def check_production_imports() -> list[str]:
@@ -168,6 +194,7 @@ def check_production_imports() -> list[str]:
 errors = (
     check_dependencies()
     + check_production_imports()
+    + check_hidden_spawns()
     + check_file_lengths()
     + check_snapshot_contract()
 )
