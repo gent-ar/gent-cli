@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use gent_types::{ConversationActivityFact, NormalizedTranscriptEvent, NormalizedTranscriptKind};
+use gent_types::{
+    AgentChatFailureCode, ConversationActivityFact, NormalizedTranscriptEvent,
+    NormalizedTranscriptKind,
+};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -138,6 +141,9 @@ pub(crate) fn scroll_items(state: &UiState, width: u16) -> Vec<ScrollItem> {
                 event,
                 settled,
                 usize::from(width.saturating_sub(2)).max(10),
+                (event.failure_code == Some(AgentChatFailureCode::ProviderAuthRequired))
+                    .then(|| super::inline_view::sign_in_hint(state))
+                    .flatten(),
             )),
         }
         if last_index.get(&event.turn_id) == Some(&index) {
@@ -174,10 +180,16 @@ fn reply_order(events: &[NormalizedTranscriptEvent]) -> Vec<usize> {
     order
 }
 
-fn text_item(event: &NormalizedTranscriptEvent, done: bool, width: usize) -> Option<ScrollItem> {
+fn text_item(
+    event: &NormalizedTranscriptEvent,
+    done: bool,
+    width: usize,
+    hint: Option<String>,
+) -> Option<ScrollItem> {
     let body = tidy(&event.text)
-        .iter()
-        .flat_map(|line| wrap(line, width))
+        .into_iter()
+        .chain(hint)
+        .flat_map(|line| wrap(&line, width))
         .collect::<Vec<_>>();
     if body.is_empty() {
         return None;
@@ -198,10 +210,9 @@ fn text_item(event: &NormalizedTranscriptEvent, done: bool, width: usize) -> Opt
                 .add_modifier(Modifier::ITALIC),
         ),
         NormalizedTranscriptKind::Notice => {
-            let color = if event.failure_code.is_some() {
-                Color::Red
-            } else {
-                Color::Yellow
+            let color = match event.failure_code {
+                Some(AgentChatFailureCode::ProviderAuthRequired) | None => Color::Yellow,
+                Some(_) => Color::Red,
             };
             ("! ", Style::default().fg(color), Style::default().fg(color))
         }

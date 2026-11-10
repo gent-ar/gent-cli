@@ -111,6 +111,7 @@ mod tests {
         for code in [
             AgentChatFailureCode::SandboxUnavailable,
             AgentChatFailureCode::SandboxAdmissionFailed,
+            AgentChatFailureCode::ProviderAuthRequired,
         ] {
             assert_eq!(
                 AgentChatFailureCode::from_event_id(&format!("{}m-1", code.event_prefix())),
@@ -128,6 +129,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(AgentChatFailureCode::SandboxAdmissionFailed).unwrap(),
             json!("sandboxAdmissionFailed")
+        );
+        assert_eq!(
+            serde_json::to_value(AgentChatFailureCode::ProviderAuthRequired).unwrap(),
+            json!("providerAuthRequired")
         );
     }
 }

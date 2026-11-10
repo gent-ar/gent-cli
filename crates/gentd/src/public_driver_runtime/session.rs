@@ -138,7 +138,7 @@ fn batch(
     };
     let transcript = transcript_content(&input.fact).map(|(kind, text, is_partial)| {
         NormalizedTranscriptAppend {
-            event_id: input.transcript_event_id.clone(),
+            event_id: mapping::transcript_event_id(&input.fact, &input.transcript_event_id),
             run_id: input.run_id.clone(),
             turn_id: input.turn_id.clone(),
             kind,

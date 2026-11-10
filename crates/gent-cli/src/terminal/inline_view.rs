@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use gent_types::{DurableTurnPhase, PermissionMode};
+use gent_types::{AgentChatFailureCode, AgentChatProvider, DurableTurnPhase, PermissionMode};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Position, Rect},
@@ -259,16 +259,37 @@ pub(crate) fn turn_state(state: &UiState) -> (String, Color) {
     if state.turn_active() {
         return ("working".into(), Color::Cyan);
     }
-    let failed = state.selected_timeline().is_some_and(|timeline| {
+    let failed = state.selected_timeline().and_then(|timeline| {
         timeline
             .runs
             .last()
             .and_then(|run| run.turns.iter().max_by_key(|turn| turn.sequence))
-            .is_some_and(|turn| turn.phase == DurableTurnPhase::Failed)
+            .filter(|turn| turn.phase == DurableTurnPhase::Failed)
     });
-    if failed {
-        ("last turn failed".into(), Color::Red)
-    } else {
-        ("ready".into(), Color::Green)
+    match failed {
+        Some(turn)
+            if state.selected_transcript().iter().any(|event| {
+                event.turn_id == turn.turn_id
+                    && event.failure_code == Some(AgentChatFailureCode::ProviderAuthRequired)
+            }) =>
+        {
+            ("sign in needed".into(), Color::Yellow)
+        }
+        Some(_) => ("last turn failed".into(), Color::Red),
+        None => ("ready".into(), Color::Green),
     }
+}
+
+pub(crate) fn sign_in_hint(state: &UiState) -> Option<String> {
+    let provider = state
+        .view
+        .as_ref()
+        .and_then(|view| view.selection())
+        .map_or(state.selection().provider, |selection| selection.provider);
+    let name = match provider {
+        AgentChatProvider::Claude => "claude",
+        AgentChatProvider::Codex => "codex",
+        AgentChatProvider::Claurst => return None,
+    };
+    Some(format!("Type /login {name} to sign in again."))
 }

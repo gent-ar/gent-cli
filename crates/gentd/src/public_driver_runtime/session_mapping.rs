@@ -1,8 +1,8 @@
 use gent_drivers::public_protocol::PublicWireFact;
 use gent_types::{
-    ActivityWorkKind, ConversationActivityFact, ConversationActivityScope, HostEpoch,
-    NormalizedLifecycleSignal, NormalizedProviderEvent, NormalizedSessionLifecycle,
-    NormalizedTranscriptKind, TurnPhase,
+    ActivityWorkKind, AgentChatFailureCode, ConversationActivityFact, ConversationActivityScope,
+    HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, NormalizedSessionLifecycle,
+    NormalizedTranscriptKind, ProviderFailureClassification, TurnPhase,
 };
 
 use super::NormalizedSessionFact;
@@ -41,6 +41,19 @@ pub(crate) fn transcript_content(
                 .map(|notice| (NormalizedTranscriptKind::Notice, notice.into(), false))
         }
         _ => None,
+    }
+}
+
+pub(super) fn transcript_event_id(fact: &PublicWireFact, event_id: &str) -> String {
+    match fact {
+        PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure {
+            classification: ProviderFailureClassification::Authentication,
+            ..
+        }) => format!(
+            "{}{event_id}",
+            AgentChatFailureCode::ProviderAuthRequired.event_prefix()
+        ),
+        _ => event_id.into(),
     }
 }
 

@@ -173,6 +173,14 @@ fn a_signed_out_claude_is_never_retried() {
     assert_eq!(writes.len(), 1);
     assert_eq!(retries(&effects), 0);
     assert_eq!(failures(&effects), 2);
+    let sign_in = PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure {
+        classification: gent_types::ProviderFailureClassification::Authentication,
+        message: "Claude sign-in expired. Sign in again to continue.".into(),
+    });
+    assert_eq!(count(&effects, |fact| fact == &sign_in), 1);
+    let (effects, _) = run(&[ERROR_RESULT.into()]);
+    assert_eq!(failures(&effects), 2);
+    assert_eq!(count(&effects, |fact| fact == &sign_in), 0);
 }
 
 #[test]

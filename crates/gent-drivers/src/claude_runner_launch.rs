@@ -85,6 +85,7 @@ where
                 plans_for_review,
                 awaiting_resumed_frame,
                 pending_resume_session,
+                authentication_failed: false,
                 retry: super::retry::TransientRetry::new(self.transient_retry_step, input),
             },
         );

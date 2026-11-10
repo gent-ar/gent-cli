@@ -1,12 +1,15 @@
 use gent_types::{
-    NormalizedLifecycleSignal, NormalizedProviderEvent, ProviderFailureClassification,
-    RootActivity, ToolActivity, ToolPhase, TurnPhase,
+    NormalizedLifecycleSignal, NormalizedProviderEvent, RootActivity, ToolActivity, ToolPhase,
+    TurnPhase,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::PublicWireFact;
 
+#[path = "claude_protocol/failure.rs"]
+mod failure;
+pub(crate) use failure::{authentication_failed, failure, sign_in_required};
 #[path = "claude_protocol/usage.rs"]
 mod usage;
 pub(super) use usage::{context_usage, turn_usage};
@@ -61,51 +64,6 @@ pub(super) fn partial_text(delta: &Value, field: &str, thinking: bool) -> Vec<Pu
         }
     };
     vec![PublicWireFact::Event(event)]
-}
-
-pub(super) fn failure_classification(frame: &Value) -> ProviderFailureClassification {
-    let text = [
-        frame.get("message").and_then(Value::as_str),
-        frame.pointer("/error/message").and_then(Value::as_str),
-        frame.pointer("/error/type").and_then(Value::as_str),
-        frame.get("result").and_then(Value::as_str),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" ")
-    .to_ascii_lowercase();
-    if text.contains("401") || text.contains("unauthor") || text.contains("authentication") {
-        ProviderFailureClassification::Authentication
-    } else if text.contains("rate") || text.contains("limit") {
-        ProviderFailureClassification::RateLimited
-    } else if text.contains("context") || text.contains("token limit") {
-        ProviderFailureClassification::ContextLimit
-    } else {
-        ProviderFailureClassification::Provider
-    }
-}
-
-pub(super) fn failure_message(frame: &Value) -> String {
-    let text = [
-        frame.get("message").and_then(Value::as_str),
-        frame.pointer("/error/message").and_then(Value::as_str),
-        frame.get("result").and_then(Value::as_str),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" ")
-    .to_ascii_lowercase();
-    if text.contains("401") || text.contains("unauthor") || text.contains("authentication") {
-        "Claude authentication failed.".into()
-    } else if text.contains("rate") || text.contains("limit") {
-        "Claude rate limit reached.".into()
-    } else if text.contains("context") || text.contains("token limit") {
-        "Claude context limit reached.".into()
-    } else {
-        "Claude ended the turn with an error.".into()
-    }
 }
 
 /// Reduces echoed tool results only if this one frame proves both identifier and display name.
@@ -282,12 +240,7 @@ pub(super) fn result(frame: &Value) -> Vec<PublicWireFact> {
         .into_iter()
         .collect();
     if failed {
-        facts.push(PublicWireFact::Event(
-            NormalizedProviderEvent::ProviderFailure {
-                classification: failure_classification(frame),
-                message: failure_message(frame),
-            },
-        ));
+        facts.push(PublicWireFact::Event(failure(frame)));
     }
     facts.extend([
         PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootActivity {

@@ -40,3 +40,5 @@ mod inline_tests;
 mod inline_tests_live;
 #[cfg(test)]
 mod inline_tests_scrollback;
+#[cfg(test)]
+mod inline_tests_sign_in;

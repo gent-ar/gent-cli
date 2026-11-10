@@ -168,7 +168,7 @@ fn codex_terminal_failure_persists_only_a_redacted_classification_and_message() 
     assert!(facts.contains(&PublicWireFact::Event(
         NormalizedProviderEvent::ProviderFailure {
             classification: ProviderFailureClassification::Authentication,
-            message: "Codex authentication failed.".into(),
+            message: "Codex sign-in expired. Sign in again to continue.".into(),
         },
     )));
     assert!(!format!("{facts:?}").contains("sk-secret"));

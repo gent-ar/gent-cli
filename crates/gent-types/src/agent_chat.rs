@@ -169,37 +169,7 @@ pub struct NormalizedTranscriptEvent {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<crate::AttachmentReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_code: Option<AgentChatFailureCode>,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum AgentChatFailureCode {
-    SandboxUnavailable,
-    SandboxAdmissionFailed,
-    GentdRestarted,
-}
-
-impl AgentChatFailureCode {
-    #[must_use]
-    pub const fn event_prefix(self) -> &'static str {
-        match self {
-            Self::SandboxUnavailable => "sandbox-unavailable:",
-            Self::SandboxAdmissionFailed => "sandbox-admission-failed:",
-            Self::GentdRestarted => "gentd-restarted:",
-        }
-    }
-
-    #[must_use]
-    pub fn from_event_id(event_id: &str) -> Option<Self> {
-        [
-            Self::SandboxUnavailable,
-            Self::SandboxAdmissionFailed,
-            Self::GentdRestarted,
-        ]
-        .into_iter()
-        .find(|code| event_id.starts_with(code.event_prefix()))
-    }
+    pub failure_code: Option<crate::AgentChatFailureCode>,
 }
 
 /// Provider-normalized transcript content before the durable ledger assigns its cursor.

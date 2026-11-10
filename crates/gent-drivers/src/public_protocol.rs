@@ -236,12 +236,7 @@ fn claude_content(block: &Value) -> Vec<PublicWireFact> {
 }
 
 fn claude_error(frame: &Value) -> Vec<PublicWireFact> {
-    vec![PublicWireFact::Event(
-        NormalizedProviderEvent::ProviderFailure {
-            classification: claude_protocol::failure_classification(frame),
-            message: claude_protocol::failure_message(frame),
-        },
-    )]
+    vec![PublicWireFact::Event(claude_protocol::failure(frame))]
 }
 
 /// A tool use Claude's own permission policy blocked before it ran. Unlike an ordinary tool

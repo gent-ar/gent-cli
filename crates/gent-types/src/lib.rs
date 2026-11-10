@@ -4,6 +4,7 @@ mod agent_chat_checkpoint;
 mod agent_chat_command;
 mod agent_chat_compaction;
 mod agent_chat_conversation_config;
+mod agent_chat_failure_code;
 mod agent_chat_fork;
 mod agent_chat_intent;
 mod agent_chat_ledger;
@@ -74,11 +75,11 @@ mod turn_follow;
 mod workspace_git;
 mod workspaces;
 pub use agent_chat::{
-    AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort,
-    AgentChatFailureCode, AgentChatMode, AgentChatProjectionEvent, AgentChatProjectionPage,
-    AgentChatProjectionTail, AgentChatProvider, AgentChatRejection, AgentChatRun,
-    AgentChatRunState, AgentChatSelection, AgentChatSelectionError, NormalizedTranscriptAppend,
-    NormalizedTranscriptEvent, NormalizedTranscriptKind, NormalizedTranscriptPage,
+    AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
+    AgentChatProjectionEvent, AgentChatProjectionPage, AgentChatProjectionTail, AgentChatProvider,
+    AgentChatRejection, AgentChatRun, AgentChatRunState, AgentChatSelection,
+    AgentChatSelectionError, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
+    NormalizedTranscriptKind, NormalizedTranscriptPage,
 };
 pub use agent_chat_checkpoint::{
     AgentChatCheckpointCapture, AgentChatCheckpointRestore, AgentChatCheckpointRestored,
@@ -94,6 +95,7 @@ pub use agent_chat_compaction::{AgentChatCompactionFact, AgentChatCompactionFail
 pub use agent_chat_conversation_config::{
     AgentChatConversationConfigRecord, AgentChatConversationConfigUnsupportedField,
 };
+pub use agent_chat_failure_code::AgentChatFailureCode;
 pub use agent_chat_fork::{AgentChatFork, AgentChatForked};
 pub use agent_chat_intent::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse, AgentChatRequestId,

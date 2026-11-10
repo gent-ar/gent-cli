@@ -5,8 +5,8 @@ use gent_protocol::{
     AgentChatProjectionSnapshot, AgentChatTranscriptFrame, ProjectionCursor,
 };
 use gent_types::{
-    AgentChatProjectionEvent, ConversationActivityFact, NormalizedSessionLifecycle,
-    NormalizedTranscriptEvent,
+    AgentChatFailureCode, AgentChatProjectionEvent, ConversationActivityFact,
+    NormalizedSessionLifecycle, NormalizedTranscriptEvent,
 };
 
 use super::RuntimeFacade;
@@ -194,8 +194,11 @@ fn delta(event: AgentChatProjectionEvent) -> Result<AgentChatProjectionDelta, St
 }
 
 fn transcript_event(payload: serde_json::Value) -> Result<NormalizedTranscriptEvent, String> {
-    serde_json::from_value(normalize_projection_transcript(payload))
-        .map_err(|error| error.to_string())
+    let mut event: NormalizedTranscriptEvent =
+        serde_json::from_value(normalize_projection_transcript(payload))
+            .map_err(|error| error.to_string())?;
+    event.failure_code = AgentChatFailureCode::from_event_id(&event.event_id);
+    Ok(event)
 }
 
 fn activity_fact(payload: serde_json::Value) -> Result<ConversationActivityFact, String> {

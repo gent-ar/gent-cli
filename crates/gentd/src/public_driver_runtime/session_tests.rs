@@ -100,16 +100,23 @@ fn provider_failure_is_a_durable_redacted_notice() {
     let input = input(PublicWireFact::Event(
         NormalizedProviderEvent::ProviderFailure {
             classification: ProviderFailureClassification::Authentication,
-            message: "Codex authentication failed.".into(),
+            message: "Codex sign-in expired. Sign in again to continue.".into(),
         },
     ));
     assert_eq!(
         transcript_content(&input.fact),
         Some((
             gent_types::NormalizedTranscriptKind::Notice,
-            "Codex authentication failed.".into(),
+            "Codex sign-in expired. Sign in again to continue.".into(),
             false,
         ))
+    );
+    assert_eq!(
+        batch("daemon-1", &input)
+            .unwrap()
+            .transcript
+            .map(|item| item.event_id),
+        Some("provider-auth-required:transcript-1".into())
     );
     let batch = batch("daemon-1", &input).unwrap();
     assert!(matches!(

@@ -260,5 +260,7 @@ fn set_frame(conversation_id: AgentChatConversationId) -> GoalFrame {
     }
 }
 
+#[path = "projection_failure_code_tests.rs"]
+mod projection_failure_code;
 #[path = "goal_prompt_origin_tests.rs"]
 mod prompt_origin;

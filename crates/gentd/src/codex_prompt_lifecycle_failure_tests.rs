@@ -1,15 +1,22 @@
-use gent_ports::{AgentChatPromptLedger, AgentChatWorkspaceLedger, Ledger};
+use gent_ports::{
+    AgentChatPromptLedger, AgentChatReadLedger, AgentChatWorkspaceLedger, ConversationLedger,
+    Ledger,
+};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
-    AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
-    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
-    AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch, NormalizedLifecycleSignal,
-    ReceiptId, TurnPhase, WorkspaceRecord,
+    AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatFailureCode,
+    AgentChatMode, AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider,
+    AgentChatRequestId, AgentChatRunId, AgentChatSelection, CapabilitySet, DurableTurnPhase,
+    HostEpoch, NormalizedLifecycleSignal, NormalizedTranscriptKind, ReceiptId, TurnPhase,
+    WorkspaceRecord,
 };
 
+use gent_drivers::PublicProvider;
 use gent_drivers::codex_runner::CodexRunnerEffect;
-use gent_drivers::public_protocol::{PublicCompactionObservation, PublicWireFact};
+use gent_drivers::public_protocol::{
+    PublicCompactionObservation, PublicWireFact, normalize_public_frame,
+};
 
 use crate::codex_prompt_lifecycle::{CodexPromptDispatchOutcome, CodexPromptLifecycle};
 use crate::codex_prompt_lifecycle_tests::{Resolver, Runner, compatibility, profile};
@@ -97,6 +104,54 @@ fn codex_poll_failure_retains_ownership_without_fabricating_terminal_settlement(
     assert_eq!(
         runner.state.lock().unwrap().signals,
         [gent_drivers::interrupt::ProcessTreeSignal::Interrupt]
+    );
+}
+
+fn failed_codex_turn(error: serde_json::Value) -> Vec<(String, Option<AgentChatFailureCode>)> {
+    let directory = tempfile::tempdir().unwrap();
+    let (ledger, runner, mut host) = started_host(directory.path());
+    let frames = [
+        serde_json::json!({"method":"turn/started","params":{"turn":{"id":"turn-a"}}}),
+        serde_json::json!({"method":"turn/completed","params":{"turn":{"id":"turn-a","status":"failed","error":error}}}),
+    ];
+    let mut effects = vec![CodexRunnerEffect::Fact(PublicWireFact::SessionStarted {
+        provider_session_id: "thread-a".into(),
+    })];
+    effects.extend(frames.iter().flat_map(|frame| {
+        normalize_public_frame(PublicProvider::Codex, frame)
+            .into_iter()
+            .map(CodexRunnerEffect::Fact)
+    }));
+    runner.state.lock().unwrap().effects.push_back(effects);
+    host.poll_active(HostEpoch(1), 16).unwrap();
+    assert_eq!(
+        ledger.list_run_turns("run-a").unwrap()[0].phase,
+        DurableTurnPhase::Failed
+    );
+    ledger
+        .read_agent_chat_transcript("conversation-a", None, 64)
+        .unwrap()
+        .events
+        .into_iter()
+        .filter(|event| event.kind == NormalizedTranscriptKind::Notice)
+        .map(|event| (event.text, event.failure_code))
+        .collect()
+}
+
+#[test]
+fn an_unauthorized_codex_turn_fails_with_one_typed_sign_in_notice() {
+    assert_eq!(
+        failed_codex_turn(
+            serde_json::json!({"codexErrorInfo":"unauthorized","message":"401 Unauthorized"})
+        ),
+        vec![(
+            "Codex sign-in expired. Sign in again to continue.".into(),
+            Some(AgentChatFailureCode::ProviderAuthRequired)
+        )]
+    );
+    assert_eq!(
+        failed_codex_turn(serde_json::json!({"message":"401 Unauthorized"})),
+        vec![("Codex ended the turn with an error.".into(), None)]
     );
 }
 

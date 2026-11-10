@@ -11,7 +11,7 @@ pub(super) fn classify(
     match typed {
         Some("unauthorized") => (
             ProviderFailureClassification::Authentication,
-            "Codex authentication failed.",
+            "Codex sign-in expired. Sign in again to continue.",
         ),
         Some("usageLimitExceeded") => (
             ProviderFailureClassification::RateLimited,
@@ -38,12 +38,7 @@ fn from_message(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if text.contains("401") || text.contains("unauthor") || text.contains("missing bearer") {
-        (
-            ProviderFailureClassification::Authentication,
-            "Codex authentication failed.",
-        )
-    } else if text.contains("rate limit") {
+    if text.contains("rate limit") {
         (
             ProviderFailureClassification::RateLimited,
             "Codex rate limit reached.",

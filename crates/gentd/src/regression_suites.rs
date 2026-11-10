@@ -2,6 +2,8 @@
 mod agent_chat_transport_tests;
 #[path = "approved_codex_host_bounds_tests.rs"]
 mod approved_codex_host_bounds_tests;
+#[path = "claude_auth_notice_tests.rs"]
+mod claude_auth_notice_tests;
 #[path = "claude_early_exit_tests.rs"]
 mod claude_early_exit_tests;
 #[path = "claude_failure_notice_tests.rs"]

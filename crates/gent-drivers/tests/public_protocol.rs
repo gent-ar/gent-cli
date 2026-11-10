@@ -406,18 +406,30 @@ fn claude_control_and_telemetry_frames_are_reduced_without_protocol_drift() {
 fn claude_errors_are_redacted_and_classified_without_poisoning_following_frames() {
     let auth = normalize_public_frame(
         PublicProvider::Claude,
-        &json!({"type":"error","message":"401 unauthorized Bearer secret"}),
+        &json!({"type":"error","error":{"type":"authentication_error","message":"401 unauthorized Bearer secret"}}),
     );
     assert_eq!(
         auth,
         vec![PublicWireFact::Event(
             NormalizedProviderEvent::ProviderFailure {
                 classification: ProviderFailureClassification::Authentication,
-                message: "Claude authentication failed.".into(),
+                message: "Claude sign-in expired. Sign in again to continue.".into(),
             }
         )]
     );
     assert!(!format!("{auth:?}").contains("secret"));
+    assert_eq!(
+        normalize_public_frame(
+            PublicProvider::Claude,
+            &json!({"type":"error","message":"401 unauthorized Bearer secret"}),
+        ),
+        vec![PublicWireFact::Event(
+            NormalizedProviderEvent::ProviderFailure {
+                classification: ProviderFailureClassification::Provider,
+                message: "Claude ended the turn with an error.".into(),
+            }
+        )]
+    );
 
     let nested = normalize_public_frame(
         PublicProvider::Claude,
@@ -602,7 +614,12 @@ fn codex_error_notifications_are_redacted_and_classified() {
         (
             json!({"method":"error","params":{"error":{"message":"request failed","codexErrorInfo":"unauthorized"},"threadId":"t","turnId":"u","willRetry":false}}),
             ProviderFailureClassification::Authentication,
-            "Codex authentication failed.",
+            "Codex sign-in expired. Sign in again to continue.",
+        ),
+        (
+            json!({"method":"error","params":{"error":{"message":"401 Unauthorized: missing bearer"}}}),
+            ProviderFailureClassification::Provider,
+            "Codex reported a provider error.",
         ),
         (
             json!({"method":"error","params":{"error":{"message":"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 3:12 PM.","codexErrorInfo":"usageLimitExceeded","additionalDetails":null,"misalignment":null},"willRetry":false,"threadId":"t","turnId":"u"}}),

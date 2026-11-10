@@ -83,6 +83,7 @@ struct OwnedRun<P> {
     plans_for_review: bool,
     awaiting_resumed_frame: bool,
     pending_resume_session: Option<String>,
+    authentication_failed: bool,
     retry: retry::TransientRetry,
 }
 

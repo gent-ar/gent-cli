@@ -50,8 +50,17 @@ pub(super) fn normalize<P: ProviderProcess>(
     if let Some(facts) = task_facts(run, &frame) {
         return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
     }
-    let facts = normalize_public_frame(PublicProvider::Claude, &frame);
+    let mut facts = normalize_public_frame(PublicProvider::Claude, &frame);
     claude_tool_results::remember(&facts, &mut run.started_tools);
+    run.authentication_failed |= claude_protocol::authentication_failed(&frame);
+    if frame.get("type").and_then(Value::as_str) == Some("result")
+        && std::mem::take(&mut run.authentication_failed)
+    {
+        facts = facts
+            .into_iter()
+            .map(claude_protocol::sign_in_required)
+            .collect();
+    }
     facts.into_iter().map(ClaudeRunnerEffect::Fact).collect()
 }
 
