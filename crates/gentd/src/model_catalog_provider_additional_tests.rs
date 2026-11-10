@@ -13,10 +13,11 @@ async fn local_models_report_size_and_install_state_with_the_small_model_as_defa
     let small = &listing.models[0];
     assert_eq!(small.id, "qwen3-1-7b-q4-k-m");
     assert!(small.is_default);
+    let planned = models.provisioner.plan("qwen3-1-7b-q4-k-m").unwrap();
     assert_eq!(
         small.local,
         Some(LocalModelAvailability {
-            size_bytes: 1_282_439_264,
+            size_bytes: planned.expected_bytes,
             install: LocalModelInstallState::NotInstalled,
             removable: false,
             file_name: None,
