@@ -106,8 +106,6 @@ fn respond_answers_one_exact_pending_decision_with_a_typed_choice() {
         "respond",
         "--conversation-id",
         "conversation-1",
-        "--run-id",
-        "run-1",
         "--decision-id",
         "decision-1",
         "--decision",
@@ -126,15 +124,13 @@ fn respond_answers_one_exact_pending_decision_with_a_typed_choice() {
 }
 
 #[test]
-fn pending_command_is_scoped_to_one_conversation_run() {
+fn pending_command_is_scoped_to_one_conversation() {
     let args = Args::try_parse_from([
         "gent",
         "permissions",
         "pending",
         "--conversation-id",
         "conversation-1",
-        "--run-id",
-        "run-1",
     ])
     .unwrap();
     assert!(matches!(

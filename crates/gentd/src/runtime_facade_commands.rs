@@ -209,7 +209,9 @@ impl RuntimeFacade {
         }
         if let Some(detail) = &scope.detail
             && command.availability.blocked_while_turn_active
-            && self.run_has_active_turn(&detail.current_run_id)?
+            && self
+                .running_turn_run(&detail.summary.conversation_id)?
+                .is_some()
         {
             return Err(Rejection::CommandBlockedByActiveTurn { name }.into());
         }
@@ -276,15 +278,6 @@ impl RuntimeFacade {
                 attachment_ids: Vec::new(),
             },
         })
-    }
-
-    fn run_has_active_turn(&self, run_id: &str) -> Result<bool, AgentChatIntentError> {
-        Ok(
-            gent_ports::ConversationLedger::list_run_turns(&self.transcript_import_ledger, run_id)
-                .map_err(|error| error.to_string())?
-                .iter()
-                .any(|turn| !turn.phase.is_terminal()),
-        )
     }
 }
 

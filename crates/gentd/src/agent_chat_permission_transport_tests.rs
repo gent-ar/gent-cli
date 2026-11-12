@@ -32,7 +32,7 @@ impl AgentChatPermissionPort for Port {
 async fn pending_read_is_dispatched_only_as_a_typed_permission_frame() {
     let (mut reader, mut writer) = duplex(2048);
     let request = json!({"type":"pendingRead","body":{
-        "requestId":"request-1","conversationId":"conversation-1","runId":"run-1"
+        "requestId":"request-1","conversationId":"conversation-1"
     }});
     assert!(dispatch_port(&mut writer, &Port, &request).await.unwrap());
     assert!(matches!(

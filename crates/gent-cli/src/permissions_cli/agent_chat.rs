@@ -4,7 +4,7 @@ use gent_protocol::{
     AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame, read_json_frame, write_json_frame,
 };
 use gent_types::{
-    AgentChatConversationId, AgentChatRequestId, AgentChatRunId, PermissionDecisionRequest,
+    AgentChatConversationId, AgentChatRequestId, PermissionDecisionRequest,
     PermissionDecisionResponse, PermissionDecisionResponseKind, ReceiptId,
 };
 use serde_json::Value;
@@ -16,13 +16,11 @@ pub(crate) async fn pending(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     conversation_id: String,
-    run_id: String,
 ) -> Result<Option<PermissionDecisionRequest>, Box<dyn std::error::Error>> {
     let request_id = AgentChatRequestId(uuid::Uuid::new_v4().to_string());
     let request = AgentChatPermissionFrame::PendingRead {
         request_id: request_id.clone(),
         conversation_id: AgentChatConversationId(conversation_id),
-        run_id: AgentChatRunId(run_id),
     };
     match exchange(data_dir, no_autostart, request).await? {
         AgentChatPermissionFrame::Pending {
@@ -56,12 +54,11 @@ pub(crate) async fn respond_decision(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     conversation_id: String,
-    run_id: String,
     decision_id: String,
     response: PermissionDecisionResponseKind,
     receipt_id: Option<String>,
 ) -> Result<Value, Box<dyn std::error::Error>> {
-    let pending = pending(data_dir.clone(), no_autostart, conversation_id, run_id)
+    let pending = pending(data_dir.clone(), no_autostart, conversation_id)
         .await?
         .filter(|request| request.binding.decision_id.0 == decision_id)
         .ok_or_else(|| {

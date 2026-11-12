@@ -1,5 +1,5 @@
 use gent_types::{
-    AgentChatConversationId, AgentChatRequestId, AgentChatRunId, PermissionDecisionRequest,
+    AgentChatConversationId, AgentChatRequestId, PermissionDecisionRequest,
     PermissionDecisionResponse, Receipt,
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,6 @@ pub enum AgentChatPermissionFrame {
     PendingRead {
         request_id: AgentChatRequestId,
         conversation_id: AgentChatConversationId,
-        run_id: AgentChatRunId,
     },
     Pending {
         request_id: AgentChatRequestId,
@@ -39,14 +38,13 @@ pub enum AgentChatPermissionFrame {
 #[cfg(test)]
 mod tests {
     use super::{AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame};
-    use gent_types::{AgentChatConversationId, AgentChatRequestId, AgentChatRunId};
+    use gent_types::{AgentChatConversationId, AgentChatRequestId};
 
     #[test]
-    fn pending_read_is_run_scoped_and_versioned() {
+    fn pending_read_is_conversation_scoped_and_versioned() {
         let frame = AgentChatPermissionFrame::PendingRead {
             request_id: AgentChatRequestId("request-1".into()),
             conversation_id: AgentChatConversationId("conversation-1".into()),
-            run_id: AgentChatRunId("run-1".into()),
         };
         let value = serde_json::to_value(frame).unwrap();
         assert_eq!(
@@ -54,6 +52,14 @@ mod tests {
             "agent-chat-permissions-v1"
         );
         assert_eq!(value["type"], "pendingRead");
+        assert!(value["body"].get("runId").is_none());
         assert!(value.get("providerSessionId").is_none());
+        assert!(
+            serde_json::from_value::<AgentChatPermissionFrame>(serde_json::json!({
+                "type": "pendingRead",
+                "body": {"requestId": "r", "conversationId": "c", "runId": "run"}
+            }))
+            .is_err()
+        );
     }
 }

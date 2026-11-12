@@ -45,10 +45,11 @@ pub(crate) struct PermissionShowArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct PermissionPendingArgs {
-    #[arg(long, help = "Conversation whose run is waiting on a permission")]
+    #[arg(
+        long,
+        help = "Conversation whose running turn is waiting on a permission"
+    )]
     pub(crate) conversation_id: String,
-    #[arg(long, help = "Run that is waiting on a permission")]
-    pub(crate) run_id: String,
 }
 
 #[derive(Debug, Args)]
@@ -84,10 +85,11 @@ pub(crate) struct PermissionSetArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct PermissionRespondArgs {
-    #[arg(long, help = "Conversation whose run is waiting on a permission")]
+    #[arg(
+        long,
+        help = "Conversation whose running turn is waiting on a permission"
+    )]
     pub(crate) conversation_id: String,
-    #[arg(long, help = "Run that is waiting on a permission")]
-    pub(crate) run_id: String,
     #[arg(
         long,
         help = "Decision id of the pending request, from `gent permissions pending`"
@@ -142,14 +144,13 @@ pub(crate) async fn execute(
             save(data_dir, no_autostart, args).await?,
         )?),
         PermissionCommand::Pending(args) => Ok(serde_json::to_value(
-            agent_chat::pending(data_dir, no_autostart, args.conversation_id, args.run_id).await?,
+            agent_chat::pending(data_dir, no_autostart, args.conversation_id).await?,
         )?),
         PermissionCommand::Respond(args) => {
             agent_chat::respond_decision(
                 data_dir,
                 no_autostart,
                 args.conversation_id,
-                args.run_id,
                 args.decision_id,
                 args.decision.into(),
                 args.receipt_id,

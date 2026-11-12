@@ -168,7 +168,6 @@ async fn poll(
         data_dir.clone(),
         no_autostart,
         target.conversation.clone(),
-        target.run.clone(),
     )
     .await
         && request.binding.turn_id == target.turn

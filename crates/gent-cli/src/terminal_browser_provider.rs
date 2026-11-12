@@ -48,7 +48,6 @@ pub(super) async fn pending_permission(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
     conversation_id: &str,
-    detail: Option<&AgentChatConversationDetail>,
     capabilities: &[String],
 ) -> Result<Option<PermissionDecisionRequest>, String> {
     if !capabilities
@@ -57,15 +56,7 @@ pub(super) async fn pending_permission(
     {
         return Ok(None);
     }
-    match detail {
-        Some(detail) => crate::permissions_cli::agent_chat::pending(
-            data_dir,
-            no_autostart,
-            conversation_id.into(),
-            detail.current_run_id.clone(),
-        )
+    crate::permissions_cli::agent_chat::pending(data_dir, no_autostart, conversation_id.into())
         .await
-        .map_err(|error| error.to_string()),
-        None => Ok(None),
-    }
+        .map_err(|error| error.to_string())
 }

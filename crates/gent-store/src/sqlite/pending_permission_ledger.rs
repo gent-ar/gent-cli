@@ -47,6 +47,13 @@ impl PendingPermissionLedger for SqliteLedger {
         let connection = self.lock()?;
         connection.query_row("SELECT request_json FROM pending_provider_permissions WHERE conversation_id=?1 AND run_id=?2", params![conversation_id.0,run_id.0], |row| row.get::<_,String>(0)).optional().map_err(queries::storage_error)?.map(|json| serde_json::from_str(&json).map_err(|e| LedgerError::Storage(e.to_string()))).transpose()
     }
+    fn conversation_pending_permission(
+        &self,
+        conversation_id: &AgentChatConversationId,
+    ) -> Result<Option<PermissionDecisionRequest>, LedgerError> {
+        let connection = self.lock()?;
+        connection.query_row("SELECT request_json FROM pending_provider_permissions WHERE conversation_id=?1 ORDER BY rowid DESC LIMIT 1", params![conversation_id.0], |row| row.get::<_,String>(0)).optional().map_err(queries::storage_error)?.map(|json| serde_json::from_str(&json).map_err(|e| LedgerError::Storage(e.to_string()))).transpose()
+    }
     fn settle_pending_permission(
         &self,
         binding: &PermissionDecisionBinding,

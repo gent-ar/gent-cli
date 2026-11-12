@@ -13,6 +13,10 @@ pub trait PendingPermissionLedger: Send + Sync {
         conversation_id: &AgentChatConversationId,
         run_id: &AgentChatRunId,
     ) -> Result<Option<PermissionDecisionRequest>, LedgerError>;
+    fn conversation_pending_permission(
+        &self,
+        conversation_id: &AgentChatConversationId,
+    ) -> Result<Option<PermissionDecisionRequest>, LedgerError>;
     fn settle_pending_permission(
         &self,
         binding: &PermissionDecisionBinding,

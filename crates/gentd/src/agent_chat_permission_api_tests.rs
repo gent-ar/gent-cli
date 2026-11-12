@@ -1,17 +1,18 @@
 use std::sync::{Arc, Mutex};
 
 use gent_ports::{
-    AgentChatWorkspaceLedger, ConversationActivityLedger, PendingPermissionLedger, PolicyLedger,
+    AgentChatReadLedger, AgentChatSelectionLedger, AgentChatWorkspaceLedger,
+    ConversationActivityLedger, PendingPermissionLedger, PolicyLedger,
 };
 use gent_protocol::{AgentChatPermissionFrame, read_json_frame};
 use gent_runtime::AgentChatReadService;
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatDecisionId, AgentChatEffort,
-    AgentChatMode, AgentChatProvider, AgentChatRunId, AgentChatSelection, HostEpoch,
-    PermissionCategory, PermissionDecisionBinding, PermissionDecisionRequest,
-    PermissionDecisionResponse, PermissionDecisionResponseKind, PermissionRequest,
-    PermissionRequestDigest, ReceiptId, WorkspaceRecord,
+    AgentChatMode, AgentChatProvider, AgentChatRunId, AgentChatSelection, AgentChatSelectionSwitch,
+    ContextPolicy, HostEpoch, PermissionCategory, PermissionDecisionBinding,
+    PermissionDecisionRequest, PermissionDecisionResponse, PermissionDecisionResponseKind,
+    PermissionRequest, PermissionRequestDigest, ReceiptId, WorkspaceRecord,
 };
 use tokio::io::duplex;
 
@@ -566,7 +567,6 @@ async fn codex_response_is_receipted_and_relayed_through_typed_ipc() {
     let pending = AgentChatPermissionFrame::PendingRead {
         request_id: gent_types::AgentChatRequestId("pending".into()),
         conversation_id: binding.conversation_id.clone(),
-        run_id: binding.run_id.clone(),
     };
     let frame = AgentChatPermissionFrame::Respond {
         request_id: gent_types::AgentChatRequestId("ipc".into()),
@@ -855,4 +855,87 @@ fn codex_and_claude_commit_the_same_canonical_grant_and_answer_after_a_newer_rev
             "newer-policy"
         );
     }
+}
+
+#[tokio::test]
+async fn pending_permission_of_a_running_turn_is_readable_after_a_mid_turn_switch() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation = AgentChatConversationId("conversation".into());
+    let selection = |mode| AgentChatSelection {
+        provider: AgentChatProvider::Claurst,
+        model: "qwen".into(),
+        effort: AgentChatEffort::Medium,
+        mode,
+    };
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation.clone(),
+                run_id: AgentChatRunId("run".into()),
+                selection: selection(AgentChatMode::Ask),
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace".into(),
+                canonical_path: "/workspace".into(),
+            },
+        )
+        .unwrap();
+    let policy = ledger
+        .ensure_default_provider_permission_policy("workspace")
+        .unwrap();
+    let binding = PermissionDecisionBinding {
+        decision_id: AgentChatDecisionId("claurst:n:1".into()),
+        request_idempotency_key: "claurst:request".into(),
+        conversation_id: conversation.clone(),
+        run_id: AgentChatRunId("run".into()),
+        turn_id: "turn".into(),
+        policy_id: policy.policy_id,
+        policy_revision: policy.revision,
+        host_epoch: HostEpoch(1),
+        request_digest_sha256: PermissionRequestDigest("a".repeat(64)),
+    };
+    ledger
+        .save_pending_permission(&pending(&binding, "Edit", None))
+        .unwrap();
+    ledger
+        .switch_agent_chat_selection(&AgentChatSelectionSwitch {
+            receipt_id: ReceiptId("switch".into()),
+            idempotency_key: "switch".into(),
+            host_epoch: HostEpoch(1),
+            conversation_id: conversation.clone(),
+            parent_run_id: AgentChatRunId("run".into()),
+            run_id: AgentChatRunId("switched".into()),
+            selection: selection(AgentChatMode::Agent),
+            context_policy: ContextPolicy::Preserve,
+        })
+        .unwrap();
+    let router = Arc::new(Mutex::new(
+        OrdinaryPublicLifecycleRouter::new(AgentChatReadService::new(ledger.clone()), Vec::new())
+            .unwrap(),
+    ));
+    let (_, ingress, _) = pair_with_standalone_readiness(router, ledger.clone(), HostEpoch(1));
+    let port = StandaloneAgentChatPermissionPort::new(ledger.clone(), ingress);
+    assert_eq!(
+        ledger
+            .read_agent_chat_detail("conversation")
+            .unwrap()
+            .current_run_id,
+        "switched"
+    );
+    let reply = super::AgentChatPermissionPort::exchange(
+        &port,
+        AgentChatPermissionFrame::PendingRead {
+            request_id: gent_types::AgentChatRequestId("pending".into()),
+            conversation_id: conversation,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        reply,
+        AgentChatPermissionFrame::Pending { request: Some(request), .. } if request.binding == binding
+    ));
 }

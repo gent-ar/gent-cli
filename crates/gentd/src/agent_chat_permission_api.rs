@@ -44,11 +44,10 @@ impl AgentChatPermissionPort for StandaloneAgentChatPermissionPort {
             AgentChatPermissionFrame::PendingRead {
                 request_id,
                 conversation_id,
-                run_id,
             } => {
                 let request = self
                     .ledger
-                    .pending_permission(&conversation_id, &run_id)
+                    .conversation_pending_permission(&conversation_id)
                     .map_err(|error| error.to_string())?;
                 Ok(AgentChatPermissionFrame::Pending {
                     request_id,

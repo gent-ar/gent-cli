@@ -252,3 +252,71 @@ async fn claurst_steer_for_a_wrong_turn_or_run_is_rejected_with_a_typed_code() {
         std::slice::from_ref(&queued.message.message_id)
     );
 }
+
+fn switch_mid_turn(h: &Harness) -> AgentChatRunId {
+    let switched = h
+        .runtime
+        .agent_chat_intent(AgentChatIntentFrame::SwitchSelection {
+            request_id: AgentChatRequestId("switch".into()),
+            receipt_id: ReceiptId("switch-receipt".into()),
+            conversation_id: h.conversation_id.clone(),
+            parent_run_id: h.run_id.clone(),
+            selection: AgentChatSelection {
+                provider: AgentChatProvider::Claurst,
+                model: "qwen3-1-7b-q4-k-m".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Ask,
+            },
+            context_policy: gent_types::ContextPolicy::Preserve,
+        })
+        .unwrap();
+    let [AgentChatIntentFrame::Switched { run_id, .. }] = switched.as_slice() else {
+        panic!("a mid-turn switch must be accepted")
+    };
+    assert_ne!(run_id, &h.run_id);
+    run_id.clone()
+}
+
+#[tokio::test]
+async fn stopping_the_current_run_after_a_mid_turn_switch_stops_the_running_turn() {
+    let h = harness().await;
+    running(&h.ledger, &h.conversation_id);
+    let current = switch_mid_turn(&h);
+    h.runtime
+        .agent_chat_intent(AgentChatIntentFrame::Interrupt {
+            request_id: AgentChatRequestId("stop".into()),
+            receipt_id: ReceiptId("stop-receipt".into()),
+            conversation_id: h.conversation_id.clone(),
+            run_id: current,
+            expected_turn_id: None,
+        })
+        .unwrap();
+    assert_eq!(h.interrupted().await, vec![h.run_id.0.clone()]);
+}
+
+#[tokio::test]
+async fn send_now_after_a_mid_turn_switch_steers_the_running_turn() {
+    let h = harness().await;
+    running(&h.ledger, &h.conversation_id);
+    switch_mid_turn(&h);
+    let queued = prompt(
+        &h.ledger,
+        &h.conversation_id,
+        "queued",
+        AgentChatPromptDisposition::Queue,
+    );
+    let steered = h
+        .runtime
+        .agent_chat_intent(AgentChatIntentFrame::SteerQueuedPrompt {
+            request_id: AgentChatRequestId("steer".into()),
+            receipt_id: ReceiptId("steer-receipt".into()),
+            conversation_id: h.conversation_id.clone(),
+            message_id: queued.message.message_id.clone(),
+        })
+        .unwrap();
+    assert!(matches!(
+        steered.as_slice(),
+        [AgentChatIntentFrame::QueuedPromptSteered { .. }]
+    ));
+    assert_eq!(h.interrupted().await, vec![h.run_id.0.clone()]);
+}

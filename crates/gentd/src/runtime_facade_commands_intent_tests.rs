@@ -1,3 +1,4 @@
+use gent_ports::AgentChatPromptDispatchLedger;
 use gent_protocol::{AgentChatIntentFrame, agent_chat_commands::CommandOutcome};
 use gent_types::{
     AgentChatCommandIntent, AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatRequestId,
@@ -201,5 +202,54 @@ fn goal_command_sets_a_budgeted_goal_and_replays_by_receipt() {
             .unwrap_err()
             .code,
         "commandArgumentsInvalid"
+    );
+}
+
+#[test]
+fn a_mode_switch_mid_turn_keeps_turn_blocked_commands_blocked() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = runtime(directory.path());
+    let conversation_id = create(&runtime, "busy", AgentChatProvider::Codex, "gpt-5.6");
+    let accepted = runtime
+        .agent_chat_intent(AgentChatIntentFrame::SendPrompt {
+            request_id: AgentChatRequestId("prompt".into()),
+            receipt_id: ReceiptId("prompt".into()),
+            conversation_id: conversation_id.clone(),
+            text: "hello".into(),
+            attachment_ids: Vec::new(),
+        })
+        .unwrap();
+    let [
+        AgentChatIntentFrame::Accepted {
+            run_id,
+            message_id,
+            receipt,
+            ..
+        },
+    ] = accepted.as_slice()
+    else {
+        panic!("{accepted:?}");
+    };
+    let ledger = &runtime.transcript_import_ledger;
+    let epoch = receipt.host_epoch;
+    ledger
+        .release_agent_chat_prompt_after_readiness(message_id, run_id, epoch)
+        .unwrap();
+    ledger
+        .claim_agent_chat_prompt_dispatch("daemon", epoch, AgentChatProvider::Codex)
+        .unwrap()
+        .unwrap();
+    ledger
+        .begin_agent_chat_prompt_launch(message_id, "daemon", epoch)
+        .unwrap();
+    ledger
+        .confirm_agent_chat_prompt_started(message_id, "daemon", epoch)
+        .unwrap();
+    invoke(&runtime, "mode", Some(&conversation_id), "mode", "ask").unwrap();
+    assert_eq!(
+        invoke(&runtime, "fork-busy", Some(&conversation_id), "fork", "")
+            .unwrap_err()
+            .code,
+        "commandBlockedByActiveTurn"
     );
 }

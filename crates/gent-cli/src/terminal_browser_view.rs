@@ -90,13 +90,7 @@ pub(super) async fn read_view(
         },
         metadata::catalog_for_detail(data_dir.clone(), no_autostart, detail.as_ref(), caps),
         model_state(data_dir.clone(), no_autostart, detail.as_ref(), caps),
-        pending_permission(
-            data_dir.clone(),
-            no_autostart,
-            &conversation_id,
-            detail.as_ref(),
-            caps,
-        ),
+        pending_permission(data_dir.clone(), no_autostart, &conversation_id, caps),
         async {
             match workspace_id {
                 Some(workspace_id) => crate::permissions_cli::current_for(
