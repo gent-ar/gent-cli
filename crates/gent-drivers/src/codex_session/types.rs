@@ -88,12 +88,14 @@ impl CodexTurnOptions {
         } else {
             mode_sandbox
         };
-        let approval = match permission_mode {
-            PermissionMode::AskEveryTime | PermissionMode::AutoAcceptEdits => {
+        let approval = match (selection.mode, permission_mode) {
+            (AgentChatMode::Ask | AgentChatMode::Plan, _) | (_, PermissionMode::Bypass) => {
+                CodexApprovalPolicy::Never
+            }
+            (_, PermissionMode::AskEveryTime | PermissionMode::AutoAcceptEdits) => {
                 CodexApprovalPolicy::Untrusted
             }
-            PermissionMode::Autonomous => CodexApprovalPolicy::OnRequest,
-            PermissionMode::Bypass => CodexApprovalPolicy::Never,
+            (_, PermissionMode::Autonomous) => CodexApprovalPolicy::OnRequest,
         };
         Ok(Self {
             model: (selection.model != "default").then(|| selection.model.clone()),

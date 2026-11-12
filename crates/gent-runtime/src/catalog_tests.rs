@@ -146,3 +146,22 @@ fn every_profile_feature_capability_is_reconciled_from_observation() {
     );
     assert_eq!(validate_observed_capabilities(&observed), Ok(observed));
 }
+
+#[test]
+fn the_sandbox_capability_is_advertised_only_with_an_available_sandbox() {
+    let without = RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]);
+    let with = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::Sandbox,
+    ]);
+    let sandbox = String::from(gent_protocol::AGENT_CHAT_SANDBOX_CAPABILITY);
+    assert_eq!(sandbox, "agent-chat-sandbox-v1");
+    assert!(
+        !declared_capabilities_with_profiles(&without)
+            .0
+            .contains(&sandbox)
+    );
+    let observed = declared_capabilities_with_profiles(&with);
+    assert!(observed.0.contains(&sandbox));
+    assert_eq!(validate_observed_capabilities(&observed), Ok(observed));
+}

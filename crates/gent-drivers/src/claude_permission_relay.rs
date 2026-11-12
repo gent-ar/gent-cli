@@ -73,7 +73,7 @@ impl ClaudePermissionRelay {
         let Some(pending) = self.pending.get(request_id) else {
             return Ok(None);
         };
-        if behavior == ClaudePermissionBehavior::Deny {
+        if behavior != ClaudePermissionBehavior::Allow {
             return Ok(Some(encode_permission_response_with_input(
                 request_id,
                 behavior,

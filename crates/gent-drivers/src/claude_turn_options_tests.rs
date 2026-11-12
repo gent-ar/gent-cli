@@ -83,6 +83,26 @@ fn plan_mode_uses_claude_native_plan_permission_mode_for_every_posture() {
 }
 
 #[test]
+fn ask_mode_keeps_every_tool_on_the_host_callback_even_under_bypass() {
+    for permission in [PermissionMode::Autonomous, PermissionMode::Bypass] {
+        let mut arguments = Vec::new();
+        ClaudeTurnOptions::from_selection_with_permissions(
+            &selection(AgentChatMode::Ask),
+            permission,
+        )
+        .unwrap()
+        .append_arguments(&mut arguments);
+        let settings: serde_json::Value = serde_json::from_str(&arguments[1]).unwrap();
+        assert_eq!(settings["permissions"]["ask"], serde_json::json!(["*"]));
+        assert!(
+            arguments
+                .windows(2)
+                .any(|entry| entry[0] == "--permission-mode" && entry[1] == "manual")
+        );
+    }
+}
+
+#[test]
 fn non_claude_and_malformed_selections_are_rejected() {
     let mut other = selection(AgentChatMode::Ask);
     other.provider = AgentChatProvider::Codex;

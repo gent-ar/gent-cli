@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Negotiated capability for local conversation-config reads and explicit revisions.
 pub const AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY: &str = "agent-chat-conversation-config-v1";
+pub const AGENT_CHAT_SANDBOX_CAPABILITY: &str = "agent-chat-sandbox-v1";
 
 /// One finite conversation-config exchange. Provider execution is never part of this protocol.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

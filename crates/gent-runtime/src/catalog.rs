@@ -118,6 +118,10 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
         (agent_chat, "agent-chat-steer-turn-claude-v1"),
         (agent_chat, "agent-chat-steer-turn-codex-v1"),
         (agent_chat, "agent-chat-steer-turn-claurst-v1"),
+        (
+            agent_chat && profile.has(RuntimeCapabilityFeature::Sandbox),
+            gent_protocol::AGENT_CHAT_SANDBOX_CAPABILITY,
+        ),
         (agent_chat, AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY),
         (agent_chat, AGENT_CHAT_CONVERSATIONS_CAPABILITY),
         (agent_chat, AGENT_CHAT_TRANSCRIPT_CAPABILITY),

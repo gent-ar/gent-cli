@@ -164,7 +164,14 @@ fn permission_matrix_preserves_interaction_mode_through_new_and_resumed_threads(
                     serde_json::from_slice(&session.start_turn("prompt").unwrap()).unwrap();
                 assert_eq!(turn["method"], "turn/start");
                 let parameters = &turn["params"];
-                assert_eq!(parameters["approvalPolicy"], approval);
+                assert_eq!(
+                    parameters["approvalPolicy"],
+                    if mode == AgentChatMode::Agent {
+                        approval
+                    } else {
+                        "never"
+                    }
+                );
                 let expected = match (mode, permission) {
                     (AgentChatMode::Ask | AgentChatMode::Plan, _) => "readOnly",
                     (AgentChatMode::Agent, PermissionMode::Bypass) => "dangerFullAccess",

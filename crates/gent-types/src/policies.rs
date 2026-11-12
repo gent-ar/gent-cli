@@ -122,6 +122,15 @@ impl PermissionDenialReason {
             }
         }
     }
+
+    #[must_use]
+    pub const fn provider_message(self) -> &'static str {
+        match self {
+            Self::ReadOnlyMode => {
+                "This conversation is in a read-only mode (Ask or Plan): file changes and shell commands are not allowed. Answer without them, or ask the user to switch to Agent mode."
+            }
+        }
+    }
 }
 
 /// One immutable revision of a workspace policy.

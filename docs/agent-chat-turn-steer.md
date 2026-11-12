@@ -74,3 +74,24 @@ Shared activity reads can contain the additive `promptSteerRejected` kind after
 a targeted command. Readers must preserve/ignore unknown additive kinds rather
 than reject an entire page. Older strict enum readers need an update; write
 capability negotiation does not remove new facts from shared immutable history.
+
+## Steering and selection changes
+
+A selection or permission change made while a turn runs applies from the next
+turn; it never rejects or alters the running turn. A run's selection and its
+bound permission policy are immutable, and a permission request that is already
+pending keeps the policy it was raised under.
+
+A steered prompt follows the delivery of its provider:
+
+- Claude and Codex deliver it into the running turn. It runs under that turn's
+  run, selection, and permission policy, even when the user switched mode,
+  model, or permission posture after the turn started. Its `promptSteered` fact
+  is scoped to that run, so a client can compare the run's selection with the
+  conversation's current selection.
+- Claurst interrupts the running turn (terminal cause `steered`) and runs the
+  prompt as the next turn under the conversation's current selection and policy.
+
+An unstarted prompt, whether queued or still waiting for the previous turn to
+settle, is not part of the running turn: it runs under the selection that is
+current when it starts.

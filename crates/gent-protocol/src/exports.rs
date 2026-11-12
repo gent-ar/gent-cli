@@ -6,7 +6,8 @@ pub use crate::agent_chat_checkpoint::{
     AGENT_CHAT_CHECKPOINT_CAPABILITY, AgentChatCheckpointFrame,
 };
 pub use crate::agent_chat_conversation_config::{
-    AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY, AgentChatConversationConfigFrame,
+    AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY, AGENT_CHAT_SANDBOX_CAPABILITY,
+    AgentChatConversationConfigFrame,
 };
 pub use crate::agent_chat_intent::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_STEER_TURN_CAPABILITY,

@@ -24,7 +24,9 @@ fn read(id: &str) -> ClaudeRunnerEffect {
     })
 }
 
-fn host_with_two_requests() -> (
+fn host_with_two_requests_in(
+    mode: AgentChatMode,
+) -> (
     SqliteLedger,
     Runner,
     ApprovedClaudeHost<SqliteLedger, Runner, Resolver>,
@@ -43,7 +45,7 @@ fn host_with_two_requests() -> (
                     provider: AgentChatProvider::Claude,
                     model: "claude-test".into(),
                     effort: AgentChatEffort::Medium,
-                    mode: AgentChatMode::Agent,
+                    mode,
                 },
             },
             &WorkspaceRecord {
@@ -152,5 +154,33 @@ fn a_turn_that_ends_with_a_queued_request_denies_it_and_leaves_nothing_pending()
             .map(|response| (response.1.as_str(), response.2))
             .collect::<Vec<_>>(),
         [("second", ClaudePermissionBehavior::Deny)]
+    );
+}
+
+fn host_with_two_requests() -> (
+    SqliteLedger,
+    Runner,
+    ApprovedClaudeHost<SqliteLedger, Runner, Resolver>,
+) {
+    host_with_two_requests_in(AgentChatMode::Agent)
+}
+
+const READ_ONLY: gent_types::PermissionDenialReason =
+    gent_types::PermissionDenialReason::ReadOnlyMode;
+
+#[test]
+fn ask_mode_refuses_file_changes_with_the_read_only_reason() {
+    let (ledger, runner, _host) = host_with_two_requests_in(AgentChatMode::Ask);
+    assert_eq!(pending_id(&ledger), None);
+    let responses = runner.0.lock().unwrap().permission_responses.clone();
+    assert_eq!(
+        responses
+            .iter()
+            .map(|response| (response.1.as_str(), response.2))
+            .collect::<Vec<_>>(),
+        [
+            ("first", ClaudePermissionBehavior::Refuse(READ_ONLY)),
+            ("second", ClaudePermissionBehavior::Refuse(READ_ONLY)),
+        ]
     );
 }

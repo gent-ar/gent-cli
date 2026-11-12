@@ -1,4 +1,6 @@
 use crate::approved_codex_host::ApprovedCodexHost;
+#[path = "codex_read_only_permission_tests.rs"]
+mod read_only_permission;
 #[path = "codex_targeted_steer_tests.rs"]
 mod targeted_steer;
 use crate::codex_prompt_lifecycle::CodexPromptDispatchOutcome;

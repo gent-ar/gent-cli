@@ -18,6 +18,7 @@ pub enum RuntimeCapabilityFeature {
     PromptTemplates,
     WorkspaceDocuments,
     WorkspaceGit,
+    Sandbox,
 }
 
 /// Concrete runtime handlers eligible for one authority profile's wire advertisement.

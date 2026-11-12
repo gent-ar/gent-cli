@@ -30,6 +30,7 @@ pub struct ClaudePermissionRequest {
 pub enum ClaudePermissionBehavior {
     Allow,
     Deny,
+    Refuse(gent_types::PermissionDenialReason),
 }
 
 /// Parses the documented `can_use_tool` control request and retains its suggestions for a later
@@ -163,11 +164,15 @@ fn encode_permission_response_bounded(
     let mut response = json!({
         "behavior": match behavior {
             ClaudePermissionBehavior::Allow => "allow",
-            ClaudePermissionBehavior::Deny => "deny",
+            ClaudePermissionBehavior::Deny | ClaudePermissionBehavior::Refuse(_) => "deny",
         }
     });
-    if behavior == ClaudePermissionBehavior::Deny {
-        response["message"] = "User denied the request".into();
+    match behavior {
+        ClaudePermissionBehavior::Allow => {}
+        ClaudePermissionBehavior::Deny => response["message"] = "User denied the request".into(),
+        ClaudePermissionBehavior::Refuse(reason) => {
+            response["message"] = reason.provider_message().into();
+        }
     }
     if behavior == ClaudePermissionBehavior::Allow && persist_suggestions && !suggestions.is_empty()
     {
@@ -334,6 +339,20 @@ mod tests {
         assert_eq!(
             denied["response"]["response"]["message"],
             "User denied the request"
+        );
+        let refused: serde_json::Value = serde_json::from_slice(&encode_permission_response(
+            "request-1",
+            ClaudePermissionBehavior::Refuse(gent_types::PermissionDenialReason::ReadOnlyMode),
+            true,
+            &suggestions,
+        ))
+        .unwrap();
+        assert_eq!(refused["response"]["response"]["behavior"], "deny");
+        assert!(
+            refused["response"]["response"]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("This conversation is in a read-only mode")
         );
     }
 

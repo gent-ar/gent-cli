@@ -67,6 +67,16 @@ pub(crate) fn require(provider: AgentChatProvider, containment: Containment) -> 
     })
 }
 
+pub(crate) fn sandbox_available() -> bool {
+    [
+        AgentChatProvider::Claude,
+        AgentChatProvider::Codex,
+        AgentChatProvider::Claurst,
+    ]
+    .into_iter()
+    .all(|provider| native(provider).is_ok())
+}
+
 fn native(provider: AgentChatProvider) -> Result<(), String> {
     #[cfg(windows)]
     {

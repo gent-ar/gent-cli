@@ -37,6 +37,7 @@ pub fn validate_observed_capabilities(
             PROMPT_TEMPLATES_CAPABILITY,
             WORKSPACE_DOCUMENTS_CAPABILITY,
             WORKSPACE_GIT_CAPABILITY,
+            gent_protocol::AGENT_CHAT_SANDBOX_CAPABILITY,
         ]
         .into_iter()
         .filter_map(|capability| feature_from_observed(capability, observed)),
@@ -80,6 +81,7 @@ fn feature_from_observed(
             PROMPT_TEMPLATES_CAPABILITY => RuntimeCapabilityFeature::PromptTemplates,
             WORKSPACE_DOCUMENTS_CAPABILITY => RuntimeCapabilityFeature::WorkspaceDocuments,
             WORKSPACE_GIT_CAPABILITY => RuntimeCapabilityFeature::WorkspaceGit,
+            gent_protocol::AGENT_CHAT_SANDBOX_CAPABILITY => RuntimeCapabilityFeature::Sandbox,
             _ => unreachable!("only known capability names are passed"),
         })
 }

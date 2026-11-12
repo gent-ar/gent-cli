@@ -177,7 +177,14 @@ fn external_policy_requires_matching_live_process_and_preserves_all_mode_approva
                     p["sandboxPolicy"],
                     json!({"type":"externalSandbox","networkAccess":"enabled"})
                 );
-                assert_eq!(p["approvalPolicy"], approval);
+                assert_eq!(
+                    p["approvalPolicy"],
+                    if role == AgentChatMode::Agent {
+                        approval
+                    } else {
+                        "never"
+                    }
+                );
             }
         }
     }

@@ -48,10 +48,10 @@ impl ClaudeTurnOptions {
         if selection.validate().is_err() {
             return Err(ClaudeTurnOptionsError::InvalidModel);
         }
-        let permission_mode = if selection.mode == AgentChatMode::Plan {
-            ClaudePermissionMode::Plan
-        } else {
-            ClaudePermissionMode::from(permission_mode)
+        let permission_mode = match selection.mode {
+            AgentChatMode::Plan => ClaudePermissionMode::Plan,
+            AgentChatMode::Ask => ClaudePermissionMode::Manual,
+            AgentChatMode::Agent => ClaudePermissionMode::from(permission_mode),
         };
         Ok(Self {
             model: selection.model.clone(),

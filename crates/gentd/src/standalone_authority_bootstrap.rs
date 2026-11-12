@@ -183,6 +183,9 @@ fn standalone_capability_profile(provider_provision: bool) -> RuntimeCapabilityP
     if provider_provision {
         features.push(RuntimeCapabilityFeature::PromptProviderProvision);
     }
+    if crate::permission_backend_registry::sandbox_available() {
+        features.push(RuntimeCapabilityFeature::Sandbox);
+    }
     RuntimeCapabilityProfile::new(features)
 }
 

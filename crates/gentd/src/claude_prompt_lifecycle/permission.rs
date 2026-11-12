@@ -1,4 +1,7 @@
-use gent_drivers::{claude_control::ClaudePermissionRequest, public_protocol::PublicWireFact};
+use gent_drivers::{
+    claude_control::{ClaudePermissionBehavior, ClaudePermissionRequest},
+    public_protocol::PublicWireFact,
+};
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PendingPermissionLedger,
@@ -104,70 +107,60 @@ where
         let disallowed = config
             .as_ref()
             .map_or(&[][..], |config| config.disallowed_tools.as_slice());
-        match self.runner.permission_preflight(
-            &crate::permission_preflight::PreflightContext {
-                run_id,
-                conversation_id: &binding.prompt.message.conversation_id,
-                disallowed,
-                injection: self.runtime.internal_mcp(),
-                host_epoch,
+        let mode = gent_runtime::AgentChatReadService::new(ledger.clone())
+            .run_selection(&binding.prompt.message.conversation_id, run_id)?
+            .mode;
+        let automatic = match crate::permission_preflight::read_only_denial(mode, &normalized) {
+            Some(reason) => Some(ClaudePermissionBehavior::Refuse(reason)),
+            None => match self.runner.permission_preflight(
+                &crate::permission_preflight::PreflightContext {
+                    run_id,
+                    conversation_id: &binding.prompt.message.conversation_id,
+                    disallowed,
+                    injection: self.runtime.internal_mcp(),
+                    host_epoch,
+                },
+                &policy,
+                &normalized,
+            ) {
+                crate::permission_preflight::PermissionPreflight::Allow => {
+                    Some(ClaudePermissionBehavior::Allow)
+                }
+                crate::permission_preflight::PermissionPreflight::Deny => {
+                    Some(ClaudePermissionBehavior::Deny)
+                }
+                crate::permission_preflight::PermissionPreflight::Ask => None,
             },
-            &policy,
-            &normalized,
-        ) {
-            crate::permission_preflight::PermissionPreflight::Allow => {
-                self.runner
-                    .respond_claude_permission_with_input(
-                        run_id,
-                        &request.request_id,
-                        gent_drivers::claude_control::ClaudePermissionBehavior::Allow,
-                        false,
-                        None,
-                    )
-                    .map_err(RuntimeError::from)?;
-                let terminal = self.record_wire(
+        };
+        if let Some(behavior) = automatic {
+            self.runner
+                .respond_claude_permission_with_input(
                     run_id,
-                    host_epoch,
-                    &PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
-                        activity: gent_types::ToolActivity {
-                            tool_use_id: request.tool_use_id,
-                            tool_name: request.tool_name,
-                            phase: ToolPhase::Started,
-                            output_digest: None,
-                            input: request.operation_preview,
-                            parent_tool_use_id: None,
+                    &request.request_id,
+                    behavior,
+                    false,
+                    None,
+                )
+                .map_err(RuntimeError::from)?;
+            let terminal = self.record_wire(
+                run_id,
+                host_epoch,
+                &PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
+                    activity: gent_types::ToolActivity {
+                        tool_use_id: request.tool_use_id,
+                        tool_name: request.tool_name,
+                        phase: if behavior == ClaudePermissionBehavior::Allow {
+                            ToolPhase::Started
+                        } else {
+                            ToolPhase::Failed
                         },
-                    }),
-                )?;
-                return Ok(ClaudePermissionRecord { facts: 1, terminal });
-            }
-            crate::permission_preflight::PermissionPreflight::Deny => {
-                self.runner
-                    .respond_claude_permission_with_input(
-                        run_id,
-                        &request.request_id,
-                        gent_drivers::claude_control::ClaudePermissionBehavior::Deny,
-                        false,
-                        None,
-                    )
-                    .map_err(RuntimeError::from)?;
-                let terminal = self.record_wire(
-                    run_id,
-                    host_epoch,
-                    &PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
-                        activity: gent_types::ToolActivity {
-                            tool_use_id: request.tool_use_id,
-                            tool_name: request.tool_name,
-                            phase: ToolPhase::Failed,
-                            output_digest: None,
-                            input: request.operation_preview,
-                            parent_tool_use_id: None,
-                        },
-                    }),
-                )?;
-                return Ok(ClaudePermissionRecord { facts: 1, terminal });
-            }
-            crate::permission_preflight::PermissionPreflight::Ask => {}
+                        output_digest: None,
+                        input: request.operation_preview,
+                        parent_tool_use_id: None,
+                    },
+                }),
+            )?;
+            return Ok(ClaudePermissionRecord { facts: 1, terminal });
         }
         let digest = format!(
             "{:x}",

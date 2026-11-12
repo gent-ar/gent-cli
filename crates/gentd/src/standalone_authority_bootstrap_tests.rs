@@ -290,3 +290,24 @@ async fn assert_serves(args: Args, socket: &std::path::Path) {
         })
         .await;
 }
+
+#[test]
+fn the_sandbox_capability_is_advertised_exactly_when_every_provider_can_launch_contained() {
+    let launchable = [
+        gent_types::AgentChatProvider::Claude,
+        gent_types::AgentChatProvider::Codex,
+        gent_types::AgentChatProvider::Claurst,
+    ]
+    .into_iter()
+    .all(|provider| {
+        crate::permission_backend_registry::require(provider, gent_types::Containment::Sandboxed)
+            .is_ok()
+    });
+    let advertised = declared_capabilities_with_profiles(&standalone_capability_profile(false))
+        .0
+        .contains(&gent_protocol::AGENT_CHAT_SANDBOX_CAPABILITY.into());
+    assert_eq!(advertised, launchable);
+    if option_env!("GENT_WINDOWS_SANDBOX_HELPER_SHA256").is_none() {
+        assert!(!advertised);
+    }
+}

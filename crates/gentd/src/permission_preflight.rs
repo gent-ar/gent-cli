@@ -1,5 +1,8 @@
 use gent_core::{PermissionDecision, evaluate_permission_with_sandbox};
-use gent_types::{PermissionRequest, PolicyRecord, SandboxEnforcement};
+use gent_types::{
+    AgentChatMode, PermissionCategory, PermissionDenialReason, PermissionRequest, PolicyRecord,
+    SandboxEnforcement, SandboxWorkspaceAccess,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PermissionPreflight {
@@ -15,6 +18,18 @@ pub(crate) struct PreflightContext<'a> {
     pub(crate) disallowed: &'a [String],
     pub(crate) injection: Option<&'a crate::standalone_mcp_config::InjectedInternalMcp>,
     pub(crate) host_epoch: gent_types::HostEpoch,
+}
+
+pub(crate) fn read_only_denial(
+    mode: AgentChatMode,
+    request: &PermissionRequest,
+) -> Option<PermissionDenialReason> {
+    (SandboxWorkspaceAccess::from_mode(mode) == SandboxWorkspaceAccess::ReadOnly
+        && matches!(
+            request.category,
+            PermissionCategory::Edit | PermissionCategory::Command
+        ))
+    .then_some(PermissionDenialReason::ReadOnlyMode)
 }
 
 pub(crate) fn evaluate(policy: &PolicyRecord, request: &PermissionRequest) -> PermissionPreflight {

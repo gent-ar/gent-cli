@@ -43,12 +43,8 @@ pub(crate) fn decide_with_enforcement(
     if crate::permission_category::requires_user_response(&request.tool_name) {
         return ClaurstPermissionDecision::Ask;
     }
-    let changes = matches!(
-        request.category,
-        PermissionCategory::Edit | PermissionCategory::Command
-    );
-    if mode != AgentChatMode::Agent && changes {
-        return ClaurstPermissionDecision::Deny(Some(PermissionDenialReason::ReadOnlyMode));
+    if let Some(reason) = crate::permission_preflight::read_only_denial(mode, request) {
+        return ClaurstPermissionDecision::Deny(Some(reason));
     }
     if policy.unattended_requires_sandbox() {
         return match gent_core::evaluate_permission_with_sandbox(policy, request, enforcement) {

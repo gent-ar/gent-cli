@@ -216,10 +216,10 @@ fn contained_claude_start_and_resume_preserve_all_four_permission_modes() {
                 let index = args.iter().position(|s| s == "--permission-mode").unwrap();
                 assert_eq!(
                     args[index + 1],
-                    if role == AgentChatMode::Plan {
-                        "plan"
-                    } else {
-                        approval
+                    match role {
+                        AgentChatMode::Plan => "plan",
+                        AgentChatMode::Ask => "manual",
+                        AgentChatMode::Agent => approval,
                     }
                 );
                 assert!(
