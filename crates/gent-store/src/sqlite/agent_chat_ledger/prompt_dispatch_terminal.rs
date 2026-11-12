@@ -1,10 +1,48 @@
 use gent_ports::LedgerError;
 use gent_types::{DurableTurnPhase, HostEpoch};
-use rusqlite::{TransactionBehavior, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::helpers::valid_owner;
 use super::{SqliteLedger, require_open};
 use crate::sqlite::{queries, turn_terminal};
+
+pub(super) fn interrupt_unstarted(
+    ledger: &SqliteLedger,
+    run_id: &str,
+    turn_id: Option<&str>,
+    host_epoch: HostEpoch,
+) -> Result<bool, LedgerError> {
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(queries::storage_error)?;
+    require_open(&transaction, host_epoch)?;
+    let waiting = transaction
+        .query_row(
+            "SELECT d.message_id, m.turn_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_prompt_receipts p ON p.message_id = d.message_id WHERE m.run_id = ?1 AND (?2 IS NULL OR m.turn_id = ?2) AND d.state = 'pending' AND p.disposition = 'send' ORDER BY d.created_rowid LIMIT 1",
+            params![run_id, turn_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(queries::storage_error)?;
+    let Some((message_id, turn_id)) = waiting else {
+        return Ok(false);
+    };
+    transaction
+        .execute(
+            "UPDATE agent_chat_prompt_dispatches SET state = 'settled', coordinator_id = NULL, host_epoch = NULL WHERE message_id = ?1",
+            [&message_id],
+        )
+        .map_err(queries::storage_error)?;
+    let interrupted = turn_terminal::settle(
+        &transaction,
+        &turn_id,
+        host_epoch,
+        DurableTurnPhase::Interrupted,
+    )?;
+    transaction.commit().map_err(queries::storage_error)?;
+    Ok(interrupted)
+}
 
 pub(super) fn settle(
     ledger: &SqliteLedger,

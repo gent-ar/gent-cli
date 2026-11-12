@@ -178,6 +178,13 @@ where
         )
     }
 
+    #[must_use]
+    pub fn turn_steerable(&self, run_id: &str) -> bool {
+        self.runs
+            .get(run_id)
+            .is_some_and(|run| run.turn.steerable())
+    }
+
     pub fn interrupt_turn(&mut self, run_id: &str) -> Result<(), CodexRunnerError> {
         let run = self.run_mut(run_id)?;
         write(&run.process, run.turn.interrupt()?)

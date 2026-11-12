@@ -14,8 +14,7 @@ fn real_lease_authenticated_model_json_sse_revoke_and_unknown() {
     let model_root = model.test_root();
     let lease = ProviderGatewayLease::claurst_contained(
         ledger.clone(),
-        "conversation".into(),
-        run.clone(),
+        &binding(&ledger, &run),
         sdk.clone(),
         &positive,
         model.clone(),
@@ -24,9 +23,8 @@ fn real_lease_authenticated_model_json_sse_revoke_and_unknown() {
     assert!(!lease.mcp_settled());
     assert!(
         ProviderGatewayLease::claurst_contained(
-            ledger,
-            "conversation".into(),
-            "another-run".into(),
+            ledger.clone(),
+            &binding(&ledger, "another-run"),
             sdk.clone(),
             &positive,
             model.clone()
@@ -38,8 +36,7 @@ fn real_lease_authenticated_model_json_sse_revoke_and_unknown() {
     assert!(
         ProviderGatewayLease::claurst_contained(
             lease.fence.ledger.clone(),
-            "conversation".into(),
-            run.clone(),
+            &binding(&lease.fence.ledger, &run),
             changed_sdk,
             &positive,
             model.clone()
@@ -105,9 +102,8 @@ fn real_lease_authenticated_model_json_sse_revoke_and_unknown() {
         crate::contained_model::native_tests::gateway_fixture(&unknown);
     let held_root = model.test_root();
     let lease = ProviderGatewayLease::claurst_contained(
-        ledger,
-        "conversation".into(),
-        run,
+        ledger.clone(),
+        &binding(&ledger, &run),
         sdk,
         &unknown,
         model.clone(),
@@ -124,4 +120,21 @@ fn real_lease_authenticated_model_json_sse_revoke_and_unknown() {
     std::fs::write(std::env::var_os("GENT_QA_MODEL_REPORT").unwrap(), serde_json::to_vec_pretty(&serde_json::json!({
         "passed":true,"actualProviderGatewayLease":true,"wrongBearerDenied":true,"wrongRunDenied":true,"json":true,"sse":true,"daemonSummarySameActor":true,"knownReleasesRoot":true,"unknownRetainsLeaseRootAndPins":true,"providerSdkStarted":false
     })).unwrap()).unwrap();
+}
+
+fn binding(ledger: &gent_store::SqliteLedger, run: &str) -> gent_types::SandboxPermissionBinding {
+    let policy = gent_ports::PolicyLedger::current_policy(
+        ledger,
+        "workspace",
+        gent_types::PolicyScope::ProviderPermissions,
+    )
+    .unwrap()
+    .unwrap();
+    gent_types::SandboxPermissionBinding::new(
+        "conversation".into(),
+        run.into(),
+        policy,
+        gent_types::HostEpoch(1),
+    )
+    .unwrap()
 }

@@ -230,6 +230,11 @@ impl CodexTurnDriver {
         )])
     }
 
+    #[must_use]
+    pub fn steerable(&self) -> bool {
+        self.session.steerable()
+    }
+
     pub fn steer(
         &mut self,
         message_id: &str,

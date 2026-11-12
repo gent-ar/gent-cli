@@ -36,6 +36,7 @@ pub(crate) struct State {
     pub(crate) signals: Vec<ProcessTreeSignal>,
     pub(crate) turn_interrupts: Vec<String>,
     pub(crate) steers: Vec<(String, String)>,
+    pub(crate) turn_pending: bool,
     pub(crate) releases: Vec<String>,
     pub(crate) fail_starts: usize,
     pub(crate) controls: Vec<(String, gent_drivers::codex_control::CodexControlDecision)>,
@@ -133,6 +134,11 @@ impl CodexPromptExecution for Runner {
         self.state.lock().unwrap().sessions.contains(run_id)
     }
 
+    fn codex_turn_steerable(&self, run_id: &str) -> bool {
+        let state = self.state.lock().unwrap();
+        state.sessions.contains(run_id) && !state.turn_pending
+    }
+
     fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
         let mut state = self.state.lock().unwrap();
         state.sessions.remove(run_id);
@@ -190,11 +196,11 @@ impl CodexPromptExecution for Runner {
         prompt: &str,
         _: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
-        self.state
-            .lock()
-            .unwrap()
-            .steers
-            .push((message_id.into(), prompt.into()));
+        let mut state = self.state.lock().unwrap();
+        if state.turn_pending {
+            return Err(PublicProviderRunError::Failed("turn not active".into()));
+        }
+        state.steers.push((message_id.into(), prompt.into()));
         Ok(())
     }
 

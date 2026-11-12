@@ -160,6 +160,11 @@ where
         lock(&self.runner).signal(run_id, signal).map_err(map_error)
     }
 
+    #[must_use]
+    pub fn turn_steerable(&self, run_id: &str) -> bool {
+        lock(&self.runner).turn_steerable(run_id)
+    }
+
     pub fn steer_turn(
         &self,
         run_id: &str,

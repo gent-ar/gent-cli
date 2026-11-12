@@ -193,6 +193,7 @@ fn detail() -> AgentChatConversationDetail {
             mcp_server_names: Vec::new(),
             updated_at_unix_ms: 1,
             selection: selection.clone(),
+            selection_applies_next_turn: false,
             containment: gent_types::Containment::Unsandboxed,
         },
         current_run_id: "run-current".into(),

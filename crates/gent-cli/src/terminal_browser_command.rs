@@ -69,12 +69,12 @@ const fn notice(intent: Intent) -> &'static str {
     match intent {
         Intent::CreateConversation => "Conversation created; choose a prompt to persist.",
         Intent::ForkConversation => "Conversation forked; prompts now continue in the fork.",
-        Intent::ClearContext => "Context cleared; prompts now target a new run without history.",
+        Intent::ClearContext => "Context cleared; it applies from the next turn.",
         Intent::Goal => "Goal updated.",
         Intent::Compact => "Compacting the conversation context…",
         Intent::SelectProvider
         | Intent::SelectModel
         | Intent::SelectEffort
-        | Intent::SelectMode => "Selection switched; prompts now target the new durable run.",
+        | Intent::SelectMode => "Selection saved; it applies from the next turn.",
     }
 }

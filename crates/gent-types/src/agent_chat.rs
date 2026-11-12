@@ -15,6 +15,13 @@ pub enum AgentChatProvider {
     Claurst,
 }
 
+impl AgentChatProvider {
+    #[must_use]
+    pub const fn steers_by_interrupt(self) -> bool {
+        matches!(self, Self::Claurst)
+    }
+}
+
 /// The user-visible model and execution preferences chosen for a conversation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -105,6 +112,8 @@ pub struct AgentChatConversationSummary {
     pub mcp_server_names: Vec<String>,
     pub updated_at_unix_ms: u64,
     pub selection: AgentChatSelection,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub selection_applies_next_turn: bool,
     #[serde(default)]
     pub containment: crate::Containment,
 }
@@ -214,8 +223,8 @@ pub struct AgentChatProjectionPage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum AgentChatRejection {
-    #[error("the current turn must settle before changing its model or provider")]
-    SelectionSwitchBlockedByActiveTurn,
+    #[error("the planning turn must settle before its plan can be approved")]
+    PlanApprovalBlockedByActiveTurn,
     #[error("the selection can change only from the conversation's current run")]
     SelectionSwitchParentNotCurrent,
     #[error("the selection cannot change while provider installation is reserved for a prompt")]
@@ -240,7 +249,7 @@ impl AgentChatRejection {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
-            Self::SelectionSwitchBlockedByActiveTurn => "selectionSwitchBlockedByActiveTurn",
+            Self::PlanApprovalBlockedByActiveTurn => "planApprovalBlockedByActiveTurn",
             Self::SelectionSwitchParentNotCurrent => "selectionSwitchParentNotCurrent",
             Self::SelectionSwitchBlockedByProvisioning => "selectionSwitchBlockedByProvisioning",
             Self::QueuedPromptNotCancelable => "queuedPromptNotCancelable",

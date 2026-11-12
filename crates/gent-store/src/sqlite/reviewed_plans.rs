@@ -250,7 +250,7 @@ fn current_parent(
         .optional()
         .map_err(storage_error)?;
     active.is_none().then_some(()).ok_or(LedgerError::Rejected(
-        gent_types::AgentChatRejection::SelectionSwitchBlockedByActiveTurn,
+        gent_types::AgentChatRejection::PlanApprovalBlockedByActiveTurn,
     ))
 }
 

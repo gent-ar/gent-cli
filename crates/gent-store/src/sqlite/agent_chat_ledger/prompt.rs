@@ -107,23 +107,27 @@ fn save(
     }
     reject_receipt_id_collision(&transaction, prompt)?;
     let run_id = current_run(&transaction, &prompt.conversation_id.0)?;
-    if let Some(turn) = steer_turn {
-        if prompt.disposition != AgentChatPromptDisposition::Queue
-            || expected_run_id.is_none_or(|run| run.0 != run_id)
-            || !super::super::agent_chat_steer_target::live(
-                &transaction,
-                &prompt.conversation_id.0,
-                &run_id,
-                turn,
-                prompt.host_epoch,
-            )?
+    let steer_target = match (steer_turn, expected_run_id) {
+        (Some(turn), Some(run))
+            if prompt.disposition == AgentChatPromptDisposition::Queue
+                && super::super::agent_chat_steer_target::live(
+                    &transaction,
+                    &prompt.conversation_id.0,
+                    &run.0,
+                    turn,
+                    prompt.host_epoch,
+                )? =>
         {
+            Some((run, turn))
+        }
+        (Some(_), _) => {
             return Err(LedgerError::Rejected(
                 gent_types::AgentChatRejection::QueuedPromptNotSteerable,
             ));
         }
-    }
-    if expected_run_id.is_some_and(|expected| expected.0 != run_id) {
+        (None, _) => None,
+    };
+    if steer_target.is_none() && expected_run_id.is_some_and(|expected| expected.0 != run_id) {
         return Err(LedgerError::Invariant(
             "agent chat prompt run is no longer the durable current run".into(),
         ));
@@ -157,14 +161,14 @@ fn save(
             },
         )?;
     }
-    if let Some(turn) = steer_turn {
+    if let Some((steer_run, turn)) = steer_target {
         super::super::agent_chat_steer_target::bind(
             &transaction,
             &prompt.receipt_id,
             prompt.host_epoch,
             &prompt.conversation_id,
             &message.message_id,
-            &AgentChatRunId(run_id.clone()),
+            steer_run,
             turn,
         )?;
     }

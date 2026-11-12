@@ -36,9 +36,16 @@ impl UiState {
     }
 
     pub(super) fn interrupt(&mut self) -> UiEffect {
+        let live_run_id = self.selected_status().and_then(|status| {
+            status
+                .runs
+                .iter()
+                .find(|run| run.active_turn_id.is_some())
+                .map(|run| run.run_id.clone())
+        });
         let (Some(conversation_id), Some(run_id)) = (
             self.selected().map(|item| item.conversation_id.clone()),
-            self.parent_run_id.clone(),
+            live_run_id.or_else(|| self.parent_run_id.clone()),
         ) else {
             self.notice = Some("No active run is available to cancel.".into());
             return UiEffect::Continue;

@@ -46,6 +46,7 @@ impl AgentChatReadLedger for Ledger {
             mcp_server_names: Vec::new(),
             updated_at_unix_ms: 0,
             selection: selection(),
+            selection_applies_next_turn: false,
             containment: gent_types::Containment::Unsandboxed,
         })
     }

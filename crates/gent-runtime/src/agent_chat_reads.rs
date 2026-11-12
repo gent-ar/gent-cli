@@ -379,6 +379,7 @@ mod tests {
                 effort: AgentChatEffort::Low,
                 mode: AgentChatMode::Ask,
             },
+            selection_applies_next_turn: false,
             containment: gent_types::Containment::Unsandboxed,
         }
     }

@@ -283,6 +283,7 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
         mcp_server_names: Vec::new(),
         updated_at_unix_ms: 0,
         selection: selection(provider),
+        selection_applies_next_turn: false,
         containment: gent_types::Containment::Unsandboxed,
     }
 }

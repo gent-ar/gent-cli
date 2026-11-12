@@ -133,8 +133,7 @@ impl ProviderGatewayLease {
     pub(crate) fn claude_managed_linux(
         ledger: SqliteLedger,
         coordinator: Coordinator<SqliteLedger>,
-        conversation_id: String,
-        run_id: String,
+        binding: &SandboxPermissionBinding,
         lock: RunVersionLock,
         probe_root: &Path,
         deployment: LinuxCredentialDeployment,
@@ -162,52 +161,44 @@ impl ProviderGatewayLease {
             }
             environment.insert("CLAUDE_CONFIG_DIR".into(), config);
         }
-        Self::claude_using(
-            ledger,
-            coordinator,
-            conversation_id,
-            run_id,
-            lock,
-            probe_root,
-            |lock| {
-                claude_credential::resolve_using(
-                    lock,
-                    probe_root,
-                    environment,
-                    |lock, cwd, args, environment, timeout| {
-                        let mut environment = environment.clone();
-                        environment.insert(
-                            "TMPDIR".into(),
-                            cwd.parent()
-                                .ok_or_else(super::super::probe_process::ProbeFailure::known)?
-                                .to_string_lossy()
-                                .into_owned(),
-                        );
-                        let result = gent_linux_sandbox::host_probe::run_classified(
-                            &deployment.delegated_parent,
-                            &deployment.helper_lock,
-                            lock,
-                            cwd,
-                            args,
-                            &environment,
-                            timeout,
-                        )
-                        .map_err(|failure| {
-                            if failure.scope_known() {
-                                super::super::probe_process::ProbeFailure::known()
-                            } else {
-                                super::super::probe_process::ProbeFailure::retained(failure)
-                            }
-                        })?;
-                        Ok(super::super::probe_process::ProbeOutput {
-                            stdout: result.stdout,
-                            stderr_empty: result.stderr_empty,
-                            success: true,
-                        })
-                    },
-                )
-            },
-        )
+        Self::claude_using(ledger, coordinator, binding, lock, probe_root, |lock| {
+            claude_credential::resolve_using(
+                lock,
+                probe_root,
+                environment,
+                |lock, cwd, args, environment, timeout| {
+                    let mut environment = environment.clone();
+                    environment.insert(
+                        "TMPDIR".into(),
+                        cwd.parent()
+                            .ok_or_else(super::super::probe_process::ProbeFailure::known)?
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                    let result = gent_linux_sandbox::host_probe::run_classified(
+                        &deployment.delegated_parent,
+                        &deployment.helper_lock,
+                        lock,
+                        cwd,
+                        args,
+                        &environment,
+                        timeout,
+                    )
+                    .map_err(|failure| {
+                        if failure.scope_known() {
+                            super::super::probe_process::ProbeFailure::known()
+                        } else {
+                            super::super::probe_process::ProbeFailure::retained(failure)
+                        }
+                    })?;
+                    Ok(super::super::probe_process::ProbeOutput {
+                        stdout: result.stdout,
+                        stderr_empty: result.stderr_empty,
+                        success: true,
+                    })
+                },
+            )
+        })
     }
 }
 

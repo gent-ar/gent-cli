@@ -45,8 +45,7 @@ impl SandboxProviderLauncher {
         let lease = crate::provider_egress::ProviderGatewayLease::claude_managed_linux(
             self.ledger.clone(),
             self.coordinator.clone(),
-            binding.conversation_id().into(),
-            binding.run_id().into(),
+            binding,
             launch.lock.clone(),
             &self.state_root,
             resources.credentials(),

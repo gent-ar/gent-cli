@@ -131,3 +131,14 @@ fn compact_is_claude_native_and_a_gent_intent_for_codex_and_local_models() {
     assert!(local_compact.availability.requires_conversation);
     assert!(reserved_names(Some(AgentChatProvider::Claurst)).contains(&"compact"));
 }
+
+#[test]
+fn selection_and_clear_commands_are_accepted_while_a_turn_runs() {
+    let catalog = command_catalog(Some(AgentChatProvider::Codex), []);
+    for name in ["clear", "provider", "model", "effort", "mode", "plan"] {
+        let command = resolve_command(&catalog, name).unwrap();
+        assert!(!command.availability.blocked_while_turn_active, "{name}");
+    }
+    let fork = resolve_command(&catalog, "fork").unwrap();
+    assert!(fork.availability.blocked_while_turn_active);
+}

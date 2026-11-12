@@ -226,7 +226,7 @@ fn fresh_readiness_cancels_durable_hold_even_before_any_waiter_reconstruction() 
 }
 
 #[test]
-fn stale_selection_is_not_restored_and_cannot_starve_a_current_held_prompt() {
+fn a_switch_carries_a_held_prompt_to_the_new_selection_without_starving_others() {
     let (_directory, ledger, old) = setup();
     let stale = held(&ledger, &old, "old-selection");
     let current = held(&ledger, &old, "current-selection");
@@ -250,15 +250,17 @@ fn stale_selection_is_not_restored_and_cannot_starve_a_current_held_prompt() {
     drop(old);
     let fresh = readiness(&ledger, HostEpoch(1), false);
     let page = ledger
-        .read_awaiting_agent_chat_prompts(None, "", 1)
+        .read_awaiting_agent_chat_prompts(None, "", 128)
         .unwrap();
-    assert_eq!(page.len(), 1);
-    assert_eq!(page[0].receipt.receipt_id.0, current.receipt);
+    assert_eq!(page.len(), 2);
+    let carried = page
+        .iter()
+        .find(|saved| saved.receipt.receipt_id.0 == stale.receipt)
+        .unwrap();
+    assert_eq!(carried.run_id.0, "new-selection");
     assert!(
-        ledger
-            .read_awaiting_agent_chat_prompts(None, &page[0].message.message_id, 1)
-            .unwrap()
-            .is_empty()
+        page.iter()
+            .any(|saved| saved.receipt.receipt_id.0 == current.receipt)
     );
     assert!(!fresh.cancel_held_turn(&stale.run, &stale.turn_id).unwrap());
     let wrong = crate::agent_chat_api::PromptWake {
@@ -273,6 +275,6 @@ fn stale_selection_is_not_restored_and_cannot_starve_a_current_held_prompt() {
             .read_awaiting_agent_chat_prompts(None, "", 128)
             .unwrap()
             .len(),
-        1
+        2
     );
 }

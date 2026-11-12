@@ -1,7 +1,7 @@
 use super::RuntimeFacade;
 use crate::agent_chat_intent_error::AgentChatIntentError;
 use gent_protocol::AgentChatIntentFrame;
-use gent_types::{AgentChatProvider, HostEpoch};
+use gent_types::{AgentChatConversationId, AgentChatProvider, AgentChatRunId, HostEpoch};
 
 impl RuntimeFacade {
     pub(super) fn targeted_steer_intent(
@@ -27,21 +27,6 @@ impl RuntimeFacade {
             .ordinary_prompt_ingress
             .as_ref()
             .ok_or("agent-chat provider lifecycle is not configured")?;
-        let provider = self
-            .agent_chat_reads
-            .as_ref()
-            .ok_or("agent-chat reads are unavailable")?
-            .run_selection(&conversation_id.0, &expected_run_id.0)?
-            .provider;
-        if !matches!(
-            provider,
-            AgentChatProvider::Claude | AgentChatProvider::Codex
-        ) {
-            return Err(AgentChatIntentError {
-                code: "nativeSteerUnavailable",
-                message: "This provider cannot steer the current turn".into(),
-            });
-        }
         let (receipt, run_id) = self
             .agent_chat_prompts
             .steer_queued_for_turn(
@@ -54,13 +39,14 @@ impl RuntimeFacade {
             )?
             .ok_or("agent-chat authority is disabled")?;
         ingress.steer_run(
-            provider,
+            self.run_provider(conversation_id, &run_id)?,
             crate::agent_chat_api::PromptWake {
                 conversation_id: conversation_id.clone(),
                 run_id,
                 receipt_id: receipt.receipt_id.clone(),
                 disposition: gent_types::AgentChatPromptDisposition::Queue,
             },
+            Some(expected_turn_id),
         )?;
         Ok(Some(AgentChatIntentFrame::QueuedPromptSteered {
             request_id: request_id.clone(),
@@ -69,6 +55,20 @@ impl RuntimeFacade {
             message_id: message_id.clone(),
         }))
     }
+
+    fn run_provider(
+        &self,
+        conversation_id: &AgentChatConversationId,
+        run_id: &AgentChatRunId,
+    ) -> Result<AgentChatProvider, AgentChatIntentError> {
+        Ok(self
+            .agent_chat_reads
+            .as_ref()
+            .ok_or("agent-chat reads are unavailable")?
+            .run_selection(&conversation_id.0, &run_id.0)?
+            .provider)
+    }
+
     fn atomic_steer_prompt(
         &self,
         epoch: HostEpoch,
@@ -82,21 +82,6 @@ impl RuntimeFacade {
         let _permit = ingress
             .acquire_prompt()
             .map_err(super::prompt_admission::prompt_admission_error)?;
-        let provider = self
-            .agent_chat_reads
-            .as_ref()
-            .ok_or("agent-chat reads are unavailable")?
-            .run_selection(&input.conversation_id.0, &input.expected_run_id.0)?
-            .provider;
-        if !matches!(
-            provider,
-            AgentChatProvider::Claude | AgentChatProvider::Codex
-        ) {
-            return Err(AgentChatIntentError {
-                code: "nativeSteerUnavailable",
-                message: "This provider cannot steer the current turn".into(),
-            });
-        }
         let result = self.agent_chat_prompts.submit_for_steer(
             &gent_runtime::AgentChatPromptRequest {
                 request_id: input.request_id.clone(),
@@ -114,6 +99,7 @@ impl RuntimeFacade {
         let gent_runtime::AgentChatPromptResult::Saved(saved) = result else {
             return Err("agent-chat authority is disabled".into());
         };
+        let provider = self.run_provider(&input.conversation_id, &input.expected_run_id)?;
         let wake = PromptWake {
             conversation_id: input.conversation_id.clone(),
             run_id: saved.run_id.clone(),
@@ -121,7 +107,14 @@ impl RuntimeFacade {
             disposition: saved.disposition,
         };
         let _ = ingress.clone().wake_after_prompt_commit(wake.clone());
-        let _ = ingress.steer_run(provider, wake);
+        let _ = ingress.steer_run(
+            provider,
+            PromptWake {
+                run_id: input.expected_run_id.clone(),
+                ..wake
+            },
+            Some(&input.expected_turn_id),
+        );
         Ok(AgentChatIntentFrame::Accepted {
             request_id: input.request_id.clone(),
             receipt: saved.receipt.clone(),

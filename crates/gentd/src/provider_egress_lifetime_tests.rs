@@ -124,6 +124,88 @@ fn failed_launch_retains_lease_before_a_wrapper_exists() {
 }
 
 #[test]
+fn a_selection_switch_keeps_the_superseded_runs_egress_fence_current() {
+    let f = Fixture::new();
+    let fence = &f.lease.fence;
+    gent_ports::AgentChatSelectionLedger::switch_agent_chat_selection(
+        &fence.ledger,
+        &gent_types::AgentChatSelectionSwitch {
+            receipt_id: gent_types::ReceiptId("switch".into()),
+            idempotency_key: "switch".into(),
+            host_epoch: gent_types::HostEpoch(1),
+            conversation_id: gent_types::AgentChatConversationId("conversation".into()),
+            parent_run_id: gent_types::AgentChatRunId("run".into()),
+            run_id: gent_types::AgentChatRunId("next".into()),
+            selection: gent_types::AgentChatSelection {
+                provider: gent_types::AgentChatProvider::Codex,
+                model: "gpt-5.6-luna".into(),
+                effort: gent_types::AgentChatEffort::Low,
+                mode: gent_types::AgentChatMode::Ask,
+            },
+            context_policy: gent_types::ContextPolicy::Preserve,
+        },
+    )
+    .unwrap();
+    assert!(fence.current());
+    assert!(fence.matches(&f.launch));
+    let claimed = f.launch.permission_binding.as_ref().unwrap();
+    assert!(
+        RunFence::capture(
+            fence.ledger.clone(),
+            fence.coordinator.clone(),
+            claimed,
+            f.launch.lock.clone(),
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn a_policy_saved_after_claim_keeps_the_sandboxed_launch_and_reaches_the_next_prompt() {
+    let f = Fixture::new();
+    let fence = &f.lease.fence;
+    let claimed = f.launch.permission_binding.clone().unwrap();
+    let mut changed = claimed.policy().clone();
+    changed.revision += 1;
+    changed.policy_id = "policy-revision-2".into();
+    changed.mode = gent_types::PermissionMode::AskEveryTime;
+    gent_ports::PolicyLedger::save_policy(&fence.ledger, &changed).unwrap();
+    let capture = |binding: &gent_types::SandboxPermissionBinding| {
+        RunFence::capture(
+            fence.ledger.clone(),
+            fence.coordinator.clone(),
+            binding,
+            f.launch.lock.clone(),
+        )
+        .unwrap()
+    };
+    let launching = capture(&claimed);
+    assert_eq!(launching.policy, *claimed.policy());
+    assert!(launching.matches(&f.launch));
+    let next_policy = crate::permission_workspace::policy_for_conversation(
+        &fence.ledger,
+        "conversation",
+        "workspace",
+    )
+    .unwrap();
+    assert_eq!(
+        (next_policy.policy_id.as_str(), next_policy.mode),
+        (
+            "policy-revision-2",
+            gent_types::PermissionMode::AskEveryTime
+        )
+    );
+    let next = gent_types::SandboxPermissionBinding::new(
+        "conversation".into(),
+        "run".into(),
+        next_policy.clone(),
+        gent_types::HostEpoch(1),
+    )
+    .unwrap();
+    assert_eq!(capture(&next).policy, next_policy);
+}
+
+#[test]
 fn postspawn_revocation_wraps_before_fallible_authority_recheck() {
     let f = Fixture::new();
     let root = f.lease.private_state.root().to_path_buf();

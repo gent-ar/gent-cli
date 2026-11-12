@@ -262,6 +262,17 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
+    fn interrupt_unstarted_agent_chat_prompt(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        _: HostEpoch,
+    ) -> Result<bool, LedgerError> {
+        Err(LedgerError::Invariant(
+            "unstarted agent chat prompt interruption is unavailable".into(),
+        ))
+    }
+
     /// # Errors
     /// Returns an error when the supplied epoch is not the open successor epoch.
     fn recover_agent_chat_prompt_dispatches(

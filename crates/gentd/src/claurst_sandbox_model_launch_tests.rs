@@ -87,8 +87,7 @@ fn actual_catalog_caller_model_readiness_summary_and_gateway() {
     let sdk = gent_drivers::lock::capture("claurst", &sdk, "1", "claurst-acp-v1").unwrap();
     let lease = crate::provider_egress::ProviderGatewayLease::claurst_contained(
         ledger,
-        "conversation".into(),
-        run,
+        &binding,
         sdk,
         &case,
         model.clone(),

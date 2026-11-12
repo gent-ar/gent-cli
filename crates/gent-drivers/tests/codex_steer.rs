@@ -83,6 +83,58 @@ fn a_steer_targets_the_live_turn_and_reports_consumption_by_its_gent_message() {
 }
 
 #[test]
+fn a_turn_is_steerable_exactly_while_turn_steer_would_be_written() {
+    let config = CodexSessionConfig {
+        working_directory: Some("/work".into()),
+        resume_thread_id: None,
+        turn_options: CodexTurnOptions::from_selection(
+            &AgentChatSelection {
+                provider: AgentChatProvider::Codex,
+                model: "gpt-5.6".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Agent,
+            },
+            Some("/work"),
+        )
+        .unwrap(),
+        mcp_servers: None,
+    };
+    let (mut driver, _) = CodexTurnDriver::start(config, "first", None).unwrap();
+    for frame in [
+        json!({"id": 1, "result": {}}),
+        json!({"id": 2, "result": {"thread": {"id": "thread-private"}}}),
+    ] {
+        assert!(!driver.steerable());
+        driver.receive(frame.to_string().as_bytes()).unwrap();
+    }
+    assert!(!driver.steerable());
+    assert!(driver.clone().steer("early", "too early", &[]).is_err());
+    driver
+        .receive(json!({"method": "turn/started", "params": {"threadId": "thread-private", "turn": {"id": "turn-1"}}}).to_string().as_bytes())
+        .unwrap();
+    assert!(!driver.steerable());
+    assert!(
+        driver
+            .clone()
+            .steer("announced", "still early", &[])
+            .is_err()
+    );
+    driver
+        .receive(
+            json!({"id": 3, "result": {"turn": {"id": "turn-1"}}})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    assert!(driver.steerable());
+    assert!(driver.clone().steer("live", "now", &[]).is_ok());
+    driver
+        .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
+        .unwrap();
+    assert!(!driver.steerable());
+}
+
+#[test]
 fn a_rejected_steer_is_reported_without_failing_the_session() {
     let mut driver = live_turn();
     driver.steer("message-1", "too late", &[]).unwrap();

@@ -111,7 +111,7 @@ impl AgentChatQueuedPromptLedger for SqliteLedger {
         let run_id = self
             .lock()?
             .query_row(
-                "SELECT run_id FROM conversation_messages WHERE message_id = ?1",
+                "SELECT COALESCE((SELECT live.run_id FROM conversation_messages live JOIN agent_chat_prompt_dispatches d ON d.message_id = live.message_id JOIN turns t ON t.turn_id = live.turn_id WHERE live.conversation_id = m.conversation_id AND d.state IN ('launching', 'started') AND t.phase IN ('active', 'waitingPermission', 'waitingQuestion') ORDER BY d.created_rowid LIMIT 1), m.run_id) FROM conversation_messages m WHERE m.message_id = ?1",
                 [message_id],
                 |row| row.get::<_, String>(0),
             )

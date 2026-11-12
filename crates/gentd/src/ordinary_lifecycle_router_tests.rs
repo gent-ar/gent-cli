@@ -303,6 +303,7 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
         mcp_server_names: Vec::new(),
         updated_at_unix_ms: 0,
         selection: selection(provider),
+        selection_applies_next_turn: false,
         containment: gent_types::Containment::Unsandboxed,
     }
 }
@@ -314,4 +315,75 @@ fn selection(provider: AgentChatProvider) -> AgentChatSelection {
         effort: AgentChatEffort::Medium,
         mode: AgentChatMode::Ask,
     }
+}
+
+struct Worker {
+    remaining: usize,
+    armed: bool,
+}
+
+impl OrdinaryLifecycleHost for Worker {
+    fn provider(&self) -> AgentChatProvider {
+        AgentChatProvider::Claude
+    }
+
+    fn arm_authority_recovery(&mut self) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn wake(&mut self) -> Result<(), ()> {
+        self.armed = true;
+        Ok(())
+    }
+
+    fn drive(&mut self) -> Result<(), ()> {
+        self.armed = false;
+        self.remaining = self.remaining.saturating_sub(1);
+        Ok(())
+    }
+
+    fn needs_drive(&self) -> bool {
+        self.armed || self.remaining > 0
+    }
+}
+
+#[test]
+fn a_host_that_finishes_its_turn_wakes_its_idle_peers_once() {
+    let codex_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut router = router(
+        AgentChatProvider::Claude,
+        Box::new(Worker {
+            remaining: 2,
+            armed: false,
+        }),
+        host(AgentChatProvider::Codex, Arc::clone(&codex_calls)),
+    );
+    assert!(router.drive_once().unwrap());
+    assert!(!router.finished_work());
+    assert!(!router.drive_once().unwrap());
+    assert!(router.finished_work());
+    router.wake_idle_hosts().unwrap();
+    assert!(!router.finished_work());
+    assert!(!router.drive_once().unwrap());
+    assert!(!router.finished_work());
+    assert_eq!(&*codex_calls.lock().unwrap(), &["wake", "drive"]);
+}
+
+#[test]
+fn a_prompt_that_fails_within_one_drive_still_wakes_idle_peers_once() {
+    let claude_calls = Arc::new(Mutex::new(Vec::new()));
+    let codex_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut router = router(
+        AgentChatProvider::Claude,
+        host(AgentChatProvider::Claude, Arc::clone(&claude_calls)),
+        host(AgentChatProvider::Codex, Arc::clone(&codex_calls)),
+    );
+    router.wake_after_prompt_commit(wake()).unwrap();
+    assert!(!router.drive_once().unwrap());
+    assert!(router.finished_work());
+    router.wake_idle_hosts().unwrap();
+    assert!(!router.drive_once().unwrap());
+    assert!(!router.finished_work());
+    assert_eq!(&*claude_calls.lock().unwrap(), &["wake", "drive"]);
+    assert_eq!(&*codex_calls.lock().unwrap(), &["wake", "drive"]);
 }

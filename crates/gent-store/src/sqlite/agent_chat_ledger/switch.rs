@@ -60,6 +60,7 @@ fn persist(
         switch.context_policy,
     )?;
     insert_run(&transaction, switch)?;
+    super::switch_queue::carry_undispatched_prompts(&transaction, switch.host_epoch)?;
     let receipt = Receipt {
         receipt_id: switch.receipt_id.clone(),
         idempotency_key: switch.idempotency_key.clone(),

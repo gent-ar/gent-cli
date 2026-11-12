@@ -23,6 +23,8 @@ use crate::{
 
 #[path = "runtime_facade_conversation_links_refusal_tests.rs"]
 mod refusal_tests;
+#[path = "runtime_facade_switch_wake_tests.rs"]
+mod switch_wake_tests;
 #[path = "runtime_facade_conversation_links_tests.rs"]
 mod tests;
 
@@ -58,6 +60,13 @@ fn selection() -> AgentChatSelection {
 }
 
 pub(super) async fn facade(directory: &std::path::Path) -> RuntimeFacade {
+    facade_with_hosts(directory, vec![]).await
+}
+
+pub(super) async fn facade_with_hosts(
+    directory: &std::path::Path,
+    hosts: Vec<Box<dyn crate::ordinary_lifecycle_router::OrdinaryLifecycleHost>>,
+) -> RuntimeFacade {
     let profile = RuntimeCapabilityProfile::new([
         RuntimeCapabilityFeature::AgentChat,
         RuntimeCapabilityFeature::TurnFollow,
@@ -69,7 +78,7 @@ pub(super) async fn facade(directory: &std::path::Path) -> RuntimeFacade {
     let router = Arc::new(Mutex::new(
         OrdinaryPublicLifecycleRouter::new(
             AgentChatReadService::new(state.ledger().clone()),
-            vec![],
+            hosts,
         )
         .unwrap(),
     ));

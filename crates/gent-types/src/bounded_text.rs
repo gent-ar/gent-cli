@@ -20,6 +20,9 @@ pub const PROVIDER_SESSION_UNAVAILABLE_NOTICE: &str = "The provider no longer ha
 
 #[must_use]
 pub fn bounded_text(text: &str, limit: usize) -> Cow<'_, str> {
+    if text.contains('\0') {
+        return Cow::Owned(bounded_text(&text.replace('\0', ""), limit).into_owned());
+    }
     if text.len() <= limit {
         return Cow::Borrowed(text);
     }
@@ -68,5 +71,10 @@ mod tests {
         assert!(bounded.starts_with("FIRST"));
         assert!(bounded.ends_with("LAST"));
         assert!(bounded.contains("bytes omitted by Gent to fit its limit"));
+    }
+
+    #[test]
+    fn nul_characters_from_utf16_output_are_removed() {
+        assert_eq!(bounded_text("A\0c\0c\0", 64), "Acc");
     }
 }

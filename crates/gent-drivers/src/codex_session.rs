@@ -236,6 +236,11 @@ impl CodexAppServerSession {
             .request(&self.phase, request_id, message_id, prompt, attachments)
     }
 
+    #[must_use]
+    pub fn steerable(&self) -> bool {
+        steer::CodexSteers::steerable(&self.phase)
+    }
+
     pub(crate) fn unconsumed_steers(&mut self) -> Vec<CodexSteerOutcome> {
         self.steers.turn_ended()
     }

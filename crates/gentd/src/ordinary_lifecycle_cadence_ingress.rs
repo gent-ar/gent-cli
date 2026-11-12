@@ -148,7 +148,7 @@ impl<L> OrdinaryPromptIngress<L> {
         provider: AgentChatProvider,
         run_id: &str,
         turn_id: &str,
-        goal_stop: InterruptGoalStop,
+        goal_stop: Option<InterruptGoalStop>,
     ) -> Result<(), String> {
         if turn_id.trim().is_empty() {
             return Err("expected interrupt turn is empty".into());
@@ -156,7 +156,9 @@ impl<L> OrdinaryPromptIngress<L> {
         if let Some(readiness) = &self.standalone_readiness
             && readiness.cancel_held_turn(run_id, turn_id)?
         {
-            goal_stop.apply();
+            if let Some(stop) = goal_stop {
+                stop.apply();
+            }
             return Ok(());
         }
         if provider == AgentChatProvider::Claurst {
@@ -169,7 +171,7 @@ impl<L> OrdinaryPromptIngress<L> {
                 .push_back(PendingClaurstInterrupt {
                     run_id: run_id.to_owned(),
                     expected_turn_id: Some(turn_id.to_owned()),
-                    goal_stop: Some(goal_stop),
+                    goal_stop,
                 });
             if let Some(notify) = &self.async_claurst_notify {
                 notify.notify_one();
@@ -182,7 +184,9 @@ impl<L> OrdinaryPromptIngress<L> {
             .map_err(|_| "standalone lifecycle router is unavailable")?
             .interrupt_turn(provider, run_id, turn_id)
             .map_err(|_| "the interrupt target turn is no longer active")?;
-        goal_stop.apply();
+        if let Some(stop) = goal_stop {
+            stop.apply();
+        }
         Ok(())
     }
 }

@@ -36,7 +36,7 @@ pub(super) fn claim_for_turn(
     require_open(&transaction, host_epoch)?;
     let oldest = transaction
         .query_row(
-            "SELECT d.message_id, d.state, COALESCE((SELECT receipt_id FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id AND s.state='requested'),(SELECT r.receipt_id FROM receipts r WHERE r.idempotency_key = ?2 || d.message_id AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id))) FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.run_id = ?1 AND d.state IN ('awaiting_readiness', 'provisioning', 'pending') ORDER BY d.created_rowid LIMIT 1",
+            "SELECT d.message_id, d.state, COALESCE((SELECT receipt_id FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id AND s.state='requested'),(SELECT r.receipt_id FROM receipts r WHERE r.idempotency_key = ?2 || d.message_id AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id))) FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.conversation_id = (SELECT conversation_id FROM runs WHERE run_id = ?1) AND d.state IN ('awaiting_readiness', 'provisioning', 'pending') ORDER BY d.created_rowid LIMIT 1",
             params![run_id.0, STEER_KEY_PREFIX],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
         )
@@ -45,7 +45,7 @@ pub(super) fn claim_for_turn(
     let Some((message_id, state, Some(steer_receipt_id))) = oldest else {
         return Ok(None);
     };
-    let prompt = saved(&transaction, &message_id)?;
+    let mut prompt = saved(&transaction, &message_id)?;
     if let Some((_, run, turn, _)) = target::target(&transaction, &message_id)? {
         if expected_turn != Some(turn.as_str())
             || run != run_id.0
@@ -70,6 +70,15 @@ pub(super) fn claim_for_turn(
     }
     if state != "pending" || prompt.disposition != AgentChatPromptDisposition::Queue {
         return Ok(None);
+    }
+    if prompt.message.run_id != run_id.0 {
+        super::super::switch_queue::move_prompt(
+            &transaction,
+            &message_id,
+            &prompt.message.turn_id,
+            &run_id.0,
+        )?;
+        prompt = saved(&transaction, &message_id)?;
     }
     transaction
         .execute(
@@ -121,18 +130,27 @@ fn settle(
     require_open(&transaction, host_epoch)?;
     let prompt = saved(&transaction, message_id)?;
     if let Some((_, run, turn, state)) = target::target(&transaction, message_id)? {
-        if state != "claimed" || into_turn_id != Some(turn.as_str()) || run != prompt.message.run_id
-        {
-            return Err(LedgerError::Invariant(
-                "steer delivery does not match its durable target".into(),
-            ));
+        if state != "claimed" || run != prompt.message.run_id {
+            return Err(target_mismatch());
         }
-        transaction
-            .execute(
-                "UPDATE agent_chat_steer_targets SET state='delivered' WHERE message_id=?1",
-                [message_id],
-            )
-            .map_err(storage_error)?;
+        if into_turn_id == Some(turn.as_str()) {
+            transaction
+                .execute(
+                    "UPDATE agent_chat_steer_targets SET state='delivered' WHERE message_id=?1",
+                    [message_id],
+                )
+                .map_err(storage_error)?;
+        } else if target::live(
+            &transaction,
+            &prompt.message.conversation_id,
+            &run,
+            &turn,
+            host_epoch,
+        )? {
+            return Err(target_mismatch());
+        } else {
+            target::expire(&transaction, message_id, host_epoch, "targetExpired")?;
+        }
     }
     let changed = transaction
         .execute(
@@ -185,6 +203,10 @@ fn settle(
         },
     )?;
     transaction.commit().map_err(storage_error)
+}
+
+fn target_mismatch() -> LedgerError {
+    LedgerError::Invariant("steer delivery does not match its durable target".into())
 }
 
 fn retire_queued_turn(

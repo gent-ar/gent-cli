@@ -106,8 +106,7 @@ impl RoutedClaurstStandaloneLauncher {
         let model = endpoint.clone();
         let lease = crate::provider_egress::ProviderGatewayLease::claurst_contained(
             ledger.clone(),
-            binding.conversation_id().into(),
-            binding.run_id().into(),
+            binding,
             lock.clone(),
             &state_root,
             endpoint,

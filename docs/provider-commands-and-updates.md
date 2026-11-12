@@ -99,7 +99,7 @@ availability = { requiresConversation, blockedWhileTurnActive }
 | `/resume` | `clientAction conversationPicker`, `/resume ID` → open | no provider resume in SDK/app-server/ACP |
 | `/clear` (`/reset`) | `gentIntent switchSelection{context: clear}` | provider `/clear` would fork the native session behind the ledger |
 | `/fork` | `gentIntent forkConversation` | fixes TUI `/fork` → `SwitchSelection` |
-| `/model` `/effort` `/provider` `/mode` | `gentIntent switchSelection` | selection authority, `selectionSwitchBlockedByActiveTurn` |
+| `/model` `/effort` `/provider` `/mode` | `gentIntent switchSelection` | selection authority; accepted while a turn runs and applied from the next turn |
 | `/goal` | `gentIntent goal` | Gent goals; hides Claude's built-in `/goal` |
 | `/compact [instructions]` | `gentIntent compact` | Codex: `thread/compact/start`. Claude: `/compact` user frame, only after `system/compact_boundary` is captured and normalized. Claurst: Gent summary fact via the local llama-server |
 | `/login` | `gentIntent providerAuth` | provider-auth-v1 |
@@ -137,7 +137,8 @@ CommandInvoked     { requestId, receipt, conversationId, outcome }
 ```
 
 `outcome` is `delivered{runId}`, `intentApplied`, or a typed error: `unknownCommand`,
-`unsupportedCommand{use?}`, `commandRequiresConversation`, `selectionSwitchBlockedByActiveTurn`.
+`unsupportedCommand{use?}`, `commandRequiresConversation`, `commandBlockedByActiveTurn` (only
+`/fork`, `/compact` and provider-native commands).
 The catalog is a read, not ledger state, like the model catalog. Its revision changes when the
 provider executable digest, the workspace skill set, or the Gent table changes. The projection
 follow carries `commandCatalogChanged{revision}` so clients re-read. Nothing is cached as truth.

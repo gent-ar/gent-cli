@@ -215,6 +215,29 @@ fn delivery_and_legacy_fallback_cannot_change_target_after_claim() {
 }
 
 #[test]
+fn a_claimed_target_whose_turn_ended_starts_as_its_own_turn() {
+    let (ledger, conversation) = ledger();
+    let current = active(&ledger, &conversation);
+    let queued = prompt(&ledger, &conversation, "queued", Disposition::Queue);
+    request(&ledger, &conversation, &queued, &current, "accepted").unwrap();
+    claim(&ledger, &current).unwrap();
+    finish(&ledger, &current);
+    ledger
+        .start_steered_agent_chat_prompt_turn(&queued.message.message_id, DAEMON, HostEpoch(1))
+        .unwrap();
+    let facts = ledger
+        .read_conversation_activity_page(&conversation.0, &current.run_id.0, 0, 50)
+        .unwrap()
+        .facts;
+    assert!(facts.iter().any(|f| matches!(f, ConversationActivityFact::PromptSteerRejected { message_id, receipt_id, reason, scope }
+        if message_id == &queued.message.message_id && receipt_id == "accepted" && reason == "targetExpired" && scope.turn_id == current.message.turn_id)));
+    assert!(facts.iter().any(
+        |f| matches!(f, ConversationActivityFact::PromptReleased { message_id, scope }
+        if message_id == &queued.message.message_id && scope.turn_id == queued.message.turn_id)
+    ));
+}
+
+#[test]
 fn immutable_receipt_and_target_survive_reopen_and_duplicate_ack() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.db");

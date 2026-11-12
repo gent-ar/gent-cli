@@ -253,6 +253,14 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         terminal::settle(self, message_id, coordinator_id, host_epoch, phase)
     }
+    fn interrupt_unstarted_agent_chat_prompt(
+        &self,
+        run_id: &str,
+        turn_id: Option<&str>,
+        host_epoch: HostEpoch,
+    ) -> Result<bool, LedgerError> {
+        terminal::interrupt_unstarted(self, run_id, turn_id, host_epoch)
+    }
     fn recover_agent_chat_prompt_dispatches(
         &self,
         host_epoch: HostEpoch,

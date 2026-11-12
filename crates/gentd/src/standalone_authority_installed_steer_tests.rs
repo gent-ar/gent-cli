@@ -76,6 +76,7 @@ impl InstalledProvider {
                     receipt_id: receipt.receipt_id,
                     ..wake_queued(queued)
                 },
+                None,
             )
             .unwrap();
     }

@@ -17,6 +17,29 @@ where
         self.runtime.warm(conversation_id, run_id).await
     }
 
+    pub(super) async fn interrupt(
+        &mut self,
+        run_id: &str,
+        turn_id: Option<&str>,
+    ) -> Result<(), String> {
+        let running = self.active.values().any(|active| {
+            active.saved.run_id.0 == run_id
+                && turn_id.is_none_or(|turn_id| active.saved.message.turn_id == turn_id)
+        });
+        if !running {
+            return self
+                .ledger
+                .interrupt_unstarted_agent_chat_prompt(run_id, turn_id, self.host_epoch)
+                .map_err(display)?
+                .then_some(())
+                .ok_or_else(|| "the interrupt target turn is no longer active".into());
+        }
+        if self.interrupt_compaction(run_id) {
+            return Ok(());
+        }
+        self.ingress.cancel_run(run_id).await.map_err(display)
+    }
+
     pub(super) async fn drain_active(&mut self) -> Result<bool, String> {
         let sources: Vec<_> = self.active.keys().cloned().collect();
         let mut active = false;

@@ -189,3 +189,19 @@ fn ctrl_c_interrupts_a_turn_and_quits_only_when_pressed_twice_while_idle() {
         UiEffect::Request(UiRequest::Interrupt { .. })
     ));
 }
+
+#[test]
+fn ctrl_c_after_a_mid_turn_switch_interrupts_the_run_whose_turn_is_live() {
+    let mut running = status(true, false, false);
+    let mut switched = running.runs[0].clone();
+    switched.run_id = "run-switched".into();
+    switched.parent_run_id = Some("run".into());
+    switched.active_turn_id = None;
+    running.runs.push(switched);
+    let mut active = state(Vec::new(), Vec::new(), running);
+    active.parent_run_id = Some("run-switched".into());
+    assert!(matches!(
+        active.apply(UiCommand::Interrupt),
+        UiEffect::Request(UiRequest::Interrupt { run_id, .. }) if run_id == "run"
+    ));
+}

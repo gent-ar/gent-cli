@@ -4,7 +4,7 @@
 
 A Windows PSEC backend and isolated native fixtures exist, but no helper has complete reviewed policy proof. Fixture results do not authorize a release.
 
-Containment is chosen per conversation: `gent_types::Containment` on the conversation config record (`containment`: `unsandboxed`, the default, or `sandboxed`), projected on `AgentChatConversationSummary.containment` and set with `gent chat create --sandboxed` or an `agent-chat-conversation-config-v1` save. Changing it during an active turn returns `selectionSwitchBlockedByActiveTurn`.
+Containment is chosen per conversation: `gent_types::Containment` on the conversation config record (`containment`: `unsandboxed`, the default, or `sandboxed`), projected on `AgentChatConversationSummary.containment` and set with `gent chat create --sandboxed` or an `agent-chat-conversation-config-v1` save. A change saved during a turn is accepted and applies from the next turn; the running provider process keeps the containment it launched with.
 The launcher choice is one rule, `Containment::requires_sandbox`: Unsandboxed launches Claude, Codex and Claurst through the ordinary host path in every mode, so local servers, previews and `git clone` work; Sandboxed launches through the contained path in every mode.
 A failed sandbox admission fails the turn with a notice whose `failureCode` is `sandboxUnavailable` (no helper, pins or package on this device) or `sandboxAdmissionFailed`; it never retries unsandboxed. `--consent-bypass` still guards only the change into Bypass.
 

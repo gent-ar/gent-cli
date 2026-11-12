@@ -12,18 +12,32 @@ use super::{
     StandalonePromptRelease,
 };
 
-pub(crate) const fn steers_by_interrupt(provider: AgentChatProvider) -> bool {
-    matches!(provider, AgentChatProvider::Claurst)
-}
-
 impl<L: AgentChatReadLedger> OrdinaryPromptIngress<L> {
     pub(crate) fn steer_run(
         &self,
         provider: AgentChatProvider,
         prompt: PromptWake,
+        expected_turn_id: Option<&str>,
     ) -> Result<(), String> {
-        if steers_by_interrupt(provider) {
-            return self.interrupt_run(provider, &prompt.run_id.0);
+        if !provider.steers_by_interrupt() {
+            return self.wake_run(provider, prompt);
+        }
+        match expected_turn_id {
+            Some(turn_id) => self.interrupt_turn(provider, &prompt.run_id.0, turn_id, None),
+            None => self.interrupt_run(provider, &prompt.run_id.0),
+        }
+    }
+
+    pub(crate) fn wake_run(
+        &self,
+        provider: AgentChatProvider,
+        prompt: PromptWake,
+    ) -> Result<(), String> {
+        if provider == AgentChatProvider::Claurst {
+            if let Some(notify) = &self.async_claurst_notify {
+                notify.notify_one();
+            }
+            return Ok(());
         }
         OrdinaryPromptWake {
             control: self.control.clone(),

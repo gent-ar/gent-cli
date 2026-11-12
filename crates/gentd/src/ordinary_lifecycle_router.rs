@@ -15,6 +15,8 @@ pub(crate) enum OrdinaryLifecycleRouterError {
 pub(crate) struct OrdinaryPublicLifecycleRouter<L> {
     reads: AgentChatReadService<L>,
     hosts: Vec<Box<dyn OrdinaryLifecycleHost>>,
+    peer_woken: Vec<bool>,
+    finished: Vec<bool>,
 }
 
 impl<L> std::fmt::Debug for OrdinaryPublicLifecycleRouter<L> {
@@ -43,20 +45,52 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
                 return Err(OrdinaryLifecycleRouterError::DuplicateHost(host.provider()));
             }
         }
-        Ok(Self { reads, hosts })
+        Ok(Self {
+            reads,
+            peer_woken: vec![false; hosts.len()],
+            finished: vec![false; hosts.len()],
+            hosts,
+        })
     }
 
     pub(crate) fn drive_once(&mut self) -> Result<bool, OrdinaryLifecycleRouterError> {
         let mut needs_drive = false;
-        for host in &mut self.hosts {
+        for ((host, peer_woken), finished) in self
+            .hosts
+            .iter_mut()
+            .zip(&mut self.peer_woken)
+            .zip(&mut self.finished)
+        {
             if !host.needs_drive() {
                 continue;
             }
             host.drive()
                 .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
-            needs_drive |= host.needs_drive();
+            let still_working = host.needs_drive();
+            *finished |= !std::mem::take(peer_woken) && !still_working;
+            needs_drive |= still_working;
         }
         Ok(needs_drive)
+    }
+
+    pub(crate) fn finished_work(&self) -> bool {
+        self.finished.contains(&true)
+    }
+
+    pub(crate) fn wake_idle_hosts(&mut self) -> Result<(), OrdinaryLifecycleRouterError> {
+        for ((host, peer_woken), finished) in self
+            .hosts
+            .iter_mut()
+            .zip(&mut self.peer_woken)
+            .zip(&mut self.finished)
+        {
+            if !std::mem::take(finished) && !host.needs_drive() {
+                host.wake()
+                    .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
+                *peer_woken = true;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn activate_recovery(&mut self) -> Result<(), OrdinaryLifecycleRouterError> {
@@ -205,11 +239,14 @@ impl<L: AgentChatReadLedger> PromptCommitWake for OrdinaryPublicLifecycleRouter<
             .run_selection(&prompt.conversation_id.0, &prompt.run_id.0)
             .map_err(|_| OrdinaryLifecycleRouterError::DurableSelectionUnavailable)?
             .provider;
-        self.hosts
+        let (host, peer_woken) = self
+            .hosts
             .iter_mut()
-            .find(|host| host.provider() == provider)
-            .ok_or(OrdinaryLifecycleRouterError::HostUnavailable(provider))?
-            .wake()
+            .zip(&mut self.peer_woken)
+            .find(|(host, _)| host.provider() == provider)
+            .ok_or(OrdinaryLifecycleRouterError::HostUnavailable(provider))?;
+        *peer_woken = false;
+        host.wake()
             .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(provider))
     }
 }

@@ -54,6 +54,30 @@ fn steered_scenario() -> Scenario {
 }
 
 fn scenario(targeted: bool) -> Scenario {
+    let mut scenario = requested_before_session(targeted);
+    scenario
+        .runner
+        .0
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![ClaudeRunnerEffect::Fact(
+            PublicWireFact::SessionStarted {
+                provider_session_id: "session".into(),
+            },
+        )]);
+    scenario.host.tick().unwrap();
+    assert_eq!(
+        scenario.runner.0.lock().unwrap().steers,
+        [(
+            scenario.queued.message.message_id.clone(),
+            "message-queued".into()
+        )]
+    );
+    scenario
+}
+
+fn requested_before_session(targeted: bool) -> Scenario {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
         .create_agent_chat_conversation_in_workspace(
@@ -112,21 +136,6 @@ fn scenario(targeted: bool) -> Scenario {
             )
             .unwrap();
     }
-    runner
-        .0
-        .lock()
-        .unwrap()
-        .effects
-        .push_back(vec![ClaudeRunnerEffect::Fact(
-            PublicWireFact::SessionStarted {
-                provider_session_id: "session".into(),
-            },
-        )]);
-    host.tick().unwrap();
-    assert_eq!(
-        runner.0.lock().unwrap().steers,
-        [(queued.message.message_id.clone(), "message-queued".into())]
-    );
     Scenario {
         ledger,
         runner,
@@ -234,6 +243,60 @@ fn a_take_up_between_tool_output_and_the_result_is_recorded_in_the_running_turn(
 
 #[path = "claude_steer_legacy_late_tests.rs"]
 mod legacy_late;
+
+#[test]
+fn a_steer_requested_before_the_claude_session_starts_waits_and_never_fails_the_turn() {
+    for targeted in [false, true] {
+        let mut scenario = requested_before_session(targeted);
+        scenario.host.tick().unwrap();
+        scenario.host.tick().unwrap();
+        assert!(scenario.runner.0.lock().unwrap().steers.is_empty());
+        let active_turn = scenario.active.message.turn_id.clone();
+        assert_eq!(
+            scenario
+                .ledger
+                .find_turn(&active_turn)
+                .unwrap()
+                .unwrap()
+                .phase,
+            DurableTurnPhase::Active
+        );
+        scenario
+            .runner
+            .0
+            .lock()
+            .unwrap()
+            .effects
+            .push_back(vec![ClaudeRunnerEffect::Fact(
+                PublicWireFact::SessionStarted {
+                    provider_session_id: "session".into(),
+                },
+            )]);
+        scenario.host.tick().unwrap();
+        assert_eq!(
+            scenario.runner.0.lock().unwrap().steers,
+            [(
+                scenario.queued.message.message_id.clone(),
+                "message-queued".into()
+            )]
+        );
+        scenario.runner.0.lock().unwrap().effects.push_back(vec![
+            ClaudeRunnerEffect::SteerConsumed {
+                message_id: scenario.queued.message.message_id.clone(),
+            },
+            output("after"),
+            phase(TurnPhase::Ready),
+        ]);
+        scenario.host.tick().unwrap();
+        for turn in [&active_turn, &scenario.queued.message.turn_id] {
+            assert_eq!(
+                scenario.ledger.find_turn(turn).unwrap().unwrap().phase,
+                DurableTurnPhase::Completed
+            );
+        }
+        assert_eq!(turn_of(&scenario, "after"), active_turn);
+    }
+}
 
 #[test]
 fn an_interrupted_turn_returns_its_untaken_steer_to_the_queue_for_one_normal_launch() {

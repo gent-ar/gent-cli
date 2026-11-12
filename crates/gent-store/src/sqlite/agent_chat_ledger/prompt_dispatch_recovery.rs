@@ -37,6 +37,7 @@ pub(super) fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<()
     fail_open_turns(&transaction, "d.state = 'unprovable'", None, host_epoch)?;
     crate::sqlite::agent_chat_steer_target::expire_unprovable(&transaction, host_epoch)?;
     recover_permissions(&transaction, host_epoch)?;
+    super::super::switch_queue::carry_undispatched_prompts(&transaction, host_epoch)?;
     transaction.commit().map_err(queries::storage_error)
 }
 

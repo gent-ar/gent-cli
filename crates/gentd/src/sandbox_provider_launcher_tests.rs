@@ -1,9 +1,9 @@
 use super::*;
-use gent_ports::AgentChatWorkspaceLedger;
+use gent_ports::{AgentChatWorkspaceLedger, PolicyLedger};
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatProvider, AgentChatRunId, AgentChatSelection, CapabilitySet, HostEpoch,
-    PermissionMode, PolicyRecord, ReceiptId, WorkspaceRecord,
+    PermissionMode, PolicyRecord, PolicyScope, ReceiptId, WorkspaceRecord,
 };
 
 fn prepared() -> (
@@ -84,20 +84,86 @@ fn prepared_for(
 }
 
 #[test]
-fn routed_factory_requires_exact_current_policy_and_open_epoch() {
-    let (_root, launcher, binding) = prepared();
-    launcher.current(&binding).unwrap();
-    let mut policy = binding.policy().clone();
-    policy.revision += 1;
-    policy.policy_id = "policy-revision-2".into();
-    launcher.ledger.save_policy(&policy).unwrap();
-    assert!(launcher.validate_permission_binding(&binding).is_err());
-    let fresh =
-        SandboxPermissionBinding::new("conversation".into(), "run".into(), policy, HostEpoch(1))
+fn a_policy_saved_after_claim_applies_to_the_next_prompt_without_failing_this_launch() {
+    let (_root, launcher, claimed) = prepared();
+    let mut changed = claimed.policy().clone();
+    changed.revision += 1;
+    changed.policy_id = "policy-revision-2".into();
+    changed.mode = PermissionMode::Bypass;
+    launcher.ledger.save_policy(&changed).unwrap();
+    gent_ports::AgentChatConversationConfigLedger::save_conversation_config(
+        &launcher.ledger,
+        &gent_types::AgentChatConversationConfigRecord {
+            conversation_id: AgentChatConversationId("conversation".into()),
+            revision: 2,
+            system_prompt: None,
+            append_system_prompt: false,
+            max_turns: None,
+            thinking_enabled: None,
+            disallowed_tools: vec![],
+            containment: gent_types::Containment::Unsandboxed,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        launcher.current(&claimed).unwrap(),
+        AgentChatProvider::Claude
+    );
+    let next = crate::permission_workspace::policy_for_conversation(
+        &launcher.ledger,
+        "conversation",
+        "workspace",
+    )
+    .unwrap();
+    assert_eq!(
+        next,
+        changed.for_conversation(gent_types::Containment::Unsandboxed)
+    );
+    let next =
+        SandboxPermissionBinding::new("conversation".into(), "run".into(), next, HostEpoch(1))
             .unwrap();
-    launcher.current(&fresh).unwrap();
+    launcher.current(&next).unwrap();
     launcher.ledger.close_ingress(HostEpoch(1)).unwrap();
-    assert!(launcher.validate_permission_binding(&fresh).is_err());
+    assert!(launcher.current(&claimed).is_err());
+    assert!(launcher.current(&next).is_err());
+}
+
+#[test]
+fn a_selection_switch_keeps_the_launch_authority_of_the_superseded_run() {
+    let (_root, launcher, binding) = prepared();
+    gent_ports::AgentChatSelectionLedger::switch_agent_chat_selection(
+        &launcher.ledger,
+        &gent_types::AgentChatSelectionSwitch {
+            receipt_id: ReceiptId("switch".into()),
+            idempotency_key: "switch".into(),
+            host_epoch: HostEpoch(1),
+            conversation_id: AgentChatConversationId("conversation".into()),
+            parent_run_id: AgentChatRunId("run".into()),
+            run_id: AgentChatRunId("next".into()),
+            selection: AgentChatSelection {
+                provider: AgentChatProvider::Codex,
+                model: "gpt-5.6-luna".into(),
+                effort: AgentChatEffort::Low,
+                mode: AgentChatMode::Ask,
+            },
+            context_policy: gent_types::ContextPolicy::Preserve,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        launcher.current(&binding).unwrap(),
+        AgentChatProvider::Claude
+    );
+    let absent = SandboxPermissionBinding::new(
+        "conversation".into(),
+        "absent".into(),
+        binding.policy().clone(),
+        HostEpoch(1),
+    )
+    .unwrap();
+    assert!(launcher.current(&absent).is_err());
+    launcher.ledger.close_ingress(HostEpoch(1)).unwrap();
+    assert!(launcher.current(&binding).is_err());
 }
 
 #[test]

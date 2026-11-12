@@ -263,7 +263,7 @@ fn a_plan_cannot_start_while_its_planning_run_is_still_working() {
     assert!(matches!(
         ledger.approve_reviewed_plan(&request),
         Err(gent_ports::LedgerError::Rejected(
-            gent_types::AgentChatRejection::SelectionSwitchBlockedByActiveTurn
+            gent_types::AgentChatRejection::PlanApprovalBlockedByActiveTurn
         ))
     ));
 }

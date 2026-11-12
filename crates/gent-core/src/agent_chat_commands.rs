@@ -103,7 +103,7 @@ fn descriptor(
     let (dispatch, blocked_while_turn_active) = match (kind, provider) {
         (Kind::Intent(intent), _) => (
             AgentChatCommandDispatch::GentIntent { intent: *intent },
-            !matches!(intent, Intent::CreateConversation | Intent::Goal),
+            matches!(intent, Intent::ForkConversation | Intent::Compact),
         ),
         (Kind::Client(action), _) => (
             AgentChatCommandDispatch::ClientAction { action: *action },

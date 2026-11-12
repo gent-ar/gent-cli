@@ -79,9 +79,9 @@ impl IntentPort for FakePort {
                 Err(gent_types::AgentChatRejection::QueuedPromptNotSteerable.into())
             }
             AgentChatIntentFrame::SwitchSelection { parent_run_id, .. }
-                if parent_run_id.0 == "run-busy" =>
+                if parent_run_id.0 == "run-stale" =>
             {
-                Err(gent_types::AgentChatRejection::SelectionSwitchBlockedByActiveTurn.into())
+                Err(gent_types::AgentChatRejection::SelectionSwitchParentNotCurrent.into())
             }
             AgentChatIntentFrame::SwitchSelection {
                 request_id,
@@ -445,11 +445,11 @@ async fn queued_prompt_steer_replies_or_rejects_with_a_typed_code() {
 }
 
 #[tokio::test]
-async fn blocked_selection_switch_is_a_typed_rejection() {
+async fn stale_selection_switch_parent_is_a_typed_rejection() {
     let (mut reader, mut writer) = duplex(4096);
     let request = json!({ "type": "switchSelection", "body": {
-        "requestId": "switch-busy", "receiptId": "receipt-busy", "conversationId": "conversation-1",
-        "parentRunId": "run-busy", "selection": { "provider": "codex", "model": "gpt-5.6", "effort": "high", "mode": "agent" }, "contextPolicy": "preserve"
+        "requestId": "switch-stale", "receiptId": "receipt-stale", "conversationId": "conversation-1",
+        "parentRunId": "run-stale", "selection": { "provider": "codex", "model": "gpt-5.6", "effort": "high", "mode": "agent" }, "contextPolicy": "preserve"
     } });
     assert!(
         dispatch_port(&mut writer, &FakePort, &capabilities(), &request)
@@ -459,7 +459,7 @@ async fn blocked_selection_switch_is_a_typed_rejection() {
     assert!(matches!(
         read_frame(&mut reader).await.unwrap(),
         WireFrame::Error { code, message }
-            if code == "selectionSwitchBlockedByActiveTurn"
-                && message == "the current turn must settle before changing its model or provider"
+            if code == "selectionSwitchParentNotCurrent"
+                && message == "the selection can change only from the conversation's current run"
     ));
 }

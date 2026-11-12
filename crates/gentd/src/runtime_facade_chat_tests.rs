@@ -100,7 +100,7 @@ fn durable_chat_authority_advertises_and_serves_only_normalized_read_models() {
 }
 
 #[test]
-fn selection_switch_rejects_an_unsettled_parent_turn() {
+fn selection_switch_mid_turn_is_accepted_and_applies_from_the_next_turn() {
     let directory = tempfile::tempdir().unwrap();
     let profile = RuntimeCapabilityProfile::new([RuntimeCapabilityFeature::AgentChat]);
     let runtime = build_runtime(
@@ -116,8 +116,8 @@ fn selection_switch_rejects_an_unsettled_parent_turn() {
             workspace_path: ".".into(),
             selection: Some(AgentChatSelection {
                 provider: AgentChatProvider::Claude,
-                model: "sonnet".into(),
-                effort: AgentChatEffort::Medium,
+                model: "haiku".into(),
+                effort: AgentChatEffort::Low,
                 mode: AgentChatMode::Ask,
             }),
         })
@@ -132,35 +132,96 @@ fn selection_switch_rejects_an_unsettled_parent_turn() {
     else {
         panic!("conversation creation must return durable identities");
     };
-    runtime
-        .agent_chat_intent(AgentChatIntentFrame::SendPrompt {
-            request_id: AgentChatRequestId("prompt-mid-turn".into()),
-            receipt_id: ReceiptId("receipt-prompt-mid-turn".into()),
-            conversation_id: conversation_id.clone(),
-            text: "continue".into(),
-            attachment_ids: vec![],
-        })
+    for (request, queued) in [("running", false), ("queued-before", true)] {
+        let request_id = AgentChatRequestId(request.into());
+        let receipt_id = ReceiptId(format!("receipt-{request}"));
+        runtime
+            .agent_chat_intent(if queued {
+                AgentChatIntentFrame::QueuePrompt {
+                    request_id,
+                    receipt_id,
+                    conversation_id: conversation_id.clone(),
+                    text: request.into(),
+                    attachment_ids: vec![],
+                }
+            } else {
+                AgentChatIntentFrame::SendPrompt {
+                    request_id,
+                    receipt_id,
+                    conversation_id: conversation_id.clone(),
+                    text: request.into(),
+                    attachment_ids: vec![],
+                }
+            })
+            .unwrap();
+    }
+    let database = rusqlite::Connection::open(directory.path().join("gent.db")).unwrap();
+    database
+        .execute(
+            "UPDATE agent_chat_prompt_dispatches SET state = 'started', coordinator_id = 'daemon', host_epoch = 1 WHERE message_id = (SELECT message_id FROM conversation_messages WHERE text = 'running')",
+            [],
+        )
         .unwrap();
-    let error = runtime
+    let policies = |database: &rusqlite::Connection| {
+        database
+            .query_row(
+                "SELECT COUNT(*), COALESCE(MAX(revision), 0) FROM policies",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .unwrap()
+    };
+    let policies_before = policies(&database);
+    let next = AgentChatSelection {
+        provider: AgentChatProvider::Codex,
+        model: "gpt-5.6-luna".into(),
+        effort: AgentChatEffort::Low,
+        mode: AgentChatMode::Ask,
+    };
+    let switched = runtime
         .agent_chat_intent(AgentChatIntentFrame::SwitchSelection {
             request_id: AgentChatRequestId("switch-mid-turn".into()),
             receipt_id: ReceiptId("receipt-switch-mid-turn".into()),
             conversation_id: conversation_id.clone(),
             parent_run_id: run_id.clone(),
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Codex,
-                model: "gpt-5.6-sol".into(),
-                effort: AgentChatEffort::Low,
-                mode: AgentChatMode::Ask,
-            },
+            selection: next.clone(),
             context_policy: ContextPolicy::Preserve,
         })
-        .unwrap_err();
-    assert_eq!(error.code, "selectionSwitchBlockedByActiveTurn");
-    assert_eq!(
-        error.message,
-        "the current turn must settle before changing its model or provider"
-    );
+        .unwrap();
+    let [AgentChatIntentFrame::Switched { run_id: child, .. }] = switched.as_slice() else {
+        panic!("a mid-turn switch must be accepted");
+    };
+    assert_eq!(policies(&database), policies_before);
+    let summary = || match runtime
+        .agent_chat_conversation(AgentChatConversationFrame::SummaryRequest {
+            conversation_id: conversation_id.0.clone(),
+        })
+        .unwrap()
+    {
+        AgentChatConversationFrame::Summary(value) => value,
+        other => panic!("unexpected summary frame {other:?}"),
+    };
+    let pending = summary();
+    assert_eq!(pending.selection, next);
+    assert!(pending.selection_applies_next_turn);
+    let run_of = |text: &str| {
+        database
+            .query_row(
+                "SELECT run_id FROM conversation_messages WHERE text = ?1",
+                [text],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(run_of("running"), run_id.0);
+    assert_eq!(run_of("queued-before"), child.0);
+    database
+        .execute(
+            "UPDATE turns SET phase = 'completed' WHERE turn_id = (SELECT turn_id FROM conversation_messages WHERE text = 'running')",
+            [],
+        )
+        .unwrap();
+    assert!(!summary().selection_applies_next_turn);
 }
 
 #[test]

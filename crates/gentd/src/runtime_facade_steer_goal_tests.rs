@@ -22,6 +22,9 @@ use crate::{
     ordinary_lifecycle_router::OrdinaryPublicLifecycleRouter,
 };
 
+#[path = "runtime_facade_claurst_targeted_steer_tests.rs"]
+mod claurst_targeted;
+
 #[derive(Debug)]
 struct Claurst(Arc<Mutex<Vec<String>>>);
 
@@ -40,8 +43,117 @@ impl AsyncOrdinaryLifecycleHost for Claurst {
         self.0.lock().unwrap().push(run_id.into());
         Ok(())
     }
+    async fn interrupt_claurst_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), String> {
+        self.0.lock().unwrap().push(format!("{run_id}/{turn_id}"));
+        Ok(())
+    }
     fn shutdown_complete(&self) -> bool {
         true
+    }
+}
+
+struct Harness {
+    _directory: tempfile::TempDir,
+    runtime: RuntimeFacade,
+    ledger: SqliteLedger,
+    interrupts: Arc<Mutex<Vec<String>>>,
+    conversation_id: AgentChatConversationId,
+    run_id: AgentChatRunId,
+    task: tokio::task::AbortHandle,
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl Harness {
+    async fn interrupted(&self) -> Vec<String> {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while self.interrupts.lock().unwrap().is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        self.interrupts.lock().unwrap().clone()
+    }
+}
+
+async fn harness() -> Harness {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::TurnFollow,
+        RuntimeCapabilityFeature::LocalModels,
+    ]);
+    let state = DaemonCompositionState::open(
+        directory.path(),
+        &profile,
+        CompatibilityAssessment::default(),
+    )
+    .unwrap();
+    let ledger = state.ledger().clone();
+    let router = Arc::new(Mutex::new(
+        OrdinaryPublicLifecycleRouter::new(AgentChatReadService::new(ledger.clone()), vec![])
+            .unwrap(),
+    ));
+    let (control, ingress, cadence) =
+        pair_with_standalone_readiness(router, ledger.clone(), HostEpoch(1));
+    let interrupts = Arc::new(Mutex::new(Vec::new()));
+    ingress
+        .attach_async_claurst(Box::new(Claurst(Arc::clone(&interrupts))))
+        .await
+        .unwrap();
+    let runtime = RuntimeFacade::from_state_with_standalone_authority(
+        state,
+        None,
+        ingress,
+        crate::local_model_jobs::tests::models(directory.path()),
+        None,
+        None,
+        None,
+        0,
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    let task = tokio::spawn(cadence.run()).abort_handle();
+    while control.phase() != crate::ordinary_lifecycle_control::OrdinaryLifecyclePhase::Ready {
+        tokio::task::yield_now().await;
+    }
+    let created = runtime
+        .agent_chat_intent(AgentChatIntentFrame::CreateConversation {
+            request_id: AgentChatRequestId("create".into()),
+            receipt_id: ReceiptId("create-receipt".into()),
+            workspace_path: ".".into(),
+            selection: Some(AgentChatSelection {
+                provider: AgentChatProvider::Claurst,
+                model: "qwen3-1-7b-q4-k-m".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Agent,
+            }),
+        })
+        .unwrap();
+    let [
+        AgentChatIntentFrame::Created {
+            conversation_id,
+            run_id,
+            ..
+        },
+    ] = created.as_slice()
+    else {
+        panic!("standalone Claurst creation must succeed")
+    };
+    Harness {
+        conversation_id: conversation_id.clone(),
+        run_id: run_id.clone(),
+        _directory: directory,
+        runtime,
+        ledger,
+        interrupts,
+        task,
     }
 }
 
@@ -89,158 +201,6 @@ fn running(
         .confirm_agent_chat_prompt_started(id, "daemon", HostEpoch(1))
         .unwrap();
     active
-}
-
-#[tokio::test]
-async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_pauses_it() {
-    let directory = tempfile::tempdir().unwrap();
-    let profile = RuntimeCapabilityProfile::new([
-        RuntimeCapabilityFeature::AgentChat,
-        RuntimeCapabilityFeature::TurnFollow,
-        RuntimeCapabilityFeature::LocalModels,
-    ]);
-    let state = DaemonCompositionState::open(
-        directory.path(),
-        &profile,
-        CompatibilityAssessment::default(),
-    )
-    .unwrap();
-    let ledger = state.ledger().clone();
-    let router = Arc::new(Mutex::new(
-        OrdinaryPublicLifecycleRouter::new(AgentChatReadService::new(ledger.clone()), vec![])
-            .unwrap(),
-    ));
-    let (control, ingress, cadence) =
-        pair_with_standalone_readiness(router, ledger.clone(), HostEpoch(1));
-    let interrupts = Arc::new(Mutex::new(Vec::new()));
-    ingress
-        .attach_async_claurst(Box::new(Claurst(Arc::clone(&interrupts))))
-        .await
-        .unwrap();
-    let runtime = RuntimeFacade::from_state_with_standalone_authority(
-        state,
-        None,
-        ingress,
-        crate::local_model_jobs::tests::models(directory.path()),
-        None,
-        None,
-        None,
-        0,
-        Vec::new(),
-        None,
-    )
-    .unwrap();
-    let task = tokio::spawn(cadence.run());
-    while control.phase() != crate::ordinary_lifecycle_control::OrdinaryLifecyclePhase::Ready {
-        tokio::task::yield_now().await;
-    }
-    let created = runtime
-        .agent_chat_intent(AgentChatIntentFrame::CreateConversation {
-            request_id: AgentChatRequestId("create".into()),
-            receipt_id: ReceiptId("create-receipt".into()),
-            workspace_path: ".".into(),
-            selection: Some(AgentChatSelection {
-                provider: AgentChatProvider::Claurst,
-                model: "qwen3-1-7b-q4-k-m".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
-            }),
-        })
-        .unwrap();
-    let [
-        AgentChatIntentFrame::Created {
-            conversation_id,
-            run_id,
-            ..
-        },
-    ] = created.as_slice()
-    else {
-        panic!("standalone Claurst creation must succeed")
-    };
-    set_goal(&ledger, conversation_id);
-    let active = running(&ledger, conversation_id);
-    let queued = prompt(
-        &ledger,
-        conversation_id,
-        "queued",
-        AgentChatPromptDisposition::Queue,
-    );
-
-    let targeted = runtime
-        .agent_chat_intent(AgentChatIntentFrame::SteerQueuedPromptForTurn {
-            request_id: AgentChatRequestId("targeted-steer".into()),
-            receipt_id: ReceiptId("steer-receipt".into()),
-            conversation_id: conversation_id.clone(),
-            message_id: queued.message.message_id.clone(),
-            expected_run_id: run_id.clone(),
-            expected_turn_id: active.message.turn_id.clone(),
-        })
-        .unwrap_err();
-    assert_eq!(targeted.code, "nativeSteerUnavailable");
-    assert!(interrupts.lock().unwrap().is_empty());
-
-    let steered = runtime
-        .agent_chat_intent(AgentChatIntentFrame::SteerQueuedPrompt {
-            request_id: AgentChatRequestId("steer".into()),
-            receipt_id: ReceiptId("steer-receipt".into()),
-            conversation_id: conversation_id.clone(),
-            message_id: queued.message.message_id.clone(),
-        })
-        .unwrap();
-    assert!(matches!(
-        steered.as_slice(),
-        [AgentChatIntentFrame::QueuedPromptSteered { .. }]
-    ));
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while interrupts.lock().unwrap().is_empty() {
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .unwrap();
-    assert_eq!(
-        *interrupts.lock().unwrap(),
-        *std::slice::from_ref(&run_id.0)
-    );
-    assert_eq!(
-        ledger
-            .current_goal(&conversation_id.0)
-            .unwrap()
-            .unwrap()
-            .status,
-        GoalStatus::Active
-    );
-    ledger
-        .settle_agent_chat_prompt_terminal(
-            &active.message.message_id,
-            "daemon",
-            HostEpoch(1),
-            gent_types::DurableTurnPhase::Interrupted,
-        )
-        .unwrap();
-    assert_eq!(
-        terminal_fact(&ledger, &conversation_id.0, &run_id.0),
-        Some((
-            gent_types::TurnPhase::Interrupted,
-            Some(gent_types::TurnTerminalCause::Steered)
-        ))
-    );
-
-    runtime
-        .agent_chat_intent(AgentChatIntentFrame::Interrupt {
-            request_id: AgentChatRequestId("stop".into()),
-            receipt_id: ReceiptId("stop-receipt".into()),
-            conversation_id: conversation_id.clone(),
-            run_id: AgentChatRunId(run_id.0.clone()),
-            expected_turn_id: None,
-        })
-        .unwrap();
-    let paused = ledger.current_goal(&conversation_id.0).unwrap().unwrap();
-    assert_eq!(
-        (paused.status, paused.reason),
-        (GoalStatus::Paused, GoalStatusReason::UserStopped)
-    );
-    task.abort();
 }
 
 fn terminal_fact(

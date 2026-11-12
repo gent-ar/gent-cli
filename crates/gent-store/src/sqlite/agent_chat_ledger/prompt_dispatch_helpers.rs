@@ -185,5 +185,8 @@ pub(super) fn transition(
             "deliveryRejected",
         )?;
     }
+    if state == "pending" {
+        super::super::switch_queue::carry_undispatched_prompts(&transaction, host_epoch)?;
+    }
     transaction.commit().map_err(storage_error)
 }

@@ -46,6 +46,7 @@ fn summary(
 ) -> Result<AgentChatConversationSummary, LedgerError> {
     let connection = ledger.lock()?;
     let selection = connection.query_row("SELECT s.provider, s.model, s.effort, s.mode FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id WHERE r.conversation_id = ?1 ORDER BY r.rowid DESC LIMIT 1", [conversation_id], selection).optional().map_err(storage_error)?.ok_or(LedgerError::Rejected(gent_types::AgentChatRejection::ConversationNotFound))?;
+    let selection_applies_next_turn = connection.query_row("SELECT EXISTS(SELECT 1 FROM runs earlier JOIN turns t ON t.run_id = earlier.run_id WHERE earlier.conversation_id = ?1 AND t.phase IN ('active', 'waitingPermission', 'waitingQuestion') AND earlier.run_id <> (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections s ON s.run_id = current.run_id WHERE current.conversation_id = ?1 ORDER BY current.rowid DESC LIMIT 1))", [conversation_id], |row| row.get(0)).map_err(storage_error)?;
     let title = metadata(&connection, conversation_id, "title")?;
     let recap = metadata(&connection, conversation_id, "recap")?;
     let (workspace_id, workspace_path, updated_at_unix_ms, containment) = connection
@@ -67,6 +68,7 @@ fn summary(
         mcp_server_names: Vec::new(),
         updated_at_unix_ms,
         selection,
+        selection_applies_next_turn,
         containment: if containment.as_deref() == Some("sandboxed") {
             gent_types::Containment::Sandboxed
         } else {
@@ -125,7 +127,7 @@ fn selection_at(row: &rusqlite::Row<'_>, start: usize) -> rusqlite::Result<Agent
     })
 }
 
-fn provider(value: &str) -> Result<AgentChatProvider, LedgerError> {
+pub(super) fn provider(value: &str) -> Result<AgentChatProvider, LedgerError> {
     match value {
         "claude" => Ok(AgentChatProvider::Claude),
         "codex" => Ok(AgentChatProvider::Codex),

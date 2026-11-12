@@ -26,7 +26,7 @@ pub(super) fn validate_chat_rejections(records: &[FixtureFrame]) -> Result<(), S
         .collect::<Option<Vec<_>>>()
         .ok_or("must contain only typed error frames")?;
     let expected = [
-        AgentChatRejection::SelectionSwitchBlockedByActiveTurn,
+        AgentChatRejection::PlanApprovalBlockedByActiveTurn,
         AgentChatRejection::SelectionSwitchParentNotCurrent,
         AgentChatRejection::SelectionSwitchBlockedByProvisioning,
         AgentChatRejection::QueuedPromptNotCancelable,

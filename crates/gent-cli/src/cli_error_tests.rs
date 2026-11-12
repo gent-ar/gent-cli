@@ -9,8 +9,8 @@ fn daemon_error_frames_keep_their_typed_code() {
     let error = CliError::from_reply(&json!({
         "type": "error",
         "body": {
-            "code": "selectionSwitchBlockedByActiveTurn",
-            "message": "the current turn must settle before changing its model or provider"
+            "code": "selectionSwitchParentNotCurrent",
+            "message": "the selection can change only from the conversation's current run"
         }
     }))
     .unwrap();
@@ -18,7 +18,7 @@ fn daemon_error_frames_keep_their_typed_code() {
         describe(&error),
         (
             Failure::Rejected,
-            "the current turn must settle before changing its model or provider [selectionSwitchBlockedByActiveTurn]"
+            "the selection can change only from the conversation's current run [selectionSwitchParentNotCurrent]"
                 .into()
         )
     );

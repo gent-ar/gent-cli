@@ -8,13 +8,12 @@ impl ProviderGatewayLease {
     pub(crate) fn codex_managed(
         ledger: SqliteLedger,
         coordinator: Coordinator<SqliteLedger>,
-        conversation_id: String,
-        run_id: String,
+        binding: &gent_types::SandboxPermissionBinding,
         lock: RunVersionLock,
         probe_root: &Path,
         resources: &crate::windows_provider_resources::ManagedProviderResources,
     ) -> Result<Arc<Self>, EgressError> {
-        let fence = RunFence::capture(ledger, coordinator, conversation_id, run_id, lock)?;
+        let fence = RunFence::capture(ledger, coordinator, binding, lock)?;
         if fence.lock.provider != "codex" || !fence.current() {
             return Err(EgressError::Configuration);
         }

@@ -30,17 +30,6 @@ pub(super) fn save(
             "conversation config revision must be {next} for this conversation"
         )));
     }
-    if latest
-        .as_ref()
-        .map(|current| current.containment)
-        .unwrap_or_default()
-        != config.containment
-        && turn_is_active(&connection, &config.conversation_id.0)?
-    {
-        return Err(LedgerError::Rejected(
-            gent_types::AgentChatRejection::SelectionSwitchBlockedByActiveTurn,
-        ));
-    }
     let disallowed_tools = serde_json::to_string(&config.disallowed_tools)
         .map_err(|error| LedgerError::Storage(error.to_string()))?;
     connection
@@ -81,21 +70,6 @@ fn current(
         )
         .optional()
         .map_err(storage_error)
-}
-
-fn turn_is_active(
-    connection: &rusqlite::Connection,
-    conversation_id: &str,
-) -> Result<bool, LedgerError> {
-    connection
-        .query_row(
-            "SELECT 1 FROM turns WHERE conversation_id = ?1 AND phase IN ('active', 'waitingPermission', 'waitingQuestion') LIMIT 1",
-            [conversation_id],
-            |_| Ok(()),
-        )
-        .optional()
-        .map_err(storage_error)
-        .map(|row| row.is_some())
 }
 
 fn conversation_exists(

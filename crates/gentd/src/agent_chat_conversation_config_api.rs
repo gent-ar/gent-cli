@@ -36,12 +36,7 @@ where
         AgentChatConversationConfigFrame::Save { request_id, config } => {
             coordinator
                 .save_conversation_config(&config)
-                .map_err(|error| match error {
-                    gent_runtime::RuntimeError::Ledger(gent_ports::LedgerError::Rejected(
-                        rejection,
-                    )) => rejection.code().to_owned(),
-                    error => error.to_string(),
-                })?;
+                .map_err(|error| error.to_string())?;
             let unsupported_for_provider =
                 unsupported_fields(reads, &config.conversation_id.0, Some(&config));
             Ok(AgentChatConversationConfigFrame::Saved {

@@ -93,8 +93,7 @@ pub(super) fn launch(
             crate::provider_egress::run_fence::RunFence::capture(
                 ledger,
                 coordinator,
-                binding.conversation_id().into(),
-                binding.run_id().into(),
+                binding,
                 lock,
             )
             .map_err(|_| "Claurst model run authority rejected")?,

@@ -1,11 +1,18 @@
 # Turn-bound queued steering
 
 New clients negotiate `agent-chat-steer-turn-v1` and the selected provider's
-`agent-chat-steer-turn-{provider}-v1`. The daemon currently advertises scoped
-support for `claude` and `codex`. `gent` and `claurst` currently use an older
-interrupt-and-next-turn mechanism, so the targeted request rejects them before
-claiming a receipt. That mechanism is not advertised as native current-turn
-steering. Queue remains available.
+`agent-chat-steer-turn-{provider}-v1`. The daemon advertises scoped support for
+`claude`, `codex`, and `claurst`.
+
+Claurst has no native in-turn input, so its delivery is the interrupt. The
+acceptance transaction validates the same live target, then records the steer
+interrupt for that turn instead of a held target. The owner interrupts exactly
+that turn, which ends with terminal cause `steered` and never pauses a goal.
+The prompt stays an ordinary queued prompt and is claimed ahead of the rest of
+the queue, so it runs as the next turn even if the target turn ended on its own
+before the interrupt landed. Claurst steers therefore never expire with
+`targetExpired`; a target that already ended before acceptance is rejected with
+`queuedPromptNotSteerable` like every provider.
 
 Primary composer Steer uses `steerPromptForTurn`, gated separately by
 `agent-chat-steer-enqueue-v1` plus the native turn capabilities. It carries the

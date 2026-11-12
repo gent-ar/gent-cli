@@ -10,7 +10,7 @@
     {%- for tool in tools %}
         {%- if gent_tools is not defined or tool.function.name in gent_tools or tool.function.name[:5] == 'mcp__' %}
             {{- "\n" }}
-            {{- tool | tojson | replace('\\"**/*.rs\\" or \\"src/**/*.ts\\"', '\\"**/*\\" (all files) or \\"src/**/*.py\\"') }}
+            {{- tool | tojson | replace('\\"**/*.rs\\" or \\"src/**/*.ts\\"', '\\"**/*\\" (all files) or \\"src/**/*\\"') }}
         {%- endif %}
     {%- endfor %}
     {{- "\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{\"name\": <function-name>, \"arguments\": <args-json-object>}\n</tool_call><|im_end|>\n" }}

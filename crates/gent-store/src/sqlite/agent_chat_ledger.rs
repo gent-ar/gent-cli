@@ -8,6 +8,7 @@ mod prompt_dispatch_readiness;
 mod receipt;
 mod side_question;
 mod switch;
+mod switch_queue;
 use super::SqliteLedger;
 use super::queries::{find_receipt, insert_receipt, receipt_matches_command, storage_error};
 use super::reviewed_plan_values::{effort, mode, provider};

@@ -101,8 +101,7 @@ fn real_claude_broad_mode_reads_and_writes_through_the_pinned_run_gateway() {
     let lease = crate::provider_egress::ProviderGatewayLease::claude(
         ledger,
         coordinator,
-        conversation,
-        run.clone(),
+        &permission_binding,
         lock.clone(),
         &probe,
     )

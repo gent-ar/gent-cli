@@ -195,10 +195,7 @@ where
     }
 
     pub(crate) async fn interrupt_run(&mut self, run_id: &str) -> Result<(), String> {
-        if self.interrupt_compaction(run_id) {
-            return Ok(());
-        }
-        self.ingress.cancel_run(run_id).await.map_err(display)
+        self.interrupt(run_id, None).await
     }
 
     pub(crate) async fn respond_permission_with_receipt(
@@ -233,12 +230,7 @@ where
         self.interrupt_run(run_id).await
     }
     async fn interrupt_claurst_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), String> {
-        if !self.active.values().any(|active| {
-            active.saved.run_id.0 == run_id && active.saved.message.turn_id == turn_id
-        }) {
-            return Err("the interrupt target turn is no longer active".into());
-        }
-        self.interrupt_run(run_id).await
+        self.interrupt(run_id, Some(turn_id)).await
     }
     async fn warm_claurst(&mut self, conversation_id: &str, run_id: &str) -> Result<(), String> {
         self.warm(conversation_id, run_id).await
@@ -296,3 +288,6 @@ mod compaction_tests;
 #[cfg(test)]
 #[path = "claurst_prompt_lifecycle_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "claurst_unstarted_interrupt_tests.rs"]
+mod unstarted_interrupt_tests;

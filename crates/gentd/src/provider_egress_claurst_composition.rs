@@ -25,20 +25,13 @@ mod claurst_mcp_settings;
 impl ProviderGatewayLease {
     pub(crate) fn claurst_contained(
         ledger: SqliteLedger,
-        conversation_id: String,
-        run_id: String,
+        binding: &gent_types::SandboxPermissionBinding,
         lock: RunVersionLock,
         root: &Path,
         endpoint: crate::contained_model::ModelEndpoint,
     ) -> Result<Arc<Self>, EgressError> {
         let coordinator = Coordinator::new(ledger.clone(), gent_types::CapabilitySet::default());
-        let fence = Arc::new(RunFence::capture(
-            ledger,
-            coordinator,
-            conversation_id,
-            run_id,
-            lock,
-        )?);
+        let fence = Arc::new(RunFence::capture(ledger, coordinator, binding, lock)?);
         if fence.lock.provider != "claurst"
             || !endpoint.matches_authority(&fence.run_id, &fence.lock)
             || !endpoint.current()

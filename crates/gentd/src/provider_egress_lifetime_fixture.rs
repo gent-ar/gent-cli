@@ -44,27 +44,26 @@ impl Fixture {
                 },
             )
             .unwrap();
-        ledger
-            .save_policy(&PolicyRecord {
-                policy_id: "policy".into(),
-                workspace_id: "workspace".into(),
-                scope: PolicyScope::ProviderPermissions,
-                revision: 1,
-                mode: PermissionMode::Bypass,
-                containment: gent_types::Containment::Sandboxed,
-                allowed_tools: vec![],
-                allowed_categories: vec![],
-            })
-            .unwrap();
+        let policy = PolicyRecord {
+            policy_id: "policy".into(),
+            workspace_id: "workspace".into(),
+            scope: PolicyScope::ProviderPermissions,
+            revision: 1,
+            mode: PermissionMode::Bypass,
+            containment: gent_types::Containment::Sandboxed,
+            allowed_tools: vec![],
+            allowed_categories: vec![],
+        };
+        ledger.save_policy(&policy).unwrap();
         let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
-        let fence = RunFence::capture(
-            ledger,
-            coordinator,
+        let binding = SandboxPermissionBinding::new(
             "conversation".into(),
             "run".into(),
-            lock.clone(),
+            policy,
+            HostEpoch(1),
         )
         .unwrap();
+        let fence = RunFence::capture(ledger, coordinator, &binding, lock.clone()).unwrap();
         let private_root = tempfile::Builder::new()
             .prefix("private-")
             .tempdir_in(ancestor.path())
@@ -93,15 +92,7 @@ impl Fixture {
             mcp_deployment: Default::default(),
         });
         let launch = ProviderLaunch {
-            permission_binding: Some(
-                SandboxPermissionBinding::new(
-                    "conversation".into(),
-                    "run".into(),
-                    lease.fence.policy.clone(),
-                    HostEpoch(1),
-                )
-                .unwrap(),
-            ),
+            permission_binding: Some(binding),
             run_id: Some("run".into()),
             provider: "claude".into(),
             executable: lock.canonical_path.clone().into(),

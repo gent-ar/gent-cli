@@ -97,7 +97,7 @@ pub(super) async fn switch(
     Ok(result(
         conversation_id,
         Some(run_id.0),
-        "Selection switched; prompts now target the new durable run.",
+        "Selection saved; it applies from the next turn.",
     ))
 }
 

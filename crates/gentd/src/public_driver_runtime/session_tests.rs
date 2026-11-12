@@ -286,3 +286,14 @@ fn compaction_observations_record_one_notice_per_turn_and_outcome() {
         Some(output)
     );
 }
+
+#[test]
+fn utf16_tool_output_records_without_nul_characters() {
+    let event = NormalizedProviderEvent::ToolOutputDelta {
+        tool_use_id: "tool-1".into(),
+        text: "A\0c\0c\0".into(),
+        is_partial: false,
+    };
+    let batch = batch("daemon-1", &input(PublicWireFact::Event(event))).unwrap();
+    assert_eq!(batch.transcript.unwrap().text, "Acc");
+}

@@ -47,6 +47,7 @@ pub(crate) trait CodexPromptExecution: PublicProviderRunner {
         run_id: &str,
     ) -> Result<Option<Vec<CodexRunnerEffect>>, PublicProviderRunError>;
     fn has_codex_session(&self, run_id: &str) -> bool;
+    fn codex_turn_steerable(&self, run_id: &str) -> bool;
     fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
     fn refresh_codex_mcp_config(&self, run_id: &str) -> Result<bool, PublicProviderRunError>;
     fn codex_mcp_servers(&self) -> Result<Option<serde_json::Value>, PublicProviderRunError>;
@@ -155,6 +156,10 @@ where
 
     fn has_codex_session(&self, run_id: &str) -> bool {
         self.owns(run_id)
+    }
+
+    fn codex_turn_steerable(&self, run_id: &str) -> bool {
+        self.turn_steerable(run_id)
     }
 
     fn release_codex_session(&self, run_id: &str) -> Result<(), PublicProviderRunError> {

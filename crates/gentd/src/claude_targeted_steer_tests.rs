@@ -1,9 +1,95 @@
 use super::*;
 use gent_types::ConversationActivityFact;
 
+fn facts(scenario: &Scenario) -> Vec<ConversationActivityFact> {
+    scenario
+        .ledger
+        .read_conversation_activity_page("conversation", "run", 0, 50)
+        .unwrap()
+        .facts
+}
+
+fn phase_of(scenario: &Scenario, turn: &str) -> DurableTurnPhase {
+    scenario.ledger.find_turn(turn).unwrap().unwrap().phase
+}
+
+fn assert_ran_as_its_own_turn(scenario: &Scenario, queued: &AgentChatPromptSaved) {
+    let facts = facts(scenario);
+    assert!(facts.iter().any(|fact| matches!(fact,
+        ConversationActivityFact::PromptSteerRejected { message_id, reason, scope, .. }
+            if message_id == &queued.message.message_id && reason == "targetExpired"
+                && scope.turn_id == scenario.active.message.turn_id)));
+    assert!(!facts.iter().any(|fact| matches!(fact,
+        ConversationActivityFact::PromptSteerRejected { reason, .. } if reason == "deliveryUnprovable")));
+    assert_eq!(
+        phase_of(scenario, &queued.message.turn_id),
+        DurableTurnPhase::Completed
+    );
+}
+
 #[test]
-fn terminal_retires_all_targeted_writes_without_resending_any_of_them() {
+fn a_targeted_steer_written_before_the_turn_ends_is_answered_as_claudes_next_turn() {
     let mut scenario = scenario(true);
+    let queued = scenario.queued.clone();
+    scenario
+        .runner
+        .0
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![output("first"), phase(TurnPhase::Ready)]);
+    scenario.host.tick().unwrap();
+    assert_eq!(
+        phase_of(&scenario, &scenario.active.message.turn_id),
+        DurableTurnPhase::Completed
+    );
+    assert_eq!(
+        phase_of(&scenario, &queued.message.turn_id),
+        DurableTurnPhase::Active
+    );
+    scenario.runner.0.lock().unwrap().effects.push_back(vec![
+        ClaudeRunnerEffect::SteerConsumed {
+            message_id: queued.message.message_id.clone(),
+        },
+        output("QUEUED-TWO"),
+        phase(TurnPhase::Ready),
+    ]);
+    scenario.host.tick().unwrap();
+    assert_ran_as_its_own_turn(&scenario, &queued);
+    assert_eq!(turn_of(&scenario, "QUEUED-TWO"), queued.message.turn_id);
+    assert_eq!(turn_of(&scenario, "first"), scenario.active.message.turn_id);
+    assert!(facts(&scenario).iter().any(|fact| matches!(fact,
+        ConversationActivityFact::PromptReleased { message_id, .. } if message_id == &queued.message.message_id)));
+    let state = scenario.runner.0.lock().unwrap();
+    assert_eq!((state.steers.len(), state.starts, state.submits), (1, 1, 0));
+    drop(state);
+    assert!(!scenario.host.needs_drive());
+}
+
+#[test]
+fn a_targeted_take_up_reported_after_the_result_becomes_the_next_turn_without_a_resend() {
+    let mut scenario = scenario(true);
+    let queued = scenario.queued.clone();
+    scenario.runner.0.lock().unwrap().effects.push_back(vec![
+        output("first"),
+        phase(TurnPhase::Ready),
+        ClaudeRunnerEffect::SteerConsumed {
+            message_id: queued.message.message_id.clone(),
+        },
+        output("second"),
+        phase(TurnPhase::Ready),
+    ]);
+    scenario.host.tick().unwrap();
+    assert_ran_as_its_own_turn(&scenario, &queued);
+    assert_eq!(turn_of(&scenario, "second"), queued.message.turn_id);
+    let state = scenario.runner.0.lock().unwrap();
+    assert_eq!((state.steers.len(), state.starts, state.submits), (1, 1, 0));
+}
+
+#[test]
+fn every_targeted_write_outliving_its_turn_is_answered_without_a_resend() {
+    let mut scenario = scenario(true);
+    let queued = scenario.queued.clone();
     let second = save(
         &scenario.ledger,
         "second",
@@ -22,84 +108,33 @@ fn terminal_retires_all_targeted_writes_without_resending_any_of_them() {
         .unwrap();
     scenario.host.tick().unwrap();
     assert_eq!(scenario.runner.0.lock().unwrap().steers.len(), 2);
+    scenario
+        .runner
+        .0
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![phase(TurnPhase::Ready)]);
+    scenario.host.tick().unwrap();
     scenario.runner.0.lock().unwrap().effects.push_back(vec![
-        phase(TurnPhase::Ready),
         ClaudeRunnerEffect::SteerConsumed {
-            message_id: scenario.queued.message.message_id.clone(),
+            message_id: queued.message.message_id.clone(),
         },
+        ClaudeRunnerEffect::SteerConsumed {
+            message_id: second.message.message_id.clone(),
+        },
+        output("both"),
+        phase(TurnPhase::Ready),
     ]);
     scenario.host.tick().unwrap();
-    scenario.host.tick().unwrap();
-    let facts = scenario
-        .ledger
-        .read_conversation_activity_page("conversation", "run", 0, 50)
-        .unwrap()
-        .facts;
-    for (queued, receipt) in [(&scenario.queued, "steer"), (&second, "second-steer")] {
-        assert_eq!(
-            scenario
-                .ledger
-                .find_turn(&queued.message.turn_id)
-                .unwrap()
-                .unwrap()
-                .phase,
-            DurableTurnPhase::Failed
-        );
-        assert!(facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptSteerRejected {message_id,receipt_id,reason,..}
-            if message_id==&queued.message.message_id && receipt_id==receipt && reason=="deliveryUnprovable")));
-        assert!(!facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptReleased {message_id,..}|ConversationActivityFact::PromptSteered {message_id,..}
-            if message_id==&queued.message.message_id)));
-    }
+    assert_ran_as_its_own_turn(&scenario, &queued);
+    assert_ran_as_its_own_turn(&scenario, &second);
+    assert_eq!(turn_of(&scenario, "both"), queued.message.turn_id);
+    assert!(facts(&scenario).iter().any(|fact| matches!(fact,
+        ConversationActivityFact::PromptSteered { message_id, scope, .. }
+            if message_id == &second.message.message_id && scope.turn_id == queued.message.turn_id)));
     let state = scenario.runner.0.lock().unwrap();
-    assert_eq!((state.starts, state.submits), (1, 0));
-}
-
-#[test]
-fn targeted_take_up_after_terminal_is_rejected_instead_of_becoming_a_new_turn() {
-    let mut scenario = scenario(true);
-    scenario.runner.0.lock().unwrap().effects.push_back(vec![
-        output("first"),
-        phase(TurnPhase::Ready),
-        ClaudeRunnerEffect::SteerConsumed {
-            message_id: scenario.queued.message.message_id.clone(),
-        },
-    ]);
-    scenario.host.tick().unwrap();
-    let facts = kinds(&scenario);
-    assert!(
-        facts
-            .iter()
-            .any(|(kind, turn)| kind == "promptSteerRejected"
-                && turn == &scenario.active.message.turn_id)
-    );
-    let queued_facts = scenario
-        .ledger
-        .read_conversation_activity_page("conversation", "run", 0, 50)
-        .unwrap()
-        .facts;
-    assert!(
-        !queued_facts.iter().any(|fact| matches!(fact,
-            ConversationActivityFact::PromptSteered { message_id, .. } | ConversationActivityFact::PromptReleased { message_id, .. }
-                if message_id == &scenario.queued.message.message_id)),
-        "facts={facts:?}; starts={}; queued_phase={:?}",
-        scenario.runner.0.lock().unwrap().starts,
-        scenario.ledger.find_turn(&scenario.queued.message.turn_id).unwrap().unwrap().phase,
-    );
-    assert_eq!(
-        scenario
-            .ledger
-            .find_turn(&scenario.queued.message.turn_id)
-            .unwrap()
-            .unwrap()
-            .phase,
-        DurableTurnPhase::Failed
-    );
-    assert!(queued_facts.iter().any(|fact| matches!(fact,
-        ConversationActivityFact::PromptSteerRejected {message_id,receipt_id,reason,scope}
-            if message_id == &scenario.queued.message.message_id && receipt_id == "steer"
-                && reason == "deliveryUnprovable" && scope.turn_id == scenario.active.message.turn_id)));
-    assert_eq!(scenario.runner.0.lock().unwrap().starts, 1);
-    assert_eq!(scenario.runner.0.lock().unwrap().submits, 0);
+    assert_eq!((state.steers.len(), state.starts, state.submits), (2, 1, 0));
 }
 
 #[test]

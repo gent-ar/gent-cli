@@ -76,28 +76,42 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
     }
 
     async fn drive_until_idle(&self, shutting_down: bool) -> Result<(), String> {
+        let mut wake_idle_hosts = false;
+        let mut claurst_working = false;
         loop {
             if !shutting_down && self.control.is_quiesced() {
                 return Ok(());
             }
             let router = Arc::clone(&self.router);
-            let active = tokio::task::spawn_blocking(move || {
-                router
+            let (active, router_finished) = tokio::task::spawn_blocking(move || {
+                let mut router = router
                     .lock()
-                    .map_err(|_| "ordinary lifecycle router is unavailable".to_owned())?
+                    .map_err(|_| "ordinary lifecycle router is unavailable".to_owned())?;
+                if wake_idle_hosts {
+                    router
+                        .wake_idle_hosts()
+                        .map_err(|_| "ordinary lifecycle wake was rejected".to_owned())?;
+                }
+                let active = router
                     .drive_once()
-                    .map_err(|_| "ordinary lifecycle drive was rejected".to_owned())
+                    .map_err(|_| "ordinary lifecycle drive was rejected".to_owned())?;
+                Ok::<_, String>((active, router.finished_work()))
             })
             .await
             .map_err(|_| "ordinary lifecycle drive task failed".to_owned())??;
-            let claurst_active = match Arc::clone(&self.async_claurst).try_lock_owned() {
-                Err(_) => true,
-                Ok(host) => match self.drive_claurst(host, shutting_down).await? {
-                    Some(active) => active,
-                    None => return Ok(()),
-                },
-            };
-            if !active && !claurst_active {
+            let (claurst_active, claurst_finished) =
+                match Arc::clone(&self.async_claurst).try_lock_owned() {
+                    Err(_) => (true, false),
+                    Ok(host) => match self.drive_claurst(host, shutting_down).await? {
+                        Some(active) => (
+                            active,
+                            std::mem::replace(&mut claurst_working, active) && !active,
+                        ),
+                        None => return Ok(()),
+                    },
+                };
+            wake_idle_hosts = !shutting_down && (router_finished || claurst_finished);
+            if !active && !claurst_active && !wake_idle_hosts {
                 return Ok(());
             }
             tokio::time::sleep(ACTIVE_POLL_INTERVAL).await;

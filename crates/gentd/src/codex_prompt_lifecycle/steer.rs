@@ -35,7 +35,7 @@ where
             .active
             .iter()
             .filter(|(run_id, binding)| {
-                !binding.settled && !binding.releasing && self.runner.has_codex_session(run_id)
+                !binding.settled && !binding.releasing && self.runner.codex_turn_steerable(run_id)
             })
             .map(|(run_id, _)| run_id.clone())
             .collect::<Vec<_>>();

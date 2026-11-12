@@ -87,15 +87,12 @@ pub(crate) fn gateway_fixture(
     let sdk = PathBuf::from(std::env::var_os("GENT_QA_CLAURST_EXECUTABLE").unwrap());
     let sdk = gent_drivers::lock::capture("claurst", &sdk, "0.1.7", "claurst-acp-v1").unwrap();
     let coordinator = gent_runtime::Coordinator::new(ledger.clone(), CapabilitySet::default());
+    let binding =
+        SandboxPermissionBinding::new("conversation".into(), run.clone(), policy, HostEpoch(1))
+            .unwrap();
     let fence = Arc::new(
-        crate::run_fence::RunFence::capture(
-            ledger.clone(),
-            coordinator,
-            "conversation".into(),
-            run.clone(),
-            sdk.clone(),
-        )
-        .unwrap(),
+        crate::run_fence::RunFence::capture(ledger.clone(), coordinator, &binding, sdk.clone())
+            .unwrap(),
     );
     assert!(fence.current());
     let model = PathBuf::from(std::env::var_os("GENT_QA_MODEL_FILE").unwrap())
@@ -110,9 +107,6 @@ pub(crate) fn gateway_fixture(
         root: root.clone(),
         released: released.clone(),
     };
-    let binding =
-        SandboxPermissionBinding::new("conversation".into(), run.clone(), policy, HostEpoch(1))
-            .unwrap();
     let endpoint = WindowsModelFactory::packaged()
         .unwrap()
         .launch(

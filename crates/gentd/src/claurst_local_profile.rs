@@ -21,7 +21,8 @@ const COMPACT_GUIDANCE: &str = "\
 - Never describe what a file or project does without reading it. To explain a project: 1) Glob \"**/*\" to list files, 2) Read README.md, 3) Read the main source files, 4) only then answer.
 - Never guess file types, extensions, or paths. If a tool finds nothing or fails, fix the input and try again.
 - For Edit, old_string must appear exactly once: include the whole line or neighbouring lines.
-- Do not use tools for questions you can answer from the conversation. After using tools, reply to the user with the answer.";
+- Do not use tools for questions you can answer from the conversation.
+- After a tool returns, write what it found in your reply. When asked for files, list the file names.";
 const BYTES_PER_TOKEN: usize = 3;
 const TURN_RESERVE_TOKENS: u32 = 1_024;
 

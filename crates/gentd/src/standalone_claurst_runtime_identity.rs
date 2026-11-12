@@ -178,6 +178,33 @@ mod tests {
     }
 
     #[test]
+    fn a_containment_change_between_turns_relaunches_the_runtime() {
+        use gent_types::{
+            Containment, HostEpoch, PolicyRecord, PolicyScope, SandboxPermissionBinding,
+        };
+        let sandboxed = running().with_permission_binding(
+            SandboxPermissionBinding::new(
+                "conversation-1".into(),
+                "run".into(),
+                PolicyRecord {
+                    policy_id: "p".into(),
+                    workspace_id: "w".into(),
+                    revision: 1,
+                    scope: PolicyScope::ProviderPermissions,
+                    mode: PermissionMode::AskEveryTime,
+                    containment: Containment::Sandboxed,
+                    allowed_tools: vec![],
+                    allowed_categories: vec![],
+                },
+                HostEpoch(1),
+            )
+            .unwrap(),
+        );
+        assert_eq!(sandboxed.reuse_from(&running()), RuntimeReuse::Relaunch);
+        assert_eq!(running().reuse_from(&sandboxed), RuntimeReuse::Relaunch);
+    }
+
+    #[test]
     fn an_unchanged_selection_reuses_the_running_runtime() {
         assert_eq!(running().reuse_from(&running()), RuntimeReuse::Ready);
     }

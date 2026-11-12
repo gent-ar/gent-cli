@@ -49,48 +49,33 @@ impl ProviderGatewayLease {
     pub fn claude(
         ledger: SqliteLedger,
         coordinator: Coordinator<SqliteLedger>,
-        conversation_id: String,
-        run_id: String,
+        binding: &gent_types::SandboxPermissionBinding,
         lock: RunVersionLock,
         probe_root: &Path,
     ) -> Result<Arc<Self>, EgressError> {
-        Self::claude_using(
-            ledger,
-            coordinator,
-            conversation_id,
-            run_id,
-            lock,
-            probe_root,
-            |lock| claude_credential::resolve(lock, probe_root),
-        )
+        Self::claude_using(ledger, coordinator, binding, lock, probe_root, |lock| {
+            claude_credential::resolve(lock, probe_root)
+        })
     }
 
     #[cfg(windows)]
     pub(crate) fn claude_managed(
         ledger: SqliteLedger,
         coordinator: Coordinator<SqliteLedger>,
-        conversation_id: String,
-        run_id: String,
+        binding: &gent_types::SandboxPermissionBinding,
         lock: RunVersionLock,
         probe_root: &Path,
         resources: &crate::windows_provider_resources::ManagedProviderResources,
     ) -> Result<Arc<Self>, EgressError> {
-        Self::claude_using(
-            ledger,
-            coordinator,
-            conversation_id,
-            run_id,
-            lock,
-            probe_root,
-            |lock| claude_credential::resolve_managed(lock, probe_root, resources),
-        )
+        Self::claude_using(ledger, coordinator, binding, lock, probe_root, |lock| {
+            claude_credential::resolve_managed(lock, probe_root, resources)
+        })
     }
 
     fn claude_using(
         ledger: SqliteLedger,
         coordinator: Coordinator<SqliteLedger>,
-        conversation_id: String,
-        run_id: String,
+        binding: &gent_types::SandboxPermissionBinding,
         lock: RunVersionLock,
         probe_root: &Path,
         credential: impl FnOnce(
@@ -98,7 +83,7 @@ impl ProviderGatewayLease {
         )
             -> Result<super::credential_capture::CapturedProviderAuth, EgressError>,
     ) -> Result<Arc<Self>, EgressError> {
-        let fence = RunFence::capture(ledger, coordinator, conversation_id, run_id, lock)?;
+        let fence = RunFence::capture(ledger, coordinator, binding, lock)?;
         if fence.lock.provider != "claude" || !fence.current() {
             return Err(EgressError::Configuration);
         }

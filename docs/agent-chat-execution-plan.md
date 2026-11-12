@@ -83,7 +83,16 @@ the clear-context path.
   history; a provider-native resume token is never copied across providers.
 - A generic selection switch has an explicit Preserve/Clear policy. Clear
   atomically records ordinal zero and a fresh child with no session binding;
-  policy-changing retries are rejected. The bounded context projector joins
+  policy-changing retries are rejected. A switch is never rejected because a
+  turn is running: it records the child at once, the running turn finishes on
+  its parent, prompts not yet dispatched move to the child, and no child prompt
+  dispatches until every turn of an earlier run is terminal, so its context
+  includes that turn's reply. `AgentChatConversationSummary.selectionAppliesNextTurn`
+  is true while that earlier turn runs. Send now on a queued prompt still
+  targets the running turn: it is steered natively into it (Claude, Codex) or
+  interrupts it (Claurst) under that turn's selection, oldest prompt first. Any
+  undispatched prompt left on an earlier run, by a released claim, a rejected
+  steer or restart recovery, moves to the current run. The bounded context projector joins
   frozen prompt turns with final normalized assistant/tool/notice facts, but
   it remains uncomposed until a lifecycle authority consumes that artifact.
 - A normalized `tooFewGroups` recovery reducer can reserve one fresh,

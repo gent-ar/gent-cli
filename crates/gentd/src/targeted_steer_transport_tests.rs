@@ -85,11 +85,8 @@ fn advertised_native_steer_capabilities_are_provider_scoped() {
     let enabled = gent_runtime::catalog::declared_capabilities_with_agent_chat(true).0;
     assert!(enabled.contains(&AGENT_CHAT_STEER_TURN_CAPABILITY.into()));
     assert!(enabled.contains(&gent_protocol::AGENT_CHAT_STEER_ENQUEUE_CAPABILITY.into()));
-    for provider in ["claude", "codex"] {
+    for provider in ["claude", "codex", "claurst"] {
         assert!(enabled.contains(&format!("agent-chat-steer-turn-{provider}-v1")));
-    }
-    for provider in ["gent", "claurst"] {
-        assert!(!enabled.contains(&format!("agent-chat-steer-turn-{provider}-v1")));
     }
     assert!(
         !gent_runtime::catalog::declared_capabilities()

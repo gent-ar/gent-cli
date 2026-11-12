@@ -3,6 +3,83 @@ use gent_drivers::codex_session::CodexSteerOutcome;
 use gent_ports::AgentChatQueuedPromptLedger;
 
 #[test]
+fn a_targeted_steer_requested_before_the_codex_turn_starts_waits_for_the_turn() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation = setup_conversation(&ledger);
+    save(&ledger, &conversation, "active", "first");
+    let original = ledger.list_run_turns("run-a").unwrap()[0].turn_id.clone();
+    let queued = ledger
+        .save_agent_chat_prompt(&AgentChatPromptCreate {
+            request_id: AgentChatRequestId("queued".into()),
+            receipt_id: ReceiptId("queued-receipt".into()),
+            host_epoch: HostEpoch(1),
+            conversation_id: conversation.clone(),
+            disposition: AgentChatPromptDisposition::Queue,
+            text: "later".into(),
+            attachment_ids: vec![],
+            tool_source_ids: vec![],
+        })
+        .unwrap();
+    crate::readiness_test_support::release(&ledger, &queued);
+    let runner = Runner::default();
+    runner.state.lock().unwrap().turn_pending = true;
+    let mut host = host(&ledger, runner.clone());
+    host.tick().unwrap();
+    ledger
+        .steer_queued_agent_chat_prompt_for_turn(
+            &ReceiptId("steer".into()),
+            HostEpoch(1),
+            &conversation,
+            &queued.message.message_id,
+            &AgentChatRunId("run-a".into()),
+            &original,
+        )
+        .unwrap();
+    host.tick().unwrap();
+    host.tick().unwrap();
+    let phase = |turn: &str| ledger.find_turn(turn).unwrap().unwrap().phase;
+    assert!(runner.state.lock().unwrap().steers.is_empty());
+    assert_eq!(phase(&queued.message.turn_id), DurableTurnPhase::Active);
+
+    runner.state.lock().unwrap().turn_pending = false;
+    runner
+        .state
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![CodexRunnerEffect::Fact(
+            PublicWireFact::SessionStarted {
+                provider_session_id: "native-thread".into(),
+            },
+        )]);
+    host.tick().unwrap();
+    assert_eq!(runner.state.lock().unwrap().steers.len(), 1);
+    runner.state.lock().unwrap().effects.push_back(vec![
+        CodexRunnerEffect::Steer(CodexSteerOutcome::Consumed {
+            message_id: queued.message.message_id.clone(),
+        }),
+        CodexRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::Ready,
+            },
+        )),
+    ]);
+    host.tick().unwrap();
+    assert_eq!(phase(&original), DurableTurnPhase::Completed);
+    assert_eq!(phase(&queued.message.turn_id), DurableTurnPhase::Completed);
+    let facts = ledger
+        .read_conversation_activity_page(&conversation.0, "run-a", 0, 50)
+        .unwrap()
+        .facts;
+    assert!(facts.iter().any(|fact| matches!(fact, ConversationActivityFact::PromptSteered { scope, message_id, .. } if scope.turn_id == original && message_id == &queued.message.message_id)));
+    assert!(
+        !facts
+            .iter()
+            .any(|fact| matches!(fact, ConversationActivityFact::PromptSteerRejected { .. }))
+    );
+}
+
+#[test]
 fn targeted_steer_consumption_is_bound_before_terminal_or_becomes_unprovable() {
     for ordering in ["before", "after", "absent", "unconfirmed", "rejected"] {
         let ledger = SqliteLedger::in_memory().unwrap();

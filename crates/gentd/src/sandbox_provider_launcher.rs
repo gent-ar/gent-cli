@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use gent_drivers::supervisor::{ProviderLaunch, SupervisorError};
 use gent_drivers::{ProcessLauncher, SystemLauncher};
-use gent_ports::{AgentChatReadLedger, AgentChatWorkspaceLedger, Ledger, PolicyLedger};
+use gent_ports::{AgentChatReadLedger, AgentChatWorkspaceLedger, Ledger};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
-use gent_types::{PolicyScope, SandboxPermissionBinding, SandboxWorkspaceAccess};
+use gent_types::{SandboxPermissionBinding, SandboxWorkspaceAccess};
 
 use crate::sandbox_provider_process::RoutedProviderProcess;
 
@@ -80,17 +80,6 @@ impl SandboxProviderLauncher {
                 .ledger
                 .agent_chat_workspace_for_run(binding.conversation_id(), binding.run_id())
                 .ok()?;
-            let policy = self
-                .ledger
-                .current_policy(&workspace.workspace_id, PolicyScope::ProviderPermissions)
-                .ok()??
-                .for_conversation(
-                    crate::permission_workspace::conversation_containment(
-                        &self.ledger,
-                        binding.conversation_id(),
-                    )
-                    .ok()?,
-                );
             let ingress = self.ledger.host_ingress().ok()?;
             let provider = detail
                 .runs
@@ -98,9 +87,7 @@ impl SandboxProviderLauncher {
                 .find(|run| run.run_id == binding.run_id())?
                 .selection
                 .provider;
-            (detail.current_run_id == binding.run_id()
-                && workspace.workspace_id == binding.policy().workspace_id
-                && policy == *binding.policy()
+            (workspace.workspace_id == binding.policy().workspace_id
                 && ingress.epoch == binding.host_epoch()
                 && ingress.mode == gent_ports::IngressMode::Open)
                 .then_some(provider)
@@ -165,8 +152,7 @@ impl SandboxProviderLauncher {
         let lease = factory(
             self.ledger.clone(),
             self.coordinator.clone(),
-            binding.conversation_id().into(),
-            binding.run_id().into(),
+            binding,
             launch.lock.clone(),
             &self.state_root,
             &resources,

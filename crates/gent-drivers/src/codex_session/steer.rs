@@ -18,6 +18,18 @@ pub(super) enum CodexSteerResponse {
     Outcome(CodexSteerOutcome),
 }
 
+fn steerable_turn(phase: &CodexSessionPhase) -> Option<(&String, &String)> {
+    match phase {
+        CodexSessionPhase::Ready {
+            thread_id,
+            turn_id: Some(turn_id),
+            interrupt_request_id: None,
+            ..
+        } => Some((thread_id, turn_id)),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CodexSteers {
     requests: BTreeMap<u64, String>,
@@ -33,15 +45,7 @@ impl CodexSteers {
         prompt: &str,
         attachments: &[Value],
     ) -> Result<Vec<u8>, CodexSessionError> {
-        let CodexSessionPhase::Ready {
-            thread_id,
-            turn_id: Some(turn_id),
-            interrupt_request_id: None,
-            ..
-        } = phase
-        else {
-            return Err(CodexSessionError::TurnNotActive);
-        };
+        let (thread_id, turn_id) = steerable_turn(phase).ok_or(CodexSessionError::TurnNotActive)?;
         if prompt.is_empty() || prompt.len() > MAX_PROMPT_BYTES || message_id.is_empty() {
             return Err(CodexSessionError::InvalidPrompt);
         }
@@ -62,6 +66,10 @@ impl CodexSteers {
         self.outstanding
             .insert(message_id.into(), (thread_id.clone(), turn_id.clone()));
         Ok(frame)
+    }
+
+    pub(super) fn steerable(phase: &CodexSessionPhase) -> bool {
+        steerable_turn(phase).is_some()
     }
 
     pub(super) fn response(

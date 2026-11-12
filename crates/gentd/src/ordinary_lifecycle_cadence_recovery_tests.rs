@@ -196,14 +196,16 @@ async fn steering_wakes_a_native_steer_owner_but_interrupts_claurst() {
     let task = tokio::spawn(cadence.run());
     wait_for(&events, 1).await;
 
-    wake.steer_run(AgentChatProvider::Codex, prompt()).unwrap();
+    wake.steer_run(AgentChatProvider::Codex, prompt(), None)
+        .unwrap();
     wait_for(&events, 2).await;
     assert!(events.lock().unwrap().contains(&"wake"));
     assert!(interrupts.lock().unwrap().is_empty());
 
     let mut claurst = prompt();
     claurst.run_id = AgentChatRunId("run-claurst".into());
-    wake.steer_run(AgentChatProvider::Claurst, claurst).unwrap();
+    wake.steer_run(AgentChatProvider::Claurst, claurst, None)
+        .unwrap();
     tokio::time::timeout(Duration::from_secs(1), async {
         while interrupts.lock().unwrap().is_empty() {
             tokio::time::sleep(Duration::from_millis(5)).await;
