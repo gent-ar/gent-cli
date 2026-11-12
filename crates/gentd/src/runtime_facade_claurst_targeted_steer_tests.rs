@@ -277,21 +277,47 @@ fn switch_mid_turn(h: &Harness) -> AgentChatRunId {
     run_id.clone()
 }
 
+async fn interrupt_over_ipc(h: &Harness, key: &str, run_id: &AgentChatRunId) -> serde_json::Value {
+    let (mut reader, mut writer) = tokio::io::duplex(8192);
+    let request = serde_json::to_value(AgentChatIntentFrame::Interrupt {
+        request_id: AgentChatRequestId(key.into()),
+        receipt_id: ReceiptId(format!("{key}-receipt")),
+        conversation_id: h.conversation_id.clone(),
+        run_id: run_id.clone(),
+        expected_turn_id: None,
+    })
+    .unwrap();
+    let capabilities =
+        gent_types::CapabilitySet(vec![gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY.into()]);
+    assert!(
+        crate::agent_chat_transport::dispatch_port(
+            &mut writer,
+            &h.runtime,
+            &capabilities,
+            &request
+        )
+        .await
+        .unwrap()
+    );
+    gent_protocol::read_json_frame::<_, serde_json::Value>(&mut reader)
+        .await
+        .unwrap()
+}
+
 #[tokio::test]
-async fn stopping_the_current_run_after_a_mid_turn_switch_stops_the_running_turn() {
+async fn stopping_either_run_after_a_mid_turn_switch_stops_the_running_turn_over_ipc() {
     let h = harness().await;
     running(&h.ledger, &h.conversation_id);
     let current = switch_mid_turn(&h);
-    h.runtime
-        .agent_chat_intent(AgentChatIntentFrame::Interrupt {
-            request_id: AgentChatRequestId("stop".into()),
-            receipt_id: ReceiptId("stop-receipt".into()),
-            conversation_id: h.conversation_id.clone(),
-            run_id: current,
-            expected_turn_id: None,
-        })
-        .unwrap();
-    assert_eq!(h.interrupted().await, vec![h.run_id.0.clone()]);
+    for (key, requested) in [("stop-current", &current), ("stop-running", &h.run_id)] {
+        let reply = interrupt_over_ipc(&h, key, requested).await;
+        assert_eq!(reply["type"], "interrupted", "{reply}");
+        assert_eq!(reply["body"]["runId"], requested.0.as_str());
+    }
+    assert_eq!(
+        h.interrupted().await,
+        vec![h.run_id.0.clone(), h.run_id.0.clone()]
+    );
 }
 
 #[tokio::test]

@@ -43,12 +43,14 @@ impl RuntimeFacade {
             .ordinary_prompt_ingress
             .as_ref()
             .ok_or_else(|| "agent-chat provider lifecycle is not configured".to_owned())?;
-        let run_id = self.running_turn_run(&conversation_id.0)?.unwrap_or(run_id);
+        let target = self
+            .running_turn_run(&conversation_id.0)?
+            .unwrap_or_else(|| run_id.clone());
         let selection = self
             .agent_chat_reads
             .as_ref()
             .ok_or_else(|| "agent-chat reads are unavailable".to_owned())?
-            .run_selection(&conversation_id.0, &run_id.0)
+            .run_selection(&conversation_id.0, &target.0)
             .map_err(|error| error.to_string())?;
         let mut interrupt_payload =
             serde_json::json!({ "conversationId": conversation_id, "runId": run_id });
@@ -68,7 +70,7 @@ impl RuntimeFacade {
         if let Some(turn_id) = expected_turn_id.as_deref() {
             ingress.interrupt_turn(
                 selection.provider,
-                &run_id.0,
+                &target.0,
                 turn_id,
                 Some(crate::ordinary_lifecycle_cadence::InterruptGoalStop {
                     goals: self.goals.clone(),
@@ -78,7 +80,7 @@ impl RuntimeFacade {
             )?;
         } else {
             self.stop_goal(&conversation_id, host_epoch);
-            ingress.interrupt_run(selection.provider, &run_id.0)?;
+            ingress.interrupt_run(selection.provider, &target.0)?;
         }
         Ok(Some(AgentChatIntentFrame::Interrupted {
             request_id,
