@@ -34,6 +34,11 @@ where
             })
         }
         AgentChatConversationConfigFrame::Save { request_id, config } => {
+            if config.containment.requires_sandbox()
+                && !crate::permission_backend_registry::sandbox_available()
+            {
+                return Err("sandbox-unavailable: the OS sandbox cannot launch provider turns on this host; keep this conversation unsandboxed".into());
+            }
             coordinator
                 .save_conversation_config(&config)
                 .map_err(|error| error.to_string())?;
@@ -252,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn a_sandboxed_conversation_is_persisted_and_projected_on_its_summary() {
+    fn a_sandboxed_conversation_is_persisted_only_where_the_sandbox_can_launch() {
         use gent_ports::AgentChatReadLedger;
         let ledger = SqliteLedger::in_memory().unwrap();
         conversation(&ledger, "conversation-1");
@@ -266,15 +271,26 @@ mod tests {
         let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
         let mut sandboxed = config(1);
         sandboxed.containment = gent_types::Containment::Sandboxed;
-        exchange(
+        let saved = exchange(
             &coordinator,
             None,
             AgentChatConversationConfigFrame::Save {
                 request_id: "request-1".into(),
                 config: sandboxed,
             },
-        )
-        .unwrap();
+        );
+        if !crate::permission_backend_registry::sandbox_available() {
+            assert!(saved.is_err());
+            assert_eq!(
+                ledger
+                    .read_agent_chat_summary("conversation-1")
+                    .unwrap()
+                    .containment,
+                gent_types::Containment::Unsandboxed
+            );
+            return;
+        }
+        saved.unwrap();
         let summary = ledger.read_agent_chat_summary("conversation-1").unwrap();
         assert_eq!(summary.containment, gent_types::Containment::Sandboxed);
         assert_eq!(

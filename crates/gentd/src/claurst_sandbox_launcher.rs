@@ -25,6 +25,7 @@ pub(crate) struct RoutedClaurstStandaloneLauncher {
 }
 
 impl RoutedClaurstStandaloneLauncher {
+    #[cfg(test)]
     pub(crate) fn host() -> Self {
         Self {
             ledger: None,

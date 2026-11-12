@@ -95,3 +95,11 @@ A steered prompt follows the delivery of its provider:
 An unstarted prompt, whether queued or still waiting for the previous turn to
 settle, is not part of the running turn: it runs under the selection that is
 current when it starts.
+
+The conversation summary carries `steerDelivery` while a turn is running:
+`joinTurn` when the running turn's provider delivers a steer into that turn,
+`interruptThenNext` when it interrupts and runs the prompt next. It is derived
+from the running run's provider through `AgentChatProvider::steer_delivery`
+(Claurst steers by interrupt) and is omitted when no turn is running. With
+`selectionAppliesNextTurn`, a client can say before Send now whether the steer
+runs under the running turn's settings or under the new ones.

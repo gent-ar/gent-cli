@@ -20,6 +20,22 @@ impl AgentChatProvider {
     pub const fn steers_by_interrupt(self) -> bool {
         matches!(self, Self::Claurst)
     }
+
+    #[must_use]
+    pub const fn steer_delivery(self) -> AgentChatSteerDelivery {
+        if self.steers_by_interrupt() {
+            AgentChatSteerDelivery::InterruptThenNext
+        } else {
+            AgentChatSteerDelivery::JoinTurn
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentChatSteerDelivery {
+    JoinTurn,
+    InterruptThenNext,
 }
 
 /// The user-visible model and execution preferences chosen for a conversation.
@@ -114,6 +130,8 @@ pub struct AgentChatConversationSummary {
     pub selection: AgentChatSelection,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub selection_applies_next_turn: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steer_delivery: Option<AgentChatSteerDelivery>,
     #[serde(default)]
     pub containment: crate::Containment,
 }

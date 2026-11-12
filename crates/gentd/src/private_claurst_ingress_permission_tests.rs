@@ -130,9 +130,26 @@ fn pending(ledger: &SqliteLedger) -> bool {
 }
 
 #[tokio::test]
-async fn an_ask_mode_change_is_denied_by_gent_with_a_typed_notice() {
+async fn an_ask_mode_change_waits_for_the_user_even_under_bypass() {
     let (ledger, bridge) = drain_permissions(
         AgentChatMode::Ask,
+        PermissionMode::Bypass,
+        vec![permission(
+            "edit-1",
+            "Edit",
+            PermissionCategory::Edit,
+            serde_json::json!({"file_path": "/workspace-a/src/app.py"}),
+        )],
+    )
+    .await;
+    assert!(bridge.permission_replies().is_empty());
+    assert!(pending(&ledger));
+}
+
+#[tokio::test]
+async fn a_plan_mode_change_is_denied_by_gent_with_a_typed_notice() {
+    let (ledger, bridge) = drain_permissions(
+        AgentChatMode::Plan,
         PermissionMode::Bypass,
         vec![permission(
             "edit-1",

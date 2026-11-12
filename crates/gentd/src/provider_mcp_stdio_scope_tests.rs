@@ -10,20 +10,20 @@ use std::{
 #[test]
 fn host_mcp_stdio_rechecks_captured_scope_immediately_before_actual_write() {
     let root = Arc::new(tempfile::tempdir().unwrap());
-    let script = root.path().join("server.py");
+    let script = root.path().join("server.ps1");
     let effect = root.path().join("effect.txt");
-    std::fs::write(&script,"import sys,json\nfor line in sys.stdin:\n m=json.loads(line)\n open('effect.txt','w').write('must-not-happen')\n print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':{}}),flush=True)\n").unwrap();
-    let python = python();
+    std::fs::write(&script, "while ($null -ne ($line = [Console]::In.ReadLine())) { $m = ConvertFrom-Json $line; Set-Content effect.txt must-not-happen; [Console]::Out.WriteLine((ConvertTo-Json -Compress @{jsonrpc='2.0'; id=$m.id; result=@{}})); [Console]::Out.Flush() }").unwrap();
+    let powershell = powershell();
     let peer = StdioPeer::spawn(Spec {
         launch_guard: Arc::new(|| true),
         authority: root.clone(),
         startup: None,
-        program: python.clone(),
-        args: vec!["-u".into(), script.to_string_lossy().into_owned()],
+        program: powershell.clone(),
+        args: script_arguments(&script),
         env: BTreeMap::new(),
         cwd: root.path().into(),
         pins: vec![
-            std::fs::File::open(python).unwrap(),
+            std::fs::File::open(powershell).unwrap(),
             std::fs::File::open(script).unwrap(),
         ],
         secrets: vec![],
@@ -69,24 +69,21 @@ fn host_mcp_stdio_rechecks_captured_scope_immediately_before_actual_write() {
     assert!(!effect.exists());
 }
 
-pub(crate) fn python() -> std::path::PathBuf {
-    std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-        .filter(|directory| {
-            !directory
-                .to_string_lossy()
-                .to_ascii_lowercase()
-                .contains("windowsapps")
-        })
-        .map(|directory| directory.join("python.exe"))
-        .find(|candidate| {
-            candidate.is_file()
-                && std::process::Command::new(candidate)
-                    .args(["-c", "import sys; sys.exit(sys.version_info[0] < 3)"])
-                    .status()
-                    .is_ok_and(|status| status.success())
-        })
-        .and_then(|candidate| candidate.canonicalize().ok())
-        .expect("Python 3 python.exe on PATH")
+pub(crate) fn powershell() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe")
+}
+
+pub(crate) fn script_arguments(script: &std::path::Path) -> Vec<String> {
+    [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+    ]
+    .into_iter()
+    .map(String::from)
+    .chain([script.to_string_lossy().into_owned()])
+    .collect()
 }

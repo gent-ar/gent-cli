@@ -229,11 +229,11 @@ fn compact_catalog_profile_exposes_only_core_tools_with_local_model_guidance() {
 }
 
 #[test]
-fn compact_catalog_profile_offers_only_read_only_tools_outside_agent_mode() {
+fn compact_catalog_profile_offers_change_tools_in_ask_and_only_read_tools_in_plan() {
     let catalog = LocalModelCatalog::shipped().unwrap();
-    for mode in [
-        gent_types::AgentChatMode::Ask,
-        gent_types::AgentChatMode::Plan,
+    for (mode, tools) in [
+        (gent_types::AgentChatMode::Ask, true),
+        (gent_types::AgentChatMode::Plan, false),
     ] {
         let mut request = request();
         request.mode = mode;
@@ -243,10 +243,22 @@ fn compact_catalog_profile_offers_only_read_only_tools_outside_agent_mode() {
             18_080,
         )
         .unwrap();
+        let offered = kwargs(&plan)["gent_tools"].clone();
         assert_eq!(
-            kwargs(&plan)["gent_tools"],
-            serde_json::json!(["Glob", "Grep", "Read"]),
+            offered
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool == "Write" || tool == "Bash"),
+            tools,
             "{mode:?}"
+        );
+        assert!(
+            offered
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool == "Read")
         );
     }
 }

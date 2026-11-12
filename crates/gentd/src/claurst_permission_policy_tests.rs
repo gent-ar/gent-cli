@@ -103,17 +103,17 @@ fn agent(
 }
 
 #[test]
-fn ask_and_plan_deny_changes_with_a_typed_reason_whatever_the_policy_grants() {
+fn plan_refuses_and_ask_always_asks_for_changes_whatever_the_policy_grants() {
     let (_root, project) = workspace();
     let mut granted = policy(PermissionMode::Bypass);
     granted.allowed_categories = vec![PermissionCategory::Command, PermissionCategory::Edit];
     granted.allowed_tools = vec!["Bash".into(), "Edit".into()];
-    for mode in [AgentChatMode::Ask, AgentChatMode::Plan] {
+    for (mode, change) in [(AgentChatMode::Ask, ASK), (AgentChatMode::Plan, READ_ONLY)] {
         assert_eq!(
             decide(mode, &granted, &edit("src/app.py"), &project),
-            READ_ONLY
+            change
         );
-        assert_eq!(decide(mode, &granted, &bash("ls"), &project), READ_ONLY);
+        assert_eq!(decide(mode, &granted, &bash("ls"), &project), change);
         assert_eq!(
             decide(
                 mode,

@@ -47,23 +47,25 @@ fn runtime_health_reports_an_exited_acp_before_reuse() {
         Vec::new(),
     ));
     let mut runtime = ClaurstStandaloneRuntime {
-        llama: Llama(events, 1),
-        bridge,
-        summarizer: Arc::new(crate::claurst_runtime_factory::LlamaContextSummarizer::new(
-            crate::claurst_runtime_factory::LlamaSummaryEndpoint {
-                server_url: "http://127.0.0.1:1".into(),
-                model: "model".into(),
-                context_tokens: 32_768,
-                history_input_bytes: 81_888,
+        model: super::ClaurstStandaloneModel {
+            llama: Arc::new(Mutex::new(Llama(events, 1))),
+            summarizer: Arc::new(crate::claurst_runtime_factory::LlamaContextSummarizer::new(
+                crate::claurst_runtime_factory::LlamaSummaryEndpoint {
+                    server_url: "http://127.0.0.1:1".into(),
+                    model: "model".into(),
+                    context_tokens: 32_768,
+                    history_input_bytes: 81_888,
+                },
+            )),
+            port: 1,
+            llama_launch: LocalProcessLaunch {
+                executable: host_absolute_path("/bin/llama-server"),
+                arguments: Vec::new(),
+                environment: std::collections::BTreeMap::new(),
+                working_directory: None,
             },
-        )),
-        port: 1,
-        llama_launch: LocalProcessLaunch {
-            executable: host_absolute_path("/bin/llama-server"),
-            arguments: Vec::new(),
-            environment: std::collections::BTreeMap::new(),
-            working_directory: None,
         },
+        bridge,
     };
     assert_eq!(runtime.exited().unwrap(), Some("ACP exited".into()));
 }
@@ -401,14 +403,14 @@ fn chat_server(conversation_id: &str) -> serde_json::Value {
 }
 
 #[test]
-fn rebinding_a_session_keeps_the_same_llama_process_and_reloads_no_model() {
+fn a_second_session_shares_the_loaded_llama_process_until_the_last_session_stops() {
     let root = tempfile::tempdir().unwrap();
     let _ = installed(root.path());
     let events = Arc::new(Mutex::new(vec![]));
     let owner = owner(Arc::clone(&events), root.path());
     let mut first = request();
     first.mcp_servers = vec![chat_server("conversation-1")];
-    let mut runtime = owner
+    let runtime = owner
         .start_with_mcp(
             "qwen2-5-coder-7b-instruct-q4-k-m",
             first,
@@ -421,9 +423,9 @@ fn rebinding_a_session_keeps_the_same_llama_process_and_reloads_no_model() {
 
     let mut second = request();
     second.mcp_servers = vec![chat_server("conversation-2")];
-    owner
-        .rebind_session(
-            &mut runtime,
+    let shared = owner
+        .attach_session(
+            &runtime.model(),
             "qwen2-5-coder-7b-instruct-q4-k-m",
             second,
             &host_absolute_path("/workspace"),
@@ -431,31 +433,32 @@ fn rebinding_a_session_keeps_the_same_llama_process_and_reloads_no_model() {
         )
         .unwrap();
 
-    assert_eq!(runtime.llama().1, llama_before);
-    assert_eq!(runtime.port(), port);
-    let events = events.lock().unwrap().clone();
-    assert_eq!(
-        events.iter().filter(|event| *event == "llama").count(),
-        1,
-        "llama.cpp must start exactly once across a conversation switch"
-    );
-    assert_eq!(
+    assert_eq!(shared.llama().1, llama_before);
+    assert_eq!(shared.port(), port);
+    runtime.shutdown().unwrap();
+    let count = |name: &str| {
         events
+            .lock()
+            .unwrap()
             .iter()
-            .filter(|event| event.starts_with("acp:"))
-            .count(),
-        2,
-        "only the Claurst ACP agent is replaced"
+            .filter(|event| event.as_str() == name || event.starts_with(&format!("{name}:")))
+            .count()
+    };
+    assert_eq!(count("llama"), 1, "llama.cpp starts once for both sessions");
+    assert_eq!(count("acp"), 2, "each session runs its own Claurst agent");
+    assert_eq!(
+        count("acp-released"),
+        1,
+        "only the stopped session's agent exits"
     );
     assert_eq!(
-        events
-            .iter()
-            .filter(|event| *event == "acp-released")
-            .count(),
-        1,
-        "the previous conversation's agent is released"
+        count("shutdown"),
+        0,
+        "the other session keeps the model loaded"
     );
-    assert!(!events.iter().any(|event| event == "shutdown"));
+    shared.shutdown().unwrap();
+    assert_eq!(count("acp-released"), 2);
+    assert_eq!(count("shutdown"), 1, "the last session stops the model");
 }
 
 #[test]
@@ -472,7 +475,7 @@ fn a_rebound_session_writes_only_the_new_conversations_chat_server() {
     );
     let mut first = request();
     first.mcp_servers = vec![chat_server("conversation-1")];
-    let mut runtime = owner
+    let runtime = owner
         .start_with_mcp(
             "qwen2-5-coder-7b-instruct-q4-k-m",
             first,
@@ -482,9 +485,9 @@ fn a_rebound_session_writes_only_the_new_conversations_chat_server() {
         .unwrap();
     let mut second = request();
     second.mcp_servers = vec![chat_server("conversation-2")];
-    owner
-        .rebind_session(
-            &mut runtime,
+    let _shared = owner
+        .attach_session(
+            &runtime.model(),
             "qwen2-5-coder-7b-instruct-q4-k-m",
             second,
             &host_absolute_path("/workspace"),
@@ -515,7 +518,7 @@ fn a_changed_llama_plan_refuses_to_rebind_instead_of_reusing_the_wrong_model() {
     let _ = installed(root.path());
     let events = Arc::new(Mutex::new(vec![]));
     let owner = owner(Arc::clone(&events), root.path());
-    let mut runtime = owner
+    let runtime = owner
         .start_with_mcp(
             "qwen2-5-coder-7b-instruct-q4-k-m",
             request(),
@@ -526,8 +529,8 @@ fn a_changed_llama_plan_refuses_to_rebind_instead_of_reusing_the_wrong_model() {
     let mut changed = request();
     changed.llama_server_executable = host_absolute_path("/bin/other-llama-server");
     assert!(matches!(
-        owner.rebind_session(
-            &mut runtime,
+        owner.attach_session(
+            &runtime.model(),
             "qwen2-5-coder-7b-instruct-q4-k-m",
             changed,
             &host_absolute_path("/workspace"),
@@ -571,7 +574,7 @@ fn a_real_conversation_switch_leaves_the_running_llama_process_untouched() {
         permission_mode: gent_types::PermissionMode::AskEveryTime,
         mcp_servers: vec![chat_server("conversation-1")],
     };
-    let mut runtime = owner
+    let runtime = owner
         .start_with_mcp(
             "qwen2-5-coder-7b-instruct-q4-k-m",
             request.clone(),
@@ -583,23 +586,24 @@ fn a_real_conversation_switch_leaves_the_running_llama_process_untouched() {
     assert!(alive(llama_pid));
 
     request.mcp_servers = vec![chat_server("conversation-2")];
-    owner
-        .rebind_session(
-            &mut runtime,
+    let shared = owner
+        .attach_session(
+            &runtime.model(),
             "qwen2-5-coder-7b-instruct-q4-k-m",
             request,
             root.path(),
             Vec::new(),
         )
         .unwrap();
+    runtime.shutdown().unwrap();
 
-    assert_eq!(runtime.llama().process_id(), llama_pid);
+    assert_eq!(shared.llama().process_id(), llama_pid);
     assert!(alive(llama_pid), "the loaded model must still be resident");
     let settings =
         std::fs::read_to_string(root.path().join("claurst-home/.claurst/settings.json")).unwrap();
     assert!(settings.contains("conversation-2"));
     assert!(!settings.contains("conversation-1"));
-    runtime.shutdown().unwrap();
+    shared.shutdown().unwrap();
     assert!(!alive(llama_pid));
 }
 

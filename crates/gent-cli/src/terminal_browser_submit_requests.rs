@@ -152,18 +152,30 @@ pub(super) async fn steer_queued(
     message_ids: Vec<String>,
 ) -> Result<terminal::UiRequestResult, String> {
     let count = message_ids.len();
+    let delivery = chat_cli::summary(data_dir.clone(), no_autostart, conversation_id.clone())
+        .await
+        .map_err(|error| error.to_string())?
+        .steer_delivery;
     chat_cli::queue::deliver(data_dir, no_autostart, &conversation_id, message_ids, true)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(result(
-        conversation_id,
-        None,
-        if count == 1 {
-            "Sent the queued prompt into the running turn.".to_owned()
-        } else {
-            format!("Sent {count} queued prompts into the running turn.")
-        },
-    ))
+    Ok(result(conversation_id, None, steer_notice(delivery, count)))
+}
+
+fn steer_notice(delivery: Option<gent_types::AgentChatSteerDelivery>, count: usize) -> String {
+    use gent_types::AgentChatSteerDelivery::{InterruptThenNext, JoinTurn};
+    match (delivery, count) {
+        (Some(JoinTurn), 1) => "Sent the queued prompt into the running turn.".to_owned(),
+        (Some(JoinTurn), _) => format!("Sent {count} queued prompts into the running turn."),
+        (Some(InterruptThenNext), 1) => {
+            "Stopped the running turn; the queued prompt runs next.".to_owned()
+        }
+        (Some(InterruptThenNext), _) => {
+            format!("Stopped the running turn; the {count} queued prompts run next.")
+        }
+        (None, 1) => "The queued prompt runs next.".to_owned(),
+        (None, _) => format!("The {count} queued prompts run next."),
+    }
 }
 
 pub(super) async fn cancel_queued(
@@ -219,4 +231,32 @@ pub(super) async fn interrupt(
     let mut interrupted = result(conversation_id, None, "Canceled current work.");
     interrupted.awaiting_turn = Some(false);
     Ok(interrupted)
+}
+
+#[cfg(test)]
+mod steer_notice_tests {
+    use gent_types::AgentChatSteerDelivery;
+
+    use super::steer_notice;
+
+    #[test]
+    fn the_send_now_notice_follows_the_running_turn_delivery() {
+        assert_eq!(
+            steer_notice(Some(AgentChatSteerDelivery::JoinTurn), 1),
+            "Sent the queued prompt into the running turn."
+        );
+        assert_eq!(
+            steer_notice(Some(AgentChatSteerDelivery::JoinTurn), 2),
+            "Sent 2 queued prompts into the running turn."
+        );
+        assert_eq!(
+            steer_notice(Some(AgentChatSteerDelivery::InterruptThenNext), 1),
+            "Stopped the running turn; the queued prompt runs next."
+        );
+        assert_eq!(
+            steer_notice(Some(AgentChatSteerDelivery::InterruptThenNext), 2),
+            "Stopped the running turn; the 2 queued prompts run next."
+        );
+        assert_eq!(steer_notice(None, 1), "The queued prompt runs next.");
+    }
 }

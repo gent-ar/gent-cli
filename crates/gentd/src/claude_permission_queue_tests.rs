@@ -1,7 +1,7 @@
 use gent_drivers::claude_control::{ClaudePermissionBehavior, ClaudePermissionRequest};
 use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
-use gent_ports::{AgentChatWorkspaceLedger, PendingPermissionLedger};
+use gent_ports::{AgentChatWorkspaceLedger, PendingPermissionLedger, PolicyLedger};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -26,6 +26,7 @@ fn read(id: &str) -> ClaudeRunnerEffect {
 
 fn host_with_two_requests_in(
     mode: AgentChatMode,
+    permission: gent_types::PermissionMode,
 ) -> (
     SqliteLedger,
     Runner,
@@ -53,6 +54,18 @@ fn host_with_two_requests_in(
                 canonical_path: "/workspace-q".into(),
             },
         )
+        .unwrap();
+    ledger
+        .save_policy(&gent_types::PolicyRecord {
+            policy_id: "policy-q".into(),
+            workspace_id: "workspace-q".into(),
+            scope: gent_types::PolicyScope::ProviderPermissions,
+            revision: 1,
+            mode: permission,
+            containment: gent_types::Containment::Unsandboxed,
+            allowed_tools: vec![],
+            allowed_categories: vec![],
+        })
         .unwrap();
     prompt(&ledger, &conversation_id, "q1");
     let runner = Runner::default();
@@ -162,15 +175,19 @@ fn host_with_two_requests() -> (
     Runner,
     ApprovedClaudeHost<SqliteLedger, Runner, Resolver>,
 ) {
-    host_with_two_requests_in(AgentChatMode::Agent)
+    host_with_two_requests_in(
+        AgentChatMode::Agent,
+        gent_types::PermissionMode::AskEveryTime,
+    )
 }
 
 const READ_ONLY: gent_types::PermissionDenialReason =
     gent_types::PermissionDenialReason::ReadOnlyMode;
 
 #[test]
-fn ask_mode_refuses_file_changes_with_the_read_only_reason() {
-    let (ledger, runner, _host) = host_with_two_requests_in(AgentChatMode::Ask);
+fn plan_mode_refuses_file_changes_with_the_read_only_reason() {
+    let (ledger, runner, _host) =
+        host_with_two_requests_in(AgentChatMode::Plan, gent_types::PermissionMode::Bypass);
     assert_eq!(pending_id(&ledger), None);
     let responses = runner.0.lock().unwrap().permission_responses.clone();
     assert_eq!(
@@ -181,6 +198,40 @@ fn ask_mode_refuses_file_changes_with_the_read_only_reason() {
         [
             ("first", ClaudePermissionBehavior::Refuse(READ_ONLY)),
             ("second", ClaudePermissionBehavior::Refuse(READ_ONLY)),
+        ]
+    );
+}
+
+#[test]
+fn ask_mode_asks_for_every_file_change_and_allow_or_deny_reach_claude() {
+    let (ledger, runner, mut host) =
+        host_with_two_requests_in(AgentChatMode::Ask, gent_types::PermissionMode::Bypass);
+    assert_eq!(pending_id(&ledger).as_deref(), Some("first"));
+    answer(&ledger, &mut host, "first");
+    host.tick().unwrap();
+    assert_eq!(pending_id(&ledger).as_deref(), Some("second"));
+    let pending = ledger
+        .pending_permission(
+            &AgentChatConversationId("conversation-q".into()),
+            &AgentChatRunId("run-q".into()),
+        )
+        .unwrap()
+        .unwrap();
+    ledger.settle_pending_permission(&pending.binding).unwrap();
+    host.respond_permission("run-q", "second", ClaudePermissionBehavior::Deny, false)
+        .unwrap();
+    assert_eq!(
+        runner
+            .0
+            .lock()
+            .unwrap()
+            .permission_responses
+            .iter()
+            .map(|response| (response.1.as_str(), response.2))
+            .collect::<Vec<_>>(),
+        [
+            ("first", ClaudePermissionBehavior::Allow),
+            ("second", ClaudePermissionBehavior::Deny),
         ]
     );
 }

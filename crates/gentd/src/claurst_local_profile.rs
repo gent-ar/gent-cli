@@ -34,8 +34,8 @@ pub(super) fn template_kwargs(
     let mut kwargs = json!({ "gent_instructions": instructions(model, effort, mode) });
     if model.agent_profile == LocalAgentProfile::Compact {
         kwargs["gent_tools"] = match mode {
-            AgentChatMode::Agent => json!(COMPACT_TOOLS),
-            AgentChatMode::Ask | AgentChatMode::Plan => json!(COMPACT_READ_ONLY_TOOLS),
+            AgentChatMode::Ask | AgentChatMode::Agent => json!(COMPACT_TOOLS),
+            AgentChatMode::Plan => json!(COMPACT_READ_ONLY_TOOLS),
         };
     }
     kwargs.to_string()
@@ -57,7 +57,7 @@ pub(super) fn history_input_bytes(model: &LocalModelRecord, effort: AgentChatEff
 
 fn instructions(model: &LocalModelRecord, effort: AgentChatEffort, mode: AgentChatMode) -> String {
     let guidance =
-        if model.agent_profile == LocalAgentProfile::Compact && mode == AgentChatMode::Agent {
+        if model.agent_profile == LocalAgentProfile::Compact && mode != AgentChatMode::Plan {
             format!("\nTools: {}.\n{COMPACT_GUIDANCE}", COMPACT_TOOLS.join(", "))
         } else {
             String::new()
@@ -71,7 +71,9 @@ fn instructions(model: &LocalModelRecord, effort: AgentChatEffort, mode: AgentCh
 
 fn mode_instruction(mode: AgentChatMode) -> &'static str {
     match mode {
-        AgentChatMode::Ask => "Answer and explain. Do not invoke tools or change files.",
+        AgentChatMode::Ask => {
+            "Answer and explain. Read files when that helps. Do not change files or run commands unless the user asks you to; Gent asks the user before each change."
+        }
         AgentChatMode::Plan => {
             "Inspect only as needed, then provide a concrete plan. Do not change files or invoke destructive tools."
         }

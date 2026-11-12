@@ -60,11 +60,15 @@ struct LocalRuntime(Arc<FakeSummarizer>);
 
 #[async_trait]
 impl ClaurstRuntimeFactory for LocalRuntime {
-    async fn ensure_for_prompt(&self, _: &AgentChatPromptSaved) -> Result<(), String> {
+    async fn ensure_for_prompt(
+        &self,
+        _: &AgentChatPromptSaved,
+        _: &[String],
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    async fn context_summarizer(&self) -> Option<Arc<dyn ContextSummarizer>> {
+    async fn context_summarizer(&self, _: &str) -> Option<Arc<dyn ContextSummarizer>> {
         Some(Arc::clone(&self.0) as Arc<dyn ContextSummarizer>)
     }
 }

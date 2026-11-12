@@ -18,7 +18,9 @@ use gent_types::{
 };
 
 use crate::{
-    claurst_runtime_factory::{ClaurstRuntimeFactory, ReadyClaurstRuntime},
+    claurst_runtime_factory::{
+        CLAURST_CONVERSATION_CAPACITY, ClaurstRuntimeFactory, ReadyClaurstRuntime,
+    },
     ordinary_lifecycle_cadence::AsyncOrdinaryLifecycleHost,
     private_claurst_ingress::PrivateClaurstIngress,
 };
@@ -249,11 +251,8 @@ where
         if self.shutdown_requested {
             return Ok(draining);
         }
-        let started = if draining {
-            false
-        } else {
-            self.claim_and_start().await?
-        };
+        let started =
+            self.active.len() < CLAURST_CONVERSATION_CAPACITY && self.claim_and_start().await?;
         Ok(draining || started || !self.active.is_empty())
     }
 
@@ -285,6 +284,9 @@ fn display(error: impl std::fmt::Display) -> String {
 #[cfg(test)]
 #[path = "claurst_prompt_lifecycle_compaction_tests.rs"]
 mod compaction_tests;
+#[cfg(test)]
+#[path = "claurst_prompt_lifecycle_concurrency_tests.rs"]
+mod concurrency_tests;
 #[cfg(test)]
 #[path = "claurst_prompt_lifecycle_tests.rs"]
 mod tests;

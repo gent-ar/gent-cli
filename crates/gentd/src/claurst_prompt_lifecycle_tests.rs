@@ -34,7 +34,11 @@ struct TrackingRuntime {
 
 #[async_trait]
 impl ClaurstRuntimeFactory for TrackingRuntime {
-    async fn ensure_for_prompt(&self, _: &gent_types::AgentChatPromptSaved) -> Result<(), String> {
+    async fn ensure_for_prompt(
+        &self,
+        _: &gent_types::AgentChatPromptSaved,
+        _: &[String],
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -43,7 +47,7 @@ impl ClaurstRuntimeFactory for TrackingRuntime {
         Ok(())
     }
 
-    async fn warm(&self, _: &str, _: &str) -> Result<(), String> {
+    async fn warm(&self, _: &str, _: &str, _: &[String]) -> Result<(), String> {
         self.warms.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }

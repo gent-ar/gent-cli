@@ -189,6 +189,7 @@ fn test_summary(conversation_id: &str) -> AgentChatConversationSummary {
             mode: AgentChatMode::Ask,
         },
         selection_applies_next_turn: false,
+        steer_delivery: None,
         containment: gent_types::Containment::Unsandboxed,
     }
 }

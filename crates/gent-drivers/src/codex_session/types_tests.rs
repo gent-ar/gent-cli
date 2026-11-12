@@ -166,10 +166,10 @@ fn permission_matrix_preserves_interaction_mode_through_new_and_resumed_threads(
                 let parameters = &turn["params"];
                 assert_eq!(
                     parameters["approvalPolicy"],
-                    if mode == AgentChatMode::Agent {
-                        approval
-                    } else {
-                        "never"
+                    match mode {
+                        AgentChatMode::Agent => approval,
+                        AgentChatMode::Ask => "on-request",
+                        AgentChatMode::Plan => "never",
                     }
                 );
                 let expected = match (mode, permission) {

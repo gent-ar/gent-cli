@@ -216,19 +216,19 @@ mod tests {
         guard: Arc<dyn Fn() -> bool + Send + Sync>,
     ) -> (Arc<tempfile::TempDir>, Arc<DeferredPeer>) {
         let root = Arc::new(tempfile::tempdir().unwrap());
-        let script = root.path().join("server.py");
-        std::fs::write(&script,"import sys,json\nopen('spawned.txt','w').write('started')\nfor line in sys.stdin:\n m=json.loads(line)\n print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':{'tools':[]}}),flush=True)\n").unwrap();
-        let python = super::super::mcp_stdio_scope_tests::python();
+        let script = root.path().join("server.ps1");
+        std::fs::write(&script, "Set-Content spawned.txt started; while ($null -ne ($line = [Console]::In.ReadLine())) { $m = ConvertFrom-Json $line; [Console]::Out.WriteLine((ConvertTo-Json -Compress @{jsonrpc='2.0'; id=$m.id; result=@{tools=@()}})); [Console]::Out.Flush() }").unwrap();
+        let powershell = super::super::mcp_stdio_scope_tests::powershell();
         let peer = DeferredPeer::new(Spec {
             launch_guard: guard,
             authority: root.clone(),
             startup: None,
-            program: python.clone(),
-            args: vec!["-u".into(), script.to_string_lossy().into_owned()],
+            program: powershell.clone(),
+            args: super::super::mcp_stdio_scope_tests::script_arguments(&script),
             env: BTreeMap::new(),
             cwd: root.path().into(),
             pins: vec![
-                std::fs::File::open(python).unwrap(),
+                std::fs::File::open(powershell).unwrap(),
                 std::fs::File::open(script).unwrap(),
             ],
             secrets: vec![],

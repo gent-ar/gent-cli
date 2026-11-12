@@ -5,7 +5,7 @@ use gent_runtime::AgentChatReadService;
 use gent_types::ToolSourceRecord;
 
 use super::{ActiveRuntime, StandaloneClaurstRuntimeFactory};
-use crate::standalone_claurst_runtime_identity::{RuntimeIdentity, RuntimeReuse};
+use crate::standalone_claurst_runtime_identity::RuntimeIdentity;
 use crate::standalone_mcp_config::StandaloneMcpConfig;
 use crate::{
     claurst_acp_bridge::ClaurstBridgeHandle,
@@ -13,12 +13,19 @@ use crate::{
     claurst_standalone_owner::ClaurstStandaloneOwner,
 };
 
+struct Session<'a> {
+    conversation_id: String,
+    run_id: &'a str,
+    identity: RuntimeIdentity,
+}
+
 impl StandaloneClaurstRuntimeFactory {
     pub(super) async fn start_selected(
         &self,
         conversation_id: &str,
         run_id: &str,
         tool_source_ids: &[String],
+        busy: &[String],
     ) -> Result<gent_types::PolicyRecord, String> {
         let selection = AgentChatReadService::new(self.ledger.clone())
             .run_selection(conversation_id, run_id)
@@ -99,8 +106,7 @@ impl StandaloneClaurstRuntimeFactory {
         if let Some(binding) = &binding {
             identity = identity.with_permission_binding(binding.clone());
         }
-        let reuse = self.retire_unless_reusable(&identity).await?;
-        if reuse == RuntimeReuse::Ready {
+        if self.reuse_ready(&conversation_id, run_id, &identity).await {
             return Ok(permission);
         }
         let mut request = config.request.clone();
@@ -123,25 +129,19 @@ impl StandaloneClaurstRuntimeFactory {
             StandaloneMcpConfig::selected_claurst_servers,
             disallowed_tools,
         )?;
-        match reuse {
-            RuntimeReuse::Ready => Ok(permission),
-            RuntimeReuse::RebindSession
-                if self
-                    .rebind_session(
-                        &identity,
-                        request.clone(),
-                        &workspace,
-                        launch_mcp_servers.clone(),
-                    )
-                    .await? =>
-            {
-                Ok(permission)
-            }
-            RuntimeReuse::RebindSession | RuntimeReuse::Relaunch => self
-                .launch_runtime(identity, request, workspace, launch_mcp_servers)
-                .await
-                .map(|()| permission),
-        }
+        self.launch_session(
+            Session {
+                conversation_id,
+                run_id,
+                identity,
+            },
+            request,
+            workspace,
+            launch_mcp_servers,
+            busy,
+        )
+        .await
+        .map(|()| permission)
     }
 
     fn selected_tool_sources(
@@ -165,78 +165,6 @@ impl StandaloneClaurstRuntimeFactory {
             return Err("selected MCP tool source is not available in this workspace".into());
         }
         Ok(selected_sources)
-    }
-
-    async fn retire_unless_reusable(
-        &self,
-        identity: &RuntimeIdentity,
-    ) -> Result<RuntimeReuse, String> {
-        let previous = {
-            let mut active = self.active.lock().await;
-            let reuse = active.as_mut().map_or(RuntimeReuse::Relaunch, |runtime| {
-                if matches!(runtime.runtime.exited(), Ok(None)) {
-                    identity.reuse_from(&runtime.identity)
-                } else {
-                    RuntimeReuse::Relaunch
-                }
-            });
-            if reuse != RuntimeReuse::Relaunch {
-                return Ok(reuse);
-            }
-            active.take()
-        };
-        if let Some(previous) = previous {
-            previous
-                .shut_down("could not stop previous local Claurst runtime")
-                .await?;
-        }
-        Ok(RuntimeReuse::Relaunch)
-    }
-
-    async fn rebind_session(
-        &self,
-        identity: &RuntimeIdentity,
-        request: crate::claurst_local_runtime::ClaurstLocalRuntimeRequest,
-        workspace: &std::path::Path,
-        mcp_servers: Vec<serde_json::Value>,
-    ) -> Result<bool, String> {
-        if identity.permission_binding().is_some() {
-            return Ok(false);
-        }
-        let Some(mut active) = self.active.lock().await.take() else {
-            return Ok(false);
-        };
-        let model_id = identity.model.model_id.clone();
-        let readiness = self.readiness.clone();
-        let workspace = workspace.to_path_buf();
-        drop(active.bridge);
-        let rebound = tokio::task::spawn_blocking(move || {
-            ClaurstStandaloneOwner::new(
-                readiness,
-                SystemPrivateSettingsStore,
-                crate::claurst_sandbox_launcher::RoutedClaurstStandaloneLauncher::host(),
-                HttpLlamaServerReadiness::default(),
-            )
-            .rebind_session(
-                &mut active.runtime,
-                &model_id,
-                request,
-                &workspace,
-                mcp_servers,
-            )
-            .map(|()| active.runtime)
-        })
-        .await
-        .map_err(|_| "local Claurst session worker stopped unexpectedly".to_owned())?;
-        let Ok(runtime) = rebound else {
-            return Ok(false);
-        };
-        *self.active.lock().await = Some(ActiveRuntime {
-            identity: identity.clone(),
-            bridge: ClaurstBridgeHandle::new(runtime.bridge()),
-            runtime,
-        });
-        Ok(true)
     }
 }
 

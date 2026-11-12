@@ -33,6 +33,8 @@ type SystemBridge = ClaurstBridgeHandle<ClaurstOwnedAcpStdio>;
 
 struct ActiveRuntime {
     identity: RuntimeIdentity,
+    run_id: String,
+    used: std::time::Instant,
     bridge: SystemBridge,
     runtime: SystemRuntime,
 }
@@ -68,7 +70,7 @@ pub(crate) struct StandaloneClaurstRuntimeFactory {
     readiness: ClaurstLocalReadinessService,
     config: Option<StandaloneClaurstRuntimeConfig>,
     mcp_control: Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
-    active: tokio::sync::Mutex<Option<ActiveRuntime>>,
+    active: tokio::sync::Mutex<std::collections::BTreeMap<String, ActiveRuntime>>,
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +88,7 @@ impl StandaloneClaurstRuntimeFactory {
             readiness: ClaurstLocalReadinessService::new(models.provisioner),
             config,
             mcp_control: None,
-            active: tokio::sync::Mutex::new(None),
+            active: tokio::sync::Mutex::new(std::collections::BTreeMap::new()),
         }
     }
 
@@ -101,43 +103,6 @@ impl StandaloneClaurstRuntimeFactory {
     pub(crate) fn bridge(self: &Arc<Self>) -> StandaloneClaurstBridge {
         StandaloneClaurstBridge(Arc::clone(self))
     }
-
-    async fn active_bridge(&self) -> Result<SystemBridge, PortError> {
-        self.active
-            .lock()
-            .await
-            .as_ref()
-            .map(|active| active.bridge.clone())
-            .ok_or_else(|| PortError::Unavailable("local Claurst runtime is not ready".into()))
-    }
-
-    pub(crate) async fn summary_bridge(&self, model_id: &str) -> Result<SystemBridge, PortError> {
-        let active = self.active.lock().await;
-        let runtime = active
-            .as_ref()
-            .ok_or_else(|| PortError::Unavailable("local Claurst runtime is not ready".into()))?;
-        if runtime.identity.model.model_id != model_id {
-            return Err(PortError::Unavailable(
-                "selected Claurst model is not the active local model".into(),
-            ));
-        }
-        if !runtime.bridge.is_idle().map_err(PortError::Unavailable)? {
-            return Err(PortError::Unavailable(
-                "Claurst summary waits for the interactive prompt to become idle".into(),
-            ));
-        }
-        Ok(runtime.bridge.clone())
-    }
-
-    async fn stop_active(&self) -> Result<(), String> {
-        let previous = self.active.lock().await.take();
-        if let Some(previous) = previous {
-            previous
-                .shut_down("could not stop local Claurst runtime")
-                .await?;
-        }
-        Ok(())
-    }
 }
 
 impl StandaloneClaurstBridge {
@@ -148,33 +113,34 @@ impl StandaloneClaurstBridge {
 
 #[async_trait]
 impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
-    async fn ensure_for_prompt(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
+    async fn ensure_for_prompt(
+        &self,
+        saved: &AgentChatPromptSaved,
+        busy: &[String],
+    ) -> Result<(), String> {
         let policy = self
             .start_selected(
                 &saved.message.conversation_id,
                 &saved.run_id.0,
                 &saved.tool_source_ids,
+                busy,
             )
             .await?;
-        self.active_bridge()
+        self.run_bridge(&saved.run_id.0)
             .await
             .and_then(|bridge| bridge.bind_turn_policy(policy))
             .map_err(|error| error.to_string())
     }
 
-    async fn warm(&self, conversation_id: &str, run_id: &str) -> Result<(), String> {
-        self.start_selected(conversation_id, run_id, &[]).await?;
-        let initialized = match self.active_bridge().await {
-            Ok(bridge) => bridge.initialize().await,
-            Err(error) => Err(error),
-        };
-        match initialized {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                self.stop_active().await?;
-                Err(error.to_string())
-            }
-        }
+    async fn warm(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+        busy: &[String],
+    ) -> Result<(), String> {
+        self.start_selected(conversation_id, run_id, &[], busy)
+            .await
+            .map(|_| ())
     }
 
     async fn after_prompt_settled(&self, conversation_id: &str) -> Result<(), String> {
@@ -187,15 +153,18 @@ impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
         Ok(())
     }
 
-    async fn after_prompt_failed(&self, _: &str) -> Result<(), String> {
-        self.stop_active().await
+    async fn after_prompt_failed(&self, conversation_id: &str) -> Result<(), String> {
+        self.stop_conversation(conversation_id).await
     }
 
-    async fn context_summarizer(&self) -> Option<Arc<dyn ContextSummarizer>> {
+    async fn context_summarizer(
+        &self,
+        conversation_id: &str,
+    ) -> Option<Arc<dyn ContextSummarizer>> {
         self.active
             .lock()
             .await
-            .as_ref()
+            .get(conversation_id)
             .map(|active| active.runtime.summarizer() as Arc<dyn ContextSummarizer>)
     }
 
@@ -245,23 +214,43 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
         &self,
         request: ClaurstStartRequest,
     ) -> Result<ClaurstSessionBinding, PortError> {
-        self.0.active_bridge().await?.start(request).await
+        self.0
+            .run_bridge(&request.run_id)
+            .await?
+            .start(request)
+            .await
     }
 
     async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
-        self.0.active_bridge().await?.bind_session(binding).await
+        self.0
+            .run_bridge(&binding.run_id)
+            .await?
+            .bind_session(binding)
+            .await
     }
 
     async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), PortError> {
-        self.0.active_bridge().await?.submit(request).await
+        self.0
+            .run_bridge(&request.binding.run_id)
+            .await?
+            .submit(request)
+            .await
     }
 
     async fn cancel(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
-        self.0.active_bridge().await?.cancel(binding).await
+        self.0
+            .run_bridge(&binding.run_id)
+            .await?
+            .cancel(binding)
+            .await
     }
 
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
-        self.0.active_bridge().await?.drain(request).await
+        self.0
+            .run_bridge(&request.run_id)
+            .await?
+            .drain(request)
+            .await
     }
 
     async fn permission_authority(
@@ -270,7 +259,7 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
         epoch: gent_types::HostEpoch,
     ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
         self.0
-            .active_bridge()
+            .run_bridge(&binding.run_id)
             .await?
             .permission_authority(binding, epoch)
             .await
@@ -283,7 +272,7 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
         reply: ClaurstPermissionReply,
     ) -> Result<(), PortError> {
         self.0
-            .active_bridge()
+            .run_bridge(&binding.run_id)
             .await?
             .respond_permission(binding, request_id, reply)
             .await

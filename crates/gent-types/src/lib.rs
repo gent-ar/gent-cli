@@ -78,8 +78,8 @@ pub use agent_chat::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
     AgentChatProjectionEvent, AgentChatProjectionPage, AgentChatProjectionTail, AgentChatProvider,
     AgentChatRejection, AgentChatRun, AgentChatRunState, AgentChatSelection,
-    AgentChatSelectionError, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
-    NormalizedTranscriptKind, NormalizedTranscriptPage,
+    AgentChatSelectionError, AgentChatSteerDelivery, NormalizedTranscriptAppend,
+    NormalizedTranscriptEvent, NormalizedTranscriptKind, NormalizedTranscriptPage,
 };
 pub use agent_chat_checkpoint::{
     AgentChatCheckpointCapture, AgentChatCheckpointRestore, AgentChatCheckpointRestored,

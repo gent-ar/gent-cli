@@ -50,7 +50,7 @@ fn a_mode_or_effort_change_relaunches_while_a_tool_source_change_only_rebinds() 
     }
     assert_eq!(
         identity(&agent, &["a".into()]).reuse_from(&running),
-        RuntimeReuse::RebindSession
+        RuntimeReuse::ShareModel
     );
 }
 
@@ -130,7 +130,7 @@ fn another_conversation_replaces_only_the_claurst_agent_and_keeps_the_model_load
             "conversation-1",
             &[]
         )),
-        RuntimeReuse::RebindSession
+        RuntimeReuse::ShareModel
     );
 }
 

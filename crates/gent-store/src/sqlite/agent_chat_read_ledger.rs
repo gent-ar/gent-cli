@@ -45,6 +45,7 @@ fn summary(
     conversation_id: &str,
 ) -> Result<AgentChatConversationSummary, LedgerError> {
     let connection = ledger.lock()?;
+    let steer_delivery = connection.query_row("SELECT s.provider, s.model, s.effort, s.mode FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id JOIN turns t ON t.run_id = r.run_id WHERE r.conversation_id = ?1 AND t.phase IN ('active', 'waitingPermission', 'waitingQuestion') ORDER BY t.rowid DESC LIMIT 1", [conversation_id], selection).optional().map_err(storage_error)?.map(|running| running.provider.steer_delivery());
     let selection = connection.query_row("SELECT s.provider, s.model, s.effort, s.mode FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id WHERE r.conversation_id = ?1 ORDER BY r.rowid DESC LIMIT 1", [conversation_id], selection).optional().map_err(storage_error)?.ok_or(LedgerError::Rejected(gent_types::AgentChatRejection::ConversationNotFound))?;
     let selection_applies_next_turn = connection.query_row("SELECT EXISTS(SELECT 1 FROM runs earlier JOIN turns t ON t.run_id = earlier.run_id WHERE earlier.conversation_id = ?1 AND t.phase IN ('active', 'waitingPermission', 'waitingQuestion') AND earlier.run_id <> (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections s ON s.run_id = current.run_id WHERE current.conversation_id = ?1 ORDER BY current.rowid DESC LIMIT 1))", [conversation_id], |row| row.get(0)).map_err(storage_error)?;
     let title = metadata(&connection, conversation_id, "title")?;
@@ -69,6 +70,7 @@ fn summary(
         updated_at_unix_ms,
         selection,
         selection_applies_next_turn,
+        steer_delivery,
         containment: if containment.as_deref() == Some("sandboxed") {
             gent_types::Containment::Sandboxed
         } else {

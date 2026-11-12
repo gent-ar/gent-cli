@@ -1,5 +1,3 @@
-//! Scriptable fake for the private Claurst normalized-fact boundary.
-
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -24,7 +22,6 @@ struct BridgeState {
     turn_policy: Option<gent_types::PolicyRecord>,
 }
 
-/// Deterministic fake that enforces the private bridge's ordering and secrecy contract.
 #[derive(Clone, Debug, Default)]
 pub struct FakePrivateClaurstBridge {
     state: Arc<Mutex<BridgeState>>,
@@ -37,34 +34,28 @@ impl FakePrivateClaurstBridge {
             .expect("private bridge fake mutex poisoned")
     }
 
-    /// Queues the private session binding returned for the next valid daemon-owned start.
     pub fn push_start_binding(&self, binding: ClaurstSessionBinding) {
         self.state().start_bindings.push_back(Ok(binding));
     }
 
-    /// Queues one result for the next valid drain request.
     pub fn push_batch(&self, batch: ClaurstDrainBatch) {
         self.state().batches.push_back(Ok(batch));
     }
 
-    /// Queues one controlled bridge failure for the next valid drain request.
     pub fn fail_next_drain(&self, message: impl Into<String>) {
         self.state().batches.push_back(Err(message.into()));
     }
 
-    /// Returns every daemon-owned session binding the fake observed.
     #[must_use]
     pub fn bindings(&self) -> Vec<ClaurstSessionBinding> {
         self.state().bindings.values().cloned().collect()
     }
 
-    /// Returns normalized start input the daemon supplied, never provider configuration.
     #[must_use]
     pub fn starts(&self) -> Vec<ClaurstStartRequest> {
         self.state().starts.clone()
     }
 
-    /// Returns follow-up inputs accepted for an already bound private source.
     #[must_use]
     pub fn submissions(&self) -> Vec<ClaurstSubmitRequest> {
         self.state().submissions.clone()
@@ -75,18 +66,15 @@ impl FakePrivateClaurstBridge {
         self.state().cancellations.clone()
     }
 
-    /// Returns drain requests in the order a daemon would have issued them.
     #[must_use]
     pub fn requests(&self) -> Vec<ClaurstDrainRequest> {
         self.state().requests.clone()
     }
 
-    /// Returns whether a scripted drain result has not been consumed yet.
     pub fn has_pending_batches(&self) -> bool {
         !self.state().batches.is_empty()
     }
 
-    /// Returns every permission reply the daemon relayed, in order.
     pub fn permission_replies(&self) -> Vec<(String, ClaurstPermissionReply)> {
         self.state().permission_replies.clone()
     }
@@ -197,7 +185,9 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         state.requests.push(request.clone());
         let batch = state
             .batches
-            .pop_front()
+            .iter()
+            .position(|batch| for_source(batch, &request.source_id))
+            .and_then(|position| state.batches.remove(position))
             .transpose()
             .map_err(PortError::Provider)?;
         let Some(batch) = batch else {
@@ -263,6 +253,14 @@ fn validate_batch(
         return Err(contract_error("batch would echo an opaque session"));
     }
     Ok(())
+}
+
+fn for_source(batch: &Result<ClaurstDrainBatch, String>, source: &ClaurstSourceId) -> bool {
+    let checkpoint = batch
+        .as_ref()
+        .ok()
+        .and_then(|batch| batch.checkpoint.as_ref());
+    checkpoint.is_none_or(|checkpoint| checkpoint.source_id == *source)
 }
 
 fn strictly_increasing(facts: &[ClaurstNormalizedFact]) -> bool {

@@ -21,12 +21,18 @@ where
     F: ClaurstRuntimeFactory,
 {
     pub(super) async fn claim_and_start(&mut self) -> Result<bool, String> {
+        let running = self
+            .active
+            .values()
+            .map(|active| active.saved.run_id.clone())
+            .collect::<Vec<_>>();
         match self
             .dispatches
-            .claim(
+            .claim_excluding_runs(
                 &self.coordinator_id,
                 self.host_epoch,
                 AgentChatProvider::Claurst,
+                &running,
             )
             .map_err(display)?
         {
@@ -37,10 +43,6 @@ where
     }
 
     async fn start_claimed(&mut self, saved: AgentChatPromptSaved) -> Result<bool, String> {
-        if !self.active.is_empty() {
-            self.release_claim(&saved)?;
-            return Ok(true);
-        }
         let lease = RunLease {
             run_id: saved.run_id.0.clone(),
             coordinator_id: self.coordinator_id.clone(),
@@ -65,11 +67,18 @@ where
         };
         let source_id = source_id(&saved);
         let (request, boundary) = self.start_request(&saved, &source_id, &attachments)?;
-        if let Err(error) = self.runtime.ensure_for_prompt(&saved).await {
+        if let Err(error) = self
+            .runtime
+            .ensure_for_prompt(&saved, &self.busy_conversations())
+            .await
+        {
             let code = self.sandbox_failure_code(&saved);
             return self.fail_prelaunch_with(&saved, &error, code);
         }
-        let summarizer = self.runtime.context_summarizer().await;
+        let summarizer = self
+            .runtime
+            .context_summarizer(&saved.message.conversation_id)
+            .await;
         let fallback = match self.admission(
             &saved,
             &boundary,
@@ -135,38 +144,6 @@ where
                 work: Work::Provider,
             },
         );
-        Ok(true)
-    }
-
-    fn release_claim(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
-        self.dispatches
-            .release_claim(
-                &saved.message.message_id,
-                &self.coordinator_id,
-                self.host_epoch,
-            )
-            .map_err(display)
-    }
-
-    fn fail_prelaunch(&self, saved: &AgentChatPromptSaved, error: &str) -> Result<bool, String> {
-        self.fail_prelaunch_with(saved, error, None)
-    }
-
-    fn fail_prelaunch_with(
-        &self,
-        saved: &AgentChatPromptSaved,
-        error: &str,
-        code: Option<gent_types::AgentChatFailureCode>,
-    ) -> Result<bool, String> {
-        self.dispatches
-            .fail_prelaunch(
-                &saved.message.message_id,
-                &self.coordinator_id,
-                self.host_epoch,
-                error,
-                code,
-            )
-            .map_err(display)?;
         Ok(true)
     }
 

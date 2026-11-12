@@ -88,9 +88,7 @@ impl<L: Send + 'static> OrdinaryLifecycleCadence<L> {
                     .lock()
                     .map_err(|_| "ordinary lifecycle router is unavailable".to_owned())?;
                 if wake_idle_hosts {
-                    router
-                        .wake_idle_hosts()
-                        .map_err(|_| "ordinary lifecycle wake was rejected".to_owned())?;
+                    router.wake_idle_hosts();
                 }
                 let active = router
                     .drive_once()

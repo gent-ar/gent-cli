@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use super::queries::storage_error;
 
-pub(super) const ACTIVITY_ROWS: &str = "(SELECT cursor, payload, NULL AS lifecycle_event_id FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 UNION ALL SELECT b.lifecycle_cursor AS cursor, b.payload, b.lifecycle_event_id FROM run_lifecycle_facts f JOIN normalized_session_batches b ON b.lifecycle_event_id = f.event_id WHERE f.run_id = ?2 AND json_extract(b.payload, '$.conversationId') = ?1 AND b.activity_event_id IS NULL AND b.activity_cursor IS NULL AND json_extract(b.payload, '$.lifecycle.event.type') = 'toolOutputDelta')";
+pub(super) const ACTIVITY_PAGE: &str = "SELECT cursor, payload, lifecycle_event_id FROM (SELECT cursor, payload, NULL AS lifecycle_event_id FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 UNION ALL SELECT f.cursor AS cursor, b.payload, b.lifecycle_event_id FROM run_lifecycle_facts f JOIN normalized_session_batches b ON b.lifecycle_event_id = f.event_id WHERE f.run_id = ?2 AND f.cursor > ?3 AND json_extract(b.payload, '$.conversationId') = ?1 AND +b.activity_event_id IS NULL AND +b.activity_cursor IS NULL AND json_extract(b.payload, '$.lifecycle.event.type') = 'toolOutputDelta') WHERE cursor > ?3 ORDER BY cursor LIMIT ?4";
 
 pub(super) fn read(
     connection: &Connection,
@@ -102,3 +102,7 @@ pub(super) fn project(
     event.payload = serde_json::json!({"conversationId": scope.conversation_id, "runId": scope.run_id, "turnId": scope.turn_id, "activity": activity, "derivedFromLifecycleEventId": source});
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "historical_tool_output_plan_tests.rs"]
+mod plan_tests;

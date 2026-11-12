@@ -179,10 +179,10 @@ fn external_policy_requires_matching_live_process_and_preserves_all_mode_approva
                 );
                 assert_eq!(
                     p["approvalPolicy"],
-                    if role == AgentChatMode::Agent {
-                        approval
-                    } else {
-                        "never"
+                    match role {
+                        AgentChatMode::Agent => approval,
+                        AgentChatMode::Ask => "on-request",
+                        AgentChatMode::Plan => "never",
                     }
                 );
             }

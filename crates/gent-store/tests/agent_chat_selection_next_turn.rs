@@ -8,8 +8,8 @@ use gent_types::{
     AgentChatConversationConfigRecord, AgentChatConversationCreate, AgentChatConversationId,
     AgentChatEffort, AgentChatMode, AgentChatPromptCreate, AgentChatPromptDisposition,
     AgentChatPromptSaved, AgentChatProvider, AgentChatRequestId, AgentChatRunId,
-    AgentChatSelection, AgentChatSelectionSwitch, Containment, ContextPolicy, DurableTurnPhase,
-    HostEpoch, ReceiptId, WorkspaceRecord,
+    AgentChatSelection, AgentChatSelectionSwitch, AgentChatSteerDelivery, Containment,
+    ContextPolicy, DurableTurnPhase, HostEpoch, ReceiptId, WorkspaceRecord,
 };
 
 const EPOCH: HostEpoch = HostEpoch(1);
@@ -39,6 +39,10 @@ fn haiku() -> AgentChatSelection {
 }
 
 fn conversation() -> (SqliteLedger, AgentChatConversationId) {
+    conversation_with(haiku())
+}
+
+fn conversation_with(initial: AgentChatSelection) -> (SqliteLedger, AgentChatConversationId) {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-1".into());
     ledger
@@ -49,7 +53,7 @@ fn conversation() -> (SqliteLedger, AgentChatConversationId) {
                 host_epoch: EPOCH,
                 conversation_id: conversation_id.clone(),
                 run_id: AgentChatRunId("run-1".into()),
-                selection: haiku(),
+                selection: initial,
             },
             &WorkspaceRecord {
                 workspace_id: "workspace-1".into(),
@@ -518,4 +522,53 @@ fn a_parent_prompt_claimed_when_the_daemon_crashed_recovers_onto_the_new_selecti
         (next.message.message_id, next.run_id),
         (claimed.message.message_id, child)
     );
+}
+
+#[test]
+fn steer_delivery_follows_the_provider_of_the_running_turn_not_the_next_selection() {
+    let claurst = selection(
+        AgentChatProvider::Claurst,
+        "qwen3-1-7b-q4-k-m",
+        AgentChatEffort::Low,
+        AgentChatMode::Ask,
+    );
+    let (ledger, conversation_id) = conversation();
+    let delivery = |ledger: &SqliteLedger| {
+        ledger
+            .read_agent_chat_summary(&conversation_id.0)
+            .unwrap()
+            .steer_delivery
+    };
+    assert_eq!(delivery(&ledger), None);
+    let running = running_turn(&ledger, &conversation_id);
+    assert_eq!(delivery(&ledger), Some(AgentChatSteerDelivery::JoinTurn));
+    switch(&ledger, &conversation_id, &claurst, ContextPolicy::Preserve);
+    assert_eq!(delivery(&ledger), Some(AgentChatSteerDelivery::JoinTurn));
+    finish(&ledger, &running);
+    assert_eq!(delivery(&ledger), None);
+
+    let (ledger, conversation_id) = conversation_with(claurst);
+    let saved = save(
+        &ledger,
+        &conversation_id,
+        "running",
+        AgentChatPromptDisposition::Send,
+    );
+    release(&ledger, &saved, &saved.run_id);
+    let claimed = claim(&ledger, AgentChatProvider::Claurst).unwrap();
+    start(&ledger, &claimed);
+    switch(&ledger, &conversation_id, &haiku(), ContextPolicy::Preserve);
+    assert_eq!(
+        ledger
+            .read_agent_chat_summary(&conversation_id.0)
+            .unwrap()
+            .steer_delivery,
+        Some(AgentChatSteerDelivery::InterruptThenNext)
+    );
+    let wire =
+        serde_json::to_value(ledger.read_agent_chat_summary(&conversation_id.0).unwrap()).unwrap();
+    assert_eq!(wire["steerDelivery"], "interruptThenNext");
+    let (idle, idle_id) = conversation();
+    let wire = serde_json::to_value(idle.read_agent_chat_summary(&idle_id.0).unwrap()).unwrap();
+    assert!(wire.get("steerDelivery").is_none());
 }

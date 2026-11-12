@@ -133,24 +133,33 @@ the reuse decision is three-way:
 
 - **model identity** (model, effort, mode) differs → retire both processes and relaunch.
 - **session identity** (workspace, permission mode, MCP digest, tool sources, conversation) differs
-  alone → rewrite `settings.json` and replace only the ACP agent. llama.cpp keeps running and the
-  model stays resident.
+  alone → rewrite `settings.json` and start a new ACP agent on the loaded model. llama.cpp keeps
+  running and the model stays resident.
 - everything matches → reuse as is.
 
-`ClaurstStandaloneOwner::rebind_session` performs the second case against the runtime's existing
-port, and refuses with `ModelPlanChanged` if the recomputed llama plan is not byte-identical, so
-the seam can never silently hand a conversation a runtime loaded for a different model. Ordering
-matters and is pinned by tests: the chat template is materialized before llama.cpp starts, because
-llama.cpp reads `--chat-template-file` at launch, while `settings.json` is materialized just before
-the ACP agent that reads it.
+Each conversation owns its own Claurst ACP agent, keyed by conversation in
+`StandaloneClaurstRuntimeFactory`, and every bridge call is routed by run id to that agent.
+Conversations whose model identity matches share one llama.cpp process: `ClaurstStandaloneModel`
+is reference-counted, and the last agent to stop shuts the model down.
+`ClaurstStandaloneOwner::attach_session` starts an agent on an existing model's port and refuses
+with `ModelPlanChanged` if the recomputed llama plan is not byte-identical, so a conversation can
+never be handed a model loaded for a different plan. Ordering matters and is pinned by tests: the
+chat template is materialized before llama.cpp starts, because llama.cpp reads
+`--chat-template-file` at launch, while `settings.json` is materialized just before the ACP agent
+that reads it. Gent completes the agent's `initialize` handshake before any other agent is
+launched. Claurst loads `settings.json` once, before it answers `initialize`, so a later
+conversation's settings can never reach an earlier agent.
+
+The Claurst lifecycle runs at most `CLAURST_CONVERSATION_CAPACITY` (3) conversations' turns at
+once, one turn per conversation. A turn waiting on a permission or a question holds only its own
+conversation. llama.cpp keeps `--parallel 1`, so concurrent turns queue on the model slot one
+completion request at a time. That keeps every turn's full context window and the KV cache size
+unchanged. At most three agents stay live. A new agent evicts the least recently used idle one,
+and never one whose conversation has a turn in flight. A turn that ends in a failure or an
+interrupt stops only its own conversation's agent.
 
 This also fixes a cost that predates orchestration: switching permission mode, tool sources or
 workspace used to reload the model too, and none of those change a single llama argument.
-
-When Claurst routes `session/new`'s `mcpServers`, this should be revisited again: drop
-`conversation_id` from the session identity and give each conversation's ACP session its own roster
-through `initialize_session_with_mcp`, which already exists for exactly that shape. A conversation
-switch would then cost nothing at all.
 
 ## Delivery rides the one queue
 

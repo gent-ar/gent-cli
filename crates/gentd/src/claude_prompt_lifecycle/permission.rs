@@ -110,27 +110,32 @@ where
         let mode = gent_runtime::AgentChatReadService::new(ledger.clone())
             .run_selection(&binding.prompt.message.conversation_id, run_id)?
             .mode;
-        let automatic = match crate::permission_preflight::read_only_denial(mode, &normalized) {
-            Some(reason) => Some(ClaudePermissionBehavior::Refuse(reason)),
-            None => match self.runner.permission_preflight(
-                &crate::permission_preflight::PreflightContext {
-                    run_id,
-                    conversation_id: &binding.prompt.message.conversation_id,
-                    disallowed,
-                    injection: self.runtime.internal_mcp(),
-                    host_epoch,
-                },
-                &policy,
-                &normalized,
-            ) {
-                crate::permission_preflight::PermissionPreflight::Allow => {
-                    Some(ClaudePermissionBehavior::Allow)
+        let automatic = match crate::permission_preflight::mode_gate(mode, &normalized) {
+            crate::permission_preflight::ModeGate::Refuse(reason) => {
+                Some(ClaudePermissionBehavior::Refuse(reason))
+            }
+            crate::permission_preflight::ModeGate::AskUser => None,
+            crate::permission_preflight::ModeGate::Policy => {
+                match self.runner.permission_preflight(
+                    &crate::permission_preflight::PreflightContext {
+                        run_id,
+                        conversation_id: &binding.prompt.message.conversation_id,
+                        disallowed,
+                        injection: self.runtime.internal_mcp(),
+                        host_epoch,
+                    },
+                    &policy,
+                    &normalized,
+                ) {
+                    crate::permission_preflight::PermissionPreflight::Allow => {
+                        Some(ClaudePermissionBehavior::Allow)
+                    }
+                    crate::permission_preflight::PermissionPreflight::Deny => {
+                        Some(ClaudePermissionBehavior::Deny)
+                    }
+                    crate::permission_preflight::PermissionPreflight::Ask => None,
                 }
-                crate::permission_preflight::PermissionPreflight::Deny => {
-                    Some(ClaudePermissionBehavior::Deny)
-                }
-                crate::permission_preflight::PermissionPreflight::Ask => None,
-            },
+            }
         };
         if let Some(behavior) = automatic {
             self.runner

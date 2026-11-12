@@ -304,6 +304,7 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
         updated_at_unix_ms: 0,
         selection: selection(provider),
         selection_applies_next_turn: false,
+        steer_delivery: None,
         containment: gent_types::Containment::Unsandboxed,
     }
 }
@@ -362,7 +363,7 @@ fn a_host_that_finishes_its_turn_wakes_its_idle_peers_once() {
     assert!(!router.finished_work());
     assert!(!router.drive_once().unwrap());
     assert!(router.finished_work());
-    router.wake_idle_hosts().unwrap();
+    router.wake_idle_hosts();
     assert!(!router.finished_work());
     assert!(!router.drive_once().unwrap());
     assert!(!router.finished_work());
@@ -381,9 +382,57 @@ fn a_prompt_that_fails_within_one_drive_still_wakes_idle_peers_once() {
     router.wake_after_prompt_commit(wake()).unwrap();
     assert!(!router.drive_once().unwrap());
     assert!(router.finished_work());
-    router.wake_idle_hosts().unwrap();
+    router.wake_idle_hosts();
     assert!(!router.drive_once().unwrap());
     assert!(!router.finished_work());
     assert_eq!(&*claude_calls.lock().unwrap(), &["wake", "drive"]);
     assert_eq!(&*codex_calls.lock().unwrap(), &["wake", "drive"]);
+}
+
+struct Unprovisioned {
+    wakes: Arc<Mutex<usize>>,
+}
+
+impl OrdinaryLifecycleHost for Unprovisioned {
+    fn provider(&self) -> AgentChatProvider {
+        AgentChatProvider::Codex
+    }
+
+    fn arm_authority_recovery(&mut self) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn wake(&mut self) -> Result<(), ()> {
+        *self.wakes.lock().unwrap() += 1;
+        Err(())
+    }
+
+    fn drive(&mut self) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn needs_drive(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_peer_that_cannot_start_never_fails_the_wake_of_idle_hosts() {
+    let wakes = Arc::new(Mutex::new(0));
+    let mut router = router(
+        AgentChatProvider::Claude,
+        Box::new(Worker {
+            remaining: 1,
+            armed: false,
+        }),
+        Box::new(Unprovisioned {
+            wakes: Arc::clone(&wakes),
+        }),
+    );
+    assert!(!router.drive_once().unwrap());
+    assert!(router.finished_work());
+    router.wake_idle_hosts();
+    assert!(!router.drive_once().unwrap());
+    assert!(!router.finished_work());
+    assert_eq!(*wakes.lock().unwrap(), 1);
 }

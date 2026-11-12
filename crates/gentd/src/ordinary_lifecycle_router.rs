@@ -77,7 +77,7 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
         self.finished.contains(&true)
     }
 
-    pub(crate) fn wake_idle_hosts(&mut self) -> Result<(), OrdinaryLifecycleRouterError> {
+    pub(crate) fn wake_idle_hosts(&mut self) {
         for ((host, peer_woken), finished) in self
             .hosts
             .iter_mut()
@@ -85,12 +85,9 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
             .zip(&mut self.finished)
         {
             if !std::mem::take(finished) && !host.needs_drive() {
-                host.wake()
-                    .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
-                *peer_woken = true;
+                *peer_woken = host.wake().is_ok();
             }
         }
-        Ok(())
     }
 
     pub(crate) fn activate_recovery(&mut self) -> Result<(), OrdinaryLifecycleRouterError> {

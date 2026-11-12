@@ -11,10 +11,21 @@ pub(crate) use summarizer::{
     ContextSummarizer, LlamaContextSummarizer, LlamaSummaryEndpoint, LocalContextWindow,
 };
 
+pub(crate) const CLAURST_CONVERSATION_CAPACITY: usize = 3;
+
 #[async_trait]
 pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug {
-    async fn ensure_for_prompt(&self, saved: &AgentChatPromptSaved) -> Result<(), String>;
-    async fn warm(&self, _conversation_id: &str, _run_id: &str) -> Result<(), String> {
+    async fn ensure_for_prompt(
+        &self,
+        saved: &AgentChatPromptSaved,
+        busy: &[String],
+    ) -> Result<(), String>;
+    async fn warm(
+        &self,
+        _conversation_id: &str,
+        _run_id: &str,
+        _busy: &[String],
+    ) -> Result<(), String> {
         Ok(())
     }
     async fn after_prompt_settled(&self, _: &str) -> Result<(), String> {
@@ -23,7 +34,10 @@ pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug {
     async fn after_prompt_failed(&self, _: &str) -> Result<(), String> {
         Ok(())
     }
-    async fn context_summarizer(&self) -> Option<Arc<dyn ContextSummarizer>> {
+    async fn context_summarizer(
+        &self,
+        _conversation_id: &str,
+    ) -> Option<Arc<dyn ContextSummarizer>> {
         None
     }
     async fn prompt_attachments(
@@ -43,7 +57,11 @@ pub(crate) struct ReadyClaurstRuntime;
 
 #[async_trait]
 impl ClaurstRuntimeFactory for ReadyClaurstRuntime {
-    async fn ensure_for_prompt(&self, _: &AgentChatPromptSaved) -> Result<(), String> {
+    async fn ensure_for_prompt(
+        &self,
+        _: &AgentChatPromptSaved,
+        _: &[String],
+    ) -> Result<(), String> {
         Ok(())
     }
 }

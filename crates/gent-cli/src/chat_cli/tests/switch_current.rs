@@ -194,6 +194,7 @@ fn detail() -> AgentChatConversationDetail {
             updated_at_unix_ms: 1,
             selection: selection.clone(),
             selection_applies_next_turn: false,
+            steer_delivery: None,
             containment: gent_types::Containment::Unsandboxed,
         },
         current_run_id: "run-current".into(),

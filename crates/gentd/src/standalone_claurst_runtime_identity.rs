@@ -28,7 +28,7 @@ pub(crate) struct RuntimeIdentity {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RuntimeReuse {
     Ready,
-    RebindSession,
+    ShareModel,
     Relaunch,
 }
 
@@ -81,7 +81,7 @@ impl RuntimeIdentity {
             return RuntimeReuse::Relaunch;
         }
         if running.model == self.model {
-            return RuntimeReuse::RebindSession;
+            return RuntimeReuse::ShareModel;
         }
         RuntimeReuse::Relaunch
     }
@@ -249,7 +249,7 @@ mod tests {
         ] {
             assert_eq!(
                 changed.reuse_from(&running()),
-                RuntimeReuse::RebindSession,
+                RuntimeReuse::ShareModel,
                 "{changed:?} must keep the loaded model"
             );
         }

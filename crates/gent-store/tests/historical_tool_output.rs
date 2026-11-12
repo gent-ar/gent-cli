@@ -265,3 +265,75 @@ fn historical_child_tool_output_keeps_its_existing_parent_attribution() {
         ConversationActivityFact::ToolOutput { tool_use_id, text, .. }
     ] if activity.tool_use_id == *tool_use_id && activity.parent_tool_use_id.as_deref() == Some("parent-tool") && text == "child result"));
 }
+
+#[test]
+fn activity_pages_stay_scoped_and_ordered_across_interleaved_runs_and_conversations() {
+    let (ledger, turn_a) = prepared();
+    let turn_b = support::prepare_conversation(&ledger, "b");
+    for index in 1..=6 {
+        let (name, turn) = if index % 2 == 0 {
+            ("b", &turn_b)
+        } else {
+            ("a", &turn_a)
+        };
+        let mut value = output(
+            turn,
+            index,
+            "tool",
+            &format!("{name}-{index}"),
+            false,
+            index == 5,
+        );
+        value.conversation_id = format!("conversation-{name}");
+        value.run_id = format!("run-{name}");
+        value.transcript.as_mut().unwrap().run_id = format!("run-{name}");
+        if let Some(ConversationActivityFact::ToolOutput { scope, .. }) = value.activity.as_mut() {
+            scope.conversation_id = format!("conversation-{name}");
+            scope.run_id = format!("run-{name}");
+        }
+        ledger.append_normalized_session_batch(&value).unwrap();
+    }
+    for (name, texts) in [("a", ["a-1", "a-3", "a-5"]), ("b", ["b-2", "b-4", "b-6"])] {
+        let conversation = format!("conversation-{name}");
+        let run = format!("run-{name}");
+        let all = ledger
+            .read_conversation_activity_page(&conversation, &run, 0, 64)
+            .unwrap()
+            .facts;
+        assert_eq!(
+            all.iter()
+                .map(|fact| match fact {
+                    ConversationActivityFact::ToolOutput { text, scope, .. } => {
+                        assert_eq!(
+                            (scope.conversation_id.as_str(), scope.run_id.as_str()),
+                            (conversation.as_str(), run.as_str())
+                        );
+                        text.as_str()
+                    }
+                    other => panic!("unexpected {other:?}"),
+                })
+                .collect::<Vec<_>>(),
+            texts
+        );
+        let mut cursor = 0;
+        let mut paged = Vec::new();
+        while let Some(next) = {
+            let page = ledger
+                .read_conversation_activity_page(&conversation, &run, cursor, 1)
+                .unwrap();
+            paged.extend(page.facts);
+            page.next_after_cursor
+        } {
+            cursor = next;
+        }
+        assert_eq!(paged, all);
+        let after_first = all[0].scope().cursor;
+        assert_eq!(
+            ledger
+                .read_conversation_activity_page(&conversation, &run, after_first, 64)
+                .unwrap()
+                .facts,
+            all[1..]
+        );
+    }
+}

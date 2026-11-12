@@ -2,14 +2,19 @@ use super::*;
 
 pub(super) fn prepared() -> (SqliteLedger, String) {
     let ledger = SqliteLedger::in_memory().unwrap();
+    let turn = prepare_conversation(&ledger, "a");
+    (ledger, turn)
+}
+
+pub(super) fn prepare_conversation(ledger: &SqliteLedger, name: &str) -> String {
     ledger
         .create_agent_chat_conversation_in_workspace(
             &AgentChatConversationCreate {
-                receipt_id: ReceiptId("conversation-receipt".into()),
-                idempotency_key: "conversation-key".into(),
+                receipt_id: ReceiptId(format!("conversation-receipt-{name}")),
+                idempotency_key: format!("conversation-key-{name}"),
                 host_epoch: HostEpoch(1),
-                conversation_id: AgentChatConversationId("conversation-a".into()),
-                run_id: AgentChatRunId("run-a".into()),
+                conversation_id: AgentChatConversationId(format!("conversation-{name}")),
+                run_id: AgentChatRunId(format!("run-{name}")),
                 selection: AgentChatSelection {
                     provider: AgentChatProvider::Codex,
                     model: "gpt".into(),
@@ -25,10 +30,10 @@ pub(super) fn prepared() -> (SqliteLedger, String) {
         .unwrap();
     let prompt = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("prompt-a".into()),
-            receipt_id: ReceiptId("prompt-receipt".into()),
+            request_id: AgentChatRequestId(format!("prompt-{name}")),
+            receipt_id: ReceiptId(format!("prompt-receipt-{name}")),
             host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-a".into()),
+            conversation_id: AgentChatConversationId(format!("conversation-{name}")),
             disposition: AgentChatPromptDisposition::Send,
             text: "hello".into(),
             attachment_ids: vec![],
@@ -37,18 +42,18 @@ pub(super) fn prepared() -> (SqliteLedger, String) {
         .unwrap();
     ledger
         .claim_run_lease(&gent_ports::RunLease {
-            run_id: "run-a".into(),
+            run_id: format!("run-{name}"),
             coordinator_id: "daemon-a".into(),
             host_epoch: HostEpoch(1),
         })
         .unwrap();
     ledger
         .save_run_session_binding(&gent_ports::RunSessionBinding {
-            run_id: "run-a".into(),
-            provider_session_id: "private-session".into(),
+            run_id: format!("run-{name}"),
+            provider_session_id: format!("private-session-{name}"),
         })
         .unwrap();
-    (ledger, prompt.message.turn_id)
+    prompt.message.turn_id
 }
 
 pub(super) fn batch(turn_id: String) -> NormalizedSessionBatch {

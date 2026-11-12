@@ -104,7 +104,7 @@ bridge continues a run's ACP session only while the request's summary coverage e
 session's seed and the window is not `truncated`; otherwise it starts a fresh session.
 
 **Summarization.** Gentd posts to the running runtime's llama-server
-`/v1/chat/completions` (the same single server; no second server, no ACP session, no Claurst
+`/v1/chat/completions` (the conversation's shared server; no second server, no ACP session, no Claurst
 tools): no `tools` field, `chat_template_kwargs {gent_instructions: "", enable_thinking: false}`,
 `temperature 0.2`, `max_tokens 1024`, 300 s timeout. The request asks for bulleted notes that keep
 previous notes and copy facts and codes exactly; Qwen3 1.7B echoed the transcript for a prose
@@ -134,9 +134,10 @@ context. Targets give headroom: the kept tail is ≤ 40% of `history_input_bytes
 After compaction the render is ≈ 50% of the budget, so the next compaction needs ≈ half a window
 of new history — no per-turn storms. If summarization fails, the prompt still runs with today's
 bounded truncation plus `CONTEXT_COMPACTION_FALLBACK_NOTICE`; a `failed` fact suppresses retries
-until 8 more entries exist beyond `attemptedThroughOrdinal`. Only one Claurst item is active at a
-time, so compaction never overlaps a user turn on the one llama-server slot, and interrupts,
-permissions and drains keep being served while the request runs in a spawned task.
+until 8 more entries exist beyond `attemptedThroughOrdinal`. A compaction holds its conversation
+like a turn. Its requests queue on the shared llama-server slot alongside other conversations'
+turns (`docs/conversation-orchestration.md`). Interrupts, permissions and drains keep being served
+while the request runs in a spawned task.
 
 **Remote parity.** Notices are transcript facts, so paired devices receive them through the
 existing projection relay; `/compact` from a viewer is the same `gentd-intent invokeCommand`.

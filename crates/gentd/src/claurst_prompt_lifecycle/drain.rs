@@ -1,5 +1,5 @@
 use gent_ports::PrivateClaurstBridge;
-use gent_types::DurableTurnPhase;
+use gent_types::{AgentChatPromptSaved, DurableTurnPhase};
 
 use super::{ClaurstLifecycleLedger, ClaurstPromptLifecycle, display};
 use crate::claurst_runtime_factory::ClaurstRuntimeFactory;
@@ -11,10 +11,21 @@ where
     F: ClaurstRuntimeFactory,
 {
     pub(super) async fn warm(&self, conversation_id: &str, run_id: &str) -> Result<(), String> {
-        if !self.recovery_complete || self.shutdown_requested || !self.active.is_empty() {
+        let busy = self.busy_conversations();
+        if !self.recovery_complete
+            || self.shutdown_requested
+            || busy.iter().any(|busy| busy == conversation_id)
+        {
             return Ok(());
         }
-        self.runtime.warm(conversation_id, run_id).await
+        self.runtime.warm(conversation_id, run_id, &busy).await
+    }
+
+    pub(super) fn busy_conversations(&self) -> Vec<String> {
+        self.active
+            .values()
+            .map(|active| active.saved.message.conversation_id.clone())
+            .collect()
     }
 
     pub(super) async fn interrupt(
@@ -110,5 +121,41 @@ where
             }
         }
         Ok(active)
+    }
+
+    pub(super) fn release_claim(&self, saved: &AgentChatPromptSaved) -> Result<(), String> {
+        self.dispatches
+            .release_claim(
+                &saved.message.message_id,
+                &self.coordinator_id,
+                self.host_epoch,
+            )
+            .map_err(display)
+    }
+
+    pub(super) fn fail_prelaunch(
+        &self,
+        saved: &AgentChatPromptSaved,
+        error: &str,
+    ) -> Result<bool, String> {
+        self.fail_prelaunch_with(saved, error, None)
+    }
+
+    pub(super) fn fail_prelaunch_with(
+        &self,
+        saved: &AgentChatPromptSaved,
+        error: &str,
+        code: Option<gent_types::AgentChatFailureCode>,
+    ) -> Result<bool, String> {
+        self.dispatches
+            .fail_prelaunch(
+                &saved.message.message_id,
+                &self.coordinator_id,
+                self.host_epoch,
+                error,
+                code,
+            )
+            .map_err(display)?;
+        Ok(true)
     }
 }

@@ -1,4 +1,7 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     claurst_acp_bridge::ClaurstAcpBridge,
@@ -44,54 +47,6 @@ pub(crate) trait ClaurstStandaloneLauncher {
         self.launch_llama(&plan.llama_server)
     }
     fn launch_acp(&self, launch: &LocalProcessLaunch) -> Result<Self::Acp, String>;
-}
-
-pub(crate) struct ClaurstStandaloneRuntime<L, S> {
-    llama: L,
-    bridge: Arc<ClaurstAcpBridge<S>>,
-    summarizer: Arc<LlamaContextSummarizer>,
-    port: u16,
-    llama_launch: LocalProcessLaunch,
-}
-
-impl<L, S> ClaurstStandaloneRuntime<L, S> {
-    #[must_use]
-    pub(crate) fn bridge(&self) -> Arc<ClaurstAcpBridge<S>> {
-        Arc::clone(&self.bridge)
-    }
-
-    #[must_use]
-    pub(crate) fn summarizer(&self) -> Arc<LlamaContextSummarizer> {
-        Arc::clone(&self.summarizer)
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn port(&self) -> u16 {
-        self.port
-    }
-}
-
-#[cfg(test)]
-impl<L, S> ClaurstStandaloneRuntime<L, S> {
-    pub(crate) fn llama(&self) -> &L {
-        &self.llama
-    }
-}
-
-impl<L: LocalRuntimeProcess, S: ClaurstAcpStdio> ClaurstStandaloneRuntime<L, S> {
-    pub(crate) fn exited(&mut self) -> Result<Option<String>, String> {
-        if let Some(exit) = self.llama.exited()? {
-            return Ok(Some(exit));
-        }
-        self.bridge.exited()
-    }
-
-    pub(crate) fn shutdown(self) -> Result<(), String> {
-        drop(self.bridge);
-        let mut llama = self.llama;
-        llama.shutdown()
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -155,28 +110,30 @@ where
         self.start_with_mcp(model_id, request, workspace, Vec::new())
     }
 
-    pub(crate) fn rebind_session(
+    pub(crate) fn attach_session(
         &self,
-        runtime: &mut ClaurstStandaloneRuntime<L::Llama, L::Acp>,
+        model: &ClaurstStandaloneModel<L::Llama>,
         model_id: &str,
         request: ClaurstLocalRuntimeRequest,
         workspace: &Path,
         mcp_servers: Vec<serde_json::Value>,
-    ) -> Result<(), ClaurstStandaloneStartError> {
+    ) -> Result<ClaurstStandaloneRuntime<L::Llama, L::Acp>, ClaurstStandaloneStartError> {
         let mode = request.permission_mode;
-        let plan = self.ready_plan(model_id, request, runtime.port, workspace)?;
-        if plan.llama_server != runtime.llama_launch {
+        let plan = self.ready_plan(model_id, request, model.port, workspace)?;
+        if plan.llama_server != model.llama_launch {
             return Err(ClaurstStandaloneStartError::ModelPlanChanged);
         }
-        runtime.bridge = Arc::new(
-            ClaurstAcpBridge::new(
-                workspace.to_path_buf(),
-                self.materialize_and_launch_acp(&plan, workspace, mode)?,
-                mcp_servers,
-            )
-            .with_history_input_bytes(plan.history_input_bytes),
-        );
-        Ok(())
+        Ok(ClaurstStandaloneRuntime {
+            model: model.clone(),
+            bridge: Arc::new(
+                ClaurstAcpBridge::new(
+                    workspace.to_path_buf(),
+                    self.materialize_and_launch_acp(&plan, workspace, mode)?,
+                    mcp_servers,
+                )
+                .with_history_input_bytes(plan.history_input_bytes),
+            ),
+        })
     }
 
     fn ready_plan(
@@ -274,17 +231,19 @@ where
             }
         };
         Ok(ClaurstStandaloneRuntime {
-            summarizer: Arc::new(
-                LlamaContextSummarizer::new(plan.summary_endpoint.clone())
-                    .with_contained_model(llama.contained_model()),
-            ),
-            llama,
+            model: ClaurstStandaloneModel {
+                summarizer: Arc::new(
+                    LlamaContextSummarizer::new(plan.summary_endpoint.clone())
+                        .with_contained_model(llama.contained_model()),
+                ),
+                llama: Arc::new(Mutex::new(llama)),
+                port,
+                llama_launch: plan.llama_server.clone(),
+            },
             bridge: Arc::new(
                 ClaurstAcpBridge::new(workspace.to_path_buf(), acp, mcp_servers)
                     .with_history_input_bytes(plan.history_input_bytes),
             ),
-            port,
-            llama_launch: plan.llama_server.clone(),
         })
     }
 }
@@ -296,3 +255,7 @@ use port_selection::select_ephemeral_loopback_port;
 #[cfg(test)]
 #[path = "claurst_standalone_owner_tests.rs"]
 mod tests;
+
+#[path = "claurst_standalone_owner_runtime.rs"]
+mod runtime;
+pub(crate) use runtime::{ClaurstStandaloneModel, ClaurstStandaloneRuntime};

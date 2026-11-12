@@ -89,9 +89,9 @@ fn page(
             "activity page limit is out of bounds".into(),
         ));
     }
-    let mut statement = connection.prepare(&format!(
-        "SELECT cursor, payload, lifecycle_event_id FROM {} WHERE cursor > ?3 ORDER BY cursor LIMIT ?4", super::historical_tool_output::ACTIVITY_ROWS
-    )).map_err(storage_error)?;
+    let mut statement = connection
+        .prepare(super::historical_tool_output::ACTIVITY_PAGE)
+        .map_err(storage_error)?;
     let rows = statement
         .query_map(
             params![conversation_id, run_id, after_cursor, limit + 1],

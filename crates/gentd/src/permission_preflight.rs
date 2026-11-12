@@ -1,7 +1,7 @@
 use gent_core::{PermissionDecision, evaluate_permission_with_sandbox};
 use gent_types::{
     AgentChatMode, PermissionCategory, PermissionDenialReason, PermissionRequest, PolicyRecord,
-    SandboxEnforcement, SandboxWorkspaceAccess,
+    SandboxEnforcement,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,16 +20,25 @@ pub(crate) struct PreflightContext<'a> {
     pub(crate) host_epoch: gent_types::HostEpoch,
 }
 
-pub(crate) fn read_only_denial(
-    mode: AgentChatMode,
-    request: &PermissionRequest,
-) -> Option<PermissionDenialReason> {
-    (SandboxWorkspaceAccess::from_mode(mode) == SandboxWorkspaceAccess::ReadOnly
-        && matches!(
-            request.category,
-            PermissionCategory::Edit | PermissionCategory::Command
-        ))
-    .then_some(PermissionDenialReason::ReadOnlyMode)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ModeGate {
+    Policy,
+    AskUser,
+    Refuse(PermissionDenialReason),
+}
+
+pub(crate) const fn mode_gate(mode: AgentChatMode, request: &PermissionRequest) -> ModeGate {
+    if !matches!(
+        request.category,
+        PermissionCategory::Edit | PermissionCategory::Command
+    ) {
+        return ModeGate::Policy;
+    }
+    match mode {
+        AgentChatMode::Agent => ModeGate::Policy,
+        AgentChatMode::Ask => ModeGate::AskUser,
+        AgentChatMode::Plan => ModeGate::Refuse(PermissionDenialReason::ReadOnlyMode),
+    }
 }
 
 pub(crate) fn evaluate(policy: &PolicyRecord, request: &PermissionRequest) -> PermissionPreflight {

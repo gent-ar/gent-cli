@@ -128,6 +128,14 @@ a separate per-chat restriction, not an OS-sandbox attestation. Windows
 component/transport passes do not deliver broad-mode availability on any
 other platform, nor do they open the Windows production gate.
 
+Conversation modes gate changes through one rule, `permission_preflight::mode_gate`.
+In Plan, Gent refuses every file change and command with the typed
+`ReadOnlyMode` reason. In Ask, every file change and command becomes a
+permission request the user answers, whatever the permission mode or durable
+approvals say; reads follow the permission mode. Codex runs Ask in its
+read-only sandbox with on-request approval, so a change reaches Gent as an
+escalation request. Claurst offers its change tools in Ask for the same reason.
+
 Platform primitives are available independently of this implementation:
 [Apple App Sandbox inheritance](https://developer.apple.com/library/archive/documentation/Miscellaneous/Reference/EntitlementKeyReference/Chapters/EnablingAppSandbox.html),
 [Linux Landlock](https://docs.kernel.org/userspace-api/landlock.html) and
