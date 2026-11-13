@@ -246,7 +246,8 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
         assert!(!root.path().join("spawned.txt").exists());
         peer.activate().unwrap();
-        assert!(call.join().unwrap().is_ok());
+        let reply = call.join().unwrap();
+        assert!(reply.is_ok(), "{reply:?}");
         assert!(root.path().join("spawned.txt").exists());
         peer.revoke();
         let end = Instant::now() + Duration::from_secs(5);
