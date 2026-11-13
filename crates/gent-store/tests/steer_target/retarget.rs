@@ -122,10 +122,10 @@ fn host_epoch_recovery_rejects_an_ambiguous_target_without_replay() {
 }
 
 #[test]
-fn a_steer_whose_turn_ended_runs_ahead_of_older_queued_prompts() {
+fn a_steer_whose_turn_ended_waits_behind_an_older_unsteered_prompt() {
     let (ledger, conversation) = ledger();
     let original = active(&ledger, &conversation);
-    prompt(&ledger, &conversation, "next", Disposition::Queue);
+    let next = prompt(&ledger, &conversation, "next", Disposition::Queue);
     let queued = prompt(&ledger, &conversation, "queued", Disposition::Queue);
     request(&ledger, &conversation, &queued, &original, "original-click").unwrap();
     finish(&ledger, &original);
@@ -137,5 +137,5 @@ fn a_steer_whose_turn_ended_runs_ahead_of_older_queued_prompts() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(claimed.message, queued.message);
+    assert_eq!(claimed.message, next.message);
 }

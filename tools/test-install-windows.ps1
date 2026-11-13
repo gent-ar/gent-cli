@@ -116,7 +116,7 @@ try {
     Assert-True (Test-Path -LiteralPath $installer -PathType Leaf) "tools/install.ps1 missing"
     Assert-True (Test-Path -LiteralPath $launcherSource -PathType Leaf) "native launcher source missing"
     $launcherText = Get-Content -Raw -LiteralPath $launcherSource
-    Assert-True ($launcherText.Contains("Command::new(target)")) "native launcher must use direct process execution"
+    Assert-True ($launcherText.Contains("console_command(target)")) "native launcher must use direct process execution"
     Assert-True ($launcherText.Contains(".args(arguments)")) "native launcher must preserve typed arguments"
     Assert-True (-not $launcherText.Contains("cmd.exe")) "native launcher must not invoke cmd.exe"
     Assert-True ($launcherText.Contains("symlink_metadata")) "native launcher must reject reparse points"

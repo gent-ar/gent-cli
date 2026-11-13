@@ -84,8 +84,13 @@ pub(super) fn claim_excluding_runs(
         )
     });
     let query = format!(
-        "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets target WHERE target.message_id=d.message_id) AND NOT EXISTS(SELECT 1 FROM runs earlier_run JOIN turns earlier ON earlier.run_id = earlier_run.run_id WHERE earlier_run.conversation_id = m.conversation_id AND earlier_run.run_id <> m.run_id AND earlier.phase IN ('active', 'waitingPermission', 'waitingQuestion')) AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1){} ORDER BY EXISTS(SELECT 1 FROM conversation_activity_facts steer WHERE steer.conversation_id = m.conversation_id AND json_extract(steer.payload, '$.type') = 'promptSteerRequested' AND json_extract(steer.payload, '$.messageId') = d.message_id) DESC, d.created_rowid LIMIT 1",
+        "SELECT d.message_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_run_selections s ON s.run_id = m.run_id WHERE s.provider = ?1 AND d.state = 'pending' AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets target WHERE target.message_id=d.message_id) AND NOT EXISTS(SELECT 1 FROM runs earlier_run JOIN turns earlier ON earlier.run_id = earlier_run.run_id WHERE earlier_run.conversation_id = m.conversation_id AND earlier_run.run_id <> m.run_id AND earlier.phase IN ('active', 'waitingPermission', 'waitingQuestion')) AND m.run_id = (SELECT current.run_id FROM runs current JOIN agent_chat_run_selections selected ON selected.run_id = current.run_id WHERE current.conversation_id = m.conversation_id ORDER BY current.rowid DESC LIMIT 1){} ORDER BY {}d.created_rowid LIMIT 1",
         excluded.unwrap_or_default(),
+        if provider.steers_by_interrupt() {
+            "EXISTS(SELECT 1 FROM conversation_activity_facts steer WHERE steer.conversation_id = m.conversation_id AND json_extract(steer.payload, '$.type') = 'promptSteerRequested' AND json_extract(steer.payload, '$.messageId') = d.message_id) DESC, "
+        } else {
+            ""
+        },
     );
     let provider = helpers::provider_name(provider);
     let mut parameters: Vec<&dyn ToSql> = vec![&provider];

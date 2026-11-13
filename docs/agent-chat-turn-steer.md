@@ -45,7 +45,10 @@ request cannot be claimed by a newer lifecycle binding while its target turn is
 still live; that expiry rejects the steer with `targetExpired` and leaves the
 message held. A steer that loses the race with its turn's end is not a failure:
 the target is dropped without a `promptSteerRejected` fact and the prompt runs as
-the next turn, ahead of older queued prompts. When Claude reads a steer written
+the next turn. A Claude or Codex steer never runs ahead of an older unsteered
+queued prompt: it waits, that prompt runs first, and later steers join its turn
+in queue order. Only Claurst, which steers by interrupt, claims a steered prompt
+ahead of the rest of the queue. When Claude reads a steer written
 before the result only after the turn ended, the prompt is delivered as that next
 turn. Delivery must name the persisted run and turn.
 
