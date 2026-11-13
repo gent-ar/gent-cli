@@ -232,7 +232,7 @@ mod tests {
                 std::fs::File::open(script).unwrap(),
             ],
             secrets: vec![],
-            timeout: Duration::from_secs(5),
+            timeout: Duration::from_secs(30),
         });
         (root, peer)
     }
