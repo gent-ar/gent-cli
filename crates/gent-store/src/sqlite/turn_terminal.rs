@@ -27,7 +27,7 @@ pub(crate) fn settle(
         return Ok(false);
     }
     pending_permission_ledger::settle_for_turn(transaction, turn_id)?;
-    super::agent_chat_steer_target::expire_turn(transaction, turn_id, host_epoch)?;
+    super::agent_chat_steer_target::release_turn(transaction, turn_id)?;
     if recorded.is_none() {
         if phase != DurableTurnPhase::Completed {
             super::transcript_settlement::supersede_unfinished_reply(transaction, turn_id)?;

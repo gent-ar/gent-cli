@@ -228,6 +228,11 @@ fn current_run(
         .ok_or(LedgerError::Rejected(
             gent_types::AgentChatRejection::ConversationNotFound,
         ))?;
+    if super::super::agent_chat_archive::is_archived(transaction, conversation_id)? {
+        return Err(LedgerError::Rejected(
+            gent_types::AgentChatRejection::ConversationArchived,
+        ));
+    }
     transaction.query_row("SELECT current.run_id FROM agent_chat_conversations c JOIN agent_chat_run_selections current JOIN runs r ON r.run_id = current.run_id WHERE c.conversation_id = ?1 AND c.workspace_id IS NOT NULL AND r.conversation_id = c.conversation_id ORDER BY r.rowid DESC LIMIT 1", [conversation_id], |row| row.get(0)).optional().map_err(storage_error)?.ok_or_else(|| LedgerError::Invariant("agent chat conversation has no daemon-bound workspace and cannot accept a prompt".into()))
 }
 

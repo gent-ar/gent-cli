@@ -68,6 +68,11 @@ fn persist(
         host_epoch: switch.host_epoch,
     };
     insert_receipt(&transaction, &receipt, &command)?;
+    super::super::agent_chat_projection_ledger::append_summary(
+        &transaction,
+        &switch.conversation_id.0,
+        &format!("switch:{}", switch.idempotency_key),
+    )?;
     transaction.execute("INSERT INTO agent_chat_selection_switch_receipts (idempotency_key, conversation_id, parent_run_id, run_id, context_policy, context_through_ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![switch.idempotency_key, switch.conversation_id.0, switch.parent_run_id.0, switch.run_id.0, context_policy(switch.context_policy), context_through_ordinal]).map_err(storage_error)?;
     transaction.commit().map_err(storage_error)?;
     Ok(result(receipt, switch, context_through_ordinal))

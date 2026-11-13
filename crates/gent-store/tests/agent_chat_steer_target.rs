@@ -104,7 +104,7 @@ fn rejects_stale_owner_turn_run_and_conversation_without_consuming_queue() {
 }
 
 #[test]
-fn terminal_after_acceptance_before_claim_expires_once_and_retains_prompt() {
+fn terminal_after_acceptance_before_claim_runs_the_prompt_next_without_a_rejection() {
     let (ledger, conversation) = ledger();
     let current = active(&ledger, &conversation);
     let queued = prompt(&ledger, &conversation, "queued", Disposition::Queue);
@@ -129,8 +129,11 @@ fn terminal_after_acceptance_before_claim_expires_once_and_retains_prompt() {
         .read_conversation_activity_page(&conversation.0, &current.run_id.0, 0, 50)
         .unwrap()
         .facts;
-    assert_eq!(facts.iter().filter(|f| matches!(f,ConversationActivityFact::PromptSteerRejected { message_id,receipt_id,reason,.. }
-        if message_id==&queued.message.message_id && receipt_id=="accepted" && reason=="targetExpired")).count(),1);
+    assert!(
+        !facts
+            .iter()
+            .any(|f| matches!(f, ConversationActivityFact::PromptSteerRejected { .. }))
+    );
     assert!(
         !facts
             .iter()
@@ -143,7 +146,7 @@ fn terminal_after_acceptance_before_claim_expires_once_and_retains_prompt() {
             gent_types::AgentChatProvider::Codex,
         )
         .unwrap();
-    assert!(pending.is_none());
+    assert_eq!(pending.unwrap().message, queued.message);
 }
 
 #[test]
@@ -229,8 +232,11 @@ fn a_claimed_target_whose_turn_ended_starts_as_its_own_turn() {
         .read_conversation_activity_page(&conversation.0, &current.run_id.0, 0, 50)
         .unwrap()
         .facts;
-    assert!(facts.iter().any(|f| matches!(f, ConversationActivityFact::PromptSteerRejected { message_id, receipt_id, reason, scope }
-        if message_id == &queued.message.message_id && receipt_id == "accepted" && reason == "targetExpired" && scope.turn_id == current.message.turn_id)));
+    assert!(
+        !facts
+            .iter()
+            .any(|f| matches!(f, ConversationActivityFact::PromptSteerRejected { .. }))
+    );
     assert!(facts.iter().any(
         |f| matches!(f, ConversationActivityFact::PromptReleased { message_id, scope }
         if message_id == &queued.message.message_id && scope.turn_id == queued.message.turn_id)

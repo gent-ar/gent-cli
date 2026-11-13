@@ -15,12 +15,11 @@ fn phase_of(scenario: &Scenario, turn: &str) -> DurableTurnPhase {
 
 fn assert_ran_as_its_own_turn(scenario: &Scenario, queued: &AgentChatPromptSaved) {
     let facts = facts(scenario);
-    assert!(facts.iter().any(|fact| matches!(fact,
-        ConversationActivityFact::PromptSteerRejected { message_id, reason, scope, .. }
-            if message_id == &queued.message.message_id && reason == "targetExpired"
-                && scope.turn_id == scenario.active.message.turn_id)));
-    assert!(!facts.iter().any(|fact| matches!(fact,
-        ConversationActivityFact::PromptSteerRejected { reason, .. } if reason == "deliveryUnprovable")));
+    assert!(
+        !facts
+            .iter()
+            .any(|fact| matches!(fact, ConversationActivityFact::PromptSteerRejected { .. }))
+    );
     assert_eq!(
         phase_of(scenario, &queued.message.turn_id),
         DurableTurnPhase::Completed

@@ -4,10 +4,12 @@ use gent_types::{AgentChatConversationCreate, AgentChatConversationCreated, Work
 
 use crate::LedgerError;
 
+mod archive;
 mod prompt;
 mod prompt_dispatch;
 mod read;
 mod switch;
+pub use archive::AgentChatArchiveLedger;
 pub use prompt::{AgentChatPromptLedger, AgentChatQueuedPromptLedger};
 pub use prompt_dispatch::{AgentChatPromptDispatchLedger, PromptAdmission};
 pub use read::AgentChatReadLedger;

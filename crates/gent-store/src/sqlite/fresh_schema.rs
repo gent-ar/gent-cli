@@ -1,9 +1,8 @@
-//! Fresh-only `SQLite` schema creation for the unreleased Gent ledger.
-
 use super::queries::storage_error;
 use gent_ports::LedgerError;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
-const SCHEMA_ID: &str = "gent-fresh-schema-v29";
+const SCHEMA_ID: &str = "gent-fresh-schema-v30";
+const V29_SCHEMA_ID: &str = "gent-fresh-schema-v29";
 const V28_SCHEMA_ID: &str = "gent-fresh-schema-v28";
 #[path = "fresh_schema_containment.rs"]
 mod containment;
@@ -28,7 +27,8 @@ const SCHEMA: &str = concat!(
     include_str!("fresh_schema_projection.sql"),
     include_str!("fresh_schema_conversation_recency.sql"),
     include_str!("fresh_schema_steer_targets.sql"),
-    include_str!("fresh_schema_host_mcp.sql")
+    include_str!("fresh_schema_host_mcp.sql"),
+    include_str!("fresh_schema_archive.sql")
 );
 const V10_TO_V15: &str = include_str!("fresh_schema_v10_to_v15.sql");
 const V15_TO_V16: &str = include_str!("fresh_schema_v15_to_v16.sql");
@@ -44,7 +44,6 @@ const V22_TO_V23: &str = concat!(
 );
 const V23_TO_V24: &str = include_str!("fresh_schema_v23_to_v24.sql");
 
-/// Opens an empty database with Gent's complete current schema.
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -55,6 +54,7 @@ pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
         }
         upgrade(&transaction, &identity)?;
         containment::add_conversation_containment(&transaction)?;
+        containment::add_conversation_archive(&transaction)?;
         transaction
             .execute(
                 "UPDATE gent_schema SET identity = ?1 WHERE singleton = 1",
@@ -122,7 +122,7 @@ fn upgrade_through_v18(
 }
 
 fn upgrade(transaction: &rusqlite::Transaction<'_>, identity: &str) -> Result<(), LedgerError> {
-    if [V26_SCHEMA_ID, V27_SCHEMA_ID, V28_SCHEMA_ID].contains(&identity) {
+    if [V26_SCHEMA_ID, V27_SCHEMA_ID, V28_SCHEMA_ID, V29_SCHEMA_ID].contains(&identity) {
         return transaction
             .execute_batch(include_str!("fresh_schema_host_mcp.sql"))
             .map_err(storage_error);

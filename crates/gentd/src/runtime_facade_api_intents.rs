@@ -172,6 +172,21 @@ impl RuntimeFacade {
                     message_id,
                 }))
             }
+            AgentChatIntentFrame::ArchiveConversation {
+                request_id,
+                receipt_id,
+                conversation_id,
+            } => {
+                let receipt = self
+                    .agent_chat_prompts
+                    .archive(&receipt_id, host_epoch, &conversation_id)?
+                    .ok_or("agent-chat authority is disabled")?;
+                Ok(Some(AgentChatIntentFrame::ConversationArchived {
+                    request_id,
+                    receipt,
+                    conversation_id,
+                }))
+            }
             AgentChatIntentFrame::SteerQueuedPrompt {
                 request_id,
                 receipt_id,

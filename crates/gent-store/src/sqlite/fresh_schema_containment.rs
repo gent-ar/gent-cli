@@ -22,3 +22,11 @@ pub(super) fn add_conversation_containment(
         .map(|_| ())
         .map_err(storage_error)
 }
+
+pub(super) fn add_conversation_archive(
+    transaction: &rusqlite::Transaction<'_>,
+) -> Result<(), LedgerError> {
+    transaction
+        .execute_batch(include_str!("fresh_schema_archive.sql"))
+        .map_err(storage_error)
+}

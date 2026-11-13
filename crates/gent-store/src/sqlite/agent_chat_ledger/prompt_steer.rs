@@ -47,16 +47,19 @@ pub(super) fn claim_for_turn(
     };
     let mut prompt = saved(&transaction, &message_id)?;
     if let Some((_, run, turn, _)) = target::target(&transaction, &message_id)? {
-        if expected_turn != Some(turn.as_str())
-            || run != run_id.0
-            || !target::live(
-                &transaction,
-                &prompt.message.conversation_id,
-                &run,
-                &turn,
-                host_epoch,
-            )?
-        {
+        let live = target::live(
+            &transaction,
+            &prompt.message.conversation_id,
+            &run,
+            &turn,
+            host_epoch,
+        )?;
+        if !live {
+            target::release(&transaction, &message_id)?;
+            transaction.commit().map_err(storage_error)?;
+            return Ok(None);
+        }
+        if expected_turn != Some(turn.as_str()) || run != run_id.0 {
             target::expire(&transaction, &message_id, host_epoch, "targetExpired")?;
             transaction.commit().map_err(storage_error)?;
             return Ok(None);
@@ -133,24 +136,23 @@ fn settle(
         if state != "claimed" || run != prompt.message.run_id {
             return Err(target_mismatch());
         }
-        if into_turn_id == Some(turn.as_str()) {
-            transaction
-                .execute(
-                    "UPDATE agent_chat_steer_targets SET state='delivered' WHERE message_id=?1",
-                    [message_id],
-                )
-                .map_err(storage_error)?;
-        } else if target::live(
-            &transaction,
-            &prompt.message.conversation_id,
-            &run,
-            &turn,
-            host_epoch,
-        )? {
+        if into_turn_id != Some(turn.as_str())
+            && target::live(
+                &transaction,
+                &prompt.message.conversation_id,
+                &run,
+                &turn,
+                host_epoch,
+            )?
+        {
             return Err(target_mismatch());
-        } else {
-            target::expire(&transaction, message_id, host_epoch, "targetExpired")?;
         }
+        transaction
+            .execute(
+                "UPDATE agent_chat_steer_targets SET state='delivered' WHERE message_id=?1",
+                [message_id],
+            )
+            .map_err(storage_error)?;
     }
     let changed = transaction
         .execute(

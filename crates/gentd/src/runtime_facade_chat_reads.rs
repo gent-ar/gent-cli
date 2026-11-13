@@ -1,12 +1,10 @@
-//! Provider-neutral chat read helpers kept apart from the runtime API implementation.
-
 use gent_protocol::{
     AgentChatConversationFrame, AgentChatProjectionDelta, AgentChatProjectionFrame,
     AgentChatProjectionSnapshot, AgentChatTranscriptFrame, ProjectionCursor,
 };
 use gent_types::{
-    AgentChatFailureCode, AgentChatProjectionEvent, ConversationActivityFact,
-    NormalizedSessionLifecycle, NormalizedTranscriptEvent,
+    AgentChatConversationSummary, AgentChatFailureCode, AgentChatProjectionEvent,
+    ConversationActivityFact, NormalizedSessionLifecycle, NormalizedTranscriptEvent,
 };
 
 use super::RuntimeFacade;
@@ -128,20 +126,32 @@ pub(super) fn follow(
     conversation_id: &str,
     after_cursor: &ProjectionCursor,
 ) -> Result<Vec<AgentChatProjectionDelta>, String> {
-    let events = projection_reads(facade)?
+    let reads = projection_reads(facade)?;
+    let events = reads
         .projection(conversation_id, after_cursor.value, 100)
         .map_err(|error| error.to_string())?
         .events;
-    Ok(deltas_until_unreadable(events))
+    let summary = || {
+        reads
+            .summary(conversation_id)
+            .map(|summary| summary_with_mcp(facade, summary))
+            .map_err(|error| error.to_string())
+    };
+    Ok(deltas_until_unreadable(events, &summary))
 }
 
-fn deltas_until_unreadable(events: Vec<AgentChatProjectionEvent>) -> Vec<AgentChatProjectionDelta> {
+type SummaryRead<'a> = &'a dyn Fn() -> Result<AgentChatConversationSummary, String>;
+
+fn deltas_until_unreadable(
+    events: Vec<AgentChatProjectionEvent>,
+    summary: SummaryRead<'_>,
+) -> Vec<AgentChatProjectionDelta> {
     let mut deltas = Vec::new();
     for event in events {
         let cursor = ProjectionCursor {
             value: event.cursor,
         };
-        match delta(event) {
+        match delta(event, summary) {
             Ok(delta) => deltas.push(delta),
             Err(error) => {
                 eprintln!(
@@ -165,7 +175,10 @@ fn projection_reads(
         .ok_or_else(|| "agent-chat projection is observer-disabled".to_owned())
 }
 
-fn delta(event: AgentChatProjectionEvent) -> Result<AgentChatProjectionDelta, String> {
+fn delta(
+    event: AgentChatProjectionEvent,
+    summary: SummaryRead<'_>,
+) -> Result<AgentChatProjectionDelta, String> {
     let cursor = ProjectionCursor {
         value: event.cursor,
     };
@@ -188,6 +201,16 @@ fn delta(event: AgentChatProjectionEvent) -> Result<AgentChatProjectionDelta, St
                     .ok_or_else(|| "projection lifecycle has no fact".to_owned())?,
             )
             .map_err(|error| error.to_string())?,
+        }),
+        "summary" => Ok(AgentChatProjectionDelta::Summary {
+            cursor,
+            run_id: event
+                .payload
+                .get("runId")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "projection summary has no run".to_owned())?
+                .to_owned(),
+            summary: Box::new(summary()?),
         }),
         other => Err(format!("unknown projection event kind {other}")),
     }
@@ -221,64 +244,5 @@ fn normalize_projection_transcript(mut payload: serde_json::Value) -> serde_json
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{delta, deltas_until_unreadable, normalize_projection_transcript};
-    use gent_protocol::AgentChatProjectionDelta;
-    use gent_types::{AgentChatProjectionEvent, AttachmentReference};
-    use serde_json::json;
-
-    #[test]
-    fn projected_user_messages_keep_their_attachment_references() {
-        let projected = delta(AgentChatProjectionEvent {
-            cursor: 9,
-            source_event_id: "transcript:user:message-1".into(),
-            kind: "transcript".into(),
-            payload: json!({
-                "cursor": 3, "eventId": "user:message-1", "turnId": "turn-1", "runId": "run-1",
-                "kind": "userMessage", "text": "look", "isPartial": 0, "origin": null,
-                "attachments": [{"attachmentId": "attachment-1", "displayName": "shot.png", "mediaType": "image/png", "byteLen": 5}],
-            }),
-        })
-        .unwrap();
-        let AgentChatProjectionDelta::Transcript { event, .. } = projected else {
-            panic!("expected a transcript delta");
-        };
-        assert_eq!(
-            event.attachments,
-            vec![AttachmentReference {
-                attachment_id: "attachment-1".into(),
-                display_name: "shot.png".into(),
-                media_type: "image/png".into(),
-                byte_len: 5,
-            }]
-        );
-    }
-
-    #[test]
-    fn normalizes_sqlite_json_boolean_for_transcript_replay() {
-        assert_eq!(
-            normalize_projection_transcript(json!({"isPartial": 0})),
-            json!({"isPartial": false})
-        );
-        assert_eq!(
-            normalize_projection_transcript(json!({"isPartial": 1})),
-            json!({"isPartial": true})
-        );
-    }
-
-    #[test]
-    fn an_unreadable_event_ends_the_batch_with_a_resync_at_its_cursor() {
-        let event = |cursor: u64, kind: &str| AgentChatProjectionEvent {
-            cursor,
-            source_event_id: format!("source-{cursor}"),
-            kind: kind.into(),
-            payload: json!({"lifecycle": "not a lifecycle fact"}),
-        };
-        assert_eq!(
-            deltas_until_unreadable(vec![event(4, "lifecycle"), event(5, "lifecycle")]),
-            [AgentChatProjectionDelta::ResyncRequired {
-                cursor: gent_protocol::ProjectionCursor { value: 4 },
-            }]
-        );
-    }
-}
+#[path = "runtime_facade_chat_reads_tests.rs"]
+mod tests;

@@ -10,7 +10,7 @@ pub use crate::agent_chat_conversation_config::{
     AgentChatConversationConfigFrame,
 };
 pub use crate::agent_chat_intent::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_STEER_TURN_CAPABILITY,
+    AGENT_CHAT_ARCHIVE_CAPABILITY, AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_STEER_TURN_CAPABILITY,
     AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame, AgentChatSubscriptionEnd,
     HistoricalTranscriptEntry,
 };

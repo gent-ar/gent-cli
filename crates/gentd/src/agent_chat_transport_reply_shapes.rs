@@ -225,3 +225,25 @@ pub(super) fn forked(request: &Frame, replies: &[Frame]) -> Result<(), &'static 
     .then_some(())
     .ok_or("conversation forking requires one matching durable result")
 }
+
+pub(super) fn conversation_archived(
+    request: &Frame,
+    replies: &[Frame],
+) -> Result<(), &'static str> {
+    let Frame::ArchiveConversation {
+        request_id,
+        receipt_id,
+        conversation_id,
+    } = request
+    else {
+        return Err(MISMATCHED_REQUEST);
+    };
+    matches!(
+        replies,
+        [Frame::ConversationArchived { request_id: reply_id, receipt, conversation_id: reply_conversation }]
+            if reply_id == request_id && receipt.receipt_id == *receipt_id
+                && reply_conversation == conversation_id
+    )
+    .then_some(())
+    .ok_or("a conversation archive requires one matching durable result")
+}

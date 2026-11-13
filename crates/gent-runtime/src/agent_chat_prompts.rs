@@ -3,7 +3,7 @@
 //! This wrapper deliberately has no provider, process, or daemon dependency. The prompt ledger
 //! owns receipt correlation, current-run resolution, and the single durable transaction.
 
-use gent_ports::{AgentChatPromptLedger, AgentChatQueuedPromptLedger};
+use gent_ports::{AgentChatArchiveLedger, AgentChatPromptLedger, AgentChatQueuedPromptLedger};
 use gent_types::{
     AgentChatConversationId, AgentChatPromptCreate, AgentChatPromptDisposition,
     AgentChatPromptSaved, AgentChatRequestId, AgentChatRunId, HostEpoch, Receipt, ReceiptId,
@@ -199,5 +199,23 @@ fn to_create(request: &AgentChatPromptRequest) -> AgentChatPromptCreate {
         text: request.text.clone(),
         attachment_ids: request.attachment_ids.clone(),
         tool_source_ids: request.tool_source_ids.clone(),
+    }
+}
+
+impl<L: AgentChatArchiveLedger> AgentChatPromptService<L> {
+    pub fn archive(
+        &self,
+        receipt_id: &ReceiptId,
+        host_epoch: HostEpoch,
+        conversation_id: &AgentChatConversationId,
+    ) -> Result<Option<Receipt>, RuntimeError> {
+        if self.authority != AgentChatPromptAuthority::Approved {
+            return Ok(None);
+        }
+        Ok(Some(self.ledger.archive_agent_chat_conversation(
+            receipt_id,
+            host_epoch,
+            conversation_id,
+        )?))
     }
 }

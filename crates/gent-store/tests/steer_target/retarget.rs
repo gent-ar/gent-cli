@@ -122,13 +122,12 @@ fn host_epoch_recovery_rejects_an_ambiguous_target_without_replay() {
 }
 
 #[test]
-fn explicit_click_on_new_active_turn_uses_new_receipt_without_replaying_old_target() {
+fn a_steer_whose_turn_ended_runs_ahead_of_older_queued_prompts() {
     let (ledger, conversation) = ledger();
     let original = active(&ledger, &conversation);
-    let next = prompt(&ledger, &conversation, "next", Disposition::Queue);
+    prompt(&ledger, &conversation, "next", Disposition::Queue);
     let queued = prompt(&ledger, &conversation, "queued", Disposition::Queue);
-    let old_receipt =
-        request(&ledger, &conversation, &queued, &original, "original-click").unwrap();
+    request(&ledger, &conversation, &queued, &original, "original-click").unwrap();
     finish(&ledger, &original);
     let claimed = ledger
         .claim_agent_chat_prompt_dispatch(
@@ -138,45 +137,5 @@ fn explicit_click_on_new_active_turn_uses_new_receipt_without_replaying_old_targ
         )
         .unwrap()
         .unwrap();
-    assert_eq!(claimed.message, next.message);
-    ledger
-        .begin_agent_chat_prompt_launch(&next.message.message_id, DAEMON, HostEpoch(1))
-        .unwrap();
-    ledger
-        .confirm_agent_chat_prompt_started(&next.message.message_id, DAEMON, HostEpoch(1))
-        .unwrap();
-    assert!(claim(&ledger, &next).is_none());
-    assert_eq!(
-        request(&ledger, &conversation, &queued, &original, "original-click").unwrap(),
-        old_receipt
-    );
-    assert!(claim(&ledger, &next).is_none());
-    let new_receipt = request(
-        &ledger,
-        &conversation,
-        &queued,
-        &next,
-        "explicit-new-target",
-    )
-    .unwrap();
-    assert_ne!(old_receipt.idempotency_key, new_receipt.idempotency_key);
-    assert_eq!(claim(&ledger, &next).unwrap().1, new_receipt.receipt_id);
-    assert!(
-        ledger
-            .deliver_steered_agent_chat_prompt(
-                &queued.message.message_id,
-                DAEMON,
-                HostEpoch(1),
-                &original.message.turn_id
-            )
-            .is_err()
-    );
-    ledger
-        .deliver_steered_agent_chat_prompt(
-            &queued.message.message_id,
-            DAEMON,
-            HostEpoch(1),
-            &next.message.turn_id,
-        )
-        .unwrap();
+    assert_eq!(claimed.message, queued.message);
 }

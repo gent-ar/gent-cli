@@ -8,11 +8,16 @@ pub(super) fn validate_chat_projection(records: &[FixtureFrame]) -> Result<(), S
         frames.as_slice(),
         [
             AgentChatProjectionFrame::ConversationSnapshotRequest { .. },
-            AgentChatProjectionFrame::ConversationSnapshot { snapshot, .. }
+            AgentChatProjectionFrame::ConversationSnapshot { snapshot, .. },
+            AgentChatProjectionFrame::FollowConversation { .. },
+            AgentChatProjectionFrame::Delta {
+                delta: gent_protocol::AgentChatProjectionDelta::Summary { .. },
+                ..
+            }
         ] if snapshot.transcript_truncated
     )
     .then_some(())
-    .ok_or_else(|| "must contain a snapshot request and an explicitly truncated snapshot".into())
+    .ok_or_else(|| "must contain a truncated snapshot and a followed summary delta".into())
 }
 
 pub(super) fn validate_chat_rejections(records: &[FixtureFrame]) -> Result<(), String> {
@@ -36,6 +41,7 @@ pub(super) fn validate_chat_rejections(records: &[FixtureFrame]) -> Result<(), S
         AgentChatRejection::ConversationNotFound,
         AgentChatRejection::SelectionModelUnavailable,
         AgentChatRejection::SelectionEffortUnavailable,
+        AgentChatRejection::ConversationArchived,
     ]
     .map(AgentChatRejection::code);
     let name = || String::from("context");

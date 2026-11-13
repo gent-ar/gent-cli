@@ -127,6 +127,20 @@ where
     let Ok(request) = serde_json::from_value::<AgentChatIntentFrame>(raw.clone()) else {
         return Ok(false);
     };
+    if matches!(request, AgentChatIntentFrame::ArchiveConversation { .. })
+        && !capabilities
+            .0
+            .iter()
+            .any(|v| v == gent_protocol::AGENT_CHAT_ARCHIVE_CAPABILITY)
+    {
+        write_error(
+            stream,
+            "unsupportedCapability",
+            "conversation archive was not negotiated",
+        )
+        .await?;
+        return Ok(true);
+    }
     if matches!(request, AgentChatIntentFrame::SteerPromptForTurn(_))
         && !capabilities
             .0
@@ -222,6 +236,7 @@ fn is_client_request(frame: &AgentChatIntentFrame) -> bool {
             | AgentChatIntentFrame::SendPromptWithTools { .. }
             | AgentChatIntentFrame::QueuePromptWithTools { .. }
             | AgentChatIntentFrame::CancelQueuedPrompt { .. }
+            | AgentChatIntentFrame::ArchiveConversation { .. }
             | AgentChatIntentFrame::SteerQueuedPrompt { .. }
             | AgentChatIntentFrame::SteerQueuedPromptForTurn { .. }
             | AgentChatIntentFrame::SteerPromptForTurn(_)

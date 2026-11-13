@@ -104,6 +104,16 @@
     {
       "frame": {
         "body": {
+          "code": "conversationArchived",
+          "message": "the conversation is archived and accepts no new prompts"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000007b7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22636f6e766572736174696f6e4172636869766564222c226d657373616765223a2274686520636f6e766572736174696f6e20697320617263686976656420616e642061636365707473206e6f206e65772070726f6d707473227d7d"
+    },
+    {
+      "frame": {
+        "body": {
           "code": "unknownCommand",
           "message": "/nope is not a command in this conversation's catalog"
         },

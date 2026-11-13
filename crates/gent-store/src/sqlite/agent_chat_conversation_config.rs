@@ -12,13 +12,14 @@ pub(super) fn save(
     config: &AgentChatConversationConfigRecord,
 ) -> Result<(), LedgerError> {
     validate(config)?;
-    let connection = ledger.lock()?;
-    if !conversation_exists(&connection, &config.conversation_id.0)? {
+    let mut connection = ledger.lock()?;
+    let transaction = connection.transaction().map_err(storage_error)?;
+    if !conversation_exists(&transaction, &config.conversation_id.0)? {
         return Err(LedgerError::Invariant(
             "conversation config conversation is unknown".into(),
         ));
     }
-    let latest = current(&connection, &config.conversation_id.0)?;
+    let latest = current(&transaction, &config.conversation_id.0)?;
     let next = latest.as_ref().map_or(Ok(1), |current| {
         current
             .revision
@@ -32,7 +33,7 @@ pub(super) fn save(
     }
     let disallowed_tools = serde_json::to_string(&config.disallowed_tools)
         .map_err(|error| LedgerError::Storage(error.to_string()))?;
-    connection
+    transaction
         .execute(
             "INSERT INTO agent_chat_conversation_configs (conversation_id, revision, system_prompt, append_system_prompt, max_turns, disallowed_tools, thinking_enabled, containment) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
@@ -46,8 +47,13 @@ pub(super) fn save(
                 containment_name(config.containment),
             ],
         )
-        .map(|_| ())
-        .map_err(storage_error)
+        .map_err(storage_error)?;
+    super::agent_chat_projection_ledger::append_summary(
+        &transaction,
+        &config.conversation_id.0,
+        &format!("config:{}:{}", config.conversation_id.0, config.revision),
+    )?;
+    transaction.commit().map_err(storage_error)
 }
 
 pub(super) fn current_conversation_config(

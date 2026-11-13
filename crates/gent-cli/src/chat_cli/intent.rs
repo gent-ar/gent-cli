@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gent_protocol::AgentChatIntentFrame;
 use gent_types::{AgentChatConversationId, AgentChatRequestId, ReceiptId};
 
-use super::{ChatCommand, PromptArgs, interrupt, queue, resume, switch};
+use super::{ChatCommand, PromptArgs, archive, interrupt, queue, resume, switch};
 
 pub(crate) fn frame(
     action: ChatCommand,
@@ -26,6 +26,7 @@ pub(crate) fn frame(
         ChatCommand::Resume(args) => resume::frame(args, Vec::new()),
         ChatCommand::Queue(args) => prompt_frame(args, true, Vec::new()),
         ChatCommand::Interrupt(args) => interrupt::frame(args)?,
+        ChatCommand::Archive(args) => archive::frame(args),
         ChatCommand::ContinueFromHistory(args) => super::continuation::frame(args),
         ChatCommand::Switch(args) | ChatCommand::Fork(args) => switch::frame(args)?,
         ChatCommand::Follow(_) => unreachable!("long-lived subscriptions bypass one-shot frames"),
@@ -190,6 +191,22 @@ pub(crate) fn valid_reply(request: &AgentChatIntentFrame, response: &AgentChatIn
                 && run_id == expected_run_id
                 && !conversation_id.0.is_empty()
                 && !run_id.0.is_empty()
+        }
+        (
+            AgentChatIntentFrame::ArchiveConversation {
+                request_id,
+                receipt_id,
+                conversation_id: expected_conversation_id,
+            },
+            AgentChatIntentFrame::ConversationArchived {
+                request_id: reply,
+                receipt,
+                conversation_id,
+            },
+        ) => {
+            reply == request_id
+                && receipt.receipt_id == *receipt_id
+                && conversation_id == expected_conversation_id
         }
         _ => false,
     }

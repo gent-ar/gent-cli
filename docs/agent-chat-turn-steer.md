@@ -41,11 +41,13 @@ SQLite transaction. It persists the target alongside the immutable receipt and
 receipts, activities, messages, or decisions.
 
 The provider lifecycle supplies its bound turn when claiming the prompt. An old
-request cannot be claimed by a newer lifecycle binding. Expiry rejects the steer
-and leaves the same message in its held queue; it does not manufacture a
-new message or retry a steer. A duplicate acceptance receipt does not reset an
-expired target. Delivery must name the persisted run and turn. The legacy
-start-as-new-turn fallback rejects targeted requests.
+request cannot be claimed by a newer lifecycle binding while its target turn is
+still live; that expiry rejects the steer with `targetExpired` and leaves the
+message held. A steer that loses the race with its turn's end is not a failure:
+the target is dropped without a `promptSteerRejected` fact and the prompt runs as
+the next turn, ahead of older queued prompts. When Claude reads a steer written
+before the result only after the turn ended, the prompt is delivered as that next
+turn. Delivery must name the persisted run and turn.
 
 Codex's native `turn/steer` includes `expectedTurnId` from its active native
 session. Claude's stream transport has no native expected-turn field; the owner
@@ -55,7 +57,8 @@ separate from receipt acceptance. Receipt acceptance alone does not prove native
 consumption or successful work.
 
 `promptSteerRejected` has scope, `messageId`, `receiptId`, and `reason`. Viewers
-clear only the matching request receipt. `targetExpired` and `deliveryRejected`
+clear only the matching request receipt, and treat `promptReleased` of the
+message as the end of its steer request. `targetExpired` and `deliveryRejected`
 retain the queued message, excluded from ordinary automatic queue dispatch.
 An explicit new-target Steer, Edit, or Remove can recover known queued input.
 After bytes were written without confirmed consumption before terminal, or
@@ -68,7 +71,7 @@ remains pending. The original prompt remains durable for deliberate recovery.
 The older `steerQueuedPrompt` wire intent remains compatible for old clients;
 it cannot claim a request from the new targeted table. New clients use the
 targeted intent exclusively. Ordinary queue dispatch excludes targeted rows;
-it cannot turn a failed steer into an automatic new turn or a resend.
+it cannot turn a rejected steer into an automatic new turn or a resend.
 
 Shared activity reads can contain the additive `promptSteerRejected` kind after
 a targeted command. Readers must preserve/ignore unknown additive kinds rather

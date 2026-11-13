@@ -120,6 +120,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         gent_protocol::conversation_links::CONVERSATION_LINKS_CAPABILITY.into(),
         gent_protocol::agent_chat_commands::AGENT_CHAT_COMMANDS_CAPABILITY.into(),
         gent_protocol::AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY.into(),
+        gent_protocol::AGENT_CHAT_ARCHIVE_CAPABILITY.into(),
         gent_protocol::speech_catalog::SPEECH_CATALOG_CAPABILITY.into(),
     ]);
     CapabilitySet(capabilities)

@@ -1,6 +1,6 @@
 use gent_types::{
-    AgentChatConversationDetail, ConversationActivityFact, GoalRecord, NormalizedSessionLifecycle,
-    NormalizedTranscriptEvent,
+    AgentChatConversationDetail, AgentChatConversationSummary, ConversationActivityFact,
+    GoalRecord, NormalizedSessionLifecycle, NormalizedTranscriptEvent,
 };
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +51,7 @@ pub struct ProjectionCatalog {
     tag = "type",
     content = "body",
     rename_all = "camelCase",
+    rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
 pub enum AgentChatProjectionDelta {
@@ -69,6 +70,11 @@ pub enum AgentChatProjectionDelta {
     Catalog {
         cursor: ProjectionCursor,
         catalog: ProjectionCatalog,
+    },
+    Summary {
+        cursor: ProjectionCursor,
+        run_id: String,
+        summary: Box<AgentChatConversationSummary>,
     },
     ResyncRequired {
         cursor: ProjectionCursor,

@@ -1,8 +1,3 @@
-//! Capability-gated future agent-chat intent frames.
-//!
-//! No runtime currently composes this endpoint. Negotiating these frames alone
-//! never starts a provider, creates a conversation, or changes observer mode.
-
 use gent_types::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatDecisionResponse,
     AgentChatPromptDelivery, AgentChatRequestId, AgentChatRunId, AgentChatSelection, ContextPolicy,
@@ -15,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub const AGENT_CHAT_INTENTS_CAPABILITY: &str = "agent-chat-intents-v1";
 pub const AGENT_CHAT_STEER_TURN_CAPABILITY: &str = "agent-chat-steer-turn-v1";
 pub const AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY: &str = "agent-chat-transcript-import-v1";
+pub const AGENT_CHAT_ARCHIVE_CAPABILITY: &str = "agent-chat-archive-v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -95,6 +91,16 @@ pub enum AgentChatIntentFrame {
         receipt: Receipt,
         conversation_id: AgentChatConversationId,
         message_id: String,
+    },
+    ArchiveConversation {
+        request_id: AgentChatRequestId,
+        receipt_id: gent_types::ReceiptId,
+        conversation_id: AgentChatConversationId,
+    },
+    ConversationArchived {
+        request_id: AgentChatRequestId,
+        receipt: Receipt,
+        conversation_id: AgentChatConversationId,
     },
     SteerQueuedPromptForTurn {
         request_id: AgentChatRequestId,

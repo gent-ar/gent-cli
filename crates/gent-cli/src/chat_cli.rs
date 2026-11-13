@@ -1,5 +1,3 @@
-//! Typed `gent chat` requests over negotiated local agent-chat IPC.
-
 use std::path::PathBuf;
 
 use crate::local_ipc::connect_and_negotiate;
@@ -10,6 +8,7 @@ use gent_protocol::{
 use gent_types::{AgentChatConversationId, AgentChatSelection};
 use serde_json::Value;
 
+mod archive;
 mod arguments;
 mod attachments;
 pub(crate) mod containment;
@@ -56,6 +55,8 @@ pub(crate) enum ChatCommand {
     CancelQueued(queue::CancelQueuedArgs),
     #[command(about = "Stop the running turn of a conversation")]
     Interrupt(interrupt::InterruptArgs),
+    #[command(about = "Archive a conversation: hide it from lists and refuse new prompts")]
+    Archive(archive::ArchiveArgs),
     #[command(
         about = "Send a turn again from Gent's saved history after its provider session was lost"
     )]

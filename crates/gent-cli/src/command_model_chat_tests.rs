@@ -117,3 +117,25 @@ fn interrupt_defaults_to_the_current_run_of_the_conversation() {
         })
     ));
 }
+
+#[test]
+fn archive_parses_into_one_archive_conversation_frame() {
+    let args = Args::try_parse_from([
+        "gent",
+        "chat",
+        "archive",
+        "--conversation-id",
+        "conversation-1",
+        "--receipt-id",
+        "receipt-1",
+    ])
+    .unwrap();
+    let Some(CommandLine::Chat { action, .. }) = args.command else {
+        panic!("archive must parse as a chat command");
+    };
+    assert!(matches!(
+        crate::chat_cli::frame(action).unwrap(),
+        gent_protocol::AgentChatIntentFrame::ArchiveConversation { conversation_id, receipt_id, .. }
+            if conversation_id.0 == "conversation-1" && receipt_id.0 == "receipt-1"
+    ));
+}

@@ -31,7 +31,7 @@ fn host_mcp_schema_v26_and_v27_upgrade_without_resetting_existing_turns() {
             .unwrap()
             .query_row("SELECT identity FROM gent_schema", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(identity, "gent-fresh-schema-v29");
+        assert_eq!(identity, "gent-fresh-schema-v30");
     }
 }
 

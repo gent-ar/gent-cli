@@ -16,7 +16,7 @@ fn input(conversation: &AgentChatConversationId) -> AgentChatPromptCreate {
 }
 
 #[test]
-fn a_primary_steer_cannot_auto_dispatch_if_its_target_ends_before_target_acceptance() {
+fn a_primary_steer_whose_target_ends_before_claim_runs_as_the_next_turn() {
     let (ledger, conversation) = ledger();
     let original = active(&ledger, &conversation);
     let create = input(&conversation);
@@ -48,10 +48,7 @@ fn a_primary_steer_cannot_auto_dispatch_if_its_target_ends_before_target_accepta
             gent_types::AgentChatProvider::Codex,
         )
         .unwrap();
-    assert!(
-        dispatched.is_none(),
-        "primary steer became ordinary dispatch: {dispatched:?}"
-    );
+    assert_eq!(dispatched.unwrap().message, queued.message);
     assert_eq!(
         ledger
             .find_turn(&queued.message.turn_id)

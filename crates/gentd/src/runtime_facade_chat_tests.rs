@@ -583,3 +583,136 @@ fn conversation_reads_never_inspect_the_workspace_git_repository() {
     assert!(matches!(summary, AgentChatConversationFrame::Summary(_)));
     assert!(matches!(detail, AgentChatConversationFrame::Detail(_)));
 }
+
+async fn archive_over_ipc(
+    runtime: &crate::runtime_facade::RuntimeFacade,
+    capabilities: &[&str],
+    conversation_id: &gent_types::AgentChatConversationId,
+) -> serde_json::Value {
+    let (mut reader, mut writer) = tokio::io::duplex(8192);
+    let request = serde_json::to_value(AgentChatIntentFrame::ArchiveConversation {
+        request_id: AgentChatRequestId("archive".into()),
+        receipt_id: ReceiptId("receipt-archive".into()),
+        conversation_id: conversation_id.clone(),
+    })
+    .unwrap();
+    let capabilities = gent_types::CapabilitySet(
+        capabilities
+            .iter()
+            .map(|capability| (*capability).to_owned())
+            .collect(),
+    );
+    assert!(
+        crate::agent_chat_transport::dispatch_port(&mut writer, runtime, &capabilities, &request)
+            .await
+            .unwrap()
+    );
+    gent_protocol::read_json_frame::<_, serde_json::Value>(&mut reader)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn archiving_over_ipc_is_receipted_negotiated_and_refuses_new_prompts() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = chat_runtime(directory.path());
+    let (conversation_id, _) = create_conversation(&runtime, "archive");
+    let intents = gent_protocol::AGENT_CHAT_INTENTS_CAPABILITY;
+    let archive = gent_protocol::AGENT_CHAT_ARCHIVE_CAPABILITY;
+    assert!(
+        declared_capabilities_with_profiles(&RuntimeCapabilityProfile::new([
+            RuntimeCapabilityFeature::AgentChat
+        ]))
+        .0
+        .iter()
+        .any(|capability| capability == archive)
+    );
+    let refused = archive_over_ipc(&runtime, &[intents], &conversation_id).await;
+    assert_eq!(
+        refused["body"]["code"], "unsupportedCapability",
+        "{refused}"
+    );
+    let first = archive_over_ipc(&runtime, &[intents, archive], &conversation_id).await;
+    assert_eq!(first["type"], "conversationArchived", "{first}");
+    assert_eq!(first["body"]["conversationId"], conversation_id.0.as_str());
+    assert_eq!(first["body"]["receipt"]["receiptId"], "receipt-archive");
+    let replay = archive_over_ipc(&runtime, &[intents, archive], &conversation_id).await;
+    assert_eq!(replay, first);
+    let rejected = runtime
+        .agent_chat_intent(AgentChatIntentFrame::SendPrompt {
+            request_id: AgentChatRequestId("after-archive".into()),
+            receipt_id: ReceiptId("receipt-after-archive".into()),
+            conversation_id: conversation_id.clone(),
+            text: "hello".into(),
+            attachment_ids: vec![],
+        })
+        .unwrap_err();
+    assert_eq!(rejected.code, "conversationArchived");
+}
+
+#[test]
+fn an_idle_selection_switch_is_followed_as_one_summary_delta() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = chat_runtime(directory.path());
+    let (conversation_id, run_id) = create_conversation(&runtime, "summary");
+    let start = gent_protocol::ProjectionCursor {
+        value: runtime
+            .agent_chat_projection_follow(
+                &conversation_id.0,
+                &gent_protocol::ProjectionCursor { value: 0 },
+            )
+            .unwrap()
+            .last()
+            .map_or(0, |delta| {
+                serde_json::to_value(delta).unwrap()["body"]["cursor"]["value"]
+                    .as_u64()
+                    .unwrap_or_default()
+            }),
+    };
+    let switched = runtime
+        .agent_chat_intent(AgentChatIntentFrame::SwitchSelection {
+            request_id: AgentChatRequestId("switch".into()),
+            receipt_id: ReceiptId("receipt-switch".into()),
+            conversation_id: conversation_id.clone(),
+            parent_run_id: run_id,
+            selection: AgentChatSelection {
+                provider: AgentChatProvider::Claude,
+                model: "sonnet".into(),
+                effort: AgentChatEffort::Medium,
+                mode: AgentChatMode::Ask,
+            },
+            context_policy: ContextPolicy::Preserve,
+        })
+        .unwrap();
+    let [
+        AgentChatIntentFrame::Switched {
+            run_id: new_run, ..
+        },
+    ] = switched.as_slice()
+    else {
+        panic!("an idle switch must be accepted");
+    };
+    let deltas = runtime
+        .agent_chat_projection_follow(&conversation_id.0, &start)
+        .unwrap();
+    let [delta] = deltas.as_slice() else {
+        panic!("an idle switch must project exactly one delta: {deltas:?}");
+    };
+    let wire = serde_json::to_value(delta).unwrap();
+    assert_eq!(wire["type"], "summary", "{wire}");
+    assert_eq!(wire["body"]["runId"], new_run.0.as_str());
+    assert_eq!(
+        wire["body"]["summary"]["conversationId"],
+        conversation_id.0.as_str()
+    );
+    assert_eq!(wire["body"]["summary"]["selection"]["mode"], "ask");
+    let after = gent_protocol::ProjectionCursor {
+        value: wire["body"]["cursor"]["value"].as_u64().unwrap(),
+    };
+    assert!(
+        runtime
+            .agent_chat_projection_follow(&conversation_id.0, &after)
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -210,6 +210,7 @@ def write_metadata(out_dir: Path, name: str, version: str, target: str, files: l
             "prompt-provider-provision-v1",
             "agent-chat-steer-turn-v1",
             "agent-chat-steer-enqueue-v1",
+            "agent-chat-archive-v1",
             "runtime-owner-control-v1",
             "provider-auth-handoff-v1",
             "permission-policy-provider-binding-v1",

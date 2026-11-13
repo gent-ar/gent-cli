@@ -157,21 +157,22 @@ fn rejected() -> LedgerError {
     LedgerError::Rejected(AgentChatRejection::QueuedPromptNotSteerable)
 }
 
-pub(super) fn expire_turn(
-    db: &Connection,
-    turn: &str,
-    epoch: HostEpoch,
-) -> Result<(), LedgerError> {
-    let mut statement = db.prepare("SELECT message_id FROM agent_chat_steer_targets WHERE turn_id=?1 AND state='requested'").map_err(storage_error)?;
-    let messages = statement
-        .query_map([turn], |r| r.get::<_, String>(0))
-        .map_err(storage_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(storage_error)?;
-    for message in messages {
-        expire(db, &message, epoch, "targetExpired")?;
-    }
-    Ok(())
+pub(super) fn release(db: &Connection, message: &str) -> Result<(), LedgerError> {
+    db.execute(
+        "DELETE FROM agent_chat_steer_targets WHERE message_id=?1",
+        [message],
+    )
+    .map(|_| ())
+    .map_err(storage_error)
+}
+
+pub(super) fn release_turn(db: &Connection, turn: &str) -> Result<(), LedgerError> {
+    db.execute(
+        "DELETE FROM agent_chat_steer_targets WHERE turn_id=?1 AND state='requested'",
+        [turn],
+    )
+    .map(|_| ())
+    .map_err(storage_error)
 }
 
 pub(super) fn expire_unprovable(db: &Connection, epoch: HostEpoch) -> Result<(), LedgerError> {

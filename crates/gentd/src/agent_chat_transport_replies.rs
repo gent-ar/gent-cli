@@ -22,6 +22,7 @@ pub(super) fn validate_replies(request: &Frame, replies: &[Frame]) -> Result<(),
         | Frame::QueuePromptWithTools { .. }
         | Frame::Decision { .. } => shapes::accepted(request, replies),
         Frame::CancelQueuedPrompt { .. } => shapes::queued_prompt_canceled(request, replies),
+        Frame::ArchiveConversation { .. } => shapes::conversation_archived(request, replies),
         Frame::SteerPromptForTurn(_) => shapes::atomic_steer_accepted(request, replies),
         Frame::SteerQueuedPrompt { .. } | Frame::SteerQueuedPromptForTurn { .. } => {
             shapes::queued_prompt_steered(request, replies)
@@ -53,6 +54,7 @@ pub(super) fn validate_replies(request: &Frame, replies: &[Frame]) -> Result<(),
         | Frame::Interrupted { .. }
         | Frame::ProviderWarm(_)
         | Frame::QueuedPromptCanceled { .. }
+        | Frame::ConversationArchived { .. }
         | Frame::QueuedPromptSteered { .. }
         | Frame::Forked { .. }
         | Frame::LinkedConversationCreated { .. }

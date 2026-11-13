@@ -13,6 +13,20 @@ const MAX_PAGE_LIMIT: u16 = 100;
 const COLUMNS: &str =
     "SELECT cursor, source_event_id, kind, payload FROM agent_chat_projection_events";
 
+pub(super) fn append_summary(
+    connection: &Connection,
+    conversation_id: &str,
+    source: &str,
+) -> Result<(), LedgerError> {
+    connection
+        .execute(
+            "INSERT INTO agent_chat_projection_events (conversation_id, source_event_id, kind, payload) VALUES (?1, ?2, 'summary', json_object('runId', (SELECT r.run_id FROM runs r JOIN agent_chat_run_selections s ON s.run_id = r.run_id WHERE r.conversation_id = ?1 ORDER BY r.rowid DESC LIMIT 1)))",
+            params![conversation_id, format!("summary:{source}")],
+        )
+        .map(|_| ())
+        .map_err(storage_error)
+}
+
 impl AgentChatProjectionLedger for SqliteLedger {
     fn agent_chat_projection_page(
         &self,
@@ -175,3 +189,7 @@ fn event(row: &Row<'_>) -> rusqlite::Result<AgentChatProjectionEvent> {
         })?,
     })
 }
+
+#[cfg(test)]
+#[path = "agent_chat_projection_summary_tests.rs"]
+mod summary_tests;

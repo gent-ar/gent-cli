@@ -257,6 +257,8 @@ pub enum AgentChatRejection {
     LifecycleShuttingDown,
     #[error("the conversation does not exist")]
     ConversationNotFound,
+    #[error("the conversation is archived and accepts no new prompts")]
+    ConversationArchived,
     #[error("the selected model is not offered by this provider")]
     SelectionModelUnavailable,
     #[error("the selected model does not offer this effort")]
@@ -275,6 +277,7 @@ impl AgentChatRejection {
             Self::LifecycleRecoveryInProgress => "lifecycleRecoveryInProgress",
             Self::LifecycleShuttingDown => "lifecycleShuttingDown",
             Self::ConversationNotFound => "conversationNotFound",
+            Self::ConversationArchived => "conversationArchived",
             Self::SelectionModelUnavailable => "selectionModelUnavailable",
             Self::SelectionEffortUnavailable => "selectionEffortUnavailable",
         }

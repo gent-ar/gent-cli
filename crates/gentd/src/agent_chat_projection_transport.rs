@@ -131,6 +131,7 @@ fn delta_cursor(delta: &AgentChatProjectionDelta) -> ProjectionCursor {
         | AgentChatProjectionDelta::Activity { cursor, .. }
         | AgentChatProjectionDelta::Lifecycle { cursor, .. }
         | AgentChatProjectionDelta::Catalog { cursor, .. }
+        | AgentChatProjectionDelta::Summary { cursor, .. }
         | AgentChatProjectionDelta::ResyncRequired { cursor } => cursor.clone(),
     }
 }
