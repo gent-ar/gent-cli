@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $installer = Join-Path $repo "tools\install.ps1"
 $launcherSource = Join-Path $repo "crates\gent-cli\src\windows_launcher.rs"
+$selectionSource = Join-Path $repo "crates\gent-cli\src\windows_release_selection.rs"
 $python = (Get-Command python -ErrorAction Stop).Source
 $target = "x86_64-pc-windows-msvc"
 $work = Join-Path ([IO.Path]::GetTempPath()) ("gent-install-test-" + [guid]::NewGuid())
@@ -119,7 +120,9 @@ try {
     Assert-True ($launcherText.Contains("console_command(target)")) "native launcher must use direct process execution"
     Assert-True ($launcherText.Contains(".args(arguments)")) "native launcher must preserve typed arguments"
     Assert-True (-not $launcherText.Contains("cmd.exe")) "native launcher must not invoke cmd.exe"
-    Assert-True ($launcherText.Contains("symlink_metadata")) "native launcher must reject reparse points"
+    Assert-True ($launcherText.Contains("windows_release_selection::selected_binary")) "native launcher must use shared release selection"
+    $selectionText = Get-Content -Raw -LiteralPath $selectionSource
+    Assert-True ($selectionText.Contains("symlink_metadata") -and $selectionText.Contains("file_attributes() & 0x400")) "release selection must reject reparse points"
     $installerText = Get-Content -Raw -LiteralPath $installer
     Assert-True ($installerText.Contains("ReparsePoint")) "installer must reject retained release reparse points"
     Assert-True ($installerText.Contains("Test-StagedPair")) "installer must health-check auto-update candidates"
