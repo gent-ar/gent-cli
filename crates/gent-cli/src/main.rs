@@ -45,6 +45,8 @@ mod terminal_preferences;
 mod update_check;
 mod update_command;
 mod update_handoff;
+#[cfg(windows)]
+mod windows_release_selection;
 mod workspace_documents_cli;
 mod workspace_git_cli;
 

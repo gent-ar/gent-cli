@@ -81,17 +81,19 @@ fn runtime_root() -> Result<PathBuf, AutoUpdateError> {
 fn runtime_root_from_executable(executable: &Path) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        let root = executable.parent()?.parent()?;
-        let release = std::fs::read_to_string(root.join("current.json")).ok()?;
-        let metadata = serde_json::from_str::<serde_json::Value>(&release).ok()?;
-        let release = metadata.get("release")?.as_str()?;
-        let expected = root.join("releases").join(release).join("gent.exe");
-        (executable
-            .file_name()
-            .is_some_and(|name| name == "gent.exe")
-            && expected.is_file()
-            && root.join("releases").is_dir())
-        .then(|| root.to_path_buf())
+        let parent = executable.parent()?;
+        let root = if parent.file_name()? == "bin" {
+            parent.parent()?
+        } else {
+            let releases = parent.parent()?;
+            if releases.file_name()? != "releases" {
+                return None;
+            }
+            releases.parent()?
+        };
+        let selected = crate::windows_release_selection::selected_binary(root, "gent").ok()?;
+        (executable == selected || executable == root.join("bin").join("gent.exe"))
+            .then(|| root.to_path_buf())
     }
     #[cfg(not(windows))]
     {
@@ -125,7 +127,7 @@ const fn helper_runner() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::runtime_root;
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     use super::runtime_root_from_executable;
 
     #[test]
@@ -149,6 +151,36 @@ mod tests {
         assert_eq!(
             runtime_root_from_executable(&root.join("current/gent")),
             Some(root.canonicalize().unwrap())
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_auto_update_accepts_the_current_release_and_its_launcher() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let selected = root.join("releases/v1.2.3-x86_64-pc-windows-msvc");
+        let stale = root.join("releases/v1.2.2-x86_64-pc-windows-msvc");
+        for release in [&selected, &stale] {
+            std::fs::create_dir_all(release).unwrap();
+            std::fs::write(release.join("gent.exe"), b"fixture").unwrap();
+        }
+        std::fs::write(
+            root.join("current.json"),
+            r#"{"release":"v1.2.3-x86_64-pc-windows-msvc"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            runtime_root_from_executable(&selected.join("gent.exe")),
+            Some(root.to_path_buf())
+        );
+        assert_eq!(
+            runtime_root_from_executable(&root.join("bin/gent.exe")),
+            Some(root.to_path_buf())
+        );
+        assert_eq!(runtime_root_from_executable(&stale.join("gent.exe")), None);
+        assert_eq!(
+            runtime_root_from_executable(&root.join("other/gent.exe")),
+            None
         );
     }
 }
