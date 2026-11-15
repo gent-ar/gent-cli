@@ -145,18 +145,13 @@ fn embeds_stdio_mcp_servers_in_claurst_settings() {
 }
 
 #[test]
-fn rejects_relative_paths_and_invalid_port_before_any_effect() {
+fn rejects_relative_paths_before_any_effect() {
     let catalog = LocalModelCatalog::shipped().unwrap();
     let mut invalid = request();
     invalid.model_path = PathBuf::from("models");
     assert_eq!(
         ClaurstLocalRuntimePlan::build(invalid, catalog.models().first().unwrap(), 18_080),
         Err(ClaurstLocalRuntimePlanError::RelativePath("model file"))
-    );
-    let invalid = request();
-    assert_eq!(
-        ClaurstLocalRuntimePlan::build(invalid, catalog.models().first().unwrap(), 0),
-        Err(ClaurstLocalRuntimePlanError::ZeroPort)
     );
 }
 

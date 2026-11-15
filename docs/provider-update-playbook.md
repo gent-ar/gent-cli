@@ -65,7 +65,7 @@ provider's `gentd` lifecycle directory.
 ## Executed binary trust boundary
 
 - **Install:** Gentd installs exactly the signed platform tarball.
-  - `npm pack`, SRI check, then `npm install --offline <tgz>`, so npm cannot fetch anything else.
+  - Stream the exact npm registry archive, verify its SHA-512 SRI, then run `npm install --offline <tgz>`.
   - The native binary is not reachable through a shim or `optionalDependencies`.
   - Codex's platform tarball also ships `codex-code-mode-host`, `codex-path/rg` and
     `codex-resources/zsh`. Codex spawns these itself. They are covered only by the install-time

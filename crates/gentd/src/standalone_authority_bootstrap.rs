@@ -187,6 +187,7 @@ fn standalone_capability_profile(provider_provision: bool) -> RuntimeCapabilityP
         features.push(RuntimeCapabilityFeature::Sandbox);
     }
     RuntimeCapabilityProfile::new(features)
+        .with_prompt_provider_provision_progress(provider_provision)
 }
 
 fn validate(args: &Args) -> Result<(), String> {

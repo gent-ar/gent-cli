@@ -13,8 +13,9 @@ impl PromptProviderProvisionPort for ManagedProvisionPorts {
     fn confirm(
         &self,
         frame: PromptProviderProvisionFrame,
+        progress: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
-        self.prompt.confirm(frame)
+        self.prompt.confirm(frame, progress)
     }
     fn managed_plan(&self, request: DependencyPlanRequest) -> Option<DependencyPlan> {
         (request.action == DependencyAction::Update).then(|| self.actions.plan(request))

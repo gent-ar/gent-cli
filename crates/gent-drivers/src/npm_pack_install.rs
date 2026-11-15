@@ -1,19 +1,21 @@
-//! Integrity-checked npm tarball installation for a future approved host.
-//!
-//! This driver is deliberately dormant.  It never selects a package and it
-//! never exposes npm output: callers must provide a signed exact artifact.
-
 use std::{
-    fs,
+    fs::{self, File},
+    io::{BufReader, Read},
     path::{Path, PathBuf},
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use gent_ports::ApprovedPackageInstall;
+use gent_types::ProviderInstallProgress;
 use sha2::{Digest, Sha512};
 use tempfile::Builder;
 
-use crate::installer::{InstallerError, InstallerInvocation, NpmGlobalPrefix};
+use crate::installer::{
+    InstallerError, InstallerInvocation, NpmGlobalPrefix, ProviderInstallError,
+};
+
+#[path = "npm_registry_download.rs"]
+mod registry;
 
 /// Installs public providers only after verifying the packed tarball's SRI.
 #[derive(Clone, Debug, Default)]
@@ -21,24 +23,41 @@ pub struct VerifiedNpmInstaller;
 
 impl VerifiedNpmInstaller {
     /// Fetches the exact package, verifies its tarball, then installs that file.
-    ///
-    /// # Errors
-    /// Returns an error without installing when npm, its JSON response, archive
-    /// path, or signed SHA-512 SRI verification is invalid.
     pub fn install(
         &self,
         npm: &NpmGlobalPrefix,
         package: &ApprovedPackageInstall,
     ) -> Result<(), InstallerError> {
+        self.install_with_progress(npm, package, &|_| {})
+            .map_err(Into::into)
+    }
+
+    pub fn install_with_progress(
+        &self,
+        npm: &NpmGlobalPrefix,
+        package: &ApprovedPackageInstall,
+        progress: &dyn Fn(ProviderInstallProgress),
+    ) -> Result<(), ProviderInstallError> {
         npm.validate_prefix()?;
+        npm.recheck()
+            .map_err(|error| InstallerError::Runtime(error.to_string()))?;
         let staging = staging_directory(npm.prefix())?;
-        let archive = pack(npm, package, staging.path())?;
+        let archive = staging.path().join("provider.tgz");
+        if let Err(error) = registry::download(package, &archive, progress) {
+            if error == ProviderInstallError::DownloadFailed {
+                progress(ProviderInstallProgress::DownloadFailed);
+            }
+            return Err(error);
+        }
+        progress(ProviderInstallProgress::VerifyingArchive);
+        let archive = canonical_archive(staging.path(), &archive)?;
         verify_integrity(&archive, &package.integrity)?;
         NpmGlobalPrefix::validate_filesystem_path(&archive)?;
         let invocation = npm.install_archive(&archive);
         let consumer_path = PathBuf::from(crate::installer::npm_archive_path(&archive));
         verify_archive_argument(&archive, &consumer_path)?;
-        run(npm, &invocation)
+        progress(ProviderInstallProgress::Installing);
+        run(npm, &invocation).map_err(Into::into)
     }
 }
 
@@ -54,27 +73,8 @@ fn staging_directory(prefix: &Path) -> Result<tempfile::TempDir, InstallerError>
     Ok(staging)
 }
 
-fn pack(
-    npm: &NpmGlobalPrefix,
-    package: &ApprovedPackageInstall,
-    staging: &Path,
-) -> Result<PathBuf, InstallerError> {
-    npm.recheck()
-        .map_err(|error| InstallerError::Runtime(error.to_string()))?;
-    NpmGlobalPrefix::validate_filesystem_path(staging)?;
-    let invocation = npm.pack(package, staging);
-    let mut command = gent_types::hidden_command(&invocation.executable);
-    command.args(&invocation.arguments);
-    npm.configure_command(&mut command)?;
-    let output = command
-        .output()
-        .map_err(|error| InstallerError::Launch(error.to_string()))?;
-    if !output.status.success() {
-        return Err(InstallerError::Failed(output.status.to_string()));
-    }
-    let filename = pack_filename(&output.stdout)?;
-    let archive = staging.join(filename);
-    let metadata = fs::symlink_metadata(&archive).map_err(|error| io_error(&error))?;
+fn canonical_archive(staging: &Path, archive: &Path) -> Result<PathBuf, InstallerError> {
+    let metadata = fs::symlink_metadata(archive).map_err(|error| io_error(&error))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(InstallerError::InvalidArtifact);
     }
@@ -98,30 +98,6 @@ fn verify_archive_argument(
         return Err(InstallerError::InvalidArtifact);
     }
     Ok(())
-}
-
-fn pack_filename(output: &[u8]) -> Result<String, InstallerError> {
-    let value: serde_json::Value =
-        serde_json::from_slice(output).map_err(|_| InstallerError::PackOutput)?;
-    let items = value
-        .as_array()
-        .filter(|items| items.len() == 1)
-        .ok_or(InstallerError::PackOutput)?;
-    let filename = items
-        .first()
-        .and_then(|item| item.get("filename"))
-        .and_then(serde_json::Value::as_str)
-        .ok_or(InstallerError::PackOutput)?
-        .to_owned();
-    let path = Path::new(&filename);
-    if path.file_name().and_then(|name| name.to_str()) != Some(&filename)
-        || !path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("tgz"))
-    {
-        return Err(InstallerError::InvalidArtifact);
-    }
-    Ok(filename)
 }
 
 fn require_private_directory(path: &Path) -> Result<(), InstallerError> {
@@ -153,7 +129,17 @@ fn verify_integrity(archive: &Path, sri: &str) -> Result<(), InstallerError> {
         .and_then(|value| STANDARD.decode(value).ok())
         .filter(|digest| digest.len() == 64)
         .ok_or(InstallerError::InvalidIntegrity)?;
-    let actual = Sha512::digest(fs::read(archive).map_err(|error| io_error(&error))?);
+    let mut file = BufReader::new(File::open(archive).map_err(|error| io_error(&error))?);
+    let mut digest = Sha512::new();
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let count = file.read(&mut buffer).map_err(|error| io_error(&error))?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    let actual = digest.finalize();
     if actual.as_slice() == expected.as_slice() {
         Ok(())
     } else {
@@ -192,7 +178,7 @@ mod tests {
 
     #[cfg(unix)]
     use super::staging_directory;
-    use super::{pack_filename, verify_integrity};
+    use super::verify_integrity;
 
     #[test]
     fn npm_consumer_argument_must_resolve_to_the_integrity_checked_archive() {
@@ -208,17 +194,6 @@ mod tests {
         assert!(
             super::verify_archive_argument(&canonical, &root.path().join("missing.tgz")).is_err()
         );
-    }
-
-    #[test]
-    fn accepts_only_a_single_safe_tarball_filename() {
-        assert_eq!(
-            pack_filename(br#"[{"filename":"codex-1.0.0.tgz"}]"#).unwrap(),
-            "codex-1.0.0.tgz"
-        );
-        assert!(pack_filename(br#"[{"filename":"one.tgz"},{"filename":"two.tgz"}]"#).is_err());
-        assert!(pack_filename(br#"[{"filename":"../outside.tgz"}]"#).is_err());
-        assert!(pack_filename(br#"[{"filename":"archive.zip"}]"#).is_err());
     }
 
     #[test]

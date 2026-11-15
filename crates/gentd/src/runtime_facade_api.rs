@@ -123,8 +123,9 @@ impl RuntimeApi for RuntimeFacade {
     fn prompt_provider_provision(
         &self,
         frame: PromptProviderProvisionFrame,
+        progress: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
-        self.confirm_prompt_provider_provision(frame)
+        self.confirm_prompt_provider_provision(frame, progress)
     }
     fn agent_chat_turn_follow(&self, request: TurnFollowRequest) -> Result<TurnFollowRead, String> {
         let source = self.turn_follow_source.as_ref().ok_or_else(|| {

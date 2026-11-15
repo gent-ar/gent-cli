@@ -119,9 +119,12 @@ where
         mcp_servers: Vec<serde_json::Value>,
     ) -> Result<ClaurstStandaloneRuntime<L::Llama, L::Acp>, ClaurstStandaloneStartError> {
         let mode = request.permission_mode;
-        let plan = self.ready_plan(model_id, request, model.port, workspace)?;
+        let mut plan = self.ready_plan(model_id, request, workspace)?;
         if plan.llama_server != model.llama_launch {
             return Err(ClaurstStandaloneStartError::ModelPlanChanged);
+        }
+        if let Some(port) = model.port {
+            set_server_port(&mut plan, port);
         }
         Ok(ClaurstStandaloneRuntime {
             model: model.clone(),
@@ -140,14 +143,13 @@ where
         &self,
         model_id: &str,
         request: ClaurstLocalRuntimeRequest,
-        port: u16,
         workspace: &Path,
     ) -> Result<crate::claurst_local_runtime::ClaurstLocalRuntimePlan, ClaurstStandaloneStartError>
     {
         self.launcher
             .validate_permission_mode(request.permission_mode)
             .map_err(|_| ClaurstStandaloneStartError::SandboxRequired)?;
-        let plan = match self.readiness.assess(model_id, request, port)? {
+        let plan = match self.readiness.assess(model_id, request, 0)? {
             ClaurstLocalReadiness::DownloadRequired {
                 plan,
                 downloaded_bytes,
@@ -212,13 +214,18 @@ where
         mcp_servers: Vec<serde_json::Value>,
     ) -> Result<ClaurstStandaloneRuntime<L::Llama, L::Acp>, ClaurstStandaloneStartError> {
         let mode = request.permission_mode;
-        let port = select_ephemeral_loopback_port().map_err(ClaurstStandaloneStartError::Llama)?;
-        let plan = self.ready_plan(model_id, request, port, workspace)?;
+        let mut plan = self.ready_plan(model_id, request, workspace)?;
         self.materialize_chat_template(&plan)?;
         let mut llama = self
             .launcher
             .launch_model(&plan)
             .map_err(ClaurstStandaloneStartError::Llama)?;
+        let port = llama
+            .wait_for_port()
+            .map_err(ClaurstStandaloneStartError::ReadinessProbe)?;
+        if let Some(port) = port {
+            set_server_port(&mut plan, port);
+        }
         if let Err(error) = self.probe.wait_ready(&plan.server_url, &mut llama) {
             let _ = llama.shutdown();
             return Err(ClaurstStandaloneStartError::ReadinessProbe(error));
@@ -248,9 +255,15 @@ where
     }
 }
 
-#[path = "claurst_standalone_owner_port.rs"]
-mod port_selection;
-use port_selection::select_ephemeral_loopback_port;
+fn set_server_port(plan: &mut crate::claurst_local_runtime::ClaurstLocalRuntimePlan, port: u16) {
+    plan.server_url = format!("http://127.0.0.1:{port}");
+    plan.summary_endpoint
+        .server_url
+        .clone_from(&plan.server_url);
+    plan.claurst_acp
+        .environment
+        .insert("LLAMA_CPP_HOST".into(), plan.server_url.clone());
+}
 
 #[cfg(test)]
 #[path = "claurst_standalone_owner_tests.rs"]

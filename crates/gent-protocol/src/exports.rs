@@ -71,7 +71,8 @@ pub use crate::permission_policy::{
     PermissionPolicyFrame,
 };
 pub use crate::prompt_provider_provision::{
-    PROMPT_PROVIDER_PROVISION_CAPABILITY, PromptProviderProvisionFrame,
+    PROMPT_PROVIDER_PROVISION_CAPABILITY, PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY,
+    PromptProviderProvisionFrame, PromptProviderProvisionProgressFrame,
     PromptProviderProvisionState,
 };
 pub use crate::prompt_templates::{PROMPT_TEMPLATES_CAPABILITY, PromptTemplateFrame};

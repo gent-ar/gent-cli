@@ -25,6 +25,7 @@ pub enum RuntimeCapabilityFeature {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RuntimeCapabilityProfile {
     features: Vec<RuntimeCapabilityFeature>,
+    prompt_provider_provision_progress: bool,
 }
 
 impl RuntimeCapabilityProfile {
@@ -37,7 +38,16 @@ impl RuntimeCapabilityProfile {
                 unique.push(feature);
             }
         }
-        Self { features: unique }
+        Self {
+            features: unique,
+            prompt_provider_provision_progress: false,
+        }
+    }
+
+    #[must_use]
+    pub fn with_prompt_provider_provision_progress(mut self, enabled: bool) -> Self {
+        self.prompt_provider_provision_progress = enabled;
+        self
     }
 
     pub(super) fn has(&self, feature: RuntimeCapabilityFeature) -> bool {
@@ -92,6 +102,10 @@ impl RuntimeCapabilityProfile {
     pub fn prompt_provider_provision_enabled(&self) -> bool {
         self.provider_readiness_enabled()
             && self.has(RuntimeCapabilityFeature::PromptProviderProvision)
+    }
+
+    pub(super) fn prompt_provider_provision_progress_enabled(&self) -> bool {
+        self.prompt_provider_provision_enabled() && self.prompt_provider_provision_progress
     }
 
     #[must_use]

@@ -53,6 +53,7 @@ mod policies;
 mod prompt_templates;
 mod provider_auth;
 mod provider_auth_handoff;
+mod provider_install_progress;
 mod provider_lifecycle_values;
 mod provider_prompt_provision;
 mod provider_prompt_readiness;
@@ -212,6 +213,7 @@ pub use provider_auth::{
 pub use provider_auth_handoff::{
     ProviderAuthHandoff, ProviderAuthHandoffMethod, ProviderAuthHandoffState,
 };
+pub use provider_install_progress::ProviderInstallProgress;
 pub use provider_lifecycle_values::{
     NormalizedProviderEvent, ProviderEvent, ProviderFailureClassification,
     ProviderInstallProvenance, ProvisionedProviderInstallation, ProvisionedProviderLock,

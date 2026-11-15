@@ -13,7 +13,10 @@ use gent_protocol::{DependencyAction, DependencyActionRequest, DependencyProvide
 pub(crate) use gent_types::ProvisionedProviderLock;
 #[cfg(test)]
 use gent_types::ReceiptStatus;
-use gent_types::{ProviderPromptProvisionCommandBinding, ProvisionedProviderInstallation, Receipt};
+use gent_types::{
+    ProviderInstallProgress, ProviderPromptProvisionCommandBinding,
+    ProvisionedProviderInstallation, Receipt,
+};
 
 pub(crate) use crate::private_provider_provisioning_error::PrivateProvisionError;
 use crate::{
@@ -228,8 +231,9 @@ impl<
         request: &PrivateProvisionRequest,
         command: &gent_types::Command,
         binding: &ProviderPromptProvisionCommandBinding,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
-        effect::provision_prompt(self, request, command, binding)
+        effect::provision_prompt(self, request, command, binding, progress)
     }
 }
 

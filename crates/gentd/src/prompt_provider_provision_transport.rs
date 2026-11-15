@@ -1,18 +1,21 @@
 //! Capability-gated transport for one daemon-derived prompt-provider install confirmation.
 
 use gent_protocol::{
-    PROMPT_PROVIDER_PROVISION_CAPABILITY, PromptProviderProvisionFrame, write_json_frame,
+    PROMPT_PROVIDER_PROVISION_CAPABILITY, PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY,
+    PromptProviderProvisionFrame, PromptProviderProvisionProgressFrame, write_json_frame,
 };
-use gent_types::CapabilitySet;
+use gent_types::{CapabilitySet, ProviderInstallProgress};
 use serde_json::Value;
 use tokio::io::AsyncWrite;
+use tokio::sync::watch;
 
 use crate::{api::RuntimeApi, transport::write_error};
 
-pub(crate) trait PromptProviderProvisionPort {
+pub(crate) trait PromptProviderProvisionPort: Clone + Send + 'static {
     fn confirm(
         &self,
         request: PromptProviderProvisionFrame,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String>;
 }
 
@@ -20,8 +23,9 @@ impl<R: RuntimeApi> PromptProviderProvisionPort for R {
     fn confirm(
         &self,
         request: PromptProviderProvisionFrame,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
-        self.prompt_provider_provision(request)
+        self.prompt_provider_provision(request, progress)
     }
 }
 
@@ -77,7 +81,30 @@ where
         .await?;
         return Ok(true);
     }
-    match port.confirm(request.clone()) {
+    let port = port.clone();
+    let confirmation = request.clone();
+    let streaming = capabilities
+        .0
+        .iter()
+        .any(|item| item == PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY);
+    let (progress, mut updates) = watch::channel(None);
+    let install = tokio::task::spawn_blocking(move || {
+        port.confirm(confirmation, &|update| {
+            if streaming {
+                progress.send_replace(Some(update));
+            }
+        })
+    });
+    while streaming && updates.changed().await.is_ok() {
+        let update = *updates.borrow_and_update();
+        if let Some(frame) = update.and_then(|update| progress_frame(&request, update))
+            && let Err(error) = write_json_frame(stream, &frame).await
+        {
+            let _ = install.await;
+            return Err(error.into());
+        }
+    }
+    match install.await? {
         Ok(reply) if reply.validate().is_ok() && correlated(&request, &reply) => {
             write_json_frame(stream, &reply).await?;
         }
@@ -92,6 +119,35 @@ where
         Err(message) => write_error(stream, "promptProviderProvisionRejected", &message).await?,
     }
     Ok(true)
+}
+
+fn progress_frame(
+    request: &PromptProviderProvisionFrame,
+    progress: ProviderInstallProgress,
+) -> Option<PromptProviderProvisionProgressFrame> {
+    let PromptProviderProvisionFrame::Confirm {
+        receipt_id,
+        idempotency_key,
+        host_epoch,
+        prompt_receipt_id,
+        conversation_id,
+        run_id,
+        ..
+    } = request
+    else {
+        return None;
+    };
+    Some(
+        PromptProviderProvisionProgressFrame::ProviderInstallProgress {
+            receipt_id: receipt_id.clone(),
+            idempotency_key: idempotency_key.clone(),
+            host_epoch: *host_epoch,
+            prompt_receipt_id: prompt_receipt_id.clone(),
+            conversation_id: conversation_id.clone(),
+            run_id: run_id.clone(),
+            progress,
+        },
+    )
 }
 
 fn correlated(

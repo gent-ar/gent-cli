@@ -6,7 +6,9 @@ use gent_ports::{
 };
 use gent_protocol::{DependencyAction, PromptProviderProvisionFrame, PromptProviderProvisionState};
 use gent_runtime::AgentChatReadService;
-use gent_types::{Command, ProviderPromptProvisionCommandBinding, Receipt, ReceiptStatus};
+use gent_types::{
+    Command, ProviderInstallProgress, ProviderPromptProvisionCommandBinding, Receipt, ReceiptStatus,
+};
 
 use crate::{
     authority_clock::AuthorityClock,
@@ -36,6 +38,7 @@ pub(crate) trait PromptProviderProvisionPort: Send + Sync {
     fn confirm(
         &self,
         frame: PromptProviderProvisionFrame,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String>;
 }
 
@@ -86,6 +89,7 @@ where
     pub(crate) fn confirm(
         &self,
         frame: PromptProviderProvisionFrame,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
         frame.validate().map_err(|error| error.to_string())?;
         let _serial = self
@@ -132,7 +136,9 @@ where
             )
             .map_err(|error| error.to_string())?
         {
-            ReceiptClaim::Accepted(receipt) => self.effect_and_settle(&command, &derived, &receipt),
+            ReceiptClaim::Accepted(receipt) => {
+                self.effect_and_settle(&command, &derived, &receipt, progress)
+            }
             ReceiptClaim::Existing(receipt) if receipt.status == ReceiptStatus::Accepted => {
                 self.unprovable(&command, &derived.binding, &receipt)
             }
@@ -182,6 +188,7 @@ where
         command: &Command,
         derived: &Derived,
         receipt: &Receipt,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
         let request = PrivateProvisionRequest {
             receipt: receipt.clone(),
@@ -193,7 +200,7 @@ where
         };
         match self
             .effect
-            .provision_prompt(&request, command, &derived.binding)
+            .provision_prompt(&request, command, &derived.binding, progress)
         {
             Ok(PrivateProvisionResult::Installed(installation)) => {
                 let terminal = event(command, "installed", "privatePromptProvisionInstalled");
@@ -274,7 +281,8 @@ where
     fn confirm(
         &self,
         frame: PromptProviderProvisionFrame,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
-        Self::confirm(self, frame)
+        Self::confirm(self, frame, progress)
     }
 }

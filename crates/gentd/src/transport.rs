@@ -171,7 +171,7 @@ where
         if dispatch_extension(&mut stream, &runtime, &extensions, &raw).await? {
             continue;
         }
-        let frame = command_frame(&runtime, raw);
+        let frame = command_frame(&runtime, raw).await;
         match frame {
             Ok(frame) => write_frame(&mut stream, &frame).await?,
             Err(message) => write_error(&mut stream, "invalidCommand", &message).await?,

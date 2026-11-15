@@ -1,6 +1,7 @@
 use gent_protocol::{
     PROMPT_PROVIDER_PROVISION_CAPABILITY, PromptProviderProvisionFrame,
-    PromptProviderProvisionState, WireFrame, read_frame, read_json_frame,
+    PromptProviderProvisionProgressFrame, PromptProviderProvisionState, WireFrame, read_frame,
+    read_json_frame,
 };
 use gent_types::{
     AgentChatConversationId, AgentChatRunId, CapabilitySet, HostEpoch, Receipt, ReceiptId,
@@ -20,7 +21,12 @@ impl PromptProviderProvisionPort for Port {
     fn confirm(
         &self,
         _: PromptProviderProvisionFrame,
+        progress: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
+        progress(gent_types::ProviderInstallProgress::Downloading {
+            received_bytes: 16,
+            total_bytes: Some(64),
+        });
         Ok(self.reply.clone())
     }
 }
@@ -35,6 +41,52 @@ fn request() -> serde_json::Value {
 
 fn capabilities() -> CapabilitySet {
     CapabilitySet(vec![PROMPT_PROVIDER_PROVISION_CAPABILITY.into()])
+}
+
+#[tokio::test]
+async fn streaming_clients_receive_progress_for_the_same_confirmation_then_the_result() {
+    let (mut reader, mut writer) = duplex(4096);
+    let mut capabilities = capabilities();
+    capabilities
+        .0
+        .push(gent_protocol::PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY.into());
+    assert!(
+        dispatch_port(
+            &mut writer,
+            &Port {
+                reply: result("receipt", "conversation")
+            },
+            &capabilities,
+            &request(),
+        )
+        .await
+        .unwrap()
+    );
+    let wire = read_json_frame::<_, serde_json::Value>(&mut reader)
+        .await
+        .unwrap();
+    assert_eq!(wire["type"], "providerInstallProgress");
+    assert_eq!(
+        wire["body"]["progress"],
+        json!({
+            "phase": "downloading", "receivedBytes": 16, "totalBytes": 64,
+        })
+    );
+    assert!(serde_json::from_value::<PromptProviderProvisionFrame>(wire.clone()).is_err());
+    assert!(matches!(
+        serde_json::from_value::<PromptProviderProvisionProgressFrame>(wire).unwrap(),
+        PromptProviderProvisionProgressFrame::ProviderInstallProgress {
+            receipt_id, idempotency_key, host_epoch: HostEpoch(1), prompt_receipt_id, conversation_id, run_id,
+            progress: gent_types::ProviderInstallProgress::Downloading { received_bytes: 16, total_bytes: Some(64) },
+        } if receipt_id.0 == "receipt" && idempotency_key == "key" && prompt_receipt_id.0 == "prompt"
+            && conversation_id.0 == "conversation" && run_id.0 == "run"
+    ));
+    assert!(matches!(
+        read_json_frame::<_, PromptProviderProvisionFrame>(&mut reader)
+            .await
+            .unwrap(),
+        PromptProviderProvisionFrame::Result { .. }
+    ));
 }
 
 fn result(receipt_id: &str, conversation_id: &str) -> PromptProviderProvisionFrame {

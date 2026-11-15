@@ -87,8 +87,14 @@ impl<L: AgentChatReadLedger + Send + Sync + 'static> PromptProviderProvisionPort
     fn confirm(
         &self,
         frame: PromptProviderProvisionFrame,
+        progress: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
-        let reply = self.provision.confirm(frame)?;
+        let _operation = self
+            .ingress
+            .control
+            .acquire_operation()
+            .map_err(|_| "provider install admission is unavailable")?;
+        let reply = self.provision.confirm(frame, progress)?;
         if let PromptProviderProvisionFrame::Result {
             prompt_receipt_id,
             conversation_id,

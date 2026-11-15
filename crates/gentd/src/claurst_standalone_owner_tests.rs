@@ -57,7 +57,7 @@ fn runtime_health_reports_an_exited_acp_before_reuse() {
                     history_input_bytes: 81_888,
                 },
             )),
-            port: 1,
+            port: Some(1),
             llama_launch: LocalProcessLaunch {
                 executable: host_absolute_path("/bin/llama-server"),
                 arguments: Vec::new(),
@@ -72,6 +72,9 @@ fn runtime_health_reports_an_exited_acp_before_reuse() {
 
 struct Llama(Arc<Mutex<Vec<String>>>, u64);
 impl LocalRuntimeProcess for Llama {
+    fn wait_for_port(&mut self) -> Result<Option<u16>, String> {
+        Ok(Some(18_080))
+    }
     fn exited(&mut self) -> Result<Option<String>, String> {
         Ok(None)
     }
@@ -420,6 +423,7 @@ fn a_second_session_shares_the_loaded_llama_process_until_the_last_session_stops
         .unwrap();
     let llama_before = runtime.llama().1;
     let port = runtime.port();
+    assert_eq!(port, Some(18_080));
 
     let mut second = request();
     second.mcp_servers = vec![chat_server("conversation-2")];

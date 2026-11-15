@@ -3,7 +3,10 @@ use serde_json::Value;
 
 use crate::api::RuntimeApi;
 
-pub(super) fn command_frame<R: RuntimeApi>(runtime: &R, raw: Value) -> Result<WireFrame, String> {
+pub(super) async fn command_frame<R: RuntimeApi>(
+    runtime: &R,
+    raw: Value,
+) -> Result<WireFrame, String> {
     match serde_json::from_value::<WireFrame>(raw) {
         Ok(WireFrame::OnboardingRequest) => Ok(WireFrame::Onboarding(runtime.onboarding())),
         Ok(WireFrame::StatusRequest) => runtime.status().map(WireFrame::Status),
@@ -11,9 +14,12 @@ pub(super) fn command_frame<R: RuntimeApi>(runtime: &R, raw: Value) -> Result<Wi
         Ok(WireFrame::DependencyPlanRequest(request)) => {
             Ok(WireFrame::DependencyPlan(runtime.dependency_plan(request)))
         }
-        Ok(WireFrame::DependencyActionRequest(request)) => runtime
-            .dependency_action(request)
-            .map(WireFrame::DependencyActionResult),
+        Ok(WireFrame::DependencyActionRequest(request)) => {
+            super::off_runtime(runtime, move |runtime| runtime.dependency_action(request))
+                .await
+                .map_err(|error| error.to_string())?
+                .map(WireFrame::DependencyActionResult)
+        }
         Ok(WireFrame::DecisionSubmit(command)) => runtime
             .submit_decision(command)
             .map(WireFrame::DecisionSubmission),

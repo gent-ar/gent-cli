@@ -62,8 +62,6 @@ pub(crate) struct ClaurstLocalRuntimePlan {
 pub(crate) enum ClaurstLocalRuntimePlanError {
     #[error("the local Claurst runtime requires absolute {0}")]
     RelativePath(&'static str),
-    #[error("the local Claurst runtime requires a non-zero port")]
-    ZeroPort,
 }
 
 impl ClaurstLocalRuntimePlan {
@@ -82,10 +80,6 @@ impl ClaurstLocalRuntimePlan {
                 return Err(ClaurstLocalRuntimePlanError::RelativePath(label));
             }
         }
-        if port == 0 {
-            return Err(ClaurstLocalRuntimePlanError::ZeroPort);
-        }
-
         let model_path = request.model_path;
         let effort = request.effort;
         let server_url = format!("http://127.0.0.1:{port}");

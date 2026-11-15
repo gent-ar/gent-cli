@@ -12,6 +12,13 @@ pub(crate) enum RoutedModelProcess {
     Contained(ModelEndpoint),
 }
 impl LocalRuntimeProcess for RoutedModelProcess {
+    fn wait_for_port(&mut self) -> Result<Option<u16>, String> {
+        match self {
+            Self::Host(process) => process.wait_for_port(),
+            #[cfg(windows)]
+            Self::Contained(_) => Ok(None),
+        }
+    }
     fn contained_model(&self) -> Option<ModelEndpoint> {
         match self {
             #[cfg(windows)]

@@ -6,6 +6,7 @@ use std::{
 };
 
 use gent_ports::ApprovedPackageInstall;
+use gent_types::ProviderInstallProgress;
 
 use crate::node_runtime_lock::{NodeRuntimeLock, NodeRuntimeLockError};
 
@@ -167,6 +168,15 @@ pub trait DependencyInstaller: Clone + Send + Sync {
         npm: &NpmGlobalPrefix,
         package: &ApprovedPackageInstall,
     ) -> Result<(), InstallerError>;
+
+    fn install_with_progress(
+        &self,
+        npm: &NpmGlobalPrefix,
+        package: &ApprovedPackageInstall,
+        _progress: &dyn Fn(ProviderInstallProgress),
+    ) -> Result<(), ProviderInstallError> {
+        self.install(npm, package).map_err(Into::into)
+    }
 }
 
 /// The operating-system implementation used only after explicit client consent.
@@ -180,6 +190,32 @@ impl DependencyInstaller for SystemDependencyInstaller {
         package: &ApprovedPackageInstall,
     ) -> Result<(), InstallerError> {
         crate::npm_pack_install::VerifiedNpmInstaller.install(npm, package)
+    }
+
+    fn install_with_progress(
+        &self,
+        npm: &NpmGlobalPrefix,
+        package: &ApprovedPackageInstall,
+        progress: &dyn Fn(ProviderInstallProgress),
+    ) -> Result<(), ProviderInstallError> {
+        crate::npm_pack_install::VerifiedNpmInstaller.install_with_progress(npm, package, progress)
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
+pub enum ProviderInstallError {
+    #[error("the provider download did not finish")]
+    DownloadFailed,
+    #[error(transparent)]
+    Installer(#[from] InstallerError),
+}
+
+impl From<ProviderInstallError> for InstallerError {
+    fn from(error: ProviderInstallError) -> Self {
+        match error {
+            ProviderInstallError::DownloadFailed => Self::Failed(error.to_string()),
+            ProviderInstallError::Installer(error) => error,
+        }
     }
 }
 
@@ -196,7 +232,7 @@ pub enum InstallerError {
     Runtime(String),
     #[error("npm pack did not return one valid JSON artifact")]
     PackOutput,
-    #[error("npm pack returned an unsafe artifact path")]
+    #[error("the provider archive path is invalid")]
     InvalidArtifact,
     /// Returned before any package staging or npm process, never after an install effect.
     #[error(
@@ -205,7 +241,7 @@ pub enum InstallerError {
     UnsupportedPrefix,
     #[error("signed package integrity is not a SHA-512 SRI digest")]
     InvalidIntegrity,
-    #[error("packed tarball does not match signed package integrity")]
+    #[error("provider archive does not match signed package integrity")]
     IntegrityMismatch,
 }
 

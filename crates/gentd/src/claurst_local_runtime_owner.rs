@@ -25,6 +25,9 @@ use process_io::{bounded_frame, relay_acp_frames};
 #[path = "claurst_local_runtime_owner_process_tree.rs"]
 mod process_tree;
 use process_tree::{configure_process_tree, shutdown_process_tree};
+#[path = "claurst_llama_startup_log.rs"]
+mod startup_log;
+use startup_log::LlamaStartupLog;
 
 /// The private filesystem effect needed before `claurst acp` starts.
 pub(crate) trait PrivateSettingsStore {
@@ -88,6 +91,9 @@ pub(crate) trait LocalRuntimeProcess {
 
     fn exited(&mut self) -> Result<Option<String>, String>;
     fn shutdown(&mut self) -> Result<(), String>;
+    fn wait_for_port(&mut self) -> Result<Option<u16>, String> {
+        Ok(None)
+    }
 }
 
 /// Starts exactly the plan-specified local process with no provider configuration inference.
@@ -105,6 +111,7 @@ pub(crate) struct SystemLocalRuntimeProcess {
     child: Child,
     tree_stopped: bool,
     alive: Arc<std::sync::atomic::AtomicBool>,
+    startup: LlamaStartupLog,
 }
 
 pub(crate) struct SystemClaurstAcpStdio {
@@ -126,7 +133,8 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
             .args(&launch.arguments)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
+        startup_log::configure_ready_notification(&mut command, &launch.arguments);
         configure_process_tree(&mut command);
         for key in [
             "CLAURST_BRIDGE_URL",
@@ -141,11 +149,23 @@ impl LocalRuntimeLauncher for SystemLocalRuntimeLauncher {
         command.envs(&launch.environment);
         let child = command.spawn().map_err(|error| error.to_string())?;
         gent_drivers::process::groups::spawned(&child, &launch.executable);
-        Ok(SystemLocalRuntimeProcess {
+        let mut process = SystemLocalRuntimeProcess {
+            startup: LlamaStartupLog::default(),
             child,
             tree_stopped: false,
             alive: Arc::new(std::sync::atomic::AtomicBool::new(true)),
-        })
+        };
+        let stderr = process
+            .child
+            .stderr
+            .take()
+            .ok_or("local process has no diagnostic stream")?;
+        let startup = process.startup.clone();
+        std::thread::Builder::new()
+            .name("gent-llama-startup".into())
+            .spawn(move || startup.capture(stderr))
+            .map_err(|error| error.to_string())?;
+        Ok(process)
     }
 }
 

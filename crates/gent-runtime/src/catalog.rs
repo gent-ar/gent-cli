@@ -182,6 +182,10 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
             PROMPT_PROVIDER_PROVISION_CAPABILITY,
         ),
         (
+            profile.prompt_provider_provision_progress_enabled(),
+            gent_protocol::PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY,
+        ),
+        (
             profile.runtime_update_check_enabled(),
             RUNTIME_UPDATE_CHECK_CAPABILITY,
         ),

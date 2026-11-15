@@ -137,7 +137,8 @@ fn every_profile_feature_capability_is_reconciled_from_observation() {
         RuntimeCapabilityFeature::PromptTemplates,
         RuntimeCapabilityFeature::WorkspaceDocuments,
         RuntimeCapabilityFeature::WorkspaceGit,
-    ]);
+    ])
+    .with_prompt_provider_provision_progress(true);
     let observed = declared_capabilities_with_profiles(&profile);
     assert!(
         observed

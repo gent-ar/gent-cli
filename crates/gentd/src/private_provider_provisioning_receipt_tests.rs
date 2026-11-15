@@ -159,7 +159,7 @@ fn changed_policy_package_refuses_before_npm() {
         &binding,
     );
     assert!(matches!(
-        provisioner.provision_prompt_with_command(&request(), &command, &binding),
+        provisioner.provision_prompt_with_command(&request(), &command, &binding, &|_| {}),
         Err(PrivateProvisionError::PromptPackageMismatch)
     ));
     assert_eq!(*installer.0.lock().unwrap(), 0);
@@ -201,7 +201,7 @@ fn revoked_release_is_reauthorized_before_npm() {
     fs::write(path, serde_json::to_vec(&revoked).unwrap()).unwrap();
 
     assert!(matches!(
-        provisioner.provision_prompt_with_command(&request(), &command, &binding),
+        provisioner.provision_prompt_with_command(&request(), &command, &binding, &|_| {}),
         Err(PrivateProvisionError::ReleaseReauthorizationFailed(_))
     ));
     assert_eq!(*installer.0.lock().unwrap(), 0);

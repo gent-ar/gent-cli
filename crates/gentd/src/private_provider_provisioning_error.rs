@@ -31,6 +31,8 @@ pub(crate) enum PrivateProvisionError {
     PolicyIdentity,
     #[error("fixed npm installer failed: {0}")]
     Installer(String),
+    #[error("the provider download did not finish")]
+    DownloadFailed,
     #[error("post-install provider verification is unavailable")]
     VerificationUnavailable,
     #[error(
@@ -61,6 +63,7 @@ impl PrivateProvisionError {
             | Self::ReceiptMismatch
             | Self::Generation(_)
             | Self::UnsupportedPrefix
+            | Self::DownloadFailed
             | Self::PromptBindingMismatch
             | Self::PromptPackageMismatch
             | Self::Runtime(_)

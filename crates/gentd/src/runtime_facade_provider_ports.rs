@@ -66,10 +66,11 @@ impl RuntimeFacade {
     pub(super) fn confirm_prompt_provider_provision(
         &self,
         frame: PromptProviderProvisionFrame,
+        progress: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
         self.prompt_provider_provision
             .as_ref()
             .ok_or_else(|| "prompt provider provisioning is observer-disabled".to_owned())?
-            .confirm(frame)
+            .confirm(frame, progress)
     }
 }

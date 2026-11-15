@@ -51,6 +51,7 @@ impl PromptProviderProvisionEffect for NoEffect {
         _: &PrivateProvisionRequest,
         _: &Command,
         _: &ProviderPromptProvisionCommandBinding,
+        _: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
         panic!("old consent must never reach installation")
     }
@@ -135,16 +136,19 @@ fn clean_copy_rule_changes_review_and_old_consent_is_rejected_before_effect() {
         "b".repeat(64),
     );
     let result = boundary
-        .confirm(PromptProviderProvisionFrame::Confirm {
-            receipt_id: ReceiptId("install".into()),
-            idempotency_key: "install".into(),
-            host_epoch: HostEpoch(1),
-            prompt_receipt_id: prompt.receipt.receipt_id,
-            conversation_id: conversation,
-            run_id: run,
-            consent_granted: true,
-            reviewed_plan_digest: old.reviewed_plan_digest,
-        })
+        .confirm(
+            PromptProviderProvisionFrame::Confirm {
+                receipt_id: ReceiptId("install".into()),
+                idempotency_key: "install".into(),
+                host_epoch: HostEpoch(1),
+                prompt_receipt_id: prompt.receipt.receipt_id,
+                conversation_id: conversation,
+                run_id: run,
+                consent_granted: true,
+                reviewed_plan_digest: old.reviewed_plan_digest,
+            },
+            &|_| {},
+        )
         .unwrap();
     assert!(matches!(
         result,

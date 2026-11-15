@@ -41,7 +41,10 @@ pub fn validate_observed_capabilities(
         ]
         .into_iter()
         .filter_map(|capability| feature_from_observed(capability, observed)),
-    );
+    )
+    .with_prompt_provider_provision_progress(observed.0.iter().any(|capability| {
+        capability == gent_protocol::PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY
+    }));
     let declared = declared_capabilities_with_profiles(&profile);
     reconcile(&declared, observed)?;
     Ok(declared)

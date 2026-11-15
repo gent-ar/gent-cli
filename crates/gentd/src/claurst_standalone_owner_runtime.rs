@@ -9,7 +9,7 @@ use crate::{
 pub(crate) struct ClaurstStandaloneModel<L> {
     pub(super) llama: Arc<Mutex<L>>,
     pub(super) summarizer: Arc<LlamaContextSummarizer>,
-    pub(super) port: u16,
+    pub(super) port: Option<u16>,
     pub(super) llama_launch: LocalProcessLaunch,
 }
 
@@ -47,7 +47,7 @@ impl<L, S> ClaurstStandaloneRuntime<L, S> {
 
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn port(&self) -> u16 {
+    pub(crate) fn port(&self) -> Option<u16> {
         self.model.port
     }
 

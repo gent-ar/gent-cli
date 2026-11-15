@@ -214,10 +214,10 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     }
     /// Confirms one daemon-derived provider-install review only in a private authority profile.
     ///
-    /// This default refuses before package policy, Node, npm, or provider code can be reached.
     fn prompt_provider_provision(
         &self,
         _: PromptProviderProvisionFrame,
+        _: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<PromptProviderProvisionFrame, String> {
         Err("prompt provider provisioning is unavailable while gentd is observer-disabled".into())
     }

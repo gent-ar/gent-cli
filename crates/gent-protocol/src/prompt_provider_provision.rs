@@ -1,10 +1,14 @@
 //! Capability-gated consent frames for installing a provider required by one held prompt.
 
-use gent_types::{AgentChatConversationId, AgentChatRunId, HostEpoch, Receipt, ReceiptId};
+use gent_types::{
+    AgentChatConversationId, AgentChatRunId, HostEpoch, ProviderInstallProgress, Receipt, ReceiptId,
+};
 use serde::{Deserialize, Serialize};
 
 /// Required before a client may confirm a daemon-derived prompt-provider install review.
 pub const PROMPT_PROVIDER_PROVISION_CAPABILITY: &str = "prompt-provider-provision-v1";
+pub const PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY: &str =
+    "prompt-provider-provision-progress-v1";
 /// Maximum encoded size for one prompt-provider-provision exchange frame.
 pub const MAX_PROMPT_PROVIDER_PROVISION_FRAME_BYTES: usize = 8 * 1024;
 
@@ -48,6 +52,26 @@ pub enum PromptProviderProvisionFrame {
         conversation_id: AgentChatConversationId,
         run_id: AgentChatRunId,
         state: PromptProviderProvisionState,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "type",
+    content = "body",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PromptProviderProvisionProgressFrame {
+    ProviderInstallProgress {
+        receipt_id: ReceiptId,
+        idempotency_key: String,
+        host_epoch: HostEpoch,
+        prompt_receipt_id: ReceiptId,
+        conversation_id: AgentChatConversationId,
+        run_id: AgentChatRunId,
+        progress: ProviderInstallProgress,
     },
 }
 

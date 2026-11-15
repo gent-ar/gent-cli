@@ -1,11 +1,11 @@
 //! Exact-command private npm effect, split from the composition seam for source-size limits.
 
-use gent_drivers::installer::{DependencyInstaller, InstallerError};
+use gent_drivers::installer::{DependencyInstaller, InstallerError, ProviderInstallError};
 use gent_ports::PackageInstallPolicy;
 use gent_protocol::DependencyAction;
 use gent_types::{
-    Command, ProviderInstallProvenance, ProviderPromptProvisionCommandBinding,
-    ProvisionedProviderInstallation, ReceiptStatus,
+    Command, ProviderInstallProgress, ProviderInstallProvenance,
+    ProviderPromptProvisionCommandBinding, ProvisionedProviderInstallation, ReceiptStatus,
 };
 
 use super::{
@@ -32,7 +32,7 @@ where
     R: ProvisionReceiptReader,
     B: ProvisionedProviderCompatibility,
 {
-    provision_inner(provisioner, request, command, None, review)
+    provision_inner(provisioner, request, command, None, review, &|_| {})
 }
 
 pub(super) fn provision_prompt<I, P, V, R, B>(
@@ -40,6 +40,7 @@ pub(super) fn provision_prompt<I, P, V, R, B>(
     request: &PrivateProvisionRequest,
     command: &Command,
     binding: &ProviderPromptProvisionCommandBinding,
+    progress: &dyn Fn(ProviderInstallProgress),
 ) -> Result<PrivateProvisionResult, PrivateProvisionError>
 where
     I: DependencyInstaller,
@@ -48,7 +49,7 @@ where
     R: ProvisionReceiptReader,
     B: ProvisionedProviderCompatibility,
 {
-    provision_inner(provisioner, request, command, Some(binding), None)
+    provision_inner(provisioner, request, command, Some(binding), None, progress)
 }
 
 fn provision_inner<I, P, V, R, B>(
@@ -57,6 +58,7 @@ fn provision_inner<I, P, V, R, B>(
     command: &Command,
     binding: Option<&ProviderPromptProvisionCommandBinding>,
     review: Option<&crate::private_provider_provisioning::managed_actions::ReviewedPackage>,
+    progress: &dyn Fn(ProviderInstallProgress),
 ) -> Result<PrivateProvisionResult, PrivateProvisionError>
 where
     I: DependencyInstaller,
@@ -84,6 +86,7 @@ where
         .verifier
         .as_ref()
         .ok_or(PrivateProvisionError::VerificationUnavailable)?;
+    progress(ProviderInstallProgress::Preparing);
     provisioner.runtime.recheck()?;
     let durable = provisioner
         .receipts
@@ -140,11 +143,17 @@ where
     let npm = super::generation::fresh(&provisioner.runtime, command)?;
     provisioner
         .installer
-        .install(&npm, &package)
+        .install_with_progress(&npm, &package, progress)
         .map_err(|error| match error {
-            InstallerError::UnsupportedPrefix => PrivateProvisionError::UnsupportedPrefix,
-            error => PrivateProvisionError::Installer(error.to_string()),
+            ProviderInstallError::Installer(InstallerError::UnsupportedPrefix) => {
+                PrivateProvisionError::UnsupportedPrefix
+            }
+            ProviderInstallError::DownloadFailed => PrivateProvisionError::DownloadFailed,
+            ProviderInstallError::Installer(error) => {
+                PrivateProvisionError::Installer(error.to_string())
+            }
         })?;
+    progress(ProviderInstallProgress::VerifyingInstall);
     if provisioner.runtime.recheck().is_err() {
         return Ok(PrivateProvisionResult::Ambiguous);
     }

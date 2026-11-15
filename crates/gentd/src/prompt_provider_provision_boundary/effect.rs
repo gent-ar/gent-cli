@@ -1,6 +1,6 @@
 use gent_drivers::installer::DependencyInstaller;
 use gent_ports::PackageInstallPolicy;
-use gent_types::{Command, ProviderPromptProvisionCommandBinding};
+use gent_types::{Command, ProviderInstallProgress, ProviderPromptProvisionCommandBinding};
 
 use crate::private_provider_compatibility::ProvisionedProviderCompatibility;
 use crate::private_provider_provisioning::{
@@ -14,6 +14,7 @@ pub(crate) trait PromptProviderProvisionEffect: Clone + Send + Sync {
         request: &PrivateProvisionRequest,
         command: &Command,
         binding: &ProviderPromptProvisionCommandBinding,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PrivateProvisionResult, PrivateProvisionError>;
 }
 
@@ -30,7 +31,8 @@ where
         request: &PrivateProvisionRequest,
         command: &Command,
         binding: &ProviderPromptProvisionCommandBinding,
+        progress: &dyn Fn(ProviderInstallProgress),
     ) -> Result<PrivateProvisionResult, PrivateProvisionError> {
-        self.provision_prompt_with_command(request, command, binding)
+        self.provision_prompt_with_command(request, command, binding, progress)
     }
 }

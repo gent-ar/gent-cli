@@ -304,6 +304,7 @@ impl crate::prompt_provider_provision_boundary::PromptProviderProvisionPort for 
     fn confirm(
         &self,
         _: gent_protocol::PromptProviderProvisionFrame,
+        _: &dyn Fn(gent_types::ProviderInstallProgress),
     ) -> Result<gent_protocol::PromptProviderProvisionFrame, String> {
         Ok(gent_protocol::PromptProviderProvisionFrame::Result {
             receipt: gent_types::Receipt {
@@ -351,7 +352,7 @@ async fn a_completed_provider_install_wakes_its_released_prompt_without_a_restar
         )),
         ingress.clone(),
     );
-    failed.confirm(provision_confirm()).unwrap();
+    failed.confirm(provision_confirm(), &|_| {}).unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(events.lock().unwrap().is_empty());
 
@@ -361,7 +362,7 @@ async fn a_completed_provider_install_wakes_its_released_prompt_without_a_restar
         )),
         ingress,
     );
-    installed.confirm(provision_confirm()).unwrap();
+    installed.confirm(provision_confirm(), &|_| {}).unwrap();
     wait_for(&events, 2).await;
     assert_eq!(events.lock().unwrap()[..2], ["wake", "drive"]);
     task.abort();
