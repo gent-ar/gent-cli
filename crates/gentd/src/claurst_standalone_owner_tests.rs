@@ -290,10 +290,7 @@ async fn system_owner_delivers_a_selected_prompt_through_real_acp_stdio() {
     let root = tempfile::tempdir().unwrap();
     let llama = root.path().join("fake-llama-server");
     let acp = root.path().join("fake-claurst");
-    write_executable(
-        &llama,
-        "#!/bin/sh\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done\n",
-    );
+    write_llama_fixture(&llama);
     write_executable(
         &acp,
         r#"#!/bin/sh
@@ -335,6 +332,7 @@ while IFS= read -r _; do :; done
             root.path(),
         )
         .unwrap();
+    assert_eq!(runtime.port(), Some(18_080));
     let bridge = runtime.bridge();
     let binding = bridge
         .start(ClaurstStartRequest {
@@ -550,10 +548,7 @@ fn a_real_conversation_switch_leaves_the_running_llama_process_untouched() {
     let root = tempfile::tempdir().unwrap();
     let llama = root.path().join("fake-llama-server");
     let acp = root.path().join("fake-claurst");
-    write_executable(
-        &llama,
-        "#!/bin/sh\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done\n",
-    );
+    write_llama_fixture(&llama);
     write_executable(
         &acp,
         "#!/bin/sh\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done\n",
@@ -587,6 +582,7 @@ fn a_real_conversation_switch_leaves_the_running_llama_process_untouched() {
         )
         .unwrap();
     let llama_pid = runtime.llama().process_id();
+    assert_eq!(runtime.port(), Some(18_080));
     assert!(alive(llama_pid));
 
     request.mcp_servers = vec![chat_server("conversation-2")];
@@ -609,6 +605,14 @@ fn a_real_conversation_switch_leaves_the_running_llama_process_untouched() {
     assert!(!settings.contains("conversation-1"));
     shared.shutdown().unwrap();
     assert!(!alive(llama_pid));
+}
+
+#[cfg(unix)]
+fn write_llama_fixture(path: &Path) {
+    write_executable(
+        path,
+        "#!/bin/sh\ntrap 'exit 0' TERM INT\nprintf '%s\\n' 'srv  llama_server: listening on http://127.0.0.1:18080' >&2\nwhile :; do sleep 1; done\n",
+    );
 }
 
 #[cfg(unix)]
