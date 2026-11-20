@@ -2,8 +2,9 @@
 
 use gent_ports::{AgentChatCompactionLedger, ContextCompactionLedger, LedgerError};
 use gent_types::{
-    AgentChatConversationId, CONTEXT_COMPACTION_EVENT_KIND, ContextCompactionFact, Event,
-    EventPage, HostEpoch, NormalizedTranscriptAppend, NormalizedTranscriptKind, ReceiptId,
+    AgentChatConversationId, CONTEXT_COMPACTION_EVENT_KIND, ContextCompactionFact,
+    ConversationActivityFact, ConversationActivityScope, Event, EventPage, HostEpoch,
+    NormalizedTranscriptAppend, NormalizedTranscriptKind, ReceiptId,
 };
 use rusqlite::{TransactionBehavior, params};
 
@@ -71,6 +72,23 @@ impl ContextCompactionLedger for SqliteLedger {
                 is_partial: false,
             },
         )?;
+        if matches!(fact, ContextCompactionFact::Compacted { .. }) {
+            super::agent_chat_queue_activity::append_activity(
+                &transaction,
+                format!("{}:context-compacted", fact.event_id()),
+                ReceiptId(fact.event_id()),
+                "agentChatContextCompacted",
+                ConversationActivityFact::ContextCompacted {
+                    scope: ConversationActivityScope {
+                        conversation_id: fact.conversation_id().into(),
+                        run_id: fact.run_id().into(),
+                        turn_id: fact.turn_id().into(),
+                        host_epoch,
+                        cursor: 0,
+                    },
+                },
+            )?;
+        }
         transaction.commit().map_err(queries::storage_error)
     }
 

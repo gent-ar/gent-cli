@@ -1,9 +1,10 @@
 use super::*;
 use gent_drivers::codex_session::CodexSteerOutcome;
-use gent_ports::AgentChatQueuedPromptLedger;
+#[path = "codex_stop_withdraw_tests.rs"]
+mod stop_withdraw;
 
 #[test]
-fn a_targeted_steer_requested_before_the_codex_turn_starts_waits_for_the_turn() {
+fn a_prompt_queued_before_the_codex_turn_starts_waits_for_the_turn() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation = setup_conversation(&ledger);
     save(&ledger, &conversation, "active", "first");
@@ -25,16 +26,6 @@ fn a_targeted_steer_requested_before_the_codex_turn_starts_waits_for_the_turn() 
     runner.state.lock().unwrap().turn_pending = true;
     let mut host = host(&ledger, runner.clone());
     host.tick().unwrap();
-    ledger
-        .steer_queued_agent_chat_prompt_for_turn(
-            &ReceiptId("steer".into()),
-            HostEpoch(1),
-            &conversation,
-            &queued.message.message_id,
-            &AgentChatRunId("run-a".into()),
-            &original,
-        )
-        .unwrap();
     host.tick().unwrap();
     host.tick().unwrap();
     let phase = |turn: &str| ledger.find_turn(turn).unwrap().unwrap().phase;
@@ -80,7 +71,7 @@ fn a_targeted_steer_requested_before_the_codex_turn_starts_waits_for_the_turn() 
 }
 
 #[test]
-fn targeted_steer_consumption_is_bound_before_terminal_or_becomes_unprovable() {
+fn a_joined_prompt_is_steered_when_consumed_and_otherwise_runs_as_the_next_turn() {
     for ordering in ["before", "after", "absent", "unconfirmed", "rejected"] {
         let ledger = SqliteLedger::in_memory().unwrap();
         let conversation = setup_conversation(&ledger);
@@ -102,16 +93,6 @@ fn targeted_steer_consumption_is_bound_before_terminal_or_becomes_unprovable() {
         let runner = Runner::default();
         let mut host = host(&ledger, runner.clone());
         host.tick().unwrap();
-        ledger
-            .steer_queued_agent_chat_prompt_for_turn(
-                &ReceiptId("steer".into()),
-                HostEpoch(1),
-                &conversation,
-                &queued.message.message_id,
-                &AgentChatRunId("run-a".into()),
-                &original,
-            )
-            .unwrap();
         runner
             .state
             .lock()
@@ -159,23 +140,39 @@ fn targeted_steer_consumption_is_bound_before_terminal_or_becomes_unprovable() {
             .read_conversation_activity_page(&conversation.0, "run-a", 0, 50)
             .unwrap()
             .facts;
-        assert!(!facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptReleased {message_id,..} if message_id==&queued.message.message_id)),"{ordering}: {facts:?}");
+        let joined = matches!(ordering, "before" | "after");
+        let released = facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptReleased {message_id,..} if message_id==&queued.message.message_id));
+        assert_eq!(released, !joined, "{ordering}: {facts:?}");
+        assert_eq!(
+            joined,
+            facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptSteered {scope,message_id,receipt_id,..} if scope.turn_id==original && message_id==&queued.message.message_id && receipt_id=="queued-receipt")),
+            "{ordering}"
+        );
+        assert!(
+            !facts
+                .iter()
+                .any(|fact| matches!(fact, ConversationActivityFact::PromptSteerRejected { .. })),
+            "{ordering}"
+        );
         let phase = ledger
             .find_turn(&queued.message.turn_id)
             .unwrap()
             .unwrap()
             .phase;
-        if ordering == "before" {
-            assert_eq!(phase, DurableTurnPhase::Completed);
-            assert!(facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptSteered {scope,message_id,..} if scope.turn_id==original && message_id==&queued.message.message_id)));
-        } else if ordering == "rejected" {
-            assert_eq!(phase, DurableTurnPhase::Active);
-            assert!(facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptSteerRejected {scope,message_id,receipt_id,reason} if scope.turn_id==original && message_id==&queued.message.message_id && receipt_id=="steer" && reason=="deliveryRejected")));
-        } else {
-            assert_eq!(phase, DurableTurnPhase::Failed);
-            assert!(facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptSteerRejected {scope,message_id,receipt_id,reason} if scope.turn_id==original && message_id==&queued.message.message_id && receipt_id=="steer" && reason=="deliveryUnprovable")));
-        }
-        assert!(runner.state.lock().unwrap().submitted.is_empty());
+        assert_eq!(
+            phase,
+            if joined {
+                DurableTurnPhase::Completed
+            } else {
+                DurableTurnPhase::Active
+            },
+            "{ordering}"
+        );
+        assert_eq!(
+            runner.state.lock().unwrap().submitted.len(),
+            usize::from(!joined),
+            "{ordering}"
+        );
         assert_eq!(runner.state.lock().unwrap().starts, 1);
     }
 }

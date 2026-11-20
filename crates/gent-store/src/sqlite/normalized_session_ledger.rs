@@ -1,4 +1,3 @@
-//! Atomic persistence for one already-normalized provider session fact.
 use gent_ports::{IngressMode, LedgerError, NormalizedSessionBatchLedger, RunLease};
 use gent_types::{
     Event, NormalizedProviderEvent, NormalizedSessionBatch, NormalizedSessionBatchResult,
@@ -17,48 +16,80 @@ use super::{
 };
 
 impl NormalizedSessionBatchLedger for SqliteLedger {
-    fn append_normalized_session_batch(
+    fn start_provider_turn(
         &self,
-        batch: &NormalizedSessionBatch,
-    ) -> Result<NormalizedSessionBatchResult, LedgerError> {
-        validate(batch)?;
+        conversation_id: &str,
+        run_id: &str,
+        host_epoch: gent_types::HostEpoch,
+    ) -> Result<String, LedgerError> {
+        super::provider_turn::start(self, conversation_id, run_id, host_epoch)
+    }
+
+    fn settle_provider_turn(
+        &self,
+        turn_id: &str,
+        host_epoch: gent_types::HostEpoch,
+        phase: gent_types::DurableTurnPhase,
+    ) -> Result<(), LedgerError> {
+        super::provider_turn::settle(self, turn_id, host_epoch, phase)
+    }
+
+    fn append_normalized_session_batches(
+        &self,
+        batches: &[NormalizedSessionBatch],
+    ) -> Result<Vec<NormalizedSessionBatchResult>, LedgerError> {
+        for batch in batches {
+            validate(batch)?;
+        }
         let mut connection = self.lock()?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
-        if let Some(result) = existing(&transaction, batch)? {
-            return Ok(result);
-        }
-        require_owner(&transaction, batch)?;
-        reject_source_collisions(&transaction, batch)?;
-        let lifecycle = append_event(&transaction, &lifecycle_event(batch))?;
-        super::run_lifecycle_facts::append_in_transaction(
-            &transaction,
-            &RunLifecycleFact {
-                run_id: batch.run_id.clone(),
-                event_id: batch.lifecycle_event_id.clone(),
-                host_epoch: batch.host_epoch,
-                cursor: lifecycle.cursor,
-                lifecycle: batch.lifecycle.clone(),
-            },
-        )?;
-        let transcript_cursor = append_transcript(&transaction, batch)?;
-        let activity_cursor = normalized_session_activity::append(&transaction, batch)?;
-        let result = NormalizedSessionBatchResult {
-            lifecycle_cursor: lifecycle.cursor,
-            transcript_cursor,
-            activity_cursor,
-        };
-        transaction
-            .execute(
-                "INSERT INTO normalized_session_batches (lifecycle_event_id, payload, lifecycle_cursor, transcript_event_id, transcript_cursor, activity_event_id, activity_cursor) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![batch.lifecycle_event_id, fingerprint(batch)?, result.lifecycle_cursor, batch.transcript.as_ref().map(|item| &item.event_id), result.transcript_cursor, batch.activity_event_id, result.activity_cursor],
-            )
-            .map_err(storage_error)?;
+        let results = batches
+            .iter()
+            .map(|batch| append(&transaction, batch))
+            .collect::<Result<Vec<_>, _>>()?;
         transaction.commit().map_err(storage_error)?;
-        Ok(result)
+        Ok(results)
     }
 }
+
+fn append(
+    transaction: &Transaction<'_>,
+    batch: &NormalizedSessionBatch,
+) -> Result<NormalizedSessionBatchResult, LedgerError> {
+    if let Some(result) = existing(transaction, batch)? {
+        return Ok(result);
+    }
+    require_owner(transaction, batch)?;
+    reject_source_collisions(transaction, batch)?;
+    let lifecycle = append_event(transaction, &lifecycle_event(batch))?;
+    super::run_lifecycle_facts::append_in_transaction(
+        transaction,
+        &RunLifecycleFact {
+            run_id: batch.run_id.clone(),
+            event_id: batch.lifecycle_event_id.clone(),
+            host_epoch: batch.host_epoch,
+            cursor: lifecycle.cursor,
+            lifecycle: batch.lifecycle.clone(),
+        },
+    )?;
+    let transcript_cursor = append_transcript(transaction, batch)?;
+    let activity_cursor = normalized_session_activity::append(transaction, batch)?;
+    let result = NormalizedSessionBatchResult {
+        lifecycle_cursor: lifecycle.cursor,
+        transcript_cursor,
+        activity_cursor,
+    };
+    transaction
+        .execute(
+            "INSERT INTO normalized_session_batches (lifecycle_event_id, payload, lifecycle_cursor, transcript_event_id, transcript_cursor, activity_event_id, activity_cursor) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![batch.lifecycle_event_id, fingerprint(batch)?, result.lifecycle_cursor, batch.transcript.as_ref().map(|item| &item.event_id), result.transcript_cursor, batch.activity_event_id, result.activity_cursor],
+        )
+        .map_err(storage_error)?;
+    Ok(result)
+}
+
 fn validate(batch: &NormalizedSessionBatch) -> Result<(), LedgerError> {
     if [
         &batch.coordinator_id,
@@ -253,21 +284,10 @@ fn append_transcript(
             |row| row.get::<_, u64>(0),
         )
         .map_err(storage_error)?;
-    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![batch.conversation_id, cursor, item.event_id, item.turn_id, item.run_id, transcript_kind(item.kind), item.text, i64::from(item.is_partial)]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![batch.conversation_id, cursor, item.event_id, item.turn_id, item.run_id, super::transcript_ledger::kind(item.kind), item.text, i64::from(item.is_partial)]).map_err(storage_error)?;
     Ok(Some(cursor))
 }
 
 fn fingerprint(batch: &NormalizedSessionBatch) -> Result<String, LedgerError> {
     serde_json::to_string(batch).map_err(storage_error)
-}
-
-const fn transcript_kind(kind: gent_types::NormalizedTranscriptKind) -> &'static str {
-    match kind {
-        gent_types::NormalizedTranscriptKind::UserMessage => "userMessage",
-        gent_types::NormalizedTranscriptKind::AssistantMessage => "assistantMessage",
-        gent_types::NormalizedTranscriptKind::Thinking => "thinking",
-        gent_types::NormalizedTranscriptKind::ToolActivity => "toolActivity",
-        gent_types::NormalizedTranscriptKind::Notice => "notice",
-        gent_types::NormalizedTranscriptKind::Plan => "plan",
-    }
 }

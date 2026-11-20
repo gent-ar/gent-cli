@@ -9,6 +9,84 @@ use gent_types::{
 };
 
 use super::{AsyncOrdinaryLifecycleHost, ClaurstPromptLifecycle};
+use crate::claurst_runtime_factory::ClaurstRuntimeFactory;
+
+#[derive(Debug)]
+struct LaunchingRuntime(std::sync::Arc<tokio::sync::Semaphore>);
+
+#[async_trait::async_trait]
+impl ClaurstRuntimeFactory for LaunchingRuntime {
+    async fn ensure_for_prompt(
+        &self,
+        _: &AgentChatPromptSaved,
+        _: &[String],
+    ) -> Result<(), String> {
+        self.0
+            .acquire()
+            .await
+            .map(drop)
+            .map_err(|error| error.to_string())
+    }
+
+    async fn warm(&self, _: &str, _: &str, _: &[String]) -> Result<(), String> {
+        std::future::pending().await
+    }
+}
+
+async fn launching(
+    ledger: &SqliteLedger,
+    bridge: &FakePrivateClaurstBridge,
+) -> (
+    ClaurstPromptLifecycle<SqliteLedger, FakePrivateClaurstBridge, LaunchingRuntime>,
+    std::sync::Arc<tokio::sync::Semaphore>,
+) {
+    let runtime = LaunchingRuntime(std::sync::Arc::new(tokio::sync::Semaphore::new(0)));
+    let launch = std::sync::Arc::clone(&runtime.0);
+    let mut lifecycle = ClaurstPromptLifecycle::new_with_runtime(
+        ledger.clone(),
+        bridge.clone(),
+        runtime,
+        "gentd-1".into(),
+        HostEpoch(1),
+    );
+    lifecycle.activate_recovery().await.unwrap();
+    lifecycle.warm_claurst("conversation-a", "run-a");
+    let drive = tokio::time::timeout(std::time::Duration::from_secs(5), lifecycle.drive_once());
+    assert!(drive.await.unwrap().unwrap());
+    assert!(!lifecycle.is_idle());
+    (lifecycle, launch)
+}
+
+#[tokio::test]
+async fn stopping_a_claurst_turn_while_its_runtime_launches_interrupts_it_without_waiting() {
+    let (ledger, saved) = waiting_prompt(AgentChatPromptDisposition::Send);
+    let bridge = FakePrivateClaurstBridge::default();
+    let (mut lifecycle, launch) = launching(&ledger, &bridge).await;
+    lifecycle
+        .interrupt_claurst_turn(&saved.run_id.0, &saved.message.turn_id)
+        .await
+        .unwrap();
+    assert_eq!(phase(&ledger, &saved), DurableTurnPhase::Interrupted);
+    assert!(lifecycle.is_idle());
+    launch.add_permits(1);
+    tokio::task::yield_now().await;
+    assert!(!lifecycle.drive_once().await.unwrap());
+    assert!(bridge.starts().is_empty());
+}
+
+#[tokio::test]
+async fn a_claurst_turn_starts_once_its_runtime_launch_finishes() {
+    let (ledger, saved) = waiting_prompt(AgentChatPromptDisposition::Send);
+    let bridge = FakePrivateClaurstBridge::default();
+    let (mut lifecycle, launch) = launching(&ledger, &bridge).await;
+    assert!(!lifecycle.drive_once().await.unwrap());
+    assert!(bridge.starts().is_empty());
+    launch.add_permits(1);
+    tokio::task::yield_now().await;
+    assert!(lifecycle.drive_once().await.unwrap());
+    assert_eq!(bridge.starts().len(), 1);
+    assert_eq!(bridge.starts()[0].turn_id, saved.message.turn_id);
+}
 
 fn waiting_prompt(disposition: AgentChatPromptDisposition) -> (SqliteLedger, AgentChatPromptSaved) {
     let ledger = SqliteLedger::in_memory().unwrap();
@@ -111,4 +189,51 @@ async fn stopping_a_claurst_run_leaves_its_queued_prompts_to_their_own_cancel() 
             .is_err()
     );
     assert_eq!(phase(&ledger, &saved), DurableTurnPhase::Active);
+}
+
+#[derive(Debug)]
+struct StoppingRuntime(std::sync::Arc<tokio::sync::Semaphore>);
+
+#[async_trait::async_trait]
+impl ClaurstRuntimeFactory for StoppingRuntime {
+    async fn ensure_for_prompt(
+        &self,
+        _: &AgentChatPromptSaved,
+        _: &[String],
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn warm(&self, _: &str, _: &str, _: &[String]) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn reap_idle(&self, _: std::time::Instant, _: &[String]) -> Result<(), String> {
+        self.0
+            .acquire()
+            .await
+            .map(drop)
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[tokio::test]
+async fn reaping_an_idle_runtime_never_holds_the_lifecycle_while_that_runtime_stops() {
+    let (ledger, _) = waiting_prompt(AgentChatPromptDisposition::Send);
+    let stopping = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+    let mut lifecycle = ClaurstPromptLifecycle::new_with_runtime(
+        ledger,
+        FakePrivateClaurstBridge::default(),
+        StoppingRuntime(std::sync::Arc::clone(&stopping)),
+        "gentd-1".into(),
+        HostEpoch(1),
+    );
+    lifecycle.activate_recovery().await.unwrap();
+    let mut reap = std::pin::pin!(lifecycle.reap_idle(std::time::Instant::now()));
+    let polled = std::future::Future::poll(
+        reap.as_mut(),
+        &mut std::task::Context::from_waker(std::task::Waker::noop()),
+    );
+    assert!(polled.is_ready());
+    stopping.add_permits(1);
 }

@@ -2,9 +2,10 @@ use super::{
     ActiveRuntime, ClaurstBridgeHandle, ClaurstStandaloneOwner, HttpLlamaServerReadiness, PathBuf,
     RuntimeIdentity, Session, StandaloneClaurstRuntimeFactory, SystemPrivateSettingsStore,
 };
-use crate::claurst_runtime_factory::CLAURST_CONVERSATION_CAPACITY;
+use crate::claurst_runtime_factory::{CLAURST_CONVERSATION_CAPACITY, LlamaContextSummarizer};
 use crate::standalone_claurst_runtime_factory::SystemBridge;
 use crate::standalone_claurst_runtime_identity::RuntimeReuse;
+use std::sync::Arc;
 
 type SystemModel = crate::claurst_standalone_owner::ClaurstStandaloneModel<
     crate::claurst_sandbox_launcher::model_launch::RoutedModelProcess,
@@ -48,6 +49,7 @@ impl StandaloneClaurstRuntimeFactory {
             (previous, model)
         };
         if let Some(previous) = previous {
+            self.end_background(&session.conversation_id, gent_types::ToolPhase::Failed)?;
             previous
                 .shut_down("could not stop previous local Claurst runtime")
                 .await?;
@@ -89,9 +91,14 @@ impl StandaloneClaurstRuntimeFactory {
             identity: session.identity,
             run_id: session.run_id.to_owned(),
             used: std::time::Instant::now(),
+            idle_since: None,
             bridge: ClaurstBridgeHandle::new(runtime.bridge()),
             runtime,
         };
+        started
+            .bridge
+            .bind_owned_chat_tools(session.owned_chat_tools)
+            .map_err(|error| error.to_string())?;
         if let Err(error) = started.bridge.initialize().await {
             started
                 .shut_down("could not stop unready local Claurst runtime")
@@ -139,6 +146,38 @@ impl StandaloneClaurstRuntimeFactory {
         Ok(())
     }
 
+    pub(crate) async fn reap_idle_runtimes(
+        &self,
+        now: std::time::Instant,
+        busy: &[String],
+    ) -> Result<(), String> {
+        let expired = {
+            let mut active = self.active.lock().await;
+            let expired = idle_expired(
+                active.iter_mut().map(|(conversation, running)| {
+                    let idle = running.bridge.is_idle().unwrap_or(false);
+                    (conversation, idle, &mut running.idle_since)
+                }),
+                busy,
+                now,
+            );
+            expired
+                .iter()
+                .filter_map(|conversation| active.remove(conversation))
+                .collect::<Vec<_>>()
+        };
+        let mut failure = None;
+        for idle in expired {
+            if let Err(error) = idle
+                .shut_down("could not stop idle local Claurst runtime")
+                .await
+            {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
     pub(crate) async fn run_bridge(
         &self,
         run_id: &str,
@@ -154,38 +193,45 @@ impl StandaloneClaurstRuntimeFactory {
             })
     }
 
-    pub(crate) async fn summary_bridge(
+    pub(crate) async fn side_question_model(
         &self,
+        conversation_id: &str,
         model_id: &str,
-    ) -> Result<SystemBridge, gent_ports::PortError> {
-        let active = self.active.lock().await;
-        let mut loaded = active
-            .values()
-            .filter(|runtime| runtime.identity.model.model_id == model_id)
-            .peekable();
-        if loaded.peek().is_none() {
-            return Err(gent_ports::PortError::Unavailable(
-                "selected Claurst model is not an active local model".into(),
-            ));
+    ) -> Result<Arc<LlamaContextSummarizer>, gent_ports::PortError> {
+        if let Some(model) = self.loaded_model(conversation_id, model_id).await {
+            return Ok(model);
         }
-        loaded
-            .find(|runtime| runtime.bridge.is_idle().unwrap_or(false))
-            .map(|runtime| runtime.bridge.clone())
+        let run_id = gent_runtime::AgentChatReadService::new(self.ledger.clone())
+            .detail(conversation_id)
+            .map_err(|error| gent_ports::PortError::Unavailable(error.to_string()))?
+            .current_run_id;
+        self.start_selected(conversation_id, &run_id, &[], &[])
+            .await
+            .map_err(gent_ports::PortError::Unavailable)?;
+        self.loaded_model(conversation_id, model_id)
+            .await
             .ok_or_else(|| {
                 gent_ports::PortError::Unavailable(
-                    "Claurst summary waits for an interactive prompt to become idle".into(),
+                    "the conversation's local model is not the one it selected".into(),
                 )
             })
     }
 
-    pub(crate) async fn stop_conversation(&self, conversation_id: &str) -> Result<(), String> {
-        let previous = self.active.lock().await.remove(conversation_id);
-        if let Some(previous) = previous {
-            previous
-                .shut_down("could not stop local Claurst runtime")
-                .await?;
+    async fn loaded_model(
+        &self,
+        conversation_id: &str,
+        model_id: &str,
+    ) -> Option<Arc<LlamaContextSummarizer>> {
+        let mut active = self.active.lock().await;
+        let running = active.get_mut(conversation_id)?;
+        if running.identity.model.model_id != model_id
+            || !matches!(running.runtime.exited(), Ok(None))
+        {
+            return None;
         }
-        Ok(())
+        running.used = std::time::Instant::now();
+        running.idle_since = None;
+        Some(running.runtime.summarizer())
     }
 
     pub(crate) fn has_active_runtime(&self) -> bool {
@@ -206,6 +252,30 @@ fn idle_victim<'a>(
         })
         .min_by_key(|(_, _, used)| *used)
         .map(|(conversation, _, _)| conversation.clone())
+}
+
+fn idle_expired<'a>(
+    sessions: impl Iterator<Item = (&'a String, bool, &'a mut Option<std::time::Instant>)>,
+    busy: &[String],
+    now: std::time::Instant,
+) -> Vec<String> {
+    let idle = sessions
+        .filter_map(|(conversation, idle, since)| {
+            if !idle || busy.contains(conversation) {
+                *since = None;
+                return None;
+            }
+            Some((conversation, *since.get_or_insert(now)))
+        })
+        .collect::<Vec<_>>();
+    crate::provider_warm_pool::expired(idle.into_iter().map(|(conversation, since)| {
+        crate::provider_warm_pool::IdleRun {
+            run_id: conversation,
+            idle_for: now.saturating_duration_since(since),
+            served: true,
+            current: true,
+        }
+    }))
 }
 
 fn shared_model(identity: &RuntimeIdentity, running: &mut ActiveRuntime) -> Option<SystemModel> {

@@ -1,7 +1,4 @@
-//! Read-only cursor streaming adapter. Durable resume remains the sole source of truth.
-
 use std::io;
-use std::time::Duration;
 
 use gent_protocol::{EventStreamFrame, MAX_FRAME_BYTES, read_json_frame, write_json_frame};
 use gent_types::EventPage;
@@ -10,10 +7,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::api::RuntimeApi;
 
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const MAX_BATCH_EVENTS: usize = 64;
 
-/// Serves exactly one negotiated stream until its client disconnects or violates the contract.
 pub(crate) async fn serve<S, R>(
     stream: S,
     runtime: R,
@@ -24,7 +19,9 @@ where
     R: RuntimeApi,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
-    let mut sent = match send_page(&mut writer, &runtime, after_cursor, true).await {
+    let mut commits = runtime.ledger_commits();
+    commits.borrow_and_update();
+    let (mut sent, mut due) = match send_page(&mut writer, &runtime, after_cursor, true).await {
         Ok(sent) => sent,
         Err(error) => {
             return Ok(send_error(&mut writer, "eventStreamFailed", &error.to_string()).await?);
@@ -32,6 +29,18 @@ where
     };
     let mut acknowledged = after_cursor;
     loop {
+        if due && acknowledged == sent {
+            commits.borrow_and_update();
+            (sent, due) = match send_page(&mut writer, &runtime, sent, false).await {
+                Ok(sent) => sent,
+                Err(error) => {
+                    return Ok(
+                        send_error(&mut writer, "eventStreamFailed", &error.to_string()).await?,
+                    );
+                }
+            };
+            continue;
+        }
         tokio::select! {
             input = read_json_frame::<_, Value>(&mut reader) => match input {
                 Ok(raw) => match serde_json::from_value(raw) {
@@ -50,13 +59,11 @@ where
                 Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(Box::new(error)),
             },
-            () = tokio::time::sleep(POLL_INTERVAL) => {
-                if acknowledged == sent {
-                    sent = match send_page(&mut writer, &runtime, sent, false).await {
-                        Ok(sent) => sent,
-                        Err(error) => return Ok(send_error(&mut writer, "eventStreamFailed", &error.to_string()).await?),
-                    };
+            changed = commits.changed(), if acknowledged == sent => {
+                if changed.is_err() {
+                    return Ok(send_error(&mut writer, "eventStreamFailed", "the ledger is closed").await?);
                 }
+                due = true;
             }
         }
     }
@@ -67,7 +74,7 @@ async fn send_page<W, R>(
     runtime: &R,
     after_cursor: u64,
     initial: bool,
-) -> Result<u64, Box<dyn std::error::Error + Send + Sync>>
+) -> Result<(u64, bool), Box<dyn std::error::Error + Send + Sync>>
 where
     W: AsyncWrite + Unpin,
     R: RuntimeApi,
@@ -77,7 +84,11 @@ where
     })
     .await?
     .map_err(io::Error::other)?;
-    send_events(writer, page, after_cursor, initial).await
+    let more = page.next_after_cursor.is_some();
+    Ok((
+        send_events(writer, page, after_cursor, initial).await?,
+        more,
+    ))
 }
 
 async fn send_events<W>(

@@ -1,6 +1,4 @@
-//! Long-lived normalized transcript subscriptions backed only by the durable ledger.
-
-use std::{io, time::Duration};
+use std::io;
 
 use gent_protocol::{
     AgentChatIntentFrame, AgentChatSubscriptionEnd, AgentChatTranscriptFrame, MAX_FRAME_BYTES,
@@ -15,10 +13,8 @@ use crate::{
     transport::{off_runtime, write_error},
 };
 
-const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PAGE_LIMIT: u16 = 100;
 
-/// Serves one subscription until the client disconnects or the daemon can no longer read it.
 pub(crate) async fn serve<S, R>(
     stream: S,
     runtime: R,
@@ -31,8 +27,28 @@ where
     R: TranscriptPort,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut commits = runtime.commits();
     let mut cursor = after_cursor;
     loop {
+        commits.borrow_and_update();
+        let conversation = conversation_id.clone();
+        let read = off_runtime(&runtime, move |runtime| {
+            page(&runtime, &conversation, cursor)
+        })
+        .await;
+        let Ok(Ok(events)) = read else {
+            return end(&mut writer, request_id).await;
+        };
+        let delivered = !events.events.is_empty();
+        cursor = match send_events(&mut writer, &request_id, cursor, events).await {
+            Ok(cursor) => cursor,
+            Err(error) => {
+                return write_error(&mut writer, "subscriptionFailed", &error.to_string()).await;
+            }
+        };
+        if delivered {
+            continue;
+        }
         tokio::select! {
             input = read_json_frame::<_, Value>(&mut reader) => match input {
                 Ok(_) => {
@@ -42,27 +58,33 @@ where
                 Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(Box::new(error)),
             },
-            () = tokio::time::sleep(POLL_INTERVAL) => {
-                let conversation = conversation_id.clone();
-                let read = off_runtime(&runtime, move |runtime| page(&runtime, &conversation, cursor)).await;
-                if let Ok(Ok(events)) = read {
-                    cursor = match send_events(&mut writer, &request_id, cursor, events).await {
-                        Ok(cursor) => cursor,
-                        Err(error) => return write_error(&mut writer, "subscriptionFailed", &error.to_string()).await,
-                    };
-                } else {
-                    write_json_frame(&mut writer, &AgentChatIntentFrame::SubscriptionEnded {
-                        request_id,
-                        reason: AgentChatSubscriptionEnd::ServerClosing,
-                    }).await?;
-                    return Ok(());
-                }
-            }
+            changed = commits.changed() => if changed.is_err() {
+                return end(&mut writer, request_id).await;
+            },
         }
     }
 }
 
+async fn end<W>(
+    writer: &mut W,
+    request_id: AgentChatRequestId,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    W: AsyncWrite + Unpin,
+{
+    write_json_frame(
+        writer,
+        &AgentChatIntentFrame::SubscriptionEnded {
+            request_id,
+            reason: AgentChatSubscriptionEnd::ServerClosing,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
 pub(crate) trait TranscriptPort: Clone + Send + Sync + 'static {
+    fn commits(&self) -> tokio::sync::watch::Receiver<u64>;
     fn transcript(
         &self,
         frame: AgentChatTranscriptFrame,
@@ -70,6 +92,10 @@ pub(crate) trait TranscriptPort: Clone + Send + Sync + 'static {
 }
 
 impl<R: RuntimeApi> TranscriptPort for R {
+    fn commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.ledger_commits()
+    }
+
     fn transcript(
         &self,
         frame: AgentChatTranscriptFrame,
@@ -130,114 +156,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use gent_protocol::{AgentChatIntentFrame, AgentChatTranscriptFrame, read_json_frame};
-    use gent_types::{
-        AgentChatConversationId, AgentChatRequestId, NormalizedTranscriptEvent,
-        NormalizedTranscriptKind, NormalizedTranscriptPage,
-    };
-    use tokio::io::duplex;
-
-    use super::{send_events, serve};
-    use crate::agent_chat_subscription::TranscriptPort;
-
-    #[derive(Clone)]
-    struct TranscriptRuntime(Arc<Mutex<Vec<NormalizedTranscriptEvent>>>);
-
-    impl TranscriptPort for TranscriptRuntime {
-        fn transcript(
-            &self,
-            frame: AgentChatTranscriptFrame,
-        ) -> Result<AgentChatTranscriptFrame, String> {
-            let AgentChatTranscriptFrame::PageRequest {
-                conversation_id,
-                after_cursor,
-                ..
-            } = frame
-            else {
-                return Err("request expected".into());
-            };
-            let events = self
-                .0
-                .lock()
-                .map_err(|_| "transcript lock poisoned")?
-                .iter()
-                .filter(|event| event.cursor > after_cursor.unwrap_or_default())
-                .cloned()
-                .collect();
-            Ok(AgentChatTranscriptFrame::Page(NormalizedTranscriptPage {
-                conversation_id,
-                events,
-                next_after_cursor: None,
-            }))
-        }
-    }
-
-    #[tokio::test]
-    async fn subscription_replays_then_waits_for_later_durable_events() {
-        let runtime = TranscriptRuntime(Arc::new(Mutex::new(vec![event(1)])));
-        let source = runtime.clone();
-        let (mut client, server) = duplex(32 * 1024);
-        let task = tokio::spawn(serve(
-            server,
-            runtime,
-            AgentChatRequestId("request-1".into()),
-            AgentChatConversationId("conversation-1".into()),
-            0,
-        ));
-        assert!(matches!(
-            read_json_frame::<_, AgentChatIntentFrame>(&mut client).await.unwrap(),
-            AgentChatIntentFrame::SubscriptionEvent { event, .. } if event.cursor == 1
-        ));
-        source.0.lock().unwrap().push(event(2));
-        assert!(matches!(
-            tokio::time::timeout(std::time::Duration::from_millis(250), read_json_frame::<_, AgentChatIntentFrame>(&mut client)).await.unwrap().unwrap(),
-            AgentChatIntentFrame::SubscriptionEvent { event, .. } if event.cursor == 2
-        ));
-        drop(client);
-        assert!(task.await.unwrap().is_ok());
-    }
-
-    #[tokio::test]
-    async fn oversized_events_are_rejected_before_writing() {
-        let (mut reader, mut writer) = duplex(32 * 1024);
-        let page = NormalizedTranscriptPage {
-            conversation_id: "conversation-1".into(),
-            events: vec![NormalizedTranscriptEvent {
-                text: "x".repeat(gent_protocol::MAX_FRAME_BYTES),
-                ..event(1)
-            }],
-            next_after_cursor: None,
-        };
-        assert!(
-            send_events(&mut writer, &AgentChatRequestId("request".into()), 0, page)
-                .await
-                .is_err()
-        );
-        assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(20),
-                read_json_frame::<_, AgentChatIntentFrame>(&mut reader)
-            )
-            .await
-            .is_err()
-        );
-    }
-
-    fn event(cursor: u64) -> NormalizedTranscriptEvent {
-        NormalizedTranscriptEvent {
-            cursor,
-            event_id: format!("event-{cursor}"),
-            turn_id: "turn-1".into(),
-            run_id: "run-1".into(),
-            kind: NormalizedTranscriptKind::AssistantMessage,
-            text: "normalized".into(),
-            is_partial: false,
-            failure_code: None,
-            origin: None,
-            attachments: Vec::new(),
-        }
-    }
-}
+#[path = "agent_chat_subscription_tests.rs"]
+mod tests;

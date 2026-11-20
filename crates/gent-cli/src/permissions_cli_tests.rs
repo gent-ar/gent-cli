@@ -2,7 +2,8 @@ use clap::Parser;
 use gent_protocol::PermissionPolicyFrame;
 use gent_types::{PermissionMode, PolicyRecord, PolicyScope};
 
-use super::{PermissionCommand, PermissionModeArgument, valid_reply};
+use super::conversions::valid_reply;
+use super::{PermissionCommand, PermissionModeArgument};
 use crate::{Args, CommandLine};
 
 #[test]
@@ -54,12 +55,12 @@ fn autonomous_save_requires_the_exact_revisioned_policy_reply() {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec!["workspace.read".into()],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     let request = PermissionPolicyFrame::Save {
         request_id: "request-1".into(),
         policy: policy.clone(),
         bypass_consent: false,
-        expected_provider: None,
     };
     let matching = PermissionPolicyFrame::Saved {
         request_id: "request-1".into(),
@@ -93,6 +94,7 @@ fn current_policy_reply_stays_bound_to_the_requested_workspace() {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         }),
     };
     assert!(!valid_reply(&request, &response));
@@ -121,6 +123,37 @@ fn respond_answers_one_exact_pending_decision_with_a_typed_choice() {
             })
         })
     ));
+}
+
+#[test]
+fn respond_carries_a_question_answer_and_refuses_one_that_is_not_an_object() {
+    let respond = |answer: &str| {
+        Args::try_parse_from([
+            "gent",
+            "permissions",
+            "respond",
+            "--conversation-id",
+            "c",
+            "--decision-id",
+            "d",
+            "--decision",
+            "approve-once",
+            "--answer",
+            answer,
+        ])
+    };
+    let args = respond(r#"{"answers":{"Which?":"A"}}"#).unwrap();
+    let Some(CommandLine::Permissions {
+        action: PermissionCommand::Respond(respond_args),
+    }) = args.command
+    else {
+        panic!("permissions respond");
+    };
+    assert_eq!(
+        respond_args.answer,
+        Some(serde_json::json!({"answers": {"Which?": "A"}}))
+    );
+    assert!(respond("\"A\"").is_err());
 }
 
 #[test]
@@ -167,7 +200,6 @@ async fn set_saves_the_next_revision_for_the_resolved_workspace() {
                     protocol: PROTOCOL_MAX,
                     capabilities: CapabilitySet(vec![
                         PERMISSION_POLICY_CAPABILITY.into(),
-                        gent_protocol::PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY.into(),
                         WORKSPACE_GIT_CAPABILITY.into(),
                     ]),
                 }),
@@ -200,6 +232,7 @@ async fn set_saves_the_next_revision_for_the_resolved_workspace() {
                             containment: gent_types::Containment::Sandboxed,
                             allowed_tools: vec![],
                             allowed_categories: vec![],
+                            allowed_commands: Vec::new(),
                         }),
                     })
                     .unwrap(),
@@ -224,8 +257,6 @@ async fn set_saves_the_next_revision_for_the_resolved_workspace() {
         "/tmp/ws2",
         "--mode",
         "autonomous",
-        "--provider",
-        "codex",
     ])
     .unwrap();
     let Some(CommandLine::Permissions { action }) = args.command else {
@@ -239,4 +270,52 @@ async fn set_saves_the_next_revision_for_the_resolved_workspace() {
         (saved.workspace_id.as_str(), saved.revision, saved.mode),
         ("workspace-ws2", 2, PermissionMode::Autonomous)
     );
+}
+
+#[test]
+fn command_grants_parse_tool_and_pattern_and_reject_broad_rules_with_their_code() {
+    let grants = super::conversions::command_grants(&[
+        "Bash=npm run *".into(),
+        "Bash=git status".into(),
+        "Bash=npm run *".into(),
+    ])
+    .unwrap();
+    assert_eq!(grants.len(), 2);
+    assert_eq!(grants[0].words, ["git", "status"]);
+    assert!(grants[1].any_arguments);
+    for bad in [
+        "Bash=*",
+        "Bash=bash *",
+        "Bash=git status && rm",
+        "npm run *",
+    ] {
+        assert!(
+            super::conversions::command_grants(&[bad.into()]).is_err(),
+            "{bad}"
+        );
+    }
+    let args = Args::try_parse_from([
+        "gent",
+        "permissions",
+        "respond",
+        "--conversation-id",
+        "c",
+        "--decision-id",
+        "d",
+        "--decision",
+        "approve-command-pattern",
+        "--command-pattern",
+        "git status",
+    ])
+    .unwrap();
+    assert!(matches!(
+        args.command,
+        Some(CommandLine::Permissions {
+            action: PermissionCommand::Respond(super::PermissionRespondArgs {
+                decision: super::PermissionDecisionArgument::ApproveCommandPattern,
+                command_pattern: Some(_),
+                ..
+            })
+        })
+    ));
 }

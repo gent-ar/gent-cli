@@ -48,51 +48,52 @@ where
         let Some(effects) = effects.or_else(|| promoted.map(|_| Vec::new())) else {
             return Ok(None);
         };
-        if !self.active.contains_key(run_id) {
-            return Err(missing_binding());
-        }
+        self.active
+            .get_mut(run_id)
+            .ok_or_else(missing_binding)?
+            .idle_since = None;
         let mut facts: u16 = promoted.map_or(0, |record| record.facts);
-        let mut terminal = promoted
-            .filter(|record| record.terminal)
-            .map(|_| DurableTurnPhase::Failed);
+        let mut result = None;
         for effect in effects {
             match effect {
                 ClaudeRunnerEffect::Fact(fact) => {
-                    let Some(fact) = normalize_user_interrupt(
-                        fact,
-                        self.active
-                            .get(run_id)
-                            .is_some_and(|binding| binding.interrupt_requested),
-                    ) else {
-                        continue;
-                    };
                     let provider_failure = matches!(
                         &fact,
                         PublicWireFact::Event(
                             gent_types::NormalizedProviderEvent::ProviderFailure { .. }
                         )
                     );
-                    terminal = terminal.or_else(|| terminal::phase(&fact));
                     self.record_wire(run_id, host_epoch, &fact)?;
-                    let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
-                    track_child(
-                        &mut binding.open_children,
-                        &fact,
-                        terminal::phase(&fact).is_some(),
-                    );
+                    self.track_child(run_id, &fact)?;
                     if provider_failure {
                         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
-                        binding.failure_reported_turn =
-                            Some(binding.prompt.message.turn_id.clone());
+                        binding.failure_reported_turn = Some(binding.turn_id().to_owned());
+                    }
+                    if let Some(phase) = terminal::phase(&fact) {
+                        self.settle_result(run_id, host_epoch, phase, result.take())?;
                     }
                     facts = facts.saturating_add(1);
                 }
+                ClaudeRunnerEffect::PermissionCancelled { request_id } => {
+                    self.permission_cancelled(run_id, &request_id)?;
+                }
+                ClaudeRunnerEffect::ContinuationStarted => {
+                    self.begin_provider_turn(run_id, host_epoch)?;
+                }
+                ClaudeRunnerEffect::TurnResult {
+                    message_ids,
+                    continuation,
+                } => {
+                    result = Some(super::settlement::TurnResult {
+                        message_ids,
+                        continuation,
+                    });
+                }
                 ClaudeRunnerEffect::PermissionRequest(request) => {
-                    let permission = self.admit_permission_request(run_id, host_epoch, request)?;
-                    if permission.terminal {
-                        terminal = Some(DurableTurnPhase::Failed);
-                    }
-                    facts = facts.saturating_add(permission.facts);
+                    facts = facts.saturating_add(
+                        self.admit_permission_request(run_id, host_epoch, request)?
+                            .facts,
+                    );
                 }
                 ClaudeRunnerEffect::ResumeUnavailable => {
                     let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
@@ -100,24 +101,22 @@ where
                         binding.session_recovery = super::SessionRecovery::Unavailable;
                     }
                 }
-                ClaudeRunnerEffect::SteerConsumed { message_id } => {
-                    if let Some(phase) = terminal.take() {
-                        self.settle_turn(run_id, host_epoch, phase)?;
-                    }
-                    self.consume_steer(run_id, host_epoch, &message_id)?;
+                ClaudeRunnerEffect::MessageStarted { message_id } => {
+                    self.message_started(run_id, host_epoch, &message_id)?;
                     facts = facts.saturating_add(1);
                 }
+                ClaudeRunnerEffect::MessageCancelled { message_id } => {
+                    self.message_cancelled(run_id, host_epoch, &message_id)?;
+                    facts = facts.saturating_add(1);
+                }
+                ClaudeRunnerEffect::SessionState { idle } => {
+                    self.session_reported(run_id, host_epoch, idle)?;
+                }
                 ClaudeRunnerEffect::Exited { code } => {
-                    if !self.shutdown_signaled
-                        && !matches!(
-                            terminal,
-                            Some(DurableTurnPhase::Completed | DurableTurnPhase::Interrupted)
-                        )
-                        && let Some(binding) = self.active.get(run_id)
-                        && !binding.settled
-                        && !binding.interrupt_requested
-                        && binding.failure_reported_turn.as_deref()
-                            != Some(binding.prompt.message.turn_id.as_str())
+                    if let Some(binding) = self.active.get(run_id)
+                        && binding.turns.turn_open()
+                        && !binding.turns.releasing()
+                        && binding.failure_reported_turn.as_deref() != Some(binding.turn_id())
                         && binding.session_recovery != super::SessionRecovery::Unavailable
                     {
                         let error = crate::public_driver_runtime::run_failure::provider_exited(
@@ -144,16 +143,7 @@ where
                             exited: false,
                         }));
                     }
-                    let phase = if self
-                        .active
-                        .get(run_id)
-                        .is_some_and(|binding| binding.interrupt_requested)
-                    {
-                        DurableTurnPhase::Interrupted
-                    } else {
-                        DurableTurnPhase::Failed
-                    };
-                    self.settle_if_open(run_id, host_epoch, phase)?;
+                    self.settle_if_open(run_id, host_epoch, DurableTurnPhase::Failed)?;
                     self.release_steers(run_id, host_epoch)?;
                     self.active.remove(run_id);
                     return Ok(Some(ClaudePromptPoll {
@@ -163,64 +153,9 @@ where
                 }
             }
         }
-        if let Some(phase) = terminal {
-            self.settle_turn(run_id, host_epoch, phase)?;
-        }
         Ok(Some(ClaudePromptPoll {
             facts,
             exited: false,
         }))
-    }
-}
-
-fn normalize_user_interrupt(
-    fact: PublicWireFact,
-    interrupt_requested: bool,
-) -> Option<PublicWireFact> {
-    if interrupt_requested
-        && matches!(
-            fact,
-            PublicWireFact::Event(gent_types::NormalizedProviderEvent::ProviderFailure { .. })
-        )
-    {
-        return None;
-    }
-    if interrupt_requested
-        && matches!(
-            fact,
-            PublicWireFact::Lifecycle(gent_types::NormalizedLifecycleSignal::RootPhase {
-                phase: gent_types::TurnPhase::Failed
-            })
-        )
-    {
-        return Some(PublicWireFact::Lifecycle(
-            gent_types::NormalizedLifecycleSignal::RootPhase {
-                phase: gent_types::TurnPhase::Interrupted,
-            },
-        ));
-    }
-    Some(fact)
-}
-
-fn track_child(
-    open: &mut std::collections::BTreeMap<String, bool>,
-    fact: &PublicWireFact,
-    root_terminal: bool,
-) {
-    use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent};
-    match fact {
-        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted { child_id, .. }) => {
-            open.insert(child_id.clone(), false);
-        }
-        PublicWireFact::Event(NormalizedProviderEvent::ChildTerminal { child_id, .. }) => {
-            open.insert(child_id.clone(), true);
-        }
-        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ChildPhase { child_id, phase })
-            if !phase.is_live() =>
-        {
-            open.insert(child_id.clone(), true);
-        }
-        _ if root_terminal => open.retain(|_, finished| !*finished),
-        _ => {}
     }
 }

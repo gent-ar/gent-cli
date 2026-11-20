@@ -342,7 +342,7 @@ mod tests {
         );
         let refused: serde_json::Value = serde_json::from_slice(&encode_permission_response(
             "request-1",
-            ClaudePermissionBehavior::Refuse(gent_types::PermissionDenialReason::ReadOnlyMode),
+            ClaudePermissionBehavior::Refuse(gent_types::PermissionDenialReason::PlanModeEdit),
             true,
             &suggestions,
         ))
@@ -352,7 +352,7 @@ mod tests {
             refused["response"]["response"]["message"]
                 .as_str()
                 .unwrap()
-                .starts_with("This conversation is in a read-only mode")
+                .starts_with("This conversation is in Plan mode")
         );
     }
 

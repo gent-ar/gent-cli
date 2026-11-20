@@ -76,6 +76,22 @@ fn save(
     origin: &AgentChatPromptOrigin,
     steer_turn: Option<&str>,
 ) -> Result<AgentChatPromptSaved, LedgerError> {
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    let saved = save_in(&transaction, prompt, expected_run_id, origin, steer_turn)?;
+    transaction.commit().map_err(storage_error)?;
+    Ok(saved)
+}
+
+pub(in crate::sqlite) fn save_in(
+    transaction: &Transaction<'_>,
+    prompt: &AgentChatPromptCreate,
+    expected_run_id: Option<&AgentChatRunId>,
+    origin: &AgentChatPromptOrigin,
+    steer_turn: Option<&str>,
+) -> Result<AgentChatPromptSaved, LedgerError> {
     validate(prompt)?;
     let mut command = command_for(prompt);
     if let Some(turn) = steer_turn {
@@ -86,13 +102,9 @@ fn save(
         command.payload["toolSourceIds"] =
             serde_json::to_value(&prompt.tool_source_ids).map_err(storage_error)?;
     }
-    let mut connection = ledger.lock()?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(storage_error)?;
-    require_open(&transaction, prompt.host_epoch)?;
-    if let Some(saved) = existing(&transaction, prompt)? {
-        if !receipt_matches_command(&transaction, &command)? {
+    require_open(transaction, prompt.host_epoch)?;
+    if let Some(saved) = existing(transaction, prompt)? {
+        if !receipt_matches_command(transaction, &command)? {
             return Err(LedgerError::Invariant(
                 "agent chat prompt request is bound to another command".into(),
             ));
@@ -100,18 +112,18 @@ fn save(
         return Ok(saved);
     }
     let key = idempotency_key(prompt);
-    if find_receipt(&transaction, &key)?.is_some() {
+    if find_receipt(transaction, &key)?.is_some() {
         return Err(LedgerError::Invariant(
             "agent chat prompt idempotency key is owned by another command".into(),
         ));
     }
-    reject_receipt_id_collision(&transaction, prompt)?;
-    let run_id = current_run(&transaction, &prompt.conversation_id.0)?;
+    reject_receipt_id_collision(transaction, prompt)?;
+    let run_id = current_run(transaction, &prompt.conversation_id.0)?;
     let steer_target = match (steer_turn, expected_run_id) {
         (Some(turn), Some(run))
             if prompt.disposition == AgentChatPromptDisposition::Queue
                 && super::super::agent_chat_steer_target::live(
-                    &transaction,
+                    transaction,
                     &prompt.conversation_id.0,
                     &run.0,
                     turn,
@@ -132,8 +144,8 @@ fn save(
             "agent chat prompt run is no longer the durable current run".into(),
         ));
     }
-    let message = insert_prompt(&transaction, prompt, &run_id)?;
-    attach_available(&transaction, &message.turn_id, &prompt.attachment_ids)?;
+    let message = insert_prompt(transaction, prompt, &run_id)?;
+    attach_available(transaction, &message.turn_id, &prompt.attachment_ids)?;
     transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'userMessage', ?5, 0, ?6)", params![message.conversation_id, format!("user:{}", message.message_id), message.turn_id, message.run_id, message.text, serde_json::to_string(origin).map_err(storage_error)?]).map_err(storage_error)?;
     let receipt = Receipt {
         receipt_id: prompt.receipt_id.clone(),
@@ -141,12 +153,17 @@ fn save(
         status: ReceiptStatus::Settled,
         host_epoch: prompt.host_epoch,
     };
-    insert_receipt(&transaction, &receipt, &command)?;
+    insert_receipt(transaction, &receipt, &command)?;
     transaction.execute("INSERT INTO agent_chat_prompt_receipts (request_id, idempotency_key, conversation_id, run_id, turn_id, message_id, disposition, tool_source_ids_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![prompt.request_id.0, receipt.idempotency_key, prompt.conversation_id.0, run_id, message.turn_id, message.message_id, disposition(prompt.disposition), serde_json::to_string(&prompt.tool_source_ids).map_err(storage_error)?]).map_err(storage_error)?;
     transaction.execute("INSERT INTO agent_chat_prompt_dispatches (message_id, state, coordinator_id, host_epoch, created_rowid) VALUES (?1, 'awaiting_readiness', NULL, NULL, (SELECT COALESCE(MAX(created_rowid), 0) + 1 FROM agent_chat_prompt_dispatches))", params![message.message_id]).map_err(storage_error)?;
     if prompt.disposition == AgentChatPromptDisposition::Queue {
+        let (delivery, cancelable) = super::super::agent_chat_steer_target::queue_delivery(
+            transaction,
+            &message.conversation_id,
+            prompt.host_epoch,
+        )?;
         super::super::agent_chat_queue_activity::append(
-            &transaction,
+            transaction,
             format!("agent-chat-queue:{}:queued", message.message_id),
             prompt.receipt_id.clone(),
             ConversationActivityFact::PromptQueued {
@@ -158,12 +175,14 @@ fn save(
                     cursor: 0,
                 },
                 message_id: message.message_id.clone(),
+                queue_delivery: Some(delivery),
+                cancelable: Some(cancelable),
             },
         )?;
     }
     if let Some((steer_run, turn)) = steer_target {
         super::super::agent_chat_steer_target::bind(
-            &transaction,
+            transaction,
             &prompt.receipt_id,
             prompt.host_epoch,
             &prompt.conversation_id,
@@ -172,7 +191,6 @@ fn save(
             turn,
         )?;
     }
-    transaction.commit().map_err(storage_error)?;
     Ok(AgentChatPromptSaved {
         receipt,
         run_id: AgentChatRunId(run_id),

@@ -43,11 +43,13 @@ impl OrdinaryLifecycleHost for Host {
     fn wake(&mut self) -> Result<(), ()> {
         Ok(())
     }
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         if let Some(saved) = self
             .ledger
             .claim_agent_chat_prompt_dispatch("fresh-owner", self.epoch, self.provider())
-            .map_err(|_| ())?
+            .map_err(|error| {
+                crate::ordinary_lifecycle_host::DriveFailure::Failed(error.to_string())
+            })?
         {
             self.claims.lock().unwrap().push(saved);
         }

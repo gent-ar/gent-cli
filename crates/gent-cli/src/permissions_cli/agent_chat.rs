@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame, read_json_frame, write_json_frame,
+    AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame, write_json_frame,
 };
 use gent_types::{
     AgentChatConversationId, AgentChatRequestId, PermissionDecisionRequest,
-    PermissionDecisionResponse, PermissionDecisionResponseKind, ReceiptId,
+    PermissionDecisionResponse, ReceiptId,
 };
 use serde_json::Value;
 
@@ -53,14 +53,11 @@ pub(crate) async fn respond(
 pub(crate) async fn respond_decision(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
-    conversation_id: String,
-    decision_id: String,
-    response: PermissionDecisionResponseKind,
-    receipt_id: Option<String>,
+    args: super::PermissionRespondArgs,
 ) -> Result<Value, Box<dyn std::error::Error>> {
-    let pending = pending(data_dir.clone(), no_autostart, conversation_id)
+    let pending = pending(data_dir.clone(), no_autostart, args.conversation_id)
         .await?
-        .filter(|request| request.binding.decision_id.0 == decision_id)
+        .filter(|request| request.binding.decision_id.0 == args.decision_id)
         .ok_or_else(|| {
             CliError::new(
                 Failure::NotFound,
@@ -70,11 +67,15 @@ pub(crate) async fn respond_decision(
     let request_id = AgentChatRequestId(uuid::Uuid::new_v4().to_string());
     let request = AgentChatPermissionFrame::Respond {
         request_id: request_id.clone(),
-        receipt_id: ReceiptId(receipt_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string())),
+        receipt_id: ReceiptId(
+            args.receipt_id
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        ),
         response: PermissionDecisionResponse {
             binding: pending.binding,
-            response,
-            input: None,
+            response: args.decision.into(),
+            input: args.answer,
+            command_pattern: args.command_pattern,
         },
     };
     let reply = exchange(data_dir, no_autostart, request).await?;
@@ -105,9 +106,6 @@ async fn exchange(
         return Err("daemon does not support agent-chat permissions; upgrade gentd".into());
     }
     write_json_frame(&mut stream, &request).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     Ok(serde_json::from_value(raw)?)
 }

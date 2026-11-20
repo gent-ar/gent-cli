@@ -1,10 +1,7 @@
-//! Public bounded inputs, consequences, and failures for a Codex session.
-
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, PermissionMode,
 };
 
-/// Provider turn fields derived exclusively from a durable Gent run selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexTurnOptions {
     model: Option<String>,
@@ -22,7 +19,6 @@ enum CodexApprovalPolicy {
     Never,
 }
 
-/// A bounded Codex effort value with no provider JSON at the daemon boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CodexTurnEffort {
     Low,
@@ -33,7 +29,6 @@ pub enum CodexTurnEffort {
     Ultra,
 }
 
-/// The only sandbox postures currently derived from Gent interaction modes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CodexSandboxPolicy {
     ReadOnly,
@@ -43,8 +38,6 @@ pub enum CodexSandboxPolicy {
 }
 
 impl CodexTurnOptions {
-    /// Converts a Gent-owned selection into bounded Codex turn options.
-    ///
     pub fn from_selection(
         selection: &AgentChatSelection,
         working_directory: Option<&str>,
@@ -89,7 +82,6 @@ impl CodexTurnOptions {
             mode_sandbox
         };
         let approval = match (selection.mode, permission_mode) {
-            (AgentChatMode::Plan, _) => CodexApprovalPolicy::Never,
             (AgentChatMode::Ask, _) | (_, PermissionMode::Autonomous) => {
                 CodexApprovalPolicy::OnRequest
             }
@@ -122,13 +114,6 @@ impl CodexTurnOptions {
             .ok_or(CodexSessionError::InvalidModel)
     }
 
-    /// Applies the append-mode half of a conversation's durable advanced launch configuration.
-    ///
-    /// Codex's app-server surface exposes no raw system-prompt override channel and no per-turn
-    /// cap or tool denylist equivalent to Claude's `--max-turns`/`--disallowedTools` — only an
-    /// append-style prompt prefix, the same mechanism this driver already uses for the Plan-mode
-    /// instruction. A non-append `system_prompt` is silently ignored here; the daemon reports it
-    /// as unsupported for this provider through `agent-chat-conversation-config-v1` instead.
     #[must_use]
     pub fn with_conversation_config(
         mut self,
@@ -191,37 +176,25 @@ impl CodexTurnOptions {
 mod parameters;
 pub(crate) use parameters::turn_parameters;
 
-/// Inputs fixed before the Codex app-server initialization request is sent.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexSessionConfig {
-    /// Optional provider working directory for the thread request.
     pub working_directory: Option<String>,
-    /// The exact previously recorded native thread to reattach, if any.
     pub resume_thread_id: Option<String>,
-    /// Bounded turn settings resolved from the durable Gent run selection.
     pub turn_options: CodexTurnOptions,
     pub mcp_servers: Option<serde_json::Value>,
 }
 
-/// Public consequences of one app-server frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CodexSessionIngress {
-    /// Frames that must be written in order before reading another provider response.
     Send(Vec<Vec<u8>>),
-    /// The matching thread response established a usable native thread.
-    Ready {
-        thread_id: String,
-    },
-    /// The matching turn response established a live native turn.
+    Ready { thread_id: String },
     TurnStarted,
-    /// The live native turn ended.
     TurnEnded,
-    /// The frame did not affect this session.
+    ProviderTurnStarted,
     Ignored,
     Steer(super::CodexSteerOutcome),
 }
 
-/// Controlled failures for the bounded Codex app-server handshake.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum CodexSessionError {
     #[error("the Codex working directory must be non-empty and within the driver limit")]

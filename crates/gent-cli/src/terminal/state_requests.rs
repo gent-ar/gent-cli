@@ -44,7 +44,6 @@ pub(crate) enum UiRequest {
         workspace_id: String,
         mode: PermissionMode,
         bypass_consent: bool,
-        expected_provider: Option<gent_types::AgentChatProvider>,
     },
     Interrupt {
         conversation_id: String,
@@ -53,6 +52,7 @@ pub(crate) enum UiRequest {
     SteerQueued {
         conversation_id: String,
         message_ids: Vec<String>,
+        target: gent_types::ConversationRunStatus,
     },
     CancelQueued {
         conversation_id: String,

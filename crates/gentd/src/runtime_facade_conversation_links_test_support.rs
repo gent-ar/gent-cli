@@ -21,8 +21,18 @@ use crate::{
     ordinary_lifecycle_router::OrdinaryPublicLifecycleRouter,
 };
 
+#[path = "runtime_facade_interrupt_ended_tests.rs"]
+mod interrupt_ended_tests;
+#[path = "runtime_facade_projection_window_tests.rs"]
+mod projection_window_tests;
 #[path = "runtime_facade_conversation_links_refusal_tests.rs"]
 mod refusal_tests;
+#[path = "runtime_facade_side_question_answer_tests.rs"]
+mod side_question_answer_tests;
+#[path = "runtime_facade_side_question_busy_tests.rs"]
+mod side_question_busy_tests;
+#[path = "runtime_facade_side_question_settled_tests.rs"]
+mod side_question_settled_tests;
 #[path = "runtime_facade_switch_wake_tests.rs"]
 mod switch_wake_tests;
 #[path = "runtime_facade_conversation_links_tests.rs"]
@@ -67,8 +77,19 @@ pub(super) async fn facade_with_hosts(
     directory: &std::path::Path,
     hosts: Vec<Box<dyn crate::ordinary_lifecycle_router::OrdinaryLifecycleHost>>,
 ) -> RuntimeFacade {
+    facade_with(directory, hosts, None).await
+}
+
+pub(super) async fn facade_with(
+    directory: &std::path::Path,
+    hosts: Vec<Box<dyn crate::ordinary_lifecycle_router::OrdinaryLifecycleHost>>,
+    side_questions: Option<
+        crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources,
+    >,
+) -> RuntimeFacade {
     let profile = RuntimeCapabilityProfile::new([
         RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::AgentChatProjection,
         RuntimeCapabilityFeature::TurnFollow,
         RuntimeCapabilityFeature::LocalModels,
     ]);
@@ -98,7 +119,7 @@ pub(super) async fn facade_with_hosts(
         None,
         0,
         Vec::new(),
-        None,
+        side_questions,
     )
     .unwrap();
     tokio::spawn(cadence.run());
@@ -205,7 +226,11 @@ pub(super) fn facts(
         .collect()
 }
 
-pub(super) fn running(runtime: &RuntimeFacade, conversation: &AgentChatConversationId, key: &str) {
+pub(super) fn running(
+    runtime: &RuntimeFacade,
+    conversation: &AgentChatConversationId,
+    key: &str,
+) -> String {
     let ledger = runtime.conversation_links().unwrap().clone();
     let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
@@ -231,4 +256,5 @@ pub(super) fn running(runtime: &RuntimeFacade, conversation: &AgentChatConversat
     ledger
         .confirm_agent_chat_prompt_started(id, "daemon", HostEpoch(1))
         .unwrap();
+    id.clone()
 }

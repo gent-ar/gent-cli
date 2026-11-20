@@ -14,6 +14,36 @@
     {
       "frame": {
         "body": {
+          "code": "planNotReviewable",
+          "message": "this plan revision is no longer awaiting review"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000707b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22706c616e4e6f7452657669657761626c65222c226d657373616765223a227468697320706c616e207265766973696f6e206973206e6f206c6f6e676572206177616974696e6720726576696577227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "planApprovalParentNotCurrent",
+          "message": "the plan can be approved only from the conversation's current run"
+        },
+        "type": "error"
+      },
+      "wireHex": "0000008d7b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22706c616e417070726f76616c506172656e744e6f7443757272656e74222c226d657373616765223a2274686520706c616e2063616e20626520617070726f766564206f6e6c792066726f6d2074686520636f6e766572736174696f6e27732063757272656e742072756e227d7d"
+    },
+    {
+      "frame": {
+        "body": {
+          "code": "planApprovalPolicyChanged",
+          "message": "the workspace permission policy changed after the plan was shown"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000897b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a22706c616e417070726f76616c506f6c6963794368616e676564222c226d657373616765223a2274686520776f726b7370616365207065726d697373696f6e20706f6c696379206368616e6765642061667465722074686520706c616e207761732073686f776e227d7d"
+    },
+    {
+      "frame": {
+        "body": {
           "code": "selectionSwitchParentNotCurrent",
           "message": "the selection can change only from the conversation's current run"
         },

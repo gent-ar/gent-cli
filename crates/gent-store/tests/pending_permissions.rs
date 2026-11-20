@@ -84,7 +84,22 @@ fn provider_request_ids_are_scoped_to_their_conversation_run() {
             .unwrap()
             .facts
             .as_slice(),
-        [ConversationActivityFact::DecisionPending { .. }]
+        [ConversationActivityFact::DecisionPending { request: Some(request), .. }]
+            if **request == second
+    ));
+    assert!(matches!(
+        ledger
+            .read_conversation_activity_page("conversation-1", "run-1", 0, 8)
+            .unwrap()
+            .facts
+            .as_slice(),
+        [
+            ConversationActivityFact::DecisionPending { request: Some(request), .. },
+            ConversationActivityFact::DecisionSettled {
+                outcome: Some(gent_types::DecisionOutcome::Cancelled),
+                ..
+            },
+        ] if **request == first
     ));
 }
 
@@ -121,7 +136,7 @@ fn v17_pending_requests_survive_the_composite_identity_migration() {
                 |row| row.get::<_, String>(0),
             )
             .unwrap(),
-        "gent-fresh-schema-v30"
+        "gent-fresh-schema-v34"
     );
     assert_eq!(
         connection
@@ -141,4 +156,89 @@ fn v17_pending_requests_survive_the_composite_identity_migration() {
         .collect::<Result<_, _>>()
         .unwrap();
     assert_eq!(primary_key, ["conversation_id", "run_id", "decision_id"]);
+}
+
+#[test]
+fn a_delivered_answer_settles_its_row_and_grant_once_and_is_idempotent() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    ledger
+        .create_conversation_run(
+            &ConversationRecord {
+                conversation_id: "conversation-1".into(),
+            },
+            &RunRecord {
+                run_id: "run-1".into(),
+                parent_run_id: None,
+                provider: "codex".into(),
+            },
+        )
+        .unwrap();
+    gent_ports::WorkspaceLedger::create_workspace(
+        &ledger,
+        &gent_types::WorkspaceRecord {
+            workspace_id: "workspace".into(),
+            canonical_path: "/workspace".into(),
+        },
+    )
+    .unwrap();
+    let pending = request("conversation-1", "run-1");
+    ledger.save_pending_permission(&pending).unwrap();
+    let grant = gent_types::PolicyRecord {
+        policy_id: "granted".into(),
+        workspace_id: "workspace".into(),
+        scope: gent_types::PolicyScope::ProviderPermissions,
+        revision: 1,
+        mode: gent_types::PermissionMode::AskEveryTime,
+        containment: gent_types::Containment::Sandboxed,
+        allowed_tools: vec!["shell".into()],
+        allowed_categories: vec![],
+        allowed_commands: Vec::new(),
+    };
+
+    for _ in 0..2 {
+        ledger
+            .settle_delivered_permission(
+                &pending.binding,
+                Some(&grant),
+                gent_types::DecisionOutcome::Skipped,
+            )
+            .unwrap();
+    }
+
+    assert!(
+        ledger
+            .pending_permission(&pending.binding.conversation_id, &pending.binding.run_id)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        gent_ports::PolicyLedger::current_policy(
+            &ledger,
+            "workspace",
+            gent_types::PolicyScope::ProviderPermissions
+        )
+        .unwrap(),
+        Some(grant)
+    );
+    let settled = ledger
+        .read_conversation_activity_page("conversation-1", "run-1", 0, 64)
+        .unwrap()
+        .facts
+        .into_iter()
+        .filter_map(|fact| match fact {
+            ConversationActivityFact::DecisionSettled { outcome, .. } => Some(outcome),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(settled, [Some(gent_types::DecisionOutcome::Skipped)]);
+    let value = serde_json::to_value(
+        ledger
+            .read_conversation_activity_page("conversation-1", "run-1", 0, 64)
+            .unwrap()
+            .facts
+            .last()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(value["outcome"], "skipped");
 }

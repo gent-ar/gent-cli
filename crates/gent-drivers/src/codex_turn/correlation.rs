@@ -32,50 +32,46 @@ impl CodexTurnDriver {
         if let Some(reasoning) = self.reasoning.receive(frame) {
             facts = reasoning;
         }
-        if facts.iter().any(|fact| {
-            matches!(
-                fact,
-                PublicWireFact::Event(NormalizedProviderEvent::TurnStarted { .. })
-            )
-        }) {
-            self.reported_root_failure = false;
-        }
-        facts.retain(|fact| {
-            if !matches!(
-                fact,
-                PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure { .. })
-            ) {
-                return true;
-            }
-            if self.reported_root_failure {
-                return false;
-            }
-            self.reported_root_failure = true;
-            true
-        });
         facts.retain(|fact| !matches!(fact, PublicWireFact::SessionStarted { .. }));
-        facts::retain_root_context(frame, &self.child_parent_by_thread, &mut facts);
-        if terminal.is_some() && matches!(facts::method(frame), Some("turn/completed")) {
-            facts.retain(|fact| !facts::root_terminal_fact(fact));
+        if let Some(resets_at) = facts::rate_limit_resets_at(frame) {
+            self.rate_limit_resets_at = Some(resets_at);
         }
-        for fact in &facts {
-            if let PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
-                tool_use_id,
-                ..
-            }) = fact
-            {
+        facts::attach_resets_at(&mut facts, self.rate_limit_resets_at);
+        let child_thread = facts::child_thread(
+            frame,
+            &self.child_parent_by_thread,
+            self.session.thread_id(),
+        );
+        let commands_drained = self
+            .commands
+            .observe(frame, child_thread.is_none(), &mut facts);
+        if let Some(thread_id) = child_thread {
+            let parent = self
+                .child_parent_by_thread
+                .get(thread_id)
+                .map(String::as_str);
+            facts = facts::attribute_to_child(facts, parent);
+        }
+        facts.retain(|fact| match fact {
+            PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
+                tool_use_id, ..
+            }) => {
                 self.tool_output_item_ids.insert(tool_use_id.clone());
+                true
             }
-            if let PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
+            PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
                 child_id,
                 parent_tool_use_id,
-            }) = fact
-            {
-                self.child_parent_by_thread
-                    .entry(child_id.clone())
-                    .or_insert_with(|| parent_tool_use_id.clone());
+            }) => {
+                let new = !self.child_parent_by_thread.contains_key(child_id);
+                if new {
+                    self.child_parent_by_thread
+                        .insert(child_id.clone(), parent_tool_use_id.clone());
+                }
+                new
             }
-        }
+            _ => true,
+        });
         if let Some(fallback) =
             facts::command_completion_fallback(&mut self.tool_output_item_ids, frame)
         {
@@ -94,12 +90,23 @@ impl CodexTurnDriver {
             ));
         }
         let mut effects: Vec<_> = facts.into_iter().map(CodexTurnEffect::Fact).collect();
-        if let Some((child_id, phase)) = terminal
-            && self.settled_child_threads.insert(child_id.clone())
+        let mut child_settled = false;
+        for (child_id, phase) in terminal
+            .into_iter()
+            .chain(facts::reported_child_terminals(frame))
         {
-            effects.push(CodexTurnEffect::Fact(PublicWireFact::Event(
-                NormalizedProviderEvent::ChildTerminal { child_id, phase },
-            )));
+            if self.child_parent_by_thread.contains_key(&child_id)
+                && self.settled_child_threads.insert(child_id.clone())
+            {
+                child_settled = true;
+                effects.push(CodexTurnEffect::Fact(PublicWireFact::Event(
+                    NormalizedProviderEvent::ChildTerminal { child_id, phase },
+                )));
+            }
+        }
+        if (commands_drained || (child_settled && self.commands.drained())) && !self.children_open()
+        {
+            effects.push(CodexTurnEffect::SessionState { idle: true });
         }
         effects
     }

@@ -16,25 +16,14 @@ pub(crate) fn oversized_frames_skipped(skipped: usize) -> Option<PublicWireFact>
 }
 mod codex_protocol;
 
-/// A provider-neutral fact extracted without process, ledger, or UI access.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PublicWireFact {
-    SessionStarted {
-        provider_session_id: String,
-    },
+    SessionStarted { provider_session_id: String },
     Event(NormalizedProviderEvent),
     Lifecycle(NormalizedLifecycleSignal),
-    /// A provider-neutral compaction transition with no provider-native identifiers.
-    ///
-    /// The daemon must bind this to its owned prompt turn and create its own durable event ID
-    /// before it may reach the private compaction ingress.
     Compaction(PublicCompactionObservation),
 }
 
-/// A normalized provider compaction transition with all provider-native detail discarded.
-///
-/// This deliberately has no session, thread, item, or provider event identity. Those values
-/// never leave the runner; the daemon assigns a durable source identity after ownership checks.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PublicCompactionObservation {
     Started,
@@ -42,7 +31,6 @@ pub enum PublicCompactionObservation {
     Failed { failure: AgentChatCompactionFailure },
 }
 
-/// Normalizes one documented public-provider frame. Unknown fields never enter the result.
 #[must_use]
 pub fn normalize_public_frame(provider: PublicProvider, frame: &Value) -> Vec<PublicWireFact> {
     match provider {
@@ -51,7 +39,6 @@ pub fn normalize_public_frame(provider: PublicProvider, frame: &Value) -> Vec<Pu
     }
 }
 
-/// Replays an ordered synthetic or recorded transcript through the pure provider contract.
 #[must_use]
 pub fn replay_public_frames(provider: PublicProvider, frames: &[Value]) -> Vec<PublicWireFact> {
     frames
@@ -75,6 +62,7 @@ fn claude(frame: &Value) -> Vec<PublicWireFact> {
                 | "task_progress"
                 | "task_updated"
                 | "background_tasks_changed"
+                | "session_state_changed"
                 | "thinking_tokens",
             ),
         ) => Vec::new(),
@@ -83,17 +71,14 @@ fn claude(frame: &Value) -> Vec<PublicWireFact> {
         (Some("assistant"), _) => claude_assistant(frame),
         (Some("user"), _) => claude_protocol::user(frame),
         (Some("control_response"), _) => claude_protocol::control_response(frame),
-        (Some("control_cancel_request" | "tool_progress" | "rate_limit_event"), _) => Vec::new(),
+        (Some("control_cancel_request" | "tool_progress" | "rate_limit_event"), _)
+        | (Some("command_lifecycle"), _) => Vec::new(),
         (Some("error"), _) => claude_error(frame),
         (Some("result"), _) => claude_protocol::result(frame),
         _ => diagnostic("unsupportedClaudeFrame"),
     }
 }
 
-/// Reduces Claude's nested streaming envelope without retaining provider-native payloads.
-///
-/// The public runner already owns the durable Gent turn, so Claude's `message_start` cannot
-/// create a second turn from its opaque provider message id. It is nevertheless liveness proof.
 fn claude_stream_event(frame: &Value) -> Vec<PublicWireFact> {
     let Some(event) = frame.get("event") else {
         return diagnostic("malformedClaudeStreamEvent");
@@ -239,9 +224,6 @@ fn claude_error(frame: &Value) -> Vec<PublicWireFact> {
     vec![PublicWireFact::Event(claude_protocol::failure(frame))]
 }
 
-/// A tool use Claude's own permission policy blocked before it ran. Unlike an ordinary tool
-/// result, this frame carries the tool's identity directly (`tool_use_id`/`tool_name`), so no
-/// runner-owned correlation is needed — it never reaches a matching `user`/`tool_result` frame.
 fn permission_denied(frame: &Value) -> Vec<PublicWireFact> {
     match (string(frame, "tool_use_id"), string(frame, "tool_name")) {
         (Some(tool_use_id), Some(tool_name))

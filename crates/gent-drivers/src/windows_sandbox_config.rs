@@ -64,6 +64,9 @@ pub(super) fn command(
             command.arg("--env").arg(entry);
         }
     }
+    for (name, value) in crate::launch_spec::provider_environment(&launch.provider) {
+        command.arg("--env").arg(format!("{name}={value}"));
+    }
     if let Some(gateway) = request.profile.gateway() {
         command
             .arg("--allow-loopback-port")
@@ -196,6 +199,25 @@ mod tests {
             .map(|v| v.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert!(args.windows(2).any(|v| v == ["--gateway-token-stdin", "1"]));
+        assert!(
+            !args
+                .iter()
+                .any(|v| v.starts_with("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"))
+        );
+        let claude = ProviderLaunch {
+            provider: "claude".into(),
+            ..launch.clone()
+        };
+        let claude_args = command(&request, &claude, &lock, Path::new("C:/qa"), "run-1")
+            .unwrap()
+            .get_args()
+            .map(|v| v.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            claude_args
+                .windows(2)
+                .any(|v| v == ["--env", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1"])
+        );
         assert!(
             !args
                 .iter()

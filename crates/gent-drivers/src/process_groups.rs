@@ -5,7 +5,7 @@ use std::process::Stdio;
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    sync::{OnceLock, PoisonError},
+    sync::OnceLock,
 };
 
 use super::{SystemProcess, signal_process_tree};
@@ -113,16 +113,14 @@ pub fn reaped(pid: u32) {
 
 impl Drop for SystemProcess {
     fn drop(&mut self) {
-        let child = self.child.get_mut().unwrap_or_else(PoisonError::into_inner);
-        let pid = child.id();
-        if matches!(child.try_wait(), Ok(None)) {
-            if let Ok(group) = i32::try_from(pid) {
-                let _ = signal_process_tree(group, ProcessTreeSignal::Kill);
-            }
-            let _ = child.kill();
-            let _ = child.wait();
+        let status = self.exit.lock();
+        if status.is_none()
+            && let Ok(group) = i32::try_from(self.pid)
+        {
+            let _ = signal_process_tree(group, ProcessTreeSignal::Kill);
         }
-        reaped(pid);
+        drop(status);
+        self.settle_exit();
     }
 }
 

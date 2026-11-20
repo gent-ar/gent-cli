@@ -42,7 +42,7 @@ pub(crate) fn provider_commands(
         InitializeState::NotInstalled => ProviderCommands::failed("Claude is not installed"),
         InitializeState::Loading => ProviderCommands {
             listing: CommandListing::Loading,
-            commands: Vec::new(),
+            commands: gent_drivers::claude_commands::claude_builtin_descriptors(),
         },
         InitializeState::Failed(message) => ProviderCommands::failed(message),
         InitializeState::Listed(response) => {

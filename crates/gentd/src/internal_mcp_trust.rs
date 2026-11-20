@@ -1,5 +1,43 @@
-//! Exact daemon-injected selected tool provenance; names alone carry no authority.
 use serde_json::Value;
+
+pub(crate) fn owned_chat_tools(
+    settings: &[Value],
+    injection: Option<&crate::standalone_mcp_config::InjectedInternalMcp>,
+    conversation: &str,
+    disallowed: &[String],
+) -> Vec<String> {
+    let Some(injection) = injection else {
+        return Vec::new();
+    };
+    let actual = Value::Object(
+        settings
+            .iter()
+            .cloned()
+            .filter_map(|mut entry| {
+                let name = entry.as_object_mut()?.remove("name")?.as_str()?.to_owned();
+                Some((name, entry))
+            })
+            .collect(),
+    );
+    gent_types::internal_tools::tools(Some("chat"))
+        .iter()
+        .filter_map(|tool| {
+            let tool = tool["name"].as_str()?;
+            let name = format!(
+                "mcp__{}__{tool}",
+                crate::standalone_mcp_config::CHAT_SERVER_NAME
+            );
+            permits_expected(
+                &actual,
+                injection.servers(),
+                conversation,
+                &name,
+                disallowed,
+            )
+            .then_some(name)
+        })
+        .collect()
+}
 
 pub(crate) fn permits(
     actual: Option<&Value>,
@@ -35,7 +73,6 @@ pub(super) fn permits_expected(
     {
         return false;
     }
-    // An independently configurable alias is never an injected source.
     if actual.get(server.replace('-', "_")).is_some() {
         return false;
     }

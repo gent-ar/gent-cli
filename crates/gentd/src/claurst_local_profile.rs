@@ -15,7 +15,6 @@ const COMPACT_TOOLS: [&str; 7] = [
     "Bash",
     "PowerShell",
 ];
-const COMPACT_READ_ONLY_TOOLS: [&str; 3] = ["Glob", "Grep", "Read"];
 const COMPACT_GUIDANCE: &str = "\
 - Work step by step with tools until you can answer; do not stop after one tool call if the answer needs more.
 - Never describe what a file or project does without reading it. To explain a project: 1) Glob \"**/*\" to list files, 2) Read README.md, 3) Read the main source files, 4) only then answer.
@@ -31,12 +30,22 @@ pub(super) fn template_kwargs(
     effort: AgentChatEffort,
     mode: AgentChatMode,
 ) -> String {
-    let mut kwargs = json!({ "gent_instructions": instructions(model, effort, mode) });
-    if model.agent_profile == LocalAgentProfile::Compact {
-        kwargs["gent_tools"] = match mode {
-            AgentChatMode::Ask | AgentChatMode::Agent => json!(COMPACT_TOOLS),
-            AgentChatMode::Plan => json!(COMPACT_READ_ONLY_TOOLS),
-        };
+    let tools = (model.agent_profile == LocalAgentProfile::Compact).then(|| match mode {
+        AgentChatMode::Ask => COMPACT_TOOLS.to_vec(),
+        AgentChatMode::Agent => COMPACT_TOOLS
+            .into_iter()
+            .chain(["Agent", "monitor"])
+            .collect(),
+        AgentChatMode::Plan => COMPACT_TOOLS
+            .into_iter()
+            .filter(|tool| !matches!(*tool, "Edit" | "Write"))
+            .chain(["Agent", "monitor"])
+            .collect(),
+    });
+    let mut kwargs =
+        json!({ "gent_instructions": instructions(model, effort, mode, tools.as_deref()) });
+    if let Some(tools) = tools {
+        kwargs["gent_tools"] = json!(tools);
     }
     kwargs.to_string()
 }
@@ -55,13 +64,15 @@ pub(super) fn history_input_bytes(model: &LocalModelRecord, effort: AgentChatEff
         .clamp(8 * 1024, 512 * 1024)
 }
 
-fn instructions(model: &LocalModelRecord, effort: AgentChatEffort, mode: AgentChatMode) -> String {
-    let guidance =
-        if model.agent_profile == LocalAgentProfile::Compact && mode != AgentChatMode::Plan {
-            format!("\nTools: {}.\n{COMPACT_GUIDANCE}", COMPACT_TOOLS.join(", "))
-        } else {
-            String::new()
-        };
+fn instructions(
+    model: &LocalModelRecord,
+    effort: AgentChatEffort,
+    mode: AgentChatMode,
+    tools: Option<&[&str]>,
+) -> String {
+    let guidance = tools
+        .map(|tools| format!("\nTools: {}.\n{COMPACT_GUIDANCE}", tools.join(", ")))
+        .unwrap_or_default();
     format!(
         "{}{guidance}{}",
         mode_instruction(mode),
@@ -75,7 +86,7 @@ fn mode_instruction(mode: AgentChatMode) -> &'static str {
             "Answer and explain. Read files when that helps. Do not change files or run commands unless the user asks you to; Gent asks the user before each change."
         }
         AgentChatMode::Plan => {
-            "Inspect only as needed, then provide a concrete plan. Do not change files or invoke destructive tools."
+            "Research as needed with any tool, including shell commands and sub-agents; Gent asks the user when a tool needs approval. Do not edit project files. Then reply with a concrete plan."
         }
         AgentChatMode::Agent => {
             "You are Gent, a local coding agent working in the user's project directory. Use the available tools when needed. Request permission before actions that require it."

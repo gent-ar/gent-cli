@@ -71,7 +71,7 @@ fn a_primary_steer_whose_target_ends_before_claim_runs_as_the_next_turn() {
 }
 
 #[test]
-fn atomic_primary_is_excluded_immediately_and_claims_only_its_original_target() {
+fn atomic_primary_interrupts_its_target_and_runs_as_the_next_turn() {
     let (ledger, conversation) = ledger();
     let original = active(&ledger, &conversation);
     let create = input(&conversation);
@@ -87,10 +87,11 @@ fn atomic_primary_is_excluded_immediately_and_claims_only_its_original_target() 
         .unwrap();
     assert!(
         ledger
-            .claim_agent_chat_prompt_dispatch(
+            .claim_agent_chat_prompt_dispatch_excluding_runs(
                 DAEMON,
                 HostEpoch(1),
-                gent_types::AgentChatProvider::Codex
+                gent_types::AgentChatProvider::Codex,
+                std::slice::from_ref(&original.run_id),
             )
             .unwrap()
             .is_none()
@@ -101,9 +102,23 @@ fn atomic_primary_is_excluded_immediately_and_claims_only_its_original_target() 
         .facts;
     assert!(facts.iter().any(|fact| matches!(fact,ConversationActivityFact::PromptSteerRequested {scope,message_id,receipt_id}
         if scope.turn_id==original.message.turn_id && message_id==&queued.message.message_id && receipt_id==&create.receipt_id.0)));
-    let claimed = claim(&ledger, &original).unwrap();
-    assert_eq!(claimed.0.message, queued.message);
-    assert_eq!(claimed.1, create.receipt_id);
+    assert!(claim(&ledger, &original).is_none());
+    ledger
+        .settle_agent_chat_prompt_terminal(
+            &original.message.message_id,
+            DAEMON,
+            HostEpoch(1),
+            DurableTurnPhase::Interrupted,
+        )
+        .unwrap();
+    let next = ledger
+        .claim_agent_chat_prompt_dispatch(
+            DAEMON,
+            HostEpoch(1),
+            gent_types::AgentChatProvider::Codex,
+        )
+        .unwrap();
+    assert_eq!(next.unwrap().message, queued.message);
 }
 
 #[test]

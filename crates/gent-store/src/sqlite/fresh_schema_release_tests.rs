@@ -70,3 +70,35 @@ fn published_v23_and_current_v26_preserve_transcript_identity_and_content() {
         );
     }
 }
+
+#[test]
+fn a_v33_ledger_gives_every_failed_side_question_a_typed_code() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    apply(&mut connection).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             ALTER TABLE agent_chat_side_questions DROP COLUMN failure_code;
+             INSERT INTO agent_chat_side_questions (side_question_id, idempotency_key, conversation_id, question, status, answer, failure_reason, created_at_unix_ms)
+             VALUES ('failed', 'key-failed', 'conversation', 'why?', 'failed', NULL, 'provider exited', 1),
+                    ('answered', 'key-answered', 'conversation', 'how?', 'answered', 'so', NULL, 2);
+             UPDATE gent_schema SET identity = 'gent-fresh-schema-v33' WHERE singleton = 1;",
+        )
+        .unwrap();
+    apply(&mut connection).unwrap();
+    apply(&mut connection).unwrap();
+    let codes = connection
+        .prepare("SELECT side_question_id, failure_code FROM agent_chat_side_questions ORDER BY side_question_id")
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        codes,
+        [
+            ("answered".to_owned(), None),
+            ("failed".to_owned(), Some("providerFailed".to_owned()))
+        ]
+    );
+}

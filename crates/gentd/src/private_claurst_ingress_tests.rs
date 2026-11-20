@@ -53,7 +53,6 @@ async fn follow_up_requires_the_exact_bound_private_session() {
         bridge,
         "daemon-a".into(),
     );
-    // The sidecar must be bound through start before it can receive a follow-up.
     ingress.start(start_request(), HostEpoch(1)).await.unwrap();
     ingress
         .submit(submit_request(binding.clone()))
@@ -89,7 +88,7 @@ async fn drain_persists_normalized_facts_then_a_terminal_checkpoint() {
             .await
             .unwrap(),
         crate::private_claurst_ingress::PrivateClaurstDrain {
-            facts: 1,
+            progressed: true,
             terminal: true,
             terminal_phase: Some(gent_types::DurableTurnPhase::Completed),
         }

@@ -11,6 +11,7 @@ use gent_types::{
 use sha2::{Digest, Sha256};
 
 use super::compaction::{Admission, Work};
+use super::launch::Launch;
 use super::{ActivePrompt, ClaurstLifecycleLedger, ClaurstPromptLifecycle, display};
 use crate::claurst_runtime_factory::ClaurstRuntimeFactory;
 
@@ -66,15 +67,25 @@ where
             Err(error) => return self.fail_prelaunch(&saved, &error),
         };
         let source_id = source_id(&saved);
-        let (request, boundary) = self.start_request(&saved, &source_id, &attachments)?;
-        if let Err(error) = self
-            .runtime
-            .ensure_for_prompt(&saved, &self.busy_conversations())
-            .await
-        {
+        let launch = Launch {
+            without_attachments: attachment_metadata.is_empty(),
+            attachments,
+        };
+        self.launch_runtime(saved, source_id, launch).await
+    }
+
+    pub(super) async fn start_launched(
+        &mut self,
+        saved: AgentChatPromptSaved,
+        source_id: ClaurstSourceId,
+        launch: Launch,
+        launched: Result<(), String>,
+    ) -> Result<bool, String> {
+        if let Err(error) = launched {
             let code = self.sandbox_failure_code(&saved);
             return self.fail_prelaunch_with(&saved, &error, code);
         }
+        let (request, boundary) = self.start_request(&saved, &source_id, &launch.attachments)?;
         let summarizer = self
             .runtime
             .context_summarizer(&saved.message.conversation_id)
@@ -83,7 +94,7 @@ where
             &saved,
             &boundary,
             &request,
-            attachment_metadata.is_empty(),
+            launch.without_attachments,
             summarizer.as_ref(),
         )? {
             Admission::Reject(error) => return self.fail_prelaunch(&saved, &error),
@@ -103,11 +114,22 @@ where
             return Err(self.stop_failed_runtime(&saved, display(error)).await);
         }
         if let Err(error) = self.ingress.start(request, self.host_epoch).await {
+            if let gent_runtime::RuntimeError::Port(gent_ports::PortError::NotDelivered(reason)) =
+                &error
+            {
+                let failure = self
+                    .stop_failed_runtime(&saved, format!("Claurst could not start: {reason}"))
+                    .await;
+                return self.fail_prelaunch(&saved, &failure);
+            }
             let error = display(error);
             let failure = self.stop_failed_runtime(&saved, error.clone()).await;
             self.record_notice(
                 &saved,
-                "claurst-start-failed",
+                &format!(
+                    "{}claurst-start-failed",
+                    gent_types::AgentChatFailureCode::ProviderFailed.event_prefix()
+                ),
                 format!("Claurst could not start: {error}"),
             )?;
             self.dispatches

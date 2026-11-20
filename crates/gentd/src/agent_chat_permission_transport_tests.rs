@@ -17,9 +17,10 @@ impl AgentChatPermissionPort for Port {
     async fn exchange(
         &self,
         frame: AgentChatPermissionFrame,
-    ) -> Result<AgentChatPermissionFrame, String> {
+    ) -> Result<AgentChatPermissionFrame, crate::agent_chat_permission_api::PermissionExchangeError>
+    {
         let AgentChatPermissionFrame::PendingRead { request_id, .. } = frame else {
-            return Err("unexpected".into());
+            return Err(String::from("unexpected").into());
         };
         Ok(AgentChatPermissionFrame::Pending {
             request_id,

@@ -39,6 +39,10 @@ where
             return Err(ClaudeRunnerError::UnsupportedProvider);
         }
         let plans_for_review = start.turn_options.plans_for_review();
+        let mut messages = super::messages::WrittenMessages::default();
+        if input.is_some() {
+            messages.written(&start.message_id);
+        }
         let output = ProviderOutputPump::new(
             MAX_OUTPUT_CHUNK_BYTES,
             MAX_PROVIDER_FRAME_BYTES,
@@ -80,13 +84,16 @@ where
                 output,
                 permissions: ClaudePermissionRelay::default(),
                 started_tools: BTreeMap::new(),
-                child_ids: BTreeMap::new(),
-                steers: BTreeMap::new(),
+                children: std::collections::BTreeSet::new(),
+                background_commands: BTreeMap::new(),
+                messages,
+                interrupts: 0,
                 plans_for_review,
                 awaiting_resumed_frame,
                 pending_resume_session,
                 authentication_failed: false,
-                retry: super::retry::TransientRetry::new(self.transient_retry_step, input),
+                rate_limited: false,
+                rate_limit_resets_at: None,
             },
         );
         Ok(())

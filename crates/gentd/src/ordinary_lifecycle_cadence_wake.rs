@@ -19,12 +19,9 @@ impl<L: AgentChatReadLedger> OrdinaryPromptIngress<L> {
         prompt: PromptWake,
         expected_turn_id: Option<&str>,
     ) -> Result<(), String> {
-        if !provider.steers_by_interrupt() {
-            return self.wake_run(provider, prompt);
-        }
         match expected_turn_id {
             Some(turn_id) => self.interrupt_turn(provider, &prompt.run_id.0, turn_id, None),
-            None => self.interrupt_run(provider, &prompt.run_id.0),
+            None => self.wake_run(provider, prompt),
         }
     }
 

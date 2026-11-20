@@ -1,4 +1,3 @@
-//! Concrete production execution/preflight paths with inert process I/O, never containment proof.
 use gent_drivers::{
     buffering::BufferPolicy,
     interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal},
@@ -50,8 +49,6 @@ impl ProcessLauncher for Launcher {
         if self.0.fail.load(Ordering::SeqCst) {
             return Err(SupervisorError::Launch("fixture failure".into()));
         }
-        // Upstream can already have sent a callback before any start/initialize acknowledgment.
-        // The lifecycle cannot consume it until the owning runner's start call returns.
         if launch.provider == "claude" {
             self.0.reads.lock().unwrap().push_back(br#"{"type":"control_request","request_id":"early","request":{"subtype":"can_use_tool","tool_use_id":"tool","tool_name":"mcp__gent_goal__gent_goal_update","input":{}}}
 "#.to_vec());
@@ -70,6 +67,7 @@ pub(super) fn policy() -> PolicyRecord {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     }
 }
 pub(super) fn request(name: &str) -> PermissionRequest {

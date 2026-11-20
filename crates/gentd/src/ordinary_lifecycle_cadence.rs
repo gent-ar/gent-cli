@@ -1,8 +1,5 @@
+use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use std::time::Duration;
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex, atomic::AtomicBool},
-};
 
 use async_trait::async_trait;
 use gent_ports::AgentChatReadLedger;
@@ -33,7 +30,6 @@ pub(crate) struct OrdinaryPromptIngress<L> {
     standalone_readiness: Option<Arc<dyn StandalonePromptRelease>>,
     async_claurst_notify: Option<Arc<Notify>>,
     async_claurst: Arc<tokio::sync::Mutex<Option<Box<dyn AsyncOrdinaryLifecycleHost>>>>,
-    async_claurst_interrupts: Arc<Mutex<VecDeque<PendingClaurstInterrupt>>>,
     async_claurst_warm: Arc<Mutex<Option<crate::provider_warm_pool::WarmTarget>>>,
     async_claurst_attached: Arc<AtomicBool>,
 }
@@ -66,7 +62,8 @@ pub(crate) trait AsyncOrdinaryLifecycleHost: Send + std::fmt::Debug {
     ) -> Result<(), String> {
         Err("Claurst turn-bound interrupt owner is unavailable".into())
     }
-    async fn warm_claurst(&mut self, _conversation_id: &str, _run_id: &str) -> Result<(), String> {
+    fn warm_claurst(&mut self, _conversation_id: &str, _run_id: &str) {}
+    async fn reap_idle(&mut self, _now: std::time::Instant) -> Result<(), String> {
         Ok(())
     }
     fn shutdown_complete(&self) -> bool;
@@ -93,13 +90,6 @@ impl InterruptGoalStop {
     }
 }
 
-#[derive(Debug)]
-pub(super) struct PendingClaurstInterrupt {
-    run_id: String,
-    expected_turn_id: Option<String>,
-    goal_stop: Option<InterruptGoalStop>,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct OrdinaryLifecycleCadence<L> {
     standalone_recovery: Option<Arc<dyn held_recovery::StandaloneHeldRecovery>>,
@@ -108,8 +98,8 @@ pub(crate) struct OrdinaryLifecycleCadence<L> {
     pub(super) control: OrdinaryLifecycleControl,
     pub(super) async_claurst: Arc<tokio::sync::Mutex<Option<Box<dyn AsyncOrdinaryLifecycleHost>>>>,
     pub(super) async_claurst_notify: Arc<Notify>,
-    pub(super) async_claurst_interrupts: Arc<Mutex<VecDeque<PendingClaurstInterrupt>>>,
     pub(super) async_claurst_warm: Arc<Mutex<Option<crate::provider_warm_pool::WarmTarget>>>,
+    pub(super) claurst_finished: Arc<AtomicBool>,
 }
 
 #[must_use]
@@ -123,7 +113,6 @@ pub(crate) fn pair<L>(
     let notify = Arc::new(Notify::new());
     let async_claurst_notify = Arc::new(Notify::new());
     let async_claurst = Arc::new(tokio::sync::Mutex::new(None));
-    let async_claurst_interrupts = Arc::new(Mutex::new(VecDeque::new()));
     let async_claurst_warm = Arc::new(Mutex::new(None));
     let async_claurst_attached = Arc::new(AtomicBool::new(false));
     let control = OrdinaryLifecycleControl::new();
@@ -139,7 +128,6 @@ pub(crate) fn pair<L>(
             standalone_readiness: None,
             async_claurst_notify: Some(Arc::clone(&async_claurst_notify)),
             async_claurst: Arc::clone(&async_claurst),
-            async_claurst_interrupts: Arc::clone(&async_claurst_interrupts),
             async_claurst_warm: Arc::clone(&async_claurst_warm),
             async_claurst_attached,
         },
@@ -150,8 +138,8 @@ pub(crate) fn pair<L>(
             control,
             async_claurst,
             async_claurst_notify,
-            async_claurst_interrupts,
             async_claurst_warm,
+            claurst_finished: Arc::new(AtomicBool::new(false)),
         },
     )
 }
@@ -246,6 +234,8 @@ impl<L: AgentChatReadLedger + 'static> PromptCommitWake for OrdinaryPromptIngres
 
 #[path = "ordinary_lifecycle_cadence_claurst.rs"]
 mod claurst;
+#[path = "ordinary_lifecycle_cadence_claurst_drive.rs"]
+mod claurst_drive;
 #[path = "ordinary_lifecycle_cadence_run.rs"]
 mod run;
 

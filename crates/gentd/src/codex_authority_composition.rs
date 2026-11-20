@@ -1,9 +1,3 @@
-//! Private, fail-closed Codex authority composition.
-//!
-//! This is deliberately not selected by daemon arguments. A future private supervisor must hand
-//! it a signed evidence record and compatibility envelope before it can construct a process
-//! runner. The ordinary `--agent-chat-authority` profile remains durable-chat-only.
-
 use std::sync::Arc;
 
 use gent_drivers::buffering::BufferPolicy;
@@ -36,17 +30,12 @@ const EVIDENCE_REFERENCE: &str = "private-codex-authority-v1";
 
 type PrivateCodexRunner<L> = CodexPromptRunner<L, <L as ProcessLauncher>::Process>;
 
-/// Private supervisor inputs for the one Codex-only process authority profile.
-///
-/// This is intentionally not a public command-line configuration. The executable comes only
-/// from the daemon's durable provisioned-installation ledger, never `PATH` or an app provider.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PrivateCodexAuthorityConfig {
     pub(crate) coordinator_id: String,
     pub(crate) host_epoch: HostEpoch,
 }
 
-/// Private authority host whose launcher is selected only by daemon composition.
 pub(crate) struct PrivateCodexAuthorityHost<L: ProcessLauncher> {
     supervisor: PrivateCodexSupervisor<
         SqliteLedger,
@@ -59,19 +48,16 @@ impl<L> PrivateCodexAuthorityHost<L>
 where
     L: ProcessLauncher + 'static,
 {
-    /// Drives one recovery/tick/drain pass through the only private lifecycle owner.
     pub(crate) fn wake(&mut self) -> Result<PrivateCodexWake, gent_runtime::RuntimeError> {
         self.supervisor.wake()
     }
 
-    /// Starts a durable process-tree drain without accepting another provider prompt.
     pub(crate) fn request_shutdown(
         &mut self,
     ) -> Result<PrivateCodexShutdown, gent_runtime::RuntimeError> {
         self.supervisor.request_shutdown()
     }
 
-    /// Advances a caller-timed process-tree escalation ladder.
     pub(crate) fn escalate_shutdown(
         &mut self,
     ) -> Result<PrivateCodexEscalation, gent_runtime::RuntimeError> {
@@ -114,14 +100,13 @@ where
         request_id: &str,
         decision: gent_drivers::codex_control::CodexControlDecision,
         answers: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.supervisor
             .respond_permission(run_id, request_id, decision, answers)
-            .map_err(|_| ())
+            .map_err(|error| crate::ordinary_lifecycle_host::Undelivered::of(&error))
     }
 }
 
-/// Failure before a private Codex authority host becomes reachable.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PrivateCodexAuthorityError {
     #[error("private Codex coordinator identity must be bounded and nonempty")]
@@ -132,18 +117,6 @@ pub(crate) enum PrivateCodexAuthorityError {
     Runtime(#[from] PublicDriversRuntimeError),
 }
 
-/// Composes a Codex-only lifecycle from a release-verified evidence grant.
-///
-/// The authority-release reader verifies evidence and its exact compatibility envelope before it
-/// supplies this opaque grant. The sealed ordinary composition supplies its read-only launcher; any
-/// future broad composition must supply an independently enforced containment launcher.
-/// This does not discover, probe, launch, or advertise a provider; the caller must retain the
-/// returned host and schedule its bounded `wake` method. Its lifecycle cannot be driven around
-/// the retained supervisor, but it still has no prompt wake source or daemon bootstrap wiring.
-///
-/// # Errors
-/// Returns before runner construction if the coordinator or signed evidence/compatibility fence
-/// is invalid, and otherwise returns an authority-composition failure.
 pub(crate) fn compose_private_codex_authority<L>(
     state: &DaemonCompositionState,
     config: &PrivateCodexAuthorityConfig,

@@ -77,8 +77,8 @@ mod claurst_prompt_lifecycle;
 mod claurst_runtime_factory;
 mod claurst_sandbox_launcher;
 mod claurst_sandbox_stdio;
+mod claurst_side_question_runner;
 mod claurst_standalone_owner;
-mod claurst_summary_runner;
 #[allow(dead_code)]
 mod codex_authority_composition;
 #[allow(dead_code)]
@@ -216,6 +216,7 @@ mod provider_lifecycle_host;
 mod provider_readiness_boundary;
 mod provider_readiness_transport;
 mod provider_resolver;
+mod provider_run_state;
 mod provider_warm_pool;
 #[allow(dead_code)]
 mod public_driver_runtime;
@@ -271,6 +272,7 @@ mod windows_os_resources;
 mod windows_provider_resources;
 #[cfg(windows)]
 mod windows_sandbox_runtime;
+mod workspace_changes_recorder;
 mod workspace_documents;
 mod workspace_documents_transport;
 mod workspace_git_api;
@@ -279,7 +281,6 @@ mod workspace_git_api_tests;
 mod workspace_git_transport;
 #[allow(dead_code)]
 mod workspace_identity;
-
 #[cfg(test)]
 pub(crate) use compatibility_assessment::CompatibilityAssessment;
 #[cfg(test)]
@@ -291,11 +292,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Box::pin(daemon_bootstrap::run()).await
 }
 
+#[cfg(any(windows, target_os = "linux"))]
+mod contained_claude_mcp;
 #[cfg(test)]
 mod regression_suites;
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
-
-#[cfg(any(windows, target_os = "linux"))]
-mod contained_claude_mcp;

@@ -1,5 +1,3 @@
-//! Durable-before-spawn start transition for one claimed Codex prompt.
-
 use std::collections::BTreeMap;
 
 use gent_ports::{
@@ -67,7 +65,7 @@ where
     let response = match runtime.runs().start_or_resume(launch) {
         Ok(response) => response,
         Err(error) => {
-            runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+            runner.cancel_codex_prompt(&run_id);
             return Err(error);
         }
     };
@@ -85,8 +83,7 @@ where
                 Binding {
                     prompt,
                     sequence: 0,
-                    settled: false,
-                    releasing: false,
+                    turns: crate::provider_run_state::RunTurns::prompt_started(),
                     steers: Vec::new(),
                     upgraded,
                     last_dispatch: 0,
@@ -98,14 +95,12 @@ where
             );
             Ok(CodexPromptDispatchOutcome::Started { run_id })
         }
-        PublicRunOutcome::Denied | PublicRunOutcome::LeaseContended => {
+        PublicRunOutcome::Denied
+        | PublicRunOutcome::LeaseContended
+        | PublicRunOutcome::Interrupted => {
             runner.cancel_codex_prompt(&run_id);
             runtime.release_unstarted_prompt_launch(&message_id, coordinator_id, host_epoch)?;
             Ok(CodexPromptDispatchOutcome::Empty)
-        }
-        PublicRunOutcome::Interrupted => {
-            runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-            Ok(CodexPromptDispatchOutcome::Unprovable { run_id })
         }
     }
 }
@@ -152,16 +147,13 @@ where
         None => runtime.interrupted_reply_before(&prompt.message)?,
     };
     runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch)?;
-    if let Err(error) = runner.submit_codex_prompt(
+    runner.submit_codex_prompt(
         &run_id,
         &prompt_text,
         goal.as_ref(),
         &attachments,
         interrupted_reply.as_deref(),
-    ) {
-        runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-        return Err(error.into());
-    }
+    )?;
     if let Err(error) = runtime.confirm_prompt_started(&message_id, coordinator_id, host_epoch) {
         let _ = runner.interrupt(&run_id);
         runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
@@ -171,8 +163,7 @@ where
         .get_mut(&run_id)
         .ok_or_else(super::error::missing_binding)?;
     binding.prompt = prompt;
-    binding.settled = false;
-    binding.releasing = false;
+    binding.turns.open_prompt();
     binding.awaits_first_input = false;
     Ok(CodexPromptDispatchOutcome::Started { run_id })
 }

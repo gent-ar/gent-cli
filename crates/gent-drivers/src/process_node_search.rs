@@ -22,13 +22,6 @@ impl NodeSearch {
     }
 }
 
-/// Restricts a child to the locked Node runtime and removes inherited npm controls.
-///
-/// This is shared by ordinary provider shims and the private npm installer. It deliberately does
-/// not inherit `PATH`: an npm shim using `env node` can resolve only the locked runtime.
-///
-/// # Errors
-/// Returns when a safe child `PATH` cannot be constructed.
 pub fn configure_locked_node_environment(
     command: &mut Command,
     node_bin: &std::path::Path,
@@ -64,10 +57,15 @@ pub(super) const PACKAGE_MANAGER_PROVENANCE: [&str; 5] = [
     "CODEX_MANAGED_PACKAGE_ROOT",
 ];
 
-pub(super) fn remove_package_manager_provenance(command: &mut Command) {
+pub(super) fn provider_environment(command: &mut Command, provider: &str) {
     for variable in PACKAGE_MANAGER_PROVENANCE {
         command.env_remove(variable);
     }
+    command.envs(
+        crate::launch_spec::provider_environment(provider)
+            .iter()
+            .copied(),
+    );
 }
 
 fn node_first_path(node_bin: &std::path::Path) -> Result<std::ffi::OsString, SupervisorError> {
@@ -91,7 +89,7 @@ fn locked_node_path(node_bin: &std::path::Path) -> Result<std::ffi::OsString, Su
 mod tests {
     use std::{ffi::OsStr, process::Command};
 
-    use super::{PACKAGE_MANAGER_PROVENANCE, remove_package_manager_provenance};
+    use super::{PACKAGE_MANAGER_PROVENANCE, provider_environment};
 
     #[test]
     fn provider_launches_never_inherit_codex_package_manager_provenance() {
@@ -100,7 +98,7 @@ mod tests {
             command.env(variable, "/somewhere/else");
         }
         command.env("HOME", "/home/user");
-        remove_package_manager_provenance(&mut command);
+        provider_environment(&mut command, "codex");
         let environment: Vec<(&OsStr, Option<&OsStr>)> = command.get_envs().collect();
         for variable in PACKAGE_MANAGER_PROVENANCE {
             assert!(
@@ -109,5 +107,16 @@ mod tests {
             );
         }
         assert!(environment.contains(&(OsStr::new("HOME"), Some(OsStr::new("/home/user")))));
+    }
+
+    #[test]
+    fn claude_launches_report_their_session_state() {
+        let mut command = Command::new("claude");
+        provider_environment(&mut command, "claude");
+        assert!(command.get_envs().any(|entry| entry
+            == (
+                OsStr::new("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"),
+                Some(OsStr::new("1"))
+            )));
     }
 }

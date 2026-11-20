@@ -1,9 +1,11 @@
-//! Atomic `SQLite` ownership for an agent-chat conversation and its root run.
 mod checkpoint;
 mod fork;
 mod prompt;
+mod prompt_admission_download;
 pub(super) mod prompt_admission_hold;
+pub use prompt_admission_download::ModelDownloadReport;
 mod prompt_dispatch;
+pub(super) use prompt_dispatch::saved_prompt;
 mod prompt_dispatch_readiness;
 mod receipt;
 mod side_question;
@@ -17,7 +19,8 @@ use gent_types::{
     AgentChatConversationCreate, AgentChatConversationCreated, Command, Receipt, ReceiptStatus,
     WorkspaceRecord,
 };
-use prompt_dispatch::require_open;
+pub(super) use prompt::save_in as save_prompt_in;
+pub(super) use prompt_dispatch::require_open;
 use receipt::decode_create_receipt_status;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::json;

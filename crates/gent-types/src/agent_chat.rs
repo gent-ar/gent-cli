@@ -17,25 +17,24 @@ pub enum AgentChatProvider {
 
 impl AgentChatProvider {
     #[must_use]
-    pub const fn steers_by_interrupt(self) -> bool {
-        matches!(self, Self::Claurst)
+    pub const fn queue_delivery(self) -> AgentChatQueueDelivery {
+        match self {
+            Self::Claude | Self::Codex => AgentChatQueueDelivery::JoinTurn,
+            Self::Claurst => AgentChatQueueDelivery::NextTurn,
+        }
     }
 
     #[must_use]
-    pub const fn steer_delivery(self) -> AgentChatSteerDelivery {
-        if self.steers_by_interrupt() {
-            AgentChatSteerDelivery::InterruptThenNext
-        } else {
-            AgentChatSteerDelivery::JoinTurn
-        }
+    pub const fn withdraws_joined_prompts(self) -> bool {
+        !matches!(self, Self::Codex)
     }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum AgentChatSteerDelivery {
+pub enum AgentChatQueueDelivery {
     JoinTurn,
-    InterruptThenNext,
+    NextTurn,
 }
 
 /// The user-visible model and execution preferences chosen for a conversation.
@@ -131,7 +130,7 @@ pub struct AgentChatConversationSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub selection_applies_next_turn: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub steer_delivery: Option<AgentChatSteerDelivery>,
+    pub queue_delivery: Option<AgentChatQueueDelivery>,
     #[serde(default)]
     pub containment: crate::Containment,
 }
@@ -197,6 +196,8 @@ pub struct NormalizedTranscriptEvent {
     pub attachments: Vec<crate::AttachmentReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_code: Option<crate::AgentChatFailureCode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<u64>,
 }
 
 /// Provider-normalized transcript content before the durable ledger assigns its cursor.
@@ -237,51 +238,6 @@ pub struct AgentChatProjectionPage {
     pub conversation_id: String,
     pub events: Vec<AgentChatProjectionEvent>,
     pub next_after_cursor: Option<u64>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-pub enum AgentChatRejection {
-    #[error("the planning turn must settle before its plan can be approved")]
-    PlanApprovalBlockedByActiveTurn,
-    #[error("the selection can change only from the conversation's current run")]
-    SelectionSwitchParentNotCurrent,
-    #[error("the selection cannot change while provider installation is reserved for a prompt")]
-    SelectionSwitchBlockedByProvisioning,
-    #[error("the prompt is no longer queued in this conversation")]
-    QueuedPromptNotCancelable,
-    #[error("the prompt is no longer queued for delivery into this conversation")]
-    QueuedPromptNotSteerable,
-    #[error("Gentd is still recovering provider lifecycles; retry the prompt shortly")]
-    LifecycleRecoveryInProgress,
-    #[error("Gentd is shutting down and no longer accepts prompts")]
-    LifecycleShuttingDown,
-    #[error("the conversation does not exist")]
-    ConversationNotFound,
-    #[error("the conversation is archived and accepts no new prompts")]
-    ConversationArchived,
-    #[error("the selected model is not offered by this provider")]
-    SelectionModelUnavailable,
-    #[error("the selected model does not offer this effort")]
-    SelectionEffortUnavailable,
-}
-
-impl AgentChatRejection {
-    #[must_use]
-    pub const fn code(self) -> &'static str {
-        match self {
-            Self::PlanApprovalBlockedByActiveTurn => "planApprovalBlockedByActiveTurn",
-            Self::SelectionSwitchParentNotCurrent => "selectionSwitchParentNotCurrent",
-            Self::SelectionSwitchBlockedByProvisioning => "selectionSwitchBlockedByProvisioning",
-            Self::QueuedPromptNotCancelable => "queuedPromptNotCancelable",
-            Self::QueuedPromptNotSteerable => "queuedPromptNotSteerable",
-            Self::LifecycleRecoveryInProgress => "lifecycleRecoveryInProgress",
-            Self::LifecycleShuttingDown => "lifecycleShuttingDown",
-            Self::ConversationNotFound => "conversationNotFound",
-            Self::ConversationArchived => "conversationArchived",
-            Self::SelectionModelUnavailable => "selectionModelUnavailable",
-            Self::SelectionEffortUnavailable => "selectionEffortUnavailable",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -373,6 +329,7 @@ mod tests {
             text: "Hello".into(),
             is_partial: false,
             failure_code: None,
+            resets_at: None,
             origin: None,
             attachments: Vec::new(),
         };

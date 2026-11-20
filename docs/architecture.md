@@ -24,6 +24,19 @@ Permission evaluation is a pure `gent-core` function over a typed request and an
 revision. The `permission-policy-v1` local IPC extension only reads or appends those secret-free
 settings. It never launches a provider; Plan permits reads only. One explicit terminal and daemon
 confirmation persists Bypass without a launch flag; Autonomous/Bypass fail closed without OS containment.
+A policy revision may also carry command grants (`allowedCommands`: a tool name, literal leading
+words and whether further arguments are allowed), appended by an `approveCommandPattern` decision
+under `agent-chat-permission-command-grants-v1`; a compound or expanding shell command never
+matches a grant. The ledger schema is `gent-fresh-schema-v34`; opening an older ledger adds the
+missing pieces (`policies.allowed_commands`, `agent_chat_side_questions.failure_code` with
+`providerFailed` for earlier failures, the status indexes, the `agent_chat_projection_turns`
+turn-boundary index and its backfill) in the same upgrade transaction.
+
+The store's single shared connection guard bumps a commit watch whenever a write changed rows,
+and every follower wakes on it instead of polling. Conversation status is read from `turns.phase`
+and the pending-permission row (`gent-store` `run_live_status.rs`), and every turn, including one
+a provider starts on its own, becomes terminal through one settlement (`turn_terminal::settle`),
+so a repeated settle records no second terminal or decision fact.
 
 The agent-chat domains are `gent-adapters`, `gent-drivers`, `gent-git`,
 `gent-mcp`, the private external-provider bridge port, and the durable

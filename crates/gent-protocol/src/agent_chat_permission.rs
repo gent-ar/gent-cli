@@ -5,6 +5,8 @@ use gent_types::{
 use serde::{Deserialize, Serialize};
 
 pub const AGENT_CHAT_PERMISSIONS_CAPABILITY: &str = "agent-chat-permissions-v1";
+pub const AGENT_CHAT_PERMISSION_COMMAND_GRANTS_CAPABILITY: &str =
+    "agent-chat-permission-command-grants-v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(

@@ -1,12 +1,50 @@
 use gent_ports::LedgerError;
 use gent_types::{
-    AgentChatRunId, Command, Receipt, StartImplementationRequest, StartImplementationResult,
+    AgentChatPromptOrigin, AgentChatPromptSaved, AgentChatRunId, Command, ConversationActivityFact,
+    ConversationActivityScope, PlanArtifact, Receipt, StartImplementationRequest,
+    StartImplementationResult,
 };
 use rusqlite::{Transaction, params};
 use serde_json::json;
 
+use super::super::agent_chat_ledger::save_prompt_in;
+use super::super::agent_chat_queue_activity::append;
 use super::super::queries::storage_error;
 use super::super::reviewed_plan_values::{effort, mode, provider};
+
+pub(super) fn implementation_prompt(
+    tx: &Transaction<'_>,
+    request: &StartImplementationRequest,
+    plan: &PlanArtifact,
+    run_id: &AgentChatRunId,
+) -> Result<AgentChatPromptSaved, LedgerError> {
+    let prompt = request.implementation_prompt(&plan.content);
+    let origin = AgentChatPromptOrigin::User {
+        client_request_id: Some(prompt.request_id.0.clone()),
+    };
+    save_prompt_in(tx, &prompt, Some(run_id), &origin, None)
+}
+
+pub(super) fn release(
+    tx: &Transaction<'_>,
+    prompt: &AgentChatPromptSaved,
+) -> Result<(), LedgerError> {
+    append(
+        tx,
+        format!("agent-chat-queue:{}:released", prompt.message.message_id),
+        prompt.receipt.receipt_id.clone(),
+        ConversationActivityFact::PromptReleased {
+            scope: ConversationActivityScope {
+                conversation_id: prompt.message.conversation_id.clone(),
+                run_id: prompt.message.run_id.clone(),
+                turn_id: prompt.message.turn_id.clone(),
+                host_epoch: prompt.receipt.host_epoch,
+                cursor: 0,
+            },
+            message_id: prompt.message.message_id.clone(),
+        },
+    )
+}
 
 pub(super) fn history_ordinal(
     tx: &Transaction<'_>,

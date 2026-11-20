@@ -1,7 +1,9 @@
 use gent_types::{AgentChatCommandDispatch, AgentChatCommandOrigin, AgentChatProvider};
 use serde_json::json;
 
-use super::{ClaudeBuiltin, claude_builtin, claude_command_descriptors};
+use super::{
+    ClaudeBuiltin, claude_builtin, claude_builtin_descriptors, claude_command_descriptors,
+};
 
 #[test]
 fn reported_commands_are_classified_as_builtins_skills_or_gent_reserved() {
@@ -55,4 +57,50 @@ fn a_response_without_commands_is_not_a_listing() {
     assert!(claude_command_descriptors(&json!({"models": []})).is_none());
     assert_eq!(claude_builtin("clear"), Some(ClaudeBuiltin::GentReserved));
     assert_eq!(claude_builtin("unlisted-skill"), None);
+}
+
+#[test]
+fn every_suggested_replacement_is_a_command_gent_serves_for_claude() {
+    let catalog = gent_core::command_catalog(Some(AgentChatProvider::Claude), []);
+    let replacements: Vec<(&str, &str)> = super::CLAUDE_BUILTIN_COMMANDS
+        .iter()
+        .filter_map(|(name, disposition)| match disposition {
+            ClaudeBuiltin::Unsupported(_, Some(replacement)) => Some((*name, *replacement)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        replacements,
+        [
+            ("advisor", "/model"),
+            ("auto-mode-setup", "/permissions"),
+            ("config", "/permissions"),
+            ("fast", "/model"),
+            ("fewer-permission-prompts", "/permissions"),
+            ("loop", "/goal"),
+            ("mcp", "/tools"),
+            ("update-config", "/permissions"),
+        ]
+    );
+    for (name, replacement) in replacements {
+        let served = replacement
+            .strip_prefix('/')
+            .and_then(|command| gent_core::resolve_command(&catalog, command));
+        assert!(
+            served.is_some_and(|command| command.origin == AgentChatCommandOrigin::Gent),
+            "/{name} suggests {replacement}, which Gent does not serve"
+        );
+    }
+}
+
+#[test]
+fn builtins_resolve_from_gents_own_table_before_claude_lists_its_commands() {
+    let commands = claude_builtin_descriptors();
+    let compact = commands
+        .iter()
+        .find(|command| command.name == "compact")
+        .unwrap();
+    assert_eq!(compact.dispatch, AgentChatCommandDispatch::ProviderNative);
+    assert!(compact.availability.blocked_while_turn_active);
+    assert!(!commands.iter().any(|command| command.name == "clear"));
 }

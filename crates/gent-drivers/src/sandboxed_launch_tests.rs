@@ -175,6 +175,7 @@ fn full_policy_binding_must_match_before_the_atomic_port() {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     let binding = gent_types::SandboxPermissionBinding::new(
         "conversation".into(),

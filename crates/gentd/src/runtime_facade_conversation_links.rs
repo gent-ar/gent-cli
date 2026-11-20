@@ -262,6 +262,7 @@ pub(super) fn require_same_workspace(
         .ok_or_else(|| AgentChatIntentError {
             code: "conversationForeignWorkspace",
             message: "a conversation may only address conversations in its own workspace".into(),
+            details: None,
         })
 }
 
@@ -282,6 +283,7 @@ pub(super) fn link_error(error: ConversationLinkRequestError) -> AgentChatIntent
     AgentChatIntentError {
         code: error.code(),
         message: error.to_string(),
+        details: None,
     }
 }
 

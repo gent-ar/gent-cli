@@ -1,8 +1,5 @@
-//! Native factory availability is distinct from a live process's enforcement evidence.
 use gent_types::{AgentChatProvider, Containment};
 
-/// Created by a managed factory after verifying its exact finite dependency set.
-/// This is preparation authority, never evidence that a process was contained.
 #[cfg(any(windows, target_os = "linux"))]
 pub(crate) trait VerifiedProviderFactoryResources {
     #[cfg(windows)]
@@ -143,6 +140,7 @@ mod contained_ordinary_tests {
                         containment: Containment::Unsandboxed,
                         allowed_tools: vec![],
                         allowed_categories: vec![],
+                        allowed_commands: Vec::new(),
                     },
                     gent_types::HostEpoch(1),
                 )
@@ -165,6 +163,10 @@ pub(crate) fn require_verified_linux_launch(
 ) -> Result<(), String> {
     authority.require_launch(provider, binding, lock)
 }
+
+#[cfg(test)]
+#[path = "sandbox_admission_transport_tests.rs"]
+mod transport_tests;
 
 #[cfg(test)]
 mod tests {

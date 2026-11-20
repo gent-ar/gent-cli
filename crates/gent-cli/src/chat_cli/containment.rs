@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use gent_protocol::{
     AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY, AgentChatConversationConfigFrame,
-    AgentChatIntentFrame, read_json_frame, write_json_frame,
+    AgentChatIntentFrame, write_json_frame,
 };
 use gent_types::{AgentChatConversationConfigRecord, AgentChatConversationId, Containment};
 use serde_json::Value;
@@ -103,9 +103,6 @@ async fn config_exchange(
         return Err("daemon does not support conversation config; upgrade gentd".into());
     }
     write_json_frame(&mut stream, &request).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     Ok(serde_json::from_value(raw).map_err(|_| "daemon did not return a conversation config")?)
 }

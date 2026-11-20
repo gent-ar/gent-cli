@@ -18,7 +18,7 @@ use validation::{event_id, invariant, restored, terminal_name, validate_batch, v
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PrivateClaurstDrain {
-    pub facts: u16,
+    pub progressed: bool,
     pub terminal: bool,
     pub terminal_phase: Option<DurableTurnPhase>,
 }
@@ -231,9 +231,7 @@ where
         let checkpoint = validate_batch(&request, &state.binding, &batch)?;
         self.admit_permissions(&state, &batch.permissions, host_epoch)
             .await?;
-        for fact in &batch.facts {
-            self.record_fact(&state, fact, host_epoch)?;
-        }
+        self.record_facts(&state, &batch.facts, host_epoch)?;
         let effective_terminal = batch.terminal.map(|terminal| {
             if state.cancellation_requested {
                 gent_ports::ClaurstTerminal::Interrupted
@@ -265,11 +263,8 @@ where
             .expect("bound source remains present");
         saved.after_cursor = after_cursor;
         saved.terminal = terminal;
-        if terminal {
-            self.deny_queued_permissions(source_id).await?;
-        }
         Ok(PrivateClaurstDrain {
-            facts: u16::try_from(batch.facts.len()).expect("bridge fact bound fits u16"),
+            progressed: terminal || !batch.facts.is_empty() || !batch.permissions.is_empty(),
             terminal,
             terminal_phase,
         })
@@ -284,6 +279,8 @@ const fn terminal_phase(terminal: gent_ports::ClaurstTerminal) -> DurableTurnPha
     }
 }
 
+#[path = "private_claurst_ingress_background.rs"]
+mod background;
 #[path = "private_claurst_ingress_checkpoint.rs"]
 mod checkpoint;
 #[path = "private_claurst_ingress_permission.rs"]

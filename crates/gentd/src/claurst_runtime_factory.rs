@@ -14,7 +14,7 @@ pub(crate) use summarizer::{
 pub(crate) const CLAURST_CONVERSATION_CAPACITY: usize = 3;
 
 #[async_trait]
-pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug {
+pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug + 'static {
     async fn ensure_for_prompt(
         &self,
         saved: &AgentChatPromptSaved,
@@ -31,7 +31,10 @@ pub(crate) trait ClaurstRuntimeFactory: Send + Sync + std::fmt::Debug {
     async fn after_prompt_settled(&self, _: &str) -> Result<(), String> {
         Ok(())
     }
-    async fn after_prompt_failed(&self, _: &str) -> Result<(), String> {
+    async fn reap_idle(&self, _now: std::time::Instant, _busy: &[String]) -> Result<(), String> {
+        Ok(())
+    }
+    async fn after_prompt_failed(&self, _: &str, _: gent_types::ToolPhase) -> Result<(), String> {
         Ok(())
     }
     async fn context_summarizer(

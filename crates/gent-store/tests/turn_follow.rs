@@ -53,6 +53,54 @@ fn exact_turn_page_never_leaks_a_sibling_turn() {
     );
 }
 
+#[test]
+fn a_turn_follow_reads_every_transcript_kind_the_ledger_stores() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    ledger.create_agent_chat_conversation(&create()).unwrap();
+    ledger
+        .create_turn(&TurnRecord {
+            turn_id: "turn-1".into(),
+            conversation_id: "conversation".into(),
+            run_id: "run".into(),
+            sequence: 1,
+            phase: DurableTurnPhase::Active,
+        })
+        .unwrap();
+    let kinds = [
+        NormalizedTranscriptKind::UserMessage,
+        NormalizedTranscriptKind::AssistantMessage,
+        NormalizedTranscriptKind::Thinking,
+        NormalizedTranscriptKind::ToolActivity,
+        NormalizedTranscriptKind::Notice,
+        NormalizedTranscriptKind::Plan,
+    ];
+    for (index, kind) in kinds.into_iter().enumerate() {
+        ledger
+            .append_normalized_transcript(
+                &AgentChatConversationId("conversation".into()),
+                &NormalizedTranscriptAppend {
+                    event_id: format!("event-{index}"),
+                    turn_id: "turn-1".into(),
+                    run_id: "run".into(),
+                    kind,
+                    text: "text".into(),
+                    is_partial: false,
+                },
+            )
+            .unwrap();
+    }
+    let page = ledger
+        .turn_follow_page("conversation", "run", "turn-1", 0, 10)
+        .unwrap();
+    assert_eq!(
+        page.events
+            .iter()
+            .map(|event| event.kind)
+            .collect::<Vec<_>>(),
+        kinds
+    );
+}
+
 fn create() -> AgentChatConversationCreate {
     AgentChatConversationCreate {
         receipt_id: ReceiptId("receipt".into()),

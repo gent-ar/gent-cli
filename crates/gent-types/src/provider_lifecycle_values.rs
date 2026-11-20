@@ -1,5 +1,3 @@
-//! Durable provider executable and normalized event values.
-
 use serde::{Deserialize, Serialize};
 
 use crate::{RootActivity, TokenUsage, WorkPhase};
@@ -15,17 +13,12 @@ pub struct RunVersionLock {
     pub compatibility_entry: String,
 }
 
-/// Immutable public-provider executable identity verified after a Gent-owned install.
-///
-/// This value is independent from a run lock: the ledger records it as installation
-/// provenance, while every run still receives its own immutable `RunVersionLock`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionedProviderLock {
     pub run_lock: RunVersionLock,
 }
 
-/// Exact signed-policy selection and app runtime identity used for one installation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderInstallProvenance {
@@ -34,14 +27,10 @@ pub struct ProviderInstallProvenance {
     pub package_integrity: String,
     pub package_policy_digest_sha256: String,
     pub node_runtime_digest_sha256: String,
-    /// Digest of the exact signed ordinary-authority release reauthorized immediately before
-    /// this installation's npm effect.
     pub release_artifact_digest_sha256: String,
-    /// Fingerprint of the exact accepted command that produced this installation.
     pub receipt_fingerprint_sha256: String,
 }
 
-/// A verified provider executable together with immutable installation provenance.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionedProviderInstallation {
@@ -56,8 +45,6 @@ pub enum NormalizedProviderEvent {
         text: String,
         is_partial: bool,
     },
-    /// Provider-supplied reasoning content. This remains distinct from assistant output so a
-    /// client can apply its own disclosure policy without treating it as an answer.
     Thinking {
         text: String,
         is_partial: bool,
@@ -108,6 +95,8 @@ pub enum NormalizedProviderEvent {
     ProviderFailure {
         classification: ProviderFailureClassification,
         message: String,
+        #[serde(default, rename = "resetsAt", skip_serializing_if = "Option::is_none")]
+        resets_at: Option<u64>,
     },
     TransportDiagnostic {
         classification: String,
@@ -121,6 +110,7 @@ pub enum ProviderFailureClassification {
     RateLimited,
     ContextLimit,
     OutputLimit,
+    Overloaded,
     Provider,
     Lifecycle,
     SessionUnavailable,
@@ -133,3 +123,7 @@ pub enum ProviderEvent {
     DecisionSettled { decision_id: String },
     Terminal { reason: String },
 }
+
+#[cfg(test)]
+#[path = "provider_lifecycle_values_tests.rs"]
+mod tests;

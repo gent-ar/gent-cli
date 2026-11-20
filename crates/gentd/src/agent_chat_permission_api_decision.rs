@@ -1,83 +1,201 @@
 use gent_ports::{
-    AgentChatWorkspaceLedger, Ledger, PendingPermissionLedger, PolicyLedger, ReceiptClaim,
+    AgentChatWorkspaceLedger, Ledger, LedgerError, PendingPermissionLedger, PolicyLedger,
+    ReceiptClaim,
 };
 use gent_types::{
+    AgentChatProvider, Command, DecisionOutcome, PermissionDecisionBinding,
     PermissionDecisionRequest, PermissionDecisionResponse, PermissionDecisionResponseKind,
-    PolicyScope, Receipt, ReceiptId, ReceiptStatus,
+    PolicyRecord, PolicyScope, Receipt, ReceiptId, ReceiptStatus,
 };
 
-use super::StandaloneAgentChatPermissionPort;
 use super::receipt::{
-    permission_decision_command, permission_decision_terminal_event, receipt_or_unknown,
+    later_answer_outcome, permission_decision_command, permission_decision_terminal_event,
+    receipt_or_outcome,
 };
+use super::{PermissionExchangeError, StandaloneAgentChatPermissionPort};
+use crate::ordinary_lifecycle_host::Undelivered;
 
-type ProviderResponder =
-    fn(&StandaloneAgentChatPermissionPort, &PermissionDecisionResponse) -> Result<(), String>;
+type ProviderWrite =
+    fn(&StandaloneAgentChatPermissionPort, &PermissionDecisionResponse) -> Result<(), Undelivered>;
 
 impl StandaloneAgentChatPermissionPort {
     pub(super) fn respond_codex_with_receipt(
         &self,
         response: &PermissionDecisionResponse,
         receipt_id: &ReceiptId,
-    ) -> Result<Receipt, String> {
-        self.respond_with_receipt(response, receipt_id, "Codex", Self::respond_codex)
+    ) -> Result<Receipt, PermissionExchangeError> {
+        self.respond_with_receipt(
+            response,
+            receipt_id,
+            AgentChatProvider::Codex,
+            Self::write_codex,
+        )
     }
 
     pub(super) fn respond_claude_with_receipt(
         &self,
         response: &PermissionDecisionResponse,
         receipt_id: &ReceiptId,
-    ) -> Result<Receipt, String> {
-        self.respond_with_receipt(response, receipt_id, "Claude", Self::respond_claude)
+    ) -> Result<Receipt, PermissionExchangeError> {
+        self.respond_with_receipt(
+            response,
+            receipt_id,
+            AgentChatProvider::Claude,
+            Self::write_claude,
+        )
     }
 
     fn respond_with_receipt(
         &self,
         response: &PermissionDecisionResponse,
         receipt_id: &ReceiptId,
-        provider: &str,
-        respond: ProviderResponder,
-    ) -> Result<Receipt, String> {
+        provider: AgentChatProvider,
+        write: ProviderWrite,
+    ) -> Result<Receipt, PermissionExchangeError> {
         let (command, accepted) =
             permission_decision_command(response, receipt_id).map_err(|error| error.to_string())?;
-        match self
-            .ledger
-            .claim_command(&command, &accepted)
-            .map_err(|error| error.to_string())?
-        {
+        let claim = match self.ledger.claim_command(&command, &accepted) {
+            Err(LedgerError::StaleEpoch {
+                command: asked,
+                active,
+            }) if asked.0 < active.0 => {
+                return Ok(self.expire(&response.binding, &command));
+            }
+            Err(LedgerError::Invariant(conflict)) => {
+                let Ok(Some(prior)) = self.ledger.decision_receipt(&response.binding) else {
+                    return Err(LedgerError::Invariant(conflict).to_string().into());
+                };
+                let still_pending = matches!(self.pending_for(response, provider), Ok(Some(_)));
+                return match later_answer_outcome(prior, still_pending, &command) {
+                    Some(receipt) => Ok(receipt),
+                    None => self.answer(response, &command, provider, write),
+                };
+            }
+            claim => claim.map_err(|error| error.to_string())?,
+        };
+        match claim {
             ReceiptClaim::Existing(receipt) if receipt.status == ReceiptStatus::Accepted => {
-                // A crash can occur after the provider consumed the decision and
-                // removed the pending request but before the receipt settled.
-                Ok(receipt_or_unknown(
-                    &command,
-                    self.settle_receipt(&command, ReceiptStatus::Unprovable),
-                ))
+                self.resume(response, &command, provider, write)
             }
             ReceiptClaim::Existing(receipt) => Ok(receipt),
-            ReceiptClaim::Accepted(_) => {
-                // Validate the binding and persist any scoped grant before the
-                // provider write, so a stale decision is a definite rejection.
-                if let Err(error) = self.approved_pending(response, provider) {
-                    let _ = self.settle_receipt(&command, ReceiptStatus::Rejected);
-                    return Err(error);
+            ReceiptClaim::Accepted(_) => self.answer(response, &command, provider, write),
+        }
+    }
+
+    fn answer(
+        &self,
+        response: &PermissionDecisionResponse,
+        command: &Command,
+        provider: AgentChatProvider,
+        write: ProviderWrite,
+    ) -> Result<Receipt, PermissionExchangeError> {
+        let pending = match self.pending_for(response, provider) {
+            Ok(Some(pending)) => pending,
+            Ok(None) => return Ok(self.expire(&response.binding, command)),
+            Err(error) => {
+                let _ = self.settle_receipt(command, ReceiptStatus::Rejected);
+                return Err(error.into());
+            }
+        };
+        if unanswered_question(&pending, response) {
+            let _ = self.settle_receipt(command, ReceiptStatus::Rejected);
+            return Err(PermissionExchangeError::InputInvalid(
+                "a question is answered with its answers as input; the request is still pending"
+                    .into(),
+            ));
+        }
+        let grant = match self.grant(&pending, response) {
+            Ok(grant) => grant,
+            Err(error) => {
+                let _ = self.settle_receipt(command, ReceiptStatus::Rejected);
+                return Err(error.into());
+            }
+        };
+        self.deliver(
+            response,
+            command,
+            (provider, write),
+            grant.as_ref(),
+            outcome(&pending, response),
+        )
+    }
+
+    fn resume(
+        &self,
+        response: &PermissionDecisionResponse,
+        command: &Command,
+        provider: AgentChatProvider,
+        write: ProviderWrite,
+    ) -> Result<Receipt, PermissionExchangeError> {
+        match self.pending_for(response, provider) {
+            Ok(Some(pending)) => {
+                let grant = self.grant(&pending, response)?;
+                self.deliver(
+                    response,
+                    command,
+                    (provider, write),
+                    grant.as_ref(),
+                    outcome(&pending, response),
+                )
+            }
+            Ok(None) | Err(_) => Ok(self.outcome(command, ReceiptStatus::Settled)),
+        }
+    }
+
+    fn deliver(
+        &self,
+        response: &PermissionDecisionResponse,
+        command: &Command,
+        (provider, write): (AgentChatProvider, ProviderWrite),
+        grant: Option<&PolicyRecord>,
+        outcome: DecisionOutcome,
+    ) -> Result<Receipt, PermissionExchangeError> {
+        match write(self, response) {
+            Ok(()) => {
+                if let Err(error) =
+                    self.ledger
+                        .settle_delivered_permission(&response.binding, grant, outcome)
+                {
+                    eprintln!(
+                        "Permission {} was delivered; its pending row settles with the turn: {error}",
+                        response.binding.decision_id.0
+                    );
                 }
-                if respond(self, response).is_err() {
-                    // The provider write may already have happened. Return the durable
-                    // uncertainty rather than an error that invites a new decision.
-                    return Ok(receipt_or_unknown(
-                        &command,
-                        self.settle_receipt(&command, ReceiptStatus::Unprovable),
-                    ));
-                }
-                Ok(receipt_or_unknown(
-                    &command,
-                    self.settle_receipt(&command, ReceiptStatus::Settled),
+                Ok(self.outcome(command, ReceiptStatus::Settled))
+            }
+            Err(Undelivered::NotPending) => Ok(self.expire(&response.binding, command)),
+            Err(Undelivered::InvalidInput) => {
+                let _ = self.settle_receipt(command, ReceiptStatus::Rejected);
+                Err(PermissionExchangeError::InputInvalid(
+                    "the provider refused this answer's input; the request is still pending".into(),
                 ))
+            }
+            Err(Undelivered::PipeBroken) => {
+                let _ = self
+                    .ingress
+                    .interrupt_run(provider, &response.binding.run_id.0);
+                Ok(self.expire(&response.binding, command))
             }
         }
     }
 
-    fn respond_codex(&self, response: &PermissionDecisionResponse) -> Result<(), String> {
+    fn expire(&self, binding: &PermissionDecisionBinding, command: &Command) -> Receipt {
+        let _ = self.ledger.settle_pending_permission(binding);
+        let settled = self
+            .settle_receipt(command, ReceiptStatus::Rejected)
+            .or_else(|_| self.settle_receipt(command, ReceiptStatus::Settled));
+        receipt_or_outcome(command, ReceiptStatus::Rejected, settled)
+    }
+
+    fn outcome(&self, command: &Command, status: ReceiptStatus) -> Receipt {
+        receipt_or_outcome(
+            command,
+            status.clone(),
+            self.settle_receipt(command, status),
+        )
+    }
+
+    fn write_codex(&self, response: &PermissionDecisionResponse) -> Result<(), Undelivered> {
         let decision = if response.response == PermissionDecisionResponseKind::Deny {
             gent_drivers::codex_control::CodexControlDecision::Deny
         } else {
@@ -88,22 +206,15 @@ impl StandaloneAgentChatPermissionPort {
             &response.binding.decision_id.0,
             decision,
             response.input.clone(),
-        )?;
-        self.ledger
-            .settle_pending_permission(&response.binding)
-            .map_err(|error| error.to_string())
+        )
     }
 
-    fn respond_claude(&self, response: &PermissionDecisionResponse) -> Result<(), String> {
+    fn write_claude(&self, response: &PermissionDecisionResponse) -> Result<(), Undelivered> {
         let behavior = if response.response == PermissionDecisionResponseKind::Deny {
             gent_drivers::claude_control::ClaudePermissionBehavior::Deny
         } else {
             gent_drivers::claude_control::ClaudePermissionBehavior::Allow
         };
-        // Gent has already persisted precisely the scope selected by the user.
-        // Provider suggestions are not that grant: they may describe a broader
-        // rule or a different storage destination, and could outlive changes to
-        // Gent's policy. Keep subsequent decisions on the shared policy path.
         let persist_suggestions = false;
         self.ingress.respond_claude_permission_with_input(
             &response.binding.run_id.0,
@@ -111,35 +222,32 @@ impl StandaloneAgentChatPermissionPort {
             behavior,
             persist_suggestions,
             response.input.clone(),
-        )?;
-        self.ledger
-            .settle_pending_permission(&response.binding)
-            .map_err(|error| error.to_string())
+        )
     }
 
-    fn approved_pending(
+    fn pending_for(
         &self,
         response: &PermissionDecisionResponse,
-        provider: &str,
-    ) -> Result<(), String> {
-        let pending = self
+        provider: AgentChatProvider,
+    ) -> Result<Option<PermissionDecisionRequest>, String> {
+        match self
             .ledger
             .pending_permission(&response.binding.conversation_id, &response.binding.run_id)
             .map_err(|error| error.to_string())?
-            .ok_or_else(|| format!("{provider} permission is not pending"))?;
-        if pending.binding != response.binding {
-            return Err(format!("{provider} permission binding is stale"));
+        {
+            None => Ok(None),
+            Some(pending) if pending.binding == response.binding => Ok(Some(pending)),
+            Some(_) => Err(format!("{provider:?} permission binding is stale")),
         }
-        self.persist_approval(&pending, response)
     }
 
-    fn persist_approval(
+    fn grant(
         &self,
         pending: &PermissionDecisionRequest,
         response: &PermissionDecisionResponse,
-    ) -> Result<(), String> {
+    ) -> Result<Option<PolicyRecord>, String> {
         if response.response == PermissionDecisionResponseKind::Deny {
-            return Ok(());
+            return Ok(None);
         }
         let workspace = self
             .ledger
@@ -152,25 +260,33 @@ impl StandaloneAgentChatPermissionPort {
             .ledger
             .current_policy(&workspace.workspace_id, PolicyScope::ProviderPermissions)
             .map_err(|error| error.to_string())?
-            .ok_or_else(|| "Codex permission policy is unavailable".to_owned())?;
-        let Some(revised) =
-            super::grant::transition(&policy, pending, response).map_err(str::to_owned)?
-        else {
-            return Ok(());
-        };
-        self.ledger
-            .save_policy(&revised)
-            .map_err(|error| error.to_string())
+            .ok_or_else(|| "permission policy is unavailable".to_owned())?;
+        super::grant::transition(&policy, pending, response).map_err(str::to_owned)
     }
 
-    fn settle_receipt(
-        &self,
-        command: &gent_types::Command,
-        status: ReceiptStatus,
-    ) -> Result<Receipt, String> {
+    fn settle_receipt(&self, command: &Command, status: ReceiptStatus) -> Result<Receipt, String> {
         let terminal = permission_decision_terminal_event(command, &status);
         self.ledger
             .settle_receipt(&command.idempotency_key, status, &terminal)
             .map_err(|error| error.to_string())
     }
+}
+
+fn outcome(
+    pending: &PermissionDecisionRequest,
+    response: &PermissionDecisionResponse,
+) -> DecisionOutcome {
+    DecisionOutcome::answered(
+        response.response,
+        crate::permission_category::requires_user_response(&pending.request.tool_name),
+    )
+}
+
+fn unanswered_question(
+    pending: &PermissionDecisionRequest,
+    response: &PermissionDecisionResponse,
+) -> bool {
+    response.response != PermissionDecisionResponseKind::Deny
+        && response.input.is_none()
+        && crate::permission_category::requires_user_response(&pending.request.tool_name)
 }

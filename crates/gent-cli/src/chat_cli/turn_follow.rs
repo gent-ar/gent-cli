@@ -1,5 +1,3 @@
-//! Capability-gated terminal following of one durable normalized turn.
-
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -9,7 +7,7 @@ use std::{
 use clap::Args;
 use gent_protocol::{
     AGENT_CHAT_TURN_FOLLOW_CAPABILITY, AgentChatTurnFollowEnd, AgentChatTurnFollowFrame,
-    read_json_frame, write_json_frame,
+    write_json_frame,
 };
 use gent_types::{
     AgentChatConversationId, AgentChatRequestId, AgentChatRunId, NormalizedTranscriptEvent,
@@ -69,21 +67,37 @@ pub(crate) async fn run(
     require_support(data_dir.clone(), no_autostart).await?;
     let mut cursor = args.after_cursor;
     for attempt in 0..=args.reconnect_attempts {
-        match follow_once(data_dir.clone(), no_autostart, &args, &mut cursor, sink).await {
-            Ok(FollowEnd::Terminal(terminal)) => return Ok(terminal),
-            Ok(_) | Err(_) if attempt < args.reconnect_attempts => {
-                tokio::time::sleep(RECONNECT_DELAY).await;
-            }
-            Ok(FollowEnd::ResyncRequired) => {
-                return Err(format!("turn stream requires resync after cursor {cursor}").into());
-            }
-            Ok(FollowEnd::ServerClosing) => {
-                return Err(format!("turn stream closed after cursor {cursor}").into());
-            }
-            Err(error) => return Err(error),
+        let outcome = follow_once(data_dir.clone(), no_autostart, &args, &mut cursor, sink).await;
+        if attempt < args.reconnect_attempts && reconnects(&outcome) {
+            tokio::time::sleep(RECONNECT_DELAY).await;
+            continue;
         }
+        return match outcome? {
+            FollowEnd::Terminal(terminal) => Ok(terminal),
+            FollowEnd::ResyncRequired => {
+                Err(format!("turn stream requires resync after cursor {cursor}").into())
+            }
+            FollowEnd::ServerClosing => {
+                Err(format!("turn stream closed after cursor {cursor}").into())
+            }
+        };
     }
     unreachable!("the bounded reconnect loop always returns")
+}
+
+fn reconnects(outcome: &Result<FollowEnd, Box<dyn std::error::Error>>) -> bool {
+    match outcome {
+        Ok(FollowEnd::Terminal(_)) => false,
+        Ok(FollowEnd::ResyncRequired | FollowEnd::ServerClosing) => true,
+        Err(error) => transport_lost(error.as_ref()),
+    }
+}
+
+fn transport_lost(error: &(dyn std::error::Error + 'static)) -> bool {
+    error.is::<io::Error>()
+        || error
+            .downcast_ref::<crate::cli_error::CliError>()
+            .is_some_and(|error| error.failure() == crate::cli_error::Failure::Unavailable)
 }
 
 pub(crate) async fn follow_accepted_if_supported(
@@ -155,7 +169,7 @@ async fn follow_once(
     )
     .await?;
     loop {
-        let frame = decode(read_json_frame::<_, Value>(&mut stream).await?)?;
+        let frame = decode(crate::local_ipc::read_reply(&mut stream).await?)?;
         match frame {
             AgentChatTurnFollowFrame::Event {
                 request_id: reply,
@@ -169,14 +183,14 @@ async fn follow_once(
                     &reply,
                     &event,
                 )?;
-                sink(FollowItem::Event(&event))?;
+                sink(FollowItem::Event(&event)).map_err(output_failed)?;
             }
             AgentChatTurnFollowFrame::Terminal {
                 request_id: reply,
                 terminal,
             } => {
                 accept_terminal(&request_id, args, *cursor, &reply, &terminal)?;
-                sink(FollowItem::Terminal(&terminal))?;
+                sink(FollowItem::Terminal(&terminal)).map_err(output_failed)?;
                 return Ok(FollowEnd::Terminal(terminal));
             }
             AgentChatTurnFollowFrame::Ended {
@@ -198,6 +212,10 @@ async fn follow_once(
     }
 }
 
+fn output_failed(error: io::Error) -> Box<dyn std::error::Error> {
+    format!("turn follow output failed: {error}").into()
+}
+
 fn supports(capabilities: &[String]) -> bool {
     capabilities
         .iter()
@@ -205,9 +223,6 @@ fn supports(capabilities: &[String]) -> bool {
 }
 
 fn decode(raw: Value) -> Result<AgentChatTurnFollowFrame, Box<dyn std::error::Error>> {
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
     serde_json::from_value(raw).map_err(|_| "daemon returned an invalid turn-follow frame".into())
 }
 
@@ -257,3 +272,7 @@ fn print(value: &impl Serialize) -> io::Result<()> {
 #[cfg(all(test, unix))]
 #[path = "turn_follow_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "turn_follow_reconnect_tests.rs"]
+mod reconnect_tests;

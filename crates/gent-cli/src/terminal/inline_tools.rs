@@ -103,6 +103,7 @@ impl ToolView {
             Some(ToolPhase::WaitingPermission) if !self.settled => {
                 ("needs permission".into(), Color::Yellow)
             }
+            Some(ToolPhase::Background) => ("running in background".into(), Color::Cyan),
             Some(ToolPhase::Failed) => (self.failure(), Color::Red),
             Some(ToolPhase::Completed) => (self.success(), Color::Green),
             _ if self.running() => ("running…".into(), Color::Cyan),

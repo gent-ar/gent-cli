@@ -152,13 +152,16 @@ impl StandalonePromptRelease for StandaloneReadiness {
                 let _ = readiness.fail_download(&prompt, reason);
                 return;
             }
+            let mut reporter = model_download_report::DownloadReporter::default();
             let mut current = *progress.borrow_and_update();
+            readiness.report_download(&prompt, &model_id, &mut reporter, current);
             while let DownloadProgress::Downloading { .. } = current {
-                if progress.changed().await.is_err() {
-                    current = DownloadProgress::Failed(LocalModelDownloadFailure::TransportFailed);
-                    break;
-                }
-                current = *progress.borrow_and_update();
+                current = if progress.changed().await.is_err() {
+                    DownloadProgress::Failed(LocalModelDownloadFailure::TransportFailed)
+                } else {
+                    *progress.borrow_and_update()
+                };
+                readiness.report_download(&prompt, &model_id, &mut reporter, current);
             }
             match current {
                 DownloadProgress::Complete { .. } => {
@@ -227,6 +230,8 @@ impl StandalonePromptRelease for StandaloneReadiness {
     }
 }
 
+#[path = "model_download_report.rs"]
+mod model_download_report;
 #[path = "ordinary_lifecycle_cadence_standalone_settlement.rs"]
 mod settlement;
 #[path = "ordinary_lifecycle_cadence_standalone_waiters.rs"]

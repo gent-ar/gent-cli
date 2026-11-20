@@ -1,4 +1,3 @@
-//! Plumbing tests use a fake contained process; they are not native containment acceptance.
 use crate::claurst_acp_transport::{ClaurstAcpStdio, ClaurstAcpTransport};
 use crate::claurst_permission_policy::{ClaurstPermissionDecision, decide_with_enforcement};
 use crate::claurst_sandbox_stdio::ClaurstOwnedAcpStdio;
@@ -60,6 +59,7 @@ fn fixture(
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     let binding = SandboxPermissionBinding::new(
         "conversation".into(),
@@ -234,40 +234,52 @@ fn permission_evidence_must_match_live_run_policy_and_host_epoch() {
 }
 
 #[test]
-fn valid_evidence_uses_the_shared_mode_rules_and_preserves_read_only_posture() {
+fn valid_evidence_uses_the_shared_mode_rules_and_plan_still_refuses_edits() {
     for mode in [PermissionMode::Autonomous, PermissionMode::Bypass] {
         let (directory, policy, stdio, _) = fixture(mode);
         let mut transport = ClaurstAcpTransport::new(stdio);
         let enforcement = transport.permission_enforcement("run", &policy, HostEpoch(7));
         let request =
             PermissionRequest::new("Bash".into(), PermissionCategory::Command, None, None);
-        assert_eq!(
-            decide_with_enforcement(
+        let edit = PermissionRequest::new("Edit".into(), PermissionCategory::Edit, None, None);
+        for (chat_mode, change, expected) in [
+            (
                 AgentChatMode::Agent,
-                &policy,
                 &request,
-                directory.path(),
-                enforcement
+                ClaurstPermissionDecision::Allow,
             ),
-            ClaurstPermissionDecision::Allow
-        );
-        assert_eq!(
-            decide_with_enforcement(
+            (
                 AgentChatMode::Plan,
-                &policy,
                 &request,
-                directory.path(),
-                enforcement
+                ClaurstPermissionDecision::Allow,
             ),
-            ClaurstPermissionDecision::Deny(Some(PermissionDenialReason::ReadOnlyMode))
-        );
+            (
+                AgentChatMode::Plan,
+                &edit,
+                ClaurstPermissionDecision::Deny(Some(PermissionDenialReason::PlanModeEdit)),
+            ),
+        ] {
+            assert_eq!(
+                decide_with_enforcement(
+                    chat_mode,
+                    &policy,
+                    change,
+                    directory.path(),
+                    enforcement,
+                    false,
+                ),
+                expected,
+                "{chat_mode:?} {mode:?}"
+            );
+        }
         assert_eq!(
             decide_with_enforcement(
                 AgentChatMode::Agent,
                 &policy,
                 &request,
                 directory.path(),
-                SandboxEnforcement::Unavailable
+                SandboxEnforcement::Unavailable,
+                false,
             ),
             ClaurstPermissionDecision::Ask
         );
@@ -280,7 +292,8 @@ fn valid_evidence_uses_the_shared_mode_rules_and_preserves_read_only_posture() {
                 &policy,
                 &network,
                 directory.path(),
-                enforcement
+                enforcement,
+                false,
             ),
             expected
         );

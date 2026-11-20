@@ -47,6 +47,7 @@ fn ledger() -> SqliteLedger {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         })
         .unwrap();
     let goal = gent_core::create_goal(

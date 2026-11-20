@@ -1,6 +1,6 @@
 use super::{
     AgentChatProvider, InterruptGoalStop, OrdinaryPromptAdmissionError, OrdinaryPromptIngress,
-    OrdinaryPromptPermit, PendingClaurstInterrupt,
+    OrdinaryPromptPermit,
 };
 use std::sync::atomic::Ordering;
 
@@ -17,13 +17,12 @@ impl<L> OrdinaryPromptIngress<L> {
         request_id: &str,
         decision: gent_drivers::codex_control::CodexControlDecision,
         answers: Option<serde_json::Value>,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.wake
             .router
             .lock()
-            .map_err(|_| "standalone lifecycle router is unavailable".to_owned())?
+            .map_err(|_| crate::ordinary_lifecycle_host::Undelivered::NotPending)?
             .respond_codex_permission(run_id, request_id, decision, answers)
-            .map_err(|_| "Codex permission owner is unavailable".to_owned())
     }
 
     pub(crate) fn respond_claude_permission(
@@ -32,7 +31,7 @@ impl<L> OrdinaryPromptIngress<L> {
         request_id: &str,
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.respond_claude_permission_with_input(
             run_id,
             request_id,
@@ -49,11 +48,11 @@ impl<L> OrdinaryPromptIngress<L> {
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
         updated_input: Option<serde_json::Value>,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.wake
             .router
             .lock()
-            .map_err(|_| "standalone lifecycle router is unavailable".to_owned())?
+            .map_err(|_| crate::ordinary_lifecycle_host::Undelivered::NotPending)?
             .respond_claude_permission_with_input(
                 run_id,
                 request_id,
@@ -61,7 +60,6 @@ impl<L> OrdinaryPromptIngress<L> {
                 persist_suggestions,
                 updated_input,
             )
-            .map_err(|_| "Claude permission owner is unavailable".to_owned())
     }
 
     pub(crate) fn tend_warm_pool(
@@ -119,21 +117,7 @@ impl<L> OrdinaryPromptIngress<L> {
             return Ok(());
         }
         if provider == AgentChatProvider::Claurst {
-            if !self.async_claurst_attached.load(Ordering::Acquire) {
-                return Err("Claurst interrupt owner is unavailable".into());
-            }
-            self.async_claurst_interrupts
-                .lock()
-                .map_err(|_| "Claurst interrupt queue is unavailable".to_owned())?
-                .push_back(PendingClaurstInterrupt {
-                    run_id: run_id.to_owned(),
-                    expected_turn_id: None,
-                    goal_stop: None,
-                });
-            if let Some(notify) = &self.async_claurst_notify {
-                notify.notify_one();
-            }
-            return Ok(());
+            return self.interrupt_claurst(run_id, None, None);
         }
         self.wake
             .router
@@ -162,21 +146,7 @@ impl<L> OrdinaryPromptIngress<L> {
             return Ok(());
         }
         if provider == AgentChatProvider::Claurst {
-            if !self.async_claurst_attached.load(Ordering::Acquire) {
-                return Err("Claurst interrupt owner is unavailable".into());
-            }
-            self.async_claurst_interrupts
-                .lock()
-                .map_err(|_| "Claurst interrupt queue is unavailable")?
-                .push_back(PendingClaurstInterrupt {
-                    run_id: run_id.to_owned(),
-                    expected_turn_id: Some(turn_id.to_owned()),
-                    goal_stop,
-                });
-            if let Some(notify) = &self.async_claurst_notify {
-                notify.notify_one();
-            }
-            return Ok(());
+            return self.interrupt_claurst(run_id, Some(turn_id.to_owned()), goal_stop);
         }
         self.wake
             .router

@@ -123,10 +123,7 @@ async fn exchange(
     frame: &WorkspaceGitFrame,
 ) -> Result<WorkspaceGitFrame, Box<dyn std::error::Error>> {
     gent_protocol::write_json_frame(stream, frame).await?;
-    let raw: Value = gent_protocol::read_json_frame(stream).await?;
-    if let Some(error) = CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(stream).await?;
     let reply: WorkspaceGitFrame = serde_json::from_value(raw)
         .map_err(|_| "gentd returned an unrecognized workspace Git reply")?;
     let correlated = match (frame, &reply) {

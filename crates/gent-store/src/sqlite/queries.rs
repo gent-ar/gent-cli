@@ -292,6 +292,4 @@ pub(super) fn decode_ingress(value: &str) -> rusqlite::Result<IngressMode> {
 fn json_error(error: serde_json::Error) -> rusqlite::Error {
     rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(error))
 }
-pub(super) fn storage_error(error: impl std::fmt::Display) -> LedgerError {
-    LedgerError::Storage(error.to_string())
-}
+pub(super) use super::connection::storage_error;

@@ -76,7 +76,7 @@ impl OrdinaryLifecycleHost for Host {
         Ok(())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         self.armed = false;
         self.calls.lock().unwrap().push("drive");
         Ok(())
@@ -92,7 +92,7 @@ impl OrdinaryLifecycleHost for Host {
         _: &str,
         _: gent_drivers::claude_control::ClaudePermissionBehavior,
         _: bool,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.calls.lock().unwrap().push("permission");
         Ok(())
     }
@@ -240,7 +240,7 @@ impl PrivateLifecycleOwner for Owner {
     type Wake = ();
     type Shutdown = ();
     type Escalation = ();
-    type Error = ();
+    type Error = gent_runtime::RuntimeError;
 
     fn wake(&mut self) -> Result<Self::Wake, Self::Error> {
         self.calls.lock().unwrap().push("wake");
@@ -304,7 +304,7 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
         updated_at_unix_ms: 0,
         selection: selection(provider),
         selection_applies_next_turn: false,
-        steer_delivery: None,
+        queue_delivery: None,
         containment: gent_types::Containment::Unsandboxed,
     }
 }
@@ -337,7 +337,7 @@ impl OrdinaryLifecycleHost for Worker {
         Ok(())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         self.armed = false;
         self.remaining = self.remaining.saturating_sub(1);
         Ok(())
@@ -407,7 +407,7 @@ impl OrdinaryLifecycleHost for Unprovisioned {
         Err(())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         Ok(())
     }
 
@@ -435,4 +435,83 @@ fn a_peer_that_cannot_start_never_fails_the_wake_of_idle_hosts() {
     assert!(!router.drive_once().unwrap());
     assert!(!router.finished_work());
     assert_eq!(*wakes.lock().unwrap(), 1);
+}
+
+#[derive(Debug, Default)]
+struct FailingOwner {
+    calls: Arc<Mutex<Vec<&'static str>>>,
+    failures: Vec<LedgerError>,
+}
+
+impl PrivateLifecycleOwner for FailingOwner {
+    type Wake = ();
+    type Shutdown = ();
+    type Escalation = ();
+    type Error = gent_runtime::RuntimeError;
+
+    fn wake(&mut self) -> Result<Self::Wake, Self::Error> {
+        if let Some(failure) = self.failures.pop() {
+            self.calls.lock().unwrap().push("failed");
+            return Err(failure.into());
+        }
+        self.calls.lock().unwrap().push("wake");
+        Ok(())
+    }
+
+    fn request_shutdown(&mut self) -> Result<Self::Shutdown, Self::Error> {
+        Ok(())
+    }
+
+    fn escalate_shutdown(&mut self) -> Result<Self::Escalation, Self::Error> {
+        Ok(())
+    }
+
+    fn needs_drive(&self) -> bool {
+        false
+    }
+}
+
+type Calls = Arc<Mutex<Vec<&'static str>>>;
+
+fn failing_router(failure: LedgerError) -> (OrdinaryPublicLifecycleRouter<Ledger>, Calls, Calls) {
+    let owner = FailingOwner {
+        failures: vec![failure],
+        ..FailingOwner::default()
+    };
+    let claude_calls = Arc::clone(&owner.calls);
+    let mut claude =
+        OrdinaryProviderHost::new(AgentChatProvider::Claude, ProviderLifecycleHost::new(owner));
+    claude.wake().unwrap();
+    let codex_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut codex = host(AgentChatProvider::Codex, Arc::clone(&codex_calls));
+    codex.wake().unwrap();
+    (
+        router(AgentChatProvider::Claude, Box::new(claude), codex),
+        claude_calls,
+        codex_calls,
+    )
+}
+
+#[test]
+fn a_busy_ledger_fails_only_the_tick_and_the_owner_is_driven_again() {
+    let (mut router, claude_calls, codex_calls) =
+        failing_router(LedgerError::Busy("database is locked".into()));
+
+    assert!(router.drive_once().unwrap());
+    assert_eq!(&*claude_calls.lock().unwrap(), &["failed"]);
+    assert_eq!(&*codex_calls.lock().unwrap(), &["wake", "drive"]);
+    assert!(!router.drive_once().unwrap());
+    assert_eq!(&*claude_calls.lock().unwrap(), &["failed", "wake"]);
+}
+
+#[test]
+fn a_storage_failure_stops_the_cadence_with_its_cause() {
+    let (mut router, _, _) = failing_router(LedgerError::Storage("disk I/O error".into()));
+
+    let Err(OrdinaryLifecycleRouterError::DriveFailed(provider, cause)) = router.drive_once()
+    else {
+        panic!("a storage failure must stop the cadence");
+    };
+    assert_eq!(provider, AgentChatProvider::Claude);
+    assert!(cause.contains("disk I/O error"), "{cause}");
 }

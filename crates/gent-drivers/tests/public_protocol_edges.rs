@@ -169,6 +169,7 @@ fn codex_terminal_failure_persists_only_a_redacted_classification_and_message() 
         NormalizedProviderEvent::ProviderFailure {
             classification: ProviderFailureClassification::Authentication,
             message: "Codex sign-in expired. Sign in again to continue.".into(),
+            resets_at: None,
         },
     )));
     assert!(!format!("{facts:?}").contains("sk-secret"));

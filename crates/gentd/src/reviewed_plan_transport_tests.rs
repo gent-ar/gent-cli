@@ -30,8 +30,9 @@ fn observer_neither_advertises_nor_accepts_reviewed_plan_authority() {
             plan_id: Some(ReviewedPlanId("plan-1".into())),
         })
         .unwrap_err();
+    assert_eq!(error.code, "reviewedPlanRejected");
     assert_eq!(
-        error,
+        error.message,
         "reviewed plans are unavailable while gentd is observer-disabled"
     );
 }
@@ -59,7 +60,8 @@ fn chat_persistence_profile_keeps_reviewed_plans_unadvertised_until_lifecycle_au
                 conversation_id: AgentChatConversationId("conversation-1".into()),
                 plan_id: Some(ReviewedPlanId("plan-1".into())),
             })
-            .unwrap_err(),
+            .unwrap_err()
+            .message,
         "reviewed plans are unavailable while gentd is observer-disabled"
     );
 }

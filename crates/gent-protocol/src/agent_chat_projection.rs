@@ -1,10 +1,13 @@
 use gent_types::{
     AgentChatConversationDetail, AgentChatConversationSummary, ConversationActivityFact,
-    GoalRecord, NormalizedSessionLifecycle, NormalizedTranscriptEvent,
+    ConversationTurnCursor, GoalRecord, NormalizedSessionLifecycle, NormalizedTranscriptEvent,
+    TurnRecord,
 };
 use serde::{Deserialize, Serialize};
 
 pub const AGENT_CHAT_PROJECTION_CAPABILITY: &str = "agent-chat-projection-v1";
+pub const AGENT_CHAT_PROJECTION_WINDOW_CAPABILITY: &str = "agent-chat-projection-window-v1";
+pub const COMMAND_CATALOG_ID: &str = "commands";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -36,6 +39,24 @@ pub struct AgentChatProjectionSnapshot {
     pub goal: Option<GoalRecord>,
     pub transcript_truncated: bool,
     pub activity_truncated: bool,
+    pub unreadable: Vec<UnreadableProjectionRecord>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectionRecordKind {
+    Transcript,
+    Activity,
+    Lifecycle,
+    Summary,
+    Unrecognized,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UnreadableProjectionRecord {
+    pub cursor: ProjectionCursor,
+    pub record_kind: ProjectionRecordKind,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -76,8 +97,9 @@ pub enum AgentChatProjectionDelta {
         run_id: String,
         summary: Box<AgentChatConversationSummary>,
     },
-    ResyncRequired {
+    UnreadableRecord {
         cursor: ProjectionCursor,
+        record_kind: ProjectionRecordKind,
     },
 }
 
@@ -113,13 +135,38 @@ pub enum AgentChatProjectionFrame {
         request_id: String,
         cursor: ProjectionCursor,
     },
+    ConversationTurnCursorsRequest {
+        request_id: String,
+        conversation_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before_cursor: Option<ProjectionCursor>,
+        limit: u16,
+    },
+    ConversationTurnCursors {
+        request_id: String,
+        conversation_id: String,
+        turns: Vec<ConversationTurnCursor>,
+        next_before_cursor: Option<ProjectionCursor>,
+    },
+    ConversationWindowRequest {
+        request_id: String,
+        conversation_id: String,
+        from_cursor: ProjectionCursor,
+    },
+    ConversationWindow {
+        request_id: String,
+        conversation_id: String,
+        from_cursor: ProjectionCursor,
+        last_turn: Option<TurnRecord>,
+        carried: Vec<AgentChatProjectionDelta>,
+    },
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         AGENT_CHAT_PROJECTION_CAPABILITY, AgentChatProjectionDelta, AgentChatProjectionFrame,
-        ProjectionCursor,
+        ProjectionCursor, ProjectionRecordKind,
     };
     use gent_types::{NormalizedTranscriptEvent, NormalizedTranscriptKind};
     use serde_json::json;
@@ -160,6 +207,7 @@ mod tests {
                     text: "Latest reply".into(),
                     is_partial: false,
                     failure_code: None,
+                    resets_at: None,
                     origin: None,
                     attachments: Vec::new(),
                 }),
@@ -173,6 +221,30 @@ mod tests {
                 r#""turnId":"turn-9","runId":"run-1","kind":"assistantMessage","#,
                 r#""text":"Latest reply","isPartial":false}}}}}"#
             )
+        );
+    }
+
+    #[test]
+    fn an_unreadable_record_is_one_typed_delta_at_its_cursor() {
+        let frame = AgentChatProjectionFrame::Delta {
+            request_id: "request-1".into(),
+            delta: AgentChatProjectionDelta::UnreadableRecord {
+                cursor: ProjectionCursor { value: 11004 },
+                record_kind: ProjectionRecordKind::Lifecycle,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(frame).expect("frame serializes"),
+            json!({
+                "type": "delta",
+                "body": {
+                    "requestId": "request-1",
+                    "delta": {
+                        "type": "unreadableRecord",
+                        "body": { "cursor": { "value": 11004 }, "recordKind": "lifecycle" }
+                    }
+                }
+            })
         );
     }
 

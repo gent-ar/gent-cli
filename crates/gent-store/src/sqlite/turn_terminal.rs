@@ -3,7 +3,7 @@ use gent_types::{
     ConversationActivityFact, ConversationActivityScope, DurableTurnPhase, Event, HostEpoch,
     ReceiptId, TurnPhase, TurnTerminalCause,
 };
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::{conversation_activity_ledger, pending_permission_ledger, queries};
 
@@ -23,25 +23,85 @@ pub(crate) fn settle(
             params![phase_name(phase), turn_id],
         )
         .map_err(queries::storage_error)?;
-    if changed == 0 {
+    if changed == 0 && (recorded.is_none() || current_phase(transaction, turn_id)? != recorded) {
         return Ok(false);
     }
-    pending_permission_ledger::settle_for_turn(transaction, turn_id)?;
-    super::agent_chat_steer_target::release_turn(transaction, turn_id)?;
-    if recorded.is_none() {
-        if phase != DurableTurnPhase::Completed {
-            super::transcript_settlement::supersede_unfinished_reply(transaction, turn_id)?;
-        }
-        append(
-            transaction,
-            &conversation_id,
-            &run_id,
-            turn_id,
-            host_epoch,
-            phase,
-        )?;
+    if recorded.is_some() {
+        pending_permission_ledger::settle_for_turn(transaction, turn_id)?;
+        return Ok(true);
     }
+    settle_open_work(transaction, turn_id, host_epoch, &activity_phase(phase)?)?;
+    append(
+        transaction,
+        &conversation_id,
+        &run_id,
+        turn_id,
+        host_epoch,
+        phase,
+    )?;
     Ok(true)
+}
+
+pub(super) fn settle_open_work(
+    transaction: &Transaction<'_>,
+    turn_id: &str,
+    host_epoch: HostEpoch,
+    phase: &TurnPhase,
+) -> Result<(), LedgerError> {
+    pending_permission_ledger::settle_for_turn(transaction, turn_id)?;
+    if *phase != TurnPhase::Ready {
+        super::tool_settlement::settle_unfinished_turn(transaction, turn_id, host_epoch)?;
+    }
+    Ok(())
+}
+
+pub(super) fn unfinished_terminal_cursor(
+    connection: &Connection,
+    scope: &ConversationActivityScope,
+) -> Result<Option<u64>, LedgerError> {
+    connection
+        .query_row(
+            "SELECT cursor FROM conversation_activity_facts WHERE conversation_id = ?1 AND run_id = ?2 AND json_extract(payload, '$.type') = 'terminal' AND json_extract(payload, '$.turnId') = ?3 AND json_extract(payload, '$.phase') <> 'ready' LIMIT 1",
+            params![scope.conversation_id, scope.run_id, scope.turn_id],
+            |row| row.get::<_, u64>(0),
+        )
+        .optional()
+        .map_err(queries::storage_error)
+}
+
+pub(super) fn record_published(
+    connection: &Connection,
+    turn_id: &str,
+    phase: &TurnPhase,
+) -> Result<(), LedgerError> {
+    let durable = match phase {
+        TurnPhase::Ready => DurableTurnPhase::Completed,
+        TurnPhase::Interrupted => DurableTurnPhase::Interrupted,
+        TurnPhase::Cancelled => DurableTurnPhase::Cancelled,
+        TurnPhase::Failed => DurableTurnPhase::Failed,
+        _ => return Ok(()),
+    };
+    connection
+        .execute(
+            "UPDATE turns SET phase = ?1 WHERE turn_id = ?2 AND phase IN ('active', 'waitingPermission', 'waitingQuestion')",
+            params![phase_name(durable), turn_id],
+        )
+        .map(|_| ())
+        .map_err(queries::storage_error)
+}
+
+fn current_phase(
+    transaction: &Transaction<'_>,
+    turn_id: &str,
+) -> Result<Option<DurableTurnPhase>, LedgerError> {
+    transaction
+        .query_row(
+            "SELECT phase FROM turns WHERE turn_id = ?1",
+            [turn_id],
+            |row| super::conversations::decode_phase(&row.get::<_, String>(0)?),
+        )
+        .optional()
+        .map_err(queries::storage_error)
 }
 
 fn scope(transaction: &Transaction<'_>, turn_id: &str) -> Result<(String, String), LedgerError> {
@@ -143,14 +203,35 @@ fn cause(
     if phase != DurableTurnPhase::Interrupted {
         return Ok(None);
     }
-    transaction
+    Ok(steered(transaction, turn_id)?.then_some(TurnTerminalCause::Steered))
+}
+
+pub(super) fn steered(connection: &Connection, turn_id: &str) -> Result<bool, LedgerError> {
+    connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM receipts WHERE idempotency_key = ?1)",
             [format!("{STEER_INTERRUPT_KEY_PREFIX}{turn_id}")],
             |row| row.get::<_, bool>(0),
         )
-        .map(|steered| steered.then_some(TurnTerminalCause::Steered))
         .map_err(queries::storage_error)
+}
+
+pub(super) fn with_steer_cause(
+    connection: &Connection,
+    fact: &ConversationActivityFact,
+) -> Result<ConversationActivityFact, LedgerError> {
+    match fact {
+        ConversationActivityFact::Terminal {
+            scope,
+            phase: TurnPhase::Interrupted,
+            cause: None,
+        } if steered(connection, &scope.turn_id)? => Ok(ConversationActivityFact::Terminal {
+            scope: scope.clone(),
+            phase: TurnPhase::Interrupted,
+            cause: Some(TurnTerminalCause::Steered),
+        }),
+        fact => Ok(fact.clone()),
+    }
 }
 
 fn provider_session_unavailable(

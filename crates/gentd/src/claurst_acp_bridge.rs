@@ -1,9 +1,3 @@
-//! Private bridge composition for one Gent-owned upstream `claurst acp` connection.
-//!
-//! The bridge accepts only durable Gent prompt/context identities, owns all ACP session IDs, and
-//! returns cursor-sealed normalized facts to `PrivateClaurstIngress`.  It deliberately has no
-//! daemon bootstrap, IPC, model selection, or provider configuration surface.
-
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -15,6 +9,7 @@ use gent_ports::{
     ClaurstDrainBatch, ClaurstDrainRequest, ClaurstPermissionReply, ClaurstSessionBinding,
     ClaurstSourceId, ClaurstStartRequest, ClaurstSubmitRequest, PortError, PrivateClaurstBridge,
 };
+use gent_types::{PolicyRecord, SandboxEnforcement};
 
 use crate::claurst_acp_transport::{ClaurstAcpStdio, ClaurstAcpTransport};
 
@@ -35,16 +30,15 @@ struct BridgeState<S> {
     run_sessions: BTreeMap<String, RunSession>,
     history_input_bytes: usize,
     turn_policy: Option<gent_types::PolicyRecord>,
+    owned_chat_tools: Vec<String>,
 }
 
-/// A private ACP bridge that keeps upstream session identifiers inside the daemon.
 pub(crate) struct ClaurstAcpBridge<S> {
     workspace: PathBuf,
     state: Arc<Mutex<BridgeState<S>>>,
 }
 
 impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
-    /// Creates a bridge rooted in the absolute Gent workspace supplied to ACP `session/new`.
     #[must_use]
     pub(crate) fn new(workspace: PathBuf, stdio: S, mcp_servers: Vec<serde_json::Value>) -> Self {
         Self {
@@ -56,6 +50,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
                 history_input_bytes:
                     gent_drivers::conversation_context_input::MAX_FRESH_CONTEXT_INPUT_BYTES,
                 turn_policy: None,
+                owned_chat_tools: Vec::new(),
             })),
         }
     }
@@ -82,20 +77,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
             .lock()
             .map_err(|_| "ACP bridge lock is unavailable".to_owned())?;
         state.transport.exited()
-    }
-
-    pub(crate) async fn start_summary(
-        &self,
-        request: ClaurstStartRequest,
-    ) -> Result<ClaurstSessionBinding, PortError>
-    where
-        S: ClaurstAcpStdio + Send + 'static,
-    {
-        let state = Arc::clone(&self.state);
-        let workspace = self.workspace.clone();
-        tokio::task::spawn_blocking(move || start_summary_blocking(state, workspace, request))
-            .await
-            .map_err(|_| unavailable("ACP summary worker"))?
     }
 }
 
@@ -193,16 +174,6 @@ impl<S> ClaurstBridgeHandle<S> {
         self.0.exited()
     }
 
-    pub(crate) async fn start_summary(
-        &self,
-        request: ClaurstStartRequest,
-    ) -> Result<ClaurstSessionBinding, PortError>
-    where
-        S: ClaurstAcpStdio + Send + 'static,
-    {
-        self.0.start_summary(request).await
-    }
-
     pub(crate) async fn initialize(&self) -> Result<(), PortError>
     where
         S: ClaurstAcpStdio + Send + 'static,
@@ -218,6 +189,15 @@ impl<S> ClaurstBridgeHandle<S> {
         policy: gent_types::PolicyRecord,
     ) -> Result<(), PortError> {
         support::bind_turn_policy(&self.0.state, policy)
+    }
+
+    pub(crate) fn bind_owned_chat_tools(&self, tools: Vec<String>) -> Result<(), PortError> {
+        self.0
+            .state
+            .lock()
+            .map_err(|_| unavailable("ACP permission authority"))?
+            .owned_chat_tools = tools;
+        Ok(())
     }
 }
 
@@ -249,6 +229,10 @@ where
         self.0.drain(request).await
     }
 
+    async fn runs_background_commands(&self, binding: &ClaurstSessionBinding) -> bool {
+        support::runs_background_commands(&self.0.state, binding)
+    }
+
     async fn respond_permission(
         &self,
         binding: ClaurstSessionBinding,
@@ -262,8 +246,12 @@ where
         &self,
         binding: ClaurstSessionBinding,
         epoch: gent_types::HostEpoch,
-    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
+    ) -> Result<(PolicyRecord, SandboxEnforcement), PortError> {
         support::permission_authority(&self.0.state, &binding, epoch)
+    }
+
+    async fn owns_chat_tool(&self, binding: &ClaurstSessionBinding, tool_name: &str) -> bool {
+        support::owns_chat_tool(&self.0.state, binding, tool_name)
     }
 }
 
@@ -274,9 +262,12 @@ use support::unavailable;
 mod operations;
 use operations::{
     bind_blocking, cancel_blocking, drain_blocking, respond_permission_blocking, start_blocking,
-    start_summary_blocking, submit_blocking,
+    submit_blocking,
 };
 
+#[cfg(test)]
+#[path = "claurst_acp_background_command_tests.rs"]
+mod background_command_tests;
 #[cfg(test)]
 #[path = "claurst_acp_cancel_tests.rs"]
 mod cancel_tests;

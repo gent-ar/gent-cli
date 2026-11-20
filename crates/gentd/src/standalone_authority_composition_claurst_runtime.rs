@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use super::StandaloneAuthorityRuntime;
-use crate::standalone_claurst_runtime_factory::StandaloneClaurstBridge;
 
 type SystemClaurstRuntime = crate::claurst_standalone_owner::ClaurstStandaloneRuntime<
     crate::claurst_local_runtime_owner::SystemLocalRuntimeProcess,
@@ -79,15 +78,21 @@ impl StandaloneAuthorityRuntime {
             .await
     }
 
-    /// The bridge side questions use to run on the currently attached local Claurst runtime,
-    /// once `attach_lazy_claurst_runtime` has run. `None` before then, or when Claurst is
-    /// attached through `attach_claurst_bridge`/`start_local_claurst` instead.
     #[must_use]
-    pub(crate) fn claurst_side_question_bridge(&self) -> Option<StandaloneClaurstBridge> {
+    pub(crate) fn claurst_side_question_models(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::claurst_side_question_runner::ClaurstSideQuestionModels>>
+    {
         self.claurst_side_question_bridge
             .lock()
             .ok()
             .and_then(|bridge| bridge.clone())
+            .map(|bridge| {
+                std::sync::Arc::new(bridge)
+                    as std::sync::Arc<
+                        dyn crate::claurst_side_question_runner::ClaurstSideQuestionModels,
+                    >
+            })
     }
 
     pub(crate) async fn start_local_claurst(

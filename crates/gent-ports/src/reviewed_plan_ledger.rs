@@ -1,8 +1,8 @@
 //! Durable ownership boundary for trusted reviewed-plan artifacts and approvals.
 
 use gent_types::{
-    PlanArtifact, PlanImplementation, PlanRevision, PlanTurn, ReviewedPlanId,
-    StartImplementationRequest, StartImplementationResult,
+    ImplementationStarted, PlanArtifact, PlanRevision, PlanTurn, ReviewedPlanId,
+    StartImplementationRequest,
 };
 
 pub const MAX_PLAN_PURSUIT_BATCH: usize = 16;
@@ -37,7 +37,7 @@ pub trait ReviewedPlanLedger: Send + Sync {
     fn approve_reviewed_plan(
         &self,
         request: &StartImplementationRequest,
-    ) -> Result<StartImplementationResult, LedgerError>;
+    ) -> Result<ImplementationStarted, LedgerError>;
 
     /// Atomically rejects exactly one still-reviewable plan revision.
     ///
@@ -56,6 +56,4 @@ pub trait ReviewedPlanLedger: Send + Sync {
     ) -> Result<Option<PlanArtifact>, LedgerError>;
 
     fn plan_turns_awaiting_review(&self) -> Result<Vec<PlanTurn>, LedgerError>;
-
-    fn implementations_awaiting_prompt(&self) -> Result<Vec<PlanImplementation>, LedgerError>;
 }

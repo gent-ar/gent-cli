@@ -42,6 +42,7 @@ impl ConversationLinkLedger for SqliteLedger {
                     ],
                 )
                 .map_err(storage_error)?;
+            inherit_containment(&transaction, link)?;
         }
         for (ordinal, fact) in facts.iter().enumerate() {
             publish(&transaction, fact, &format!("{request_identity}:{ordinal}"))?;
@@ -113,7 +114,7 @@ fn validate(link: &ConversationLink) -> Result<(), LedgerError> {
     Ok(())
 }
 
-fn publish(
+pub(super) fn publish(
     transaction: &Transaction<'_>,
     fact: &ConversationActivityFact,
     request_identity: &str,
@@ -161,7 +162,7 @@ fn publish(
     Ok(())
 }
 
-fn thread_state(
+pub(super) fn thread_state(
     connection: &Connection,
     conversation_id: &str,
 ) -> Result<Option<ConversationThreadState>, LedgerError> {
@@ -240,4 +241,24 @@ fn decode(row: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationLink> {
         created_turn_id: row.get(4)?,
         created_at_unix_seconds: row.get(5)?,
     })
+}
+
+fn inherit_containment(
+    transaction: &rusqlite::Transaction<'_>,
+    link: &ConversationLink,
+) -> Result<(), LedgerError> {
+    let inherited = transaction
+        .execute(
+            "INSERT INTO agent_chat_conversation_configs (conversation_id, revision, containment) SELECT ?1, (SELECT COALESCE(MAX(revision), 0) + 1 FROM agent_chat_conversation_configs WHERE conversation_id = ?1), 'sandboxed' WHERE (SELECT containment FROM agent_chat_conversation_configs WHERE conversation_id = ?2 ORDER BY revision DESC LIMIT 1) = 'sandboxed'",
+            params![link.child_conversation_id, link.parent_conversation_id],
+        )
+        .map_err(storage_error)?;
+    if inherited == 0 {
+        return Ok(());
+    }
+    super::agent_chat_projection_ledger::append_summary(
+        transaction,
+        &link.child_conversation_id,
+        &format!("config:{}:inherited", link.child_conversation_id),
+    )
 }

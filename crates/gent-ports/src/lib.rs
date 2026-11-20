@@ -132,4 +132,12 @@ pub enum PortError {
     Provider(String),
     #[error("provider bridge operation is unavailable: {0}")]
     Unavailable(String),
+    #[error("provider is busy with a running turn: {0}")]
+    Busy(String),
+    #[error("provider bridge did not deliver the request: {0}")]
+    NotDelivered(String),
+    #[error("provider request is no longer pending: {0}")]
+    NotPending(String),
+    #[error("provider refused the answer input: {0}")]
+    InvalidInput(String),
 }

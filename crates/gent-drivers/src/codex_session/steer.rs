@@ -33,10 +33,28 @@ fn steerable_turn(phase: &CodexSessionPhase) -> Option<(&String, &String)> {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct CodexSteers {
     requests: BTreeMap<u64, String>,
-    outstanding: BTreeMap<String, (String, String)>,
+    outstanding: Vec<OutstandingSteer>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OutstandingSteer {
+    message: String,
+    thread: String,
+    turn: String,
 }
 
 impl CodexSteers {
+    fn position(&self, message_id: &str) -> Option<usize> {
+        self.outstanding
+            .iter()
+            .position(|steer| steer.message == message_id)
+    }
+
+    fn forget(&mut self, message_id: &str) -> Option<OutstandingSteer> {
+        self.position(message_id)
+            .map(|index| self.outstanding.remove(index))
+    }
+
     pub(super) fn request(
         &mut self,
         phase: &CodexSessionPhase,
@@ -63,8 +81,13 @@ impl CodexSteers {
             }
         }))?;
         self.requests.insert(request_id, message_id.into());
-        self.outstanding
-            .insert(message_id.into(), (thread_id.clone(), turn_id.clone()));
+        let steer = OutstandingSteer {
+            message: message_id.into(),
+            thread: thread_id.clone(),
+            turn: turn_id.clone(),
+        };
+        self.forget(message_id);
+        self.outstanding.push(steer);
         Ok(frame)
     }
 
@@ -81,6 +104,9 @@ impl CodexSteers {
         let Some(message_id) = self.requests.remove(&response_id) else {
             return CodexSteerResponse::Unrelated;
         };
+        if self.position(&message_id).is_none() {
+            return CodexSteerResponse::Accepted;
+        }
         let turn_live = matches!(
             phase,
             CodexSessionPhase::Ready {
@@ -91,7 +117,7 @@ impl CodexSteers {
         if frame.get("error").is_none() && turn_live {
             return CodexSteerResponse::Accepted;
         }
-        self.outstanding.remove(&message_id);
+        self.forget(&message_id);
         CodexSteerResponse::Outcome(if frame.get("error").is_some() {
             CodexSteerOutcome::Rejected { message_id }
         } else {
@@ -100,7 +126,10 @@ impl CodexSteers {
     }
 
     pub(super) fn consumed(&mut self, frame: &Value) -> Option<CodexSteerOutcome> {
-        if frame.get("method").and_then(Value::as_str) != Some("item/started") {
+        if !matches!(
+            frame.get("method").and_then(Value::as_str),
+            Some("item/started" | "item/completed")
+        ) {
             return None;
         }
         let item = frame.pointer("/params/item")?;
@@ -108,33 +137,28 @@ impl CodexSteers {
             return None;
         }
         let message_id = item.get("clientId").and_then(Value::as_str)?;
-        let (thread, turn) = self.outstanding.get(message_id)?;
-        if frame.pointer("/params/threadId").and_then(Value::as_str) != Some(thread.as_str())
-            || frame.pointer("/params/turnId").and_then(Value::as_str) != Some(turn.as_str())
+        let steer = &self.outstanding[self.position(message_id)?];
+        if frame.pointer("/params/threadId").and_then(Value::as_str) != Some(steer.thread.as_str())
+            || frame.pointer("/params/turnId").and_then(Value::as_str) != Some(steer.turn.as_str())
         {
             return None;
         }
-        self.outstanding
-            .remove(message_id)
-            .is_some()
-            .then(|| CodexSteerOutcome::Consumed {
-                message_id: message_id.into(),
+        self.forget(message_id)
+            .map(|steer| CodexSteerOutcome::Consumed {
+                message_id: steer.message,
             })
     }
 
     pub(super) fn turn_ended(&mut self) -> Vec<CodexSteerOutcome> {
         let awaiting_response = self.requests.values().cloned().collect::<BTreeSet<_>>();
-        let unconsumed = self
-            .outstanding
-            .keys()
-            .filter(|message_id| !awaiting_response.contains(*message_id))
-            .cloned()
-            .collect::<Vec<_>>();
+        let (awaiting, unconsumed) = std::mem::take(&mut self.outstanding)
+            .into_iter()
+            .partition(|steer| awaiting_response.contains(&steer.message));
+        self.outstanding = awaiting;
         unconsumed
             .into_iter()
-            .map(|message_id| {
-                self.outstanding.remove(&message_id);
-                CodexSteerOutcome::Unconfirmed { message_id }
+            .map(|steer: OutstandingSteer| CodexSteerOutcome::Unconfirmed {
+                message_id: steer.message,
             })
             .collect()
     }

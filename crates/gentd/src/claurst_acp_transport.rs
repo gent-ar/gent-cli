@@ -62,10 +62,14 @@ pub(crate) enum ClaurstAcpTransportError {
     Rejected { code: i64, message: String },
     #[error("Claurst ACP returned an invalid session identifier")]
     InvalidSession,
+    #[error("Claurst ACP is still answering an earlier prompt")]
+    PromptInFlight,
     #[error("Claurst ACP I/O failed: {0}")]
     Io(String),
     #[error("Claurst ACP permission is not pending for this request")]
-    InvalidPermission,
+    PermissionNotPending,
+    #[error("Claurst ACP did not offer this answer for the pending permission")]
+    PermissionReplyNotOffered,
 }
 
 fn provider_spelling(workspace: &Path) -> std::path::PathBuf {
@@ -86,19 +90,31 @@ pub(crate) struct ClaurstAcpTransport<S> {
     permission_claimed_ids: std::collections::BTreeSet<String>,
     permission_rpc_ids: std::collections::BTreeSet<String>,
     pending_prompt_id: Option<u64>,
-    cancel_deadline: Option<std::time::Instant>,
     pending_terminal: Option<ClaurstAcpTerminal>,
     pending_permission: Option<PendingPermission>,
     held_permissions: VecDeque<(PendingPermission, ClaurstAcpPermissionRequest)>,
     assistant_output: String,
+    assistant_segment: String,
+    thought_segment: String,
     mcp_servers: Vec<Value>,
     supports_images: bool,
 }
 
 struct PendingPermission {
     request_id: String,
+    tool_use_id: String,
     json_rpc_id: Value,
     allow_once_option: Option<String>,
+    reject_once_option: Option<String>,
+}
+
+impl PendingPermission {
+    fn option(&self, reply: ClaurstPermissionReply) -> Option<&String> {
+        match reply {
+            ClaurstPermissionReply::AllowOnce => self.allow_once_option.as_ref(),
+            ClaurstPermissionReply::Deny => self.reject_once_option.as_ref(),
+        }
+    }
 }
 
 impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
@@ -114,11 +130,12 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             permission_claimed_ids: std::collections::BTreeSet::default(),
             permission_rpc_ids: std::collections::BTreeSet::default(),
             pending_prompt_id: None,
-            cancel_deadline: None,
             pending_terminal: None,
             pending_permission: None,
             held_permissions: VecDeque::new(),
             assistant_output: String::new(),
+            assistant_segment: String::new(),
+            thought_segment: String::new(),
             mcp_servers: Vec::new(),
             supports_images: false,
         }
@@ -197,12 +214,10 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         if !self.initialized {
             return Err(ClaurstAcpTransportError::Uninitialized);
         }
-        if session_id.is_empty()
-            || content.is_empty()
-            || self.pending_prompt_id.is_some()
-            || self.pending_permission.is_some()
-            || !self.held_permissions.is_empty()
-        {
+        if self.pending_prompt_id.is_some() {
+            return Err(ClaurstAcpTransportError::PromptInFlight);
+        }
+        if session_id.is_empty() || content.is_empty() {
             return Err(ClaurstAcpTransportError::InvalidSession);
         }
         let id = self.send_request(
@@ -214,10 +229,11 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         )?;
         self.permission_claimed_ids.clear();
         self.permission_rpc_ids.clear();
-        self.open_tools.clear();
+        self.keep_background_tools();
         self.pending_prompt_id = Some(id);
-        self.cancel_deadline = None;
         self.assistant_output.clear();
+        self.assistant_segment.clear();
+        self.thought_segment.clear();
         Ok(())
     }
 
@@ -226,31 +242,15 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         request_id: &str,
         reply: ClaurstPermissionReply,
     ) -> Result<(), ClaurstAcpTransportError> {
-        if self
-            .pending_permission
-            .as_ref()
-            .is_none_or(|pending| pending.request_id != request_id)
-        {
-            return Err(ClaurstAcpTransportError::InvalidPermission);
-        }
-        if matches!(reply, ClaurstPermissionReply::AllowOnce)
-            && self
-                .pending_permission
-                .as_ref()
-                .is_some_and(|pending| pending.allow_once_option.is_none())
-        {
-            return Err(ClaurstAcpTransportError::InvalidPermission);
-        }
         let pending = self
             .pending_permission
-            .take()
-            .ok_or(ClaurstAcpTransportError::InvalidPermission)?;
-        let result = match reply {
-            ClaurstPermissionReply::AllowOnce => {
-                json!({"outcome": {"outcome": "selected", "optionId": pending.allow_once_option}})
-            }
-            ClaurstPermissionReply::Deny => json!({"outcome": {"outcome": "cancelled"}}),
+            .take_if(|pending| pending.request_id == request_id)
+            .ok_or(ClaurstAcpTransportError::PermissionNotPending)?;
+        let Some(option) = pending.option(reply).cloned() else {
+            self.pending_permission = Some(pending);
+            return Err(ClaurstAcpTransportError::PermissionReplyNotOffered);
         };
+        let result = json!({"outcome": {"outcome": "selected", "optionId": option}});
         self.write(json!({"jsonrpc": "2.0", "id": pending.json_rpc_id, "result": result}))?;
         if let Some((next, request)) = self.held_permissions.pop_front() {
             self.pending_permission = Some(next);
@@ -273,6 +273,14 @@ mod tests;
 #[cfg(test)]
 #[path = "claurst_acp_transport_unanswered_tests.rs"]
 mod unanswered_tests;
+
+#[cfg(test)]
+#[path = "claurst_acp_transport_settle_tests.rs"]
+mod settle_tests;
+
+#[cfg(test)]
+#[path = "claurst_acp_transport_background_tests.rs"]
+mod background_tests;
 
 #[cfg(all(test, windows))]
 #[path = "claurst_acp_transport_cwd_tests.rs"]

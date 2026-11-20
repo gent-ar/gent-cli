@@ -1,5 +1,3 @@
-//! Durable-before-spawn transition for one claimed Claude prompt.
-
 use std::collections::BTreeMap;
 
 use gent_ports::{
@@ -65,7 +63,7 @@ where
         .start_or_resume(request(&run_id, coordinator_id, host_epoch))
     {
         Err(error) => {
-            runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
+            runner.cancel_claude_prompt(&run_id);
             Err(error)
         }
         Ok(response) => match response.outcome {
@@ -82,29 +80,26 @@ where
                     Binding {
                         prompt,
                         sequence: 0,
-                        settled: false,
-                        interrupt_requested: false,
+                        turns: crate::provider_run_state::RunTurns::prompt_started(),
                         steers: Vec::new(),
                         session_recovery: super::SessionRecovery::NotNeeded,
                         failure_reported_turn: None,
-                        open_children: std::collections::BTreeMap::new(),
                         last_dispatch: 0,
                         idle_since: None,
                         awaits_first_input: false,
                         permission,
                         queued_permissions: std::collections::VecDeque::new(),
+                        background_children: std::collections::BTreeSet::new(),
                     },
                 );
                 Ok(ClaudePromptDispatchOutcome::Started { run_id })
             }
-            PublicRunOutcome::Denied | PublicRunOutcome::LeaseContended => {
+            PublicRunOutcome::Denied
+            | PublicRunOutcome::LeaseContended
+            | PublicRunOutcome::Interrupted => {
                 runner.cancel_claude_prompt(&run_id);
                 runtime.release_unstarted_prompt_launch(&message_id, coordinator_id, host_epoch)?;
                 Ok(ClaudePromptDispatchOutcome::Empty)
-            }
-            PublicRunOutcome::Interrupted => {
-                runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-                Ok(ClaudePromptDispatchOutcome::Unprovable { run_id })
             }
         },
     }
@@ -143,12 +138,13 @@ where
         None => start.prompt,
     };
     runtime.begin_prompt_launch(&message_id, coordinator_id, host_epoch)?;
-    if let Err(error) =
-        runner.submit_claude_prompt(&run_id, &prompt_text, start.goal.as_ref(), &start.content)
-    {
-        runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
-        return Err(error.into());
-    }
+    runner.submit_claude_prompt(
+        &run_id,
+        &message_id,
+        &prompt_text,
+        start.goal.as_ref(),
+        &start.content,
+    )?;
     if let Err(error) = runtime.confirm_prompt_started(&message_id, coordinator_id, host_epoch) {
         let _ = runner.interrupt(&run_id);
         runtime.mark_prompt_unprovable(&message_id, coordinator_id, host_epoch)?;
@@ -156,7 +152,7 @@ where
     }
     let binding = active.get_mut(&run_id).ok_or_else(super::missing_binding)?;
     binding.prompt = prompt;
-    binding.settled = false;
+    binding.turns.open_prompt();
     binding.awaits_first_input = false;
     Ok(ClaudePromptDispatchOutcome::Started { run_id })
 }

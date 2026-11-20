@@ -15,6 +15,7 @@ fn fixture() -> (
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     let pending = PermissionDecisionRequest {
         binding: PermissionDecisionBinding {
@@ -39,6 +40,7 @@ fn fixture() -> (
         binding: pending.binding.clone(),
         response: PermissionDecisionResponseKind::ApproveExactTool,
         input: None,
+        command_pattern: None,
     };
     (policy, pending, response)
 }

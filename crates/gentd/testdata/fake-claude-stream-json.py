@@ -123,7 +123,9 @@ def slow_steps(session_id):
                 accept(session_id, frame)
 
 
-def turn(session_id, text):
+def turn(session_id, text, message_uuid=None):
+    if message_uuid is not None:
+        emit({"type": "command_lifecycle", "command_uuid": message_uuid, "state": "started"})
     if "SUBAGENT" in text:
         return background_subagent(session_id)
     announced = str(uuid.uuid4()) if "ROTATE" in text else session_id
@@ -151,7 +153,7 @@ def turn(session_id, text):
     result(session_id, False)
     if late is not None:
         accept(session_id, late)
-        turn(session_id, user_text(late))
+        turn(session_id, user_text(late), late.get("uuid"))
 
 
 def main():
@@ -190,7 +192,7 @@ def main():
             accept(session_id, frame)
         elif frame.get("type") == "user":
             accept(session_id, frame)
-            turn(session_id, user_text(frame))
+            turn(session_id, user_text(frame), frame.get("uuid"))
         elif frame.get("type") == "control_response" and PENDING:
             PENDING.clear()
             result(session_id, False)

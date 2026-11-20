@@ -1,6 +1,4 @@
-//! Read-only, cursor-resumable following of one durable agent-chat turn.
-
-use std::{io, time::Duration};
+use std::io;
 
 use gent_protocol::{
     AgentChatTurnFollowEnd, AgentChatTurnFollowFrame, MAX_FRAME_BYTES, read_json_frame,
@@ -14,12 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::{api::RuntimeApi, transport::write_error};
 
 const PAGE_LIMIT: u16 = 100;
-const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-/// Serves one exact turn from a read-only, epoch-fenced source until durable settlement.
-///
-/// Provider launch, native sessions, and raw provider output are deliberately absent from this
-/// transport. The source already filters the exact conversation/run/turn tuple.
 pub(crate) async fn serve<S, R>(
     stream: S,
     runtime: R,
@@ -42,8 +35,15 @@ where
         expected_epoch,
     };
     let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut commits = runtime.commits();
     let mut cursor = after_cursor;
     loop {
+        commits.borrow_and_update();
+        match poll(&runtime, &scope, &mut cursor, &mut writer).await {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(reason) => return end(&mut writer, &scope, reason).await,
+        }
         tokio::select! {
             input = read_json_frame::<_, Value>(&mut reader) => match input {
                 Ok(_) => {
@@ -53,18 +53,30 @@ where
                 Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
                 Err(error) => return Err(Box::new(error)),
             },
-            () = tokio::time::sleep(POLL_INTERVAL) => {
-                match poll(&runtime, &scope, &mut cursor, &mut writer).await {
-                    Ok(true) => return Ok(()),
-                    Ok(false) => {}
-                    Err(reason) => {
-                        write_json_frame(&mut writer, &AgentChatTurnFollowFrame::Ended { request_id: scope.request_id.clone(), reason }).await?;
-                        return Ok(());
-                    }
-                }
-            }
+            changed = commits.changed() => if changed.is_err() {
+                return end(&mut writer, &scope, AgentChatTurnFollowEnd::ServerClosing).await;
+            },
         }
     }
+}
+
+async fn end<W>(
+    writer: &mut W,
+    scope: &FollowScope,
+    reason: AgentChatTurnFollowEnd,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    W: AsyncWrite + Unpin,
+{
+    write_json_frame(
+        writer,
+        &AgentChatTurnFollowFrame::Ended {
+            request_id: scope.request_id.clone(),
+            reason,
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 struct FollowScope {
@@ -171,13 +183,17 @@ where
     Ok(false)
 }
 
-/// The daemon's read-only authority boundary for one turn-follow poll.
 pub(crate) trait TurnFollowPort: Clone + Send + Sync + 'static {
+    fn commits(&self) -> tokio::sync::watch::Receiver<u64>;
     fn host_epoch(&self) -> Result<HostEpoch, String>;
     fn read(&self, request: TurnFollowRequest) -> Result<TurnFollowRead, String>;
 }
 
 impl<R: RuntimeApi> TurnFollowPort for R {
+    fn commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.ledger_commits()
+    }
+
     fn host_epoch(&self) -> Result<HostEpoch, String> {
         self.status().map(|status| status.host_epoch)
     }

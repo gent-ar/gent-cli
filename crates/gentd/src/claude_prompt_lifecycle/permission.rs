@@ -20,7 +20,6 @@ use super::{ClaudePromptExecution, ClaudePromptLifecycle, missing_binding};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ClaudePermissionRecord {
     pub(super) facts: u16,
-    pub(super) terminal: bool,
 }
 
 impl<L, D, R> ClaudePromptLifecycle<L, D, R>
@@ -64,7 +63,7 @@ where
         updated_input: Option<serde_json::Value>,
     ) -> Result<(), RuntimeError> {
         if !self.active.contains_key(run_id) {
-            return Err(missing_binding());
+            return Err(gent_ports::PublicProviderRunError::NotActive.into());
         }
         self.runner
             .respond_claude_permission_with_input(
@@ -89,8 +88,6 @@ where
             .cloned()
             .ok_or_else(missing_binding)?;
         let ledger = self.runtime.ledger();
-        // The polling epoch comes from the composed owner, not provider/client input.
-        // Fence before sending any auto-approval if a successor closed/replaced this owner.
         let ingress = ledger.host_ingress()?;
         if ingress.epoch != host_epoch || ingress.mode != gent_ports::IngressMode::Open {
             return Err(missing_binding());
@@ -147,7 +144,7 @@ where
                     None,
                 )
                 .map_err(RuntimeError::from)?;
-            let terminal = self.record_wire(
+            self.record_wire(
                 run_id,
                 host_epoch,
                 &PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
@@ -165,7 +162,7 @@ where
                     },
                 }),
             )?;
-            return Ok(ClaudePermissionRecord { facts: 1, terminal });
+            return Ok(ClaudePermissionRecord { facts: 1 });
         }
         let digest = format!(
             "{:x}",
@@ -173,7 +170,7 @@ where
                 RuntimeError::Ledger(gent_ports::LedgerError::Storage(error.to_string()))
             })?)
         );
-        ledger.save_pending_permission(&PermissionDecisionRequest {
+        let pending = PermissionDecisionRequest {
             binding: PermissionDecisionBinding {
                 decision_id: AgentChatDecisionId(request.request_id.clone()),
                 request_idempotency_key: format!("claude:{}", request.request_id),
@@ -181,20 +178,28 @@ where
                     binding.prompt.message.conversation_id.clone(),
                 ),
                 run_id: AgentChatRunId(run_id.into()),
-                turn_id: binding.prompt.message.turn_id.clone(),
+                turn_id: binding.turn_id().into(),
                 policy_id: policy.policy_id,
                 policy_revision: policy.revision,
                 host_epoch,
                 request_digest_sha256: PermissionRequestDigest(digest),
             },
             request: normalized,
-        })?;
-        let mut terminal = false;
-        for fact in [
-            PublicWireFact::Lifecycle(NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::WaitingPermission,
-            }),
-            PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
+        };
+        ledger.save_pending_permission(&pending)?;
+        let background = request
+            .child_id
+            .as_ref()
+            .is_some_and(|child| binding.background_children.contains(child));
+        let root_waits = (binding.turns.place_request(background)
+            == crate::provider_run_state::RequestPlacement::RootTurn)
+            .then_some(PublicWireFact::Lifecycle(
+                NormalizedLifecycleSignal::RootPhase {
+                    phase: TurnPhase::WaitingPermission,
+                },
+            ));
+        for fact in root_waits.into_iter().chain([PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::ToolActivity {
                 activity: gent_types::ToolActivity {
                     tool_use_id: request.tool_use_id,
                     tool_name: request.tool_name,
@@ -203,10 +208,10 @@ where
                     input: request.operation_preview,
                     parent_tool_use_id: None,
                 },
-            }),
-        ] {
-            terminal |= self.record_wire(run_id, host_epoch, &fact)?;
+            },
+        )]) {
+            self.record_wire(run_id, host_epoch, &fact)?;
         }
-        Ok(ClaudePermissionRecord { facts: 2, terminal })
+        Ok(ClaudePermissionRecord { facts: 2 })
     }
 }

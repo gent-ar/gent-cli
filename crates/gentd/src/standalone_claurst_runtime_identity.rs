@@ -142,6 +142,7 @@ mod tests {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         };
         let first = identity(
             &selection,
@@ -195,6 +196,7 @@ mod tests {
                     containment: Containment::Sandboxed,
                     allowed_tools: vec![],
                     allowed_categories: vec![],
+                    allowed_commands: Vec::new(),
                 },
                 HostEpoch(1),
             )

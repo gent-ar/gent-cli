@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use gent_ports::{AgentChatPromptLedger, AgentChatQueuedPromptLedger, ConversationActivityLedger};
+use gent_ports::{AgentChatPromptLedger, ConversationActivityLedger};
 use gent_types::{
     AgentChatConversationId, AgentChatPromptCreate, AgentChatPromptDisposition,
     AgentChatPromptSaved, AgentChatProvider, AgentChatRequestId, ConversationActivityFact,
@@ -57,30 +57,6 @@ impl InstalledProvider {
         saved
     }
 
-    fn steer(&self, queued: &AgentChatPromptSaved) {
-        let (receipt, _) = self
-            .state
-            .ledger()
-            .steer_queued_agent_chat_prompt(
-                &ReceiptId(format!("steer-{}", queued.message.message_id)),
-                self.epoch(),
-                &AgentChatConversationId(queued.message.conversation_id.clone()),
-                &queued.message.message_id,
-            )
-            .unwrap();
-        self.runtime
-            .prompt_ingress()
-            .steer_run(
-                self.provider,
-                PromptWake {
-                    receipt_id: receipt.receipt_id,
-                    ..wake_queued(queued)
-                },
-                None,
-            )
-            .unwrap();
-    }
-
     fn drive_until_streaming(&self, saved: &AgentChatPromptSaved) {
         let deadline = Instant::now() + Duration::from_secs(30);
         while self.reply(saved).is_empty() {
@@ -112,7 +88,7 @@ impl InstalledProvider {
         }
     }
 
-    fn steered_into_the_running_turn(
+    fn joined_into_the_running_turn(
         &mut self,
         conversation: &AgentChatConversationId,
     ) -> AgentChatPromptSaved {
@@ -123,7 +99,6 @@ impl InstalledProvider {
         let active = self.send(conversation, text);
         self.drive_until_streaming(&active);
         let queued = self.queue(conversation);
-        self.steer(&queued);
 
         assert_eq!(self.settle(&active), DurableTurnPhase::Completed);
         assert_eq!(self.phase(&queued), DurableTurnPhase::Completed);
@@ -157,24 +132,24 @@ impl InstalledProvider {
 }
 
 #[test]
-fn a_steer_joins_the_running_turn_of_a_session_resumed_after_a_restart() {
+fn a_queued_prompt_joins_the_running_turn_of_a_session_resumed_after_a_restart() {
     for provider in [AgentChatProvider::Claude, AgentChatProvider::Codex] {
         let (mut installed, conversation, _) = remembered(provider);
         installed.restart();
 
-        installed.steered_into_the_running_turn(&conversation);
+        installed.joined_into_the_running_turn(&conversation);
 
         assert_eq!(installed.resumed_launches(), 1, "{provider:?}");
     }
 }
 
 #[test]
-fn a_steer_joins_the_running_turn_of_a_session_rebound_to_an_upgraded_binary() {
+fn a_queued_prompt_joins_the_running_turn_of_a_session_rebound_to_an_upgraded_binary() {
     for provider in [AgentChatProvider::Claude, AgentChatProvider::Codex] {
         let (mut installed, conversation, _) = remembered(provider);
         installed.install("2.0.0");
 
-        installed.steered_into_the_running_turn(&conversation);
+        installed.joined_into_the_running_turn(&conversation);
 
         assert_eq!(installed.events("runExecutableRebound").len(), 1);
         assert_eq!(installed.resumed_launches(), 1, "{provider:?}");
@@ -182,7 +157,7 @@ fn a_steer_joins_the_running_turn_of_a_session_rebound_to_an_upgraded_binary() {
 }
 
 #[test]
-fn a_steer_joins_the_running_turn_claude_recreates_from_saved_history_after_a_restart() {
+fn a_queued_prompt_joins_the_running_turn_claude_recreates_from_saved_history_after_a_restart() {
     let (mut claude, conversation, seed) = remembered(AgentChatProvider::Claude);
     let seed_session = claude.bound_session(&seed);
     claude.restart();
@@ -194,7 +169,7 @@ fn a_steer_joins_the_running_turn_claude_recreates_from_saved_history_after_a_re
     )
     .unwrap();
 
-    let active = claude.steered_into_the_running_turn(&conversation);
+    let active = claude.joined_into_the_running_turn(&conversation);
 
     assert_eq!(
         claude.transcript(&active, NormalizedTranscriptKind::Notice),

@@ -1,29 +1,18 @@
-//! Versioned, secret-free workspace permission policy records.
-
 use serde::{Deserialize, Serialize};
 
-/// The policy domain covered by a record.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PolicyScope {
     ProviderPermissions,
 }
 
-/// The default behavior applied to a provider-neutral permission request.
-///
-/// A mode never starts a provider or bypasses the daemon's observer boundary. It is only a
-/// durable user preference consumed by future authority-gated provider ingress.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PermissionMode {
-    /// Ask for every operation that has not received an explicit durable approval.
     #[default]
     AskEveryTime,
-    /// Permit reads and edits; commands, network access, and provider control still ask.
     AutoAcceptEdits,
-    /// Permit reads, edits, and commands; network and provider control still ask.
     Autonomous,
-    /// Permit every category after an explicit, separately confirmed user choice.
     Bypass,
 }
 
@@ -54,18 +43,12 @@ impl Containment {
     }
 }
 
-/// Trusted process-launch containment state, never accepted from a protocol client.
-///
-/// The future daemon-owned launcher derives this after preparing the OS sandbox immediately
-/// before spawning the exact locked executable. It is deliberately not serializable because a
-/// client-provided value would be a forgeable security claim.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SandboxEnforcement {
     Enforced,
     Unavailable,
 }
 
-/// A stable, provider-neutral class of requested capability.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PermissionCategory {
@@ -76,11 +59,9 @@ pub enum PermissionCategory {
     Provider,
 }
 
-/// The typed operation presented to the pure permission evaluator.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionRequest {
-    /// Stable public tool name, never a provider-native process argument or credential.
     pub tool_name: String,
     pub category: PermissionCategory,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,19 +87,18 @@ impl PermissionRequest {
     }
 }
 
-/// Why Gent itself refused a provider permission request before asking the user.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PermissionDenialReason {
-    ReadOnlyMode,
+    PlanModeEdit,
 }
 
 impl PermissionDenialReason {
     #[must_use]
     pub const fn notice(self) -> &'static str {
         match self {
-            Self::ReadOnlyMode => {
-                "Gent denied a file change or command because Ask and Plan modes are read-only. Switch to Agent mode to allow changes."
+            Self::PlanModeEdit => {
+                "Gent denied a file change because Plan mode does not edit project files. Start implementing the plan to allow changes."
             }
         }
     }
@@ -126,14 +106,13 @@ impl PermissionDenialReason {
     #[must_use]
     pub const fn provider_message(self) -> &'static str {
         match self {
-            Self::ReadOnlyMode => {
-                "This conversation is in a read-only mode (Ask or Plan): file changes and shell commands are not allowed. Answer without them, or ask the user to switch to Agent mode."
+            Self::PlanModeEdit => {
+                "This conversation is in Plan mode: project files are not edited until the user starts implementing the plan. Commands, reads, web research and sub-agents remain available; put this change in the plan instead."
             }
         }
     }
 }
 
-/// One immutable revision of a workspace policy.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PolicyRecord {
@@ -141,15 +120,14 @@ pub struct PolicyRecord {
     pub workspace_id: String,
     pub scope: PolicyScope,
     pub revision: u64,
-    /// The selected execution posture. Changing it always creates a new revision.
     #[serde(default)]
     pub mode: PermissionMode,
-    /// Canonically sorted exact tool approvals. Credentials and endpoint data are never policy.
     #[serde(default)]
     pub allowed_tools: Vec<String>,
-    /// Canonically sorted broad approvals. These are intentionally typed rather than globbed.
     #[serde(default)]
     pub allowed_categories: Vec<PermissionCategory>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_commands: Vec<crate::CommandGrant>,
     #[serde(skip, default = "Containment::unresolved")]
     pub containment: Containment,
 }

@@ -1,16 +1,28 @@
+use gent_drivers::reasoning_text::answer;
 use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, ToolActivity, ToolPhase};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{ClaurstAcpFact, ClaurstAcpTransport};
 
+#[path = "claurst_acp_transport_permission_tool.rs"]
+mod permission_tool;
+
+#[path = "claurst_acp_transport_background.rs"]
+mod background;
+
 impl<S> ClaurstAcpTransport<S> {
     pub(super) fn session_update_fact(&mut self, params: Option<&Value>) -> Option<ClaurstAcpFact> {
-        let update = params?.get("update")?;
+        let params = params?;
+        let update = params.get("update")?;
         match update.get("sessionUpdate")?.as_str()? {
-            "agent_message_chunk" => self.output(update),
-            "agent_thought_chunk" => text(update, true),
-            "tool_call" => self.tool_call(update),
+            "agent_message_chunk" => self.output(update, false),
+            "agent_thought_chunk" => self.output(update, true),
+            "tool_call" => {
+                let fact = self.tool_call(update, params.get("sessionId"))?;
+                self.finish_streamed_text();
+                Some(fact)
+            }
             "tool_call_update" => self.tool_call_update(update),
             "usage_update" => usage(update),
             kind if kind.contains("error") || kind.contains("fail") => Some(ClaurstAcpFact::Event(
@@ -25,28 +37,74 @@ impl<S> ClaurstAcpTransport<S> {
                             || format!("Claurst ACP session update: {kind}"),
                             str::to_owned,
                         ),
+                    resets_at: None,
                 },
             )),
             _ => None,
         }
     }
 
-    fn output(&mut self, update: &Value) -> Option<ClaurstAcpFact> {
+    fn output(&mut self, update: &Value, thought: bool) -> Option<ClaurstAcpFact> {
         let text = update.get("content")?.get("text")?.as_str()?.to_owned();
+        if text.is_empty() {
+            return None;
+        }
+        if thought {
+            self.finish_message();
+            self.thought_segment.push_str(&text);
+            return Some(ClaurstAcpFact::Event(NormalizedProviderEvent::Thinking {
+                text,
+                is_partial: true,
+            }));
+        }
         self.assistant_output.push_str(&text);
         if super::io::unanswered_stop_reason(&text).is_some() {
             return None;
         }
-        Some(ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
-            text,
-            is_partial: true,
-        }))
+        self.finish_thought();
+        let shown = answer(&self.assistant_segment).to_owned();
+        self.assistant_segment.push_str(&text);
+        let visible = answer(&self.assistant_segment);
+        let text = visible.strip_prefix(shown.as_str()).unwrap_or(visible);
+        (!text.is_empty()).then(|| {
+            ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
+                text: text.to_owned(),
+                is_partial: true,
+            })
+        })
     }
 
-    fn tool_call(&mut self, update: &Value) -> Option<ClaurstAcpFact> {
+    pub(super) fn finish_streamed_text(&mut self) {
+        self.finish_thought();
+        self.finish_message();
+    }
+
+    fn finish_message(&mut self) {
+        let text = answer(&std::mem::take(&mut self.assistant_segment)).to_owned();
+        if !text.is_empty() {
+            self.queued
+                .push_back(ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
+                    text,
+                    is_partial: false,
+                }));
+        }
+    }
+
+    fn finish_thought(&mut self) {
+        let text = std::mem::take(&mut self.thought_segment);
+        if !text.is_empty() {
+            self.queued
+                .push_back(ClaurstAcpFact::Event(NormalizedProviderEvent::Thinking {
+                    text,
+                    is_partial: false,
+                }));
+        }
+    }
+
+    fn tool_call(&mut self, update: &Value, session: Option<&Value>) -> Option<ClaurstAcpFact> {
         let id = tool_id(update)?;
         let name = safe_tool_name(update.get("title").and_then(Value::as_str));
-        let phase = phase(update.get("status").and_then(Value::as_str)?)?;
+        let phase = phase(update.get("status").and_then(Value::as_str)?, None)?;
         self.open_tools.retain(|tool| tool.id != id);
         self.open_tools.push(OpenTool {
             id: id.clone(),
@@ -65,6 +123,7 @@ impl<S> ClaurstAcpTransport<S> {
                 .map(str::to_owned),
             input: update.get("rawInput").cloned(),
             permission_claimed: false,
+            session: session.and_then(Value::as_str).map(str::to_owned),
         });
         Some(tool_fact(id, name, phase, None, update.get("rawInput")))
     }
@@ -77,7 +136,7 @@ impl<S> ClaurstAcpTransport<S> {
                 .or_else(|| update.get("fields").and_then(|fields| fields.get(name)))
         };
         let phase = match field("status").and_then(Value::as_str) {
-            Some(status) => phase(status)?,
+            Some(status) => phase(status, field("rawOutput"))?,
             None => self
                 .open_tools
                 .iter()
@@ -100,7 +159,10 @@ impl<S> ClaurstAcpTransport<S> {
             .iter()
             .find(|tool| tool.id == id)
             .map_or_else(|| "Tool".into(), |tool| tool.name.clone());
-        if matches!(phase, ToolPhase::Completed | ToolPhase::Failed) {
+        if matches!(
+            phase,
+            ToolPhase::Completed | ToolPhase::Failed | ToolPhase::Interrupted
+        ) {
             self.open_tools.retain(|tool| tool.id != id);
         }
         let output_digest = field("rawOutput")
@@ -129,55 +191,7 @@ pub(super) struct OpenTool {
     input: Option<Value>,
     permission_claimed: bool,
     authority_name: Option<String>,
-}
-
-pub(super) struct PermissionTool {
-    pub(super) tool_use_id: String,
-    pub(super) tool_name: String,
-    pub(super) input: Option<Value>,
-}
-
-impl<S> ClaurstAcpTransport<S> {
-    pub(super) fn claim_permission_tool(&mut self, permission: &Value) -> Option<PermissionTool> {
-        let id = permission.get("toolCallId")?.as_str()?;
-        let title = permission.get("title")?.as_str()?;
-        let input = permission.get("rawInput")?.as_object()?;
-        if id.is_empty()
-            || id.len() > 256
-            || id.chars().any(char::is_control)
-            || title.is_empty()
-            || title.len() > 256
-            || !title
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
-        {
-            return None;
-        }
-        let name = title.to_owned();
-        let input = Value::Object(input.clone());
-        // One approval per actual operation in the current prompt, including
-        // requests that race ahead of their display update. Bounded state.
-        if self.permission_claimed_ids.len() >= 4096 || self.permission_claimed_ids.contains(id) {
-            return None;
-        }
-        // Arrival order is not authority. A permission may precede its UI update,
-        // but it must carry its actual ID and exact immutable arguments itself.
-        if let Some(tool) = self.open_tools.iter_mut().find(|tool| tool.id == id) {
-            if tool.permission_claimed
-                || tool.authority_name.as_deref() != Some(name.as_str())
-                || tool.input.as_ref().is_some_and(|known| known != &input)
-            {
-                return None;
-            }
-            tool.permission_claimed = true;
-        }
-        self.permission_claimed_ids.insert(id.into());
-        Some(PermissionTool {
-            tool_use_id: id.into(),
-            tool_name: name,
-            input: Some(input),
-        })
-    }
+    session: Option<String>,
 }
 
 fn usage(update: &Value) -> Option<ClaurstAcpFact> {
@@ -196,21 +210,6 @@ fn usage(update: &Value) -> Option<ClaurstAcpFact> {
             window_tokens,
         },
     ))
-}
-
-fn text(update: &Value, thought: bool) -> Option<ClaurstAcpFact> {
-    let text = update.get("content")?.get("text")?.as_str()?.to_owned();
-    Some(if thought {
-        ClaurstAcpFact::Event(NormalizedProviderEvent::Thinking {
-            text,
-            is_partial: true,
-        })
-    } else {
-        ClaurstAcpFact::Event(NormalizedProviderEvent::Output {
-            text,
-            is_partial: true,
-        })
-    })
 }
 
 fn tool_fact(
@@ -274,11 +273,13 @@ pub(super) fn safe_tool_name(title: Option<&str>) -> String {
         )
 }
 
-fn phase(status: &str) -> Option<ToolPhase> {
+fn phase(status: &str, raw_output: Option<&Value>) -> Option<ToolPhase> {
+    let cancelled = raw_output.and_then(|raw| raw.get("status")) == Some(&"cancelled".into());
     match status {
         "in_progress" | "inProgress" => Some(ToolPhase::Started),
         "pending" => Some(ToolPhase::WaitingPermission),
         "completed" => Some(ToolPhase::Completed),
+        "failed" if cancelled => Some(ToolPhase::Interrupted),
         "failed" => Some(ToolPhase::Failed),
         _ => None,
     }

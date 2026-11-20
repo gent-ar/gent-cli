@@ -87,6 +87,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Permissions { action } => {
             print(permissions_cli::execute(data_dir, no_autostart, action).await?)?;
         }
+        CommandLine::Receipt { receipt_id } => {
+            print(crate::receipt_cli::lookup(data_dir, no_autostart, receipt_id).await?)?;
+        }
         CommandLine::Auth { action } => match action {
             provider_auth_cli::ProviderAuthCommand::Status { provider, wait } => {
                 print(provider_auth_cli::status(data_dir, no_autostart, provider, wait).await?)?;

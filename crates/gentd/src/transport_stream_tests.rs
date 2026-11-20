@@ -19,6 +19,21 @@ use crate::transport::serve_connection;
 #[derive(Clone, Debug)]
 struct StreamRuntime {
     events: Arc<Mutex<Vec<Event>>>,
+    commits: Arc<tokio::sync::watch::Sender<u64>>,
+}
+
+impl StreamRuntime {
+    fn new(events: Vec<Event>) -> Self {
+        Self {
+            events: Arc::new(Mutex::new(events)),
+            commits: Arc::new(tokio::sync::watch::channel(0).0),
+        }
+    }
+
+    fn commit(&self, event: Event) {
+        self.events.lock().unwrap().push(event);
+        self.commits.send_modify(|commits| *commits += 1);
+    }
 }
 
 impl RuntimeApi for StreamRuntime {
@@ -30,6 +45,9 @@ impl RuntimeApi for StreamRuntime {
     }
     fn status(&self) -> Result<HostStatus, String> {
         Err("not used".into())
+    }
+    fn ledger_commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.commits.subscribe()
     }
     fn submit(&self, _: Command) -> Result<Receipt, String> {
         Err("not used".into())
@@ -119,12 +137,9 @@ fn hello(capabilities: Vec<&str>) -> WireFrame {
 
 #[tokio::test]
 async fn negotiated_attach_replays_then_delivers_later_events_in_order() {
-    let events = Arc::new(Mutex::new(vec![event(1)]));
-    let runtime = StreamRuntime {
-        events: Arc::clone(&events),
-    };
+    let runtime = StreamRuntime::new(vec![event(1)]);
     let (mut client, server) = duplex(16 * 1024);
-    let task = tokio::spawn(serve_connection(server, runtime));
+    let task = tokio::spawn(serve_connection(server, runtime.clone()));
     write_frame(&mut client, &hello(vec!["events", EVENT_STREAM_CAPABILITY]))
         .await
         .unwrap();
@@ -142,7 +157,7 @@ async fn negotiated_attach_replays_then_delivers_later_events_in_order() {
     write_json_frame(&mut client, &EventStreamFrame::Ack { cursor: 1 })
         .await
         .unwrap();
-    events.lock().unwrap().push(event(2));
+    runtime.commit(event(2));
     assert!(matches!(
         tokio::time::timeout(
             Duration::from_millis(250),
@@ -156,12 +171,9 @@ async fn negotiated_attach_replays_then_delivers_later_events_in_order() {
 
 #[tokio::test]
 async fn stream_waits_for_the_page_ack_before_sending_the_next_page() {
-    let events = Arc::new(Mutex::new(vec![event(1)]));
-    let runtime = StreamRuntime {
-        events: Arc::clone(&events),
-    };
+    let runtime = StreamRuntime::new(vec![event(1)]);
     let (mut client, server) = duplex(16 * 1024);
-    let task = tokio::spawn(serve_connection(server, runtime));
+    let task = tokio::spawn(serve_connection(server, runtime.clone()));
     write_frame(&mut client, &hello(vec!["events", EVENT_STREAM_CAPABILITY]))
         .await
         .unwrap();
@@ -172,7 +184,7 @@ async fn stream_waits_for_the_page_ack_before_sending_the_next_page() {
     let _ = read_json_frame::<_, EventStreamFrame>(&mut client)
         .await
         .unwrap();
-    events.lock().unwrap().push(event(2));
+    runtime.commit(event(2));
     assert!(
         tokio::time::timeout(
             Duration::from_millis(75),
@@ -200,9 +212,7 @@ async fn stream_waits_for_the_page_ack_before_sending_the_next_page() {
 
 #[tokio::test]
 async fn attach_is_rejected_without_the_negotiated_stream_capability() {
-    let runtime = StreamRuntime {
-        events: Arc::new(Mutex::new(Vec::new())),
-    };
+    let runtime = StreamRuntime::new(Vec::new());
     let (mut client, server) = duplex(16 * 1024);
     let task = tokio::spawn(serve_connection(server, runtime));
     write_frame(&mut client, &hello(vec!["events"]))
@@ -222,9 +232,7 @@ async fn attach_is_rejected_without_the_negotiated_stream_capability() {
 
 #[tokio::test]
 async fn stale_attach_replays_retained_facts_without_state_replacement() {
-    let runtime = StreamRuntime {
-        events: Arc::new(Mutex::new(vec![event(5)])),
-    };
+    let runtime = StreamRuntime::new(vec![event(5)]);
     let (mut client, server) = duplex(16 * 1024);
     let task = tokio::spawn(serve_connection(server, runtime));
     write_frame(&mut client, &hello(vec!["events", EVENT_STREAM_CAPABILITY]))

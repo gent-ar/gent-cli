@@ -10,12 +10,11 @@ use gent_types::{
 };
 
 use crate::SystemProcess;
-use crate::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
 use crate::lock::rechecked_identity;
 use crate::sandboxed_launch::{
     ProcessSandboxEvidence, SandboxedProviderLaunch, SandboxedProviderLaunchError as Error,
 };
-use crate::supervisor::{ProviderLaunch, ProviderProcess};
+use crate::supervisor::ProviderLaunch;
 
 #[derive(Clone, Debug)]
 pub struct WindowsSandboxLauncher {
@@ -131,7 +130,6 @@ impl SandboxedProviderLaunch for WindowsSandboxLauncher {
             let result = read_result.map(|_| (reader, line));
             let _ = sender.send(result);
         });
-        // Allow gateway admission and the contained temporary-directory bootstrap to finish.
         let handshake = receiver
             .recv_timeout(Duration::from_secs(45))
             .ok()
@@ -164,14 +162,10 @@ impl SandboxedProviderLaunch for WindowsSandboxLauncher {
         }
         let stdin = child.stdin.take().ok_or(Error::ContainmentRejected)?;
         let stderr = child.stderr.take().ok_or(Error::ContainmentRejected)?;
+        let process = SystemProcess::new(child.finish(), stdin, stdout, stderr, self.output_limit)
+            .map_err(|error| Error::LaunchFailed(error.to_string()))?;
         Ok(WindowsSandboxProcess {
-            process: Some(SystemProcess::new(
-                child.finish(),
-                stdin,
-                stdout,
-                stderr,
-                self.output_limit,
-            )),
+            process: Some(process),
             forced: std::sync::atomic::AtomicBool::new(false),
             stop_lock: std::sync::Mutex::new(()),
             evidence,
@@ -232,109 +226,6 @@ mod handshake;
 use handshake::generation;
 use handshake::{handshake, valid_run};
 
-impl WindowsSandboxProcess {
-    fn owned(&self) -> &SystemProcess {
-        self.process.as_ref().expect("owned sandbox process")
-    }
-    fn unprovable() -> ProcessTreeError {
-        ProcessTreeError::Failed("native sandbox scope settlement is unprovable; retained ownership requires reconciliation".into())
-    }
-    fn settled(&self) -> Result<bool, ProcessTreeError> {
-        if self.forced.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(Self::unprovable());
-        }
-        let status = self.owned().peek_owned_exit_status()?;
-        if self.forced.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(Self::unprovable());
-        }
-        match status {
-            Some(status) if !matches!(status.code(), Some(0 | 125)) => Err(Self::unprovable()),
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
-    }
-    fn stop_owned(&self, force: bool) -> Result<(), ProcessTreeError> {
-        let _lock = self
-            .stop_lock
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if self.forced.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(Self::unprovable());
-        }
-        if self.settled()? {
-            return Ok(());
-        }
-        if !force {
-            self.owned().close_stdin()?;
-            let deadline = std::time::Instant::now() + Duration::from_secs(18);
-            while std::time::Instant::now() < deadline {
-                if self.settled()? {
-                    return Ok(());
-                }
-                thread::sleep(Duration::from_millis(10));
-            }
-        }
-        // Reaping a killed helper is never evidence that either native Job is empty.
-        self.forced
-            .store(true, std::sync::atomic::Ordering::Release);
-        let _ = self.owned().kill_owned();
-        let _ = self.owned().reap_owned();
-        Err(Self::unprovable())
-    }
-}
-impl ProcessTreeControl for WindowsSandboxProcess {
-    fn signal_tree(&self, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-        self.stop_owned(signal == ProcessTreeSignal::Kill)
-    }
-}
-impl ProviderProcess for WindowsSandboxProcess {
-    fn sandbox_evidence(&self) -> Option<&ProcessSandboxEvidence> {
-        self.settled()
-            .ok()
-            .filter(|settled| !settled)
-            .map(|_| &self.evidence)
-    }
-    fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError> {
-        if self.forced.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(Self::unprovable());
-        }
-        self.owned().write_frame(frame)
-    }
-    fn close_stdin(&self) -> Result<(), ProcessTreeError> {
-        self.owned().close_stdin()
-    }
-    fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
-        self.owned().next_stdout_chunk()
-    }
-    fn try_exit_code(&self) -> Result<Option<Option<i32>>, ProcessTreeError> {
-        if self.settled()? {
-            self.owned().try_exit_code()
-        } else {
-            Ok(None)
-        }
-    }
-}
-impl Drop for WindowsSandboxProcess {
-    fn drop(&mut self) {
-        if self.stop_owned(false).is_ok() {
-            let output = self.owned().output();
-            for line in String::from_utf8_lossy(&output.stderr.bytes).lines() {
-                if line.starts_with("GENT-SANDBOX-SETTLED ") {
-                    eprintln!("{line}");
-                }
-            }
-            self.cleanup.cleanup(self.evidence.network_peer());
-        } else if let (Some(process), Some(pin)) = (self.process.take(), self.helper_image.take()) {
-            // An unknown scope must not lose its process/image ownership just because a Rust wrapper drops.
-            eprintln!(
-                "native sandbox unprovable scope: {}",
-                self.evidence.run_id()
-            );
-            cleanup::quarantine_process(process, pin);
-        }
-    }
-}
-
 #[cfg(test)]
 #[path = "windows_sandbox_tests.rs"]
 mod tests;
@@ -343,3 +234,5 @@ mod tests;
 mod cleanup;
 #[path = "windows_sandbox_config.rs"]
 mod config;
+#[path = "windows_sandbox_process.rs"]
+mod process;

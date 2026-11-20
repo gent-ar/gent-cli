@@ -1,5 +1,3 @@
-//! Daemon-facing runtime port. Transport adapters depend only on this boundary.
-
 use crate::runtime_facade::RuntimeOwnerControlPort;
 use gent_protocol::{
     AgentChatCheckpointFrame, AgentChatConversationConfigFrame, AgentChatConversationFrame,
@@ -68,7 +66,6 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         &self,
         request: DependencyActionRequest,
     ) -> Result<DependencyActionResult, String>;
-    /// Handles a capability-gated attachment transfer frame.
     fn attachment(&self, _: AttachmentFrame) -> Result<AttachmentFrame, String> {
         Err("attachments are unavailable for this runtime".into())
     }
@@ -96,8 +93,10 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     fn workspace_git(
         &self,
         _: WorkspaceGitFrame,
-    ) -> Result<WorkspaceGitFrame, crate::workspace_git_api::WorkspaceGitRejection> {
-        Err("workspace git is unavailable for this runtime".into())
+    ) -> Result<WorkspaceGitFrame, crate::agent_chat_intent_error::AgentChatIntentError> {
+        Err(crate::workspace_git_api::rejected(
+            "workspace git is unavailable for this runtime",
+        ))
     }
     fn forge_connectors(&self, _: ForgeConnectorFrame) -> Result<ForgeConnectorFrame, String> {
         Err("Forge connectors are unavailable while gentd is observer-disabled".into())
@@ -109,14 +108,12 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     {
         Err(gent_protocol::LocalModelDownloadFailure::StorageUnavailable)
     }
-    /// Reads a separately configured, signed cached release report.
     fn runtime_update_check(
         &self,
         _: RuntimeUpdateCheckRequest,
     ) -> Result<RuntimeUpdateCheckReport, String> {
         Err("runtime update checks are observer-disabled".into())
     }
-    /// Reads one separately enabled durable update-maintenance attempt.
     fn runtime_maintenance(
         &self,
         _: RuntimeMaintenanceRequest,
@@ -139,11 +136,6 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         &self,
         request: PublicRunInterruptRequest,
     ) -> Result<PublicRunResponse, String>;
-    /// Handles a finite authority-gated agent-chat exchange.
-    ///
-    /// The transport validates that every response is correlated to `request`. Observer
-    /// implementations keep this default and therefore cannot accept chat commands merely by
-    /// negotiating the protocol capability.
     fn agent_chat_intent(
         &self,
         _: AgentChatIntentFrame,
@@ -160,43 +152,35 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     > {
         Err("agent-chat commands are unavailable while gentd is observer-disabled".into())
     }
-    /// Reads a public, provider-neutral conversation view only in a composed chat authority.
-    ///
-    /// The hard observer deliberately keeps this unavailable and does not advertise its
-    /// capability, even though the protocol DTOs are stable for future clients.
     fn agent_chat_conversation(
         &self,
         _: AgentChatConversationFrame,
     ) -> Result<AgentChatConversationFrame, crate::agent_chat_intent_error::AgentChatIntentError>
     {
-        Err(crate::agent_chat_intent_error::AgentChatIntentError {
-            code: "agentChatReadUnavailable",
-            message:
-                "agent-chat conversation reads are unavailable while gentd is observer-disabled"
-                    .into(),
-        })
+        Err(crate::agent_chat_intent_error::AgentChatIntentError::coded(
+            "agentChatReadUnavailable",
+            "agent-chat conversation reads are unavailable while gentd is observer-disabled",
+        ))
     }
-    /// Reads a normalized transcript page only in a composed chat authority.
     fn agent_chat_transcript(
         &self,
         _: AgentChatTranscriptFrame,
     ) -> Result<AgentChatTranscriptFrame, crate::agent_chat_intent_error::AgentChatIntentError>
     {
-        Err(crate::agent_chat_intent_error::AgentChatIntentError {
-            code: "agentChatReadUnavailable",
-            message: "agent-chat transcript reads are unavailable while gentd is observer-disabled"
-                .into(),
-        })
+        Err(crate::agent_chat_intent_error::AgentChatIntentError::coded(
+            "agentChatReadUnavailable",
+            "agent-chat transcript reads are unavailable while gentd is observer-disabled",
+        ))
     }
     fn agent_chat_projection(
         &self,
         _: AgentChatProjectionFrame,
     ) -> Result<AgentChatProjectionFrame, crate::agent_chat_intent_error::AgentChatIntentError>
     {
-        Err(crate::agent_chat_intent_error::AgentChatIntentError {
-            code: "agentChatProjectionUnavailable",
-            message: "agent-chat projection is unavailable while gentd is observer-disabled".into(),
-        })
+        Err(crate::agent_chat_intent_error::AgentChatIntentError::coded(
+            "agentChatProjectionUnavailable",
+            "agent-chat projection is unavailable while gentd is observer-disabled",
+        ))
     }
     fn agent_chat_projection_follow(
         &self,
@@ -205,15 +189,12 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     ) -> Result<Vec<AgentChatProjectionDelta>, String> {
         Err("agent-chat projection is unavailable while gentd is observer-disabled".into())
     }
-    /// Assesses one exact current run only in an approved private readiness composition.
     fn provider_readiness(
         &self,
         _: ProviderReadinessFrame,
     ) -> Result<ProviderReadinessFrame, String> {
         Err("provider readiness is unavailable while gentd is observer-disabled".into())
     }
-    /// Confirms one daemon-derived provider-install review only in a private authority profile.
-    ///
     fn prompt_provider_provision(
         &self,
         _: PromptProviderProvisionFrame,
@@ -221,57 +202,56 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
     ) -> Result<PromptProviderProvisionFrame, String> {
         Err("prompt provider provisioning is unavailable while gentd is observer-disabled".into())
     }
-    /// Reads one epoch-fenced page of one exact normalized turn in an approved composition.
-    ///
-    /// The default keeps observer and persistence-only profiles unable to follow a turn.
+    fn ledger_commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        tokio::sync::watch::channel(0).1
+    }
     fn agent_chat_turn_follow(&self, _: TurnFollowRequest) -> Result<TurnFollowRead, String> {
         Err("agent-chat turn follow is unavailable while gentd is observer-disabled".into())
     }
-    /// Reads or appends one local, provider-neutral permission-policy revision.
-    fn permission_policy(&self, _: PermissionPolicyFrame) -> Result<PermissionPolicyFrame, String> {
-        Err("permission policy is unavailable for this runtime".into())
+    fn permission_policy(
+        &self,
+        _: PermissionPolicyFrame,
+    ) -> Result<PermissionPolicyFrame, crate::agent_chat_intent_error::AgentChatIntentError> {
+        Err(crate::permission_policy_api::rejected(
+            "permission policy is unavailable for this runtime",
+        ))
     }
-    /// Reads or appends one durable per-conversation advanced-launch-configuration revision.
     fn agent_chat_conversation_config(
         &self,
         _: AgentChatConversationConfigFrame,
     ) -> Result<AgentChatConversationConfigFrame, String> {
         Err("agent-chat conversation config is unavailable for this runtime".into())
     }
-    /// Captures, lists, or restores a durable per-turn file checkpoint.
     fn agent_chat_checkpoint(
         &self,
         _: AgentChatCheckpointFrame,
     ) -> Result<AgentChatCheckpointFrame, String> {
         Err("agent-chat checkpoint is unavailable for this runtime".into())
     }
-    /// Asks, cancels, or lists bounded, provider-neutral side questions.
     fn agent_chat_side_question(
         &self,
         _: AgentChatSideQuestionFrame,
-    ) -> Result<AgentChatSideQuestionFrame, String> {
-        Err("agent-chat side question is unavailable for this runtime".into())
+    ) -> Result<AgentChatSideQuestionFrame, crate::agent_chat_intent_error::AgentChatIntentError>
+    {
+        Err(crate::agent_chat_intent_error::AgentChatIntentError::coded(
+            "agentChatSideQuestionRejected",
+            "agent-chat side question is unavailable for this runtime",
+        ))
     }
-    /// Handles a secret-free provider-auth frame only in a future authority composition.
-    ///
-    /// The observer default refuses before any provider discovery, browser launch, or login
-    /// process can be reached.
     fn provider_auth(&self, _: ProviderAuthFrame) -> Result<ProviderAuthFrame, String> {
         Err("provider authentication is unavailable while gentd is observer-disabled".into())
     }
-    /// Handles reviewed-plan reads and user decisions only in a future authority composition.
-    fn reviewed_plan(&self, _: ReviewedPlanFrame) -> Result<ReviewedPlanFrame, String> {
-        Err("reviewed plans are unavailable while gentd is observer-disabled".into())
+    fn reviewed_plan(
+        &self,
+        _: ReviewedPlanFrame,
+    ) -> Result<ReviewedPlanFrame, crate::agent_chat_intent_error::AgentChatIntentError> {
+        Err(crate::reviewed_plan_api::rejected(
+            "reviewed plans are unavailable while gentd is observer-disabled",
+        ))
     }
-    /// Reads or mutates a Gent-owned task graph only in a future authority composition.
-    ///
-    /// The hard observer refuses before a graph read/write, worktree lease, or provider path.
     fn orchestration(&self, _: OrchestrationFrame) -> Result<OrchestrationFrame, String> {
         Err("orchestration is unavailable while gentd is observer-disabled".into())
     }
-    /// Handles provider-neutral `/goal` records only in an approved chat persistence profile.
-    ///
-    /// This default deliberately refuses before a ledger write or any provider path can occur.
     fn goal(&self, _: GoalFrame) -> Result<GoalFrame, String> {
         Err("goals are unavailable while gentd is observer-disabled".into())
     }
@@ -280,7 +260,6 @@ pub(crate) trait RuntimeApi: Clone + Send + Sync + 'static {
         Err("conversation discovery is unavailable for this runtime".into())
     }
     fn conversation_timeline(&self, conversation_id: &str) -> Result<ConversationTimeline, String>;
-    /// Returns activity only for a future authority-gated runtime composition.
     fn conversation_activity(
         &self,
         _: &str,

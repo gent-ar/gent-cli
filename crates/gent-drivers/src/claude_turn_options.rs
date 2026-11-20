@@ -119,16 +119,16 @@ impl ClaudeTurnOptions {
     /// Appends this immutable turn's documented Claude CLI fields to a launch vector.
     pub fn append_arguments(&self, arguments: &mut Vec<String>) {
         let mut settings = serde_json::Map::new();
-        if matches!(
-            self.mode,
+        let host_asked: &[&str] = match self.mode {
             ClaudeTurnMode::Chat(
                 ClaudePermissionMode::Manual | ClaudePermissionMode::Bypass,
-                _
-            )
-        ) {
-            // Claude can otherwise approve tools before the stdio callback,
-            // bypassing Gent's durable policy (including read-only Bash).
-            settings.insert("permissions".into(), serde_json::json!({"ask": ["*"]}));
+                _,
+            ) => &["*"],
+            ClaudeTurnMode::Chat(ClaudePermissionMode::Plan, _) => &["Bash", "PowerShell"],
+            _ => &[],
+        };
+        if !host_asked.is_empty() {
+            settings.insert("permissions".into(), serde_json::json!({"ask": host_asked}));
             settings.insert(
                 "sandbox".into(),
                 serde_json::json!({"autoAllowBashIfSandboxed": false}),
@@ -207,9 +207,12 @@ fn mode_instruction(mode: AgentChatMode) -> Option<&'static str> {
         AgentChatMode::Ask => Some(
             "Answer and explain. Do not invoke tools or make changes unless the user explicitly asks you to.",
         ),
-        AgentChatMode::Plan | AgentChatMode::Agent => None,
+        AgentChatMode::Plan => Some(PLAN_INSTRUCTION),
+        AgentChatMode::Agent => None,
     }
 }
+
+const PLAN_INSTRUCTION: &str = "Gent plan mode: research freely before planning. You may run shell commands, read and search any file, use the web, and spawn sub-agents; Gent asks the user whenever a tool needs approval. Do not edit project files: the plan file is the only file you write. Deliver the plan with ExitPlanMode.";
 
 impl From<PermissionMode> for ClaudePermissionMode {
     fn from(mode: PermissionMode) -> Self {

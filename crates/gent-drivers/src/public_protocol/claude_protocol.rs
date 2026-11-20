@@ -9,7 +9,10 @@ use super::PublicWireFact;
 
 #[path = "claude_protocol/failure.rs"]
 mod failure;
-pub(crate) use failure::{authentication_failed, failure, sign_in_required};
+pub(crate) use failure::{
+    authentication_failed, failure, rate_limit_reached, rate_limit_resets_at, rate_limited,
+    sign_in_required,
+};
 #[path = "claude_protocol/usage.rs"]
 mod usage;
 pub(super) use usage::{context_usage, turn_usage};
@@ -46,7 +49,10 @@ mod control;
 pub(super) use control::control_response;
 #[path = "claude_protocol/child.rs"]
 mod child;
-pub(crate) use child::{child, child_parent, task_notification, task_terminal};
+pub(crate) use child::{
+    backgrounded_agent, backgrounded_command, child, child_parent, command_terminal,
+    task_notification, task_terminal,
+};
 
 pub(super) fn partial_text(delta: &Value, field: &str, thinking: bool) -> Vec<PublicWireFact> {
     let Some(text) = string(delta, field).filter(|text| !text.is_empty()) else {
@@ -66,21 +72,16 @@ pub(super) fn partial_text(delta: &Value, field: &str, thinking: bool) -> Vec<Pu
     vec![PublicWireFact::Event(event)]
 }
 
-/// Reduces echoed tool results only if this one frame proves both identifier and display name.
-/// Real Claude result blocks normally omit the name, so runner-owned correlation must handle
-/// them; this pure reducer must not invent one.
 pub(super) fn user(frame: &Value) -> Vec<PublicWireFact> {
     let Some(content) = frame.pointer("/message/content").and_then(Value::as_array) else {
         return Vec::new();
     };
     let parent_tool_use_id = child_parent(frame);
-    let mut facts = content
+    content
         .iter()
         .filter(|block| string(block, "type") == Some("tool_result"))
         .flat_map(|block| tool_result(block, parent_tool_use_id))
-        .collect::<Vec<_>>();
-    facts.extend(background_launches(frame));
-    facts
+        .collect()
 }
 
 fn tool_result(block: &Value, parent_tool_use_id: Option<&str>) -> Vec<PublicWireFact> {
@@ -118,36 +119,6 @@ fn tool_result(block: &Value, parent_tool_use_id: Option<&str>) -> Vec<PublicWir
     facts
 }
 
-pub(crate) fn background_launches(frame: &Value) -> Vec<PublicWireFact> {
-    let Some(content) = frame.pointer("/message/content").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    content
-        .iter()
-        .filter(|block| string(block, "type") == Some("tool_result"))
-        .filter_map(|block| {
-            let parent_tool_use_id = string(block, "tool_use_id").filter(|id| !id.is_empty())?;
-            let content = block.get("content")?;
-            let text = content_text(content);
-            let lower = text.to_ascii_lowercase();
-            let launch_phrase = lower.contains("async agent launched successfully")
-                || lower.contains("running in background")
-                || lower.contains("working in the background")
-                || lower.contains("background job");
-            if !launch_phrase || !lower.contains("output_file:") {
-                return None;
-            }
-            let child_id = marker_value(&text, "agentId:")?;
-            Some(PublicWireFact::Event(
-                NormalizedProviderEvent::ChildStarted {
-                    child_id: child_id.into(),
-                    parent_tool_use_id: parent_tool_use_id.into(),
-                },
-            ))
-        })
-        .collect()
-}
-
 pub(crate) fn content_text(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
@@ -162,12 +133,6 @@ pub(crate) fn content_text(value: &Value) -> String {
             .join("\n"),
         _ => String::new(),
     }
-}
-
-fn marker_value<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
-    let start = text.find(marker)? + marker.len();
-    let value = text[start..].split_whitespace().next()?;
-    (!value.is_empty()).then_some(value)
 }
 
 pub(crate) fn activity(
@@ -226,11 +191,18 @@ fn string<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
 }
 
 pub(super) fn result(frame: &Value) -> Vec<PublicWireFact> {
-    let failed = frame
-        .get("is_error")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let phase = if failed {
+    let interrupted = matches!(
+        string(frame, "terminal_reason"),
+        Some("aborted_streaming" | "aborted_tools")
+    );
+    let failed = !interrupted
+        && frame
+            .get("is_error")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    let phase = if interrupted {
+        TurnPhase::Interrupted
+    } else if failed {
         TurnPhase::Failed
     } else {
         TurnPhase::Ready

@@ -56,9 +56,14 @@ fn authority_catalog_advertises_turn_follow_only_with_agent_chat() {
 struct Source {
     read: TurnFollowRead,
     epoch: HostEpoch,
+    commits: std::sync::Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 impl TurnFollowPort for Source {
+    fn commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.commits.subscribe()
+    }
+
     fn host_epoch(&self) -> Result<HostEpoch, String> {
         Ok(self.epoch)
     }
@@ -179,6 +184,7 @@ async fn emitted_cursor_is_a_valid_continuation_token() {
 fn source(terminal: Option<TurnTerminal>, next_after_cursor: Option<u64>) -> Source {
     Source {
         epoch: HostEpoch(1),
+        commits: std::sync::Arc::new(tokio::sync::watch::channel(0).0),
         read: TurnFollowRead {
             host_epoch: HostEpoch(1),
             events: terminal
@@ -211,6 +217,7 @@ fn event(cursor: u64) -> NormalizedTranscriptEvent {
         text: "normalized".into(),
         is_partial: false,
         failure_code: None,
+        resets_at: None,
         origin: None,
         attachments: Vec::new(),
     }

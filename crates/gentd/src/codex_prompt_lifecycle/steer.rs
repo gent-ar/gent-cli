@@ -35,7 +35,9 @@ where
             .active
             .iter()
             .filter(|(run_id, binding)| {
-                !binding.settled && !binding.releasing && self.runner.codex_turn_steerable(run_id)
+                binding.turns.prompt_open()
+                    && !binding.turns.releasing()
+                    && self.runner.codex_turn_steerable(run_id)
             })
             .map(|(run_id, _)| run_id.clone())
             .collect::<Vec<_>>();
@@ -49,23 +51,30 @@ where
                 .message
                 .turn_id
                 .clone();
-            while let Some((prompt, _)) = ledger.claim_steered_agent_chat_prompt_for_turn(
+            while let Some(prompt) = ledger.claim_steered_agent_chat_prompt_for_turn(
                 &self.coordinator_id,
                 host_epoch,
                 &AgentChatRunId(run_id.clone()),
                 &turn_id,
             )? {
                 let message_id = prompt.message.message_id.clone();
-                let delivered = provider_input(&self.runtime, &prompt.message, &run_id).and_then(
+                self.runtime
+                    .begin_prompt_launch(&message_id, &self.coordinator_id, host_epoch)?;
+                let written = provider_input(&self.runtime, &prompt.message, &run_id).and_then(
                     |(text, attachments)| {
                         self.runner
                             .steer_codex_turn(&run_id, &message_id, &text, &attachments)
                             .map_err(RuntimeError::from)
                     },
                 );
-                if delivered.is_err() {
-                    self.retire_unconsumed_steer(&message_id, host_epoch)?;
-                    break;
+                if let Err(error) = written {
+                    eprintln!("Codex steer for prompt {message_id} was not delivered: {error}");
+                    ledger.reject_steered_agent_chat_prompt_delivery(
+                        &message_id,
+                        &self.coordinator_id,
+                        host_epoch,
+                    )?;
+                    continue;
                 }
                 self.active
                     .get_mut(&run_id)
@@ -83,10 +92,10 @@ where
         host_epoch: HostEpoch,
         outcome: CodexSteerOutcome,
     ) -> Result<(), RuntimeError> {
-        let (message_id, consumed, unconfirmed) = match outcome {
-            CodexSteerOutcome::Consumed { message_id } => (message_id, true, false),
-            CodexSteerOutcome::Rejected { message_id } => (message_id, false, false),
-            CodexSteerOutcome::Unconfirmed { message_id } => (message_id, false, true),
+        let (message_id, consumed) = match outcome {
+            CodexSteerOutcome::Consumed { message_id } => (message_id, true),
+            CodexSteerOutcome::Rejected { message_id }
+            | CodexSteerOutcome::Unconfirmed { message_id } => (message_id, false),
         };
         let binding = self.active.get(run_id).ok_or_else(missing_binding)?;
         let Some(index) = binding
@@ -104,14 +113,8 @@ where
                 host_epoch,
                 &turn_id,
             )?;
-        } else if unconfirmed {
-            self.retire_unconsumed_steer(&message_id, host_epoch)?;
         } else {
-            self.runtime.release_unstarted_prompt_launch(
-                &message_id,
-                &self.coordinator_id,
-                host_epoch,
-            )?;
+            self.retire_unconsumed_steer(&message_id, host_epoch)?;
         }
         self.active
             .get_mut(run_id)
@@ -136,54 +139,12 @@ where
         Ok(())
     }
 
-    pub(super) fn retire_targeted_steers(
-        &mut self,
-        run_id: &str,
-        host_epoch: HostEpoch,
-    ) -> Result<(), RuntimeError> {
-        let messages = self
-            .active
-            .get(run_id)
-            .ok_or_else(missing_binding)?
-            .steers
-            .iter()
-            .map(|prompt| prompt.message.message_id.clone())
-            .collect::<Vec<_>>();
-        for message in messages {
-            if self
-                .runtime
-                .ledger()
-                .agent_chat_prompt_has_steer_target(&message)?
-            {
-                self.retire_unconsumed_steer(&message, host_epoch)?;
-                self.active
-                    .get_mut(run_id)
-                    .ok_or_else(missing_binding)?
-                    .steers
-                    .retain(|prompt| prompt.message.message_id != message);
-            }
-        }
-        Ok(())
-    }
-
     fn retire_unconsumed_steer(
         &self,
         message_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), RuntimeError> {
-        if self
-            .runtime
-            .ledger()
-            .agent_chat_prompt_has_steer_target(message_id)?
-        {
-            self.runtime
-                .mark_prompt_unprovable(message_id, &self.coordinator_id, host_epoch)
-        } else {
-            self.runtime.release_unstarted_prompt_launch(
-                message_id,
-                &self.coordinator_id,
-                host_epoch,
-            )
-        }
+        self.runtime
+            .release_unstarted_prompt_launch(message_id, &self.coordinator_id, host_epoch)
     }
 }

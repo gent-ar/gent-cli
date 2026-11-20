@@ -1,5 +1,3 @@
-//! Daemon-owned provider-effect ingress with durable-source-before-projection ordering.
-
 use gent_core::DecisionEvidence;
 use gent_ports::{IngressMode, Ledger, RunLifecycleFactLedger, RunSessionBinding};
 use gent_types::{
@@ -10,7 +8,6 @@ use sha2::{Digest, Sha256};
 
 use crate::{Coordinator, ProviderRunAuthority, RunLifecycleStatusService, RuntimeError};
 
-/// One effect emitted by an owned provider runner or private bridge adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProviderLifecycleEffect {
     SessionStarted { provider_session_id: String },
@@ -21,7 +18,6 @@ pub enum ProviderLifecycleEffect {
     Terminal { reason: String },
 }
 
-/// Persists source facts before applying daemon-owned sessions, decisions, or projections.
 #[derive(Debug)]
 pub struct ProviderLifecycleIngress<L> {
     coordinator: Coordinator<L>,
@@ -33,7 +29,6 @@ impl<L> ProviderLifecycleIngress<L>
 where
     L: Clone + Ledger + RunLifecycleFactLedger,
 {
-    /// Constructs an inert ingress unless public-driver authority is explicitly supplied.
     #[must_use]
     pub fn new(coordinator: Coordinator<L>, authority: ProviderRunAuthority) -> Self {
         Self {
@@ -43,13 +38,6 @@ where
         }
     }
 
-    /// Records one runner-owned effect and returns a status only when it changes a projection.
-    ///
-    /// The `event_id` must be stable across retries. Its source event is appended before every
-    /// follow-up mutation, so a projection can always be reconstructed from durable history.
-    ///
-    /// # Errors
-    /// Returns an error when authority, ownership, durable source persistence, or reduction fails.
     pub fn record(
         &self,
         event_id: String,
@@ -104,7 +92,10 @@ where
                 .coordinator
                 .apply_decision_evidence(&decision_id, DecisionEvidence::ProviderSettled)
                 .map(|_| None),
-            ProviderLifecycleEffect::Terminal { .. } => Ok(None),
+            ProviderLifecycleEffect::Terminal { .. } => {
+                self.coordinator.ledger.settle_run_permissions(run_id)?;
+                Ok(None)
+            }
         }
     }
 

@@ -80,6 +80,7 @@ fn message(
         text: text.into(),
         is_partial,
         failure_code: None,
+        resets_at: None,
         origin: None,
         attachments: Vec::new(),
     }
@@ -243,7 +244,16 @@ fn run_and_complete_settles_a_failed_run_as_failed_not_an_error() {
         )
         .unwrap();
     assert_eq!(settled.status, AgentChatSideQuestionStatus::Failed);
-    assert!(settled.failure_reason.is_some());
+    assert_eq!(
+        settled.failure_code,
+        Some(gent_types::AgentChatSideQuestionFailureCode::ProviderUnavailable)
+    );
+    let listed = service
+        .list(&gent_types::AgentChatConversationId(
+            "conversation-1".into(),
+        ))
+        .unwrap();
+    assert_eq!(listed, [settled]);
 }
 
 #[test]
@@ -281,4 +291,19 @@ fn cancel_transitions_a_pending_side_question_and_completion_no_longer_overwrite
         .unwrap();
     assert_eq!(settled.status, AgentChatSideQuestionStatus::Cancelled);
     assert!(settled.answer.is_none());
+}
+
+#[test]
+fn a_failed_side_question_carries_the_cause_as_a_typed_code() {
+    use gent_types::AgentChatSideQuestionFailureCode as Code;
+    let code = |error: PortError| super::failure_code(&crate::RuntimeError::Port(error));
+    assert_eq!(code(PortError::Busy("turn".into())), Code::ProviderBusy);
+    assert_eq!(
+        code(PortError::Unavailable("missing".into())),
+        Code::ProviderUnavailable
+    );
+    assert_eq!(
+        code(PortError::Provider("crash".into())),
+        Code::ProviderFailed
+    );
 }

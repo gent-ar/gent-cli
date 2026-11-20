@@ -525,3 +525,6 @@ fn download_frames(ledger: &SqliteLedger) -> Vec<gent_protocol::LocalModelFrame>
         .map(|event| serde_json::from_value(event.payload).unwrap())
         .collect()
 }
+
+#[path = "ordinary_lifecycle_cadence_standalone_download_progress_tests.rs"]
+mod download_progress;

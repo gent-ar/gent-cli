@@ -22,6 +22,7 @@ pub(super) fn relay_acp_frames(mut reader: impl Read, sender: SyncSender<Result<
                 if sender.send(Ok(frame)).is_err() {
                     return;
                 }
+                gent_drivers::provider_activity::signal();
             }
         }
     }

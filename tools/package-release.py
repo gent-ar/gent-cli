@@ -213,7 +213,6 @@ def write_metadata(out_dir: Path, name: str, version: str, target: str, files: l
             "agent-chat-archive-v1",
             "runtime-owner-control-v1",
             "provider-auth-handoff-v1",
-            "permission-policy-provider-binding-v1",
         ],
         "runtimes": ["runtime/node", "runtime/claurst"] + (["runtime/windows"] if windows_sandbox else []) + (["runtime/linux-sandbox"] if linux_sandbox else []),
     }

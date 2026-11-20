@@ -28,7 +28,7 @@ pub const CLAUDE_BUILTIN_COMMANDS: &[(&str, ClaudeBuiltin)] = &[
     ("code-review", Native),
     ("color", Unsupported("Session colors only apply to Claude's own terminal.", None)),
     ("compact", Native),
-    ("config", Unsupported(PROVIDER_SETTINGS, None)),
+    ("config", Unsupported(PROVIDER_SETTINGS, Some("/permissions"))),
     ("context", Native),
     ("dataviz", Native),
     ("debug", Native),
@@ -59,7 +59,7 @@ pub const CLAUDE_BUILTIN_COMMANDS: &[(&str, ClaudeBuiltin)] = &[
     ("security-review", Native),
     ("simplify", Native),
     ("team-onboarding", Native),
-    ("update-config", Unsupported(PROVIDER_SETTINGS, None)),
+    ("update-config", Unsupported(PROVIDER_SETTINGS, Some("/permissions"))),
     ("usage", Native),
     ("verify", Native),
     ("workflow-authoring", Native),
@@ -76,6 +76,13 @@ pub fn claude_builtin(name: &str) -> Option<ClaudeBuiltin> {
 pub fn claude_command_descriptors(initialize: &Value) -> Option<Vec<AgentChatCommandDescriptor>> {
     let entries = initialize.get("commands")?.as_array()?;
     Some(entries.iter().filter_map(descriptor).collect())
+}
+
+pub fn claude_builtin_descriptors() -> Vec<AgentChatCommandDescriptor> {
+    CLAUDE_BUILTIN_COMMANDS
+        .iter()
+        .filter_map(|(name, _)| descriptor(&serde_json::json!({ "name": name })))
+        .collect()
 }
 
 fn descriptor(entry: &Value) -> Option<AgentChatCommandDescriptor> {

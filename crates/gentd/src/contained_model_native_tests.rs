@@ -82,6 +82,7 @@ pub(crate) fn gateway_fixture(
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     ledger.save_policy(&policy).unwrap();
     let sdk = PathBuf::from(std::env::var_os("GENT_QA_CLAURST_EXECUTABLE").unwrap());

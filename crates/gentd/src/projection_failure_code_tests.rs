@@ -53,12 +53,45 @@ fn snapshot_and_follow_stream_expose_each_notice_failure_code() {
             )
             .unwrap();
     }
+    ledger
+        .append_normalized_transcript(
+            &conversation_id,
+            &NormalizedTranscriptAppend {
+                event_id: AgentChatFailureCode::provider_failure_event_id(
+                    gent_types::ProviderFailureClassification::RateLimited,
+                    Some(1_794_891_600),
+                    "notice-limited",
+                ),
+                turn_id: saved.message.turn_id.clone(),
+                run_id: saved.run_id.0.clone(),
+                kind: NormalizedTranscriptKind::Notice,
+                text: "limited".into(),
+                is_partial: false,
+            },
+        )
+        .unwrap();
     let expected = [
         json!("providerAuthRequired"),
         json!("gentdRestarted"),
         json!("sandboxUnavailable"),
         json!("sandboxAdmissionFailed"),
         Value::Null,
+        json!("providerRateLimited"),
+    ];
+    let resets = |events: &[Value]| {
+        events
+            .iter()
+            .filter(|event| event["kind"] == "notice")
+            .map(|event| event.get("resetsAt").cloned().unwrap_or(Value::Null))
+            .collect::<Vec<_>>()
+    };
+    let expected_resets = [
+        Value::Null,
+        Value::Null,
+        Value::Null,
+        Value::Null,
+        Value::Null,
+        json!(1_794_891_600),
     ];
     let notices = |events: Vec<Value>| {
         events
@@ -82,6 +115,7 @@ fn snapshot_and_follow_stream_expose_each_notice_failure_code() {
         .as_array()
         .unwrap()
         .clone();
+    assert_eq!(resets(&snapshot_wire), expected_resets);
     assert_eq!(notices(snapshot_wire), expected);
     let follow_wire = runtime
         .agent_chat_projection_follow(&conversation_id.0, &ProjectionCursor { value: 0 })
@@ -89,6 +123,7 @@ fn snapshot_and_follow_stream_expose_each_notice_failure_code() {
         .into_iter()
         .filter(|delta| matches!(delta, AgentChatProjectionDelta::Transcript { .. }))
         .map(|delta| serde_json::to_value(&delta).unwrap()["body"]["event"].clone())
-        .collect();
+        .collect::<Vec<_>>();
+    assert_eq!(resets(&follow_wire), expected_resets);
     assert_eq!(notices(follow_wire), expected);
 }

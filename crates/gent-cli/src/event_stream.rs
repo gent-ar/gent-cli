@@ -3,9 +3,9 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use gent_protocol::{EVENT_STREAM_CAPABILITY, EventStreamFrame, read_json_frame, write_json_frame};
+use gent_protocol::{EVENT_STREAM_CAPABILITY, EventStreamFrame, write_json_frame};
 
-use crate::local_ipc::connect_and_negotiate;
+use crate::local_ipc::{connect_and_negotiate, read_reply};
 
 /// Attaches to a local daemon stream and acknowledges output only after it reaches stdout.
 pub(crate) async fn follow(
@@ -23,10 +23,7 @@ pub(crate) async fn follow(
     }
     write_json_frame(&mut stream, &EventStreamFrame::Attach { after_cursor }).await?;
     loop {
-        let frame = read_json_frame::<_, EventStreamFrame>(&mut stream).await?;
-        if let EventStreamFrame::Error { code, message } = frame {
-            return Err(crate::cli_error::CliError::daemon(code, message).into());
-        }
+        let frame = read_reply::<_, EventStreamFrame>(&mut stream).await?;
         let acknowledgement = print_frame(&frame)?;
         if let Some(cursor) = acknowledgement {
             write_json_frame(&mut stream, &EventStreamFrame::Ack { cursor }).await?;

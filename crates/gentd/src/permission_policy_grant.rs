@@ -32,6 +32,15 @@ pub(crate) fn transition(
             revised.allowed_categories.sort();
             revised.allowed_categories.dedup();
         }
+        PermissionDecisionResponseKind::ApproveCommandPattern => {
+            let grant = gent_types::answered_command_grant(&pending.request, response)
+                .ok()
+                .flatten()
+                .ok_or("the command pattern does not approve this request")?;
+            revised.allowed_commands.push(grant);
+            revised.allowed_commands.sort();
+            revised.allowed_commands.dedup();
+        }
     }
     if revised == *policy {
         return Ok(None);

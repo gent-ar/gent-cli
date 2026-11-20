@@ -108,6 +108,7 @@ fn exercise(permission: PermissionMode, command_edit: bool) {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     let response = crate::permission_policy_api::exchange(
         &coordinator,
@@ -115,7 +116,6 @@ fn exercise(permission: PermissionMode, command_edit: bool) {
             request_id: "factory-smoke".into(),
             policy: broad.clone(),
             bypass_consent: permission == PermissionMode::Bypass,
-            expected_provider: Some(AgentChatProvider::Codex),
         },
     )
     .unwrap();
@@ -233,6 +233,7 @@ pub(crate) fn owned_ledger(
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         })
         .unwrap();
     ledger

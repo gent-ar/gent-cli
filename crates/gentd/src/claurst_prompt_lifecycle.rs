@@ -25,8 +25,11 @@ use crate::{
     private_claurst_ingress::PrivateClaurstIngress,
 };
 
+mod background;
 mod compaction;
 mod drain;
+use drain::display;
+mod launch;
 mod start;
 
 pub(crate) trait ClaurstLifecycleLedger:
@@ -87,10 +90,11 @@ pub(crate) struct ClaurstPromptLifecycle<L, B, F = ReadyClaurstRuntime> {
     artifacts: ConversationContextArtifactService<L>,
     lease_coordinator: Coordinator<L>,
     ingress: PrivateClaurstIngress<L, B>,
-    runtime: F,
+    runtime: std::sync::Arc<F>,
     coordinator_id: String,
     host_epoch: HostEpoch,
     active: BTreeMap<gent_ports::ClaurstSourceId, ActivePrompt>,
+    background: BTreeMap<gent_ports::ClaurstSourceId, AgentChatPromptSaved>,
     recovery_complete: bool,
     shutdown_requested: bool,
 }
@@ -144,23 +148,13 @@ where
                 bridge,
                 coordinator_id.clone(),
             ),
-            runtime,
+            runtime: std::sync::Arc::new(runtime),
             coordinator_id,
             host_epoch,
             active: BTreeMap::new(),
+            background: BTreeMap::new(),
             recovery_complete: false,
             shutdown_requested: false,
-        }
-    }
-
-    async fn stop_failed_runtime(&self, saved: &AgentChatPromptSaved, error: String) -> String {
-        match self
-            .runtime
-            .after_prompt_failed(&saved.message.conversation_id)
-            .await
-        {
-            Ok(()) => error,
-            Err(cleanup) => format!("{error}; Claurst runtime cleanup failed: {cleanup}"),
         }
     }
 
@@ -234,8 +228,12 @@ where
     async fn interrupt_claurst_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), String> {
         self.interrupt(run_id, Some(turn_id)).await
     }
-    async fn warm_claurst(&mut self, conversation_id: &str, run_id: &str) -> Result<(), String> {
-        self.warm(conversation_id, run_id).await
+    fn warm_claurst(&mut self, conversation_id: &str, run_id: &str) {
+        self.warm(conversation_id, run_id);
+    }
+    async fn reap_idle(&mut self, now: std::time::Instant) -> Result<(), String> {
+        self.reap(now);
+        Ok(())
     }
     async fn activate_recovery(&mut self) -> Result<(), String> {
         self.dispatches.recover(self.host_epoch).map_err(display)?;
@@ -247,13 +245,13 @@ where
         if !self.recovery_complete {
             return Err("Claurst lifecycle was driven before durable recovery".into());
         }
-        let draining = self.drain_active().await?;
+        let progressed = self.drain_active().await? | self.drain_background().await?;
         if self.shutdown_requested {
-            return Ok(draining);
+            return Ok(progressed);
         }
         let started =
             self.active.len() < CLAURST_CONVERSATION_CAPACITY && self.claim_and_start().await?;
-        Ok(draining || started || !self.active.is_empty())
+        Ok(progressed || started)
     }
 
     async fn begin_shutdown_after_recovery(&mut self) -> Result<(), String> {
@@ -275,10 +273,6 @@ where
     fn is_idle(&self) -> bool {
         self.recovery_complete && self.active.is_empty()
     }
-}
-
-fn display(error: impl std::fmt::Display) -> String {
-    error.to_string()
 }
 
 #[cfg(test)]

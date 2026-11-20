@@ -222,6 +222,45 @@ fn a_prelaunch_failure_settles_with_a_terminal_fact_rather_than_a_bare_turn_row(
 }
 
 #[test]
+fn a_launch_that_never_reached_the_provider_fails_with_its_notice_and_is_not_resent() {
+    let ledger = ledger();
+    let saved = prompt(&ledger, "spawn-failed", AgentChatPromptDisposition::Send);
+    ledger
+        .claim_agent_chat_prompt_dispatch("daemon-a", HostEpoch(1), AgentChatProvider::Codex)
+        .unwrap()
+        .unwrap();
+    ledger
+        .begin_agent_chat_prompt_launch(&saved.message.message_id, "daemon-a", HostEpoch(1))
+        .unwrap();
+    ledger
+        .fail_agent_chat_prompt_prelaunch(
+            &saved.message.message_id,
+            "daemon-a",
+            HostEpoch(1),
+            "the provider executable is missing",
+            None,
+        )
+        .unwrap();
+    assert_settled(
+        &ledger,
+        &saved.message.turn_id,
+        DurableTurnPhase::Failed,
+        TurnPhase::Failed,
+    );
+    ledger.close_ingress(HostEpoch(1)).unwrap();
+    ledger.fence_and_open(HostEpoch(1)).unwrap();
+    ledger
+        .recover_agent_chat_prompt_dispatches(HostEpoch(2))
+        .unwrap();
+    assert!(
+        ledger
+            .claim_agent_chat_prompt_dispatch("daemon-b", HostEpoch(2), AgentChatProvider::Codex)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn an_unprovable_launch_settles_with_a_terminal_fact_rather_than_a_bare_turn_row() {
     let ledger = ledger();
     let saved = prompt(&ledger, "unprovable", AgentChatPromptDisposition::Send);
@@ -285,4 +324,110 @@ fn canceling_a_queued_prompt_settles_its_turn_as_cancelled_in_both_views() {
         DurableTurnPhase::Cancelled,
         TurnPhase::Cancelled,
     );
+}
+
+fn publish_terminal(ledger: &SqliteLedger, turn_id: &str, phase: TurnPhase) {
+    ledger
+        .append_conversation_activity(&ConversationActivityFact::Terminal {
+            scope: gent_types::ConversationActivityScope {
+                conversation_id: CONVERSATION.into(),
+                run_id: RUN.into(),
+                turn_id: turn_id.into(),
+                host_epoch: HostEpoch(1),
+                cursor: 900,
+            },
+            phase,
+            cause: None,
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_provider_published_terminal_then_settlement_records_one_terminal() {
+    let ledger = ledger();
+    let saved = prompt(&ledger, "published", AgentChatPromptDisposition::Send);
+    start(&ledger, &saved);
+    publish_terminal(&ledger, &saved.message.turn_id, TurnPhase::Ready);
+    assert_eq!(
+        ledger
+            .find_turn(&saved.message.turn_id)
+            .unwrap()
+            .unwrap()
+            .phase,
+        DurableTurnPhase::Completed
+    );
+    ledger
+        .settle_agent_chat_prompt_terminal(
+            &saved.message.message_id,
+            "daemon-a",
+            HostEpoch(1),
+            DurableTurnPhase::Failed,
+        )
+        .unwrap();
+    assert_eq!(
+        restored_terminals(&ledger, &saved.message.turn_id),
+        vec![TurnPhase::Ready]
+    );
+    assert_eq!(
+        ledger
+            .find_turn(&saved.message.turn_id)
+            .unwrap()
+            .unwrap()
+            .phase,
+        DurableTurnPhase::Completed
+    );
+}
+
+#[test]
+fn a_provider_turn_settled_twice_records_one_terminal() {
+    use gent_ports::{NormalizedSessionBatchLedger, PendingPermissionLedger};
+    let ledger = ledger();
+    let turn_id = ledger
+        .start_provider_turn(CONVERSATION, RUN, HostEpoch(1))
+        .unwrap();
+    ledger
+        .save_pending_permission(&permission(&turn_id))
+        .unwrap();
+    ledger
+        .settle_provider_turn(&turn_id, HostEpoch(1), DurableTurnPhase::Completed)
+        .unwrap();
+    ledger
+        .settle_provider_turn(&turn_id, HostEpoch(1), DurableTurnPhase::Interrupted)
+        .unwrap();
+    assert_settled(
+        &ledger,
+        &turn_id,
+        DurableTurnPhase::Completed,
+        TurnPhase::Ready,
+    );
+    let settled = ledger
+        .read_conversation_activity_page(CONVERSATION, RUN, 0, 50)
+        .unwrap()
+        .facts
+        .into_iter()
+        .filter(|fact| matches!(fact, ConversationActivityFact::DecisionSettled { .. }))
+        .count();
+    assert_eq!(settled, 1);
+}
+
+fn permission(turn_id: &str) -> gent_types::PermissionDecisionRequest {
+    gent_types::PermissionDecisionRequest {
+        binding: gent_types::PermissionDecisionBinding {
+            decision_id: gent_types::AgentChatDecisionId("0".into()),
+            request_idempotency_key: format!("codex:{RUN}:0"),
+            conversation_id: AgentChatConversationId(CONVERSATION.into()),
+            run_id: AgentChatRunId(RUN.into()),
+            turn_id: turn_id.into(),
+            policy_id: "policy-1".into(),
+            policy_revision: 1,
+            host_epoch: HostEpoch(1),
+            request_digest_sha256: gent_types::PermissionRequestDigest("a".repeat(64)),
+        },
+        request: gent_types::PermissionRequest {
+            tool_name: "shell".into(),
+            category: gent_types::PermissionCategory::Command,
+            input: None,
+            child_id: None,
+        },
+    }
 }

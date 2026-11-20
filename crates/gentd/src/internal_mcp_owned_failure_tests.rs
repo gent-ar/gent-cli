@@ -1,4 +1,3 @@
-//! Production adapters deny exemptions after failed launch or untrusted source selection.
 use super::internal_mcp_owned_run_support::*;
 use crate::{
     claude_prompt_lifecycle::{ClaudePromptExecution, ClaudePromptRunner, ClaudePromptStart},
@@ -29,6 +28,7 @@ fn claude_failed_forged_and_unselected_launches_do_not_get_internal_permissions(
                 "run".into(),
                 ClaudePromptStart {
                     conversation_id: "conversation".into(),
+                    message_id: "message".into(),
                     workspace_root: root.path().into(),
                     workspace_access: SandboxWorkspaceAccess::ReadWrite,
                     prompt: "test".into(),

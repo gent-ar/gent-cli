@@ -104,7 +104,7 @@ availability = { requiresConversation, blockedWhileTurnActive }
 | `/compact [instructions]` | `gentIntent compact` | Codex: `thread/compact/start`. Claude: `/compact` user frame, only after `system/compact_boundary` is captured and normalized. Claurst: Gent summary fact via the local llama-server |
 | `/login` | `gentIntent providerAuth` | provider-auth-v1 |
 | `/rename` | `gentIntent` title | Gent titles |
-| `/config` `/mcp` `/output-style` `/fast` `/advisor` `/autocompact` `/permissions`(provider) | `unsupported` | provider-side config diverges from Gent-owned MCP/permission/selection state |
+| `/config` `/mcp` `/output-style` `/fast` `/advisor` `/autocompact` `/permissions`(provider) | `unsupported` | provider-side config diverges from Gent-owned MCP/permission/selection state; `useInstead` is `/permissions` for `/config` `/update-config` `/auto-mode-setup` `/fewer-permission-prompts`, `/model` for `/advisor` `/fast`, `/tools` for `/mcp`, `/goal` for `/loop`, absent otherwise |
 | `/help` `/attach` `/detach` `/search` `/thinking` `/activity` `/steer` | `clientAction` / existing intents | presentation or existing queue intents |
 
 Reserved names win over provider entries with the same name or alias. Names beginning `__` are

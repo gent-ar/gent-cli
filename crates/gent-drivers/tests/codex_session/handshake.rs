@@ -104,45 +104,6 @@ fn only_the_matching_terminal_notification_releases_the_next_turn() {
 }
 
 #[test]
-fn empty_terminal_notification_releases_the_owned_turn() {
-    let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
-    let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
-    let _ = session
-        .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
-        .unwrap();
-    let _ = session.start_turn("hello").unwrap();
-    let _ = session
-        .receive(&json!({"id": 3, "result": {"turn": {"id": "turn-1"}}}))
-        .unwrap();
-    assert_eq!(
-        session
-            .receive(&json!({"method": "turn/completed", "params": {}}))
-            .unwrap(),
-        CodexSessionIngress::TurnEnded
-    );
-    assert!(session.is_ready());
-}
-
-#[test]
-fn empty_terminal_notification_can_follow_the_started_notification() {
-    let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
-    let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
-    let _ = session
-        .receive(&json!({"id": 2, "result": {"thread": {"id": "thread-1"}}}))
-        .unwrap();
-    let _ = session.start_turn("hello").unwrap();
-    let _ = session
-        .receive(&json!({"method": "turn/started", "params": {"threadId": "thread-1", "turn": {"id": "turn-1"}}}))
-        .unwrap();
-    assert_eq!(
-        session
-            .receive(&json!({"method": "turn/completed", "params": {}}))
-            .unwrap(),
-        CodexSessionIngress::TurnEnded
-    );
-}
-
-#[test]
 fn live_turn_interrupt_uses_json_rpc_without_destroying_the_session() {
     let (mut session, _) = CodexAppServerSession::start(config(None)).unwrap();
     let _ = session.receive(&json!({"id": 1, "result": {}})).unwrap();
@@ -154,8 +115,11 @@ fn live_turn_interrupt_uses_json_rpc_without_destroying_the_session() {
         .receive(&json!({"id": 3, "result": {"turn": {"id": "turn-1"}}}))
         .unwrap();
     assert_eq!(
-        decode(&session.interrupt().unwrap()),
-        json!({"id":4,"method":"turn/interrupt","params":{"threadId":"thread-1","turnId":"turn-1"}})
+        lines(&session.interrupt().unwrap()),
+        [
+            json!({"id":4,"method":"turn/interrupt","params":{"threadId":"thread-1","turnId":"turn-1"}}),
+            json!({"id":5,"method":"thread/backgroundTerminals/clean","params":{"threadId":"thread-1"}}),
+        ]
     );
     assert_eq!(
         session.interrupt(),
@@ -166,10 +130,32 @@ fn live_turn_interrupt_uses_json_rpc_without_destroying_the_session() {
         CodexSessionIngress::Ignored
     );
     assert_eq!(
+        session.receive(&json!({"id": 5, "result": {}})).unwrap(),
+        CodexSessionIngress::Ignored
+    );
+    assert_eq!(
         session.receive(&json!({"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1"}}})).unwrap(),
         CodexSessionIngress::TurnEnded
     );
     assert!(session.is_ready());
+    assert_eq!(
+        lines(&session.interrupt().unwrap()),
+        [
+            json!({"id":6,"method":"thread/backgroundTerminals/clean","params":{"threadId":"thread-1"}})
+        ]
+    );
+    assert_eq!(
+        session.receive(&json!({"id": 6, "error": {"code": -32601, "message": "no"}})),
+        Ok(CodexSessionIngress::Ignored)
+    );
+    assert!(session.is_ready());
+}
+
+fn lines(bytes: &[u8]) -> Vec<serde_json::Value> {
+    bytes
+        .split_inclusive(|byte| *byte == b'\n')
+        .map(decode)
+        .collect()
 }
 
 #[test]

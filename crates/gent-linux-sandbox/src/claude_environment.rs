@@ -1,4 +1,3 @@
-//! Fixed credential-free traffic isolation from Gent's managed Claude probe.
 pub const FLAGS: &[(&str, &str)] = &[
     ("DISABLE_AUTOUPDATER", "1"),
     ("DISABLE_TELEMETRY", "1"),
@@ -10,6 +9,12 @@ pub const FLAGS: &[(&str, &str)] = &[
     ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
 ];
 pub const MCP_TOKEN_ENV: &str = "GENT_MCP_BRIDGE_TOKEN";
+pub fn flags() -> impl Iterator<Item = (&'static str, &'static str)> {
+    FLAGS
+        .iter()
+        .copied()
+        .chain(gent_drivers::launch_spec::CLAUDE_ENVIRONMENT)
+}
 type Environment = Vec<(String, String)>;
 pub fn split_private(
     environment: &[(String, String)],
@@ -103,4 +108,51 @@ mod mcp_alias_tests {
         leaked.push(("PUBLIC".into(), token));
         assert!(super::split_private(&leaked, &[]).is_err());
     }
+}
+
+pub fn validate_helper_environment(
+    environment: &[(String, String)],
+    gateway: bool,
+) -> Result<(), &'static str> {
+    let mut allowed = vec!["PATH", "HOME"];
+    if gateway {
+        allowed.extend([
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_AUTH_TOKEN",
+            "CLAUDE_CONFIG_DIR",
+            MCP_TOKEN_ENV,
+        ]);
+        allowed.extend(flags().map(|(key, _)| key));
+    }
+    if environment.len() != allowed.len()
+        || allowed
+            .iter()
+            .any(|key| environment.iter().filter(|(name, _)| name == key).count() != 1)
+        || !environment
+            .iter()
+            .any(|(k, v)| k == "PATH" && v == "/usr/bin:/bin")
+    {
+        return Err("ambient environment rejected");
+    }
+    if gateway {
+        for (key, value) in flags() {
+            if !environment
+                .iter()
+                .any(|(k, v)| k.as_str() == key && v.as_str() == value)
+            {
+                return Err("nonessential traffic flags rejected");
+            }
+        }
+        let home = environment
+            .iter()
+            .find(|(k, _)| k == "HOME")
+            .ok_or("private home")?;
+        if !environment
+            .iter()
+            .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &format!("{}/.claude", home.1))
+        {
+            return Err("private config directory rejected");
+        }
+    }
+    Ok(())
 }

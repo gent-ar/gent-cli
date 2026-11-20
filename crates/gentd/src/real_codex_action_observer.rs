@@ -48,6 +48,7 @@ pub(super) fn terminal_diagnostic(effect: &CodexRunnerEffect) -> Option<serde_js
             NormalizedProviderEvent::ProviderFailure {
                 classification,
                 message,
+                ..
             },
         )) => Some(
             json!({"kind":"provider-failure","classification":classification,
@@ -162,6 +163,7 @@ mod diagnostic_tests {
                 tool_use_id: secret.into(),
                 tool_name: secret.into(),
                 input: Some(json!({"token":secret})),
+                child_id: None,
             })
         };
         assert_eq!(
@@ -174,6 +176,7 @@ mod diagnostic_tests {
             NormalizedProviderEvent::ProviderFailure {
                 classification: ProviderFailureClassification::Provider,
                 message: secret.into(),
+                resets_at: None,
             },
         ));
         let diagnosis = terminal_diagnostic(&failure).unwrap();

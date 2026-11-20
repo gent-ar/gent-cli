@@ -1,11 +1,8 @@
 use std::path::PathBuf;
 
-use gent_protocol::{
-    WORKSPACE_GIT_CAPABILITY, WorkspaceGitFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{WORKSPACE_GIT_CAPABILITY, WorkspaceGitFrame, write_json_frame};
 use serde_json::Value;
 
-use crate::cli_error::CliError;
 use crate::local_ipc::connect_and_negotiate;
 
 pub(super) async fn resolve(
@@ -34,10 +31,7 @@ pub(super) async fn resolve(
         },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     match serde_json::from_value(raw)? {
         WorkspaceGitFrame::Resolved {
             request_id: reply,

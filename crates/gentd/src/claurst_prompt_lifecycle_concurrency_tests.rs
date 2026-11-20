@@ -149,6 +149,7 @@ async fn a_conversation_waiting_on_a_permission_never_blocks_another_conversatio
         containment: gent_types::Containment::Unsandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     conversation(&ledger, "a");
     conversation(&ledger, "b");
@@ -185,6 +186,7 @@ async fn a_conversation_waiting_on_a_permission_never_blocks_another_conversatio
             binding: pending.binding,
             response: PermissionDecisionResponseKind::ApproveOnce,
             input: None,
+            command_pattern: None,
         })
         .await
         .unwrap();

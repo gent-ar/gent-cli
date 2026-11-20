@@ -78,6 +78,58 @@ fn selection_commands_switch_the_current_run_and_replay_their_receipt() {
     );
 }
 
+fn context_cleared(
+    runtime: &crate::runtime_facade::RuntimeFacade,
+    conversation_id: &gent_types::AgentChatConversationId,
+    run_id: &str,
+) -> Vec<Option<gent_types::ContextClearCommand>> {
+    gent_ports::ConversationActivityLedger::read_conversation_activity_page(
+        &runtime.transcript_import_ledger,
+        &conversation_id.0,
+        run_id,
+        0,
+        50,
+    )
+    .unwrap()
+    .facts
+    .into_iter()
+    .filter_map(|fact| match fact {
+        gent_types::ConversationActivityFact::ContextCleared { command, .. } => Some(command),
+        _ => None,
+    })
+    .collect()
+}
+
+#[test]
+fn a_typed_clear_names_its_command_and_a_clear_switch_does_not() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = runtime(directory.path());
+    let conversation_id = create(&runtime, "cleared", AgentChatProvider::Codex, "gpt-5.6");
+    let typed = applied(&invoke(&runtime, "clear", Some(&conversation_id), "reset", "").unwrap());
+    let typed_run = typed.2.unwrap();
+    assert_eq!(
+        context_cleared(&runtime, &conversation_id, &typed_run),
+        vec![Some(gent_types::ContextClearCommand::Clear)]
+    );
+    let switched = runtime
+        .agent_chat_intent(AgentChatIntentFrame::SwitchSelection {
+            request_id: AgentChatRequestId("clear-switch".into()),
+            receipt_id: ReceiptId("clear-switch".into()),
+            conversation_id: conversation_id.clone(),
+            parent_run_id: gent_types::AgentChatRunId(typed_run),
+            selection: run_selection(&runtime, &conversation_id),
+            context_policy: gent_types::ContextPolicy::Clear,
+        })
+        .unwrap();
+    let [AgentChatIntentFrame::Switched { run_id, .. }] = switched.as_slice() else {
+        panic!("{switched:?}");
+    };
+    assert_eq!(
+        context_cleared(&runtime, &conversation_id, &run_id.0),
+        vec![None]
+    );
+}
+
 #[test]
 fn new_and_fork_commands_apply_their_gent_intents() {
     let directory = tempfile::tempdir().unwrap();

@@ -6,7 +6,7 @@ use gent_ports::{
     PolicyLedger, PublicProviderResolver, TranscriptLedger,
 };
 use gent_runtime::{AgentChatPromptDispatchResult, RuntimeError};
-use gent_types::{AgentChatPromptSaved, DurableTurnPhase, HostEpoch};
+use gent_types::{AgentChatPromptSaved, HostEpoch};
 
 use crate::public_driver_runtime::{PublicDriverFact, PublicDriversRuntime};
 
@@ -17,8 +17,10 @@ mod permission;
 mod permission_queue;
 mod poll;
 mod prewarm;
+mod provider_turn;
 mod recovery;
 mod scheduler;
+mod settlement;
 mod start;
 mod steer;
 mod summary;
@@ -35,26 +37,22 @@ pub(crate) use types::{ClaudePromptDispatchOutcome, ClaudePromptPoll};
 pub(super) struct Binding {
     prompt: AgentChatPromptSaved,
     sequence: u64,
-    settled: bool,
-    interrupt_requested: bool,
+    turns: crate::provider_run_state::RunTurns,
     steers: Vec<AgentChatPromptSaved>,
     session_recovery: SessionRecovery,
     failure_reported_turn: Option<String>,
-    open_children: std::collections::BTreeMap<String, bool>,
     last_dispatch: u64,
     idle_since: Option<std::time::Instant>,
     awaits_first_input: bool,
     permission: gent_types::PolicyRecord,
     queued_permissions:
         std::collections::VecDeque<gent_drivers::claude_control::ClaudePermissionRequest>,
+    background_children: std::collections::BTreeSet<String>,
 }
 
 impl Binding {
-    fn idle(&self) -> bool {
-        self.settled
-            && !self.interrupt_requested
-            && self.steers.is_empty()
-            && self.open_children.is_empty()
+    fn liveness(&self) -> crate::provider_run_state::RunLiveness {
+        self.turns.liveness(!self.steers.is_empty())
     }
 }
 
@@ -75,7 +73,6 @@ pub(crate) struct ClaudePromptLifecycle<L, D, R> {
     warm_failures: crate::provider_warm_pool::WarmFailures,
     summary_hook: Option<Arc<dyn ClaudeSummaryHook>>,
     compaction_notices: std::collections::BTreeSet<String>,
-    shutdown_signaled: bool,
     warm_capacity: usize,
     dispatches: u64,
 }
@@ -112,7 +109,6 @@ where
             warm_failures: crate::provider_warm_pool::WarmFailures::default(),
             summary_hook: None,
             compaction_notices: std::collections::BTreeSet::new(),
-            shutdown_signaled: false,
             warm_capacity: 1,
             dispatches: 0,
         }
@@ -138,7 +134,7 @@ where
             .filter(|run_id| {
                 self.active
                     .get(*run_id)
-                    .is_some_and(|binding| !binding.settled || binding.interrupt_requested)
+                    .is_some_and(|binding| !binding.liveness().accepts_prompt())
             })
             .cloned()
             .map(gent_types::AgentChatRunId)
@@ -187,16 +183,8 @@ where
             return Err(missing_binding());
         }
         self.runner
-            .signal_claude_process(
-                run_id,
-                gent_drivers::interrupt::ProcessTreeSignal::Interrupt,
-            )
-            .map_err(RuntimeError::from)?;
-        self.active
-            .get_mut(run_id)
-            .ok_or_else(missing_binding)?
-            .interrupt_requested = true;
-        Ok(())
+            .interrupt_claude_turn(run_id)
+            .map_err(RuntimeError::from)
     }
 
     pub(crate) fn interrupt_turn(
@@ -204,10 +192,8 @@ where
         run_id: &str,
         turn_id: &str,
     ) -> Result<(), RuntimeError> {
-        // The lifecycle owner is locked through validation and provider signal;
-        // a completed/replaced turn cannot consume a delayed Stop.
         let binding = self.active.get(run_id).ok_or_else(missing_binding)?;
-        if binding.settled || binding.prompt.message.turn_id != turn_id {
+        if !binding.turns.turn_open() || binding.turn_id() != turn_id {
             return Err(missing_binding());
         }
         self.interrupt(run_id)
@@ -250,32 +236,6 @@ where
         Ok(())
     }
 
-    fn settle_if_open(
-        &mut self,
-        run_id: &str,
-        host_epoch: HostEpoch,
-        phase: DurableTurnPhase,
-    ) -> Result<(), RuntimeError> {
-        let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
-        if !binding.settled {
-            self.runtime.settle_prompt_terminal(
-                &binding.prompt.message.message_id,
-                &self.coordinator_id,
-                host_epoch,
-                phase,
-            )?;
-            binding.settled = true;
-            let queued = std::mem::take(&mut binding.queued_permissions);
-            if phase == DurableTurnPhase::Completed {
-                if let Some(hook) = &self.summary_hook {
-                    let _ = hook.schedule(&binding.prompt.message.conversation_id);
-                }
-            }
-            self.deny_queued_permissions(run_id, queued);
-        }
-        Ok(())
-    }
-
     fn next_event_id(
         &mut self,
         run_id: &str,
@@ -286,7 +246,9 @@ where
         binding.sequence = binding.sequence.saturating_add(1);
         Ok(format!(
             "claude:{}:{run_id}:{}:{kind}:{}",
-            host_epoch.0, binding.prompt.message.turn_id, binding.sequence
+            host_epoch.0,
+            binding.turn_id(),
+            binding.sequence
         ))
     }
 }

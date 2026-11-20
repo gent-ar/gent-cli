@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, Hello, WireFrame, read_frame,
-    read_json_frame, write_frame, write_json_frame,
+    CONVERSATION_STATUS_CAPABILITY, ConversationStatusFrame, Hello, WireFrame, write_frame,
+    write_json_frame,
 };
 use gent_types::{ConversationStatus, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde_json::Value;
@@ -32,7 +32,7 @@ pub(crate) async fn request(
         }),
     )
     .await?;
-    let WireFrame::Negotiated(negotiated) = read_frame(&mut stream).await? else {
+    let WireFrame::Negotiated(negotiated) = crate::local_ipc::read_reply(&mut stream).await? else {
         return Err("daemon did not negotiate protocol".into());
     };
     if !negotiated
@@ -48,14 +48,11 @@ pub(crate) async fn request(
         &ConversationStatusFrame::Request { conversation_id },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(ConversationStatusFrame::Status(status)) = serde_json::from_value(raw.clone())
         && status.conversation_id == expected_conversation_id
     {
         return Ok(status);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return conversation status".into())
 }

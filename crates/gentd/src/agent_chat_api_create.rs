@@ -23,6 +23,7 @@ where
     L: gent_ports::AgentChatLedger + gent_ports::AgentChatWorkspaceLedger,
     G: AgentChatSelectionGate,
 {
+    crate::workspace_identity::require_directory(workspace_path)?;
     let workspace = CanonicalWorkspace::from_path(Path::new(workspace_path))
         .map_err(|_| "agent-chat workspace must be an accessible local directory".to_owned())?;
     match service.create(&AgentChatConversationRequest {

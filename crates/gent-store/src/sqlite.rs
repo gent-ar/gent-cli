@@ -13,6 +13,7 @@ mod agent_chat_compaction_ledger;
 mod agent_chat_conversation_config;
 mod agent_chat_conversation_config_ledger;
 mod agent_chat_ledger;
+pub use agent_chat_ledger::ModelDownloadReport;
 mod agent_chat_projection_ledger;
 mod agent_chat_queue_activity;
 mod agent_chat_queue_commands;
@@ -21,12 +22,17 @@ mod agent_chat_run_context_ledger;
 mod agent_chat_sessions;
 mod agent_chat_steer_interrupt;
 mod agent_chat_steer_target;
+mod agent_chat_stop;
 mod agent_chat_terminal_settlement;
 #[cfg(test)]
 mod agent_chat_terminal_settlement_tests;
+mod agent_chat_workspace_changes;
+pub use agent_chat_workspace_changes::WorkspaceChangeTurn;
 mod agent_chat_workspace_ledger;
 mod attachment_ledger;
 mod automation_ledger;
+mod background_tools;
+mod commit_notifier;
 mod connection;
 mod conversation_activity_ledger;
 mod conversation_artifacts;
@@ -63,18 +69,23 @@ mod pending_permission_ledger;
 mod policies;
 mod policy_ledger;
 mod private_provider_prompt_provision;
+mod projection_window;
 mod prompt_templates;
+mod provider_turn;
 mod provision_receipts;
 mod provisioned_provider_locks;
 mod queries;
+mod receipt_lookup;
 mod reviewed_plan_values;
 mod reviewed_plans;
 mod run_checkpoint_ledger;
 mod run_checkpoints;
 mod run_lifecycle_facts;
+mod run_live_status;
 mod runs;
 mod runtime_owner;
 mod runtime_update_journal;
+mod tool_settlement;
 mod tool_source_ledger;
 mod tool_sources;
 mod transcript_attachments;
@@ -93,6 +104,7 @@ use queries::{
 #[derive(Clone, Debug)]
 pub struct SqliteLedger {
     connection: Arc<Mutex<Connection>>,
+    commits: commit_notifier::CommitNotifier,
 }
 impl Ledger for SqliteLedger {
     fn host_ingress(&self) -> Result<HostIngress, LedgerError> {

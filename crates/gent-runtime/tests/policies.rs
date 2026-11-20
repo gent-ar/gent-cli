@@ -21,6 +21,7 @@ fn coordinator_exposes_only_current_secret_free_policy_revision() {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec!["git:status".into()],
         allowed_categories: Vec::new(),
+        allowed_commands: Vec::new(),
     };
     coordinator.save_policy(&policy).unwrap();
     assert_eq!(

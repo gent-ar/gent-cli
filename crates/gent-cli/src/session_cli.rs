@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 
-use gent_protocol::{
-    AGENT_CHAT_SESSIONS_CAPABILITY, AgentChatSessionFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{AGENT_CHAT_SESSIONS_CAPABILITY, AgentChatSessionFrame, write_json_frame};
 use gent_types::{AgentChatSession, AgentChatSessionId};
 
-use crate::local_ipc::connect_and_negotiate;
+use crate::local_ipc::{connect_and_negotiate, read_reply};
 
 pub(crate) async fn execute(
     data_dir: Option<PathBuf>,
@@ -46,7 +44,7 @@ pub(crate) async fn execute(
     write_json_frame(&mut stream, &frame).await?;
     println!(
         "{}",
-        serde_json::to_string_pretty::<serde_json::Value>(&read_json_frame(&mut stream).await?)?
+        serde_json::to_string_pretty::<serde_json::Value>(&read_reply(&mut stream).await?)?
     );
     Ok(())
 }
@@ -127,5 +125,5 @@ async fn exchange(
         return Err("gentd does not advertise agent chat sessions".into());
     }
     write_json_frame(&mut stream, &frame).await?;
-    Ok(read_json_frame(&mut stream).await?)
+    read_reply(&mut stream).await
 }

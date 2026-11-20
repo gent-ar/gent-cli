@@ -57,7 +57,7 @@ where
         };
         let Some(fact) = crate::public_driver_runtime::session::recorded_wire_fact(
             &mut self.compaction_notices,
-            &binding.prompt.message.turn_id,
+            binding.turn_id(),
             fact,
         ) else {
             return Ok(());
@@ -67,8 +67,8 @@ where
         let activity_event_id = self.next_event_id(run_id, host_epoch, "activity")?;
         let input = NormalizedSessionFact {
             run_id: run_id.into(),
+            turn_id: binding.turn_id().into(),
             conversation_id: binding.prompt.message.conversation_id,
-            turn_id: binding.prompt.message.turn_id,
             host_epoch,
             lifecycle_event_id,
             transcript_event_id,
@@ -117,7 +117,9 @@ where
         binding.sequence = binding.sequence.saturating_add(1);
         Ok(format!(
             "codex:{}:{run_id}:{}:{kind}:{}",
-            host_epoch.0, binding.prompt.message.turn_id, binding.sequence
+            host_epoch.0,
+            binding.turn_id(),
+            binding.sequence
         ))
     }
 }

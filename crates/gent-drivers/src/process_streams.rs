@@ -1,5 +1,3 @@
-//! Bounded process-pipe readers that preserve stdout for the provider reducer.
-
 use std::io::Read;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -7,21 +5,18 @@ use std::thread::{self, JoinHandle};
 
 const STDOUT_QUEUE_CHUNKS: usize = 16;
 
-/// Bounded diagnostic capture from one provider stream.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CapturedStream {
     pub bytes: Vec<u8>,
     pub discarded_bytes: usize,
 }
 
-/// Bounded diagnostic captures from a public provider process.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProcessOutput {
     pub stdout: CapturedStream,
     pub stderr: CapturedStream,
 }
 
-/// Owns the bounded readers for one provider process.
 #[derive(Debug)]
 pub(crate) struct ProcessStreams {
     output: Arc<Mutex<ProcessOutput>>,
@@ -64,27 +59,11 @@ impl ProcessStreams {
         recover_lock(&self.stdout).try_recv().ok()
     }
 
-    /// Joins readers after child exit and returns every remaining stdout chunk in FIFO order.
-    ///
-    /// The receiver is drained while joining so a bounded stdout sender cannot deadlock after
-    /// the child has exited. The caller remains responsible for reducing these protocol chunks
-    /// before it emits terminal state.
-    pub(crate) fn drain_after_exit(&self) -> Vec<Vec<u8>> {
-        let mut chunks = Vec::new();
-        let mut readers = recover_lock(&self.readers).drain(..).collect::<Vec<_>>();
-        while readers.iter().any(|reader| !reader.is_finished()) {
-            match self.next_stdout_chunk() {
-                Some(chunk) => chunks.push(chunk),
-                None => thread::yield_now(),
-            }
-        }
-        for reader in readers.drain(..) {
+    pub(crate) fn join_after_tree_exit(&self) {
+        while recover_lock(&self.stdout).recv().is_ok() {}
+        for reader in recover_lock(&self.readers).drain(..) {
             let _ = reader.join();
         }
-        while let Some(chunk) = self.next_stdout_chunk() {
-            chunks.push(chunk);
-        }
-        chunks
     }
 }
 
@@ -102,7 +81,11 @@ fn start_reader(
     sender: Option<SyncSender<Vec<u8>>>,
 ) -> JoinHandle<()> {
     let output = Arc::clone(output);
-    thread::spawn(move || read_bounded(reader, &output, limit, stream, sender.as_ref()))
+    thread::spawn(move || {
+        read_bounded(reader, &output, limit, stream, sender.as_ref());
+        drop(sender);
+        crate::provider_activity::signal();
+    })
 }
 
 fn read_bounded(
@@ -119,10 +102,11 @@ fn read_bounded(
         }
         let chunk = &buffer[..read];
         append(&mut recover_lock(output), chunk, limit, stream);
-        if let Some(sender) = &sender
-            && sender.send(chunk.to_vec()).is_err()
-        {
-            return;
+        if let Some(sender) = &sender {
+            if sender.send(chunk.to_vec()).is_err() {
+                return;
+            }
+            crate::provider_activity::signal();
         }
     }
 }

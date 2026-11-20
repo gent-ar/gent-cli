@@ -50,6 +50,21 @@ fn taskkill(pid: i32, force: bool) -> Result<ExitStatus, ProcessTreeError> {
         .map_err(|error| ProcessTreeError::Failed(error.to_string()))
 }
 
+pub(super) fn terminate(pid: u32) -> Result<(), ProcessTreeError> {
+    let status = gent_types::hidden_command("taskkill")
+        .args(["/PID", &pid.to_string(), "/F"])
+        .output()
+        .map_err(|error| ProcessTreeError::Failed(error.to_string()))?
+        .status;
+    match i32::try_from(pid) {
+        _ if status.success() => Ok(()),
+        Ok(pid) if !process_exists(pid)? => Ok(()),
+        _ => Err(ProcessTreeError::Failed(format!(
+            "taskkill exited with {status}; provider process {pid} is still running"
+        ))),
+    }
+}
+
 fn process_exists(pid: i32) -> Result<bool, ProcessTreeError> {
     let output = gent_types::hidden_command("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
@@ -80,6 +95,17 @@ pub(super) fn bind_to_daemon(child: &std::process::Child) {
     if let Some(job) = job {
         let _ = job.assign_process(child.as_raw_handle() as isize);
     }
+}
+
+pub(super) fn own_tree(child: &std::process::Child) -> Result<win32job::Job, ProcessTreeError> {
+    use std::os::windows::io::AsRawHandle;
+    let mut limits = win32job::ExtendedLimitInfo::new();
+    limits.limit_kill_on_job_close();
+    let job = win32job::Job::create_with_limit_info(&limits)
+        .map_err(|error| ProcessTreeError::Failed(format!("provider job: {error}")))?;
+    job.assign_process(child.as_raw_handle() as isize)
+        .map_err(|error| ProcessTreeError::Failed(format!("provider job assignment: {error}")))?;
+    Ok(job)
 }
 
 pub(super) fn image_name(pid: u32) -> Option<String> {

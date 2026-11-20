@@ -162,8 +162,13 @@ impl StandaloneAuthorityRuntime {
             )
             .run(self.control.clone()),
         );
+        let workspace_changes = tokio::spawn(
+            crate::workspace_changes_recorder::WorkspaceChangesRecorder::new(self.ledger.clone())
+                .run(self.control.clone()),
+        );
         let result = self.cadence.clone().run().await;
         pursuit.abort();
+        workspace_changes.abort();
         result
     }
 

@@ -162,7 +162,7 @@ impl RuntimeApi for FakeRuntime {
     fn workspace_git(
         &self,
         frame: WorkspaceGitFrame,
-    ) -> Result<WorkspaceGitFrame, crate::workspace_git_api::WorkspaceGitRejection> {
+    ) -> Result<WorkspaceGitFrame, crate::agent_chat_intent_error::AgentChatIntentError> {
         let WorkspaceGitFrame::StatusRequest {
             request_id,
             workspace_id,

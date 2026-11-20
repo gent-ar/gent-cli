@@ -6,7 +6,7 @@ use gent_types::{
 
 use super::{
     ClaudeRunStart, ClaudeRunnerError,
-    input::{follow_up_input_frame, input_frame, steer_input_frame, steer_uuid},
+    input::{follow_up_input_frame, input_frame, message_uuid, steer_input_frame},
 };
 use crate::claude_turn_options::ClaudeTurnOptions;
 
@@ -103,6 +103,7 @@ fn claude_input_keeps_image_blocks_after_the_text_prompt() {
 #[test]
 fn follow_up_input_is_a_new_user_frame_without_a_resume_session() {
     let frame = follow_up_input_frame(
+        "message-2",
         "next prompt",
         None,
         &[serde_json::json!({"type":"image","source":{"type":"base64","media_type":"image/png","data":"YWJj"}})],
@@ -119,6 +120,7 @@ fn follow_up_input_is_a_new_user_frame_without_a_resume_session() {
 fn start() -> ClaudeRunStart {
     ClaudeRunStart {
         run_id: "run".into(),
+        message_id: "message".into(),
         lock: RunVersionLock {
             provider: "claude".into(),
             canonical_path: "/locked/claude".into(),
@@ -146,25 +148,37 @@ fn start() -> ClaudeRunStart {
 }
 
 #[test]
-fn a_steer_frame_carries_a_stable_uuid_that_claude_replays_on_take_up() {
-    let uuid = steer_uuid("message-1");
-    assert_eq!(uuid, steer_uuid("message-1"));
-    assert_ne!(uuid, steer_uuid("message-2"));
+fn every_user_frame_carries_the_stable_uuid_of_its_message() {
+    let uuid = message_uuid("message-1");
+    assert_eq!(uuid, message_uuid("message-1"));
+    assert_ne!(uuid, message_uuid("message-2"));
     let groups = uuid.split('-').map(str::len).collect::<Vec<_>>();
     assert_eq!(groups, [8, 4, 4, 4, 12]);
     assert!(uuid.chars().nth(14) == Some('4') && uuid.chars().nth(19) == Some('8'));
-    let frame: serde_json::Value =
-        serde_json::from_slice(&steer_input_frame(&uuid, "also this", &[]).unwrap()).unwrap();
-    assert_eq!(frame["uuid"], uuid);
-    assert_eq!(frame["message"]["content"][0]["text"], "also this");
-    assert!(
-        serde_json::from_slice::<serde_json::Value>(
-            &follow_up_input_frame("next", None, &[]).unwrap()
-        )
-        .unwrap()
-        .get("uuid")
-        .is_none()
+    let uuid_of = |frame: Vec<u8>| {
+        serde_json::from_slice::<serde_json::Value>(&frame).unwrap()["uuid"].clone()
+    };
+    let first = ClaudeRunStart {
+        message_id: "message-1".into(),
+        ..start()
+    };
+    assert_eq!(uuid_of(input_frame(&first).unwrap()), uuid);
+    assert_eq!(
+        uuid_of(follow_up_input_frame("message-1", "next", None, &[]).unwrap()),
+        uuid
     );
+    assert_eq!(
+        uuid_of(steer_input_frame("message-1", "also this", &[]).unwrap()),
+        uuid
+    );
+    let missing = ClaudeRunStart {
+        message_id: String::new(),
+        ..start()
+    };
+    assert!(matches!(
+        input_frame(&missing),
+        Err(ClaudeRunnerError::InvalidPrompt)
+    ));
 }
 
 #[test]
@@ -176,11 +190,18 @@ fn a_warm_process_first_input_matches_the_cold_launch_frame() {
     };
 
     assert_eq!(
-        follow_up_input_frame(&fresh.prompt, None, &[]).unwrap(),
+        follow_up_input_frame(&fresh.message_id, &fresh.prompt, None, &[]).unwrap(),
         input_frame(&fresh).unwrap()
     );
     assert_eq!(
-        super::input::resumed_first_input_frame(&resumed.prompt, None, &[], "session-1").unwrap(),
+        super::input::resumed_first_input_frame(
+            &resumed.message_id,
+            &resumed.prompt,
+            None,
+            &[],
+            "session-1"
+        )
+        .unwrap(),
         input_frame(&resumed).unwrap()
     );
 }

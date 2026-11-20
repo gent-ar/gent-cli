@@ -1,15 +1,12 @@
-//! Pure reducer for one durable, provider-neutral permission decision.
-
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, HostEpoch, PermissionCategory,
-    PermissionDecisionBinding, PermissionDecisionRequest, PermissionDecisionResponse,
-    PermissionDecisionResponseKind, PermissionRequest, PermissionRequestDigest, PolicyRecord,
-    SandboxEnforcement,
+    AgentChatConversationId, AgentChatRunId, CommandGrant, CommandPatternError, HostEpoch,
+    PermissionCategory, PermissionDecisionBinding, PermissionDecisionRequest,
+    PermissionDecisionResponse, PermissionDecisionResponseKind, PermissionRequest,
+    PermissionRequestDigest, PolicyRecord, SandboxEnforcement,
 };
 
 use crate::{PermissionDecision, evaluate_permission_with_sandbox};
 
-/// Trusted current scope and policy supplied by a future daemon composition root.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PermissionControlContext {
     pub conversation_id: AgentChatConversationId,
@@ -21,28 +18,24 @@ pub struct PermissionControlContext {
     pub sandbox: SandboxEnforcement,
 }
 
-/// State retained only while a user response is pending.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PermissionControlState {
     pending: Option<PermissionDecisionRequest>,
 }
 
 impl PermissionControlState {
-    /// Returns the immutable request waiting for a user response, if any.
     #[must_use]
     pub fn pending(&self) -> Option<&PermissionDecisionRequest> {
         self.pending.as_ref()
     }
 }
 
-/// Inputs accepted by the permission-control reducer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PermissionControlEvent {
     Request(PermissionDecisionRequest),
     Respond(PermissionDecisionResponse),
 }
 
-/// Closed downstream facts; an adapter decides whether to persist or execute them.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PermissionControlEffect {
     None,
@@ -51,7 +44,6 @@ pub enum PermissionControlEffect {
     Rejected(PermissionControlRejection),
 }
 
-/// Provider-neutral resolution of one permission request.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PermissionControlResolution {
     AllowedByPolicy(PermissionRequest),
@@ -60,9 +52,9 @@ pub enum PermissionControlResolution {
     ApprovedOnce(PermissionRequest),
     ApproveExactTool { tool_name: String },
     ApproveCategory { category: PermissionCategory },
+    ApproveCommandPattern { grant: CommandGrant },
 }
 
-/// Closed rejection reasons that do not disclose provider or process data.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PermissionControlRejection {
     StaleConversation,
@@ -76,9 +68,9 @@ pub enum PermissionControlRejection {
     NoPendingDecision,
     AnotherDecisionPending,
     SandboxRequired,
+    CommandPattern(CommandPatternError),
 }
 
-/// Reduces an immutable request or response with no I/O, provider, or clock access.
 #[must_use]
 pub fn reduce_permission_control(
     state: PermissionControlState,
@@ -151,7 +143,11 @@ fn respond_permission(
             PermissionControlEffect::Rejected(PermissionControlRejection::PendingDecisionMismatch),
         );
     }
-    state.pending = None;
+    if response.response != PermissionDecisionResponseKind::ApproveCommandPattern
+        && response.command_pattern.is_some()
+    {
+        return rejected(state, CommandPatternError::Unexpected);
+    }
     let resolution = match response.response {
         PermissionDecisionResponseKind::Deny => {
             PermissionControlResolution::DeniedByUser(request.request)
@@ -169,8 +165,26 @@ fn respond_permission(
                 category: request.request.category,
             }
         }
+        PermissionDecisionResponseKind::ApproveCommandPattern => {
+            match gent_types::answered_command_grant(&request.request, response) {
+                Ok(Some(grant)) => PermissionControlResolution::ApproveCommandPattern { grant },
+                Ok(None) => return rejected(state, CommandPatternError::Missing),
+                Err(error) => return rejected(state, error),
+            }
+        }
     };
+    state.pending = None;
     (state, PermissionControlEffect::Resolved(resolution))
+}
+
+fn rejected(
+    state: PermissionControlState,
+    error: CommandPatternError,
+) -> (PermissionControlState, PermissionControlEffect) {
+    (
+        state,
+        PermissionControlEffect::Rejected(PermissionControlRejection::CommandPattern(error)),
+    )
 }
 
 fn validate_binding(

@@ -5,6 +5,8 @@ use std::{
 
 use gent_protocol::ProviderWarmOutcome;
 
+use crate::provider_run_state::RunLiveness;
+
 const UNPROMPTED_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const SERVED_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 const FAILED_WARM_BACKOFF: Duration = Duration::from_secs(60);
@@ -60,6 +62,59 @@ pub(crate) struct IdleRun<'a> {
     pub(crate) current: bool,
 }
 
+pub(crate) struct IdleCandidate {
+    run_id: String,
+    conversation_id: String,
+    since: Instant,
+    served: bool,
+}
+
+impl IdleCandidate {
+    pub(crate) fn served(
+        run_id: &str,
+        conversation_id: &str,
+        idle_since: &mut Option<Instant>,
+        liveness: RunLiveness,
+        now: Instant,
+    ) -> Option<Self> {
+        if !liveness.idle() {
+            *idle_since = None;
+            return None;
+        }
+        Some(Self {
+            run_id: run_id.to_owned(),
+            conversation_id: conversation_id.to_owned(),
+            since: *idle_since.get_or_insert(now),
+            served: true,
+        })
+    }
+
+    pub(crate) fn unprompted(run_id: &str, conversation_id: &str, since: Instant) -> Self {
+        Self {
+            run_id: run_id.to_owned(),
+            conversation_id: conversation_id.to_owned(),
+            since,
+            served: false,
+        }
+    }
+}
+
+pub(crate) fn reaped<E>(
+    now: Instant,
+    candidates: &[IdleCandidate],
+    is_current: impl Fn(&str, &str) -> Result<bool, E>,
+) -> Vec<String> {
+    expired(candidates.iter().map(|candidate| IdleRun {
+        run_id: &candidate.run_id,
+        idle_for: now.saturating_duration_since(candidate.since),
+        served: candidate.served,
+        current: !matches!(
+            is_current(&candidate.conversation_id, &candidate.run_id),
+            Ok(false)
+        ),
+    }))
+}
+
 struct Room {
     evicted: Vec<String>,
     fits: bool,
@@ -112,6 +167,19 @@ pub(crate) fn expired<'a>(runs: impl IntoIterator<Item = IdleRun<'a>>) -> Vec<St
         })
         .map(|run| run.run_id.to_owned())
         .collect()
+}
+
+pub(crate) fn release_each<E>(
+    run_ids: Vec<String>,
+    mut release: impl FnMut(&str) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut failure = None;
+    for run_id in run_ids {
+        if let Err(error) = release(&run_id) {
+            failure.get_or_insert(error);
+        }
+    }
+    failure.map_or(Ok(()), Err)
 }
 
 fn room<'a>(

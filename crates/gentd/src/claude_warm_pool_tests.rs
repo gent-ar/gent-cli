@@ -29,8 +29,14 @@ pub(crate) struct State {
     pub(crate) effects: BTreeMap<String, VecDeque<Vec<ClaudeRunnerEffect>>>,
     pub(crate) starts: Vec<String>,
     pub(crate) releases: Vec<String>,
+    pub(crate) interrupts: Vec<String>,
     pub(crate) submitted: Vec<String>,
     pub(crate) fail_starts: usize,
+    pub(crate) fail_releases: bool,
+    pub(crate) permission_responses: Vec<(
+        String,
+        gent_drivers::claude_control::ClaudePermissionBehavior,
+    )>,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -95,11 +101,17 @@ impl ClaudePromptExecution for Runner {
         let mut state = self.0.lock().unwrap();
         state.sessions.remove(run_id);
         state.releases.push(run_id.into());
+        if state.fail_releases {
+            return Err(PublicProviderRunError::Failed(
+                "provider tree refused the kill".into(),
+            ));
+        }
         Ok(())
     }
 
     fn submit_claude_prompt(
         &self,
+        _: &str,
         _: &str,
         prompt: &str,
         _: Option<&gent_types::GoalProjection>,
@@ -126,14 +138,26 @@ impl ClaudePromptExecution for Runner {
     ) -> Result<(), PublicProviderRunError> {
         Ok(())
     }
+    fn interrupt_claude_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        self.0.lock().unwrap().interrupts.push(run_id.into());
+        Ok(())
+    }
+    fn withdraw_claude_prompt(&self, _: &str, _: &str) -> Result<(), PublicProviderRunError> {
+        Ok(())
+    }
 
     fn respond_claude_permission(
         &self,
         _: &str,
-        _: &str,
-        _: gent_drivers::claude_control::ClaudePermissionBehavior,
+        request_id: &str,
+        behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         _: bool,
     ) -> Result<(), PublicProviderRunError> {
+        self.0
+            .lock()
+            .unwrap()
+            .permission_responses
+            .push((request_id.into(), behavior));
         Ok(())
     }
 }

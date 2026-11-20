@@ -8,8 +8,7 @@ use std::path::PathBuf;
 use clap::{Args, Subcommand};
 use gent_protocol::{
     PROMPT_PROVIDER_PROVISION_CAPABILITY, PROVIDER_READINESS_CAPABILITY,
-    PromptProviderProvisionFrame, ProviderReadinessFrame, WireFrame, read_frame, read_json_frame,
-    write_frame, write_json_frame,
+    PromptProviderProvisionFrame, ProviderReadinessFrame, WireFrame, write_frame, write_json_frame,
 };
 use gent_types::{AgentChatConversationId, AgentChatRunId, HostEpoch, ReceiptId};
 use serde_json::Value;
@@ -168,11 +167,8 @@ async fn host_epoch(
     stream: &mut crate::local_ipc::LocalStream,
 ) -> Result<HostEpoch, Box<dyn std::error::Error>> {
     write_frame(stream, &WireFrame::StatusRequest).await?;
-    match read_frame(stream).await? {
+    match crate::local_ipc::read_reply(stream).await? {
         WireFrame::Status(status) => Ok(status.host_epoch),
-        WireFrame::Error { code, message } => {
-            Err(crate::cli_error::CliError::daemon(code, message).into())
-        }
         _ => Err("daemon did not return host status before prompt provider provision".into()),
     }
 }
@@ -184,10 +180,7 @@ async fn read_json_or_error<T>(
 where
     T: serde::de::DeserializeOwned,
 {
-    let raw: Value = read_json_frame(stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(stream).await?;
     serde_json::from_value(raw)
         .map_err(|_| format!("daemon did not return a {operation} response").into())
 }

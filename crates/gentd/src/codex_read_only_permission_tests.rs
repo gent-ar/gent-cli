@@ -1,7 +1,9 @@
 use gent_drivers::codex_control::{CodexControlDecision, CodexControlRequest};
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
-use gent_ports::{AgentChatWorkspaceLedger, PendingPermissionLedger, PolicyLedger};
+use gent_ports::{
+    AgentChatWorkspaceLedger, ConversationActivityLedger, PendingPermissionLedger, PolicyLedger,
+};
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatMode, AgentChatRunId, HostEpoch,
@@ -14,6 +16,17 @@ use crate::codex_prompt_lifecycle_tests::{Resolver, Runner, selection};
 
 fn with_two_approvals(
     mode: AgentChatMode,
+) -> (
+    SqliteLedger,
+    Runner,
+    ApprovedCodexHost<SqliteLedger, Runner, Resolver>,
+) {
+    with_two_approvals_in(mode, PermissionMode::Bypass)
+}
+
+fn with_two_approvals_in(
+    mode: AgentChatMode,
+    permission: PermissionMode,
 ) -> (
     SqliteLedger,
     Runner,
@@ -45,10 +58,11 @@ fn with_two_approvals(
             workspace_id: "workspace-a".into(),
             scope: gent_types::PolicyScope::ProviderPermissions,
             revision: 1,
-            mode: PermissionMode::Bypass,
+            mode: permission,
             containment: gent_types::Containment::Unsandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         })
         .unwrap();
     save(&ledger, &conversation_id, "prompt-1", "first");
@@ -62,6 +76,7 @@ fn with_two_approvals(
             tool_use_id: format!("call-{key}"),
             tool_name: tool.into(),
             input: None,
+            child_id: None,
         })
     };
     host.tick().unwrap();
@@ -88,13 +103,39 @@ fn pending_key(ledger: &SqliteLedger) -> Option<String> {
 }
 
 #[test]
-fn plan_mode_declines_command_and_file_change_approvals_without_asking() {
+fn plan_mode_runs_commands_under_the_policy_and_declines_file_changes_without_asking() {
     let (ledger, runner, _host) = with_two_approvals(AgentChatMode::Plan);
     assert_eq!(pending_key(&ledger), None);
     assert_eq!(
         runner.state.lock().unwrap().controls,
         [
-            ("0".to_owned(), CodexControlDecision::Deny),
+            ("0".to_owned(), CodexControlDecision::Allow),
+            ("1".to_owned(), CodexControlDecision::Deny),
+        ]
+    );
+}
+
+#[test]
+fn plan_mode_asks_for_commands_in_ask_every_time_and_still_declines_file_changes() {
+    let (ledger, runner, mut host) =
+        with_two_approvals_in(AgentChatMode::Plan, PermissionMode::AskEveryTime);
+    assert_eq!(pending_key(&ledger).as_deref(), Some("0"));
+    let request = ledger
+        .pending_permission(
+            &AgentChatConversationId("conversation-a".into()),
+            &AgentChatRunId("run-a".into()),
+        )
+        .unwrap()
+        .unwrap();
+    ledger.settle_pending_permission(&request.binding).unwrap();
+    host.respond_permission("run-a", "0", CodexControlDecision::Allow, None)
+        .unwrap();
+    host.tick().unwrap();
+    assert_eq!(pending_key(&ledger), None);
+    assert_eq!(
+        runner.state.lock().unwrap().controls,
+        [
+            ("0".to_owned(), CodexControlDecision::Allow),
             ("1".to_owned(), CodexControlDecision::Deny),
         ]
     );
@@ -127,4 +168,30 @@ fn ask_mode_asks_for_every_command_and_file_change_even_under_bypass() {
             ("1".to_owned(), CodexControlDecision::Deny),
         ]
     );
+}
+
+#[test]
+fn a_request_codex_resolves_itself_retires_its_pending_row_and_the_queued_one_is_asked() {
+    let (ledger, runner, mut host) = with_two_approvals(AgentChatMode::Ask);
+    assert_eq!(pending_key(&ledger).as_deref(), Some("0"));
+    runner
+        .state
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![CodexRunnerEffect::RequestResolved {
+            request_key: "0".into(),
+        }]);
+    host.tick().unwrap();
+    host.tick().unwrap();
+    assert_eq!(pending_key(&ledger).as_deref(), Some("1"));
+    assert!(runner.state.lock().unwrap().controls.is_empty());
+    let activity = ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
+        .unwrap()
+        .facts;
+    assert!(activity.iter().any(|fact| matches!(
+        fact,
+        gent_types::ConversationActivityFact::DecisionSettled { decision_id, .. } if decision_id == "0"
+    )));
 }

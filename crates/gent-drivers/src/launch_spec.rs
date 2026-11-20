@@ -1,6 +1,3 @@
-//! Minimal, public transport arguments for locked Claude and Codex executables.
-
-/// Describes whether a public executable begins a new session or resumes a named one.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LaunchIntent {
     Start,
@@ -8,14 +5,6 @@ pub enum LaunchIntent {
     Recreate { session_id: String },
 }
 
-/// Returns the minimal, documented arguments required to enter a public transport.
-///
-/// Claude receives newline-delimited stream JSON on standard input. Codex starts its JSON-RPC
-/// app server; the native session identifier remains explicit in [`LaunchIntent`] for the later
-/// protocol request instead of becoming an undocumented command-line argument.
-///
-/// # Errors
-/// Returns an error for a private or unknown provider, or an empty Claude resume identity.
 pub fn arguments(provider: &str, intent: &LaunchIntent) -> Result<Vec<String>, LaunchSpecError> {
     match (provider, intent) {
         ("claude", LaunchIntent::Start) => Ok(claude_stream_arguments()),
@@ -43,6 +32,17 @@ pub fn codex_app_server_arguments() -> Vec<String> {
         .into_iter()
         .map(str::to_owned)
         .collect()
+}
+
+pub const CLAUDE_ENVIRONMENT: [(&str, &str); 1] = [("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "1")];
+
+#[must_use]
+pub fn provider_environment(provider: &str) -> &'static [(&'static str, &'static str)] {
+    if provider == "claude" {
+        &CLAUDE_ENVIRONMENT
+    } else {
+        &[]
+    }
 }
 
 pub fn append_claude_mcp_config(arguments: &mut Vec<String>, path: Option<&std::path::Path>) {

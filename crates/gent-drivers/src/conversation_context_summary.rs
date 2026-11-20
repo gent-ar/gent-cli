@@ -63,10 +63,7 @@ pub fn summary_request(previous: Option<&str>, chunk: &SummaryChunk) -> SummaryR
 
 #[must_use]
 pub fn summary_text(output: &str) -> Option<String> {
-    let visible = output
-        .rsplit_once("</think>")
-        .map_or(output, |(_, answer)| answer)
-        .trim();
+    let visible = crate::reasoning_text::answer(output).trim();
     (!visible.is_empty() && visible.len() <= MAX_CONTEXT_SUMMARY_BYTES && !visible.contains('\0'))
         .then(|| visible.to_owned())
 }

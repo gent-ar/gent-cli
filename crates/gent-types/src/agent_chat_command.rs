@@ -180,7 +180,44 @@ pub enum AgentChatCommandRejection {
     SlashCommandRequiresInvoke { name: String },
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentChatCommandRejectionDetails {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_instead: Option<String>,
+}
+
 impl AgentChatCommandRejection {
+    #[must_use]
+    pub fn details(&self) -> AgentChatCommandRejectionDetails {
+        let (name, hint, reason, use_instead) = match self {
+            Self::UnsupportedCommand {
+                name,
+                reason,
+                use_instead,
+            } => (name, None, Some(reason.clone()), use_instead.clone()),
+            Self::CommandArgumentsInvalid { name, hint } => (name, Some(hint.clone()), None, None),
+            Self::UnknownCommand { name }
+            | Self::ClientActionCommand { name }
+            | Self::CommandRequiresConversation { name }
+            | Self::CommandBlockedByActiveTurn { name }
+            | Self::CommandRequiresProviderSession { name }
+            | Self::CommandCatalogLoading { name }
+            | Self::SlashCommandRequiresInvoke { name } => (name, None, None, None),
+        };
+        AgentChatCommandRejectionDetails {
+            name: name.clone(),
+            hint,
+            reason,
+            use_instead,
+        }
+    }
+
     #[must_use]
     pub const fn code(&self) -> &'static str {
         match self {
@@ -227,6 +264,22 @@ mod tests {
             use_instead: Some("/permissions".into()),
         };
         assert_eq!(rejection.code(), "unsupportedCommand");
+        assert_eq!(
+            serde_json::to_value(rejection.details()).unwrap(),
+            serde_json::json!({
+                "name": "config",
+                "reason": "provider settings diverge from Gent's.",
+                "useInstead": "/permissions"
+            })
+        );
+        let hint = AgentChatCommandRejection::CommandArgumentsInvalid {
+            name: "model".into(),
+            hint: "a model id".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(hint.details()).unwrap(),
+            serde_json::json!({"name": "model", "hint": "a model id"})
+        );
         assert_eq!(
             rejection.to_string(),
             "/config is not supported by Gent: provider settings diverge from Gent's. Use /permissions instead."

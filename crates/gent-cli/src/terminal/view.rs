@@ -213,6 +213,7 @@ mod tests {
                     text: "must not render".into(),
                     is_partial: false,
                     failure_code: None,
+                    resets_at: None,
                     origin: None,
                     attachments: Vec::new(),
                 }],
@@ -292,6 +293,7 @@ mod tests {
             text: text.into(),
             is_partial,
             failure_code: None,
+            resets_at: None,
             origin: None,
             attachments: Vec::new(),
         }

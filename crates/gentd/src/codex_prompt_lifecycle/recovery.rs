@@ -39,7 +39,7 @@ where
         let Some(binding) = self.active.get_mut(run_id) else {
             return Ok(false);
         };
-        if !std::mem::take(&mut binding.upgraded) || binding.settled {
+        if !std::mem::take(&mut binding.upgraded) || !binding.turns.prompt_open() {
             return Ok(false);
         }
         let prompt = binding.prompt.clone();

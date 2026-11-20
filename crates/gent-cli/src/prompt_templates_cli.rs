@@ -97,12 +97,9 @@ pub(crate) async fn execute(
         return Err("gentd does not expose prompt templates".into());
     }
     gent_protocol::write_json_frame(&mut stream, &frame).await?;
-    let raw: Value = gent_protocol::read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(reply) = serde_json::from_value::<PromptTemplateFrame>(raw.clone()) {
         return Ok(serde_json::to_value(reply)?);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return a prompt template response".into())
 }

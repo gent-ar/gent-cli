@@ -36,8 +36,9 @@ fact. Repeating it is idempotent. Remote viewers forward it through the owner's 
   runtime (llama-server loads the model, `claurst acp` launches) and completes ACP `initialize`
   while no prompt is active. It never downloads a model and never opens `session/new`, so the
   first prompt still renders history into a fresh session. The runtime is the same one a prompt
-  would start and stays until a prompt changes its selection or fails; the pool rules below are
-  for Claude and Codex. A failed warm-up is logged and the next prompt starts normally.
+  would start and stays until a prompt changes its selection or fails, another conversation
+  needs its slot, or it has been idle for 10 minutes; the remaining pool rules below are for
+  Claude and Codex. A failed warm-up is logged and the next prompt starts normally.
 - The warm process is bound to one conversation, run, provider, model, effort, mode, workspace,
   MCP configuration and permission policy revision, and is launched through the same sandbox
   permission binding as a prompt. The first prompt for that run adopts it only if all of these
@@ -46,6 +47,15 @@ fact. Repeating it is idempotent. Remote viewers forward it through the owner's 
   recorded only when a prompt adopts the process, so an unused warm process leaves no trace.
 - Idle processes are reaped every 15 seconds: never-prompted ones after 2 minutes, ones that
   served a turn after 10 minutes, and any run that is no longer its conversation's current run
-  immediately. A selection switch also reaps immediately.
+  immediately. A selection switch also reaps immediately. Reaping keeps its cadence while other
+  turns are being driven. A run with a turn in progress, an unanswered steer or an interrupt is
+  never reaped. A settled Claude run whose background subagents are still open counts as idle
+  only from its last provider output, and is not reaped early for being superseded. A Claude
+  run whose session still reports `running` is never reaped by timeout; the user ends it with
+  Stop, whose protocol interrupt Claude answers by killing its background agents and reporting
+  `idle` (observed on Claude Code 2.1.326), after which the normal idle rules apply.
+- Reaping drops the run from its owner first and then kills its whole process tree, so a failed
+  kill can never leave an untracked process behind. On Windows each provider process is also
+  held in its own kill-on-close job, so descendants that outlive the provider die with it.
 - Warm processes count toward the provider host limit and are drained on shutdown. Nothing is
   recovered for them after a restart.

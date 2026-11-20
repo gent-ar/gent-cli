@@ -1,8 +1,3 @@
-//! Bounded daemon-owned Codex app-server process runner.
-//!
-//! This owns process I/O only. Callers receive normalized facts and terminal settlement, never
-//! provider frames or native identities. Daemon authority and durable writes remain outside it.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -25,7 +20,6 @@ mod start;
 
 use output::{drain, write};
 
-/// Inputs for one locked Codex process and its first durable prompt.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexRunStart {
     pub run_id: String,
@@ -34,23 +28,23 @@ pub struct CodexRunStart {
     pub workspace_root: PathBuf,
     pub workspace_access: SandboxWorkspaceAccess,
     pub prompt: String,
-    /// Optional active goal copied from the Gent ledger, never from a provider or client frame.
     pub goal: Option<GoalProjection>,
     pub attachments: Vec<serde_json::Value>,
     pub interrupted_reply: Option<String>,
 }
 
-/// One provider-neutral fact or final process settlement from a Codex process.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CodexRunnerEffect {
     Fact(PublicWireFact),
     ControlRequest(CodexControlRequest),
     Steer(crate::codex_session::CodexSteerOutcome),
+    RequestResolved { request_key: String },
+    ProviderTurnStarted,
+    SessionState { idle: bool },
     ResumeUnavailable,
     Exited { code: Option<i32> },
 }
 
-/// Controlled process, framing, or correlation failure at the Codex runner boundary.
 #[derive(Debug, thiserror::Error)]
 pub enum CodexRunnerError {
     #[error("Codex runner already owns the run")]
@@ -81,7 +75,6 @@ struct OwnedRun<P> {
     controls: BTreeMap<String, CodexControlRequest>,
 }
 
-/// One synchronous owner for bounded Codex app-server processes.
 #[derive(Debug)]
 pub struct CodexAppServerRunner<L, P> {
     permission_bindings: BTreeMap<String, gent_types::SandboxPermissionBinding>,
@@ -105,7 +98,6 @@ where
             .filter(|proof| proof.run_id() == run_id)
     }
 
-    /// Creates an inert process owner. Provider discovery and authorization do not occur here.
     #[must_use]
     pub fn new(launcher: L, policy: BufferPolicy) -> Self {
         Self {
@@ -124,8 +116,6 @@ where
         if let Some(chunk) = run.process.next_stdout_chunk()? {
             run.output.accept_chunk(&chunk)?;
             let mut effects = drain(run)?.unwrap_or_default();
-            // Reduce each chunk before reading more to preserve pump backpressure and FIFO.
-            // A single 4 KiB read per tick otherwise delays large tool results and controls.
             for _ in 1..crate::output_pump::MAX_OUTPUT_CHUNKS_PER_POLL {
                 let Some(chunk) = run.process.next_stdout_chunk()? else {
                     break;
@@ -204,6 +194,7 @@ where
             .ok_or(CodexRunnerError::ControlNotPending)?;
         run.process
             .write_frame(&encode(&request, decision, answers))?;
+        run.turn.approval_answered(&request.tool_use_id);
         Ok(())
     }
 

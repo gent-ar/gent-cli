@@ -59,15 +59,17 @@ where
                         self.admit_permission_request(run_id, host_epoch, request)?,
                     );
                 }
+                CodexRunnerEffect::RequestResolved { request_key } => {
+                    self.retire_resolved_request(run_id, &request_key)?;
+                }
+                CodexRunnerEffect::ProviderTurnStarted => {
+                    self.begin_provider_turn(run_id, host_epoch)?;
+                    facts = facts.saturating_add(1);
+                }
+                CodexRunnerEffect::SessionState { idle } => {
+                    self.session_reported(run_id, host_epoch, idle)?;
+                }
                 CodexRunnerEffect::Steer(outcome) => {
-                    if terminal.is_some()
-                        && !matches!(
-                            &outcome,
-                            gent_drivers::codex_session::CodexSteerOutcome::Rejected { .. }
-                        )
-                    {
-                        self.retire_targeted_steers(run_id, host_epoch)?;
-                    }
                     self.resolve_steer(run_id, host_epoch, outcome)?;
                     facts = facts.saturating_add(1);
                 }
@@ -86,7 +88,7 @@ where
                     if let Some(message_id) = self
                         .active
                         .get(run_id)
-                        .filter(|binding| !binding.settled && !binding.releasing)
+                        .filter(|binding| binding.turns.turn_open() && !binding.turns.releasing())
                         .map(|binding| binding.prompt.message.message_id.clone())
                     {
                         let error = crate::public_driver_runtime::run_failure::provider_exited(
@@ -118,7 +120,7 @@ where
             }
         }
         if let Some(phase) = terminal {
-            self.retire_targeted_steers(run_id, host_epoch)?;
+            self.release_steers(run_id, host_epoch)?;
             self.settle_if_open(run_id, host_epoch, phase)?;
             if phase == DurableTurnPhase::Completed {
                 if let Some(binding) = self.active.get(run_id) {
@@ -143,6 +145,7 @@ fn session_unavailable() -> gent_drivers::public_protocol::PublicWireFact {
         gent_types::NormalizedProviderEvent::ProviderFailure {
             classification: gent_types::ProviderFailureClassification::SessionUnavailable,
             message: gent_types::PROVIDER_SESSION_UNAVAILABLE_NOTICE.into(),
+            resets_at: None,
         },
     )
 }

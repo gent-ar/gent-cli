@@ -124,18 +124,10 @@ pub(super) async fn set_permission_mode(
     workspace_id: String,
     mode: gent_types::PermissionMode,
     bypass_consent: bool,
-    expected_provider: Option<gent_types::AgentChatProvider>,
 ) -> Result<terminal::UiRequestResult, String> {
-    crate::permissions_cli::set_mode(
-        data_dir,
-        no_autostart,
-        workspace_id,
-        mode,
-        bypass_consent,
-        expected_provider,
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+    crate::permissions_cli::set_mode(data_dir, no_autostart, workspace_id, mode, bypass_consent)
+        .await
+        .map_err(|error| error.to_string())?;
     let mut saved = result(
         conversation_id,
         None,
@@ -150,31 +142,26 @@ pub(super) async fn steer_queued(
     no_autostart: bool,
     conversation_id: String,
     message_ids: Vec<String>,
+    target: gent_types::ConversationRunStatus,
 ) -> Result<terminal::UiRequestResult, String> {
     let count = message_ids.len();
-    let delivery = chat_cli::summary(data_dir.clone(), no_autostart, conversation_id.clone())
-        .await
-        .map_err(|error| error.to_string())?
-        .steer_delivery;
-    chat_cli::queue::deliver(data_dir, no_autostart, &conversation_id, message_ids, true)
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(result(conversation_id, None, steer_notice(delivery, count)))
+    chat_cli::queue::deliver(
+        data_dir,
+        no_autostart,
+        &conversation_id,
+        message_ids,
+        Some(&target),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(result(conversation_id, None, steer_notice(count)))
 }
 
-fn steer_notice(delivery: Option<gent_types::AgentChatSteerDelivery>, count: usize) -> String {
-    use gent_types::AgentChatSteerDelivery::{InterruptThenNext, JoinTurn};
-    match (delivery, count) {
-        (Some(JoinTurn), 1) => "Sent the queued prompt into the running turn.".to_owned(),
-        (Some(JoinTurn), _) => format!("Sent {count} queued prompts into the running turn."),
-        (Some(InterruptThenNext), 1) => {
-            "Stopped the running turn; the queued prompt runs next.".to_owned()
-        }
-        (Some(InterruptThenNext), _) => {
-            format!("Stopped the running turn; the {count} queued prompts run next.")
-        }
-        (None, 1) => "The queued prompt runs next.".to_owned(),
-        (None, _) => format!("The {count} queued prompts run next."),
+fn steer_notice(count: usize) -> String {
+    if count == 1 {
+        "Requested a stop so the queued prompt can run next.".to_owned()
+    } else {
+        format!("Requested a stop so the {count} queued prompts can run next.")
     }
 }
 
@@ -189,7 +176,7 @@ pub(super) async fn cancel_queued(
         no_autostart,
         &conversation_id,
         vec![message_id],
-        false,
+        None,
     )
     .await
     .map_err(|error| error.to_string())?;
@@ -235,28 +222,17 @@ pub(super) async fn interrupt(
 
 #[cfg(test)]
 mod steer_notice_tests {
-    use gent_types::AgentChatSteerDelivery;
-
     use super::steer_notice;
 
     #[test]
-    fn the_send_now_notice_follows_the_running_turn_delivery() {
+    fn send_now_always_stops_the_running_turn_so_the_prompt_runs_next() {
         assert_eq!(
-            steer_notice(Some(AgentChatSteerDelivery::JoinTurn), 1),
-            "Sent the queued prompt into the running turn."
+            steer_notice(1),
+            "Requested a stop so the queued prompt can run next."
         );
         assert_eq!(
-            steer_notice(Some(AgentChatSteerDelivery::JoinTurn), 2),
-            "Sent 2 queued prompts into the running turn."
+            steer_notice(2),
+            "Requested a stop so the 2 queued prompts can run next."
         );
-        assert_eq!(
-            steer_notice(Some(AgentChatSteerDelivery::InterruptThenNext), 1),
-            "Stopped the running turn; the queued prompt runs next."
-        );
-        assert_eq!(
-            steer_notice(Some(AgentChatSteerDelivery::InterruptThenNext), 2),
-            "Stopped the running turn; the 2 queued prompts run next."
-        );
-        assert_eq!(steer_notice(None, 1), "The queued prompt runs next.");
     }
 }

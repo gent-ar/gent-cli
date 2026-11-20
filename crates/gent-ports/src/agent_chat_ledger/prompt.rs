@@ -89,12 +89,11 @@ pub trait AgentChatQueuedPromptLedger: Send + Sync {
         host_epoch: HostEpoch,
         conversation_id: &AgentChatConversationId,
         message_id: &str,
-    ) -> Result<(Receipt, AgentChatRunId), LedgerError>;
+    ) -> Result<(Receipt, AgentChatRunId, Option<String>), LedgerError>;
 
-    fn interrupt_active_turn_for_steer(
+    fn stop_agent_chat_conversation(
         &self,
-        host_epoch: HostEpoch,
+        command: &gent_types::Command,
         conversation_id: &AgentChatConversationId,
-        run_id: &AgentChatRunId,
-    ) -> Result<bool, LedgerError>;
+    ) -> Result<Receipt, LedgerError>;
 }

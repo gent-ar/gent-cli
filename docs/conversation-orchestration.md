@@ -167,8 +167,9 @@ There is exactly one way to put a prompt into a conversation, and cross-conversa
 it (`crates/gentd/src/runtime_facade_conversation_links_delivery.rs`):
 
 - target **idle** → `sendPrompt` → `delivery: "queued"`; the message starts the target's next turn.
-- target **running** → `queuePrompt` then `steerQueuedPrompt` → `delivery: "steered"`; the message
-  enters the turn in flight exactly as a user steer does, with each provider's native steering.
+- target **running** → `queuePrompt` → `delivery: "steered"`; the message is an ordinary queued
+  prompt: Claude and Codex take it into the turn in flight, Claurst runs it as the next turn. It
+  never interrupts the target the way Send now does.
 
 No second ingress, no direct provider write, no bypass of admission, permissions, goals or
 receipts. Whatever a user could send by hand, a conversation sends the same way, and every

@@ -1,10 +1,8 @@
-use gent_ports::{
-    AgentChatPromptDispatchLedger, AgentChatQueuedPromptLedger, PendingPermissionLedger,
-};
+use gent_ports::{AgentChatPromptDispatchLedger, PendingPermissionLedger};
 use gent_types::{
     AgentChatConversationId,
     AgentChatPromptDisposition::{Queue, Send},
-    AgentChatPromptSaved, AgentChatProvider, DurableTurnPhase, NormalizedTranscriptKind, ReceiptId,
+    AgentChatPromptSaved, AgentChatProvider, DurableTurnPhase, NormalizedTranscriptKind,
 };
 use serde_json::Value;
 
@@ -12,22 +10,12 @@ use super::fake_cli::FakeClaudeDaemon;
 use crate::agent_chat_api::{PromptCommitWake, PromptWake};
 
 fn steer(daemon: &mut FakeClaudeDaemon, prompt: &AgentChatPromptSaved) {
-    let conversation = AgentChatConversationId(prompt.message.conversation_id.clone());
-    let (receipt, run_id) = daemon
-        .ledger
-        .steer_queued_agent_chat_prompt(
-            &ReceiptId(format!("steer-{}", prompt.message.message_id)),
-            daemon.epoch,
-            &conversation,
-            &prompt.message.message_id,
-        )
-        .unwrap();
     daemon
         .router
         .wake_after_prompt_commit(PromptWake {
-            conversation_id: conversation,
-            run_id,
-            receipt_id: receipt.receipt_id,
+            conversation_id: AgentChatConversationId(prompt.message.conversation_id.clone()),
+            run_id: prompt.run_id.clone(),
+            receipt_id: prompt.receipt.receipt_id.clone(),
             disposition: Queue,
         })
         .unwrap();

@@ -2,9 +2,7 @@
 
 use std::path::PathBuf;
 
-use gent_protocol::{
-    CONVERSATION_CONTENT_CAPABILITY, ConversationContentFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{CONVERSATION_CONTENT_CAPABILITY, ConversationContentFrame, write_json_frame};
 use gent_types::{ConversationContentCursor, ConversationContentPage};
 use serde_json::Value;
 
@@ -41,7 +39,7 @@ pub(crate) async fn request(
         },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(ConversationContentFrame::Page(page)) = serde_json::from_value(raw.clone()) {
         if page.conversation_id != expected_conversation_id {
             return Err("daemon returned conversation content for another conversation".into());
@@ -50,9 +48,6 @@ pub(crate) async fn request(
             cursor.ordinal_for(&expected_conversation_id)?;
         }
         return Ok(page);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return conversation content".into())
 }

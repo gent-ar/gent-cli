@@ -279,5 +279,7 @@ fn a_running_install_cannot_be_cancelled_but_its_prompt_is_cancellable_once_it_i
     assert_cancelled(&ledger, &second);
 }
 
+#[path = "ordinary_lifecycle_switch_install_hold_tests.rs"]
+mod switch_install_hold_tests;
 #[path = "ordinary_lifecycle_install_uncertainty_cancel_tests.rs"]
 mod uncertainty_cancel_tests;

@@ -1,7 +1,5 @@
-//! Immutable normalized lifecycle facts and bounded run-scoped reads.
-
 use gent_ports::{LedgerError, RunLifecycleFactLedger};
-use gent_types::{RunLifecycleFact, RunLifecycleFactPage};
+use gent_types::{RunLifecycleFact, RunLifecycleFactPage, RunLiveStatus};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::{SqliteLedger, queries::storage_error};
@@ -22,6 +20,46 @@ impl RunLifecycleFactLedger for SqliteLedger {
     ) -> Result<RunLifecycleFactPage, LedgerError> {
         let connection = self.lock()?;
         read(&connection, run_id, after_cursor, limit)
+    }
+
+    fn settle_run_permissions(&self, run_id: &str) -> Result<(), LedgerError> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        super::pending_permission_ledger::settle_for_run(&transaction, run_id)?;
+        transaction.commit().map_err(storage_error)
+    }
+
+    fn run_live_status(&self, run_id: &str) -> Result<Option<RunLiveStatus>, LedgerError> {
+        let connection = self.lock()?;
+        super::run_live_status::read(&connection, run_id)
+    }
+
+    fn end_background_tools(
+        &self,
+        conversation_id: &str,
+        phase: gent_types::ToolPhase,
+    ) -> Result<(), LedgerError> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        super::background_tools::end(
+            &transaction,
+            &super::background_tools::Scope::Conversation(conversation_id),
+            &phase,
+            None,
+        )?;
+        transaction.commit().map_err(storage_error)
+    }
+
+    fn run_active_turn(&self, run_id: &str) -> Result<Option<String>, LedgerError> {
+        let connection = self.lock()?;
+        super::run_live_status::latest_turn(&connection, run_id).map(|turn| {
+            turn.filter(|(_, phase)| !phase.is_terminal())
+                .map(|(turn_id, _)| turn_id)
+        })
     }
 }
 

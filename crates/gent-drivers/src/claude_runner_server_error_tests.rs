@@ -10,9 +10,8 @@ use gent_types::{
 };
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-const REFRESH_CONTENTION: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh."}]},"parent_tool_use_id":null,"session_id":"s","uuid":"u","error":"server_error"}"#;
+const SERVER_ERROR: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh."}]},"parent_tool_use_id":null,"session_id":"s","uuid":"u","error":"server_error"}"#;
 const SIGNED_OUT: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Login expired"}]},"parent_tool_use_id":null,"session_id":"s","uuid":"u","error":"authentication_failed"}"#;
 const ERROR_RESULT: &str =
     r#"{"type":"result","subtype":"success","is_error":true,"result":"x","session_id":"s"}"#;
@@ -78,10 +77,10 @@ fn run(replies: &[String]) -> (Vec<ClaudeRunnerEffect>, Vec<Vec<u8>>) {
         Launcher(Arc::clone(&fake)),
         BufferPolicy::new(8, crate::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
     );
-    runner.transient_retry_step = Duration::ZERO;
     runner
         .start(ClaudeRunStart {
             run_id: "run".into(),
+            message_id: "message".into(),
             lock: crate::lock::capture("claude", &executable, "2.1.291", "entry").unwrap(),
             prompt: "hello".into(),
             content: Vec::new(),
@@ -119,13 +118,6 @@ fn count(effects: &[ClaudeRunnerEffect], wanted: impl Fn(&PublicWireFact) -> boo
         .count()
 }
 
-fn retries(effects: &[ClaudeRunnerEffect]) -> usize {
-    count(effects, |fact| {
-        matches!(fact, PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { classification })
-            if classification == gent_types::PROVIDER_TRANSIENT_RETRY_DIAGNOSTIC)
-    })
-}
-
 fn failures(effects: &[ClaudeRunnerEffect]) -> usize {
     count(effects, |fact| {
         matches!(
@@ -147,35 +139,37 @@ fn ready(effects: &[ClaudeRunnerEffect]) -> usize {
 }
 
 #[test]
-fn refresh_contention_before_any_work_resends_the_same_prompt_until_claude_answers() {
-    let contention = failed(REFRESH_CONTENTION);
-    let (effects, writes) = run(&[contention.clone(), contention, REPLY.into()]);
-    assert_eq!(writes.len(), 3);
-    assert!(writes.iter().all(|write| write == &writes[0]));
-    assert_eq!(retries(&effects), 2);
-    assert_eq!(failures(&effects), 0);
-    assert_eq!(ready(&effects), 1);
-}
-
-#[test]
-fn contention_that_outlasts_the_retry_budget_fails_the_turn_once() {
-    let contention = failed(REFRESH_CONTENTION);
-    let (effects, writes) = run(&vec![contention; 5]);
-    assert_eq!(writes.len(), 4);
-    assert_eq!(retries(&effects), 3);
+fn a_server_error_fails_the_turn_without_resending_the_prompt() {
+    let (effects, writes) = run(&[failed(SERVER_ERROR), REPLY.into()]);
+    assert_eq!(writes.len(), 1);
     assert_eq!(failures(&effects), 2);
     assert_eq!(ready(&effects), 0);
 }
 
 #[test]
-fn a_signed_out_claude_is_never_retried() {
+fn a_server_error_after_claude_produced_output_fails_the_turn_once() {
+    let partial = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]},"session_id":"s"}"#;
+    let (effects, writes) = run(&[
+        format!(
+            "{partial}
+{}",
+            failed(SERVER_ERROR)
+        ),
+        REPLY.into(),
+    ]);
+    assert_eq!(writes.len(), 1);
+    assert_eq!(failures(&effects), 2);
+}
+
+#[test]
+fn a_signed_out_claude_fails_with_a_sign_in_notice() {
     let (effects, writes) = run(&[failed(SIGNED_OUT), REPLY.into()]);
     assert_eq!(writes.len(), 1);
-    assert_eq!(retries(&effects), 0);
     assert_eq!(failures(&effects), 2);
     let sign_in = PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure {
         classification: gent_types::ProviderFailureClassification::Authentication,
         message: "Claude sign-in expired. Sign in again to continue.".into(),
+        resets_at: None,
     });
     assert_eq!(count(&effects, |fact| fact == &sign_in), 1);
     let (effects, _) = run(&[ERROR_RESULT.into()]);
@@ -184,13 +178,13 @@ fn a_signed_out_claude_is_never_retried() {
 }
 
 #[test]
-fn contention_after_claude_produced_output_is_never_retried() {
-    let partial = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]},"session_id":"s"}"#;
-    let (effects, writes) = run(&[
-        format!("{partial}\n{}", failed(REFRESH_CONTENTION)),
-        REPLY.into(),
-    ]);
-    assert_eq!(writes.len(), 1);
-    assert_eq!(retries(&effects), 0);
-    assert_eq!(failures(&effects), 2);
+fn a_rejected_rate_limit_carries_claudes_reset_time_on_the_failure() {
+    let rejected = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1794891600,"rateLimitType":"seven_day"},"session_id":"s"}"#;
+    let (effects, _) = run(&[failed(rejected)]);
+    let limited = PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure {
+        classification: gent_types::ProviderFailureClassification::RateLimited,
+        message: "Claude rate limit reached.".into(),
+        resets_at: Some(1_794_891_600),
+    });
+    assert_eq!(count(&effects, |fact| fact == &limited), 1);
 }

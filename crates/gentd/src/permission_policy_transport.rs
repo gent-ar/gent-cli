@@ -28,18 +28,6 @@ where
     let Ok(frame) = serde_json::from_value::<PermissionPolicyFrame>(raw.clone()) else {
         return Ok(false);
     };
-    if matches!(
-        &frame,
-        PermissionPolicyFrame::Save {
-            expected_provider: Some(_),
-            ..
-        }
-    ) && !capabilities.0.iter().any(|capability| {
-        capability == gent_protocol::PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY
-    }) {
-        write_error(stream, "unsupportedCapability", "provider-bound permission saves require permission-policy-provider-binding-v1 negotiation").await?;
-        return Ok(true);
-    }
     if !matches!(
         frame,
         PermissionPolicyFrame::Current { .. } | PermissionPolicyFrame::Save { .. }
@@ -71,10 +59,14 @@ where
         authority.permission_policy(frame)
     })
     .await
-    .unwrap_or_else(|_| Err("permission policy preparation worker stopped unexpectedly".into()));
+    .unwrap_or_else(|_| {
+        Err(crate::permission_policy_api::rejected(
+            "permission policy preparation worker stopped unexpectedly",
+        ))
+    });
     match response {
         Ok(response) => write_json_frame(stream, &response).await?,
-        Err(message) => write_error(stream, "permissionPolicyRejected", &message).await?,
+        Err(error) => error.write(stream).await?,
     }
     Ok(true)
 }

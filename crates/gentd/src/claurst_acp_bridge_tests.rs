@@ -255,6 +255,7 @@ async fn a_start_renders_history_within_the_local_model_budget() {
             text: format!("HEAD{}TAIL", "x".repeat(40_000)),
             is_partial: false,
             failure_code: None,
+            resets_at: None,
             origin: None,
             attachments: Vec::new(),
         };

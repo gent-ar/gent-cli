@@ -111,9 +111,10 @@ while ($null -ne ($line=[Console]::ReadLine())) {
    Start-Sleep -Milliseconds 10
   }
   [IO.File]::WriteAllText([IO.Path]::Combine($root,'observed.json'),(@{pid=$PID;turn=$turn}|ConvertTo-Json -Compress))
+  [Console]::WriteLine('{"type":"command_lifecycle","state":"started","command_uuid":"' + $f.uuid + '"}')
   if ($turn -eq 1) { [Console]::WriteLine('{"type":"system","subtype":"init","session_id":"owned-session"}') }
   [Console]::WriteLine('{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"owned-output"}]}}')
-  [Console]::WriteLine('{"type":"result","subtype":"success","is_error":false,"session_id":"owned-session","result":"owned-output"}')
+  [Console]::WriteLine('{"type":"result","subtype":"success","is_error":false,"session_id":"owned-session","result":"owned-output","user_message_uuids":["' + $f.uuid + '"]}')
   [Console]::Out.Flush()
  }
 }

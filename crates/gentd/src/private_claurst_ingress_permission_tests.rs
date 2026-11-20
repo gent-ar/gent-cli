@@ -51,6 +51,7 @@ async fn prepare_permissions(
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     ledger.save_policy(&launched).unwrap();
     gent_ports::AgentChatConversationConfigLedger::save_conversation_config(
@@ -172,7 +173,7 @@ async fn a_plan_mode_change_is_denied_by_gent_with_a_typed_notice() {
         .filter(|event| event.kind == NormalizedTranscriptKind::Notice)
         .map(|event| event.text)
         .collect::<Vec<_>>();
-    assert_eq!(notices, [PermissionDenialReason::ReadOnlyMode.notice()]);
+    assert_eq!(notices, [PermissionDenialReason::PlanModeEdit.notice()]);
 }
 
 #[tokio::test]
@@ -279,6 +280,7 @@ async fn claurst_commits_canonical_grant_and_answers_after_a_newer_revision() {
                 PermissionDecisionResponseKind::ApproveExactTool
             },
             input: None,
+            command_pattern: None,
         };
         let result = ingress.respond_permission(response).await;
         if stale {
@@ -353,6 +355,7 @@ async fn a_mode_saved_mid_turn_leaves_the_turn_on_its_launch_policy_until_the_ne
             binding: request.binding,
             response: PermissionDecisionResponseKind::ApproveOnce,
             input: None,
+            command_pattern: None,
         })
         .await
         .unwrap();

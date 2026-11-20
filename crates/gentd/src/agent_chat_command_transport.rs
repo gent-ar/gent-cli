@@ -47,7 +47,7 @@ where
             )
             .await?;
         }
-        Err(error) => write_error(stream, error.code, &error.message).await?,
+        Err(error) => error.write(stream).await?,
     }
     Ok(true)
 }

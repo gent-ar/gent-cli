@@ -34,12 +34,16 @@ impl ProcessTreeControl for Process {
 }
 
 impl ProviderProcess for Process {
-    fn write_frame(&self, _: &[u8]) -> Result<(), ProcessTreeError> {
+    fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError> {
+        let uuid = serde_json::from_slice::<serde_json::Value>(frame).unwrap()["uuid"].clone();
+        let started =
+            serde_json::json!({"type":"command_lifecycle","command_uuid":uuid,"state":"started"});
         let mut state = self.0.lock().unwrap();
         if let Some(reply) = state.reply.take() {
+            let reply = reply.replace("\"USER_UUIDS\"", &format!("[{uuid}]"));
             state
                 .stdout
-                .push_back(format!("{INIT}\n{reply}\n").into_bytes());
+                .push_back(format!("{started}\n{INIT}\n{reply}\n").into_bytes());
         }
         Ok(())
     }
@@ -71,6 +75,7 @@ impl PublicProviderResolver for Resolver {
 
 fn failed_turn(
     assistant_error: Option<&str>,
+    preface: &str,
 ) -> (Vec<NormalizedTranscriptEvent>, DurableTurnPhase) {
     let root = tempfile::tempdir().unwrap();
     let executable = root.path().join("claude");
@@ -88,9 +93,10 @@ fn failed_turn(
     }
     let result = serde_json::json!({
         "type": "result", "subtype": "success", "is_error": true, "result": DENIAL, "session_id": "s",
+        "user_message_uuids": "USER_UUIDS",
     });
     let process = Process::default();
-    process.0.lock().unwrap().reply = Some(format!("{assistant}\n{result}"));
+    process.0.lock().unwrap().reply = Some(format!("{preface}{assistant}\n{result}"));
     let runner = ClaudePromptRunner::new(
         Launcher(process),
         BufferPolicy::new(16, gent_drivers::MAX_PROVIDER_FRAME_BYTES, 0, 0).unwrap(),
@@ -159,7 +165,7 @@ fn notices(events: &[NormalizedTranscriptEvent]) -> Vec<(String, Option<AgentCha
 
 #[test]
 fn an_expired_claude_sign_in_fails_the_turn_with_one_typed_notice() {
-    let (events, phase) = failed_turn(Some("authentication_failed"));
+    let (events, phase) = failed_turn(Some("authentication_failed"), "");
     assert_eq!(phase, DurableTurnPhase::Failed);
     assert_eq!(
         notices(&events),
@@ -174,11 +180,35 @@ fn an_expired_claude_sign_in_fails_the_turn_with_one_typed_notice() {
 }
 
 #[test]
-fn an_untyped_claude_error_keeps_the_generic_notice() {
-    let (events, phase) = failed_turn(None);
+fn an_untyped_claude_error_is_a_typed_provider_failure() {
+    let (events, phase) = failed_turn(None, "");
     assert_eq!(phase, DurableTurnPhase::Failed);
     assert_eq!(
         notices(&events),
-        vec![("Claude ended the turn with an error.".into(), None)]
+        vec![(
+            "Claude ended the turn with an error.".into(),
+            Some(AgentChatFailureCode::ProviderFailed)
+        )]
     );
+}
+
+#[test]
+fn a_claude_rate_limit_is_typed_and_carries_its_reset_on_the_transcript() {
+    let rejected = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1794891600,"rateLimitType":"seven_day"},"session_id":"s"}"#;
+    let (events, phase) = failed_turn(None, &format!("{rejected}\n"));
+    assert_eq!(phase, DurableTurnPhase::Failed);
+    let notice = events
+        .iter()
+        .find(|event| event.kind == NormalizedTranscriptKind::Notice)
+        .unwrap();
+    assert_eq!(
+        (notice.failure_code, notice.resets_at),
+        (
+            Some(AgentChatFailureCode::ProviderRateLimited),
+            Some(1_794_891_600)
+        )
+    );
+    let wire = serde_json::to_value(notice).unwrap();
+    assert_eq!(wire["failureCode"], "providerRateLimited");
+    assert_eq!(wire["resetsAt"], 1_794_891_600);
 }

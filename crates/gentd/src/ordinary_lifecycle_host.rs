@@ -1,11 +1,53 @@
 use crate::provider_lifecycle_host::{ProviderLifecycleHost, ProviderLifecycleWakePort};
 use gent_types::AgentChatProvider;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Undelivered {
+    NotPending,
+    InvalidInput,
+    PipeBroken,
+}
+
+impl Undelivered {
+    pub(crate) const fn of(error: &gent_runtime::RuntimeError) -> Self {
+        match error {
+            gent_runtime::RuntimeError::ProviderRun(
+                gent_ports::PublicProviderRunError::NotActive,
+            ) => Self::NotPending,
+            gent_runtime::RuntimeError::ProviderRun(
+                gent_ports::PublicProviderRunError::PermissionInputInvalid(_),
+            ) => Self::InvalidInput,
+            _ => Self::PipeBroken,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum DriveFailure {
+    LedgerBusy(String),
+    Failed(String),
+}
+
+impl DriveFailure {
+    fn of(
+        error: &crate::provider_lifecycle_host::ProviderLifecycleHostError<
+            gent_runtime::RuntimeError,
+        >,
+    ) -> Self {
+        match error {
+            crate::provider_lifecycle_host::ProviderLifecycleHostError::Owner(
+                gent_runtime::RuntimeError::Ledger(gent_ports::LedgerError::Busy(_)),
+            ) => Self::LedgerBusy(format!("{error:?}")),
+            _ => Self::Failed(format!("{error:?}")),
+        }
+    }
+}
+
 pub(crate) trait OrdinaryLifecycleHost: Send {
     fn provider(&self) -> AgentChatProvider;
     fn arm_authority_recovery(&mut self) -> Result<(), ()>;
     fn wake(&mut self) -> Result<(), ()>;
-    fn drive(&mut self) -> Result<(), ()>;
+    fn drive(&mut self) -> Result<(), DriveFailure>;
     fn needs_drive(&self) -> bool;
     fn respond_claude_permission(
         &self,
@@ -13,8 +55,8 @@ pub(crate) trait OrdinaryLifecycleHost: Send {
         _request_id: &str,
         _behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         _persist_suggestions: bool,
-    ) -> Result<(), ()> {
-        Err(())
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
+        Err(crate::ordinary_lifecycle_host::Undelivered::NotPending)
     }
     fn respond_claude_permission_with_input(
         &self,
@@ -23,7 +65,7 @@ pub(crate) trait OrdinaryLifecycleHost: Send {
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
         updated_input: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         let _ = updated_input;
         self.respond_claude_permission(run_id, request_id, behavior, persist_suggestions)
     }
@@ -33,8 +75,8 @@ pub(crate) trait OrdinaryLifecycleHost: Send {
         _request_id: &str,
         _decision: gent_drivers::codex_control::CodexControlDecision,
         _answers: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
-        Err(())
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
+        Err(crate::ordinary_lifecycle_host::Undelivered::NotPending)
     }
     fn interrupt_run(&mut self, _: &str) -> Result<(), ()> {
         Err(())
@@ -74,8 +116,8 @@ impl<O> OrdinaryProviderHost<O> {
 
 impl<O> OrdinaryLifecycleHost for OrdinaryProviderHost<O>
 where
-    O: crate::private_lifecycle_loop::PrivateLifecycleOwner + Send,
-    O::Error: std::fmt::Debug,
+    O: crate::private_lifecycle_loop::PrivateLifecycleOwner<Error = gent_runtime::RuntimeError>
+        + Send,
 {
     fn provider(&self) -> AgentChatProvider {
         self.provider
@@ -94,12 +136,13 @@ where
             .map_err(|_| ())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), DriveFailure> {
         self.host.drive().map(|_| ()).map_err(|error| {
             eprintln!(
                 "{:#?} provider lifecycle drive failed: {error:?}",
                 self.provider
             );
+            DriveFailure::of(&error)
         })
     }
 
@@ -113,7 +156,7 @@ where
         request_id: &str,
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.respond_claude_permission_with_input(
             run_id,
             request_id,
@@ -130,7 +173,7 @@ where
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
         updated_input: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.host.respond_claude_permission_with_input(
             run_id,
             request_id,
@@ -146,7 +189,7 @@ where
         request_id: &str,
         decision: gent_drivers::codex_control::CodexControlDecision,
         answers: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.host
             .respond_codex_permission(run_id, request_id, decision, answers)
     }

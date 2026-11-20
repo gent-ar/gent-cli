@@ -26,6 +26,7 @@ fn context(mode: PermissionMode) -> PermissionControlContext {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         },
         request_digest_sha256: PermissionRequestDigest("a".repeat(64)),
         sandbox: SandboxEnforcement::Unavailable,
@@ -67,6 +68,7 @@ fn response_must_match_the_exact_pending_run_and_digest() {
         binding: request().binding,
         response: PermissionDecisionResponseKind::ApproveOnce,
         input: None,
+        command_pattern: None,
     };
     response.binding.run_id = AgentChatRunId("old-run".into());
     let rejected = reduce_permission_control(
@@ -93,6 +95,7 @@ fn approval_effects_are_closed_and_derived_from_the_pending_request() {
         binding: request().binding,
         response: PermissionDecisionResponseKind::ApproveCategory,
         input: None,
+        command_pattern: None,
     };
     let resolved = reduce_permission_control(
         pending.0,
@@ -179,6 +182,7 @@ fn pending_requests_are_idempotent_and_responses_cannot_target_another_decision(
         binding: request().binding,
         response: PermissionDecisionResponseKind::Deny,
         input: None,
+        command_pattern: None,
     };
     response.binding.decision_id = AgentChatDecisionId("decision-2".into());
     let rejected = reduce_permission_control(
@@ -215,6 +219,7 @@ fn one_pending_request_blocks_competitors_and_response_types_are_closed() {
         binding: request().binding,
         response: PermissionDecisionResponseKind::ApproveExactTool,
         input: None,
+        command_pattern: None,
     };
     assert_eq!(
         reduce_permission_control(
@@ -260,6 +265,7 @@ fn a_response_without_a_request_and_stale_bindings_fail_closed() {
         binding: request().binding,
         response: PermissionDecisionResponseKind::Deny,
         input: None,
+        command_pattern: None,
     };
     assert_eq!(
         reduce_permission_control(

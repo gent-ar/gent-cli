@@ -46,7 +46,7 @@ pub(super) fn attach_to_projection(
     Ok(())
 }
 
-fn turn_references(
+pub(super) fn turn_references(
     connection: &Connection,
     turn_id: &str,
 ) -> Result<Vec<AttachmentReference>, LedgerError> {

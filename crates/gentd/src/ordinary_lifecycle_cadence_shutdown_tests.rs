@@ -47,7 +47,7 @@ impl AgentChatReadLedger for Ledger {
             updated_at_unix_ms: 0,
             selection: selection(),
             selection_applies_next_turn: false,
-            steer_delivery: None,
+            queue_delivery: None,
             containment: gent_types::Containment::Unsandboxed,
         })
     }
@@ -91,7 +91,7 @@ impl OrdinaryLifecycleHost for Host {
         Ok(())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         self.state = match self.state {
             State::Recovering => State::Recovered,
             State::Draining => State::Stopped,

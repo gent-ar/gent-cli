@@ -1,8 +1,3 @@
-//! Standalone Codex lifecycle composition from one explicitly selected local executable.
-//!
-//! The standalone path has no release artifact and no PATH discovery. Its resolver captures the
-//! supplied executable and rechecks that exact identity before every provider launch.
-
 use std::{path::PathBuf, sync::Arc};
 
 use gent_drivers::{
@@ -32,7 +27,6 @@ const BUFFERED_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 const MAX_ACTIVE_CODEX_RUNS: usize = 4;
 const STANDALONE_EVIDENCE_REFERENCE: &str = "standalone-local-codex-v1";
 
-/// Explicit local inputs for the standalone Codex provider host.
 #[derive(Clone, Debug)]
 pub(crate) struct StandaloneCodexConfig {
     pub(crate) data_dir: PathBuf,
@@ -46,7 +40,6 @@ pub(crate) struct StandaloneCodexConfig {
 
 type StandaloneCodexRunner<L> = CodexPromptRunner<L, <L as ProcessLauncher>::Process>;
 
-/// Codex lifecycle owner backed only by an explicitly selected local executable.
 pub(crate) struct StandaloneCodexHost<L: ProcessLauncher> {
     supervisor: PrivateCodexSupervisor<SqliteLedger, StandaloneCodexRunner<L>, LocalProviderLocks>,
 }
@@ -118,9 +111,9 @@ where
         request_id: &str,
         decision: gent_drivers::codex_control::CodexControlDecision,
         answers: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.respond_permission(run_id, request_id, decision, answers)
-            .map_err(|_| ())
+            .map_err(|error| crate::ordinary_lifecycle_host::Undelivered::of(&error))
     }
 
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
@@ -141,7 +134,6 @@ where
     }
 }
 
-/// Failure before a standalone Codex lifecycle becomes reachable.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum StandaloneCodexError {
     #[error("standalone Codex coordinator identity must be bounded and nonempty")]
@@ -154,10 +146,6 @@ pub(crate) enum StandaloneCodexError {
     Runtime(#[from] PublicDriversRuntimeError),
 }
 
-/// Composes the real Codex lifecycle from a selected local executable without release material.
-///
-/// No provider process is started here. The returned owner retains the existing Codex session
-/// resume, durable dispatch, stream normalization, and process-drain lifecycle.
 pub(crate) fn compose_standalone_codex<L>(
     ledger: SqliteLedger,
     coordinator: Coordinator<SqliteLedger>,

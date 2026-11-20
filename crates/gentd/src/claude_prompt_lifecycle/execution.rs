@@ -1,5 +1,3 @@
-//! Claude one-shot process adapter owned only by the dormant daemon lifecycle.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -20,10 +18,10 @@ use mcp::conversation_config;
 mod execution_trait;
 pub(crate) use execution_trait::ClaudePromptExecution;
 
-/// Prompt held only between a durable dispatch claim and a locked Claude launch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaudePromptStart {
     pub(crate) conversation_id: String,
+    pub(crate) message_id: String,
     pub(crate) workspace_root: PathBuf,
     pub(crate) workspace_access: SandboxWorkspaceAccess,
     pub(crate) prompt: String,
@@ -36,7 +34,6 @@ pub(crate) struct ClaudePromptStart {
     pub(crate) recreate_session: bool,
 }
 
-/// Binds each public-run reservation to one bounded Claude stream process.
 #[derive(Debug)]
 pub(crate) struct ClaudePromptRunner<L, P> {
     runner: Arc<Mutex<ClaudeStreamRunner<L, P>>>,
@@ -148,19 +145,20 @@ where
     pub(crate) fn submit(
         &self,
         run_id: &str,
+        message_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
         content: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
         lock(&self.runner)
-            .submit(run_id, prompt, goal, content)
+            .submit(run_id, message_id, prompt, goal, content)
             .map_err(map_error)
     }
 
     pub(crate) fn release(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
-        lock(&self.runner).release(run_id).map_err(map_error)?;
+        let released = lock(&self.runner).release(run_id).map_err(map_error);
         self.cleanup_config(run_id);
-        Ok(())
+        released
     }
 
     pub(crate) fn respond_permission(
@@ -189,7 +187,16 @@ where
                 persist_suggestions,
                 updated_input,
             )
-            .map_err(map_error)
+            .map_err(|error| match error {
+                gent_drivers::claude_runner::ClaudeRunnerError::NotActive
+                | gent_drivers::claude_runner::ClaudeRunnerError::PermissionRequestNotPending => {
+                    PublicProviderRunError::NotActive
+                }
+                gent_drivers::claude_runner::ClaudeRunnerError::InvalidPermissionInput(reason) => {
+                    PublicProviderRunError::PermissionInputInvalid(reason.into())
+                }
+                other => map_error(other),
+            })
     }
 
     pub(super) fn launch(
@@ -220,6 +227,7 @@ where
         let prewarm = lock(&self.prewarmed).remove(run_id);
         let start = ClaudeRunStart {
             run_id: run_id.into(),
+            message_id: prompt.message_id,
             lock: lock_value.clone(),
             prompt: prompt.prompt,
             content: prompt.content,

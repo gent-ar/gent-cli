@@ -1,8 +1,3 @@
-//! Standalone Claude lifecycle composition from one explicitly selected local executable.
-//!
-//! This is the public Gent CLI path: it has no release artifact, package discovery, or PATH
-//! rechecked by the resolver and again by the process runner immediately before launch.
-
 use std::{path::PathBuf, sync::Arc};
 
 use gent_drivers::{buffering::BufferPolicy, supervisor::ProcessLauncher};
@@ -31,7 +26,6 @@ const BUFFERED_BYTES: usize = gent_drivers::MAX_PROVIDER_FRAME_BYTES;
 const MAX_ACTIVE_CLAUDE_RUNS: usize = 4;
 const STANDALONE_EVIDENCE_REFERENCE: &str = "standalone-local-claude-v1";
 
-/// Explicit local inputs for the standalone Claude provider host.
 #[derive(Clone, Debug)]
 pub(crate) struct StandaloneClaudeConfig {
     pub(crate) data_dir: PathBuf,
@@ -44,7 +38,6 @@ pub(crate) struct StandaloneClaudeConfig {
 
 type StandaloneClaudeRunner<L> = ClaudePromptRunner<L, <L as ProcessLauncher>::Process>;
 
-/// Claude lifecycle owner backed only by an explicitly selected local executable.
 pub(crate) struct StandaloneClaudeHost<L: ProcessLauncher> {
     supervisor:
         PrivateClaudeSupervisor<SqliteLedger, StandaloneClaudeRunner<L>, LocalProviderLocks>,
@@ -117,7 +110,7 @@ where
         request_id: &str,
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.respond_claude_permission_with_input(
             run_id,
             request_id,
@@ -134,7 +127,7 @@ where
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
         updated_input: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.supervisor
             .respond_permission_with_input(
                 run_id,
@@ -143,7 +136,7 @@ where
                 persist_suggestions,
                 updated_input,
             )
-            .map_err(|_| ())
+            .map_err(|error| crate::ordinary_lifecycle_host::Undelivered::of(&error))
     }
 
     fn interrupt_run(&mut self, run_id: &str) -> Result<(), ()> {
@@ -164,7 +157,6 @@ where
     }
 }
 
-/// Failure before a standalone Claude lifecycle becomes reachable.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum StandaloneClaudeError {
     #[error("standalone Claude coordinator identity must be bounded and nonempty")]
@@ -177,10 +169,6 @@ pub(crate) enum StandaloneClaudeError {
     Runtime(#[from] PublicDriversRuntimeError),
 }
 
-/// Composes the real Claude lifecycle from a selected local executable.
-///
-/// No process is started here.  Recovery and launch remain under the returned owner, so callers
-/// can retain the same durable conversation and provider lifecycle semantics as app integration.
 pub(crate) fn compose_standalone_claude<L>(
     ledger: SqliteLedger,
     coordinator: Coordinator<SqliteLedger>,

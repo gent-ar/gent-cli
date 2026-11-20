@@ -20,8 +20,10 @@ pub enum ToolCategory {
 pub enum ToolPhase {
     Started,
     WaitingPermission,
+    Background,
     Completed,
     Failed,
+    Interrupted,
 }
 
 /// A typed tool fact with a bounded operation preview, never raw provider output.

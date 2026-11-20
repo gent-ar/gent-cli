@@ -3,10 +3,12 @@ use gent_types::{
     AgentChatConversationId, AgentChatRejection, AgentChatRunId, ConversationActivityFact,
     ConversationActivityScope, Event, HostEpoch, Receipt, ReceiptId,
 };
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
-pub(super) use super::agent_chat_queue_commands::{queue_command, queued_prompt, receipted};
-use super::queries::{append_event, storage_error};
+pub(super) use super::agent_chat_queue_commands::{
+    queue_command, queued_prompt, receipted, steerable_prompt,
+};
+use super::queries::{append_event, find_event, storage_error};
 use super::{SqliteLedger, conversation_activity_ledger};
 
 pub(super) const STEER_KEY_PREFIX: &str = "agent-chat-steer-queued-prompt:";
@@ -49,11 +51,24 @@ impl AgentChatQueuedPromptLedger for SqliteLedger {
         let conflict =
             LedgerError::Invariant("queued prompt receipt is bound to another prompt".into());
         receipted(self, &command, conflict, |transaction| {
-            let (run_id, turn_id) =
-                interrupt_queued_turn(transaction, conversation_id, message_id, host_epoch)?;
+            if super::agent_chat_stop::cancel_when_returned(
+                transaction,
+                conversation_id,
+                message_id,
+                receipt_id,
+                host_epoch,
+            )? {
+                return Ok(());
+            }
+            let event_id = format!("agent-chat-queue:{message_id}:canceled");
+            let (run_id, turn_id, unconfirmed) =
+                remove_queued_turn(transaction, conversation_id, message_id, host_epoch)?;
+            if unconfirmed && find_event(transaction, &event_id)?.is_some() {
+                return Ok(());
+            }
             append(
                 transaction,
-                format!("agent-chat-queue:{message_id}:canceled"),
+                event_id,
                 receipt_id.clone(),
                 ConversationActivityFact::PromptCanceled {
                     scope: ConversationActivityScope {
@@ -75,7 +90,7 @@ impl AgentChatQueuedPromptLedger for SqliteLedger {
         host_epoch: HostEpoch,
         conversation_id: &AgentChatConversationId,
         message_id: &str,
-    ) -> Result<(Receipt, AgentChatRunId), LedgerError> {
+    ) -> Result<(Receipt, AgentChatRunId, Option<String>), LedgerError> {
         let command = queue_command(
             receipt_id,
             host_epoch,
@@ -85,60 +100,97 @@ impl AgentChatQueuedPromptLedger for SqliteLedger {
             "agentChatSteerQueuedPrompt",
         )?;
         let not_steerable = || LedgerError::Rejected(AgentChatRejection::QueuedPromptNotSteerable);
+        let mut target = None;
         let receipt = receipted(self, &command, not_steerable(), |transaction| {
-            if super::agent_chat_steer_target::target(transaction, message_id)?.is_some() {
-                return Err(not_steerable());
-            }
-            let (run_id, turn_id) = queued_prompt(transaction, conversation_id, message_id)?
+            let (run_id, turn_id) = steerable_prompt(transaction, conversation_id, message_id)?
                 .ok_or_else(not_steerable)?;
-            append(
+            let live = super::agent_chat_steer_target::live_turn(
                 transaction,
-                format!("agent-chat-queue:{message_id}:steer-requested"),
-                receipt_id.clone(),
-                ConversationActivityFact::PromptSteerRequested {
-                    scope: ConversationActivityScope {
-                        conversation_id: conversation_id.0.clone(),
-                        run_id,
-                        turn_id,
-                        host_epoch,
-                        cursor: 0,
+                &conversation_id.0,
+                None,
+                host_epoch,
+            )?;
+            let Some((live_run, live_turn)) = live else {
+                target = Some((run_id.clone(), None));
+                return append(
+                    transaction,
+                    format!("agent-chat-queue:{message_id}:steer-requested"),
+                    receipt_id.clone(),
+                    ConversationActivityFact::PromptSteerRequested {
+                        scope: ConversationActivityScope {
+                            conversation_id: conversation_id.0.clone(),
+                            run_id,
+                            turn_id,
+                            host_epoch,
+                            cursor: 0,
+                        },
+                        message_id: message_id.to_owned(),
+                        receipt_id: receipt_id.0.clone(),
                     },
-                    message_id: message_id.to_owned(),
-                    receipt_id: receipt_id.0.clone(),
-                },
+                );
+            };
+            target = Some((live_run.clone(), Some(live_turn.clone())));
+            super::agent_chat_steer_target::bind(
+                transaction,
+                receipt_id,
+                host_epoch,
+                conversation_id,
+                message_id,
+                &AgentChatRunId(live_run),
+                &live_turn,
             )
         })?;
-        let run_id = self
-            .lock()?
-            .query_row(
-                "SELECT COALESCE((SELECT live.run_id FROM conversation_messages live JOIN agent_chat_prompt_dispatches d ON d.message_id = live.message_id JOIN turns t ON t.turn_id = live.turn_id WHERE live.conversation_id = m.conversation_id AND d.state IN ('launching', 'started') AND t.phase IN ('active', 'waitingPermission', 'waitingQuestion') ORDER BY d.created_rowid LIMIT 1), m.run_id) FROM conversation_messages m WHERE m.message_id = ?1",
-                [message_id],
-                |row| row.get::<_, String>(0),
-            )
-            .map_err(storage_error)?;
-        Ok((receipt, AgentChatRunId(run_id)))
+        let (run_id, turn_id) = match target {
+            Some(target) => target,
+            None => (
+                self.lock()?
+                    .query_row(
+                        "SELECT run_id FROM conversation_messages WHERE message_id = ?1",
+                        [message_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(storage_error)?,
+                None,
+            ),
+        };
+        Ok((receipt, AgentChatRunId(run_id), turn_id))
     }
 
-    fn interrupt_active_turn_for_steer(
+    fn stop_agent_chat_conversation(
         &self,
-        host_epoch: HostEpoch,
+        command: &gent_types::Command,
         conversation_id: &AgentChatConversationId,
-        run_id: &AgentChatRunId,
-    ) -> Result<bool, LedgerError> {
-        super::agent_chat_steer_interrupt::mark(self, host_epoch, conversation_id, run_id)
+    ) -> Result<Receipt, LedgerError> {
+        super::agent_chat_stop::stop(self, command, conversation_id)
     }
 }
 
-fn interrupt_queued_turn(
+fn remove_queued_turn(
     transaction: &rusqlite::Transaction<'_>,
     conversation_id: &AgentChatConversationId,
     message_id: &str,
     host_epoch: HostEpoch,
-) -> Result<(String, String), LedgerError> {
+) -> Result<(String, String, bool), LedgerError> {
     let connection: &Connection = transaction;
-    let (run_id, turn_id) = queued_prompt(connection, conversation_id, message_id)?.ok_or(
-        LedgerError::Rejected(AgentChatRejection::QueuedPromptNotCancelable),
-    )?;
+    let Some((run_id, turn_id)) = queued_prompt(connection, conversation_id, message_id)? else {
+        return connection
+            .query_row(
+                "SELECT m.run_id, m.turn_id FROM conversation_messages m
+                 JOIN agent_chat_prompt_dispatches d ON d.message_id = m.message_id
+                 JOIN agent_chat_prompt_receipts p ON p.message_id = m.message_id
+                 JOIN agent_chat_steer_targets s ON s.message_id = m.message_id
+                 JOIN turns t ON t.turn_id = m.turn_id
+                 WHERE m.message_id = ?1 AND m.conversation_id = ?2 AND p.disposition = 'queue'
+                   AND d.state = 'unprovable' AND s.state = 'rejected' AND t.phase = 'failed'",
+                params![message_id, conversation_id.0],
+                |row| Ok((row.get(0)?, row.get(1)?, true)),
+            )
+            .optional()
+            .map_err(storage_error)?
+            .ok_or(LedgerError::Rejected(
+                AgentChatRejection::QueuedPromptNotCancelable,
+            ));
+    };
     connection
         .execute(
             "UPDATE agent_chat_prompt_dispatches SET state = 'settled', coordinator_id = NULL, host_epoch = NULL WHERE message_id = ?1 AND state IN ('awaiting_readiness', 'pending')",
@@ -155,7 +207,7 @@ fn interrupt_queued_turn(
             "queued prompt turn is no longer active".into(),
         ));
     }
-    Ok((run_id, turn_id))
+    Ok((run_id, turn_id, false))
 }
 
 pub(super) fn append(

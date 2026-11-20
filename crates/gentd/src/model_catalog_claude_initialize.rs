@@ -134,6 +134,7 @@ impl ClaudeInitialize {
         if slot.due(refresh, requested) {
             slot.response = Some((self.probe)(executable, workspace));
             slot.loaded_at = Some(Instant::now());
+            super::command_changes::settled();
         }
         slot.response
             .clone()

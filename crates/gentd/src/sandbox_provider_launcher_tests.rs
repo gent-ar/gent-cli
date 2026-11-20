@@ -53,6 +53,7 @@ fn prepared_for(
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     ledger.save_policy(&policy).unwrap();
     gent_ports::AgentChatConversationConfigLedger::save_conversation_config(

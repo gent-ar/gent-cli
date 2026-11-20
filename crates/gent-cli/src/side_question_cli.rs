@@ -63,6 +63,6 @@ pub(crate) async fn execute(
         return Err("agent chat side question capability is unavailable".into());
     }
     gent_protocol::write_json_frame(&mut stream, &frame).await?;
-    let reply: AgentChatSideQuestionFrame = gent_protocol::read_json_frame(&mut stream).await?;
+    let reply: AgentChatSideQuestionFrame = crate::local_ipc::read_reply(&mut stream).await?;
     Ok(serde_json::to_value(reply)?)
 }

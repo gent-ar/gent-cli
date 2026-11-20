@@ -7,9 +7,9 @@ use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationConfigRecord, AgentChatConversationCreate, AgentChatConversationId,
     AgentChatEffort, AgentChatMode, AgentChatPromptCreate, AgentChatPromptDisposition,
-    AgentChatPromptSaved, AgentChatProvider, AgentChatRequestId, AgentChatRunId,
-    AgentChatSelection, AgentChatSelectionSwitch, AgentChatSteerDelivery, Containment,
-    ContextPolicy, DurableTurnPhase, HostEpoch, ReceiptId, WorkspaceRecord,
+    AgentChatPromptSaved, AgentChatProvider, AgentChatQueueDelivery, AgentChatRequestId,
+    AgentChatRunId, AgentChatSelection, AgentChatSelectionSwitch, Containment, ContextPolicy,
+    DurableTurnPhase, HostEpoch, ReceiptId, WorkspaceRecord,
 };
 
 const EPOCH: HostEpoch = HostEpoch(1);
@@ -322,6 +322,17 @@ fn send_now(
         .1
 }
 
+fn interrupt(ledger: &SqliteLedger, saved: &AgentChatPromptSaved) {
+    ledger
+        .settle_agent_chat_prompt_terminal(
+            &saved.message.message_id,
+            DAEMON,
+            EPOCH,
+            DurableTurnPhase::Interrupted,
+        )
+        .unwrap();
+}
+
 fn claim_steer(ledger: &SqliteLedger, running: &AgentChatPromptSaved) -> Option<String> {
     ledger
         .claim_steered_agent_chat_prompt_for_turn(
@@ -331,28 +342,23 @@ fn claim_steer(ledger: &SqliteLedger, running: &AgentChatPromptSaved) -> Option<
             &running.message.turn_id,
         )
         .unwrap()
-        .map(|(prompt, _)| {
+        .map(|prompt| {
             assert_eq!(prompt.run_id, running.run_id);
+            ledger
+                .begin_agent_chat_prompt_launch(&prompt.message.message_id, DAEMON, EPOCH)
+                .unwrap();
             prompt.message.message_id
         })
 }
 
 #[test]
-fn send_now_after_a_switch_steers_into_the_running_turn_in_queue_order_exactly_once() {
+fn queued_prompts_after_a_switch_join_the_running_turn_in_queue_order_exactly_once() {
     let (ledger, conversation_id) = conversation();
     let running = running_turn(&ledger, &conversation_id);
     let carried = queue(&ledger, &conversation_id, "carried");
     let child = switch(&ledger, &conversation_id, &luna(), ContextPolicy::Preserve);
     let later = queue(&ledger, &conversation_id, "later");
-    let untouched = queue(&ledger, &conversation_id, "untouched");
     assert_eq!(later.run_id, child);
-
-    assert_eq!(send_now(&ledger, &conversation_id, &later), running.run_id);
-    assert_eq!(claim_steer(&ledger, &running), None);
-    assert_eq!(
-        send_now(&ledger, &conversation_id, &carried),
-        running.run_id
-    );
     for expected in [&carried, &later] {
         let message_id = claim_steer(&ledger, &running).unwrap();
         assert_eq!(message_id, expected.message.message_id);
@@ -361,18 +367,34 @@ fn send_now_after_a_switch_steers_into_the_running_turn_in_queue_order_exactly_o
             .unwrap();
     }
     assert_eq!(claim_steer(&ledger, &running), None);
-    assert!(claim(&ledger, AgentChatProvider::Codex).is_none());
-
     finish(&ledger, &running);
-    let next = claim(&ledger, AgentChatProvider::Codex).unwrap();
-    assert_eq!(next.message.message_id, untouched.message.message_id);
-    assert_eq!(next.run_id, child);
     assert!(claim(&ledger, AgentChatProvider::Codex).is_none());
     assert!(claim(&ledger, AgentChatProvider::Claude).is_none());
 }
 
 #[test]
-fn targeted_send_now_after_a_switch_steers_into_the_named_live_turn_only() {
+fn send_now_after_a_switch_interrupts_and_runs_first_on_the_new_selection() {
+    let (ledger, conversation_id) = conversation();
+    let running = running_turn(&ledger, &conversation_id);
+    let carried = queue(&ledger, &conversation_id, "carried");
+    let child = switch(&ledger, &conversation_id, &luna(), ContextPolicy::Preserve);
+    let later = queue(&ledger, &conversation_id, "later");
+
+    assert_eq!(send_now(&ledger, &conversation_id, &later), running.run_id);
+    assert_eq!(claim_steer(&ledger, &running), None);
+    interrupt(&ledger, &running);
+    for expected in [&later, &carried] {
+        let next = claim(&ledger, AgentChatProvider::Codex).unwrap();
+        assert_eq!(
+            (next.message.message_id, next.run_id),
+            (expected.message.message_id.clone(), child.clone())
+        );
+    }
+    assert!(claim(&ledger, AgentChatProvider::Claude).is_none());
+}
+
+#[test]
+fn targeted_send_now_after_a_switch_interrupts_the_named_turn_and_runs_on_the_new_selection() {
     let (ledger, conversation_id) = conversation();
     let running = running_turn(&ledger, &conversation_id);
     let child = switch(&ledger, &conversation_id, &luna(), ContextPolicy::Preserve);
@@ -393,19 +415,18 @@ fn targeted_send_now_after_a_switch_steers_into_the_named_live_turn_only() {
     let (_, run) = target("live-turn", &running.run_id, &running.message.turn_id).unwrap();
     assert_eq!(run, running.run_id);
 
-    let message_id = claim_steer(&ledger, &running).unwrap();
-    assert_eq!(message_id, queued.message.message_id);
-    ledger
-        .deliver_steered_agent_chat_prompt(&message_id, DAEMON, EPOCH, &running.message.turn_id)
-        .unwrap();
     assert_eq!(claim_steer(&ledger, &running), None);
-    finish(&ledger, &running);
-    assert!(claim(&ledger, AgentChatProvider::Codex).is_none());
+    interrupt(&ledger, &running);
+    let next = claim(&ledger, AgentChatProvider::Codex).unwrap();
+    assert_eq!(
+        (next.message.message_id, next.run_id),
+        (queued.message.message_id, child)
+    );
     assert!(claim(&ledger, AgentChatProvider::Claude).is_none());
 }
 
 #[test]
-fn a_new_steer_after_a_switch_is_delivered_into_the_named_live_turn_only() {
+fn a_new_steer_after_a_switch_interrupts_the_named_turn_and_runs_on_the_new_selection() {
     let (ledger, conversation_id) = conversation();
     let running = running_turn(&ledger, &conversation_id);
     let child = switch(&ledger, &conversation_id, &luna(), ContextPolicy::Preserve);
@@ -430,24 +451,22 @@ fn a_new_steer_after_a_switch_is_delivered_into_the_named_live_turn_only() {
     let saved = steer("live-turn", &running.run_id, &running.message.turn_id).unwrap();
     release(&ledger, &saved, &saved.run_id);
 
-    let message_id = claim_steer(&ledger, &running).unwrap();
-    assert_eq!(message_id, saved.message.message_id);
-    ledger
-        .deliver_steered_agent_chat_prompt(&message_id, DAEMON, EPOCH, &running.message.turn_id)
-        .unwrap();
     assert_eq!(claim_steer(&ledger, &running), None);
-    finish(&ledger, &running);
-    assert!(claim(&ledger, AgentChatProvider::Codex).is_none());
+    interrupt(&ledger, &running);
+    let next = claim(&ledger, AgentChatProvider::Codex).unwrap();
+    assert_eq!(
+        (next.message.message_id, next.run_id),
+        (saved.message.message_id, child)
+    );
     assert!(claim(&ledger, AgentChatProvider::Claude).is_none());
 }
 
 #[test]
-fn a_rejected_send_now_returns_the_prompt_to_the_new_selection() {
+fn a_joined_prompt_returned_unconsumed_runs_on_the_new_selection() {
     let (ledger, conversation_id) = conversation();
     let running = running_turn(&ledger, &conversation_id);
     let child = switch(&ledger, &conversation_id, &luna(), ContextPolicy::Preserve);
     let queued = queue(&ledger, &conversation_id, "queued");
-    send_now(&ledger, &conversation_id, &queued);
     let message_id = claim_steer(&ledger, &running).unwrap();
     ledger
         .release_agent_chat_prompt_unstarted_launch(&message_id, DAEMON, EPOCH)
@@ -525,7 +544,7 @@ fn a_parent_prompt_claimed_when_the_daemon_crashed_recovers_onto_the_new_selecti
 }
 
 #[test]
-fn steer_delivery_follows_the_provider_of_the_running_turn_not_the_next_selection() {
+fn queue_delivery_follows_the_provider_of_the_running_turn_not_the_next_selection() {
     let claurst = selection(
         AgentChatProvider::Claurst,
         "qwen3-1-7b-q4-k-m",
@@ -537,13 +556,13 @@ fn steer_delivery_follows_the_provider_of_the_running_turn_not_the_next_selectio
         ledger
             .read_agent_chat_summary(&conversation_id.0)
             .unwrap()
-            .steer_delivery
+            .queue_delivery
     };
     assert_eq!(delivery(&ledger), None);
     let running = running_turn(&ledger, &conversation_id);
-    assert_eq!(delivery(&ledger), Some(AgentChatSteerDelivery::JoinTurn));
+    assert_eq!(delivery(&ledger), Some(AgentChatQueueDelivery::JoinTurn));
     switch(&ledger, &conversation_id, &claurst, ContextPolicy::Preserve);
-    assert_eq!(delivery(&ledger), Some(AgentChatSteerDelivery::JoinTurn));
+    assert_eq!(delivery(&ledger), Some(AgentChatQueueDelivery::JoinTurn));
     finish(&ledger, &running);
     assert_eq!(delivery(&ledger), None);
 
@@ -562,13 +581,48 @@ fn steer_delivery_follows_the_provider_of_the_running_turn_not_the_next_selectio
         ledger
             .read_agent_chat_summary(&conversation_id.0)
             .unwrap()
-            .steer_delivery,
-        Some(AgentChatSteerDelivery::InterruptThenNext)
+            .queue_delivery,
+        Some(AgentChatQueueDelivery::NextTurn)
     );
     let wire =
         serde_json::to_value(ledger.read_agent_chat_summary(&conversation_id.0).unwrap()).unwrap();
-    assert_eq!(wire["steerDelivery"], "interruptThenNext");
+    assert_eq!(wire["queueDelivery"], "nextTurn");
     let (idle, idle_id) = conversation();
     let wire = serde_json::to_value(idle.read_agent_chat_summary(&idle_id.0).unwrap()).unwrap();
-    assert!(wire.get("steerDelivery").is_none());
+    assert!(wire.get("queueDelivery").is_none());
+}
+
+fn context_cleared(
+    ledger: &SqliteLedger,
+    conversation_id: &AgentChatConversationId,
+    run: &AgentChatRunId,
+) -> Vec<gent_types::ConversationActivityFact> {
+    use gent_ports::ConversationActivityLedger;
+    ledger
+        .read_conversation_activity_page(&conversation_id.0, &run.0, 0, 50)
+        .unwrap()
+        .facts
+        .into_iter()
+        .filter(|fact| {
+            matches!(
+                fact,
+                gent_types::ConversationActivityFact::ContextCleared { .. }
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn clearing_context_records_one_context_cleared_fact_on_the_new_run_and_a_switch_records_none() {
+    let (ledger, conversation_id) = conversation();
+    let kept = switch(&ledger, &conversation_id, &haiku(), ContextPolicy::Preserve);
+    assert!(context_cleared(&ledger, &conversation_id, &kept).is_empty());
+    let (ledger, conversation_id) = conversation();
+    let cleared = switch(&ledger, &conversation_id, &haiku(), ContextPolicy::Clear);
+    let facts = context_cleared(&ledger, &conversation_id, &cleared);
+    assert_eq!(facts.len(), 1);
+    assert_eq!(
+        serde_json::to_value(&facts[0]).unwrap()["runId"],
+        cleared.0.as_str()
+    );
 }

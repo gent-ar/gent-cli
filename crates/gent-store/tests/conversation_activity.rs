@@ -55,7 +55,7 @@ fn activity_facts_are_idempotent_and_immutable() {
     ledger.append_conversation_activity(&fact(2)).unwrap();
     ledger.append_conversation_activity(&fact(2)).unwrap();
     let mut conflicting = fact(2);
-    if let ConversationActivityFact::TurnStarted { scope } = &mut conflicting {
+    if let ConversationActivityFact::TurnStarted { scope, .. } = &mut conflicting {
         scope.turn_id = "other".into();
     }
     assert!(matches!(

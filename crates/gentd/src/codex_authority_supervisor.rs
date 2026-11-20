@@ -1,9 +1,3 @@
-//! Private owner state for an approved Codex host.
-//!
-//! This contains no bootstrap, IPC, or authority selection. It makes the lifecycle's required
-//! one-time recovery and bounded wake ticks explicit while refusing an unsafe shutdown that could
-//! orphan provider processes or invent terminal facts.
-
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
@@ -14,7 +8,6 @@ use gent_runtime::RuntimeError;
 
 use crate::approved_codex_host::{ApprovedCodexDrain, ApprovedCodexHost, ApprovedCodexTick};
 
-/// State retained only by a private authority supervisor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateCodexSupervisorState {
     AwaitingRecovery,
@@ -29,7 +22,6 @@ pub(crate) enum PrivateCodexSupervisorState {
     },
 }
 
-/// Result of one private supervisor wake.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateCodexWake {
     Tick(ApprovedCodexTick),
@@ -38,7 +30,6 @@ pub(crate) enum PrivateCodexWake {
     ShutdownRefused { active_runs: u16 },
 }
 
-/// Explicit shutdown result that never manufactures provider terminal settlement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateCodexShutdown {
     Stopped,
@@ -51,7 +42,6 @@ pub(crate) enum PrivateCodexShutdown {
     },
 }
 
-/// Explicit process-tree escalation result; it does not settle a provider turn itself.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateCodexEscalation {
     SignalSent(ProcessTreeSignal),
@@ -59,7 +49,6 @@ pub(crate) enum PrivateCodexEscalation {
     RefusedUndrained { active_runs: u16 },
 }
 
-/// Bounded private owner for one already-approved Codex lifecycle host.
 #[derive(Debug)]
 pub(crate) struct PrivateCodexSupervisor<L, D, R> {
     host: ApprovedCodexHost<L, D, R>,
@@ -88,7 +77,6 @@ where
     D: crate::codex_prompt_lifecycle::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
-    /// Binds an already authority-gated host without performing recovery or a process operation.
     #[must_use]
     pub(crate) fn new(host: ApprovedCodexHost<L, D, R>) -> Self {
         Self {
@@ -97,13 +85,11 @@ where
         }
     }
 
-    /// Returns the explicit lifecycle owner state.
     #[must_use]
     pub(crate) const fn state(&self) -> PrivateCodexSupervisorState {
         self.state
     }
 
-    /// Returns whether recovery, active turn polling, or shutdown draining needs another wake.
     #[must_use]
     pub(crate) fn needs_drive(&self) -> bool {
         matches!(
@@ -113,7 +99,6 @@ where
         ) || (self.state == PrivateCodexSupervisorState::Running && self.host.needs_drive())
     }
 
-    /// Returns true only after the owner has observed every process tree drain to a real stop.
     #[must_use]
     pub(crate) fn shutdown_complete(&self) -> bool {
         self.state == PrivateCodexSupervisorState::Stopped
@@ -128,9 +113,7 @@ where
     ) -> Result<(), RuntimeError> {
         if self.state != PrivateCodexSupervisorState::Running {
             return Err(RuntimeError::ProviderRun(
-                gent_ports::PublicProviderRunError::Failed(
-                    "Codex permission response is unavailable".into(),
-                ),
+                gent_ports::PublicProviderRunError::NotActive,
             ));
         }
         self.host
@@ -169,11 +152,6 @@ where
         self.host.interrupt_turn(run_id, turn_id)
     }
 
-    /// Recovers once, then executes one bounded host tick for each private wake.
-    ///
-    /// # Errors
-    /// Returns an error from recovery or a bounded host tick. Failed recovery is retried on a
-    /// later wake; it never claims or starts a provider first.
     pub(crate) fn wake(&mut self) -> Result<PrivateCodexWake, RuntimeError> {
         match self.state {
             PrivateCodexSupervisorState::AwaitingRecovery => {
@@ -194,13 +172,6 @@ where
         Ok(PrivateCodexWake::Tick(self.host.tick()?))
     }
 
-    /// Starts a private drain only when the host can explicitly own every process tree signal.
-    ///
-    /// No provider terminal state is fabricated. A caller must wake/drain until the existing
-    /// lifecycle has durably settled every active prompt, then request shutdown again.
-    ///
-    /// # Errors
-    /// Returns an error if an owned process tree rejects the initial interrupt signal.
     pub(crate) fn request_shutdown(&mut self) -> Result<PrivateCodexShutdown, RuntimeError> {
         if let PrivateCodexSupervisorState::ShutdownDraining {
             active_runs,
@@ -234,11 +205,6 @@ where
         })
     }
 
-    /// Advances an explicitly caller-timed interrupt → terminate → kill ladder.
-    ///
-    /// # Errors
-    /// Returns an error when an owned process tree rejects the requested signal. The state stays
-    /// unchanged, allowing the private owner to retry or continue polling without false facts.
     pub(crate) fn escalate_shutdown(&mut self) -> Result<PrivateCodexEscalation, RuntimeError> {
         let PrivateCodexSupervisorState::ShutdownDraining {
             active_runs,

@@ -53,6 +53,10 @@ where
             .bridge
             .permission_authority(state.binding.clone(), host_epoch)
             .await?;
+        let owned_chat_tool = self
+            .bridge
+            .owns_chat_tool(&state.binding, &request.tool_name)
+            .await;
         let mode = gent_runtime::AgentChatReadService::new(self.ledger.clone())
             .run_selection(&conversation_id.0, &state.binding.run_id)?
             .mode;
@@ -68,6 +72,7 @@ where
             &normalized,
             std::path::Path::new(&workspace.canonical_path),
             enforcement,
+            owned_chat_tool,
         ) {
             ClaurstPermissionDecision::Allow => {
                 self.bridge

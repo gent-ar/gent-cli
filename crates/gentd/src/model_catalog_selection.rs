@@ -127,5 +127,6 @@ fn rejected(
     AgentChatIntentError {
         code: rejection.code(),
         message: format!("{subject}; choose one of: {}", choices.join(", ")),
+        details: None,
     }
 }

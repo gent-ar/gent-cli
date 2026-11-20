@@ -4,6 +4,8 @@ pub(crate) mod claude;
 pub(crate) mod claude_initialize;
 #[path = "model_catalog_codex.rs"]
 pub(crate) mod codex;
+#[path = "model_catalog_command_changes.rs"]
+pub(crate) mod command_changes;
 #[path = "model_catalog_commands.rs"]
 pub(crate) mod commands;
 #[path = "model_catalog_defaults.rs"]

@@ -49,6 +49,7 @@ fn start(root: &Path, mode: AgentChatMode) -> ClaudeRunStart {
     std::fs::write(&executable, "test executable").unwrap();
     ClaudeRunStart {
         run_id: "run-1".into(),
+        message_id: "message-1".into(),
         lock: capture("claude", &executable, "2.1.0", "entry").unwrap(),
         prompt: "hello".into(),
         content: Vec::new(),

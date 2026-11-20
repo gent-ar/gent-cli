@@ -3,8 +3,7 @@ use crate::cli_error::{CliError, Failure};
 use crate::local_ipc::connect_and_negotiate;
 use clap::{Args, Subcommand, ValueEnum};
 use gent_protocol::{
-    REVIEWED_PLAN_CAPABILITY, ReviewedPlanFrame, WireFrame, read_json_frame, write_frame,
-    write_json_frame,
+    REVIEWED_PLAN_CAPABILITY, ReviewedPlanFrame, WireFrame, write_frame, write_json_frame,
 };
 use gent_types::AgentChatEffort;
 use gent_types::{
@@ -67,6 +66,11 @@ pub(crate) struct StartArgs {
     pub(crate) effort: Option<AgentChatEffort>,
     #[arg(long, help = "Receipt id to reuse when retrying the same approval")]
     pub(crate) receipt_id: Option<String>,
+    #[arg(
+        long,
+        help = "Extra instructions the implementation follows with the plan"
+    )]
+    pub(crate) instructions: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -140,7 +144,7 @@ async fn start(
     let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
     require_capability(&capabilities)?;
     write_frame(&mut stream, &WireFrame::StatusRequest).await?;
-    let WireFrame::Status(status) = gent_protocol::read_frame(&mut stream).await? else {
+    let WireFrame::Status(status) = crate::local_ipc::read_reply(&mut stream).await? else {
         return Err("daemon did not return host status before plan approval".into());
     };
     let receipt_id = args.receipt_id.map_or_else(ReceiptId::new, ReceiptId);
@@ -164,6 +168,7 @@ async fn start(
             ContextArgument::Preserve => ContextPolicy::Preserve,
             ContextArgument::Clear => ContextPolicy::Clear,
         },
+        instructions: args.instructions,
     };
     exchange_stream(
         &mut stream,
@@ -225,10 +230,7 @@ async fn exchange_stream(
 ) -> Result<ReviewedPlanFrame, Box<dyn std::error::Error>> {
     request.validate()?;
     write_json_frame(stream, &request).await?;
-    let raw: Value = read_json_frame(stream).await?;
-    if let Some(error) = CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(stream).await?;
     let response = serde_json::from_value(raw)
         .map_err(|_| "daemon did not return a reviewed-plan response")?;
     conversions::valid_reply(&request, &response)

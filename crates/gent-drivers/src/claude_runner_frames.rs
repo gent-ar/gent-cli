@@ -2,7 +2,9 @@ use super::{ClaudeRunnerEffect, OwnedRun, ProviderProcess};
 use crate::PublicProvider;
 use crate::claude_tool_results;
 use crate::public_protocol::{PublicWireFact, claude_protocol, normalize_public_frame};
-use gent_types::{NormalizedLifecycleSignal, NormalizedProviderEvent, WorkPhase};
+use gent_types::{
+    NormalizedLifecycleSignal, NormalizedProviderEvent, ToolActivity, ToolPhase, WorkPhase,
+};
 use serde_json::Value;
 
 pub(super) fn normalize<P: ProviderProcess>(
@@ -16,9 +18,6 @@ pub(super) fn normalize<P: ProviderProcess>(
     if std::mem::take(&mut run.awaiting_resumed_frame) && resumed_session_unavailable(&frame) {
         return vec![ClaudeRunnerEffect::ResumeUnavailable];
     }
-    if let Some(effects) = run.retry.intercept(&frame) {
-        return effects;
-    }
     if frame.get("type").and_then(Value::as_str) == Some("control_request") {
         return match run.permissions.accept(&frame) {
             Ok(request) if run.plans_for_review && request.tool_name == "ExitPlanMode" => {
@@ -29,39 +28,72 @@ pub(super) fn normalize<P: ProviderProcess>(
         };
     }
     if frame.get("type").and_then(Value::as_str) == Some("control_cancel_request") {
-        run.permissions.cancel(&frame);
-        return Vec::new();
-    }
-    if frame.get("isReplay").and_then(Value::as_bool) == Some(true) {
-        return frame
-            .get("uuid")
-            .and_then(Value::as_str)
-            .and_then(|uuid| run.steers.remove(uuid))
-            .map(|message_id| ClaudeRunnerEffect::SteerConsumed { message_id })
+        return run
+            .permissions
+            .cancel(&frame)
+            .map(|request_id| ClaudeRunnerEffect::PermissionCancelled { request_id })
             .into_iter()
             .collect();
     }
+    if frame.get("isReplay").and_then(Value::as_bool) == Some(true) {
+        return run.messages.lifecycle(frame.get("uuid"), "started");
+    }
+    if frame.get("type").and_then(Value::as_str) == Some("command_lifecycle") {
+        let state = frame
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        return run.messages.lifecycle(frame.get("command_uuid"), state);
+    }
+    if let Some(idle) = session_state(&frame) {
+        return vec![ClaudeRunnerEffect::SessionState {
+            idle: idle && run.background_commands.is_empty(),
+        }];
+    }
     if frame.get("type").and_then(Value::as_str) == Some("user") {
-        let mut facts = claude_tool_results::results(&mut run.started_tools, &frame)
+        let facts = claude_tool_results::results(&mut run.started_tools, &frame)
             .unwrap_or_else(|| normalize_public_frame(PublicProvider::Claude, &frame));
-        remember_launches(run, &frame, &mut facts);
-        return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
+        return facts
+            .into_iter()
+            .map(|fact| detached_launch(run, fact))
+            .map(ClaudeRunnerEffect::Fact)
+            .collect();
     }
     if let Some(facts) = task_facts(run, &frame) {
         return facts.into_iter().map(ClaudeRunnerEffect::Fact).collect();
     }
+    let mut effects = Vec::new();
     let mut facts = normalize_public_frame(PublicProvider::Claude, &frame);
     claude_tool_results::remember(&facts, &mut run.started_tools);
     run.authentication_failed |= claude_protocol::authentication_failed(&frame);
-    if frame.get("type").and_then(Value::as_str) == Some("result")
-        && std::mem::take(&mut run.authentication_failed)
-    {
-        facts = facts
-            .into_iter()
-            .map(claude_protocol::sign_in_required)
-            .collect();
+    run.rate_limited |= claude_protocol::rate_limited(&frame);
+    if let Some(resets_at) = claude_protocol::rate_limit_resets_at(&frame) {
+        run.rate_limit_resets_at = Some(resets_at);
     }
-    facts.into_iter().map(ClaudeRunnerEffect::Fact).collect()
+    if frame.get("type").and_then(Value::as_str) == Some("result") {
+        effects.push(run.messages.result(&frame));
+        let rate_limited = std::mem::take(&mut run.rate_limited);
+        if std::mem::take(&mut run.authentication_failed) {
+            facts = facts
+                .into_iter()
+                .map(claude_protocol::sign_in_required)
+                .collect();
+        } else if rate_limited {
+            facts = facts
+                .into_iter()
+                .map(|fact| claude_protocol::rate_limit_reached(fact, run.rate_limit_resets_at))
+                .collect();
+        }
+    }
+    effects.extend(facts.into_iter().map(ClaudeRunnerEffect::Fact));
+    effects.extend(run.messages.turn_started(&frame));
+    effects
+}
+
+fn session_state(frame: &Value) -> Option<bool> {
+    (frame.get("type").and_then(Value::as_str) == Some("system")
+        && frame.get("subtype").and_then(Value::as_str) == Some("session_state_changed"))
+    .then(|| frame.get("state").and_then(Value::as_str) == Some("idle"))
 }
 
 fn resumed_session_unavailable(frame: &Value) -> bool {
@@ -119,19 +151,29 @@ where
     if frame.get("type").and_then(Value::as_str) != Some("system") {
         return None;
     }
+    let task_id = frame
+        .get("task_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?;
     let tool_use_id = frame
         .get("tool_use_id")
         .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())?;
+        .filter(|id| !id.is_empty());
     match frame.get("subtype").and_then(Value::as_str)? {
-        "task_notification" => {
+        "task_notification" | "task_updated" => {
             let phase = claude_protocol::task_terminal(frame)?;
+            if let Some(started) = run.background_commands.remove(task_id) {
+                return Some(vec![tool_phase(
+                    started,
+                    claude_protocol::command_terminal(&phase),
+                )]);
+            }
             Some(
-                run.child_ids
-                    .remove(tool_use_id)
-                    .map(|child_id| {
+                run.children
+                    .remove(task_id)
+                    .then(|| {
                         PublicWireFact::Event(NormalizedProviderEvent::ChildTerminal {
-                            child_id,
+                            child_id: task_id.into(),
                             phase,
                         })
                     })
@@ -139,40 +181,56 @@ where
                     .collect(),
             )
         }
-        "task_started" | "task_progress" => match run.child_ids.get(tool_use_id) {
-            Some(child_id) => Some(vec![PublicWireFact::Lifecycle(
-                NormalizedLifecycleSignal::ChildPhase {
-                    child_id: child_id.clone(),
-                    phase: WorkPhase::Running,
+        "task_started" if claude_protocol::backgrounded_agent(frame) => {
+            run.children.insert(task_id.into());
+            Some(vec![PublicWireFact::Event(
+                NormalizedProviderEvent::ChildStarted {
+                    child_id: task_id.into(),
+                    parent_tool_use_id: tool_use_id?.into(),
                 },
-            )]),
-            None => run.started_tools.get(tool_use_id).map(|started| {
-                vec![PublicWireFact::Lifecycle(
-                    NormalizedLifecycleSignal::ToolActivity {
-                        activity: started.clone(),
-                    },
-                )]
-            }),
-        },
+            )])
+        }
+        "task_started" if claude_protocol::backgrounded_command(frame) => {
+            let started = run.started_tools.get(tool_use_id?)?.clone();
+            run.background_commands
+                .insert(task_id.into(), started.clone());
+            Some(vec![tool_phase(started, ToolPhase::Background)])
+        }
+        "task_progress" if run.children.contains(task_id) => Some(vec![PublicWireFact::Lifecycle(
+            NormalizedLifecycleSignal::ChildPhase {
+                child_id: task_id.into(),
+                phase: WorkPhase::Running,
+            },
+        )]),
+        "task_started" | "task_progress" => run.started_tools.get(tool_use_id?).map(|started| {
+            vec![PublicWireFact::Lifecycle(
+                NormalizedLifecycleSignal::ToolActivity {
+                    activity: started.clone(),
+                },
+            )]
+        }),
         _ => None,
     }
 }
 
-fn remember_launches<P>(run: &mut OwnedRun<P>, frame: &Value, facts: &mut Vec<PublicWireFact>)
-where
-    P: ProviderProcess,
-{
-    for fact in claude_protocol::background_launches(frame) {
-        if let PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
-            child_id,
-            parent_tool_use_id,
-        }) = &fact
+fn tool_phase(activity: ToolActivity, phase: ToolPhase) -> PublicWireFact {
+    PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
+        activity: ToolActivity { phase, ..activity },
+    })
+}
+
+fn detached_launch<P>(run: &OwnedRun<P>, fact: PublicWireFact) -> PublicWireFact {
+    match fact {
+        PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity })
+            if activity.phase == ToolPhase::Completed
+                && run
+                    .background_commands
+                    .values()
+                    .any(|command| command.tool_use_id == activity.tool_use_id) =>
         {
-            run.child_ids
-                .entry(parent_tool_use_id.clone())
-                .or_insert_with(|| child_id.clone());
+            tool_phase(activity, ToolPhase::Background)
         }
-        facts.push(fact);
+        fact => fact,
     }
 }
 
@@ -181,9 +239,7 @@ pub(super) fn drain<P: ProviderProcess>(run: &mut OwnedRun<P>) -> Option<Vec<Cla
     while run.output.queued_frames() > 0 {
         let (frame, _) = run.output.take_frame();
         let Some(frame) = frame else { break };
-        let normalized = normalize(run, &frame);
-        run.retry.observe(&normalized);
-        effects.extend(normalized);
+        effects.extend(normalize(run, &frame));
     }
     effects.extend(
         crate::public_protocol::oversized_frames_skipped(run.output.take_skipped_frames())

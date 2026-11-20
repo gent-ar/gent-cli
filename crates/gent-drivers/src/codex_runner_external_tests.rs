@@ -1,4 +1,3 @@
-//! Pure wire/ownership controls: these fixtures do not claim native OS containment.
 use super::bind_external_process;
 use crate::{
     ProcessSandboxEvidence, ProviderProcess,
@@ -60,6 +59,7 @@ fn fixture(
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         },
         HostEpoch(1),
     )
@@ -180,9 +180,8 @@ fn external_policy_requires_matching_live_process_and_preserves_all_mode_approva
                 assert_eq!(
                     p["approvalPolicy"],
                     match role {
-                        AgentChatMode::Agent => approval,
+                        AgentChatMode::Agent | AgentChatMode::Plan => approval,
                         AgentChatMode::Ask => "on-request",
-                        AgentChatMode::Plan => "never",
                     }
                 );
             }

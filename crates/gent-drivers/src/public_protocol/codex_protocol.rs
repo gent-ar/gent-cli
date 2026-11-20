@@ -38,7 +38,7 @@ pub(super) fn normalize(frame: &Value) -> Vec<PublicWireFact> {
         Some("thread/compacted") => vec![PublicWireFact::Compaction(
             PublicCompactionObservation::Completed,
         )],
-        Some("error") => stream::error(frame),
+        Some("error") => Vec::new(),
         Some(method) if method.ends_with("requestApproval") => attention(),
         Some(method) if housekeeping(method) => Vec::new(),
         Some(_) => diagnostic("unsupportedCodexNotification"),
@@ -82,12 +82,9 @@ fn item(frame: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
     match string(item, "type") {
         Some("contextCompaction") => compaction(item, &phase),
         Some("subAgentActivity") => subagent::started(item, &phase),
-        Some("collabAgentToolCall" | "collabToolCall") => {
-            let is_start = phase == ToolPhase::Started;
+        Some("collabAgentToolCall") => {
             let mut facts = tool_activity(item, phase);
-            if is_start {
-                facts.extend(subagent::collab_started(item));
-            }
+            facts.extend(subagent::collab_started(item));
             facts
         }
         Some(kind) if tool_kind(kind) => tool_activity(item, phase),
@@ -100,9 +97,11 @@ fn item(frame: &Value, phase: ToolPhase) -> Vec<PublicWireFact> {
 fn compaction(item: &Value, phase: &ToolPhase) -> Vec<PublicWireFact> {
     let observation = match phase {
         ToolPhase::Started => PublicCompactionObservation::Started,
-        ToolPhase::WaitingPermission => return diagnostic("unsupportedCodexCompactionPhase"),
+        ToolPhase::WaitingPermission | ToolPhase::Background => {
+            return diagnostic("unsupportedCodexCompactionPhase");
+        }
         ToolPhase::Completed => PublicCompactionObservation::Completed,
-        ToolPhase::Failed => PublicCompactionObservation::Failed {
+        ToolPhase::Failed | ToolPhase::Interrupted => PublicCompactionObservation::Failed {
             failure: gent_types::AgentChatCompactionFailure::ProviderFailed,
         },
     };
@@ -123,7 +122,7 @@ fn completed_item(frame: &Value) -> Vec<PublicWireFact> {
         return plan::proposed(completed);
     }
     let phase = match frame.pointer("/params/item/status").and_then(Value::as_str) {
-        Some("failed") => ToolPhase::Failed,
+        Some("failed" | "declined" | "interrupted") => ToolPhase::Failed,
         _ => ToolPhase::Completed,
     };
     let mut facts = item(frame, phase);

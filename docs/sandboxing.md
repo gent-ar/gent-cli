@@ -123,14 +123,15 @@ native macOS/Linux tests or physical Android acceptance.
 Ask and Auto-accept edits remain ordinary host modes without a Gent OS
 containment requirement. Autonomous automatically permits reads, edits,
 commands and network tools; other categories can still prompt. Bypass permits all
-categories only after the same required containment gate. Plan/read-only is
+categories only after the same required containment gate. Plan's no-edit rule is
 a separate per-chat restriction, not an OS-sandbox attestation. Windows
 component/transport passes do not deliver broad-mode availability on any
 other platform, nor do they open the Windows production gate.
 
 Conversation modes gate changes through one rule, `permission_preflight::mode_gate`.
-In Plan, Gent refuses every file change and command with the typed
-`ReadOnlyMode` reason. In Ask, every file change and command becomes a
+In Plan, Gent refuses every file change with the typed `PlanModeEdit` reason;
+commands, reads, web and sub-agents follow the permission mode as in Agent
+(Claude keeps writing its own plan file without a callback). In Ask, every file change and command becomes a
 permission request the user answers, whatever the permission mode or durable
 approvals say; reads follow the permission mode. Codex runs Ask in its
 read-only sandbox with on-request approval, so a change reaches Gent as an

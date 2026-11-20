@@ -3,7 +3,7 @@ use std::{io::IsTerminal, path::PathBuf};
 use clap::Subcommand;
 use gent_protocol::{
     LOCAL_MODELS_CAPABILITY, LocalModelDownloadFailure, LocalModelFrame, LocalModelInstallState,
-    read_json_frame, write_json_frame,
+    write_json_frame,
 };
 use serde_json::Value;
 
@@ -231,7 +231,7 @@ async fn exchange(
     frame.validate()?;
     let (mut stream, _) = connect_local_models(data_dir, no_autostart).await?;
     write_json_frame(&mut stream, &frame).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     decode_local_model_reply(raw)
 }
 
@@ -253,16 +253,13 @@ async fn connect_local_models(
 async fn read_local_model_reply(
     stream: &mut LocalStream,
 ) -> Result<LocalModelFrame, Box<dyn std::error::Error>> {
-    decode_local_model_reply(read_json_frame::<_, Value>(stream).await?)
+    decode_local_model_reply(crate::local_ipc::read_reply(stream).await?)
 }
 
 fn decode_local_model_reply(raw: Value) -> Result<LocalModelFrame, Box<dyn std::error::Error>> {
     if let Ok(reply) = serde_json::from_value::<LocalModelFrame>(raw.clone()) {
         reply.validate()?;
         return Ok(reply);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return a local-model response".into())
 }

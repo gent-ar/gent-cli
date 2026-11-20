@@ -2,9 +2,7 @@
 
 use std::path::PathBuf;
 
-use gent_protocol::{
-    RUNTIME_MAINTENANCE_CAPABILITY, RuntimeMaintenanceFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{RUNTIME_MAINTENANCE_CAPABILITY, RuntimeMaintenanceFrame, write_json_frame};
 use gent_types::{RuntimeMaintenanceReport, RuntimeMaintenanceRequest};
 use serde_json::Value;
 
@@ -29,12 +27,9 @@ pub(crate) async fn request(
         &RuntimeMaintenanceFrame::Request(RuntimeMaintenanceRequest { attempt_id }),
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(RuntimeMaintenanceFrame::Report(report)) = serde_json::from_value(raw.clone()) {
         return Ok(*report);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return a runtime maintenance report".into())
 }

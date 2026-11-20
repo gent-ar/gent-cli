@@ -30,6 +30,7 @@ pub(crate) fn decide(
         request,
         workspace,
         gent_types::SandboxEnforcement::Unavailable,
+        false,
     )
 }
 
@@ -39,6 +40,7 @@ pub(crate) fn decide_with_enforcement(
     request: &PermissionRequest,
     workspace: &Path,
     enforcement: gent_types::SandboxEnforcement,
+    owned_chat_tool: bool,
 ) -> ClaurstPermissionDecision {
     if crate::permission_category::requires_user_response(&request.tool_name) {
         return ClaurstPermissionDecision::Ask;
@@ -50,11 +52,16 @@ pub(crate) fn decide_with_enforcement(
         crate::permission_preflight::ModeGate::AskUser => return ClaurstPermissionDecision::Ask,
         crate::permission_preflight::ModeGate::Policy => {}
     }
-    if policy.unattended_requires_sandbox() {
-        return match gent_core::evaluate_permission_with_sandbox(policy, request, enforcement) {
-            gent_core::PermissionDecision::Allow => ClaurstPermissionDecision::Allow,
-            gent_core::PermissionDecision::Deny => ClaurstPermissionDecision::Deny(None),
-            _ => ClaurstPermissionDecision::Ask,
+    if policy.unattended_requires_sandbox() || owned_chat_tool {
+        return match crate::permission_preflight::evaluate_policy(
+            policy,
+            request,
+            enforcement,
+            owned_chat_tool,
+        ) {
+            PermissionPreflight::Allow => ClaurstPermissionDecision::Allow,
+            PermissionPreflight::Deny => ClaurstPermissionDecision::Deny(None),
+            PermissionPreflight::Ask => ClaurstPermissionDecision::Ask,
         };
     }
     if request.category == PermissionCategory::Command {
@@ -70,20 +77,25 @@ pub(crate) fn decide_with_enforcement(
         return ClaurstPermissionDecision::Allow;
     }
     let input = request.input.as_ref();
-    let bypass = policy.mode == PermissionMode::Bypass;
-    let unattended = match (policy.mode, request.category) {
-        (_, PermissionCategory::Read) => bypass || reads_stay_in(workspace, input),
-        (PermissionMode::AskEveryTime, _) => false,
-        (_, PermissionCategory::Edit) => edits_stay_in(workspace, input),
-        (PermissionMode::Bypass, PermissionCategory::Network | PermissionCategory::Provider) => {
-            true
-        }
-        _ => false,
-    };
-    if unattended {
-        ClaurstPermissionDecision::Allow
-    } else {
-        ClaurstPermissionDecision::Ask
+    if request.category == PermissionCategory::Read
+        && policy.mode != PermissionMode::Bypass
+        && !reads_stay_in(workspace, input)
+    {
+        return ClaurstPermissionDecision::Deny(None);
+    }
+    if request.category == PermissionCategory::Edit && !edits_stay_in(workspace, input) {
+        return match policy.mode {
+            PermissionMode::AskEveryTime => ClaurstPermissionDecision::Ask,
+            PermissionMode::Bypass => ClaurstPermissionDecision::Allow,
+            PermissionMode::AutoAcceptEdits | PermissionMode::Autonomous => {
+                ClaurstPermissionDecision::Deny(None)
+            }
+        };
+    }
+    match crate::permission_preflight::evaluate(policy, request) {
+        PermissionPreflight::Allow => ClaurstPermissionDecision::Allow,
+        PermissionPreflight::Deny => ClaurstPermissionDecision::Deny(None),
+        PermissionPreflight::Ask => ClaurstPermissionDecision::Ask,
     }
 }
 

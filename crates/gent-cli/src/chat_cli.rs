@@ -1,10 +1,7 @@
 use std::path::PathBuf;
 
-use crate::local_ipc::connect_and_negotiate;
 use clap::Subcommand;
-use gent_protocol::{
-    AGENT_CHAT_INTENTS_CAPABILITY, AgentChatIntentFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::AgentChatIntentFrame;
 use gent_types::{AgentChatConversationId, AgentChatSelection};
 use serde_json::Value;
 
@@ -13,6 +10,7 @@ mod arguments;
 mod attachments;
 pub(crate) mod containment;
 pub(crate) mod continuation;
+mod exchange;
 pub(crate) mod follow;
 mod intent;
 mod interrupt;
@@ -77,7 +75,6 @@ pub(crate) enum ChatCommand {
     Transcript(TranscriptArgs),
 }
 
-/// Executes one short-lived agent-chat command and returns its public JSON response.
 pub(crate) async fn execute_command(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
@@ -122,7 +119,6 @@ fn to_value(value: impl serde::Serialize) -> Result<Value, Box<dyn std::error::E
     Ok(serde_json::to_value(value)?)
 }
 
-/// Exchanges exactly one capability-gated agent-chat intent with the local daemon.
 pub(crate) async fn execute(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
@@ -206,7 +202,6 @@ pub(crate) async fn selection_catalog(
     Ok(None)
 }
 
-/// Creates a selected conversation for an interactive terminal through the same IPC boundary.
 pub(crate) async fn create(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
@@ -265,26 +260,7 @@ async fn exchange(
     no_autostart: bool,
     request: AgentChatIntentFrame,
 ) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
-    let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
-    if !capabilities
-        .0
-        .iter()
-        .any(|item| item == AGENT_CHAT_INTENTS_CAPABILITY)
-    {
-        return Err("daemon does not support agent chat; upgrade gentd".into());
-    }
-    write_json_frame(&mut stream, &request).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
-    let response =
-        serde_json::from_value(raw).map_err(|_| "daemon did not return an agent-chat response")?;
-    valid_reply(&request, &response)
-        .then_some(response)
-        .ok_or_else(|| {
-            "daemon returned an agent-chat response with a different request or receipt".into()
-        })
+    exchange::required(data_dir, no_autostart, request, &[]).await
 }
 
 #[cfg(all(test, unix))]

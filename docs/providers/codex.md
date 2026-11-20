@@ -16,8 +16,8 @@ Abbreviations: `D:` = `crates/gent-drivers/src/`, `G:` = `crates/gentd/src/`, `A
 | Protocol wire parsing | `D:codex_turn.rs::CodexTurnDriver` (45) — `start()`, `start_with_attachments()`, `receive()`, `submit()`, `steer()`, `interrupt()`; submodules `D:codex_turn/correlation.rs`, `D:codex_turn/facts.rs`<br>`D:public_protocol/codex_protocol_support.rs` — `tool_kind()` (11), `inert_item()` (26), `housekeeping()` (35, ~19 methods deliberately ignored, incl. `skills/changed`)<br>One `initialize` request: `D:message_encoding.rs::codex_initialize_request` (33) sends `capabilities:{experimentalApi:true, requestAttestation:false}` for both `encode_codex_handshake` (23) and `D:codex_session.rs::CodexAppServerSession::start` |
 | Failure classification | `D:public_protocol/codex_protocol/failure.rs::classify` reads the typed `codexErrorInfo`; only `unauthorized` is `Authentication`, which `G:public_driver_runtime/session_mapping.rs::transcript_event_id` records as a `failureCode:"providerAuthRequired"` notice. Message text never classifies authentication. Tests: `G:codex_prompt_lifecycle_failure_tests.rs` |
 | Unknown server-request reply | `D:codex_client_request.rs::respond_to_codex_client_request()` (24), `reject_unhandled_codex_request()` (78) — already replies `-32601` JSON-RPC error for unknown server requests |
-| Steer | `D:codex_session/steer.rs::CodexSteerOutcome{Consumed{message_id},Rejected{message_id}}`, `CodexSteers` (`pub(super)`), `CodexSteers::request()` |
-| Interrupt/cancel (two distinct paths) | Steady-state user interrupt: `D:codex_session/interrupt.rs::request()` sends JSON-RPC `turn/interrupt {threadId, turnId}`, via `G:codex_prompt_lifecycle/interrupt.rs::interrupt()` (31) → `codex_runner.rs::interrupt_turn()` (208)<br>OS-signal: `D:codex_prompt_runner.rs:275::interrupt()` calls `signal_process(run_id, ProcessTreeSignal::Interrupt)` — reached only for launch-rollback cleanup (`G:codex_prompt_lifecycle/start.rs:72,141`), not the normal user-triggered path |
+| Queued prompt into the turn | `D:codex_session/steer.rs::CodexSteerOutcome{Consumed,Rejected,Unconfirmed}`, `CodexSteers` (`pub(super)`), `CodexSteers::request()`. Every queued prompt is sent as `turn/steer` into the running turn. `turn/interrupt` has no option to cancel accepted input (protocol 0.153.4: params `threadId`, `turnId` only); input still unconsumed when the turn ends comes back `Unconfirmed` and returns to the queue, or is withdrawn after a Stop |
+| Interrupt/cancel (two distinct paths) | Steady-state user interrupt: `D:codex_session/interrupt.rs::request()` sends JSON-RPC `turn/interrupt {threadId, turnId}` (when a turn is open) followed by the experimental `thread/backgroundTerminals/clean {threadId}`: observed on 0.153.4 (round 6), `turn/interrupt` leaves a unified-exec terminal running (`thread/backgroundTerminals/list` still lists it) and `clean` kills it with `item/completed status:"failed"`, which Gent reports as `interrupted`. A command still running when its root turn completes becomes phase `background` and keeps the session reported running until its `item/completed` (observed: the root thread reports `idle` while the terminal runs, and `item/completed` still arrives after the turn) (`D:codex_turn/commands.rs`, `docs/background-commands.md`), via `G:codex_prompt_lifecycle/interrupt.rs::interrupt()` (31) → `codex_runner.rs::interrupt_turn()` (208)<br>OS-signal: `D:codex_prompt_runner.rs:275::interrupt()` calls `signal_process(run_id, ProcessTreeSignal::Interrupt)` — reached only for launch-rollback cleanup (`G:codex_prompt_lifecycle/start.rs:72,141`), not the normal user-triggered path |
 | Permission relay | `D:codex_control.rs::CodexControlRequest` (13), `CodexControlDecision` (23), `parse()` (28), `encode()` (125); `D:codex_control/answers.rs::question_answers()`, `D:codex_control/redaction.rs::dynamic_tool_name()` (both `pub(super)`, no public API here)<br>`D:codex_client_request.rs` (see above) |
 | Usage/token parsing | `D:public_protocol/codex_protocol/stream.rs:80::token_usage()` builds `TokenUsage{...}` (line 97) |
 | Model listing / auth probing | `G:model_catalog_codex.rs::CodexModelSource` (22, `provider()/label()/ttl()/revision()/load()`), `ModelListPages` (73, `accept()` 79), `model_list_request()` (121), `codex_model()` (133, parses `model/list` entries)<br>`G:provider_auth_process.rs::login_arguments()` (162) returns `&["login"]` for Codex, `classify()` (87) text-matches `login status` output |
@@ -30,6 +30,40 @@ Abbreviations: `D:` = `crates/gent-drivers/src/`, `G:` = `crates/gentd/src/`, `A
 | Fake executables / test harnesses | `G:codex_fake_cli_harness.rs::FakeCodexDaemon` — `start()` (45), `restart()` (71), `lose_thread()` (83), `reject_resumes()` (88), `prompt()` (119), `drive_until()` (158), `requests()` (231). Backing script `crates/gentd/testdata/fake-codex-app-server.py` (logs `CODEX_MANAGED*` stripping at line 168) |
 | Contract snapshot / drift test | `tools/provider-contract-snapshot.py codex --executable EXE`.<br>`crates/gent-drivers/tests/provider_contract_drift.rs::{codex_findings(),codex_launch_findings()}`. `codex_findings()` scans method/field string literals in every `is_codex_source()` file against `protocol.json`'s method schema (a literal scanner, not a declared enum list) and probes real notifications/server-requests through `CodexTurnDriver` to classify `unsupportedCodexNotification`/`unsupportedCodexServerRequest`. `codex_launch_findings()` checks `launch_spec::codex_app_server_arguments()` against the pinned `cli.json` + `launch-probe.json` |
 | Live verification tools | `tools/capture-codex-app-server-transcript.py`, `tools/capture-codex-mcp-transcript.py`, `tools/capture-codex-subagent-transcript.py`, `tools/public_driver_codex_appserver.py`<br>`tools/verify-live-driver-parsing.py codex --model gpt-5.6-luna` |
+
+## Run lifecycle
+
+- Prompt identity: a client turn is the one `turn/start` returned; `turn/completed` for that
+  turn id is the only authority that it ended. Steers carry `clientId` echoes.
+- Session state: the root thread's `thread/status/changed` (`active` with `activeFlags`
+  `waitingOnApproval`/`waitingOnUserInput`, `idle`, `notLoaded`, `systemError`) becomes
+  `CodexRunnerEffect::SessionState { idle }` (`D:codex_turn.rs::root_session_state`); child
+  threads are ignored. Observed on 0.153.4: `active` precedes `turn/started`, and `systemError`
+  precedes the failing `turn/completed`.
+- Provider-initiated turns: the 0.153.4 schema has `turn/started` as an uncorrelated server
+  notification and a server-fed input queue (`thread/queue/changed`, no client method that
+  mutates it), so Codex can start a root turn the client did not request. A root `turn/started`
+  while no client turn is live (`D:codex_session/notifications.rs`) becomes
+  `ProviderTurnStarted`, adopts that turn id for interrupt and completion, and opens a Gent
+  provider turn (`G:codex_prompt_lifecycle/provider_turn.rs`), settled by its `turn/completed`
+  or by the thread reporting idle. Approvals inside it bind to that turn. Not live-verified: the
+  test account was at its usage limit.
+- Child threads: a frame whose `threadId` is a spawned child, or any thread other than the root,
+  never opens, ends or fails the root turn (`D:codex_turn/facts.rs::attribute_to_child`). Its
+  tools carry the spawning tool as `parentToolUseId`, its reply text becomes that tool's output,
+  its reasoning and usage are dropped, and its approval requests carry `childId`, as Claude's do.
+  A child is announced once (`ChildStarted`), from the first `collabAgentToolCall` item that lists
+  it; `spawnAgent` lists `receiverThreadIds` only on `item/completed` (observed live, v21).
+- One liveness value shared with Claude and Claurst: `G:provider_run_state.rs`. Outstanding
+  approvals are retired by `serverRequest/resolved`; nothing is auto-denied when a turn ends.
+- Interrupt is the protocol `turn/interrupt`; no retry or resend exists.
+- Plan mode is `collaborationMode: plan` in the `readOnly` sandbox with the permission mode's
+  ordinary approval policy (ask every time is `untrusted`). Observed on 0.153.4: commands run
+  in the sandbox, unknown ones arrive as `commandExecution` approvals that Gent asks or allows
+  by policy, writes fail in the sandbox, and a `fileChange` approval is refused (`PlanModeEdit`).
+- Rate limits: `account/rateLimits/updated` is remembered per driver; a `RateLimited` failure
+  (`usageLimitExceeded`/`rateLimitExceeded`) carries `resetsAt` from the exhausted window
+  (`secondary` when only it is at 100%, otherwise `primary`).
 
 ## If X changes in a new Codex version…
 

@@ -1,5 +1,3 @@
-//! Bounded daemon tick and recovery for the approved-only Codex lifecycle.
-
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
@@ -13,7 +11,6 @@ use super::{CodexPromptDispatchOutcome, CodexPromptLifecycle};
 
 const MAX_POLLS_PER_TICK: usize = 16;
 
-/// One bounded scheduler pass, containing no provider-native frames.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CodexLifecycleTick {
     pub dispatch: CodexPromptDispatchOutcome,
@@ -22,7 +19,6 @@ pub(crate) struct CodexLifecycleTick {
     pub exited_runs: u16,
 }
 
-/// Aggregate result of polling a bounded snapshot of owned Codex sessions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CodexPollBatch {
     pub polled_runs: u16,
@@ -52,7 +48,6 @@ where
     D: super::CodexPromptExecution + Clone,
     R: PublicProviderResolver,
 {
-    /// Recovers only work that is provably pre-launch under the new host epoch.
     pub(crate) fn recover(&self, host_epoch: HostEpoch) -> Result<(), RuntimeError> {
         self.runtime.recover_prompts(host_epoch)
     }
@@ -62,10 +57,11 @@ where
         self.active.len() + self.warm.len()
     }
 
-    /// Returns whether any owned run still needs stdout/exit polling.
     #[must_use]
     pub(crate) fn needs_poll(&self) -> bool {
-        self.active.values().any(|binding| !binding.idle())
+        self.active
+            .values()
+            .any(|binding| !binding.liveness().idle())
             || self.warm.values().any(|warm| !warm.ready)
     }
 
@@ -103,10 +99,6 @@ where
         })
     }
 
-    /// Signals a stable active snapshot without accepting another durable prompt.
-    ///
-    /// # Errors
-    /// Returns an error when any owned process tree rejects the daemon-selected signal.
     pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
         let run_ids = self
             .active
@@ -120,7 +112,6 @@ where
         Ok(u16::try_from(run_ids.len()).expect("active run count fits u16"))
     }
 
-    /// Claims at most one prompt and polls at most sixteen owned sessions without blocking.
     pub(crate) fn tick(
         &mut self,
         host_epoch: HostEpoch,

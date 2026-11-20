@@ -115,6 +115,63 @@ fn defers_explicit_provider_path_validation_until_its_provider_is_selected() {
     assert!(!runtime.drive_once().unwrap());
 }
 
+#[derive(Debug)]
+struct NotInstalled;
+
+impl crate::standalone_provider_readiness::StandalonePublicProviderReadiness for NotInstalled {
+    fn is_ready(&self, _: gent_types::AgentChatProvider) -> Result<bool, String> {
+        Ok(false)
+    }
+}
+
+#[test]
+fn a_provider_that_is_not_installed_is_never_started_and_waking_it_is_not_a_failure() {
+    use crate::ordinary_lifecycle_router::OrdinaryLifecycleHost;
+
+    let directory = tempfile::tempdir().unwrap();
+    let state = DaemonCompositionState::open(
+        directory.path(),
+        &RuntimeCapabilityProfile::default(),
+        CompatibilityAssessment::default(),
+    )
+    .unwrap();
+    let config = StandaloneAuthorityConfig {
+        data_dir: directory.path().into(),
+        executables: crate::provider_executables::ProviderExecutables::standalone(
+            None,
+            None,
+            directory.path(),
+            state.ledger().clone(),
+            None,
+        ),
+        mcp_config: None,
+    };
+    let mut codex = super::LazyStandaloneProviderHost::new(
+        gent_types::AgentChatProvider::Codex,
+        &state,
+        &config,
+        "gentd-1".into(),
+        gent_types::HostEpoch(1),
+        std::sync::Arc::new(NotInstalled),
+        std::sync::Arc::new(std::sync::OnceLock::new()),
+    );
+
+    assert_eq!(codex.arm_authority_recovery(), Ok(()));
+    assert!(codex.shutdown_complete());
+    assert_eq!(
+        codex.tend_warm_pool(&crate::provider_warm_pool::WarmPoolRequest {
+            now: std::time::Instant::now(),
+            target: None,
+        }),
+        Ok(None)
+    );
+    assert!(codex.shutdown_complete());
+    assert_eq!(codex.wake(), Ok(()));
+    assert!(!codex.needs_drive());
+    assert!(codex.shutdown_complete());
+    assert_eq!(codex.interrupt_run("run"), Err(()));
+}
+
 #[tokio::test]
 async fn selected_claurst_model_claims_one_daemon_owned_download_until_released() {
     let directory = tempfile::tempdir().unwrap();

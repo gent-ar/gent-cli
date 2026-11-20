@@ -18,6 +18,7 @@ pub const MAX_CLAUDE_FRAME_BYTES: usize = 64 * 1024;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaudeRunStart {
     pub run_id: String,
+    pub message_id: String,
     pub lock: RunVersionLock,
     pub prompt: String,
     pub content: Vec<serde_json::Value>,
@@ -34,9 +35,27 @@ pub struct ClaudeRunStart {
 pub enum ClaudeRunnerEffect {
     Fact(PublicWireFact),
     PermissionRequest(ClaudePermissionRequest),
-    SteerConsumed { message_id: String },
+    PermissionCancelled {
+        request_id: String,
+    },
+    MessageStarted {
+        message_id: String,
+    },
+    MessageCancelled {
+        message_id: String,
+    },
+    ContinuationStarted,
+    TurnResult {
+        message_ids: Vec<String>,
+        continuation: bool,
+    },
+    SessionState {
+        idle: bool,
+    },
     ResumeUnavailable,
-    Exited { code: Option<i32> },
+    Exited {
+        code: Option<i32>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -69,7 +88,6 @@ pub struct ClaudeStreamRunner<L, P> {
     launcher: L,
     policy: BufferPolicy,
     runs: BTreeMap<String, OwnedRun<P>>,
-    transient_retry_step: std::time::Duration,
 }
 
 #[derive(Debug)]
@@ -78,13 +96,16 @@ struct OwnedRun<P> {
     output: ProviderOutputPump,
     permissions: ClaudePermissionRelay,
     started_tools: BTreeMap<String, ToolActivity>,
-    child_ids: BTreeMap<String, String>,
-    steers: BTreeMap<String, String>,
+    children: std::collections::BTreeSet<String>,
+    background_commands: BTreeMap<String, ToolActivity>,
+    messages: messages::WrittenMessages,
+    interrupts: u64,
     plans_for_review: bool,
     awaiting_resumed_frame: bool,
     pending_resume_session: Option<String>,
     authentication_failed: bool,
-    retry: retry::TransientRetry,
+    rate_limited: bool,
+    rate_limit_resets_at: Option<u64>,
 }
 
 impl<L, P> ClaudeStreamRunner<L, P>
@@ -92,7 +113,6 @@ where
     L: ProcessLauncher<Process = P>,
     P: ProviderProcess,
 {
-    /// Creates an inert process owner without provider discovery or persistence.
     #[must_use]
     pub fn new(launcher: L, policy: BufferPolicy) -> Self {
         Self {
@@ -100,13 +120,13 @@ where
             launcher,
             policy,
             runs: BTreeMap::new(),
-            transient_retry_step: retry::TRANSIENT_RETRY_STEP,
         }
     }
 
     pub fn submit(
         &mut self,
         run_id: &str,
+        message_id: &str,
         prompt: &str,
         goal: Option<&GoalProjection>,
         content: &[serde_json::Value],
@@ -115,15 +135,16 @@ where
             .runs
             .get_mut(run_id)
             .ok_or(ClaudeRunnerError::NotActive)?;
+        let identity = run.messages.identity(message_id);
         let input = match run.pending_resume_session.as_deref() {
             Some(session_id) => {
-                input::resumed_first_input_frame(prompt, goal, content, session_id)?
+                input::resumed_first_input_frame(&identity, prompt, goal, content, session_id)?
             }
-            None => input::follow_up_input_frame(prompt, goal, content)?,
+            None => input::follow_up_input_frame(&identity, prompt, goal, content)?,
         };
         run.process.write_frame(&input)?;
+        run.messages.written(message_id);
         run.pending_resume_session = None;
-        run.retry.sent(&input);
         Ok(())
     }
 
@@ -134,17 +155,39 @@ where
         prompt: &str,
         content: &[serde_json::Value],
     ) -> Result<(), ClaudeRunnerError> {
-        let uuid = input::steer_uuid(message_id);
-        let input = input::steer_input_frame(&uuid, prompt, content)?;
         let run = self
             .runs
             .get_mut(run_id)
             .ok_or(ClaudeRunnerError::NotActive)?;
-        if let Some(retried) = run.retry.flush() {
-            run.process.write_frame(&retried)?;
-        }
+        let input = input::steer_input_frame(&run.messages.identity(message_id), prompt, content)?;
         run.process.write_frame(&input)?;
-        run.steers.insert(uuid, message_id.into());
+        run.messages.written(message_id);
+        Ok(())
+    }
+
+    pub fn interrupt(&mut self, run_id: &str) -> Result<(), ClaudeRunnerError> {
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(ClaudeRunnerError::NotActive)?;
+        run.interrupts = run.interrupts.saturating_add(1);
+        let request_id = format!("gent-interrupt-{}", run.interrupts);
+        run.process
+            .write_frame(&input::interrupt_frame(&request_id))?;
+        for task_id in run.background_commands.keys() {
+            run.process.write_frame(&input::stop_task_frame(task_id))?;
+        }
+        Ok(())
+    }
+
+    pub fn withdraw(&mut self, run_id: &str, message_id: &str) -> Result<(), ClaudeRunnerError> {
+        let run = self
+            .runs
+            .get_mut(run_id)
+            .ok_or(ClaudeRunnerError::NotActive)?;
+        if let Some(uuid) = run.messages.withdraw(message_id) {
+            run.process.write_frame(&input::withdraw_frame(&uuid))?;
+        }
         Ok(())
     }
 
@@ -154,9 +197,11 @@ where
     }
 
     pub fn release(&mut self, run_id: &str) -> Result<(), ClaudeRunnerError> {
-        let run = self.runs.get(run_id).ok_or(ClaudeRunnerError::NotActive)?;
-        run.process.signal_tree(ProcessTreeSignal::Terminate)?;
-        self.runs.remove(run_id);
+        let run = self
+            .runs
+            .remove(run_id)
+            .ok_or(ClaudeRunnerError::NotActive)?;
+        run.process.signal_tree(ProcessTreeSignal::Kill)?;
         Ok(())
     }
 
@@ -168,14 +213,9 @@ where
             .runs
             .get_mut(run_id)
             .ok_or(ClaudeRunnerError::NotActive)?;
-        if let Some(input) = run.retry.due(std::time::Instant::now()) {
-            run.process.write_frame(&input)?;
-        }
         if let Some(chunk) = run.process.next_stdout_chunk()? {
             run.output.accept_chunk(&chunk)?;
             let mut effects = drain(run).unwrap_or_default();
-            // Reduce each chunk before reading more to preserve pump backpressure and FIFO.
-            // A single 4 KiB read per tick otherwise delays large tool results and controls.
             for _ in 1..crate::output_pump::MAX_OUTPUT_CHUNKS_PER_POLL {
                 let Some(chunk) = run.process.next_stdout_chunk()? else {
                     break;
@@ -196,13 +236,6 @@ where
         Ok(Some(vec![ClaudeRunnerEffect::Exited { code }]))
     }
 
-    /// Writes one closed Gent permission decision to the exact Claude process that requested it.
-    ///
-    /// Raw provider suggestions are retained only until this response has been accepted by the
-    /// owned process. They can be echoed solely for an allowed persistent decision.
-    ///
-    /// # Errors
-    /// Returns an error without writing when the run or pending request is absent.
     pub fn respond_permission(
         &mut self,
         run_id: &str,
@@ -247,11 +280,11 @@ mod frames;
 mod input;
 #[path = "claude_runner_launch.rs"]
 mod launch;
-#[path = "claude_runner_retry.rs"]
-mod retry;
+#[path = "claude_runner_messages.rs"]
+mod messages;
 #[cfg(test)]
-#[path = "claude_runner_retry_tests.rs"]
-mod retry_tests;
+#[path = "claude_runner_server_error_tests.rs"]
+mod server_error_tests;
 #[cfg(test)]
 #[path = "claude_runner_tests.rs"]
 mod tests;

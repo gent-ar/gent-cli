@@ -185,8 +185,9 @@ Stop and ask the maintainer at the steps marked HUMAN. `W` is `release-work/<pro
    in the background; this needs no signed release. With `gent --data-dir W/data --no-autostart`:
    - `chat create --workspace W/ws --provider <provider> --model haiku --effort low --mode agent`,
      then `chat send` a one-word reply.
-   - Steer: `chat send` a long list in the background, then `chat queue` and `chat steer`. If
-     the model finishes first, the steer correctly runs once as its own turn.
+   - Queue and Send now: `chat send` a long list in the background, then `chat queue`; the prompt
+     joins the running turn (Claude, Codex) or runs next (Claurst). `chat steer` interrupts the
+     turn (cause `steered`) and runs the prompt next.
    - Interrupt: `chat send` a long story in the background, then `chat interrupt --run-id`.
    - Approval: ask for a mutating command (`touch approved.txt`; read-only commands such as
      `pwd` are auto-allowed), then `permissions pending` and `permissions respond

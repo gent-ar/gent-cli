@@ -1,8 +1,3 @@
-//! Pure Codex turn bridge: strict app-server handshake plus normalized public facts.
-//!
-//! The daemon-owned process edge writes only the returned frames and persists only the returned
-//! facts. It never receives raw provider fields, native identities, or unbounded output here.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use gent_types::{GoalProjection, NormalizedProviderEvent};
@@ -19,21 +14,22 @@ use crate::codex_session::{
 use crate::goal_projection::project_prompt;
 use crate::public_protocol::PublicWireFact;
 
+mod commands;
 mod correlation;
 mod facts;
 mod operation_inputs;
 mod reasoning;
 
-/// A write or a secret-free normalized fact owned by the daemon process edge.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CodexTurnEffect {
     Write(Vec<u8>),
     Fact(PublicWireFact),
     ControlRequest(CodexControlRequest),
     Steer(CodexSteerOutcome),
+    ProviderTurnStarted,
+    SessionState { idle: bool },
 }
 
-/// Controlled failure while correlating a Codex app-server response.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum CodexTurnError {
     #[error("a Codex app-server frame exceeded the configured bound")]
@@ -42,7 +38,6 @@ pub enum CodexTurnError {
     Session(#[from] CodexSessionError),
 }
 
-/// One prompt held only until its initial `turn/start` frame is encoded.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexTurnDriver {
     session: CodexAppServerSession,
@@ -52,16 +47,13 @@ pub struct CodexTurnDriver {
     child_parent_by_thread: BTreeMap<String, String>,
     settled_child_threads: BTreeSet<String>,
     tool_output_item_ids: BTreeSet<String>,
-    reported_root_failure: bool,
+    commands: commands::RunningCommands,
     reasoning: reasoning::ReasoningState,
     operation_inputs: operation_inputs::OperationInputs,
+    rate_limit_resets_at: Option<u64>,
 }
 
 impl CodexTurnDriver {
-    /// Starts the bounded handshake without launching, reading, or persisting anything.
-    ///
-    /// # Errors
-    /// Rejects invalid native configuration or an invalid prompt before a process may be started.
     pub fn start(
         config: CodexSessionConfig,
         prompt: &str,
@@ -111,9 +103,10 @@ impl CodexTurnDriver {
             child_parent_by_thread: BTreeMap::new(),
             settled_child_threads: BTreeSet::new(),
             tool_output_item_ids: BTreeSet::new(),
-            reported_root_failure: false,
+            commands: commands::RunningCommands::default(),
             reasoning: reasoning::ReasoningState::default(),
             operation_inputs: operation_inputs::OperationInputs::default(),
+            rate_limit_resets_at: None,
         }
     }
 
@@ -121,13 +114,6 @@ impl CodexTurnDriver {
         self.session.bind_external_sandbox().map_err(Into::into)
     }
 
-    /// Reduces one bounded JSON-RPC frame into process writes and normalized public facts.
-    ///
-    /// Provider notifications are normalized even when irrelevant to handshake state. Malformed
-    /// notifications become diagnostics and do not poison the pending request correlation.
-    ///
-    /// # Errors
-    /// Returns only for oversized input or an invalid correlated response; no raw payload is kept.
     pub fn receive(&mut self, raw: &[u8]) -> Result<Vec<CodexTurnEffect>, CodexTurnError> {
         if raw.len() > crate::MAX_PROVIDER_FRAME_BYTES {
             return Err(CodexTurnError::FrameTooLarge);
@@ -147,6 +133,13 @@ impl CodexTurnDriver {
         match parse_control(&frame) {
             Ok(Some(mut request)) => {
                 self.operation_inputs.enrich(&frame, &mut request);
+                request.child_id = facts::child_thread(
+                    &frame,
+                    &self.child_parent_by_thread,
+                    self.session.thread_id(),
+                )
+                .map(str::to_owned);
+                self.commands.approval_requested(&request.tool_use_id);
                 return Ok(vec![CodexTurnEffect::ControlRequest(request)]);
             }
             Err(classification) => return Ok(rejected(&frame, classification)),
@@ -162,12 +155,16 @@ impl CodexTurnDriver {
             Vec::new()
         };
         self.operation_inputs.observe(&frame, &mut effects);
+        effects.extend(
+            facts::root_session_idle(&frame, self.session.thread_id()).map(|idle| {
+                CodexTurnEffect::SessionState {
+                    idle: self.commands.session_idle(idle) && !self.children_open(),
+                }
+            }),
+        );
         match self.session.receive(&frame) {
             Ok(CodexSessionIngress::Send(frames)) => writes(&mut effects, frames),
             Ok(CodexSessionIngress::Ready { thread_id }) => {
-                // The correlated response is the sole authoritative thread identity.
-                // `thread/started` is an asynchronous notification and may arrive
-                // before or after this response while reconnecting.
                 effects.push(CodexTurnEffect::Fact(PublicWireFact::SessionStarted {
                     provider_session_id: thread_id,
                 }));
@@ -191,6 +188,9 @@ impl CodexTurnDriver {
                     .into_iter()
                     .map(CodexTurnEffect::Steer),
             ),
+            Ok(CodexSessionIngress::ProviderTurnStarted) => {
+                effects.insert(0, CodexTurnEffect::ProviderTurnStarted);
+            }
             Ok(CodexSessionIngress::TurnStarted | CodexSessionIngress::Ignored) => {}
             Err(_) if notification => {}
             Err(error) => return Err(error.into()),
@@ -198,10 +198,6 @@ impl CodexTurnDriver {
         Ok(effects)
     }
 
-    /// Encodes one later user turn with a freshly ledger-resolved active goal on the ready thread.
-    ///
-    /// # Errors
-    /// Returns an error until the previous turn is terminal or when the prompt is invalid.
     pub fn submit(
         &mut self,
         prompt: &str,
@@ -248,11 +244,18 @@ impl CodexTurnDriver {
         )?))
     }
 
-    /// Requests a documented Codex turn interruption without destroying the owned session.
-    ///
-    /// # Errors
-    /// Rejects the request unless the exact turn is live.
+    pub fn approval_answered(&mut self, tool_use_id: &str) {
+        self.commands.approval_answered(tool_use_id);
+    }
+
+    fn children_open(&self) -> bool {
+        self.child_parent_by_thread
+            .keys()
+            .any(|child| !self.settled_child_threads.contains(child))
+    }
+
     pub fn interrupt(&mut self) -> Result<CodexTurnEffect, CodexTurnError> {
+        self.commands.stop();
         Ok(CodexTurnEffect::Write(self.session.interrupt()?))
     }
 }

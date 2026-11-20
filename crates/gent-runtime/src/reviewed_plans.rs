@@ -6,7 +6,7 @@ use gent_types::{
     StartImplementationResult,
 };
 
-use crate::RuntimeError;
+use crate::{GoalContinuationAdmission, GoalContinuationWake, RuntimeError};
 
 /// Explicit composition authority for trusted-plan ingress and review decisions.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -80,13 +80,21 @@ impl<L: ReviewedPlanLedger> ReviewedPlanService<L> {
     pub fn start(
         &self,
         request: &StartImplementationRequest,
+        admission: &mut dyn GoalContinuationAdmission,
     ) -> Result<ReviewedPlanResult, RuntimeError> {
         if self.authority != ReviewedPlanAuthority::Approved {
             return Ok(ReviewedPlanResult::DeniedObserver);
         }
-        Ok(ReviewedPlanResult::Started(
-            self.ledger.approve_reviewed_plan(request)?,
-        ))
+        let started = self.ledger.approve_reviewed_plan(request)?;
+        admission
+            .admit(&GoalContinuationWake {
+                conversation_id: request.conversation_id.clone(),
+                run_id: started.prompt.run_id,
+                receipt_id: started.prompt.receipt.receipt_id,
+                message_id: started.prompt.message.message_id,
+            })
+            .map_err(|reason| RuntimeError::Port(gent_ports::PortError::Unavailable(reason)))?;
+        Ok(ReviewedPlanResult::Started(started.result))
     }
 
     /// Rejects the exact trusted plan revision without deleting durable history.

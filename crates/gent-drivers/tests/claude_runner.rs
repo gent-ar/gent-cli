@@ -77,6 +77,7 @@ fn start(run_id: &str, root: &Path, session: Option<&str>) -> ClaudeRunStart {
     std::fs::write(&executable, "test executable").unwrap();
     ClaudeRunStart {
         run_id: run_id.into(),
+        message_id: format!("message-{run_id}"),
         lock: capture("claude", &executable, "2.1.0", "entry").unwrap(),
         prompt: "hello".into(),
         content: Vec::new(),
@@ -699,7 +700,6 @@ fn steer_ack_behind_large_output_is_drained_with_a_bounded_poll_budget() {
         runner.poll("run-1").unwrap().is_none(),
         "a write is not acceptance"
     );
-    // A real-size provider frame fragmented exactly like the OS reader's 4 KiB chunks.
     let frame = serde_json::json!({"type":"diagnostic","method":"diagnostic","payload":"x".repeat(1024 * 1024)});
     let bytes = format!("{frame}\n{ack}\n").into_bytes();
     let chunks = bytes
@@ -721,7 +721,7 @@ fn steer_ack_behind_large_output_is_drained_with_a_bounded_poll_budget() {
                 "one busy session must yield after its bounded backlog"
             );
         }
-        if effects.contains(&ClaudeRunnerEffect::SteerConsumed {
+        if effects.contains(&ClaudeRunnerEffect::MessageStarted {
             message_id: "steer-1".into(),
         }) {
             accepted = true;

@@ -9,6 +9,11 @@ use crate::{
 
 const MAX_ID_BYTES: usize = 128;
 pub const MAX_PLAN_CONTENT_BYTES: usize = 64 * 1024;
+const IMPLEMENTATION_OPEN: &str = "Implement the plan the user approved below. Work through it step by step and summarize what changed when you are done.\n\n<approved-plan>\n";
+const IMPLEMENTATION_CLOSE: &str = "\n</approved-plan>";
+pub const MAX_IMPLEMENTATION_INSTRUCTIONS_BYTES: usize = 16 * 1024;
+const INSTRUCTIONS_OPEN: &str = "\n\nThe user added these instructions when approving the plan. Follow them where they refine or change it:\n<user-instructions>\n";
+const INSTRUCTIONS_CLOSE: &str = "\n</user-instructions>";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -77,10 +82,9 @@ pub struct PlanTurn {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PlanImplementation {
-    pub idempotency_key: String,
-    pub implementation_run_id: AgentChatRunId,
-    pub plan: PlanArtifact,
+pub struct ImplementationStarted {
+    pub result: StartImplementationResult,
+    pub prompt: crate::AgentChatPromptSaved,
 }
 
 /// Whether a child run receives prior provider-neutral history.
@@ -108,6 +112,8 @@ pub struct StartImplementationRequest {
     pub parent_run_id: AgentChatRunId,
     pub selection: AgentChatSelection,
     pub context_policy: ContextPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
 }
 
 impl StartImplementationRequest {
@@ -129,7 +135,46 @@ impl StartImplementationRequest {
         {
             return Err(ReviewedPlanContractError::InvalidRevisionOrDigest);
         }
+        if let Some(instructions) = &self.instructions
+            && (instructions.trim().is_empty()
+                || instructions.len() > MAX_IMPLEMENTATION_INSTRUCTIONS_BYTES
+                || instructions.contains('\0'))
+        {
+            return Err(ReviewedPlanContractError::InvalidMetadata);
+        }
         valid_id(&self.selection.model)
+    }
+
+    #[must_use]
+    pub fn implementation_prompt(&self, plan: &str) -> crate::AgentChatPromptCreate {
+        let mut digest = Sha256::new();
+        digest.update(self.idempotency_key.as_bytes());
+        digest.update([0]);
+        let request_id = format!("plan-implementation-{:x}", digest.finalize());
+        let instructions = self
+            .instructions
+            .as_deref()
+            .map_or_else(String::new, |text| {
+                let text = crate::bounded_text(text.trim(), MAX_IMPLEMENTATION_INSTRUCTIONS_BYTES);
+                format!("{INSTRUCTIONS_OPEN}{text}{INSTRUCTIONS_CLOSE}")
+            });
+        let plan = crate::bounded_text(
+            plan,
+            MAX_PLAN_CONTENT_BYTES
+                - IMPLEMENTATION_OPEN.len()
+                - IMPLEMENTATION_CLOSE.len()
+                - instructions.len(),
+        );
+        crate::AgentChatPromptCreate {
+            request_id: AgentChatRequestId(request_id.clone()),
+            receipt_id: ReceiptId(request_id),
+            host_epoch: self.host_epoch,
+            conversation_id: self.conversation_id.clone(),
+            disposition: crate::AgentChatPromptDisposition::Send,
+            text: format!("{IMPLEMENTATION_OPEN}{plan}{IMPLEMENTATION_CLOSE}{instructions}"),
+            attachment_ids: Vec::new(),
+            tool_source_ids: Vec::new(),
+        }
     }
 }
 

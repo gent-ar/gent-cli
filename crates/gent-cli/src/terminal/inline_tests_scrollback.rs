@@ -55,6 +55,8 @@ fn queued_prompts_show_their_text_in_the_live_area_not_the_scrollback() {
     facts.push(ConversationActivityFact::PromptQueued {
         scope: scope(9),
         message_id: "message-2".into(),
+        queue_delivery: None,
+        cancelable: None,
     });
     state = self::state(events, facts, status(true, false, false));
     assert!(!scrollback(&state).join("\n").contains("pipe path"));

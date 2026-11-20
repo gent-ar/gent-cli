@@ -1,9 +1,3 @@
-//! Private owner state for an approved Claude host.
-//!
-//! It is intentionally absent from daemon bootstrap and public capabilities. The owner only
-//! recovers, ticks, drains, and signals an already authority-gated lifecycle; it never invents
-//! provider terminal facts when a process cannot prove settlement.
-
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
@@ -15,7 +9,6 @@ use gent_runtime::RuntimeError;
 use crate::approved_claude_host::{ApprovedClaudeDrain, ApprovedClaudeHost};
 use crate::claude_prompt_lifecycle::ClaudeLifecycleTick;
 
-/// State retained only by private Claude authority composition.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateClaudeSupervisorState {
     AwaitingRecovery,
@@ -30,7 +23,6 @@ pub(crate) enum PrivateClaudeSupervisorState {
     },
 }
 
-/// Result of one bounded private owner wake.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateClaudeWake {
     Tick(ClaudeLifecycleTick),
@@ -39,7 +31,6 @@ pub(crate) enum PrivateClaudeWake {
     ShutdownRefused { active_runs: u16 },
 }
 
-/// Explicit shutdown result that does not create a terminal provider settlement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateClaudeShutdown {
     Stopped,
@@ -52,7 +43,6 @@ pub(crate) enum PrivateClaudeShutdown {
     },
 }
 
-/// Caller-timed process tree escalation without any implicit settlement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PrivateClaudeEscalation {
     SignalSent(ProcessTreeSignal),
@@ -60,7 +50,6 @@ pub(crate) enum PrivateClaudeEscalation {
     RefusedUndrained { active_runs: u16 },
 }
 
-/// Bounded private owner for one already-approved Claude lifecycle host.
 #[derive(Debug)]
 pub(crate) struct PrivateClaudeSupervisor<L, D, R> {
     host: ApprovedClaudeHost<L, D, R>,
@@ -89,7 +78,6 @@ where
     D: crate::claude_prompt_lifecycle::ClaudePromptExecution + Clone,
     R: PublicProviderResolver,
 {
-    /// Binds a pre-approved host without recovery, launch, or process control.
     #[must_use]
     pub(crate) fn new(host: ApprovedClaudeHost<L, D, R>) -> Self {
         Self {
@@ -103,7 +91,6 @@ where
         self.state
     }
 
-    /// Returns whether recovery, active turn polling, or shutdown draining needs another wake.
     #[must_use]
     pub(crate) fn needs_drive(&self) -> bool {
         matches!(
@@ -113,16 +100,11 @@ where
         ) || (self.state == PrivateClaudeSupervisorState::Running && self.host.needs_drive())
     }
 
-    /// Returns true only after the owner has observed every process tree drain to a real stop.
     #[must_use]
     pub(crate) fn shutdown_complete(&self) -> bool {
         self.state == PrivateClaudeSupervisorState::Stopped
     }
 
-    /// Runs initial recovery once, then one bounded tick or drain for every private wake.
-    ///
-    /// # Errors
-    /// Recovery failures leave this owner awaiting recovery and never launch a provider first.
     pub(crate) fn wake(&mut self) -> Result<PrivateClaudeWake, RuntimeError> {
         match self.state {
             PrivateClaudeSupervisorState::AwaitingRecovery => {
@@ -163,9 +145,7 @@ where
     ) -> Result<(), RuntimeError> {
         if self.state != PrivateClaudeSupervisorState::Running {
             return Err(RuntimeError::ProviderRun(
-                gent_ports::PublicProviderRunError::Failed(
-                    "Claude permission response is unavailable".into(),
-                ),
+                gent_ports::PublicProviderRunError::NotActive,
             ));
         }
         self.host.respond_permission_with_input(
@@ -211,10 +191,6 @@ where
         self.host.interrupt_turn(run_id, turn_id)
     }
 
-    /// Begins shutdown by interrupting every owned process tree exactly once.
-    ///
-    /// # Errors
-    /// Returns an error if an owned process rejects the daemon-selected interrupt.
     pub(crate) fn request_shutdown(&mut self) -> Result<PrivateClaudeShutdown, RuntimeError> {
         if let PrivateClaudeSupervisorState::ShutdownDraining {
             active_runs,
@@ -248,10 +224,6 @@ where
         })
     }
 
-    /// Advances interrupt → terminate → kill only when its caller has waited for that deadline.
-    ///
-    /// # Errors
-    /// Signal failures preserve the current state and cannot manufacture a terminal provider fact.
     pub(crate) fn escalate_shutdown(&mut self) -> Result<PrivateClaudeEscalation, RuntimeError> {
         let PrivateClaudeSupervisorState::ShutdownDraining {
             active_runs,

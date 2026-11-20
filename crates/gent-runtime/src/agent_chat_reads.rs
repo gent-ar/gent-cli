@@ -380,7 +380,7 @@ mod tests {
                 mode: AgentChatMode::Ask,
             },
             selection_applies_next_turn: false,
-            steer_delivery: None,
+            queue_delivery: None,
             containment: gent_types::Containment::Unsandboxed,
         }
     }
@@ -394,6 +394,7 @@ mod tests {
             text: "ok".into(),
             is_partial: false,
             failure_code: None,
+            resets_at: None,
             origin: None,
             attachments: Vec::new(),
         }

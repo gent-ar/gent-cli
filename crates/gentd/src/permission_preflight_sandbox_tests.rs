@@ -204,5 +204,6 @@ fn bypass_policy() -> PolicyRecord {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     }
 }

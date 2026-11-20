@@ -1,10 +1,7 @@
 use std::collections::BTreeMap;
 
-use gent_types::{ConversationActivityFact, ToolActivity, ToolPhase};
-use ratatui::{
-    style::{Color, Style},
-    text::Line,
-};
+use gent_types::{ConversationActivityFact, ToolActivity};
+use ratatui::{style::Style, text::Line};
 
 pub(super) fn tool_lines(facts: &[ConversationActivityFact]) -> Vec<Line<'static>> {
     let mut tools = BTreeMap::new();
@@ -27,28 +24,10 @@ fn tool_line(activity: &ToolActivity) -> Line<'static> {
         format!(
             "Tool · {} · {}",
             activity.tool_name,
-            phase_name(&activity.phase)
+            super::render_activity::tool_phase_name(&activity.phase)
         ),
-        Style::default().fg(phase_color(&activity.phase)),
+        Style::default().fg(super::render_activity::tool_color(&activity.phase)),
     )
-}
-
-fn phase_name(phase: &ToolPhase) -> &'static str {
-    match phase {
-        ToolPhase::Started => "running",
-        ToolPhase::WaitingPermission => "needs permission",
-        ToolPhase::Completed => "completed",
-        ToolPhase::Failed => "failed",
-    }
-}
-
-fn phase_color(phase: &ToolPhase) -> Color {
-    match phase {
-        ToolPhase::Started => Color::Cyan,
-        ToolPhase::WaitingPermission => Color::Yellow,
-        ToolPhase::Completed => Color::Green,
-        ToolPhase::Failed => Color::Red,
-    }
 }
 
 #[cfg(test)]

@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use gent_ports::{
-    ClaurstDrainBatch, ClaurstDrainRequest, ClaurstPermissionReply, ClaurstPromptAttachment,
-    ClaurstSessionBinding, ClaurstStartRequest, ClaurstSubmitRequest, PortError,
-    PrivateClaurstBridge,
-};
+use gent_ports::ClaurstPromptAttachment;
 use gent_runtime::conversation_summary_scheduler::ConversationSummaryScheduler;
 use gent_store::SqliteLedger;
 use gent_types::{AgentChatPromptSaved, AttachmentMetadata};
@@ -35,6 +31,7 @@ struct ActiveRuntime {
     identity: RuntimeIdentity,
     run_id: String,
     used: std::time::Instant,
+    idle_since: Option<std::time::Instant>,
     bridge: SystemBridge,
     runtime: SystemRuntime,
 }
@@ -70,6 +67,7 @@ pub(crate) struct StandaloneClaurstRuntimeFactory {
     readiness: ClaurstLocalReadinessService,
     config: Option<StandaloneClaurstRuntimeConfig>,
     mcp_control: Option<crate::ordinary_lifecycle_control::OrdinaryLifecycleControl>,
+    launching: tokio::sync::Mutex<()>,
     active: tokio::sync::Mutex<std::collections::BTreeMap<String, ActiveRuntime>>,
 }
 
@@ -77,6 +75,34 @@ pub(crate) struct StandaloneClaurstRuntimeFactory {
 pub(crate) struct StandaloneClaurstBridge(Arc<StandaloneClaurstRuntimeFactory>);
 
 impl StandaloneClaurstRuntimeFactory {
+    pub(crate) async fn stop_conversation(
+        &self,
+        conversation_id: &str,
+        background: gent_types::ToolPhase,
+    ) -> Result<(), String> {
+        let previous = self.active.lock().await.remove(conversation_id);
+        self.end_background(conversation_id, background)?;
+        if let Some(previous) = previous {
+            previous
+                .shut_down("could not stop local Claurst runtime")
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn end_background(
+        &self,
+        conversation_id: &str,
+        background: gent_types::ToolPhase,
+    ) -> Result<(), String> {
+        gent_ports::RunLifecycleFactLedger::end_background_tools(
+            &self.ledger,
+            conversation_id,
+            background,
+        )
+        .map_err(|error| error.to_string())
+    }
+
     #[must_use]
     pub(crate) fn new(
         ledger: SqliteLedger,
@@ -88,6 +114,7 @@ impl StandaloneClaurstRuntimeFactory {
             readiness: ClaurstLocalReadinessService::new(models.provisioner),
             config,
             mcp_control: None,
+            launching: tokio::sync::Mutex::new(()),
             active: tokio::sync::Mutex::new(std::collections::BTreeMap::new()),
         }
     }
@@ -106,8 +133,8 @@ impl StandaloneClaurstRuntimeFactory {
 }
 
 impl StandaloneClaurstBridge {
-    pub(crate) async fn summary_bridge(&self, model_id: &str) -> Result<SystemBridge, PortError> {
-        self.0.summary_bridge(model_id).await
+    pub(crate) fn runtime(&self) -> &StandaloneClaurstRuntimeFactory {
+        &self.0
     }
 }
 
@@ -153,8 +180,16 @@ impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
         Ok(())
     }
 
-    async fn after_prompt_failed(&self, conversation_id: &str) -> Result<(), String> {
-        self.stop_conversation(conversation_id).await
+    async fn reap_idle(&self, now: std::time::Instant, busy: &[String]) -> Result<(), String> {
+        self.reap_idle_runtimes(now, busy).await
+    }
+
+    async fn after_prompt_failed(
+        &self,
+        conversation_id: &str,
+        background: gent_types::ToolPhase,
+    ) -> Result<(), String> {
+        self.stop_conversation(conversation_id, background).await
     }
 
     async fn context_summarizer(
@@ -208,76 +243,8 @@ impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
     }
 }
 
-#[async_trait]
-impl PrivateClaurstBridge for StandaloneClaurstBridge {
-    async fn start(
-        &self,
-        request: ClaurstStartRequest,
-    ) -> Result<ClaurstSessionBinding, PortError> {
-        self.0
-            .run_bridge(&request.run_id)
-            .await?
-            .start(request)
-            .await
-    }
-
-    async fn bind_session(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
-        self.0
-            .run_bridge(&binding.run_id)
-            .await?
-            .bind_session(binding)
-            .await
-    }
-
-    async fn submit(&self, request: ClaurstSubmitRequest) -> Result<(), PortError> {
-        self.0
-            .run_bridge(&request.binding.run_id)
-            .await?
-            .submit(request)
-            .await
-    }
-
-    async fn cancel(&self, binding: ClaurstSessionBinding) -> Result<(), PortError> {
-        self.0
-            .run_bridge(&binding.run_id)
-            .await?
-            .cancel(binding)
-            .await
-    }
-
-    async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
-        self.0
-            .run_bridge(&request.run_id)
-            .await?
-            .drain(request)
-            .await
-    }
-
-    async fn permission_authority(
-        &self,
-        binding: ClaurstSessionBinding,
-        epoch: gent_types::HostEpoch,
-    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
-        self.0
-            .run_bridge(&binding.run_id)
-            .await?
-            .permission_authority(binding, epoch)
-            .await
-    }
-
-    async fn respond_permission(
-        &self,
-        binding: ClaurstSessionBinding,
-        request_id: &str,
-        reply: ClaurstPermissionReply,
-    ) -> Result<(), PortError> {
-        self.0
-            .run_bridge(&binding.run_id)
-            .await?
-            .respond_permission(binding, request_id, reply)
-            .await
-    }
-}
+#[path = "standalone_claurst_runtime_factory_bridge.rs"]
+mod bridge_port;
 
 #[cfg(test)]
 #[path = "standalone_claurst_runtime_factory_tests.rs"]

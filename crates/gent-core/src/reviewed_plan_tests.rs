@@ -42,6 +42,7 @@ pub(super) fn approval(policy: ContextPolicy) -> StartImplementationRequest {
             mode: AgentChatMode::Agent,
         },
         context_policy: policy,
+        instructions: None,
     }
 }
 

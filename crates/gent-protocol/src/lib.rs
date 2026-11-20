@@ -1,5 +1,3 @@
-//! Versioned wire DTOs and length-prefixed JSON framing shared by every transport.
-
 use gent_types::{
     CapabilitySet, Command, DecisionCommand, DecisionSettlement, DoctorReport, EventPage,
     HostStatus, OnboardingState, Receipt,
@@ -14,9 +12,11 @@ mod agent_chat_checkpoint;
 pub mod agent_chat_commands;
 mod agent_chat_conversation_config;
 mod agent_chat_intent;
+pub mod agent_chat_interrupt;
 mod agent_chat_permission;
 mod agent_chat_projection;
 mod agent_chat_provider_warm;
+pub mod agent_chat_receipt_lookup;
 mod agent_chat_sessions;
 mod agent_chat_side_question;
 mod agent_chat_steer;
@@ -49,10 +49,12 @@ pub mod runtime_activation;
 mod runtime_maintenance;
 pub mod runtime_owner;
 mod runtime_update;
+pub mod sandbox_unavailable;
 pub mod speech_catalog;
 mod turn_follow;
 mod workspace_documents;
 mod workspace_git;
+pub mod workspace_unavailable;
 
 mod exports;
 pub use exports::*;
@@ -134,10 +136,6 @@ pub enum ProtocolError {
     },
 }
 
-/// Negotiates a shared protocol version and capability intersection.
-///
-/// # Errors
-/// Returns [`ProtocolError::IncompatibleVersion`] when ranges do not overlap.
 pub fn negotiate(
     hello: &Hello,
     server_min: u16,
@@ -160,10 +158,6 @@ pub fn negotiate(
     })
 }
 
-/// Encodes and writes one bounded length-prefixed JSON frame.
-///
-/// # Errors
-/// Returns an I/O error when serialization or writing fails.
 pub async fn write_frame<W>(writer: &mut W, frame: &WireFrame) -> io::Result<()>
 where
     W: AsyncWrite + Unpin,
@@ -171,13 +165,6 @@ where
     write_json_frame(writer, frame).await
 }
 
-/// Encodes and writes one bounded length-prefixed JSON value.
-///
-/// This is the generic framing primitive for additive local protocol endpoints. [`WireFrame`]
-/// retains its stable command/receipt/event contract through [`write_frame`].
-///
-/// # Errors
-/// Returns an I/O error when serialization or writing fails.
 pub async fn write_json_frame<W, T>(writer: &mut W, frame: &T) -> io::Result<()>
 where
     W: AsyncWrite + Unpin,
@@ -190,10 +177,6 @@ where
     writer.flush().await
 }
 
-/// Reads and decodes one bounded length-prefixed JSON frame.
-///
-/// # Errors
-/// Returns an I/O error for malformed, oversized, or incomplete frames.
 pub async fn read_frame<R>(reader: &mut R) -> io::Result<WireFrame>
 where
     R: AsyncRead + Unpin,
@@ -201,10 +184,6 @@ where
     read_json_frame(reader).await
 }
 
-/// Reads and decodes one bounded length-prefixed JSON value.
-///
-/// # Errors
-/// Returns an I/O error for malformed, oversized, or incomplete frames.
 pub async fn read_json_frame<R, T>(reader: &mut R) -> io::Result<T>
 where
     R: AsyncRead + Unpin,

@@ -106,10 +106,13 @@ pub(in crate::terminal) fn operational_context(
             used_tokens,
             window_tokens,
             ..
-        } => Some((*used_tokens, *window_tokens)),
-        ConversationActivityFact::TokenUsage { usage, .. } => Some((usage.prompt_tokens(), None)),
+        } => Some(Some((*used_tokens, *window_tokens))),
+        ConversationActivityFact::TokenUsage { usage, .. } => {
+            Some(Some((usage.prompt_tokens(), None)))
+        }
+        ConversationActivityFact::ContextCompacted { .. } => Some(None),
         _ => None,
-    })?;
+    })??;
     Some(window_tokens.filter(|value| *value > 0).map_or_else(
         || compact_number(used_tokens),
         |window| format!("{}%", used_tokens.saturating_mul(100) / window),

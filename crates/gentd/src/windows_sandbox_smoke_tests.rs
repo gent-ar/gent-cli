@@ -85,6 +85,7 @@ fn real_claude_broad_mode_reads_and_writes_through_the_pinned_run_gateway() {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         })
         .unwrap();
     let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
@@ -130,7 +131,7 @@ fn real_claude_broad_mode_reads_and_writes_through_the_pinned_run_gateway() {
         ClaudeTurnOptions::from_selection_with_permissions(&selection, PermissionMode::Bypass)
             .unwrap()
             .with_conversation_config(None, false, Some(4), vec![]);
-    runner.start(ClaudeRunStart { run_id: run.clone(), lock, prompt:
+    runner.start(ClaudeRunStart { run_id: run.clone(), message_id: "message".into(), lock, prompt:
         "Use Read to read marker.txt, then use Write to create proof.txt with the exact same content. Do not use a shell. Finally reply with the marker only.".into(),
         content: vec![], turn_options: options, goal: None, fresh_context: None,
         intent: LaunchIntent::Start, workspace_root: workspace.clone(), workspace_access: SandboxWorkspaceAccess::ReadWrite, mcp_config: None }).unwrap();

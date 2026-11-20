@@ -52,14 +52,35 @@ pub(crate) fn permission_decision_accepted_event_id(binding: &PermissionDecision
     )
 }
 
-/// Once dispatch has started, even a ledger failure cannot prove the provider
-/// did not receive the decision. This fallback is an IPC indication only: it
-/// does not claim the terminal receipt was persisted.
-pub(crate) fn receipt_or_unknown<E>(command: &Command, settlement: Result<Receipt, E>) -> Receipt {
+pub(crate) fn later_answer_outcome(
+    prior: Receipt,
+    still_pending: bool,
+    command: &Command,
+) -> Option<Receipt> {
+    let status = match (still_pending, &prior.status) {
+        (true, ReceiptStatus::Rejected) => return None,
+        (true, _) => {
+            return Some(receipt_or_outcome(
+                command,
+                ReceiptStatus::Rejected,
+                Err(()),
+            ));
+        }
+        (false, ReceiptStatus::Accepted | ReceiptStatus::Settled) => ReceiptStatus::Settled,
+        (false, _) => ReceiptStatus::Rejected,
+    };
+    Some(Receipt { status, ..prior })
+}
+
+pub(crate) fn receipt_or_outcome<E>(
+    command: &Command,
+    status: ReceiptStatus,
+    settlement: Result<Receipt, E>,
+) -> Receipt {
     settlement.unwrap_or_else(|_| Receipt {
         receipt_id: command.receipt_id.clone(),
         idempotency_key: command.idempotency_key.clone(),
-        status: ReceiptStatus::Unprovable,
+        status,
         host_epoch: command.host_epoch,
     })
 }

@@ -2,8 +2,18 @@
 
 use std::path::Path;
 
+use gent_protocol::workspace_unavailable::WorkspaceUnavailable;
 use gent_types::WorkspaceRecord;
 use sha2::{Digest, Sha256};
+
+pub(crate) fn require_directory(path: &str) -> Result<(), WorkspaceUnavailable> {
+    if Path::new(path).is_dir() {
+        return Ok(());
+    }
+    Err(WorkspaceUnavailable {
+        path: path.to_owned(),
+    })
+}
 
 /// One selected workspace after daemon-side canonicalization.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -61,3 +71,7 @@ fn workspace_id(canonical_path: &str) -> String {
 #[cfg(test)]
 #[path = "workspace_identity_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "workspace_unavailable_transport_tests.rs"]
+mod transport_tests;

@@ -56,59 +56,10 @@ mod linux {
                 return Err("system baseline cannot be writable");
             }
         }
-        let mut allowed = vec!["PATH", "HOME"];
-        if start.gateway_proxy.is_some() {
-            allowed.extend([
-                "ANTHROPIC_BASE_URL",
-                "ANTHROPIC_AUTH_TOKEN",
-                "CLAUDE_CONFIG_DIR",
-                gent_linux_sandbox::claude_environment::MCP_TOKEN_ENV,
-            ]);
-            allowed.extend(
-                gent_linux_sandbox::claude_environment::FLAGS
-                    .iter()
-                    .map(|(key, _)| *key),
-            );
-        }
-        if start.environment.len() != allowed.len()
-            || allowed.iter().any(|key| {
-                start
-                    .environment
-                    .iter()
-                    .filter(|(name, _)| name == key)
-                    .count()
-                    != 1
-            })
-            || !start
-                .environment
-                .iter()
-                .any(|(k, v)| k == "PATH" && v == "/usr/bin:/bin")
-        {
-            return Err("ambient environment rejected");
-        }
-        if start.gateway_proxy.is_some() {
-            for (key, value) in gent_linux_sandbox::claude_environment::FLAGS {
-                if !start
-                    .environment
-                    .iter()
-                    .any(|(k, v)| k.as_str() == *key && v.as_str() == *value)
-                {
-                    return Err("nonessential traffic flags rejected");
-                }
-            }
-            let home = start
-                .environment
-                .iter()
-                .find(|(k, _)| k == "HOME")
-                .ok_or("private home")?;
-            if !start
-                .environment
-                .iter()
-                .any(|(k, v)| k == "CLAUDE_CONFIG_DIR" && v == &format!("{}/.claude", home.1))
-            {
-                return Err("private config directory rejected");
-            }
-        }
+        gent_linux_sandbox::claude_environment::validate_helper_environment(
+            &start.environment,
+            start.gateway_proxy.is_some(),
+        )?;
         if start.gateway_proxy.is_some() != start.runtime_root.is_some() {
             return Err("network runtime missing");
         }
@@ -130,8 +81,6 @@ mod linux {
         drop(initial);
         let start: Start = serde_json::from_slice(&line).map_err(|_| "startup invalid")?;
         validate_start(&start)?;
-        // Parent wall watchdog is the primary bound. A later independent SDK timeout
-        // remains as defense in depth and makes parent-watchdog tests causal.
         let gate_image = std::env::current_exe().map_err(|_| "contained gate image")?;
         if !start
             .readonly
@@ -257,8 +206,6 @@ mod linux {
             }
         };
         drop(process);
-        // Output threads belong to this helper process and are bounded by the parent
-        // cgroup/wall watchdog. The stdin thread dies with helper process exit.
         let _ = out.join();
         let _ = err.join();
         Ok(code)

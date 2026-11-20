@@ -12,8 +12,6 @@ use gent_types::{
 use super::{RuntimeFacade, require_same_workspace, scope_for};
 use crate::{agent_chat_intent_error::AgentChatIntentError, api::RuntimeApi};
 
-const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
-
 impl RuntimeFacade {
     pub(super) fn send_to_conversation(
         &self,
@@ -55,14 +53,6 @@ impl RuntimeFacade {
         else {
             return Err("cross-conversation message was not accepted".into());
         };
-        if delivery == ConversationMessageDelivery::Steered {
-            self.agent_chat_intent(AgentChatIntentFrame::SteerQueuedPrompt {
-                request_id: AgentChatRequestId(format!("linked-steer-{}", request_id.0)),
-                receipt_id: ReceiptId(format!("linked-steer-receipt-{}", request_id.0)),
-                conversation_id: target_conversation_id.clone(),
-                message_id: message_id.clone(),
-            })?;
-        }
         let host_epoch = self.host_epoch()?;
         self.conversation_links()?
             .append_conversation_orchestration_fact(
@@ -100,12 +90,12 @@ impl RuntimeFacade {
         }
         let deadline =
             Instant::now() + Duration::from_secs(u64::from(bounded_wait_seconds(timeout_seconds)));
+        let ledger = self.conversation_links()?;
+        let mut seen = ledger.commit_count();
         let mut results = self.probe(conversation_ids)?;
-        while !results.iter().all(|result| result.target.is_settled()) {
-            if Instant::now() >= deadline {
-                break;
-            }
-            std::thread::sleep(WAIT_POLL_INTERVAL);
+        while !results.iter().all(|result| result.target.is_settled())
+            && ledger.wait_for_commit(&mut seen, deadline)
+        {
             results = self.probe(conversation_ids)?;
         }
         let timed_out = !results.iter().all(|result| result.target.is_settled());

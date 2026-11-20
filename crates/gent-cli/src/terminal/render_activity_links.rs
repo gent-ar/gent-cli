@@ -61,6 +61,32 @@ pub(super) fn text(fact: &ConversationActivityFact) -> (String, Color) {
                 Color::Green
             },
         ),
+        ConversationActivityFact::ModelDownloadProgress {
+            model_id,
+            downloaded_bytes,
+            total_bytes,
+            phase,
+            ..
+        } => (
+            total_bytes.map_or_else(
+                || {
+                    format!(
+                        "Model {} · {phase:?} · {downloaded_bytes} bytes",
+                        clip(model_id)
+                    )
+                },
+                |total| {
+                    format!(
+                        "Model {} · {phase:?} · {downloaded_bytes}/{total} bytes",
+                        clip(model_id)
+                    )
+                },
+            ),
+            Color::Yellow,
+        ),
+        ConversationActivityFact::SideQuestionSettled { status, .. } => {
+            (format!("Side question · {status:?}"), Color::Cyan)
+        }
         _ => (String::new(), Color::DarkGray),
     }
 }

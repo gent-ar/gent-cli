@@ -1,19 +1,17 @@
-use std::collections::VecDeque;
-use std::io::{Read, Result as IoResult, Write};
+use std::io::{Read, Result as IoResult};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
-use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::thread;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::interrupt::{ProcessTreeControl, ProcessTreeError, ProcessTreeSignal};
 use crate::lock::rechecked_identity;
+use crate::process_exit::ProcessExit;
 use crate::process_streams::ProcessStreams;
 pub use crate::process_streams::{CapturedStream, ProcessOutput};
+use crate::provider_input::ProviderInput;
 use crate::supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess, SupervisorError};
 use node_search::NodeSearch;
 pub use node_search::configure_locked_node_environment;
 
-/// A synchronous launcher for public executables with a fixed per-stream output limit.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SystemLauncher {
     output_limit: usize,
@@ -29,7 +27,6 @@ impl SystemLauncher {
         }
     }
 
-    /// Puts a caller-locked Node directory first for npm-installed provider shims.
     #[must_use]
     pub fn with_preferred_node(output_limit: usize, node_bin: std::path::PathBuf) -> Self {
         Self {
@@ -70,7 +67,7 @@ impl ProcessLauncher for SystemLauncher {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         self.node.configure(&mut command)?;
-        node_search::remove_package_manager_provenance(&mut command);
+        node_search::provider_environment(&mut command, &launch.provider);
         if let Some(workspace_root) = &launch.workspace_root {
             command.current_dir(workspace_root);
         }
@@ -91,37 +88,73 @@ impl ProcessLauncher for SystemLauncher {
             .stdin
             .take()
             .ok_or_else(|| SupervisorError::Launch("stdin was not piped".into()))?;
-        Ok(SystemProcess::new(
-            child,
-            stdin,
-            stdout,
-            stderr,
-            self.output_limit,
-        ))
+        SystemProcess::new(child, stdin, stdout, stderr, self.output_limit)
+            .map_err(|error| SupervisorError::Launch(error.to_string()))
     }
 }
 
 #[derive(Debug)]
 pub struct SystemProcess {
-    child: Mutex<Child>,
-    stdin: Mutex<Option<ChildStdin>>,
+    pid: u32,
+    exit: Arc<ProcessExit>,
+    input: ProviderInput,
     streams: ProcessStreams,
-    drained_stdout: Mutex<VecDeque<Vec<u8>>>,
+    tree: Mutex<Option<OwnedTree>>,
 }
+
+#[cfg(windows)]
+type OwnedTree = win32job::Job;
+#[cfg(not(windows))]
+type OwnedTree = u32;
 
 impl SystemProcess {
     pub(crate) fn new(
-        child: Child,
+        mut child: Child,
         stdin: ChildStdin,
         stdout: impl Read + Send + 'static,
         stderr: impl Read + Send + 'static,
         output_limit: usize,
-    ) -> Self {
-        Self {
-            child: Mutex::new(child),
-            stdin: Mutex::new(Some(stdin)),
+    ) -> Result<Self, ProcessTreeError> {
+        #[cfg(windows)]
+        let tree = windows::own_tree(&child);
+        #[cfg(not(windows))]
+        let tree: Result<OwnedTree, ProcessTreeError> = Ok(child.id());
+        let owned = tree.and_then(|tree| {
+            ProviderInput::spawn(stdin)
+                .map(|input| (tree, input))
+                .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+        });
+        let (tree, input) = match owned {
+            Ok(owned) => owned,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        let pid = child.id();
+        let exit = ProcessExit::watch(child).map_err(|error| {
+            let _ = i32::try_from(pid).map(|pid| signal_process_tree(pid, ProcessTreeSignal::Kill));
+            ProcessTreeError::Failed(error.to_string())
+        })?;
+        Ok(Self {
+            pid,
+            exit,
+            input,
             streams: ProcessStreams::new(stdout, stderr, output_limit),
-            drained_stdout: Mutex::new(VecDeque::new()),
+            tree: Mutex::new(Some(tree)),
+        })
+    }
+
+    fn release_tree(&self) {
+        let Some(tree) = recover_lock(&self.tree).take() else {
+            return;
+        };
+        #[cfg(windows)]
+        drop(tree);
+        #[cfg(not(windows))]
+        if let Ok(group) = i32::try_from(tree) {
+            let _ = signal_process_tree(group, ProcessTreeSignal::Kill);
         }
     }
 
@@ -129,43 +162,28 @@ impl SystemProcess {
     pub(crate) fn peek_owned_exit_status(
         &self,
     ) -> Result<Option<std::process::ExitStatus>, ProcessTreeError> {
-        recover_lock(&self.child)
-            .try_wait()
-            .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+        self.exit.peek()
     }
 
     #[cfg(windows)]
     pub(crate) fn kill_owned(&self) -> Result<(), ProcessTreeError> {
-        recover_lock(&self.child)
-            .kill()
-            .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+        let status = self.exit.lock();
+        if status.is_some() {
+            return Ok(());
+        }
+        windows::terminate(self.pid)
     }
 
     #[cfg(windows)]
     pub(crate) fn reap_owned(&self) -> bool {
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while std::time::Instant::now() < deadline {
-            match recover_lock(&self.child).try_wait() {
-                Ok(Some(_)) => return true,
-                Ok(None) => thread::sleep(Duration::from_millis(10)),
-                Err(_) => return false,
-            }
-        }
-        false
+        self.exit.wait_for(std::time::Duration::from_secs(3))
     }
 
-    /// Waits for process exit and joins both pipe readers before returning its exit status.
-    ///
-    /// # Errors
-    /// Returns an error when waiting for the operating-system process fails.
     pub fn wait(&self) -> IoResult<ExitStatus> {
-        loop {
-            if let Some(status) = self.try_wait_status()? {
-                return Ok(status);
-            }
-            let _ = self.streams.next_stdout_chunk();
-            thread::sleep(Duration::from_millis(1));
-        }
+        self.streams.join_after_tree_exit();
+        let status = self.exit.wait().map_err(std::io::Error::other)?;
+        self.settle_exit();
+        Ok(status)
     }
 
     #[must_use]
@@ -176,41 +194,29 @@ impl SystemProcess {
 
 impl ProcessTreeControl for SystemProcess {
     fn signal_tree(&self, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
-        let mut child = recover_lock(&self.child);
-        if cfg!(windows) && matches!(child.try_wait(), Ok(Some(_))) {
+        if cfg!(windows) && matches!(self.exit.peek(), Ok(Some(_))) {
             return Ok(());
         }
-        let pid = child
-            .id()
+        let pid = self
+            .pid
             .try_into()
             .map_err(|_| ProcessTreeError::Failed("provider process id overflowed".into()))?;
-        drop(child);
         signal_process_tree(pid, signal)
     }
 }
 
 impl ProviderProcess for SystemProcess {
     fn write_frame(&self, frame: &[u8]) -> Result<(), ProcessTreeError> {
-        let mut stdin = recover_lock(&self.stdin);
-        let input = stdin
-            .as_mut()
-            .ok_or_else(|| ProcessTreeError::Failed("provider input is closed".into()))?;
-        input
-            .write_all(frame)
-            .and_then(|()| input.flush())
-            .map_err(|error| ProcessTreeError::Failed(error.to_string()))
+        self.input.send(frame)
     }
 
     fn close_stdin(&self) -> Result<(), ProcessTreeError> {
-        recover_lock(&self.stdin).take();
+        self.input.close();
         Ok(())
     }
 
     fn next_stdout_chunk(&self) -> Result<Option<Vec<u8>>, ProcessTreeError> {
-        Ok(self
-            .streams
-            .next_stdout_chunk()
-            .or_else(|| recover_lock(&self.drained_stdout).pop_front()))
+        Ok(self.streams.next_stdout_chunk())
     }
 
     fn try_exit_code(&self) -> Result<Option<Option<i32>>, ProcessTreeError> {
@@ -222,12 +228,16 @@ impl ProviderProcess for SystemProcess {
 
 impl SystemProcess {
     fn try_wait_status(&self) -> IoResult<Option<ExitStatus>> {
-        let status = recover_lock(&self.child).try_wait()?;
+        let status = self.exit.peek().map_err(std::io::Error::other)?;
         if status.is_some() {
-            groups::reaped(recover_lock(&self.child).id());
-            recover_lock(&self.drained_stdout).extend(self.streams.drain_after_exit());
+            self.settle_exit();
         }
         Ok(status)
+    }
+
+    fn settle_exit(&self) {
+        self.release_tree();
+        groups::reaped(self.pid);
     }
 }
 

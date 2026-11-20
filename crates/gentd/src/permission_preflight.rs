@@ -28,16 +28,14 @@ pub(crate) enum ModeGate {
 }
 
 pub(crate) const fn mode_gate(mode: AgentChatMode, request: &PermissionRequest) -> ModeGate {
-    if !matches!(
-        request.category,
-        PermissionCategory::Edit | PermissionCategory::Command
-    ) {
-        return ModeGate::Policy;
-    }
-    match mode {
-        AgentChatMode::Agent => ModeGate::Policy,
-        AgentChatMode::Ask => ModeGate::AskUser,
-        AgentChatMode::Plan => ModeGate::Refuse(PermissionDenialReason::ReadOnlyMode),
+    match (mode, request.category) {
+        (AgentChatMode::Plan, PermissionCategory::Edit) => {
+            ModeGate::Refuse(PermissionDenialReason::PlanModeEdit)
+        }
+        (AgentChatMode::Ask, PermissionCategory::Edit | PermissionCategory::Command) => {
+            ModeGate::AskUser
+        }
+        _ => ModeGate::Policy,
     }
 }
 
@@ -51,9 +49,6 @@ pub(crate) fn evaluate_with_evidence(
     run_id: &str,
     evidence: Option<&gent_drivers::ProcessSandboxEvidence>,
 ) -> PermissionPreflight {
-    if crate::permission_category::requires_user_response(&request.tool_name) {
-        return PermissionPreflight::Ask;
-    }
     let enforcement = evidence
         .filter(|proof| proof.run_id() == run_id)
         .and_then(|proof| proof.permission_binding())
@@ -61,6 +56,26 @@ pub(crate) fn evaluate_with_evidence(
         .map_or(SandboxEnforcement::Unavailable, |_| {
             SandboxEnforcement::Enforced
         });
+    evaluate_policy(policy, request, enforcement, false)
+}
+
+pub(crate) fn evaluate_policy(
+    policy: &PolicyRecord,
+    request: &PermissionRequest,
+    enforcement: SandboxEnforcement,
+    trusted_internal: bool,
+) -> PermissionPreflight {
+    if crate::permission_category::requires_user_response(&request.tool_name) {
+        return PermissionPreflight::Ask;
+    }
+    if crate::permission_category::stays_in_session(&request.tool_name) {
+        return PermissionPreflight::Allow;
+    }
+    if trusted_internal
+        && (!policy.unattended_requires_sandbox() || enforcement == SandboxEnforcement::Enforced)
+    {
+        return PermissionPreflight::Allow;
+    }
     match evaluate_permission_with_sandbox(policy, request, enforcement) {
         PermissionDecision::Allow => PermissionPreflight::Allow,
         PermissionDecision::Deny => PermissionPreflight::Deny,
@@ -70,8 +85,6 @@ pub(crate) fn evaluate_with_evidence(
     }
 }
 
-/// Process evidence is borrowed only while the production runner owner remains locked.
-/// Injection provenance identifies a Gent control; it is never containment evidence.
 pub(crate) fn evaluate_callback(
     policy: &PolicyRecord,
     request: &PermissionRequest,
@@ -81,9 +94,6 @@ pub(crate) fn evaluate_callback(
     evidence: Option<&gent_drivers::ProcessSandboxEvidence>,
     trusted_internal: bool,
 ) -> PermissionPreflight {
-    if crate::permission_category::requires_user_response(&request.tool_name) {
-        return PermissionPreflight::Ask;
-    }
     let evidence = evidence
         .filter(|proof| proof.run_id() == run)
         .filter(|proof| {
@@ -94,10 +104,12 @@ pub(crate) fn evaluate_callback(
                     && binding.host_epoch() == epoch
             })
         });
-    if trusted_internal && (!policy.unattended_requires_sandbox() || evidence.is_some()) {
-        return PermissionPreflight::Allow;
-    }
-    evaluate_with_evidence(policy, request, run, evidence)
+    let enforcement = if evidence.is_some() {
+        SandboxEnforcement::Enforced
+    } else {
+        SandboxEnforcement::Unavailable
+    };
+    evaluate_policy(policy, request, enforcement, trusted_internal)
 }
 
 #[cfg(test)]
@@ -122,6 +134,7 @@ mod tests {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec!["workspace:edit".into()],
             allowed_categories: vec![PermissionCategory::Network],
+            allowed_commands: Vec::new(),
         }
     }
 
@@ -164,6 +177,112 @@ mod tests {
                     PermissionPreflight::Ask
                 );
             }
+        }
+    }
+
+    #[test]
+    fn session_internal_tools_never_ask_and_never_need_a_sandbox() {
+        use gent_types::{Containment, SandboxEnforcement};
+        for mode in [
+            PermissionMode::AskEveryTime,
+            PermissionMode::AutoAcceptEdits,
+            PermissionMode::Autonomous,
+            PermissionMode::Bypass,
+        ] {
+            for containment in [Containment::Sandboxed, Containment::Unsandboxed] {
+                let current = policy(mode).for_conversation(containment);
+                for enforcement in [
+                    SandboxEnforcement::Unavailable,
+                    SandboxEnforcement::Enforced,
+                ] {
+                    let outcome = |tool: &str| {
+                        super::evaluate_policy(
+                            &current,
+                            &request(tool, PermissionCategory::Provider),
+                            enforcement,
+                            false,
+                        )
+                    };
+                    for tool in ["Agent", "Task", "ScheduleWakeup", "TodoWrite"] {
+                        assert_eq!(outcome(tool), PermissionPreflight::Allow, "{tool} {mode:?}");
+                    }
+                    let ordinary = if mode == PermissionMode::Bypass
+                        && (containment == Containment::Unsandboxed
+                            || enforcement == SandboxEnforcement::Enforced)
+                    {
+                        PermissionPreflight::Allow
+                    } else {
+                        PermissionPreflight::Ask
+                    };
+                    for tool in ["UnknownTool", "mcp__server__Agent"] {
+                        assert_eq!(outcome(tool), ordinary, "{tool} {mode:?} {containment:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn plan_mode_refuses_only_edits_and_leaves_commands_to_the_policy() {
+        use super::{ModeGate, mode_gate};
+        use gent_types::{AgentChatMode, PermissionDenialReason};
+        for (mode, category, gate) in [
+            (
+                AgentChatMode::Plan,
+                PermissionCategory::Edit,
+                ModeGate::Refuse(PermissionDenialReason::PlanModeEdit),
+            ),
+            (
+                AgentChatMode::Plan,
+                PermissionCategory::Command,
+                ModeGate::Policy,
+            ),
+            (
+                AgentChatMode::Plan,
+                PermissionCategory::Read,
+                ModeGate::Policy,
+            ),
+            (
+                AgentChatMode::Plan,
+                PermissionCategory::Network,
+                ModeGate::Policy,
+            ),
+            (
+                AgentChatMode::Plan,
+                PermissionCategory::Provider,
+                ModeGate::Policy,
+            ),
+            (
+                AgentChatMode::Ask,
+                PermissionCategory::Edit,
+                ModeGate::AskUser,
+            ),
+            (
+                AgentChatMode::Ask,
+                PermissionCategory::Command,
+                ModeGate::AskUser,
+            ),
+            (
+                AgentChatMode::Ask,
+                PermissionCategory::Read,
+                ModeGate::Policy,
+            ),
+            (
+                AgentChatMode::Agent,
+                PermissionCategory::Edit,
+                ModeGate::Policy,
+            ),
+            (
+                AgentChatMode::Agent,
+                PermissionCategory::Command,
+                ModeGate::Policy,
+            ),
+        ] {
+            assert_eq!(
+                mode_gate(mode, &request("tool", category)),
+                gate,
+                "{mode:?} {category:?}"
+            );
         }
     }
 

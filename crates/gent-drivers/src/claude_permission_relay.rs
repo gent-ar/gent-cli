@@ -1,4 +1,3 @@
-//! Private, operation-bound Claude permission data; never a public preview.
 use crate::claude_control::{
     ClaudePermissionBehavior, ClaudePermissionRequest, MAX_PRESERVED_INPUT_BYTES,
     encode_permission_response_preserving_input, encode_permission_response_with_input,
@@ -7,8 +6,6 @@ use crate::claude_control::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-// Soft bound for newly retained original input. Existing large-input approvals
-// still use the previous omitted-updatedInput encoding; they are not rejected.
 const MAX_RETAINED_ORIGINAL_BYTES: usize = 4 * 1024 * 1024;
 struct PendingPermission {
     suggestions: Vec<Value>,
@@ -107,8 +104,6 @@ impl ClaudePermissionRelay {
                 return Ok(Some(bytes));
             }
         }
-        // Preserve previously working behavior when the input or combined reply is
-        // too large to echo safely; never silently substitute another operation's input.
         Ok(Some(encode_permission_response_with_input(
             request_id,
             behavior,
@@ -122,19 +117,16 @@ impl ClaudePermissionRelay {
             self.retained_bytes -= pending.retained_bytes;
         }
     }
-    pub(crate) fn cancel(&mut self, frame: &Value) -> bool {
+    pub(crate) fn cancel(&mut self, frame: &Value) -> Option<String> {
         let id = frame
             .get("request_id")
             .or_else(|| frame.get("requestId"))
             .or_else(|| frame.pointer("/params/request_id"))
             .or_else(|| frame.pointer("/params/requestId"))
             .and_then(Value::as_str);
-        let Some(id) = id else { return false };
-        if !self.pending.contains_key(id) {
-            return false;
-        }
-        self.settle(id);
-        true
+        let id = id.filter(|id| self.pending.contains_key(*id))?.to_owned();
+        self.settle(&id);
+        Some(id)
     }
 }
 #[cfg(test)]

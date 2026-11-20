@@ -1,7 +1,7 @@
 use gent_ports::{LedgerError, MAX_PLAN_PURSUIT_BATCH};
 use gent_types::{
     AgentChatConversationId, AgentChatRunId, ConversationActivityFact, ConversationActivityScope,
-    PlanArtifact, PlanImplementation, PlanTurn, ReceiptId,
+    PlanArtifact, PlanTurn, ReceiptId,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -59,40 +59,6 @@ pub(super) fn turns_awaiting_review(connection: &Connection) -> Result<Vec<PlanT
                 })
         })
         .collect())
-}
-
-pub(super) fn implementations_awaiting_prompt(
-    connection: &Connection,
-) -> Result<Vec<PlanImplementation>, LedgerError> {
-    let mut statement = connection
-        .prepare(
-            "SELECT r.idempotency_key, r.implementation_run_id, a.artifact_json, a.status FROM reviewed_plan_approval_receipts r JOIN reviewed_plan_artifacts a ON a.plan_id = r.plan_id AND a.revision = r.plan_revision WHERE NOT EXISTS (SELECT 1 FROM conversation_messages m WHERE m.run_id = r.implementation_run_id) AND r.implementation_run_id = (SELECT latest.run_id FROM runs latest WHERE latest.conversation_id = a.conversation_id ORDER BY latest.rowid DESC LIMIT 1) ORDER BY r.rowid ASC LIMIT ?1",
-        )
-        .map_err(storage_error)?;
-    let rows = statement
-        .query_map(
-            [i64::try_from(MAX_PLAN_PURSUIT_BATCH).unwrap_or(i64::MAX)],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
-        )
-        .map_err(storage_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(storage_error)?;
-    rows.into_iter()
-        .map(|(idempotency_key, run_id, encoded, status)| {
-            Ok(PlanImplementation {
-                idempotency_key,
-                implementation_run_id: AgentChatRunId(run_id),
-                plan: decode(&encoded, &status)?,
-            })
-        })
-        .collect()
 }
 
 pub(super) fn publish(connection: &Connection, plan: &PlanArtifact) -> Result<(), LedgerError> {

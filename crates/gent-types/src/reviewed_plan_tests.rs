@@ -46,9 +46,8 @@ fn artifact_rejects_unbounded_content_and_a_digest_of_other_content() {
     );
 }
 
-#[test]
-fn approval_keeps_context_policy_and_frozen_boundary() {
-    let request = StartImplementationRequest {
+fn approval() -> StartImplementationRequest {
+    StartImplementationRequest {
         request_id: AgentChatRequestId("request-1".into()),
         receipt_id: ReceiptId("receipt-1".into()),
         idempotency_key: "key-1".into(),
@@ -67,7 +66,64 @@ fn approval_keeps_context_policy_and_frozen_boundary() {
             mode: AgentChatMode::Plan,
         },
         context_policy: ContextPolicy::Clear,
+        instructions: None,
+    }
+}
+
+#[test]
+fn approval_instructions_follow_the_plan_in_the_one_implementation_prompt() {
+    let request = StartImplementationRequest {
+        instructions: Some("  Use tabs, not spaces.\n".into()),
+        ..approval()
     };
+    assert!(request.validate().is_ok());
+    let text = request.implementation_prompt("1. Update Cargo.toml").text;
+    assert!(text.contains("1. Update Cargo.toml\n</approved-plan>\n\n"));
+    assert!(text.ends_with("<user-instructions>\nUse tabs, not spaces.\n</user-instructions>"));
+    let plan = "step ".repeat(MAX_PLAN_CONTENT_BYTES / 5);
+    let bounded = StartImplementationRequest {
+        instructions: Some("i".repeat(MAX_IMPLEMENTATION_INSTRUCTIONS_BYTES)),
+        ..approval()
+    }
+    .implementation_prompt(&plan);
+    assert!(bounded.text.len() <= MAX_PLAN_CONTENT_BYTES);
+    assert!(bounded.text.ends_with("i\n</user-instructions>"));
+    for invalid in [
+        " \n".to_owned(),
+        "i".repeat(MAX_IMPLEMENTATION_INSTRUCTIONS_BYTES + 1),
+    ] {
+        let request = StartImplementationRequest {
+            instructions: Some(invalid),
+            ..approval()
+        };
+        assert_eq!(
+            request.validate(),
+            Err(ReviewedPlanContractError::InvalidMetadata)
+        );
+    }
+    assert!(
+        serde_json::to_value(approval())
+            .unwrap()
+            .get("instructions")
+            .is_none()
+    );
+}
+
+#[test]
+fn a_plan_at_its_size_bound_still_fits_one_implementation_prompt() {
+    let plan = "step ".repeat(MAX_PLAN_CONTENT_BYTES / 5);
+    let prompt = approval().implementation_prompt(&plan);
+    assert!(prompt.text.len() <= MAX_PLAN_CONTENT_BYTES);
+    assert!(prompt.text.ends_with(
+        "step 
+</approved-plan>"
+    ));
+    assert!(prompt.text.contains("bytes omitted by Gent"));
+}
+
+#[test]
+fn approval_keeps_context_policy_and_frozen_boundary() {
+    let request = approval();
     assert!(request.validate().is_ok());
     assert_eq!(
         serde_json::to_value(request).unwrap()["contextPolicy"],

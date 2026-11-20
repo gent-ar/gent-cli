@@ -36,7 +36,7 @@ where
         let launched = self
             .active
             .get(run_id)
-            .filter(|binding| binding.settled)
+            .filter(|binding| binding.liveness().accepts_prompt())
             .map(|binding| {
                 (
                     binding.prompt.message.conversation_id.clone(),
@@ -52,8 +52,8 @@ where
         if self.runner.has_codex_session(run_id)
             && (policy_changed || !self.runtime.runs().launched_executable_is_current(run_id)?)
         {
-            self.runner.release_codex_session(run_id)?;
             self.active.remove(run_id);
+            self.runner.release_codex_session(run_id)?;
         }
         Ok(())
     }
@@ -74,7 +74,7 @@ where
         if self
             .active
             .get(run_id)
-            .is_some_and(|binding| !binding.settled)
+            .is_some_and(|binding| binding.turns.turn_open())
         {
             let message_id = self
                 .active

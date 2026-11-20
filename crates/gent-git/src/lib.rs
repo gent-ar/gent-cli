@@ -2,6 +2,7 @@
 
 pub mod executor;
 mod repository_marker;
+pub mod workspace_changes;
 mod workspace_repositories;
 
 pub use workspace_repositories::workspace_repositories;

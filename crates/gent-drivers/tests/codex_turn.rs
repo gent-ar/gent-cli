@@ -38,7 +38,9 @@ fn frames(effects: &[CodexTurnEffect]) -> Vec<Value> {
             }
             CodexTurnEffect::Fact(_)
             | CodexTurnEffect::ControlRequest(_)
-            | CodexTurnEffect::Steer(_) => None,
+            | CodexTurnEffect::Steer(_)
+            | CodexTurnEffect::ProviderTurnStarted
+            | CodexTurnEffect::SessionState { .. } => None,
         })
         .collect()
 }
@@ -67,6 +69,8 @@ fn goal(revision: u64) -> GoalProjection {
     .unwrap()
 }
 
+#[path = "codex_turn/background_commands.rs"]
+mod background_commands;
 #[path = "codex_turn/children.rs"]
 mod children;
 #[path = "codex_turn/control.rs"]
@@ -75,3 +79,5 @@ mod control;
 mod lifecycle;
 #[path = "codex_turn/prewarm.rs"]
 mod prewarm;
+#[path = "codex_turn/provider_turn.rs"]
+mod provider_turn;

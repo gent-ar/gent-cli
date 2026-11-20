@@ -1,7 +1,4 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::{sync::mpsc, time::Duration};
 
 use gent_ports::{AgentChatPromptDispatchLedger, AgentChatPromptLedger};
 use gent_protocol::AgentChatIntentFrame;
@@ -14,7 +11,7 @@ use super::{facade_with_hosts, root};
 use crate::{api::RuntimeApi, ordinary_lifecycle_router::OrdinaryLifecycleHost};
 
 #[derive(Debug)]
-struct Claude(Arc<AtomicUsize>);
+struct Claude(mpsc::Sender<()>);
 
 impl OrdinaryLifecycleHost for Claude {
     fn provider(&self) -> AgentChatProvider {
@@ -24,10 +21,10 @@ impl OrdinaryLifecycleHost for Claude {
         Ok(())
     }
     fn wake(&mut self) -> Result<(), ()> {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        let _ = self.0.send(());
         Ok(())
     }
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         Ok(())
     }
     fn needs_drive(&self) -> bool {
@@ -44,9 +41,8 @@ impl OrdinaryLifecycleHost for Claude {
 #[tokio::test]
 async fn a_prompt_waiting_for_claurst_wakes_claude_when_a_switch_carries_it_there() {
     let directory = tempfile::tempdir().unwrap();
-    let wakes = Arc::new(AtomicUsize::new(0));
-    let runtime =
-        facade_with_hosts(directory.path(), vec![Box::new(Claude(Arc::clone(&wakes)))]).await;
+    let (woke, wakes) = mpsc::channel();
+    let runtime = facade_with_hosts(directory.path(), vec![Box::new(Claude(woke))]).await;
     let conversation = root(&runtime, "carried", ".");
     let ledger = runtime.conversation_links().unwrap().clone();
     let waiting = ledger
@@ -80,7 +76,10 @@ async fn a_prompt_waiting_for_claurst_wakes_claude_when_a_switch_carries_it_ther
     let [AgentChatIntentFrame::Switched { run_id: child, .. }] = switched.as_slice() else {
         panic!("a switch with only a waiting prompt must be accepted");
     };
-    assert!(wakes.load(Ordering::SeqCst) > 0);
+    tokio::task::spawn_blocking(move || wakes.recv_timeout(Duration::from_secs(5)))
+        .await
+        .unwrap()
+        .unwrap();
     let carried = ledger
         .claim_agent_chat_prompt_dispatch("daemon", HostEpoch(1), AgentChatProvider::Claude)
         .unwrap()

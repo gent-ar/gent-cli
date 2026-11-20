@@ -121,6 +121,26 @@ fn repeated_catalogue_reads_within_the_ttl_cause_exactly_one_probe() {
 }
 
 #[test]
+fn a_listing_that_settles_after_loading_signals_its_followers() {
+    let fixture = fixture(
+        ProviderAuthLifecycle::Authenticated,
+        Ok(json!({"commands": [], "models": []})),
+        Duration::from_millis(40),
+    );
+    let mut changes = super::super::command_changes::subscribe();
+    changes.borrow_and_update();
+    assert!(matches!(
+        fixture.initialize.state(None, false),
+        InitializeState::Loading
+    ));
+    assert!(matches!(
+        settle(&fixture.initialize, None),
+        InitializeState::Listed(_)
+    ));
+    assert!(changes.has_changed().unwrap());
+}
+
+#[test]
 fn a_failed_probe_is_not_retried_within_its_backoff() {
     let fixture = fixture(
         ProviderAuthLifecycle::Authenticated,

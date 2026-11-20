@@ -68,7 +68,7 @@ fn empty_turn_completion_uses_the_owned_live_turn_identity() {
 }
 
 #[test]
-fn reports_one_model_failure_for_a_failed_turn() {
+fn a_failed_turn_reports_the_failure_from_its_terminal_completion() {
     let (mut driver, _) = CodexTurnDriver::start(config(), "hello", None).unwrap();
     driver.receive(br#"{"id":1,"result":{}}"#).unwrap();
     driver
@@ -77,24 +77,36 @@ fn reports_one_model_failure_for_a_failed_turn() {
     driver
         .receive(br#"{"method":"turn/started","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}}"#)
         .unwrap();
-    let error = driver
-        .receive(br#"{"method":"error","params":{"error":{"message":"The selected model is not supported."}}}"#)
+    let failures = |effects: &[CodexTurnEffect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    CodexTurnEffect::Fact(PublicWireFact::Event(
+                        NormalizedProviderEvent::ProviderFailure { .. }
+                    ))
+                )
+            })
+            .count()
+    };
+    let retrying = driver
+        .receive(br#"{"method":"error","params":{"error":{"message":"overloaded","codexErrorInfo":"serverOverloaded"},"threadId":"thread-private","turnId":"turn-1","willRetry":true}}"#)
         .unwrap();
-    assert!(error.contains(&CodexTurnEffect::Fact(PublicWireFact::Event(
-        NormalizedProviderEvent::ProviderFailure {
-            classification: gent_types::ProviderFailureClassification::Provider,
-            message: "The selected Codex model is unavailable.".into(),
-        },
-    ))));
+    assert_eq!(failures(&retrying), 0);
     let completed = driver
-        .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1","status":"failed","error":{"message":"The selected model is not supported."}}}}"#)
+        .receive(br#"{"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1","status":"failed","error":{"message":"limit","codexErrorInfo":"usageLimitExceeded"}}}}"#)
         .unwrap();
-    assert!(!completed.iter().any(|effect| matches!(
-        effect,
-        CodexTurnEffect::Fact(PublicWireFact::Event(
-            NormalizedProviderEvent::ProviderFailure { .. }
-        ))
-    )));
+    assert_eq!(failures(&completed), 1);
+    assert!(
+        completed.contains(&CodexTurnEffect::Fact(PublicWireFact::Event(
+            NormalizedProviderEvent::ProviderFailure {
+                classification: gent_types::ProviderFailureClassification::RateLimited,
+                message: "Codex usage limit reached.".into(),
+                resets_at: None,
+            },
+        )))
+    );
 }
 
 #[test]

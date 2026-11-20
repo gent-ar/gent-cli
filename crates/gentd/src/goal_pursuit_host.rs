@@ -21,7 +21,7 @@ pub(crate) struct GoalPursuitHost {
     host_epoch: HostEpoch,
 }
 
-struct IngressAdmission(OrdinaryPromptIngress<SqliteLedger>);
+pub(crate) struct IngressAdmission(pub(crate) OrdinaryPromptIngress<SqliteLedger>);
 
 impl GoalContinuationAdmission for IngressAdmission {
     fn admit(&mut self, wake: &GoalContinuationWake) -> Result<(), String> {
@@ -86,11 +86,8 @@ impl GoalPursuitHost {
                 &mut admission,
             )
             .map_err(|error| error.to_string())?;
-        tick.failures.extend(
-            self.plans
-                .pursue(self.host_epoch, &mut admission)
-                .map_err(|error| error.to_string())?,
-        );
+        tick.failures
+            .extend(self.plans.pursue().map_err(|error| error.to_string())?);
         Ok(tick)
     }
 }

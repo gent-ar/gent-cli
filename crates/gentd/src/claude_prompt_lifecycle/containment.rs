@@ -36,7 +36,7 @@ where
         let Some(binding) = self
             .active
             .get(run_id)
-            .filter(|binding| binding.settled && binding.steers.is_empty())
+            .filter(|binding| binding.liveness().accepts_prompt())
         else {
             return Ok(());
         };
@@ -46,8 +46,8 @@ where
             && (!self.runtime.runs().launched_executable_is_current(run_id)?
                 || self.runtime.run_policy(&conversation_id, run_id)? != launched)
         {
-            self.runner.release_claude_session(run_id)?;
             self.active.remove(run_id);
+            self.runner.release_claude_session(run_id)?;
         }
         Ok(())
     }
@@ -68,11 +68,8 @@ where
         if self
             .active
             .get(run_id)
-            .is_some_and(|binding| !binding.settled)
+            .is_some_and(|binding| binding.turns.turn_open())
         {
-            // The provider may fail before it announces its session. Persist
-            // the explanation through prompt dispatch before attempting the
-            // normalized, session-fenced event.
             let message_id = self
                 .active
                 .get(run_id)

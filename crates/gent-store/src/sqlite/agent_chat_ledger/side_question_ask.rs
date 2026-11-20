@@ -2,8 +2,8 @@ use gent_ports::{
     LedgerError, MAX_LIVE_SIDE_QUESTIONS_PER_CONVERSATION, MAX_LIVE_SIDE_QUESTIONS_TOTAL,
 };
 use gent_types::{
-    AgentChatConversationId, AgentChatSideQuestion, AgentChatSideQuestionAsked,
-    AgentChatSideQuestionRecord, AgentChatSideQuestionStatus, Command, Receipt, ReceiptStatus,
+    AgentChatSideQuestion, AgentChatSideQuestionAsked, AgentChatSideQuestionRecord,
+    AgentChatSideQuestionStatus, Command, Receipt, ReceiptStatus,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::json;
@@ -13,7 +13,7 @@ use super::super::super::queries::{
     find_receipt, insert_receipt, receipt_matches_command, storage_error,
 };
 use super::super::prompt_dispatch::require_open;
-use super::records::parse_status;
+use super::records::find;
 use super::{conflict, idempotency_key};
 
 pub(super) fn persist_ask(
@@ -75,6 +75,7 @@ pub(super) fn persist_ask(
             question: ask.question.clone(),
             status: AgentChatSideQuestionStatus::Pending,
             answer: None,
+            failure_code: None,
             failure_reason: None,
             created_at_unix_ms: ask.created_at_unix_ms,
         },
@@ -149,7 +150,7 @@ fn existing_ask(
 ) -> Result<Option<AgentChatSideQuestionAsked>, LedgerError> {
     let row = transaction
         .query_row(
-            "SELECT r.receipt_id, r.status, r.host_epoch, q.side_question_id, q.conversation_id, q.question, q.status, q.answer, q.failure_reason, q.created_at_unix_ms FROM agent_chat_side_questions q JOIN receipts r ON r.idempotency_key = q.idempotency_key WHERE q.idempotency_key = ?1",
+            "SELECT r.receipt_id, r.status, r.host_epoch, q.side_question_id FROM agent_chat_side_questions q JOIN receipts r ON r.idempotency_key = q.idempotency_key WHERE q.idempotency_key = ?1",
             [idempotency_key],
             |row| {
                 Ok((
@@ -157,36 +158,20 @@ fn existing_ask(
                     row.get::<_, String>(1)?,
                     row.get::<_, u64>(2)?,
                     row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, u64>(9)?,
                 ))
             },
         )
         .optional()
         .map_err(storage_error)?;
-    let Some((
-        receipt_id,
-        receipt_status,
-        epoch,
-        existing_id,
-        conversation,
-        question,
-        status,
-        answer,
-        failure_reason,
-        created_at_unix_ms,
-    )) = row
-    else {
+    let Some((receipt_id, receipt_status, epoch, existing_id)) = row else {
         return Ok(None);
     };
+    let record = find(transaction, &existing_id)?
+        .ok_or_else(|| LedgerError::Invariant("agent chat side question is unknown".into()))?;
     if receipt_id != ask.receipt_id.0
         || existing_id != side_question_id
-        || conversation != ask.conversation_id.0
-        || question != ask.question
+        || record.conversation_id != ask.conversation_id
+        || record.question != ask.question
         || receipt_status != "settled"
     {
         return Err(conflict("ask"));
@@ -198,15 +183,7 @@ fn existing_ask(
             status: ReceiptStatus::Settled,
             host_epoch: gent_types::HostEpoch(epoch),
         },
-        record: AgentChatSideQuestionRecord {
-            side_question_id: existing_id,
-            conversation_id: AgentChatConversationId(conversation),
-            question,
-            status: parse_status(&status)?,
-            answer,
-            failure_reason,
-            created_at_unix_ms,
-        },
+        record,
     }))
 }
 

@@ -18,6 +18,9 @@ impl RuntimeFacade {
         &self,
         frame: AgentChatIntentFrame,
     ) -> Result<Vec<AgentChatIntentFrame>, AgentChatIntentError> {
+        if let Some(conversation_id) = prompt_admission::admitted_conversation(&frame) {
+            self.require_prompt_admission(conversation_id)?;
+        }
         if let Some(reply) = self.provider_warm_intent(&frame)? {
             return Ok(vec![reply]);
         }
@@ -54,6 +57,18 @@ impl RuntimeFacade {
                 &entries,
             )?]);
         }
+        if prompt_admission::prompt_intent(&frame)
+            && let Some(conversation_id) = prompt_admission::admitted_conversation(&frame)
+            && let Err(error) = crate::workspace_changes_recorder::capture_baseline(
+                &self.transcript_import_ledger,
+                conversation_id,
+                host_epoch,
+            )
+        {
+            eprintln!(
+                "workspace baseline for conversation {conversation_id} was not recorded: {error}"
+            );
+        }
         let replies = if let Some(ingress) = &self.ordinary_prompt_ingress {
             let _permit = prompt_admission::prompt_intent(&frame)
                 .then(|| ingress.acquire_prompt())
@@ -84,12 +99,11 @@ impl RuntimeFacade {
             if let AgentChatIntentFrame::Switched {
                 conversation_id,
                 run_id,
-                receipt,
                 ..
             } = reply
             {
                 self.reap_superseded_warm_processes();
-                self.wake_carried_prompts(conversation_id, run_id, &receipt.receipt_id);
+                self.wake_carried_prompts(conversation_id, run_id);
             }
         }
         Ok(replies)
@@ -99,30 +113,10 @@ impl RuntimeFacade {
         &self,
         conversation_id: &gent_types::AgentChatConversationId,
         run_id: &gent_types::AgentChatRunId,
-        receipt_id: &gent_types::ReceiptId,
     ) {
         let Some(ingress) = &self.ordinary_prompt_ingress else {
             return;
         };
-        if let Some(Ok(selection)) = self
-            .agent_chat_reads
-            .as_ref()
-            .map(|reads| reads.run_selection(&conversation_id.0, &run_id.0))
-            && let Err(error) = ingress.wake_run(
-                selection.provider,
-                agent_chat_api::PromptWake {
-                    conversation_id: conversation_id.clone(),
-                    run_id: run_id.clone(),
-                    receipt_id: receipt_id.clone(),
-                    disposition: gent_types::AgentChatPromptDisposition::Send,
-                },
-            )
-        {
-            eprintln!(
-                "prompts carried to run {} were not woken: {error}",
-                run_id.0
-            );
-        }
         let carried = match self
             .transcript_import_ledger
             .read_awaiting_agent_chat_prompts(Some(&run_id.0), "", 128)
@@ -197,7 +191,7 @@ impl RuntimeFacade {
                     .ordinary_prompt_ingress
                     .as_ref()
                     .ok_or("agent-chat provider lifecycle is not configured")?;
-                let (receipt, run_id) = self
+                let (receipt, run_id, turn_id) = self
                     .agent_chat_prompts
                     .steer_queued(&receipt_id, host_epoch, &conversation_id, &message_id)?
                     .ok_or("agent-chat authority is disabled")?;
@@ -207,20 +201,6 @@ impl RuntimeFacade {
                     .ok_or("agent-chat reads are unavailable")?
                     .run_selection(&conversation_id.0, &run_id.0)?
                     .provider;
-                if provider.steers_by_interrupt()
-                    && !self.agent_chat_prompts.interrupt_active_turn_for_steer(
-                        host_epoch,
-                        &conversation_id,
-                        &run_id,
-                    )?
-                {
-                    return Ok(Some(AgentChatIntentFrame::QueuedPromptSteered {
-                        request_id,
-                        receipt,
-                        conversation_id,
-                        message_id,
-                    }));
-                }
                 ingress.steer_run(
                     provider,
                     crate::agent_chat_api::PromptWake {
@@ -229,7 +209,7 @@ impl RuntimeFacade {
                         receipt_id: receipt.receipt_id.clone(),
                         disposition: gent_types::AgentChatPromptDisposition::Queue,
                     },
-                    None,
+                    turn_id.as_deref(),
                 )?;
                 Ok(Some(AgentChatIntentFrame::QueuedPromptSteered {
                     request_id,

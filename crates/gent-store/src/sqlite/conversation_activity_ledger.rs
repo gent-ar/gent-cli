@@ -1,5 +1,3 @@
-//! `SQLite` persistence for immutable conversation activity facts.
-
 use gent_core::{activity_scope, validate_conversation_activity_fact};
 use gent_ports::{ConversationActivityLedger, LedgerError, MAX_CONVERSATION_ACTIVITY_PAGE_FACTS};
 use gent_types::{ConversationActivityFact, ConversationActivityPage};
@@ -58,6 +56,9 @@ pub(super) fn append(
         "INSERT INTO conversation_activity_facts (conversation_id, run_id, host_epoch, cursor, payload) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![scope.conversation_id, scope.run_id, scope.host_epoch.0, scope.cursor, payload],
     ).map_err(storage_error)?;
+    if let ConversationActivityFact::Terminal { phase, .. } = fact {
+        super::turn_terminal::record_published(connection, &scope.turn_id, phase)?;
+    }
     Ok(())
 }
 

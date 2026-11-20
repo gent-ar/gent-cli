@@ -36,7 +36,7 @@ impl OrdinaryLifecycleHost for Host {
         Ok(())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         match self.state {
             HostState::RecoveryArmed => self.state = HostState::RecoveredIdle,
             HostState::ShutdownArmed => self.state = HostState::Stopped,

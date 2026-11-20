@@ -7,7 +7,10 @@ pub(super) fn read(call: &Value) -> Result<Option<(String, Value)>, &'static str
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
     }
-    let Some(name) = call["title"].as_str().filter(|v| v.starts_with("mcp__")) else {
+    let Some(name) = call["title"]
+        .as_str()
+        .filter(|name| name.starts_with("mcp__") && *name != "mcp__auth")
+    else {
         return Ok(None);
     };
     let (server, tool) = name

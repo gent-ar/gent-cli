@@ -38,11 +38,6 @@ pub(super) fn mode_request(
         workspace_id,
         mode,
         bypass_consent,
-        expected_provider: state
-            .view
-            .as_ref()
-            .and_then(|view| view.selection())
-            .map(|selection| selection.provider),
     })
 }
 
@@ -73,6 +68,7 @@ pub(super) fn command(state: &mut UiState, command: &str, argument: &str) -> Opt
             _ => gent_types::PermissionDecisionResponseKind::ApproveOnce,
         },
         input,
+        command_pattern: None,
     };
     state.input.clear();
     Some(UiEffect::Request(UiRequest::Permission { response }))

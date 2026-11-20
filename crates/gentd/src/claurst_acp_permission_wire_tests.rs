@@ -19,13 +19,29 @@ fn update(id: &str, path: &str) -> Value {
 fn permission(rpc_id: u64, id: &str, path: &str) -> Value {
     json!({"id":rpc_id,"method":"session/request_permission","params":{"toolCall":{"toolCallId":id,
         "title":"Write","kind":"edit","rawInput":{"file_path":path,"content":path}},
-        "options":[{"kind":"allow_once","optionId":"allow_once"}]}})
+        "options":[{"kind":"allow_once","optionId":"allow_once"},{"kind":"reject_once","optionId":"reject_once"}]}})
 }
 fn feed(
     t: &mut ClaurstAcpTransport<Wire>,
     frame: Value,
 ) -> Result<Option<ClaurstAcpTerminal>, ClaurstAcpTransportError> {
     t.handle_frame(serde_json::to_vec(&frame).unwrap())
+}
+
+#[test]
+fn builtin_mcp_auth_callback_keeps_its_own_permission_request() {
+    let mut transport = ClaurstAcpTransport::new(Wire { writes: vec![] });
+    let mut frame = permission(1, "auth", "unused");
+    frame["params"]["toolCall"] = json!({
+        "toolCallId": "auth", "kind": "other", "title": "mcp__auth",
+        "status": "pending", "rawInput": {"server_name":"example"},
+    });
+    feed(&mut transport, frame).unwrap();
+    let request = transport.drain(32).unwrap().permissions.pop().unwrap();
+    assert_eq!(request.tool_name, "mcp__auth");
+    assert_eq!(request.category, gent_types::PermissionCategory::Provider);
+    assert_eq!(request.input, Some(json!({"server_name":"example"})));
+    assert!(transport.stdio.writes.is_empty());
 }
 #[test]
 fn approval_uses_the_offered_option_and_never_invents_one() {
@@ -49,6 +65,24 @@ fn approval_uses_the_offered_option_and_never_invents_one() {
     t.respond_permission("claurst:n:2", ClaurstPermissionReply::Deny)
         .unwrap();
     assert_eq!(t.stdio.writes.len(), 2);
+    let denied: Value = serde_json::from_slice(&t.stdio.writes[1]).unwrap();
+    assert_eq!(
+        denied["result"]["outcome"],
+        json!({"outcome":"selected","optionId":"no"})
+    );
+}
+
+#[test]
+fn a_deny_without_an_offered_reject_once_option_is_refused_and_never_cancels() {
+    let mut t = ClaurstAcpTransport::new(Wire { writes: vec![] });
+    let mut only_allow = permission(1, "a", "a.txt");
+    only_allow["params"]["options"] = json!([{"kind":"allow_once","optionId":"yes"}]);
+    feed(&mut t, only_allow).unwrap();
+    assert!(matches!(
+        t.respond_permission("claurst:n:1", ClaurstPermissionReply::Deny),
+        Err(ClaurstAcpTransportError::PermissionReplyNotOffered)
+    ));
+    assert!(t.stdio.writes.is_empty());
 }
 #[test]
 fn reversed_same_kind_acp_requests_keep_preview_and_response_rpc_bound() {
@@ -70,7 +104,7 @@ fn reversed_same_kind_acp_requests_keep_preview_and_response_rpc_bound() {
         .unwrap();
     let b: Value = serde_json::from_slice(&t.stdio.writes[0]).unwrap();
     assert_eq!(b["id"], 72);
-    assert_eq!(b["result"]["outcome"]["outcome"], "cancelled");
+    assert_eq!(b["result"]["outcome"]["optionId"], "reject_once");
     let second = t.drain(32).unwrap().permissions;
     assert_eq!(second.len(), 1);
     assert_eq!(second[0].tool_use_id, "a");
@@ -191,7 +225,7 @@ fn number_and_string_wire_ids_have_distinct_api_ids_and_responses() {
     let numeric: Value = serde_json::from_slice(&t.stdio.writes[0]).unwrap();
     let string: Value = serde_json::from_slice(&t.stdio.writes[1]).unwrap();
     assert_eq!(numeric["id"], json!(71));
-    assert_eq!(numeric["result"]["outcome"]["outcome"], "cancelled");
+    assert_eq!(numeric["result"]["outcome"]["optionId"], "reject_once");
     assert_eq!(string["id"], json!("71"));
     assert_eq!(string["result"]["outcome"]["optionId"], "allow_once");
     feed(&mut t, permission(72, "fresh-op", "fresh.txt")).unwrap();

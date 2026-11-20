@@ -3,8 +3,9 @@
 use gent_ports::{AgentChatReadLedger, AgentChatSideQuestionLedger, ConversationSummaryRunner};
 use gent_types::{
     AgentChatConversationId, AgentChatProvider, AgentChatSideQuestion, AgentChatSideQuestionAsked,
-    AgentChatSideQuestionCancel, AgentChatSideQuestionCancelled, AgentChatSideQuestionOutcome,
-    AgentChatSideQuestionRecord, NormalizedTranscriptEvent, NormalizedTranscriptKind,
+    AgentChatSideQuestionCancel, AgentChatSideQuestionCancelled, AgentChatSideQuestionFailureCode,
+    AgentChatSideQuestionOutcome, AgentChatSideQuestionRecord, NormalizedTranscriptEvent,
+    NormalizedTranscriptKind,
 };
 use sha2::{Digest, Sha256};
 
@@ -145,6 +146,7 @@ impl<L: Clone + AgentChatReadLedger + AgentChatSideQuestionLedger> AgentChatSide
         let outcome = match self.run(conversation_id, question, resolve_runner) {
             Ok(text) => AgentChatSideQuestionOutcome::Answered { text },
             Err(error) => AgentChatSideQuestionOutcome::Failed {
+                code: failure_code(&error),
                 reason: error.to_string(),
             },
         };
@@ -226,6 +228,18 @@ pub fn bounded_excerpt(events: &[NormalizedTranscriptEvent]) -> String {
         })
         .collect();
     clip_to_tail(&lines.join("\n\n"), MAX_EXCERPT_BYTES)
+}
+
+fn failure_code(error: &RuntimeError) -> AgentChatSideQuestionFailureCode {
+    match error {
+        RuntimeError::Port(gent_ports::PortError::Busy(_)) => {
+            AgentChatSideQuestionFailureCode::ProviderBusy
+        }
+        RuntimeError::Port(gent_ports::PortError::Unavailable(_)) => {
+            AgentChatSideQuestionFailureCode::ProviderUnavailable
+        }
+        _ => AgentChatSideQuestionFailureCode::ProviderFailed,
+    }
 }
 
 fn clip_to_tail(text: &str, max_bytes: usize) -> String {

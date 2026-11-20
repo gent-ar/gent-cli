@@ -138,6 +138,7 @@ fn failed_prompt(
                 event: NormalizedProviderEvent::ProviderFailure {
                     classification,
                     message: gent_types::PROVIDER_SESSION_UNAVAILABLE_NOTICE.into(),
+                    resets_at: None,
                 },
             },
             transcript: None,

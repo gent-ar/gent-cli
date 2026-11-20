@@ -1,5 +1,3 @@
-//! Bounded daemon tick and recovery for the approved-only Claude lifecycle.
-
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
@@ -42,10 +40,11 @@ where
         self.active.len() + self.warm.len()
     }
 
-    /// Returns whether any owned run still needs stdout/exit polling.
     #[must_use]
     pub(crate) fn needs_poll(&self) -> bool {
-        self.active.values().any(|binding| !binding.idle())
+        self.active
+            .values()
+            .any(|binding| !binding.liveness().idle())
     }
 
     pub(crate) fn poll_active(
@@ -78,10 +77,6 @@ where
         Ok(batch)
     }
 
-    /// Signals a stable active snapshot without accepting another durable prompt.
-    ///
-    /// # Errors
-    /// Returns an error when an owned process tree rejects the daemon-selected signal.
     pub(crate) fn signal_active(&mut self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
         let run_ids = self
             .active
@@ -89,7 +84,9 @@ where
             .chain(self.warm.keys())
             .cloned()
             .collect::<Vec<_>>();
-        self.shutdown_signaled |= !run_ids.is_empty();
+        for binding in self.active.values_mut() {
+            binding.turns.begin_release();
+        }
         for run_id in &run_ids {
             self.runner.signal_claude_process(run_id, signal)?;
         }
@@ -103,28 +100,24 @@ where
     ) -> Result<ClaudeLifecycleTick, RuntimeError> {
         let batch = self.poll_active(host_epoch, maximum)?;
         self.steer_active(host_epoch)?;
-        // A settled stream consumes no turn slot. It must be offered its next
-        // queued prompt even when this daemon has reached its process bound.
         let dispatch = (self.active_len() < maximum
             || !self.warm.is_empty()
             || self
                 .active
                 .values()
-                .any(|binding| binding.settled && !binding.interrupt_requested))
+                .any(|binding| binding.liveness().accepts_prompt()))
         .then(|| self.dispatch_next(host_epoch))
         .transpose()?;
         Ok(ClaudeLifecycleTick { dispatch, batch })
     }
 }
 
-/// Aggregate result of one bounded Claude lifecycle pass.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ClaudeLifecycleTick {
     pub dispatch: Option<ClaudePromptDispatchOutcome>,
     pub batch: ClaudePollBatch,
 }
 
-/// Aggregate result of polling an owned Claude process snapshot.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ClaudePollBatch {
     pub polled_runs: u16,

@@ -87,7 +87,9 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             && (value.get("result").is_some() || value.get("error").is_some())
         {
             self.pending_prompt_id = None;
+            let settled = self.settle_permissions()?;
             let terminal = if let Some(error) = value.get("error") {
+                self.finish_streamed_text();
                 self.queued.push_back(ClaurstAcpFact::Event(
                     gent_types::NormalizedProviderEvent::Output {
                         text: format!(
@@ -108,16 +110,13 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                     gent_types::NormalizedProviderEvent::ProviderFailure {
                         classification,
                         message: message.into(),
+                        resets_at: None,
                     },
                 ));
             }
-            if terminal == ClaurstAcpTerminal::Completed && !self.assistant_output.is_empty() {
-                self.queued.push_back(ClaurstAcpFact::Event(
-                    gent_types::NormalizedProviderEvent::Output {
-                        text: self.assistant_output.clone(),
-                        is_partial: false,
-                    },
-                ));
+            if terminal == ClaurstAcpTerminal::Completed {
+                self.finish_streamed_text();
+                self.launch_background(&settled);
             }
             return Ok(Some(terminal));
         }
@@ -160,8 +159,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             mcp_call::read(tool_call).map_err(|_| ClaurstAcpTransportError::InvalidFrame)?;
         let request_id =
             permission_request_id(&id).ok_or(ClaurstAcpTransportError::InvalidFrame)?;
-        // Wire uniqueness uses the original JSON-RPC ID across every tool kind.
-        // API identifiers below independently preserve the same string/number type.
         let rpc_identity =
             serde_json::to_string(&id).map_err(|_| ClaurstAcpTransportError::InvalidFrame)?;
         if self.permission_rpc_ids.len() >= 4096 || self.permission_rpc_ids.contains(&rpc_identity)
@@ -182,6 +179,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             })
             .transpose()?;
         let mut allow_once_id = None;
+        let mut reject_once_id = None;
         if let Some(options) = options {
             if options.len() > 16 {
                 return Err(ClaurstAcpTransportError::InvalidFrame);
@@ -196,22 +194,19 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 if !ids.insert(option_id) {
                     return Err(ClaurstAcpTransportError::InvalidFrame);
                 }
-                if option.get("kind").and_then(Value::as_str) == Some("allow_once") {
-                    if allow_once_id.is_some() {
-                        return Err(ClaurstAcpTransportError::InvalidFrame);
-                    }
-                    allow_once_id = Some(option_id.to_owned());
+                let slot = match option.get("kind").and_then(Value::as_str) {
+                    Some("allow_once") => &mut allow_once_id,
+                    Some("reject_once") => &mut reject_once_id,
+                    _ => continue,
+                };
+                if slot.replace(option_id.to_owned()).is_some() {
+                    return Err(ClaurstAcpTransportError::InvalidFrame);
                 }
             }
         }
         let tool = self
             .claim_permission_tool(tool_call)
             .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
-        let pending = PendingPermission {
-            request_id: request_id.clone(),
-            json_rpc_id: id,
-            allow_once_option: allow_once_id,
-        };
         let request = if let Some((tool_name, input)) = direct {
             if tool_use_id.len() > 256
                 || tool.tool_use_id != tool_use_id
@@ -236,6 +231,13 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 input: tool.input,
             }
         };
+        let pending = PendingPermission {
+            request_id: request.request_id.clone(),
+            tool_use_id: request.tool_use_id.clone(),
+            json_rpc_id: id,
+            allow_once_option: allow_once_id,
+            reject_once_option: reject_once_id,
+        };
         self.permission_rpc_ids.insert(rpc_identity);
         if self.pending_permission.is_some() {
             self.held_permissions.push_back((pending, request));
@@ -246,9 +248,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         Ok(())
     }
 }
-// A single injective encoding for ALL callback kinds. The string payload is
-// copied without normalization; a string can never occupy the numeric branch.
-// Preserve the prior 128-byte raw string bound; internal IDs are at most138 bytes.
 pub(super) fn permission_request_id(id: &Value) -> Option<String> {
     match id {
         Value::String(v) if !v.trim().is_empty() && v.len() <= 128 => {

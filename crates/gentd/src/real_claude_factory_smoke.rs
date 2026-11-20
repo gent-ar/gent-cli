@@ -100,6 +100,7 @@ fn run(mode: PermissionMode) {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     let response = crate::permission_policy_api::exchange(
         &coordinator,
@@ -107,7 +108,6 @@ fn run(mode: PermissionMode) {
             request_id: "factory-smoke".into(),
             policy: broad.clone(),
             bypass_consent: true,
-            expected_provider: Some(AgentChatProvider::Claude),
         },
     )
     .unwrap();
@@ -141,7 +141,7 @@ fn run(mode: PermissionMode) {
         .with_conversation_config(None, false, Some(4), vec![]);
     std::fs::write(workspace.join("marker.txt"), &marker).unwrap();
     runner.start(ClaudeRunStart {
-        run_id: run.clone(), lock,
+        run_id: run.clone(), message_id: "message".into(), lock,
         prompt: "Read marker.txt using Read, then create proof.txt with identical content using Write. Do not run a shell. Reply with the marker only.".into(),
         content: vec![], turn_options: options, goal: None, fresh_context: None,
         intent: LaunchIntent::Start, workspace_root: workspace.clone(),

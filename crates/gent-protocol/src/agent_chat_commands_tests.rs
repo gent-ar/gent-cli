@@ -100,3 +100,27 @@ fn catalog_frames_reject_unknown_fields() {
     }});
     assert!(serde_json::from_value::<AgentChatCommandFrame>(read).is_err());
 }
+
+#[test]
+fn a_rejected_command_carries_its_specifics_next_to_the_typed_code() {
+    let rejection = gent_types::AgentChatCommandRejection::UnsupportedCommand {
+        name: "config".into(),
+        reason: "provider settings diverge from Gent's.".into(),
+        use_instead: Some("/permissions".into()),
+    };
+    let frame = super::AgentChatCommandRejectionFrame::Error {
+        code: rejection.code().into(),
+        message: rejection.to_string(),
+        command: rejection.details(),
+    };
+    let value = serde_json::to_value(&frame).unwrap();
+    assert_eq!(
+        value,
+        json!({"type": "error", "body": {
+            "code": "unsupportedCommand",
+            "message": rejection.to_string(),
+            "command": {"name": "config", "reason": "provider settings diverge from Gent's.", "useInstead": "/permissions"}
+        }})
+    );
+    assert!(serde_json::from_value::<crate::WireFrame>(value).is_ok());
+}

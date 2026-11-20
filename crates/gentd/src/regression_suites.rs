@@ -8,6 +8,8 @@ mod claude_auth_notice_tests;
 mod claude_early_exit_tests;
 #[path = "claude_failure_notice_tests.rs"]
 mod claude_failure_notice_tests;
+#[path = "claude_idle_reap_tests.rs"]
+mod claude_idle_reap_tests;
 #[path = "claude_prewarm_tests.rs"]
 mod claude_prewarm_tests;
 #[path = "claude_warm_pool_tests.rs"]
@@ -17,12 +19,16 @@ mod claude_warm_pool_tests;
 mod claurst_sandbox_tests;
 #[path = "codex_prewarm_tests.rs"]
 mod codex_prewarm_tests;
+#[path = "codex_provider_turn_tests.rs"]
+mod codex_provider_turn_tests;
 #[path = "codex_warm_pool_tests.rs"]
 mod codex_warm_pool_tests;
 #[path = "internal_mcp_regressions.rs"]
 mod internal_mcp_regressions;
 #[path = "orchestration_transport_tests.rs"]
 mod orchestration_transport_tests;
+#[path = "provider_liveness_parity_tests.rs"]
+mod provider_liveness_parity_tests;
 #[path = "provider_warm_transport_tests.rs"]
 mod provider_warm_transport_tests;
 #[cfg(windows)]

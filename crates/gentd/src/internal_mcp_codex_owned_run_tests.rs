@@ -30,7 +30,6 @@ fn codex_actual_preflight_uses_started_selected_map_and_revokes_on_release_or_co
     );
     let lock = lock(root.path(), "codex");
     PublicProviderRunner::start(&runner, "run", &lock).unwrap();
-    // No initialize/thread acknowledgment is needed for a callback buffered by the real owner.
     assert_eq!(
         runner.permission_preflight(&preflight(None), &policy, &request(name)),
         PermissionPreflight::Ask
@@ -45,6 +44,7 @@ fn codex_actual_preflight_uses_started_selected_map_and_revokes_on_release_or_co
         name,
         "mcp__gent-goal__gent_goal_update",
         "mcp__gent_chat__gent_chat_list",
+        "mcp__gent-chat__gent_chat_create",
     ] {
         assert_eq!(
             runner.permission_preflight(
@@ -58,6 +58,7 @@ fn codex_actual_preflight_uses_started_selected_map_and_revokes_on_release_or_co
     for unproven in [
         "mcp__gent_goal__anything",
         "mcp__external__gent_goal_update",
+        "mcp__gent-chat",
     ] {
         assert_eq!(
             runner.permission_preflight(
@@ -147,6 +148,53 @@ fn codex_actual_preflight_uses_started_selected_map_and_revokes_on_release_or_co
         ),
         PermissionPreflight::Ask
     );
+}
+
+#[test]
+fn codex_shares_the_session_internal_exemption_but_not_for_mcp_aliases() {
+    use gent_drivers::codex_prompt_runner::CodexPromptRunner;
+    let root = tempfile::tempdir().unwrap();
+    let (path, servers) = config(root.path());
+    let state = Arc::new(State::default());
+    let runner = CodexPromptRunner::new(Launcher(state.clone()), buffer(), None, Some(path));
+    let selected = crate::conversation_scoped_mcp::scope_server_map(&servers, "conversation");
+    let prompt = codex_start(root.path(), &selected);
+    runner
+        .prepare_codex_prompt("run".into(), "conversation".into(), prompt)
+        .unwrap();
+    PublicProviderRunner::start(&runner, "run", &lock(root.path(), "codex")).unwrap();
+    for mode in [
+        PermissionMode::AskEveryTime,
+        PermissionMode::AutoAcceptEdits,
+        PermissionMode::Autonomous,
+        PermissionMode::Bypass,
+    ] {
+        for containment in [Containment::Sandboxed, Containment::Unsandboxed] {
+            let mut policy = policy();
+            policy.mode = mode;
+            policy.containment = containment;
+            for tool in ["Agent", "Task", "ScheduleWakeup"] {
+                assert_eq!(
+                    runner.permission_preflight(&preflight(None), &policy, &request(tool)),
+                    PermissionPreflight::Allow,
+                    "{tool} {mode:?} {containment:?}"
+                );
+            }
+            assert_eq!(
+                runner.permission_preflight(
+                    &preflight(None),
+                    &policy,
+                    &request("mcp__third-party__Agent")
+                ),
+                if mode == PermissionMode::Bypass && containment == Containment::Unsandboxed {
+                    PermissionPreflight::Allow
+                } else {
+                    PermissionPreflight::Ask
+                },
+                "{mode:?} {containment:?}"
+            );
+        }
+    }
 }
 
 fn preflight(

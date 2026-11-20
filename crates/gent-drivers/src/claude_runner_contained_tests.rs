@@ -1,4 +1,3 @@
-//! Runner ownership/approval controls; fake evidence is not native containment proof.
 use super::super::*;
 use crate::{
     MAX_PROVIDER_FRAME_BYTES, ProcessSandboxEvidence, ProviderLaunch,
@@ -11,6 +10,8 @@ struct Seen {
     writes: Arc<Mutex<usize>>,
     kills: Arc<Mutex<usize>>,
     args: Arc<Mutex<Vec<String>>>,
+    signals: Arc<Mutex<Vec<ProcessTreeSignal>>>,
+    refuse_signals: Arc<Mutex<bool>>,
 }
 struct Process {
     proof: Option<ProcessSandboxEvidence>,
@@ -18,8 +19,12 @@ struct Process {
     seen: Seen,
 }
 impl ProcessTreeControl for Process {
-    fn signal_tree(&self, _: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
+    fn signal_tree(&self, signal: ProcessTreeSignal) -> Result<(), ProcessTreeError> {
         *self.seen.kills.lock().unwrap() += 1;
+        self.seen.signals.lock().unwrap().push(signal);
+        if *self.seen.refuse_signals.lock().unwrap() {
+            return Err(ProcessTreeError::Failed("tree refused the signal".into()));
+        }
         Ok(())
     }
 }
@@ -128,6 +133,19 @@ fn run(
     resume: bool,
     variant: u8,
 ) -> (Result<(), ClaudeRunnerError>, Seen) {
+    let (_, result, seen) = started(mode, role, resume, variant);
+    (result, seen)
+}
+fn started(
+    mode: PermissionMode,
+    role: AgentChatMode,
+    resume: bool,
+    variant: u8,
+) -> (
+    ClaudeStreamRunner<Launcher, Process>,
+    Result<(), ClaudeRunnerError>,
+    Seen,
+) {
     let root = tempfile::tempdir().unwrap();
     let image = root.path().join("claude.exe");
     std::fs::write(&image, b"immutable fixture").unwrap();
@@ -159,6 +177,7 @@ fn run(
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         },
         HostEpoch(1),
     )
@@ -166,6 +185,7 @@ fn run(
     runner.prepare_permission_binding(binding).unwrap();
     let result = runner.start(ClaudeRunStart {
         run_id: "run".into(),
+        message_id: "message".into(),
         lock,
         prompt: "fixture".into(),
         content: vec![],
@@ -193,7 +213,24 @@ fn run(
         workspace_access: SandboxWorkspaceAccess::from_mode(role),
         mcp_config: None,
     });
-    (result, seen)
+    (runner, result, seen)
+}
+#[test]
+fn a_released_run_is_dropped_and_its_tree_killed_even_when_the_signal_fails() {
+    let (mut runner, result, seen) =
+        started(PermissionMode::AskEveryTime, AgentChatMode::Agent, false, 0);
+    result.unwrap();
+    assert!(runner.owns("run"));
+    *seen.refuse_signals.lock().unwrap() = true;
+
+    assert!(runner.release("run").is_err());
+
+    assert!(!runner.owns("run"));
+    assert_eq!(*seen.signals.lock().unwrap(), [ProcessTreeSignal::Kill]);
+    assert!(matches!(
+        runner.release("run"),
+        Err(ClaudeRunnerError::NotActive)
+    ));
 }
 #[test]
 fn contained_claude_start_and_resume_preserve_all_four_permission_modes() {

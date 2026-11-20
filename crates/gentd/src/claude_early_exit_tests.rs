@@ -70,6 +70,7 @@ impl ClaudePromptExecution for Runner {
         &self,
         _: &str,
         _: &str,
+        _: &str,
         _: Option<&gent_types::GoalProjection>,
         _: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
@@ -89,6 +90,12 @@ impl ClaudePromptExecution for Runner {
         _: &str,
         _: gent_drivers::interrupt::ProcessTreeSignal,
     ) -> Result<(), PublicProviderRunError> {
+        Ok(())
+    }
+    fn interrupt_claude_turn(&self, _: &str) -> Result<(), PublicProviderRunError> {
+        Ok(())
+    }
+    fn withdraw_claude_prompt(&self, _: &str, _: &str) -> Result<(), PublicProviderRunError> {
         Ok(())
     }
     fn respond_claude_permission(
@@ -304,6 +311,7 @@ fn a_real_provider_failure_is_not_replaced_by_the_exit_notice() {
                     NormalizedProviderEvent::ProviderFailure {
                         classification: ProviderFailureClassification::Provider,
                         message: "specific fixture failure".into(),
+                        resets_at: None,
                     },
                 )),
             ],
@@ -330,10 +338,7 @@ fn completed_or_interrupted_turns_do_not_get_failure_notices() {
     );
     assert_eq!(state, DurableTurnPhase::Completed);
     assert!(messages.iter().all(|text| !text.contains("process status")));
-    let (messages, state) = scenario(
-        vec![vec![ClaudeRunnerEffect::Exited { code: Some(130) }]],
-        true,
-    );
+    let (messages, state) = scenario(vec![vec![started(), phase(TurnPhase::Interrupted)]], true);
     assert_eq!(state, DurableTurnPhase::Interrupted);
     assert!(messages.iter().all(|text| !text.contains("process status")));
 }

@@ -17,6 +17,8 @@ mod ask;
 mod cancel;
 #[path = "side_question_records.rs"]
 mod records;
+#[path = "side_question_settled.rs"]
+mod settled;
 use ask::persist_ask;
 use cancel::{persist_cancel, persist_completion};
 use records::{find, row_to_record};
@@ -60,7 +62,7 @@ impl AgentChatSideQuestionLedger for SqliteLedger {
         let connection = self.lock()?;
         let mut statement = connection
             .prepare(
-                "SELECT side_question_id, conversation_id, question, status, answer, failure_reason, created_at_unix_ms FROM agent_chat_side_questions WHERE conversation_id = ?1 ORDER BY created_at_unix_ms DESC, side_question_id DESC",
+                "SELECT side_question_id, conversation_id, question, status, answer, failure_code, failure_reason, created_at_unix_ms FROM agent_chat_side_questions WHERE conversation_id = ?1 ORDER BY created_at_unix_ms DESC, side_question_id DESC",
             )
             .map_err(storage_error)?;
         statement

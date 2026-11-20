@@ -4,19 +4,6 @@ use serde_json::Value;
 use super::PublicWireFact;
 use super::support::diagnostic;
 
-pub(super) fn error(frame: &Value) -> Vec<PublicWireFact> {
-    let (classification, message) = super::failure::classify(
-        frame.pointer("/params/error"),
-        "Codex reported a provider error.",
-    );
-    vec![PublicWireFact::Event(
-        NormalizedProviderEvent::ProviderFailure {
-            classification,
-            message: message.into(),
-        },
-    )]
-}
-
 pub(super) fn mcp_progress(frame: &Value) -> Vec<PublicWireFact> {
     let item_id = frame.pointer("/params/itemId").and_then(Value::as_str);
     let message = frame.pointer("/params/message").and_then(Value::as_str);

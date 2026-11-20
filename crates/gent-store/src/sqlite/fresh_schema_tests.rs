@@ -2,6 +2,8 @@ use rusqlite::Connection;
 
 use super::{apply, has_table};
 
+type DecisionRow = (String, Option<String>, Option<String>, Option<String>);
+
 type ProjectionRow = (u64, String, Option<u64>, Option<String>, Option<String>);
 
 #[test]
@@ -37,7 +39,7 @@ fn current_fresh_schema_reopens_without_running_its_migration_again() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(identity, "gent-fresh-schema-v30");
+    assert_eq!(identity, "gent-fresh-schema-v34");
     assert!(has_table(&connection, "agent_chat_projection_events").unwrap());
 }
 
@@ -70,7 +72,7 @@ fn migrates_legacy_fresh_schema_identities() {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(identity, "gent-fresh-schema-v30");
+        assert_eq!(identity, "gent-fresh-schema-v34");
         let column: String = connection
             .query_row(
                 "SELECT name FROM pragma_table_info('agent_chat_prompt_receipts') WHERE name = 'tool_source_ids_json'",
@@ -189,7 +191,7 @@ fn migrates_existing_activity_projection_cursors() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert_eq!((identity.as_str(), cursor), ("gent-fresh-schema-v30", 7));
+    assert_eq!((identity.as_str(), cursor), ("gent-fresh-schema-v34", 7));
 }
 
 #[test]
@@ -217,7 +219,7 @@ fn migrates_permission_decisions_into_the_projection() {
     assert_eq!(
         values,
         (
-            "gent-fresh-schema-v30".into(),
+            "gent-fresh-schema-v34".into(),
             "decisionPending".into(),
             "decision-1".into(),
             9
@@ -255,8 +257,8 @@ fn migrates_transcript_prompts_to_a_typed_user_origin() {
     assert_eq!(
         origins,
         [
-            (Some("user".into()), "gent-fresh-schema-v30".into()),
-            (None, "gent-fresh-schema-v30".into()),
+            (Some("user".into()), "gent-fresh-schema-v34".into()),
+            (None, "gent-fresh-schema-v34".into()),
         ]
     );
 }
@@ -278,7 +280,7 @@ fn migrates_a_v23_ledger_into_the_conversation_link_table() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(identity, "gent-fresh-schema-v30");
+    assert_eq!(identity, "gent-fresh-schema-v34");
     assert!(has_table(&connection, "agent_chat_conversation_links").unwrap());
 }
 
@@ -301,7 +303,7 @@ fn upgrades_a_v29_ledger_by_adding_the_conversation_archive() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(identity, "gent-fresh-schema-v30");
+    assert_eq!(identity, "gent-fresh-schema-v34");
     assert!(has_table(&connection, "archived_conversations").unwrap());
     let kept: String = connection
         .query_row("SELECT conversation_id FROM conversations", [], |row| {
@@ -309,4 +311,93 @@ fn upgrades_a_v29_ledger_by_adding_the_conversation_archive() {
         })
         .unwrap();
     assert_eq!(kept, "kept");
+}
+
+#[test]
+fn decision_pending_projection_carries_the_full_request_after_a_v30_upgrade() {
+    for upgraded in [false, true] {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply(&mut connection).unwrap();
+        if upgraded {
+            connection
+                .execute_batch(
+                    "DROP TRIGGER agent_chat_projection_from_permission_activity; \
+                     UPDATE gent_schema SET identity = 'gent-fresh-schema-v30' WHERE singleton = 1;",
+                )
+                .unwrap();
+            apply(&mut connection).unwrap();
+        }
+        connection
+            .execute_batch(
+                "INSERT INTO conversations (conversation_id) VALUES ('conversation-1'); \
+                 INSERT INTO runs (run_id, provider) VALUES ('run-1', 'claude'); \
+                 INSERT INTO agent_chat_conversations (conversation_id, root_run_id, provider, model, effort, mode) VALUES ('conversation-1', 'run-1', 'claude', 'm', 'e', 'x'); \
+                 INSERT INTO events (cursor, event_id, receipt_id, host_epoch, kind, payload) VALUES (40, 'permission-1', 'receipt-1', 4, 'providerPermissionpending', '{\"conversationId\":\"conversation-1\",\"runId\":\"run-1\",\"turnId\":\"turn-1\",\"decisionId\":\"decision-1\",\"request\":{\"binding\":{\"requestIdempotencyKey\":\"claude:decision-1\"},\"request\":{\"toolName\":\"Bash\",\"category\":\"command\",\"input\":{\"command\":\"ls\"}}}}'); \
+                 INSERT INTO events (cursor, event_id, receipt_id, host_epoch, kind, payload) VALUES (41, 'permission-2', 'receipt-1', 4, 'providerPermissionsettled', '{\"conversationId\":\"conversation-1\",\"runId\":\"run-1\",\"turnId\":\"turn-1\",\"decisionId\":\"decision-1\"}');",
+            )
+            .unwrap();
+        let rows: Vec<DecisionRow> = connection
+            .prepare("SELECT json_extract(payload, '$.activity.type'), json_extract(payload, '$.activity.request.binding.requestIdempotencyKey'), json_extract(payload, '$.activity.request.request.input.command'), json_type(payload, '$.activity.request') FROM agent_chat_projection_events ORDER BY cursor")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "decisionPending".into(),
+                    Some("claude:decision-1".into()),
+                    Some("ls".into()),
+                    Some("object".into())
+                ),
+                ("decisionSettled".into(), None, None, None),
+            ],
+            "upgraded: {upgraded}"
+        );
+    }
+}
+
+#[test]
+fn v30_and_v31_ledgers_gain_policy_command_grants_and_keep_their_policies() {
+    for (identity, had_column) in [
+        ("gent-fresh-schema-v30", false),
+        ("gent-fresh-schema-v31", false),
+        ("gent-fresh-schema-v31", true),
+    ] {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply(&mut connection).unwrap();
+        if !had_column {
+            connection
+                .execute_batch("ALTER TABLE policies DROP COLUMN allowed_commands;")
+                .unwrap();
+        }
+        connection
+            .execute_batch(
+                "INSERT INTO workspaces (workspace_id, canonical_path) VALUES ('workspace-1', '/workspace'); \
+                 INSERT INTO policies (policy_id, workspace_id, scope, revision, allowed_tools) VALUES ('policy-1', 'workspace-1', 'providerPermissions', 1, '[]');",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE gent_schema SET identity = ?1 WHERE singleton = 1",
+                [identity],
+            )
+            .unwrap();
+        apply(&mut connection).unwrap();
+        apply(&mut connection).unwrap();
+        let (commands, schema): (String, String) = connection
+            .query_row(
+                "SELECT allowed_commands, (SELECT identity FROM gent_schema) FROM policies WHERE policy_id = 'policy-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (commands.as_str(), schema.as_str()),
+            ("[]", "gent-fresh-schema-v34"),
+            "{identity} had_column={had_column}"
+        );
+    }
 }

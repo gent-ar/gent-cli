@@ -1,9 +1,7 @@
 //! `SQLite` read-only implementation for exact durable turn following.
 
 use gent_ports::{LedgerError, TurnFollowPage, TurnFollowReader};
-use gent_types::{
-    DurableTurnPhase, HostEpoch, NormalizedTranscriptEvent, NormalizedTranscriptKind, TurnRecord,
-};
+use gent_types::{HostEpoch, TurnRecord};
 use rusqlite::{OptionalExtension, params};
 
 use super::{
@@ -56,7 +54,7 @@ impl TurnFollowReader for SqliteLedger {
                     after,
                     i64::from(limit) + 1
                 ],
-                decode_event,
+                super::transcript_ledger::decode_event,
             )
             .map_err(storage_error)?;
         let mut events = rows.collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
@@ -78,46 +76,6 @@ fn decode_turn(row: &rusqlite::Row<'_>) -> rusqlite::Result<TurnRecord> {
         conversation_id: row.get(1)?,
         run_id: row.get(2)?,
         sequence: row.get(3)?,
-        phase: decode_phase(&row.get::<_, String>(4)?)?,
+        phase: super::conversations::decode_phase(&row.get::<_, String>(4)?)?,
     })
-}
-
-fn decode_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<NormalizedTranscriptEvent> {
-    let event_id: String = row.get(1)?;
-    Ok(NormalizedTranscriptEvent {
-        cursor: row.get(0)?,
-        failure_code: gent_types::AgentChatFailureCode::from_event_id(&event_id),
-        event_id,
-        turn_id: row.get(2)?,
-        run_id: row.get(3)?,
-        kind: decode_kind(&row.get::<_, String>(4)?)?,
-        text: row.get(5)?,
-        is_partial: row.get::<_, i64>(6)? != 0,
-        origin: crate::sqlite::goal_ledger::decode_origin(row.get(7)?)?,
-        attachments: Vec::new(),
-    })
-}
-
-fn decode_phase(value: &str) -> rusqlite::Result<DurableTurnPhase> {
-    match value {
-        "active" => Ok(DurableTurnPhase::Active),
-        "waitingPermission" => Ok(DurableTurnPhase::WaitingPermission),
-        "waitingQuestion" => Ok(DurableTurnPhase::WaitingQuestion),
-        "completed" => Ok(DurableTurnPhase::Completed),
-        "interrupted" => Ok(DurableTurnPhase::Interrupted),
-        "cancelled" => Ok(DurableTurnPhase::Cancelled),
-        "failed" => Ok(DurableTurnPhase::Failed),
-        _ => Err(rusqlite::Error::InvalidQuery),
-    }
-}
-
-fn decode_kind(value: &str) -> rusqlite::Result<NormalizedTranscriptKind> {
-    match value {
-        "userMessage" => Ok(NormalizedTranscriptKind::UserMessage),
-        "assistantMessage" => Ok(NormalizedTranscriptKind::AssistantMessage),
-        "thinking" => Ok(NormalizedTranscriptKind::Thinking),
-        "toolActivity" => Ok(NormalizedTranscriptKind::ToolActivity),
-        "notice" => Ok(NormalizedTranscriptKind::Notice),
-        _ => Err(rusqlite::Error::InvalidQuery),
-    }
 }

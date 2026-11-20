@@ -2,6 +2,33 @@ use serde_json::{Value, json};
 
 use super::bounded;
 
+pub(super) fn mcp_tool_approval_name(params: &serde_json::Map<String, Value>) -> Option<String> {
+    let meta = params.get("_meta")?;
+    if meta.get("codex_approval_kind")?.as_str()? != "mcp_tool_call" {
+        return None;
+    }
+    let server = params.get("serverName")?.as_str()?;
+    let approval_message_prefix = format!("Allow the {server} MCP server to run tool \"");
+    let tool = meta.get("tool_name").and_then(Value::as_str).or_else(|| {
+        params
+            .get("message")?
+            .as_str()?
+            .strip_prefix(&approval_message_prefix)?
+            .strip_suffix("\"?")
+    });
+    let valid_tool = tool.filter(|name| {
+        !name.is_empty()
+            && name.len() <= 128
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    });
+    let gent_tool = valid_tool
+        .map(|tool| format!("mcp__{server}__{tool}"))
+        .filter(|name| gent_types::internal_tools::callback_tool(name).is_some());
+    Some(gent_tool.unwrap_or_else(|| format!("mcp__{server}")))
+}
+
 pub(super) fn dynamic_tool_name(params: &serde_json::Map<String, Value>) -> String {
     let tool = params
         .get("tool")

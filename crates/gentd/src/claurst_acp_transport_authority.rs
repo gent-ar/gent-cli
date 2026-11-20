@@ -7,7 +7,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
     }
 
     pub(crate) fn is_idle(&self) -> bool {
-        self.pending_prompt_id.is_none()
+        self.pending_prompt_id.is_none() && !self.has_background_commands()
     }
 
     pub(crate) fn exited(&mut self) -> Result<Option<String>, String> {

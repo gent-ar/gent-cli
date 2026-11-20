@@ -47,6 +47,18 @@ The repositories are already heavily dirty. Treat existing changes as user work;
 - Fork/resume/checkpoint, general MCP live config/health, session metadata, title/recap streaming, provider readiness/install, and remote proxying lack complete public contracts even where partial internal types exist.
 - Do not reimplement provider behavior in Flutter. Claude/Codex/Claurst remain third-party runtimes; verify Gent-owned admission, context-switch, durable-state and projection behavior.
 
+## Provider lifecycle, grants and status (uncommitted, 2026-11-16)
+
+- One liveness value per run (`gentd` `provider_run_state.rs`) for Claude and Codex; a provider-started turn is a `turns` row (`start_provider_turn`). Every turn becomes terminal through `gent-store` `turn_terminal::settle`, which is idempotent, so a repeated settle records no second terminal or `decisionSettled` fact.
+- Status is derived from `turns.phase` and the pending-permission row (`run_live_status.rs`). A background child's permission needs attention with no open turn; a Claude session still `running` is never reaped by timeout, and Stop (interrupt with no open turn) reaches Claude, which kills its background agents (observed on 2.1.326).
+- No retry: Claude prompts are never resent. `providerFailure` carries `resetsAt` for rate limits.
+- Command grants (`agent-chat-permission-command-grants-v1`, `policies.allowed_commands`, schema `gent-fresh-schema-v32`, now v33) and receipt lookup (`agent-chat-receipt-lookup-v1`) are advertised with `agent-chat-permissions-v1`.
+- Followers wake on the store's commit watch. `waitForConversations` blocks on the same notifier (`SqliteLedger::wait_for_commit`) instead of polling.
+- Claude and Codex settle through one routine, `RunTurns::settle_open` (`provider_run_state.rs`); Claude schedules its summary from the returned flag.
+- Every provider failure is a typed transcript `failureCode` (rate limits carry `resetsAt`); side-question settlement and held-prompt model-download progress are projection facts; `agent-chat-projection-window-v1` restores from a turn boundary through `agent_chat_projection_turns` (schema `gent-fresh-schema-v33`); `agent-chat-interrupt-turn-ended-v1` types an interrupt of a settled turn. Shapes are in `docs/flutter-handoff-v1.md`.
+- Queue, Send now and Stop (uncommitted, 2026-11-17, `docs/agent-chat-turn-steer.md`): a queued prompt joins the running Claude/Codex turn in queue order and waits for the next Claurst turn (summary `queueDelivery`; each `promptQueued` carries its own `queueDelivery`); Send now interrupts on every provider (cause `steered`) and runs first next; Stop withdraws every unconsumed queued prompt in the interrupt receipt's transaction (`promptWithdrawn` with text and attachments). Claude interrupts carry `cancel_queued: true`. A linked child inherits its parent's sandboxed containment when the link is recorded. No schema change.
+- v20 (uncommitted, 2026-11-18): the Claurst transport answers every permission still open when a prompt answers `cancelled`, so a background agent's request never blocks the next prompt; a busy transport is `PromptInFlight`. New facts `promptCancelRequested` and `contextCompacted`; a settled command listing reaches projection follows as a `catalog` delta (`catalogId: commands`). Shapes are in `docs/flutter-handoff-v1.md`.
+
 ## Plan documents
 
 - `PLANS/INTEGRATE_GENT_CLI_TO_NATIVE_APP/README.md`: reading order and native-integration entry gate.

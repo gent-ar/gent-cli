@@ -37,8 +37,7 @@ where
             .active
             .iter()
             .filter(|(run_id, binding)| {
-                !binding.settled
-                    && !binding.interrupt_requested
+                binding.turns.turn_open()
                     && self.runner.has_claude_session(run_id)
                     && ledger
                         .find_run_session_binding(run_id)
@@ -51,27 +50,31 @@ where
                 .active
                 .get(&run_id)
                 .ok_or_else(missing_binding)?
-                .prompt
-                .message
-                .turn_id
-                .clone();
-            while let Some((prompt, _)) = ledger.claim_steered_agent_chat_prompt_for_turn(
+                .turn_id()
+                .to_owned();
+            while let Some(prompt) = ledger.claim_steered_agent_chat_prompt_for_turn(
                 &self.coordinator_id,
                 host_epoch,
                 &AgentChatRunId(run_id.clone()),
                 &turn_id,
             )? {
                 let message_id = prompt.message.message_id.clone();
-                let delivered =
+                self.runtime
+                    .begin_prompt_launch(&message_id, &self.coordinator_id, host_epoch)?;
+                let written =
                     provider_input(&self.runtime, &prompt.message).and_then(|(text, content)| {
                         self.runner
                             .steer_claude_prompt(&run_id, &message_id, &text, &content)
                             .map_err(RuntimeError::from)
                     });
-                if let Err(error) = delivered {
+                if let Err(error) = written {
                     eprintln!("Claude steer for prompt {message_id} was not delivered: {error}");
-                    self.retire_unconsumed_steer(&message_id, host_epoch)?;
-                    break;
+                    ledger.reject_steered_agent_chat_prompt_delivery(
+                        &message_id,
+                        &self.coordinator_id,
+                        host_epoch,
+                    )?;
+                    continue;
                 }
                 self.active
                     .get_mut(&run_id)
@@ -80,10 +83,28 @@ where
                     .push(prompt);
             }
         }
+        self.withdraw_canceled_steers()
+    }
+
+    fn withdraw_canceled_steers(&self) -> Result<(), RuntimeError> {
+        for (run_id, binding) in &self.active {
+            if binding.steers.is_empty() {
+                continue;
+            }
+            for message_id in self
+                .runtime
+                .ledger()
+                .canceled_steered_agent_chat_prompts(&AgentChatRunId(run_id.clone()))?
+            {
+                if let Err(error) = self.runner.withdraw_claude_prompt(run_id, &message_id) {
+                    eprintln!("Claude withdrawal of prompt {message_id} was not written: {error}");
+                }
+            }
+        }
         Ok(())
     }
 
-    pub(super) fn consume_steer(
+    pub(super) fn message_started(
         &mut self,
         run_id: &str,
         host_epoch: HostEpoch,
@@ -95,12 +116,15 @@ where
             .iter()
             .position(|steer| steer.message.message_id == message_id)
         else {
+            if binding.prompt.message.message_id == message_id && binding.turns.prompt_open() {
+                return self.settle_continuation(run_id, host_epoch, DurableTurnPhase::Completed);
+            }
             return Ok(());
         };
-        if binding.settled {
+        if !binding.turns.turn_open() {
             return self.start_steer_turn(run_id, host_epoch, index);
         }
-        let turn_id = binding.prompt.message.turn_id.clone();
+        let turn_id = binding.turn_id().to_owned();
         self.runtime.ledger().deliver_steered_agent_chat_prompt(
             message_id,
             &self.coordinator_id,
@@ -115,21 +139,25 @@ where
         Ok(())
     }
 
-    pub(super) fn settle_turn(
+    pub(super) fn message_cancelled(
         &mut self,
         run_id: &str,
         host_epoch: HostEpoch,
-        phase: DurableTurnPhase,
+        message_id: &str,
     ) -> Result<(), RuntimeError> {
-        self.settle_if_open(run_id, host_epoch, phase)?;
-        if self
-            .active
-            .get(run_id)
-            .is_some_and(|binding| binding.interrupt_requested || binding.steers.is_empty())
-        {
+        let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
+        let Some(index) = binding
+            .steers
+            .iter()
+            .position(|steer| steer.message.message_id == message_id)
+        else {
+            if binding.prompt.message.message_id == message_id {
+                return self.settle_prompt(run_id, host_epoch, DurableTurnPhase::Interrupted);
+            }
             return Ok(());
-        }
-        self.start_steer_turn(run_id, host_epoch, 0)
+        };
+        binding.steers.remove(index);
+        self.return_unconsumed_steer(message_id, host_epoch)
     }
 
     fn start_steer_turn(
@@ -149,7 +177,7 @@ where
         )?;
         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
         binding.prompt = binding.steers.remove(index);
-        binding.settled = false;
+        binding.turns.open_prompt();
         Ok(())
     }
 
@@ -163,29 +191,17 @@ where
         };
         let steers = std::mem::take(&mut binding.steers);
         for steer in steers {
-            self.retire_unconsumed_steer(&steer.message.message_id, host_epoch)?;
+            self.return_unconsumed_steer(&steer.message.message_id, host_epoch)?;
         }
         Ok(())
     }
 
-    fn retire_unconsumed_steer(
+    fn return_unconsumed_steer(
         &self,
         message_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), RuntimeError> {
-        if self
-            .runtime
-            .ledger()
-            .agent_chat_prompt_has_steer_target(message_id)?
-        {
-            self.runtime
-                .mark_prompt_unprovable(message_id, &self.coordinator_id, host_epoch)
-        } else {
-            self.runtime.release_unstarted_prompt_launch(
-                message_id,
-                &self.coordinator_id,
-                host_epoch,
-            )
-        }
+        self.runtime
+            .release_unstarted_prompt_launch(message_id, &self.coordinator_id, host_epoch)
     }
 }

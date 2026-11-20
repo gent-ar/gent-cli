@@ -17,8 +17,14 @@ use gent_types::{
 use super::{Resolver, Runner, compatibility, profile};
 use crate::approved_claude_host::ApprovedClaudeHost;
 use crate::public_driver_runtime::PublicDriversRuntime;
-#[path = "claude_targeted_steer_tests.rs"]
-mod targeted;
+#[path = "claude_queued_cancel_tests.rs"]
+mod queued_cancel;
+#[path = "claude_stop_withdraw_tests.rs"]
+mod stop_withdraw;
+#[path = "claude_turn_tool_settlement_tests.rs"]
+mod tool_settlement;
+#[path = "claude_steer_write_failure_tests.rs"]
+mod write_failure;
 
 struct Scenario {
     ledger: SqliteLedger,
@@ -49,12 +55,8 @@ fn save(
     saved
 }
 
-fn steered_scenario() -> Scenario {
-    scenario(false)
-}
-
-fn scenario(targeted: bool) -> Scenario {
-    let mut scenario = requested_before_session(targeted);
+fn joined_scenario() -> Scenario {
+    let mut scenario = queued_before_session();
     scenario
         .runner
         .0
@@ -77,7 +79,7 @@ fn scenario(targeted: bool) -> Scenario {
     scenario
 }
 
-fn requested_before_session(targeted: bool) -> Scenario {
+fn queued_before_session() -> Scenario {
     let ledger = SqliteLedger::in_memory().unwrap();
     ledger
         .create_agent_chat_conversation_in_workspace(
@@ -115,27 +117,6 @@ fn requested_before_session(targeted: bool) -> Scenario {
     .unwrap();
     let mut host = ApprovedClaudeHost::new(runtime, "daemon".into(), HostEpoch(1), 1, None);
     host.tick().unwrap();
-    if targeted {
-        ledger
-            .steer_queued_agent_chat_prompt_for_turn(
-                &ReceiptId("steer".into()),
-                HostEpoch(1),
-                &AgentChatConversationId("conversation".into()),
-                &queued.message.message_id,
-                &active.run_id,
-                &active.message.turn_id,
-            )
-            .unwrap();
-    } else {
-        ledger
-            .steer_queued_agent_chat_prompt(
-                &ReceiptId("steer".into()),
-                HostEpoch(1),
-                &AgentChatConversationId("conversation".into()),
-                &queued.message.message_id,
-            )
-            .unwrap();
-    }
     Scenario {
         ledger,
         runner,
@@ -190,12 +171,12 @@ fn turn_of(scenario: &Scenario, text: &str) -> String {
 
 #[test]
 fn a_take_up_between_tool_output_and_the_result_is_recorded_in_the_running_turn() {
-    let mut scenario = steered_scenario();
+    let mut scenario = joined_scenario();
     assert!(scenario.host.needs_drive());
     let queued_id = scenario.queued.message.message_id.clone();
     scenario.runner.0.lock().unwrap().effects.push_back(vec![
         output("before"),
-        ClaudeRunnerEffect::SteerConsumed {
+        ClaudeRunnerEffect::MessageStarted {
             message_id: queued_id.clone(),
         },
         output("after"),
@@ -229,10 +210,6 @@ fn a_take_up_between_tool_output_and_the_result_is_recorded_in_the_running_turn(
                 "promptQueued".into(),
                 scenario.queued.message.turn_id.clone()
             ),
-            (
-                "promptSteerRequested".into(),
-                scenario.queued.message.turn_id.clone()
-            ),
             ("promptSteered".into(), active_turn.clone())
         ]
     );
@@ -245,9 +222,9 @@ fn a_take_up_between_tool_output_and_the_result_is_recorded_in_the_running_turn(
 mod legacy_late;
 
 #[test]
-fn a_steer_requested_before_the_claude_session_starts_waits_and_never_fails_the_turn() {
-    for targeted in [false, true] {
-        let mut scenario = requested_before_session(targeted);
+fn a_prompt_queued_before_the_claude_session_starts_waits_and_never_fails_the_turn() {
+    {
+        let mut scenario = queued_before_session();
         scenario.host.tick().unwrap();
         scenario.host.tick().unwrap();
         assert!(scenario.runner.0.lock().unwrap().steers.is_empty());
@@ -281,7 +258,7 @@ fn a_steer_requested_before_the_claude_session_starts_waits_and_never_fails_the_
             )]
         );
         scenario.runner.0.lock().unwrap().effects.push_back(vec![
-            ClaudeRunnerEffect::SteerConsumed {
+            ClaudeRunnerEffect::MessageStarted {
                 message_id: scenario.queued.message.message_id.clone(),
             },
             output("after"),
@@ -299,15 +276,17 @@ fn a_steer_requested_before_the_claude_session_starts_waits_and_never_fails_the_
 }
 
 #[test]
-fn an_interrupted_turn_returns_its_untaken_steer_to_the_queue_for_one_normal_launch() {
-    let mut scenario = steered_scenario();
+fn an_interrupted_turn_returns_its_untaken_prompt_to_the_queue_for_one_normal_launch() {
+    let mut scenario = joined_scenario();
     assert!(scenario.host.needs_drive());
     scenario.host.interrupt("run").unwrap();
     scenario.runner.0.lock().unwrap().effects.push_back(vec![
-        phase(TurnPhase::Failed),
-        ClaudeRunnerEffect::Exited { code: Some(0) },
+        ClaudeRunnerEffect::MessageCancelled {
+            message_id: scenario.queued.message.message_id.clone(),
+        },
+        phase(TurnPhase::Interrupted),
     ]);
-    scenario.runner.0.lock().unwrap().active = false;
+    scenario.host.tick().unwrap();
     scenario.host.tick().unwrap();
 
     assert_eq!(
@@ -324,10 +303,13 @@ fn an_interrupted_turn_returns_its_untaken_steer_to_the_queue_for_one_normal_lau
         kinds(&scenario),
         [
             ("promptQueued".into(), queued_turn.clone()),
-            ("promptSteerRequested".into(), queued_turn.clone()),
             ("promptReleased".into(), queued_turn)
         ]
     );
     let state = scenario.runner.0.lock().unwrap();
-    assert_eq!(state.starts + state.resumes, 2);
+    assert_eq!(
+        (state.starts + state.resumes, state.protocol_interrupts),
+        (1, 1)
+    );
+    assert!(state.signals.is_empty());
 }

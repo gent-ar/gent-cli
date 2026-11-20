@@ -1,5 +1,3 @@
-//! A real, bounded, credential-free kernel probe. Its scratch-only binding is
-//! never a user run permission grant and cannot be published to a user lease.
 use gent_drivers::{
     ProcessLauncher, ProviderProcess, SandboxedLauncher,
     interrupt::{ProcessTreeControl, ProcessTreeSignal},
@@ -37,9 +35,6 @@ struct Authority {
     _resources: Arc<dyn ProbeInputs>,
 }
 
-// A failed launch cannot prove that no helper was created. Retain THIS exact
-// scratch/pins/ledger before launch, conservatively block another attempt, and
-// never infer settlement from a different/global process queue.
 fn held() -> &'static slot::Slot<Authority> {
     static HELD: OnceLock<slot::Slot<Authority>> = OnceLock::new();
     HELD.get_or_init(slot::Slot::new)
@@ -230,6 +225,7 @@ fn probe_context(
         containment: Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     ledger
         .save_policy(&policy)

@@ -3,7 +3,7 @@ use gent_types::{
     ConversationActivityFact, ConversationActivityScope, Event, HostEpoch,
     PermissionDecisionRequest, ReceiptId,
 };
-use rusqlite::{Transaction, TransactionBehavior, params};
+use rusqlite::{Transaction, TransactionBehavior};
 
 use super::{SqliteLedger, require_open};
 use crate::sqlite::{conversation_activity_ledger, queries};
@@ -17,9 +17,8 @@ pub(super) fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<()
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(queries::storage_error)?;
     require_open(&transaction, host_epoch)?;
-    // Older versions conflated an uncertain installer with agent delivery.
-    // Recover only proven, never-dispatched installer holds before failing turns.
     install_recovery::restore(&transaction, host_epoch)?;
+    crate::sqlite::agent_chat_steer_target::release_stale(&transaction, host_epoch)?;
     transaction.execute(
         "UPDATE agent_chat_prompt_dispatches SET state = 'pending', coordinator_id = NULL, host_epoch = NULL WHERE state = 'claimed' AND host_epoch < ?1",
         [host_epoch.0],
@@ -35,9 +34,10 @@ pub(super) fn recover(ledger: &SqliteLedger, host_epoch: HostEpoch) -> Result<()
         [host_epoch.0],
     ).map_err(queries::storage_error)?;
     fail_open_turns(&transaction, "d.state = 'unprovable'", None, host_epoch)?;
+    crate::sqlite::background_tools::end_after_restart(&transaction, host_epoch)?;
     crate::sqlite::agent_chat_steer_target::expire_unprovable(&transaction, host_epoch)?;
     recover_permissions(&transaction, host_epoch)?;
-    super::super::switch_queue::carry_undispatched_prompts(&transaction, host_epoch)?;
+    super::super::switch_queue::carry_undispatched_prompts(&transaction)?;
     transaction.commit().map_err(queries::storage_error)
 }
 
@@ -90,66 +90,122 @@ fn recover_permissions(
     transaction: &Transaction<'_>,
     host_epoch: HostEpoch,
 ) -> Result<(), LedgerError> {
-    let requests = {
+    let rows = {
         let mut statement = transaction
-            .prepare("SELECT request_json FROM pending_provider_permissions")
+            .prepare("SELECT rowid, decision_id, conversation_id, run_id, request_json FROM pending_provider_permissions ORDER BY rowid")
             .map_err(queries::storage_error)?;
         statement
-            .query_map([], |row| row.get::<_, String>(0))
+            .query_map([], |row| {
+                Ok(PendingRow {
+                    rowid: row.get(0)?,
+                    decision_id: row.get(1)?,
+                    conversation_id: row.get(2)?,
+                    run_id: row.get(3)?,
+                    request_json: row.get(4)?,
+                })
+            })
             .map_err(queries::storage_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(queries::storage_error)?
     };
-    for encoded in requests {
-        let request = serde_json::from_str::<PermissionDecisionRequest>(&encoded)
-            .map_err(|error| LedgerError::Storage(error.to_string()))?;
-        let binding = request.binding;
-        if binding.host_epoch.0 >= host_epoch.0 {
-            continue;
-        }
-        let changed = transaction
-            .execute(
-                "DELETE FROM pending_provider_permissions WHERE decision_id = ?1 AND conversation_id = ?2 AND run_id = ?3",
-                params![binding.decision_id.0, binding.conversation_id.0, binding.run_id.0],
-            )
+    for row in rows {
+        transaction
+            .execute_batch("SAVEPOINT recover_permission")
             .map_err(queries::storage_error)?;
-        if changed != 1 {
-            return Err(LedgerError::Invariant(
-                "stale pending permission recovery conflicted".into(),
-            ));
+        let outcome = recover_permission(transaction, host_epoch, &row);
+        if let Err(LedgerError::Busy(message)) = outcome {
+            return Err(LedgerError::Busy(message));
         }
-        let event = queries::append_event(
-            transaction,
-            &Event {
-                cursor: 0,
-                event_id: format!(
-                    "permission:{}:{}:recovered:{}",
-                    binding.run_id.0, binding.decision_id.0, host_epoch.0
-                ),
-                receipt_id: ReceiptId("providerPermission:recovered".into()),
-                host_epoch,
-                kind: "providerPermissionRecovered".into(),
-                payload: serde_json::json!({
-                    "conversationId": binding.conversation_id.0,
-                    "runId": binding.run_id.0,
-                    "turnId": binding.turn_id,
-                    "decisionId": binding.decision_id.0,
-                }),
-            },
-        )?;
-        conversation_activity_ledger::append(
-            transaction,
-            &ConversationActivityFact::DecisionSettled {
-                scope: ConversationActivityScope {
-                    conversation_id: binding.conversation_id.0,
-                    run_id: binding.run_id.0,
-                    turn_id: binding.turn_id,
-                    host_epoch,
-                    cursor: event.cursor,
-                },
-                decision_id: binding.decision_id.0,
-            },
-        )?;
+        if let Err(error) = &outcome {
+            transaction
+                .execute_batch("ROLLBACK TO recover_permission")
+                .map_err(queries::storage_error)?;
+            eprintln!(
+                "gentd: pending permission recovery skipped decision {} conversation {} run {}: {error}",
+                row.decision_id, row.conversation_id, row.run_id
+            );
+        }
+        transaction
+            .execute_batch("RELEASE recover_permission")
+            .map_err(queries::storage_error)?;
     }
     Ok(())
+}
+
+struct PendingRow {
+    rowid: i64,
+    decision_id: String,
+    conversation_id: String,
+    run_id: String,
+    request_json: String,
+}
+
+fn recover_permission(
+    transaction: &Transaction<'_>,
+    host_epoch: HostEpoch,
+    row: &PendingRow,
+) -> Result<(), LedgerError> {
+    let binding = serde_json::from_str::<PermissionDecisionRequest>(&row.request_json)
+        .map(|request| request.binding)
+        .ok();
+    if binding
+        .as_ref()
+        .is_some_and(|binding| binding.host_epoch.0 >= host_epoch.0)
+    {
+        return Ok(());
+    }
+    transaction
+        .execute(
+            "DELETE FROM pending_provider_permissions WHERE rowid = ?1",
+            [row.rowid],
+        )
+        .map_err(queries::storage_error)?;
+    let Some(binding) = binding.filter(|binding| {
+        binding.decision_id.0 == row.decision_id
+            && binding.conversation_id.0 == row.conversation_id
+            && binding.run_id.0 == row.run_id
+    }) else {
+        report_unsettled(row);
+        return Ok(());
+    };
+    let event = queries::append_event(
+        transaction,
+        &Event {
+            cursor: 0,
+            event_id: format!(
+                "permission:{}:{}:recovered:{}",
+                row.run_id, row.decision_id, host_epoch.0
+            ),
+            receipt_id: ReceiptId("providerPermission:recovered".into()),
+            host_epoch,
+            kind: "providerPermissionRecovered".into(),
+            payload: serde_json::json!({
+                "conversationId": row.conversation_id,
+                "runId": row.run_id,
+                "turnId": binding.turn_id,
+                "decisionId": row.decision_id,
+            }),
+        },
+    )?;
+    conversation_activity_ledger::append(
+        transaction,
+        &ConversationActivityFact::DecisionSettled {
+            scope: ConversationActivityScope {
+                conversation_id: row.conversation_id.clone(),
+                run_id: row.run_id.clone(),
+                turn_id: binding.turn_id,
+                host_epoch,
+                cursor: event.cursor,
+            },
+            decision_id: row.decision_id.clone(),
+            outcome: Some(gent_types::DecisionOutcome::Cancelled),
+        },
+    )
+}
+
+fn report_unsettled(row: &PendingRow) {
+    eprintln!(
+        "gentd: stale pending permission removed without a settlement fact; its request does not name decision {} conversation {} run {}",
+        row.decision_id, row.conversation_id, row.run_id
+    );
 }

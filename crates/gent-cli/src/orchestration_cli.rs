@@ -7,9 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
-use gent_protocol::{
-    ORCHESTRATION_CAPABILITY, OrchestrationFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{ORCHESTRATION_CAPABILITY, OrchestrationFrame, write_json_frame};
 use gent_types::AgentChatConversationId;
 use serde_json::Value;
 
@@ -151,10 +149,7 @@ async fn exchange_stream(
 ) -> Result<OrchestrationFrame, Box<dyn std::error::Error>> {
     request.validate()?;
     write_json_frame(stream, &request).await?;
-    let raw: Value = read_json_frame(stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(stream).await?;
     let response: OrchestrationFrame = serde_json::from_value(raw)
         .map_err(|_| "daemon did not return an orchestration response")?;
     response.validate()?;

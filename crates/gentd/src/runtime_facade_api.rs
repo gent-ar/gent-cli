@@ -25,13 +25,9 @@ use super::{ModelCatalogPort, RuntimeFacade, chat_reads, owner_control::display}
 use crate::{
     agent_chat_checkpoint_api, agent_chat_conversation_config_api,
     agent_chat_intent_error::AgentChatIntentError,
-    agent_chat_permission_api::AgentChatPermissionPort,
-    agent_chat_sessions_api,
-    api::RuntimeApi,
-    attachment_api, decision_mapping, forge_api, goal_api,
-    local_model_jobs::DownloadStart,
-    orchestration_api, reviewed_plan_api,
-    workspace_git_api::{self, WorkspaceGitRejection},
+    agent_chat_permission_api::AgentChatPermissionPort, agent_chat_sessions_api, api::RuntimeApi,
+    attachment_api, decision_mapping, forge_api, goal_api, local_model_jobs::DownloadStart,
+    orchestration_api, reviewed_plan_api, workspace_git_api,
 };
 
 impl RuntimeApi for RuntimeFacade {
@@ -55,6 +51,9 @@ impl RuntimeApi for RuntimeFacade {
     }
     fn status(&self) -> Result<HostStatus, String> {
         self.owner_status()
+    }
+    fn ledger_commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.transcript_import_ledger.commits()
     }
     fn submit(&self, command: Command) -> Result<Receipt, String> {
         self.coordinator.submit(&command).map_err(display)
@@ -146,7 +145,7 @@ impl RuntimeApi for RuntimeFacade {
     fn permission_policy(
         &self,
         frame: PermissionPolicyFrame,
-    ) -> Result<PermissionPolicyFrame, String> {
+    ) -> Result<PermissionPolicyFrame, AgentChatIntentError> {
         self.exchange_permission_policy(frame)
     }
     fn agent_chat_conversation_config(
@@ -168,7 +167,7 @@ impl RuntimeApi for RuntimeFacade {
     fn agent_chat_side_question(
         &self,
         frame: AgentChatSideQuestionFrame,
-    ) -> Result<AgentChatSideQuestionFrame, String> {
+    ) -> Result<AgentChatSideQuestionFrame, AgentChatIntentError> {
         self.exchange_side_question(frame)
     }
     fn goal(&self, frame: GoalFrame) -> Result<GoalFrame, String> {
@@ -186,14 +185,21 @@ impl RuntimeApi for RuntimeFacade {
     fn workspace_git(
         &self,
         frame: WorkspaceGitFrame,
-    ) -> Result<WorkspaceGitFrame, WorkspaceGitRejection> {
+    ) -> Result<WorkspaceGitFrame, AgentChatIntentError> {
         workspace_git_api::exchange(&self.coordinator, frame)
     }
     fn orchestration(&self, frame: OrchestrationFrame) -> Result<OrchestrationFrame, String> {
         orchestration_api::exchange(&self.orchestration, frame)
     }
-    fn reviewed_plan(&self, frame: ReviewedPlanFrame) -> Result<ReviewedPlanFrame, String> {
-        reviewed_plan_api::exchange(&self.reviewed_plans, frame)
+    fn reviewed_plan(
+        &self,
+        frame: ReviewedPlanFrame,
+    ) -> Result<ReviewedPlanFrame, AgentChatIntentError> {
+        reviewed_plan_api::exchange(
+            &self.reviewed_plans,
+            frame,
+            self.ordinary_prompt_ingress.clone(),
+        )
     }
     fn doctor(&self) -> DoctorReport {
         self.dependencies.doctor()

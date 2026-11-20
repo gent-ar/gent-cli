@@ -46,7 +46,7 @@ where
     }
     match runtime.agent_chat_side_question(frame) {
         Ok(response) => write_json_frame(stream, &response).await?,
-        Err(message) => write_error(stream, "agentChatSideQuestionRejected", &message).await?,
+        Err(error) => error.write(stream).await?,
     }
     Ok(true)
 }

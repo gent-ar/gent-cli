@@ -56,26 +56,6 @@ where
         Ok(())
     }
 
-    pub(in crate::private_claurst_ingress) async fn deny_queued_permissions(
-        &mut self,
-        source: &gent_ports::ClaurstSourceId,
-    ) -> Result<(), gent_runtime::RuntimeError> {
-        let state = self.source_mut(source)?;
-        let queued = std::mem::take(&mut state.queued_permissions);
-        let binding = state.binding.clone();
-        for request in queued {
-            let _ = self
-                .bridge
-                .respond_permission(
-                    binding.clone(),
-                    &request.request_id,
-                    gent_ports::ClaurstPermissionReply::Deny,
-                )
-                .await;
-        }
-        Ok(())
-    }
-
     fn source_mut(
         &mut self,
         source: &gent_ports::ClaurstSourceId,

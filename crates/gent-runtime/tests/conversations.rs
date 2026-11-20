@@ -1,11 +1,18 @@
 use gent_core::Run;
-use gent_ports::{Ledger, RunCheckpointLedger, RunLifecycleFactLedger, TurnPhaseUpdate};
+use gent_ports::{
+    AgentChatPromptDispatchLedger, AgentChatPromptLedger, AgentChatWorkspaceLedger, Ledger,
+    RunCheckpointLedger, RunLifecycleFactLedger, TurnPhaseUpdate,
+};
 use gent_runtime::Coordinator;
 use gent_store::SqliteLedger;
 use gent_types::{
-    CapabilitySet, ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
-    ConversationRecord, DurableTurnPhase, Event, HostEpoch, NormalizedProviderEvent,
-    NormalizedSessionLifecycle, ReceiptId, RunCheckpointRecord, RunLifecycleFact, TurnRecord,
+    AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
+    AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptOrigin, AgentChatProvider,
+    AgentChatRequestId, AgentChatRunId, AgentChatSelection, CapabilitySet, ConversationArtifact,
+    ConversationArtifactKind, ConversationArtifactStatus, ConversationRecord, DurableTurnPhase,
+    Event, HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent,
+    NormalizedSessionLifecycle, ReceiptId, RootActivity, RunCheckpointRecord, RunLifecycleFact,
+    TurnRecord, WorkspaceRecord,
 };
 
 fn coordinator() -> Coordinator<SqliteLedger> {
@@ -217,6 +224,15 @@ fn status_never_exposes_provider_sessions_and_keeps_projection_identity() {
             lifecycle,
         })
         .unwrap();
+    coordinator
+        .create_turn(&TurnRecord {
+            turn_id: "turn-1".into(),
+            conversation_id: "conversation-a".into(),
+            run_id: "run-root".into(),
+            sequence: 1,
+            phase: DurableTurnPhase::Active,
+        })
+        .unwrap();
     let status = coordinator.conversation_status("conversation-a").unwrap();
     assert_eq!(status.runs.len(), 1);
     assert_eq!(status.runs[0].active_turn_id.as_deref(), Some("turn-1"));
@@ -224,6 +240,136 @@ fn status_never_exposes_provider_sessions_and_keeps_projection_identity() {
         status.runs[0].live_status.as_ref().unwrap().host_epoch,
         HostEpoch(3)
     );
+}
+
+const DISPATCH_EPOCH: HostEpoch = HostEpoch(1);
+const DISPATCH_COORDINATOR: &str = "gentd-1";
+
+fn dispatched_root_turn(ledger: &SqliteLedger) -> gent_types::AgentChatPromptSaved {
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("create".into()),
+                idempotency_key: "create".into(),
+                host_epoch: DISPATCH_EPOCH,
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                run_id: AgentChatRunId("run-root".into()),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "haiku".into(),
+                    effort: AgentChatEffort::Low,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: "/workspace".into(),
+            },
+        )
+        .unwrap();
+    let root = ledger
+        .save_agent_chat_prompt_with_origin(
+            &AgentChatPromptCreate {
+                request_id: AgentChatRequestId("root".into()),
+                receipt_id: ReceiptId("root".into()),
+                host_epoch: DISPATCH_EPOCH,
+                conversation_id: AgentChatConversationId("conversation-a".into()),
+                disposition: AgentChatPromptDisposition::Send,
+                text: "Go".into(),
+                attachment_ids: vec![],
+                tool_source_ids: vec![],
+            },
+            &AgentChatPromptOrigin::User {
+                client_request_id: None,
+            },
+        )
+        .unwrap();
+    ledger
+        .release_agent_chat_prompt_after_readiness(
+            &root.message.message_id,
+            &root.run_id,
+            DISPATCH_EPOCH,
+        )
+        .unwrap();
+    ledger
+        .claim_agent_chat_prompt_dispatch(
+            DISPATCH_COORDINATOR,
+            DISPATCH_EPOCH,
+            AgentChatProvider::Claude,
+        )
+        .unwrap();
+    ledger
+        .begin_agent_chat_prompt_launch(
+            &root.message.message_id,
+            DISPATCH_COORDINATOR,
+            DISPATCH_EPOCH,
+        )
+        .unwrap();
+    ledger
+        .confirm_agent_chat_prompt_started(
+            &root.message.message_id,
+            DISPATCH_COORDINATOR,
+            DISPATCH_EPOCH,
+        )
+        .unwrap();
+    let signal = NormalizedLifecycleSignal::RootActivity {
+        activity: RootActivity::Generating,
+    };
+    let source = ledger
+        .append_event(&Event {
+            cursor: 0,
+            event_id: "root-activity-source".into(),
+            receipt_id: ReceiptId("root-activity-receipt".into()),
+            host_epoch: DISPATCH_EPOCH,
+            kind: "providerLifecycle".into(),
+            payload: serde_json::json!({"runId": root.run_id.0, "signal": signal}),
+        })
+        .unwrap();
+    ledger
+        .append_run_lifecycle_fact(&RunLifecycleFact {
+            run_id: root.run_id.0.clone(),
+            event_id: "root-activity-source".into(),
+            host_epoch: DISPATCH_EPOCH,
+            cursor: source.cursor,
+            lifecycle: NormalizedSessionLifecycle::Signal { signal },
+        })
+        .unwrap();
+    root
+}
+
+#[test]
+fn a_dispatched_non_terminal_turn_without_a_normalized_turn_started_event_still_resolves_as_active()
+{
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let root = dispatched_root_turn(&ledger);
+    let coordinator = Coordinator::new(ledger, CapabilitySet::default());
+    let status = coordinator.conversation_status("conversation-a").unwrap();
+    assert_eq!(status.runs.len(), 1);
+    assert_eq!(
+        status.runs[0].active_turn_id.as_deref(),
+        Some(root.message.turn_id.as_str())
+    );
+}
+
+#[test]
+fn a_turn_settled_in_the_ledger_never_resolves_as_active() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let root = dispatched_root_turn(&ledger);
+    ledger
+        .settle_agent_chat_prompt_terminal(
+            &root.message.message_id,
+            DISPATCH_COORDINATOR,
+            DISPATCH_EPOCH,
+            DurableTurnPhase::Completed,
+        )
+        .unwrap();
+    let coordinator = Coordinator::new(ledger, CapabilitySet::default());
+    let status = coordinator.conversation_status("conversation-a").unwrap();
+    assert_eq!(status.runs.len(), 1);
+    assert_eq!(status.runs[0].active_turn_id, None);
+    let live = &status.runs[0].live_status.as_ref().unwrap().status;
+    assert!(!live.is_processing());
+    assert!(!live.has_error());
 }
 
 #[test]

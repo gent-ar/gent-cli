@@ -1,14 +1,19 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AgentChatSelection, ConversationMessageDelivery, ConversationWaitTarget, GoalRecord, HostEpoch,
-    PlanArtifact, PromptHoldReason, RootActivity, TokenUsage, ToolActivity, TurnPhase, WorkPhase,
+    AgentChatSelection, AgentChatSideQuestionFailureCode, AgentChatSideQuestionStatus,
+    ConversationMessageDelivery, ConversationWaitTarget, GoalRecord, HostEpoch, PlanArtifact,
+    PromptHoldReason, RootActivity, TokenUsage, ToolActivity, TurnPhase, WorkPhase,
 };
 
-/// Version of the conversation-activity value contract.
 pub const CONVERSATION_ACTIVITY_SCHEMA_VERSION: u16 = 1;
 
-/// The kind of work described by an activity fact.
+#[path = "conversation_activity_scope.rs"]
+mod scope;
+#[path = "conversation_activity_turn.rs"]
+mod turn;
+pub use turn::{ContextClearCommand, TurnTerminalCause, WorkspaceFileChange};
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ActivityWorkKind {
@@ -16,7 +21,6 @@ pub enum ActivityWorkKind {
     Subagent,
 }
 
-/// Identity and ordering data every activity fact must carry.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationActivityScope {
@@ -29,10 +33,11 @@ pub struct ConversationActivityScope {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum TurnTerminalCause {
-    Steered,
-    DeliveryUnprovable,
-    ProviderSessionUnavailable,
+pub enum ModelDownloadPhase {
+    Downloading,
+    Verifying,
+    Ready,
+    Failed,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -53,6 +58,10 @@ pub enum ConversationActivityFact {
         used_tokens: u64,
         #[serde(alias = "window_tokens")]
         window_tokens: Option<u64>,
+    },
+    ContextCompacted {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
     },
     TokenUsage {
         #[serde(flatten)]
@@ -104,17 +113,25 @@ pub enum ConversationActivityFact {
         scope: ConversationActivityScope,
         #[serde(alias = "decision_id")]
         decision_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request: Option<Box<crate::PermissionDecisionRequest>>,
     },
     DecisionSettled {
         #[serde(flatten)]
         scope: ConversationActivityScope,
         #[serde(alias = "decision_id")]
         decision_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<crate::DecisionOutcome>,
     },
     PromptQueued {
         #[serde(flatten)]
         scope: ConversationActivityScope,
         message_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        queue_delivery: Option<crate::AgentChatQueueDelivery>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cancelable: Option<bool>,
     },
     PromptHeld {
         #[serde(flatten)]
@@ -122,6 +139,16 @@ pub enum ConversationActivityFact {
         message_id: String,
         receipt_id: String,
         reason: PromptHoldReason,
+    },
+    ModelDownloadProgress {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        model_id: String,
+        message_id: String,
+        receipt_id: String,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
+        phase: ModelDownloadPhase,
     },
     PromptReleased {
         #[serde(flatten)]
@@ -133,7 +160,12 @@ pub enum ConversationActivityFact {
         scope: ConversationActivityScope,
         message_id: String,
     },
-    /// Durable request to steer; provider consumption is recorded separately.
+    PromptCancelRequested {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        message_id: String,
+        receipt_id: String,
+    },
     PromptSteerRequested {
         #[serde(flatten)]
         scope: ConversationActivityScope,
@@ -154,9 +186,29 @@ pub enum ConversationActivityFact {
         receipt_id: String,
         transcript_cursor: u64,
     },
+    PromptWithdrawn {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        message_id: String,
+        receipt_id: String,
+        text: String,
+        attachments: Vec<crate::AttachmentReference>,
+    },
     InterruptRequested {
         #[serde(flatten)]
         scope: ConversationActivityScope,
+    },
+    ContextCleared {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command: Option<ContextClearCommand>,
+    },
+    WorkspaceChanges {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        files: Vec<WorkspaceFileChange>,
+        truncated: bool,
     },
     Recovered {
         #[serde(flatten)]
@@ -211,45 +263,19 @@ pub enum ConversationActivityFact {
         targets: Vec<ConversationWaitTarget>,
         timed_out: bool,
     },
+    SideQuestionSettled {
+        #[serde(flatten)]
+        scope: ConversationActivityScope,
+        side_question_id: String,
+        ask_receipt_id: String,
+        status: AgentChatSideQuestionStatus,
+        answer: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure_code: Option<AgentChatSideQuestionFailureCode>,
+        failure_reason: Option<String>,
+    },
 }
 
-impl ConversationActivityFact {
-    /// Returns the common immutable scope carried by this fact.
-    #[must_use]
-    pub fn scope(&self) -> &ConversationActivityScope {
-        match self {
-            Self::TurnStarted { scope }
-            | Self::ContextUsage { scope, .. }
-            | Self::TokenUsage { scope, .. }
-            | Self::RootActivity { scope, .. }
-            | Self::RootPhase { scope, .. }
-            | Self::WorkPhase { scope, .. }
-            | Self::ToolActivity { scope, .. }
-            | Self::ToolOutput { scope, .. }
-            | Self::SubagentStarted { scope, .. }
-            | Self::DecisionPending { scope, .. }
-            | Self::DecisionSettled { scope, .. }
-            | Self::PromptQueued { scope, .. }
-            | Self::PromptHeld { scope, .. }
-            | Self::PromptReleased { scope, .. }
-            | Self::PromptCanceled { scope, .. }
-            | Self::PromptSteerRequested { scope, .. }
-            | Self::PromptSteerRejected { scope, .. }
-            | Self::PromptSteered { scope, .. }
-            | Self::InterruptRequested { scope }
-            | Self::Recovered { scope }
-            | Self::Terminal { scope, .. }
-            | Self::GoalUpdated { scope, .. }
-            | Self::PlanUpdated { scope, .. }
-            | Self::ConversationCreated { scope, .. }
-            | Self::CreatedByConversation { scope, .. }
-            | Self::ConversationMessageSent { scope, .. }
-            | Self::ConversationWaitSettled { scope, .. } => scope,
-        }
-    }
-}
-
-/// Bounded, cursor-ordered durable activity facts for one conversation run.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationActivityPage {

@@ -60,7 +60,7 @@ fn persist(
         switch.context_policy,
     )?;
     insert_run(&transaction, switch)?;
-    super::switch_queue::carry_undispatched_prompts(&transaction, switch.host_epoch)?;
+    super::switch_queue::carry_to_selected_run(&transaction, &switch.run_id.0)?;
     let receipt = Receipt {
         receipt_id: switch.receipt_id.clone(),
         idempotency_key: switch.idempotency_key.clone(),
@@ -74,6 +74,9 @@ fn persist(
         &format!("switch:{}", switch.idempotency_key),
     )?;
     transaction.execute("INSERT INTO agent_chat_selection_switch_receipts (idempotency_key, conversation_id, parent_run_id, run_id, context_policy, context_through_ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![switch.idempotency_key, switch.conversation_id.0, switch.parent_run_id.0, switch.run_id.0, context_policy(switch.context_policy), context_through_ordinal]).map_err(storage_error)?;
+    if switch.context_policy == gent_types::ContextPolicy::Clear {
+        record_context_cleared(&transaction, switch)?;
+    }
     transaction.commit().map_err(storage_error)?;
     Ok(result(receipt, switch, context_through_ordinal))
 }
@@ -254,6 +257,36 @@ fn result(
         context_policy: switch.context_policy,
         context_through_ordinal: boundary,
     }
+}
+
+fn record_context_cleared(
+    transaction: &Transaction<'_>,
+    switch: &AgentChatSelectionSwitch,
+) -> Result<(), LedgerError> {
+    let command = transaction
+        .query_row(
+            "SELECT 1 FROM events WHERE event_id = ?1 AND kind = 'agentChatCommandResolved' AND json_extract(payload, '$.resolved.intent') = 'clearContext'",
+            [format!("agent-chat-command:{}", switch.receipt_id.0)],
+            |_| Ok(gent_types::ContextClearCommand::Clear),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    super::super::agent_chat_queue_activity::append_activity(
+        transaction,
+        format!("agent-chat-context-cleared:{}", switch.idempotency_key),
+        switch.receipt_id.clone(),
+        "agentChatContextActivity",
+        gent_types::ConversationActivityFact::ContextCleared {
+            scope: gent_types::ConversationActivityScope {
+                conversation_id: switch.conversation_id.0.clone(),
+                run_id: switch.run_id.0.clone(),
+                turn_id: format!("context-cleared:{}", switch.receipt_id.0),
+                host_epoch: switch.host_epoch,
+                cursor: 0,
+            },
+            command,
+        },
+    )
 }
 
 fn context_policy(policy: gent_types::ContextPolicy) -> &'static str {

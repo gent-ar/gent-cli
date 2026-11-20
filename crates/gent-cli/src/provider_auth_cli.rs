@@ -1,9 +1,7 @@
 //! Terminal requests for the secret-free provider-auth protocol extension.
 
 use clap::{Subcommand, ValueEnum};
-use gent_protocol::{
-    PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame, write_json_frame};
 use gent_types::{
     ProviderAuthLifecycle, ProviderAuthMethod, ProviderAuthMethodSelection, ProviderAuthProvider,
 };
@@ -155,12 +153,9 @@ async fn exchange(
     write_json_frame(&mut stream, &request)
         .await
         .map_err(|error| error.to_string())?;
-    let raw: Value = read_json_frame(&mut stream)
+    let raw: Value = crate::local_ipc::read_reply(&mut stream)
         .await
         .map_err(|error| error.to_string())?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.to_string());
-    }
     serde_json::from_value(raw)
         .map_err(|_| "gentd returned an invalid provider authentication frame".into())
 }

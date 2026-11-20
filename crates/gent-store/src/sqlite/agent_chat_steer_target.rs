@@ -2,8 +2,8 @@ use super::queries::storage_error;
 use super::{SqliteLedger, agent_chat_queue_activity as queue};
 use gent_ports::LedgerError;
 use gent_types::{
-    AgentChatConversationId, AgentChatRejection, AgentChatRunId, ConversationActivityFact,
-    ConversationActivityScope, HostEpoch, Receipt, ReceiptId,
+    AgentChatConversationId, AgentChatQueueDelivery, AgentChatRejection, AgentChatRunId,
+    ConversationActivityFact, ConversationActivityScope, HostEpoch, Receipt, ReceiptId,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -33,12 +33,8 @@ pub(super) fn request(
     command.payload["expectedRunId"] = run.0.clone().into();
     command.payload["expectedTurnId"] = turn.into();
     let receipt = queue::receipted(ledger, &command, rejected(), |tx| {
-        queue::queued_prompt(tx, conversation, message)?.ok_or_else(rejected)?;
+        queue::steerable_prompt(tx, conversation, message)?.ok_or_else(rejected)?;
         if !live(tx, &conversation.0, &run.0, turn, epoch)? {
-            return Err(rejected());
-        }
-        let busy = tx.query_row("SELECT EXISTS(SELECT 1 FROM agent_chat_steer_targets WHERE message_id=?1 AND state IN ('requested','claimed'))", [message], |r| r.get::<_, bool>(0)).map_err(storage_error)?;
-        if busy {
             return Err(rejected());
         }
         bind(tx, receipt_id, epoch, conversation, message, run, turn)
@@ -55,19 +51,7 @@ pub(super) fn bind(
     run: &AgentChatRunId,
     turn: &str,
 ) -> Result<(), LedgerError> {
-    let provider: String = db
-        .query_row(
-            "SELECT provider FROM agent_chat_run_selections WHERE run_id=?1",
-            [&run.0],
-            |r| r.get(0),
-        )
-        .map_err(storage_error)?;
-    if super::agent_chat_read_ledger::provider(&provider)?.steers_by_interrupt() {
-        super::agent_chat_steer_interrupt::record(db, epoch, conversation, run, turn)?;
-    } else {
-        db.execute("INSERT INTO agent_chat_steer_targets(message_id,receipt_id,run_id,turn_id,state) VALUES (?1,?2,?3,?4,'requested') ON CONFLICT(message_id) DO UPDATE SET receipt_id=excluded.receipt_id,run_id=excluded.run_id,turn_id=excluded.turn_id,state='requested'",
-            params![message, receipt_id.0, run.0, turn]).map_err(storage_error)?;
-    }
+    super::agent_chat_steer_interrupt::record(db, epoch, conversation, run, turn)?;
     queue::append(
         db,
         format!("agent-chat-steer:{}:requested", receipt_id.0),
@@ -86,6 +70,58 @@ pub(super) fn bind(
     )
 }
 
+const LIVE_DISPATCHED_TURN: &str = "FROM conversation_messages m JOIN agent_chat_prompt_dispatches d ON d.message_id=m.message_id JOIN turns t ON t.turn_id=m.turn_id WHERE m.conversation_id=?1 AND (?2 IS NULL OR m.run_id=?2) AND d.state IN ('launching','started') AND d.host_epoch=?3 AND t.phase IN ('active','waitingPermission','waitingQuestion') AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets s WHERE s.message_id=m.message_id AND s.state='claimed')";
+
+pub(super) fn live_turn(
+    db: &Connection,
+    conversation: &str,
+    run: Option<&str>,
+    epoch: HostEpoch,
+) -> Result<Option<(String, String)>, LedgerError> {
+    db.query_row(
+        &format!(
+            "SELECT m.run_id, m.turn_id {LIVE_DISPATCHED_TURN} ORDER BY t.sequence DESC LIMIT 1"
+        ),
+        params![conversation, run, epoch.0],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .map_err(storage_error)
+}
+
+pub(super) fn queue_delivery(
+    db: &Connection,
+    conversation: &str,
+    epoch: HostEpoch,
+) -> Result<(AgentChatQueueDelivery, bool), LedgerError> {
+    let running = db
+        .query_row(
+            &format!(
+                "SELECT t.turn_id, s.provider FROM turns t JOIN agent_chat_run_selections s ON s.run_id=t.run_id WHERE t.conversation_id=?1 AND t.phase IN ('active','waitingPermission','waitingQuestion') AND (t.turn_id IN (SELECT m.turn_id {LIVE_DISPATCHED_TURN}) OR NOT EXISTS(SELECT 1 FROM conversation_messages m WHERE m.turn_id=t.turn_id)) ORDER BY t.rowid DESC LIMIT 1"
+            ),
+            params![conversation, None::<&str>, epoch.0],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    let Some((turn, provider)) = running else {
+        return Ok((AgentChatQueueDelivery::NextTurn, true));
+    };
+    let provider = super::agent_chat_read_ledger::provider(&provider)?;
+    Ok(
+        match (
+            provider.queue_delivery(),
+            super::turn_terminal::steered(db, &turn)?,
+        ) {
+            (AgentChatQueueDelivery::JoinTurn, false) => (
+                AgentChatQueueDelivery::JoinTurn,
+                provider.withdraws_joined_prompts(),
+            ),
+            _ => (AgentChatQueueDelivery::NextTurn, true),
+        },
+    )
+}
+
 pub(super) fn live(
     db: &Connection,
     conversation: &str,
@@ -93,8 +129,12 @@ pub(super) fn live(
     turn: &str,
     epoch: HostEpoch,
 ) -> Result<bool, LedgerError> {
-    db.query_row("SELECT EXISTS(SELECT 1 FROM conversation_messages m JOIN agent_chat_prompt_dispatches d ON d.message_id=m.message_id JOIN turns t ON t.turn_id=m.turn_id WHERE m.conversation_id=?1 AND m.run_id=?2 AND m.turn_id=?3 AND d.state IN ('launching','started') AND d.host_epoch=?4 AND t.phase IN ('active','waitingPermission','waitingQuestion') AND NOT EXISTS(SELECT 1 FROM conversation_activity_facts a WHERE a.conversation_id=m.conversation_id AND a.run_id=m.run_id AND json_extract(a.payload,'$.turnId')=m.turn_id AND json_extract(a.payload,'$.type')='terminal'))",
-        params![conversation,run,turn,epoch.0], |r| r.get(0)).map_err(storage_error)
+    db.query_row(
+        &format!("SELECT EXISTS(SELECT 1 {LIVE_DISPATCHED_TURN} AND m.turn_id=?4)"),
+        params![conversation, Some(run), epoch.0, turn],
+        |r| r.get(0),
+    )
+    .map_err(storage_error)
 }
 
 pub(super) fn target(
@@ -110,7 +150,7 @@ pub(super) fn target(
     .map_err(storage_error)
 }
 
-pub(super) fn expire(
+fn expire(
     db: &Connection,
     message: &str,
     epoch: HostEpoch,
@@ -166,10 +206,14 @@ pub(super) fn release(db: &Connection, message: &str) -> Result<(), LedgerError>
     .map_err(storage_error)
 }
 
-pub(super) fn release_turn(db: &Connection, turn: &str) -> Result<(), LedgerError> {
+pub(super) fn reject(db: &Connection, message: &str, epoch: HostEpoch) -> Result<(), LedgerError> {
+    expire(db, message, epoch, "deliveryRejected")
+}
+
+pub(super) fn release_stale(db: &Connection, epoch: HostEpoch) -> Result<(), LedgerError> {
     db.execute(
-        "DELETE FROM agent_chat_steer_targets WHERE turn_id=?1 AND state='requested'",
-        [turn],
+        "DELETE FROM agent_chat_steer_targets WHERE state='claimed' AND message_id IN (SELECT message_id FROM agent_chat_prompt_dispatches WHERE state='claimed' AND host_epoch < ?1)",
+        [epoch.0],
     )
     .map(|_| ())
     .map_err(storage_error)
@@ -187,3 +231,7 @@ pub(super) fn expire_unprovable(db: &Connection, epoch: HostEpoch) -> Result<(),
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "agent_chat_steer_target_plan_tests.rs"]
+mod plan_tests;

@@ -1,14 +1,11 @@
 use gent_protocol::{
     AgentChatConversationFrame, AgentChatProjectionDelta, AgentChatProjectionFrame,
-    AgentChatProjectionSnapshot, AgentChatTranscriptFrame, ProjectionCursor,
-};
-use gent_types::{
-    AgentChatConversationSummary, AgentChatFailureCode, AgentChatProjectionEvent,
-    ConversationActivityFact, NormalizedSessionLifecycle, NormalizedTranscriptEvent,
+    AgentChatProjectionSnapshot, AgentChatTranscriptFrame, ProjectionCursor, ProjectionRecordKind,
 };
 
 use super::RuntimeFacade;
 use crate::agent_chat_intent_error::AgentChatIntentError;
+use decode::{activity_fact, deltas, readable_and_unreadable, transcript_event};
 
 pub(super) fn conversation(
     facade: &RuntimeFacade,
@@ -81,7 +78,7 @@ pub(super) fn projection(
         activity_limit,
     } = frame
     else {
-        return Err("agent-chat projection accepts only snapshot requests here".into());
+        return window::read(facade, frame);
     };
     let reads = projection_reads(facade)?;
     let mut detail = reads
@@ -91,22 +88,24 @@ pub(super) fn projection(
     let tail = reads
         .projection_tail(&conversation_id, transcript_limit, activity_limit)
         .map_err(AgentChatIntentError::from)?;
+    let (transcript, mut unreadable) = readable_and_unreadable(
+        tail.transcript,
+        ProjectionRecordKind::Transcript,
+        transcript_event,
+    );
+    let (activity, unreadable_activity) =
+        readable_and_unreadable(tail.activity, ProjectionRecordKind::Activity, activity_fact);
+    unreadable.extend(unreadable_activity);
+    unreadable.sort_by_key(|record| record.cursor.value);
     Ok(AgentChatProjectionFrame::ConversationSnapshot {
         request_id,
         snapshot: Box::new(AgentChatProjectionSnapshot {
             conversation: detail,
             cursor: ProjectionCursor { value: tail.cursor },
             catalogs: Vec::new(),
-            transcript: tail
-                .transcript
-                .into_iter()
-                .map(|event| transcript_event(event.payload))
-                .collect::<Result<_, _>>()?,
-            activity: tail
-                .activity
-                .into_iter()
-                .map(|event| activity_fact(event.payload))
-                .collect::<Result<_, _>>()?,
+            transcript,
+            activity,
+            unreadable,
             goal: match facade
                 .goals
                 .current(&gent_types::AgentChatConversationId(conversation_id))
@@ -137,33 +136,7 @@ pub(super) fn follow(
             .map(|summary| summary_with_mcp(facade, summary))
             .map_err(|error| error.to_string())
     };
-    Ok(deltas_until_unreadable(events, &summary))
-}
-
-type SummaryRead<'a> = &'a dyn Fn() -> Result<AgentChatConversationSummary, String>;
-
-fn deltas_until_unreadable(
-    events: Vec<AgentChatProjectionEvent>,
-    summary: SummaryRead<'_>,
-) -> Vec<AgentChatProjectionDelta> {
-    let mut deltas = Vec::new();
-    for event in events {
-        let cursor = ProjectionCursor {
-            value: event.cursor,
-        };
-        match delta(event, summary) {
-            Ok(delta) => deltas.push(delta),
-            Err(error) => {
-                eprintln!(
-                    "projection event {} requires a resync: {error}",
-                    cursor.value
-                );
-                deltas.push(AgentChatProjectionDelta::ResyncRequired { cursor });
-                break;
-            }
-        }
-    }
-    deltas
+    deltas(events, &summary)
 }
 
 fn projection_reads(
@@ -175,73 +148,11 @@ fn projection_reads(
         .ok_or_else(|| "agent-chat projection is observer-disabled".to_owned())
 }
 
-fn delta(
-    event: AgentChatProjectionEvent,
-    summary: SummaryRead<'_>,
-) -> Result<AgentChatProjectionDelta, String> {
-    let cursor = ProjectionCursor {
-        value: event.cursor,
-    };
-    match event.kind.as_str() {
-        "transcript" => Ok(AgentChatProjectionDelta::Transcript {
-            cursor,
-            event: Box::new(transcript_event(event.payload)?),
-        }),
-        "activity" => Ok(AgentChatProjectionDelta::Activity {
-            cursor,
-            fact: Box::new(activity_fact(event.payload)?),
-        }),
-        "lifecycle" => Ok(AgentChatProjectionDelta::Lifecycle {
-            cursor,
-            lifecycle: serde_json::from_value::<NormalizedSessionLifecycle>(
-                event
-                    .payload
-                    .get("lifecycle")
-                    .cloned()
-                    .ok_or_else(|| "projection lifecycle has no fact".to_owned())?,
-            )
-            .map_err(|error| error.to_string())?,
-        }),
-        "summary" => Ok(AgentChatProjectionDelta::Summary {
-            cursor,
-            run_id: event
-                .payload
-                .get("runId")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| "projection summary has no run".to_owned())?
-                .to_owned(),
-            summary: Box::new(summary()?),
-        }),
-        other => Err(format!("unknown projection event kind {other}")),
-    }
-}
+#[path = "runtime_facade_projection_decode.rs"]
+mod decode;
 
-fn transcript_event(payload: serde_json::Value) -> Result<NormalizedTranscriptEvent, String> {
-    let mut event: NormalizedTranscriptEvent =
-        serde_json::from_value(normalize_projection_transcript(payload))
-            .map_err(|error| error.to_string())?;
-    event.failure_code = AgentChatFailureCode::from_event_id(&event.event_id);
-    Ok(event)
-}
-
-fn activity_fact(payload: serde_json::Value) -> Result<ConversationActivityFact, String> {
-    serde_json::from_value(
-        payload
-            .get("activity")
-            .cloned()
-            .ok_or_else(|| "projection activity has no fact".to_owned())?,
-    )
-    .map_err(|error| error.to_string())
-}
-
-fn normalize_projection_transcript(mut payload: serde_json::Value) -> serde_json::Value {
-    if let Some(partial) = payload.get_mut("isPartial") {
-        if let Some(value) = partial.as_i64() {
-            *partial = serde_json::Value::Bool(value != 0);
-        }
-    }
-    payload
-}
+#[path = "runtime_facade_projection_window.rs"]
+mod window;
 
 #[cfg(test)]
 #[path = "runtime_facade_chat_reads_tests.rs"]

@@ -5,7 +5,12 @@ use gent_types::CapabilitySet;
 use serde_json::Value;
 use tokio::io::AsyncWrite;
 
-use crate::{api::RuntimeApi, transport::write_error};
+use crate::{
+    agent_chat_permission_api::PermissionExchangeError, api::RuntimeApi, transport::write_error,
+};
+
+pub(crate) const PERMISSION_EXPIRED: &str = "agentChatPermissionExpired";
+pub(crate) const PERMISSION_INPUT_INVALID: &str = "agentChatPermissionInputInvalid";
 
 pub(crate) async fn dispatch<S, R>(
     stream: &mut S,
@@ -76,8 +81,26 @@ where
         return Ok(true);
     }
     match port.exchange(frame).await {
+        Ok(AgentChatPermissionFrame::Accepted { receipt, .. })
+            if receipt.status == gent_types::ReceiptStatus::Rejected =>
+        {
+            write_error(
+                stream,
+                PERMISSION_EXPIRED,
+                "the provider run that asked for this decision has ended",
+            )
+            .await?;
+        }
         Ok(response) => write_json_frame(stream, &response).await?,
-        Err(message) => write_error(stream, "agentChatPermissionRejected", &message).await?,
+        Err(PermissionExchangeError::InputInvalid(message)) => {
+            write_error(stream, PERMISSION_INPUT_INVALID, &message).await?;
+        }
+        Err(PermissionExchangeError::CommandPattern(error)) => {
+            write_error(stream, error.code(), &error.to_string()).await?;
+        }
+        Err(PermissionExchangeError::Failed(message)) => {
+            write_error(stream, "agentChatPermissionRejected", &message).await?;
+        }
     }
     Ok(true)
 }

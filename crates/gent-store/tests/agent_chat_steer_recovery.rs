@@ -96,7 +96,7 @@ fn steer(
     conversation_id: &AgentChatConversationId,
     receipt: &str,
     prompt: &AgentChatPromptSaved,
-) -> Result<(gent_types::Receipt, AgentChatRunId), LedgerError> {
+) -> Result<(gent_types::Receipt, AgentChatRunId, Option<String>), LedgerError> {
     ledger.steer_queued_agent_chat_prompt(
         &ReceiptId(receipt.into()),
         HostEpoch(1),
@@ -114,7 +114,7 @@ fn restart(ledger: &SqliteLedger) {
 }
 
 #[test]
-fn a_steer_accepted_but_never_written_is_delivered_exactly_once_after_a_restart() {
+fn a_send_now_accepted_but_never_written_is_delivered_exactly_once_after_a_restart() {
     let (ledger, conversation_id) = ledger();
     active(&ledger, &conversation_id);
     let queued = prompt(
@@ -140,7 +140,7 @@ fn a_steer_accepted_but_never_written_is_delivered_exactly_once_after_a_restart(
 }
 
 #[test]
-fn a_possibly_delivered_steer_fails_with_a_typed_unprovable_delivery_cause() {
+fn a_possibly_delivered_joined_prompt_fails_with_a_typed_unprovable_delivery_cause() {
     let (ledger, conversation_id) = ledger();
     let send = active(&ledger, &conversation_id);
     let queued = prompt(
@@ -149,10 +149,17 @@ fn a_possibly_delivered_steer_fails_with_a_typed_unprovable_delivery_cause() {
         "queued",
         AgentChatPromptDisposition::Queue,
     );
-    steer(&ledger, &conversation_id, "steer-1", &queued).unwrap();
     ledger
-        .claim_steered_agent_chat_prompt(DAEMON, HostEpoch(1), &send.run_id)
+        .claim_steered_agent_chat_prompt_for_turn(
+            DAEMON,
+            HostEpoch(1),
+            &send.run_id,
+            &send.message.turn_id,
+        )
         .unwrap()
+        .unwrap();
+    ledger
+        .begin_agent_chat_prompt_launch(&queued.message.message_id, DAEMON, HostEpoch(1))
         .unwrap();
     restart(&ledger);
     assert_eq!(

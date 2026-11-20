@@ -46,7 +46,13 @@ pub(super) fn checkpoint(binding: &ClaurstSessionBinding, cursor: u64) -> Claurs
     }
 }
 pub(super) fn provider(error: ClaurstAcpTransportError) -> PortError {
-    PortError::Provider(error.to_string())
+    match error {
+        ClaurstAcpTransportError::PermissionNotPending => PortError::NotPending(error.to_string()),
+        ClaurstAcpTransportError::PermissionReplyNotOffered => {
+            PortError::InvalidInput(error.to_string())
+        }
+        _ => PortError::Provider(error.to_string()),
+    }
 }
 pub(super) fn invalid(what: &str) -> PortError {
     PortError::Provider(format!("invalid Claurst ACP {what}"))
@@ -78,11 +84,7 @@ pub(super) fn permission_authority<S: ClaurstAcpStdio>(
         .turn_policy
         .clone()
         .ok_or_else(|| unavailable("Claurst turn launch policy"))?;
-    let live = state
-        .sources
-        .get(&binding.source_id)
-        .is_some_and(|source| source.binding == *binding && !source.terminal);
-    let enforcement = if live {
+    let enforcement = if source_is_active(&state, binding) {
         state
             .transport
             .permission_enforcement(&binding.run_id, &policy, epoch)
@@ -90,4 +92,36 @@ pub(super) fn permission_authority<S: ClaurstAcpStdio>(
         gent_types::SandboxEnforcement::Unavailable
     };
     Ok((policy, enforcement))
+}
+
+pub(super) fn owns_chat_tool<S: ClaurstAcpStdio>(
+    state: &std::sync::Mutex<super::BridgeState<S>>,
+    binding: &ClaurstSessionBinding,
+    tool_name: &str,
+) -> bool {
+    state.lock().is_ok_and(|mut state| {
+        state.owned_chat_tools.iter().any(|name| name == tool_name)
+            && source_is_active(&state, binding)
+            && matches!(state.transport.exited(), Ok(None))
+    })
+}
+
+pub(super) fn runs_background_commands<S>(
+    state: &std::sync::Mutex<super::BridgeState<S>>,
+    binding: &ClaurstSessionBinding,
+) -> bool {
+    state.lock().is_ok_and(|state| {
+        state.transport.has_background_commands()
+            && state
+                .sources
+                .get(&binding.source_id)
+                .is_some_and(|source| source.binding == *binding)
+    })
+}
+
+fn source_is_active<S>(state: &super::BridgeState<S>, binding: &ClaurstSessionBinding) -> bool {
+    state
+        .sources
+        .get(&binding.source_id)
+        .is_some_and(|source| source.binding == *binding && !source.terminal)
 }

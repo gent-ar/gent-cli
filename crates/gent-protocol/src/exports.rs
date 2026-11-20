@@ -15,11 +15,14 @@ pub use crate::agent_chat_intent::{
     HistoricalTranscriptEntry,
 };
 pub use crate::agent_chat_permission::{
-    AGENT_CHAT_PERMISSIONS_CAPABILITY, AgentChatPermissionFrame,
+    AGENT_CHAT_PERMISSION_COMMAND_GRANTS_CAPABILITY, AGENT_CHAT_PERMISSIONS_CAPABILITY,
+    AgentChatPermissionFrame,
 };
 pub use crate::agent_chat_projection::{
-    AGENT_CHAT_PROJECTION_CAPABILITY, AgentChatProjectionDelta, AgentChatProjectionFrame,
-    AgentChatProjectionSnapshot, DisplayRecord, ProjectionCatalog, ProjectionCursor,
+    AGENT_CHAT_PROJECTION_CAPABILITY, AGENT_CHAT_PROJECTION_WINDOW_CAPABILITY,
+    AgentChatProjectionDelta, AgentChatProjectionFrame, AgentChatProjectionSnapshot,
+    COMMAND_CATALOG_ID, DisplayRecord, ProjectionCatalog, ProjectionCursor, ProjectionRecordKind,
+    UnreadableProjectionRecord,
 };
 pub use crate::agent_chat_provider_warm::{
     AGENT_CHAT_PROVIDER_WARM_CAPABILITY, AgentChatProviderWarm, AgentChatProviderWarmResult,
@@ -66,10 +69,7 @@ pub use crate::orchestration::{
     MAX_ORCHESTRATION_FRAME_BYTES, ORCHESTRATION_CAPABILITY, OrchestrationFrame,
     OrchestrationFrameError,
 };
-pub use crate::permission_policy::{
-    PERMISSION_POLICY_CAPABILITY, PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY,
-    PermissionPolicyFrame,
-};
+pub use crate::permission_policy::{PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame};
 pub use crate::prompt_provider_provision::{
     PROMPT_PROVIDER_PROVISION_CAPABILITY, PROMPT_PROVIDER_PROVISION_PROGRESS_CAPABILITY,
     PromptProviderProvisionFrame, PromptProviderProvisionProgressFrame,

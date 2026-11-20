@@ -1,4 +1,4 @@
-use gent_ports::{ConversationLedger, PolicyLedger, ReviewedPlanLedger};
+use gent_ports::{ConversationLedger, PolicyLedger};
 use gent_runtime::{ReviewedPlanAuthority, ReviewedPlanResult, ReviewedPlanService};
 use gent_store::SqliteLedger;
 use gent_types::{
@@ -10,18 +10,8 @@ use gent_types::{
 use super::fake_cli::FakeClaudeDaemon;
 use crate::goal_pursuit_host::test_support::RouterAdmission;
 
-fn pursue(daemon: &mut FakeClaudeDaemon, plans: &ReviewedPlanService<SqliteLedger>) {
-    let epoch = daemon.epoch;
-    let failures = plans
-        .pursue(
-            epoch,
-            &mut RouterAdmission {
-                ledger: &daemon.ledger,
-                router: &mut daemon.router,
-                epoch,
-            },
-        )
-        .unwrap();
+fn pursue(plans: &ReviewedPlanService<SqliteLedger>) {
+    let failures = plans.pursue().unwrap();
     assert!(failures.is_empty(), "{failures:?}");
 }
 
@@ -45,7 +35,7 @@ fn a_claude_plan_mode_turn_becomes_a_reviewed_plan_that_starts_an_agent_implemen
     );
 
     let plans = ReviewedPlanService::new(daemon.ledger.clone(), ReviewedPlanAuthority::Approved);
-    pursue(&mut daemon, &plans);
+    pursue(&plans);
     let ReviewedPlanResult::Plan(Some(plan)) = plans.review(&conversation.0, None).unwrap() else {
         panic!("the plan-mode turn must produce a reviewable plan");
     };
@@ -62,45 +52,46 @@ fn a_claude_plan_mode_turn_becomes_a_reviewed_plan_that_starts_an_agent_implemen
         .current_policy("workspace-fake-claude", PolicyScope::ProviderPermissions)
         .unwrap()
         .unwrap();
+    let epoch = daemon.epoch;
+    let mut admission = RouterAdmission {
+        ledger: &daemon.ledger,
+        router: &mut daemon.router,
+        epoch,
+    };
     let ReviewedPlanResult::Started(started) = plans
-        .start(&StartImplementationRequest {
-            request_id: AgentChatRequestId("start-plan".into()),
-            receipt_id: ReceiptId("start-plan".into()),
-            idempotency_key: "start-plan".into(),
-            host_epoch: daemon.epoch,
-            policy_workspace_id: "workspace-fake-claude".into(),
-            policy_revision: policy.revision,
-            conversation_id: conversation.clone(),
-            plan_id: plan.plan_id.clone(),
-            plan_revision: plan.revision,
-            plan_content_digest_sha256: plan.content_digest_sha256.clone(),
-            parent_run_id: planning_run,
-            selection: AgentChatSelection {
-                provider: AgentChatProvider::Claude,
-                model: "sonnet".into(),
-                effort: AgentChatEffort::Medium,
-                mode: AgentChatMode::Agent,
+        .start(
+            &StartImplementationRequest {
+                request_id: AgentChatRequestId("start-plan".into()),
+                receipt_id: ReceiptId("start-plan".into()),
+                idempotency_key: "start-plan".into(),
+                host_epoch: daemon.epoch,
+                policy_workspace_id: "workspace-fake-claude".into(),
+                policy_revision: policy.revision,
+                conversation_id: conversation.clone(),
+                plan_id: plan.plan_id.clone(),
+                plan_revision: plan.revision,
+                plan_content_digest_sha256: plan.content_digest_sha256.clone(),
+                parent_run_id: planning_run,
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claude,
+                    model: "sonnet".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+                context_policy: ContextPolicy::Preserve,
+                instructions: Some("Also add a license section.".into()),
             },
-            context_policy: ContextPolicy::Preserve,
-        })
+            &mut admission,
+        )
         .unwrap()
     else {
         panic!("approval must reserve the implementation run");
     };
-    pursue(&mut daemon, &plans);
-    pursue(&mut daemon, &plans);
     let implementation_run = started.implementation_run_id.0.clone();
     daemon.drive_until("implementation turn", |daemon| {
         let turns = daemon.ledger.list_run_turns(&implementation_run).unwrap();
         turns.len() == 1 && turns[0].phase.is_terminal()
     });
-    assert!(
-        daemon
-            .ledger
-            .implementations_awaiting_prompt()
-            .unwrap()
-            .is_empty()
-    );
     let implementation_launch = daemon.launches().last().unwrap().clone();
     assert!(
         implementation_launch
@@ -111,9 +102,14 @@ fn a_claude_plan_mode_turn_becomes_a_reviewed_plan_that_starts_an_agent_implemen
     assert!(projection.iter().any(|event| {
         event.payload["kind"] == "userMessage"
             && event.payload["runId"] == implementation_run.as_str()
-            && event.payload["text"]
-                .as_str()
-                .is_some_and(|text| text.contains("2. Add a usage section"))
+            && event.payload["text"].as_str().is_some_and(|text| {
+                text.contains("2. Add a usage section")
+                    && text.contains("Also add a license section.")
+            })
+    }));
+    assert!(projection.iter().any(|event| {
+        event.payload["activity"]["type"] == "promptReleased"
+            && event.payload["activity"]["runId"] == implementation_run.as_str()
     }));
     assert!(projection.iter().any(|event| {
         event.payload["activity"]["type"] == "planUpdated"

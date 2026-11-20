@@ -7,19 +7,19 @@ use std::{
 
 use crate::claude_prompt_lifecycle::ClaudeSummaryHook;
 use gent_drivers::{
-    PublicProvider, SystemLauncher,
+    MAX_PROVIDER_FRAME_BYTES, PublicProvider, SystemLauncher,
     claude_turn_options::ClaudeTurnOptions,
     interrupt::{ProcessTreeControl, ProcessTreeSignal},
     launch_spec::{LaunchIntent, arguments},
     message_encoding::{PublicSession, encode_user_message},
+    ndjson::NdjsonFramer,
     supervisor::{ProcessLauncher, ProviderLaunch, ProviderProcess},
 };
 use gent_ports::{ConversationSummaryRunner, PortError, PublicProviderResolver};
 use gent_runtime::conversation_summary_scheduler::ConversationSummaryScheduler;
 use gent_types::{Command, HostEpoch, ReceiptId, SandboxWorkspaceAccess};
 
-const MAX_PROMPT_BYTES: usize = 24 * 1024;
-const MAX_OUTPUT_BYTES: usize = 16 * 1024;
+const DIAGNOSTIC_CAPTURE_BYTES: usize = 16 * 1024;
 const MAX_RUNTIME: Duration = crate::provider_launch_budget::launch_budget(Duration::from_secs(30));
 
 #[derive(Clone)]
@@ -39,7 +39,9 @@ impl std::fmt::Debug for ClaudeSummaryRunner {
 impl ClaudeSummaryRunner {
     pub(crate) fn new(resolver: Arc<dyn PublicProviderResolver>) -> Self {
         Self {
-            launcher: crate::node_runtime_lock::standalone_provider_launcher(MAX_OUTPUT_BYTES),
+            launcher: crate::node_runtime_lock::standalone_provider_launcher(
+                DIAGNOSTIC_CAPTURE_BYTES,
+            ),
             resolver,
         }
     }
@@ -56,7 +58,6 @@ impl ConversationSummaryRunner for ClaudeSummaryRunner {
             || model_version.trim().is_empty()
             || model_version.contains('\0')
             || prompt.trim().is_empty()
-            || prompt.len() > MAX_PROMPT_BYTES
         {
             return Err(PortError::Unavailable(
                 "Claude summary request is invalid".into(),
@@ -106,19 +107,13 @@ impl ConversationSummaryRunner for ClaudeSummaryRunner {
             .close_stdin()
             .map_err(|error| PortError::Provider(error.to_string()))?;
         let deadline = Instant::now() + MAX_RUNTIME;
-        let mut output = Vec::new();
+        let mut reply = ClaudeReply::new()?;
         loop {
             while let Some(chunk) = process
                 .next_stdout_chunk()
                 .map_err(|error| PortError::Provider(error.to_string()))?
             {
-                output.extend_from_slice(&chunk);
-                if output.len() > MAX_OUTPUT_BYTES {
-                    let _ = process.signal_tree(ProcessTreeSignal::Kill);
-                    return Err(PortError::Unavailable(
-                        "Claude summary output exceeded its bound".into(),
-                    ));
-                }
+                reply.push(&chunk);
             }
             if process
                 .try_exit_code()
@@ -129,7 +124,9 @@ impl ConversationSummaryRunner for ClaudeSummaryRunner {
             }
             if Instant::now() >= deadline {
                 let _ = process.signal_tree(ProcessTreeSignal::Kill);
-                return Err(PortError::Unavailable("Claude summary timed out".into()));
+                return Err(PortError::Provider(
+                    "Claude did not finish its answer in time".into(),
+                ));
             }
             thread::sleep(Duration::from_millis(5));
         }
@@ -137,14 +134,40 @@ impl ConversationSummaryRunner for ClaudeSummaryRunner {
             .next_stdout_chunk()
             .map_err(|error| PortError::Provider(error.to_string()))?
         {
-            output.extend_from_slice(&chunk);
-            if output.len() > MAX_OUTPUT_BYTES {
-                return Err(PortError::Unavailable(
-                    "Claude summary output exceeded its bound".into(),
-                ));
+            reply.push(&chunk);
+        }
+        reply.finish()
+    }
+}
+
+struct ClaudeReply {
+    frames: NdjsonFramer,
+    result: Option<Result<String, PortError>>,
+}
+
+impl ClaudeReply {
+    fn new() -> Result<Self, PortError> {
+        Ok(Self {
+            frames: NdjsonFramer::new(MAX_PROVIDER_FRAME_BYTES)
+                .map_err(|error| PortError::Provider(error.to_string()))?,
+            result: None,
+        })
+    }
+
+    fn push(&mut self, chunk: &[u8]) {
+        for frame in self.frames.push(chunk) {
+            if let Some(result) = result_frame(&frame) {
+                self.result = Some(result);
             }
         }
-        parse_result(&output)
+    }
+
+    fn finish(self) -> Result<String, PortError> {
+        self.result.unwrap_or_else(|| {
+            Err(PortError::Provider(
+                "Claude returned no structured result".into(),
+            ))
+        })
     }
 }
 
@@ -167,49 +190,70 @@ impl ClaudeSummaryHook for ClaudeSummarySchedulerHook {
     }
 }
 
-fn parse_result(output: &[u8]) -> Result<String, PortError> {
-    for line in output.split(|byte| *byte == b'\n') {
-        let Ok(frame) = serde_json::from_slice::<serde_json::Value>(line) else {
-            continue;
-        };
-        if frame.get("type").and_then(serde_json::Value::as_str) == Some("result") {
-            if let Some(result) = frame
-                .get("result")
-                .and_then(serde_json::Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-            {
-                return Ok(result.to_owned());
-            }
-        }
+fn result_frame(frame: &[u8]) -> Option<Result<String, PortError>> {
+    let frame = serde_json::from_slice::<serde_json::Value>(frame).ok()?;
+    if frame.get("type").and_then(serde_json::Value::as_str) != Some("result") {
+        return None;
     }
-    Err(PortError::Provider(
-        "Claude summary returned no structured result".into(),
-    ))
+    let text = frame
+        .get("result")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    Some(
+        if frame.get("is_error").and_then(serde_json::Value::as_bool) == Some(true) {
+            Err(PortError::Provider(format!(
+                "Claude reported an error: {text}"
+            )))
+        } else if text.trim().is_empty() {
+            Err(PortError::Provider(
+                "Claude returned an empty answer".into(),
+            ))
+        } else {
+            Ok(text.to_owned())
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_result;
+    use super::ClaudeReply;
 
-    #[test]
-    fn accepts_only_a_nonempty_structured_result() {
-        assert_eq!(
-            parse_result(br#"{"type":"result","result":"Title"}"#).unwrap(),
-            "Title"
-        );
-        assert!(parse_result(br#"{"type":"assistant","result":"Title"}"#).is_err());
-        assert!(parse_result(br#"{"type":"result","result":"  "}"#).is_err());
+    fn reply(chunks: &[&[u8]]) -> Result<String, gent_ports::PortError> {
+        let mut reply = ClaudeReply::new().unwrap();
+        for chunk in chunks {
+            reply.push(chunk);
+        }
+        reply.finish()
     }
 
     #[test]
-    fn accepts_the_final_result_after_claude_streaming_frames() {
-        let output = br#"{"type":"system","subtype":"init"}
-{"type":"assistant","message":{"content":[{"type":"text","text":"ignored"}]}}
-{"type":"result","result":"```json\n{\"title\":\"Release checklist completed\",\"recap\":\"\"}\n```"}
-"#;
+    fn accepts_only_a_nonempty_successful_result() {
         assert_eq!(
-            parse_result(output).unwrap(),
-            "```json\n{\"title\":\"Release checklist completed\",\"recap\":\"\"}\n```"
+            reply(&[b"{\"type\":\"result\",\"result\":\"Title\"}\n"]).unwrap(),
+            "Title"
         );
+        assert!(reply(&[b"{\"type\":\"assistant\",\"result\":\"Title\"}\n"]).is_err());
+        assert!(reply(&[b"{\"type\":\"result\",\"result\":\"  \"}\n"]).is_err());
+        assert!(
+            reply(&[
+                b"{\"type\":\"result\",\"is_error\":true,\"result\":\"Prompt is too long\"}\n"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn keeps_only_the_answer_of_a_stream_far_larger_than_the_answer() {
+        let echoed = "x".repeat(64 * 1024);
+        let answer = "y".repeat(48 * 1024);
+        let stream = format!(
+            "{{\"type\":\"system\",\"subtype\":\"init\"}}\n{}\n{}{}\n",
+            serde_json::json!({"type": "user", "isReplay": true, "message": {"role": "user", "content": [{"type": "text", "text": echoed}]}}),
+            "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"y\"}}}\n"
+                .repeat(2048),
+            serde_json::json!({"type": "result", "subtype": "success", "is_error": false, "result": answer}),
+        );
+        let chunks: Vec<&[u8]> = stream.as_bytes().chunks(4096).collect();
+        assert_eq!(reply(&chunks).unwrap(), answer);
     }
 }

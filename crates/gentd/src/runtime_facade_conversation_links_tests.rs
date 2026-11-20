@@ -1,4 +1,4 @@
-use gent_ports::ConversationArtifactLedger;
+use gent_ports::{AgentChatPromptDispatchLedger, ConversationArtifactLedger};
 use gent_protocol::AgentChatIntentFrame;
 use gent_runtime::conversation_label_title::label_title;
 use gent_types::{AgentChatRequestId, ConversationMessageDelivery, DurableTurnPhase, ReceiptId};
@@ -80,7 +80,7 @@ async fn addressing_an_idle_conversation_queues_one_prompt_and_names_the_target(
 }
 
 #[tokio::test]
-async fn addressing_a_working_conversation_steers_the_turn_in_flight() {
+async fn addressing_a_working_conversation_queues_into_the_turn_without_interrupting_it() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = facade(directory.path()).await;
     let top = root(&runtime, "top", ".");
@@ -92,7 +92,7 @@ async fn addressing_a_working_conversation_steers_the_turn_in_flight() {
             request_id: AgentChatRequestId("send-2".into()),
             receipt_id: ReceiptId("send-receipt-2".into()),
             from_conversation_id: top.clone(),
-            target_conversation_id: worker,
+            target_conversation_id: worker.clone(),
             message: "also fix the lexer".into(),
         })
         .unwrap();
@@ -102,6 +102,17 @@ async fn addressing_a_working_conversation_steers_the_turn_in_flight() {
             if *delivery == ConversationMessageDelivery::Steered
     ));
     assert_eq!(facts(&runtime, &top).pop().unwrap()["delivery"], "steered");
+    let worker_facts = facts(&runtime, &worker);
+    assert!(
+        worker_facts
+            .iter()
+            .any(|fact| fact["type"] == "promptQueued")
+    );
+    assert!(
+        !worker_facts
+            .iter()
+            .any(|fact| fact["type"] == "promptSteerRequested")
+    );
 }
 
 #[tokio::test]
@@ -158,6 +169,43 @@ async fn a_settled_conversation_ends_the_wait_and_returns_its_last_reply() {
         settled.as_slice(),
         [AgentChatIntentFrame::ConversationWaitSettled { results, timed_out, .. }]
             if !timed_out && results[0].target.is_settled()
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_ends_when_the_target_settles_rather_than_at_its_timeout() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = facade(directory.path()).await;
+    let top = root(&runtime, "top", ".");
+    let worker = child(&runtime, "worker", &top, "the worker");
+    let prompt = running(&runtime, &worker, "worker");
+    let ledger = runtime.conversation_links().unwrap().clone();
+    let settler = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        ledger
+            .settle_agent_chat_prompt_terminal(
+                &prompt,
+                "daemon",
+                gent_types::HostEpoch(1),
+                DurableTurnPhase::Completed,
+            )
+            .unwrap();
+    });
+    let started = std::time::Instant::now();
+    let settled = runtime
+        .agent_chat_intent(AgentChatIntentFrame::WaitForConversations {
+            request_id: AgentChatRequestId("wait-3".into()),
+            from_conversation_id: top,
+            conversation_ids: vec![worker],
+            timeout_seconds: 60,
+        })
+        .unwrap();
+    settler.join().unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+    assert!(matches!(
+        settled.as_slice(),
+        [AgentChatIntentFrame::ConversationWaitSettled { results, timed_out, .. }]
+            if !timed_out && results[0].target.phase == Some(DurableTurnPhase::Completed)
     ));
 }
 

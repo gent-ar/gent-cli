@@ -183,7 +183,7 @@ fn batch_rejects_stale_epoch_and_changed_source_payload() {
     stale.host_epoch = HostEpoch(2);
     if let Some(value) = stale.activity.as_mut() {
         match value {
-            ConversationActivityFact::TurnStarted { scope } => scope.host_epoch = HostEpoch(2),
+            ConversationActivityFact::TurnStarted { scope, .. } => scope.host_epoch = HostEpoch(2),
             _ => unreachable!(),
         }
     }
@@ -391,4 +391,337 @@ fn a_provider_interruption_appends_the_unfinished_reply_before_its_terminal_fact
             ("activity", "", "")
         ]
     );
+}
+
+fn output(turn_id: &str, index: usize) -> NormalizedSessionBatch {
+    NormalizedSessionBatch {
+        lifecycle_event_id: format!("lifecycle-{index}"),
+        lifecycle: NormalizedSessionLifecycle::Event {
+            event: NormalizedProviderEvent::Output {
+                text: format!("token-{index}"),
+                is_partial: true,
+            },
+        },
+        transcript: Some(NormalizedTranscriptAppend {
+            event_id: format!("transcript-{index}"),
+            turn_id: turn_id.into(),
+            run_id: "run-a".into(),
+            kind: NormalizedTranscriptKind::AssistantMessage,
+            text: format!("token-{index}"),
+            is_partial: true,
+        }),
+        activity_event_id: None,
+        activity: None,
+        ..batch(turn_id.into())
+    }
+}
+
+#[test]
+fn a_drained_batch_of_facts_is_recorded_in_order_or_not_at_all() {
+    let (ledger, turn_id) = prepared();
+    let drained = (0..3)
+        .map(|index| output(&turn_id, index))
+        .collect::<Vec<_>>();
+    let mut colliding = drained.clone();
+    colliding[2].transcript.as_mut().unwrap().event_id = "transcript-0".into();
+    assert!(
+        ledger
+            .append_normalized_session_batches(&colliding)
+            .is_err()
+    );
+    assert!(ledger.read_event_page(0, 100).unwrap().events.is_empty());
+    let recorded = ledger.append_normalized_session_batches(&drained).unwrap();
+    let cursors = recorded
+        .iter()
+        .map(|result| result.lifecycle_cursor)
+        .collect::<Vec<_>>();
+    assert_eq!(cursors, [1, 2, 3]);
+    assert_eq!(
+        ledger.append_normalized_session_batches(&drained).unwrap(),
+        recorded
+    );
+}
+
+fn activity_batch(
+    turn_id: &str,
+    index: u32,
+    fact: ConversationActivityFact,
+) -> NormalizedSessionBatch {
+    NormalizedSessionBatch {
+        lifecycle_event_id: format!("lifecycle-late-{index}"),
+        transcript: None,
+        activity_event_id: Some(format!("activity-late-{index}")),
+        activity: Some(fact),
+        ..batch(turn_id.into())
+    }
+}
+
+fn exec(turn_id: &str, tool_name: &str, phase: gent_types::ToolPhase) -> ConversationActivityFact {
+    ConversationActivityFact::ToolActivity {
+        scope: scope(turn_id),
+        activity: gent_types::ToolActivity {
+            tool_use_id: "exec-1".into(),
+            tool_name: tool_name.into(),
+            phase,
+            output_digest: None,
+            input: None,
+            parent_tool_use_id: None,
+        },
+    }
+}
+
+fn scope(turn_id: &str) -> ConversationActivityScope {
+    ConversationActivityScope {
+        conversation_id: "conversation-a".into(),
+        run_id: "run-a".into(),
+        turn_id: turn_id.into(),
+        host_epoch: HostEpoch(1),
+        cursor: 0,
+    }
+}
+
+fn pending_permission(
+    turn_id: &str,
+    child_id: Option<&str>,
+) -> gent_types::PermissionDecisionRequest {
+    gent_types::PermissionDecisionRequest {
+        binding: gent_types::PermissionDecisionBinding {
+            decision_id: gent_types::AgentChatDecisionId("0".into()),
+            request_idempotency_key: "codex:run-a:0".into(),
+            conversation_id: AgentChatConversationId("conversation-a".into()),
+            run_id: AgentChatRunId("run-a".into()),
+            turn_id: turn_id.into(),
+            policy_id: "policy-1".into(),
+            policy_revision: 1,
+            host_epoch: HostEpoch(1),
+            request_digest_sha256: gent_types::PermissionRequestDigest("a".repeat(64)),
+        },
+        request: gent_types::PermissionRequest {
+            tool_name: "Edit".into(),
+            category: gent_types::PermissionCategory::Edit,
+            input: None,
+            child_id: child_id.map(str::to_owned),
+        },
+    }
+}
+
+#[test]
+fn an_interrupted_terminal_is_the_last_tool_and_decision_fact_of_its_turn() {
+    use gent_ports::PendingPermissionLedger;
+    use gent_types::{ToolPhase, TurnPhase};
+    let (ledger, turn_id) = prepared();
+    let started = exec(&turn_id, "commandExecution", ToolPhase::Started);
+    ledger
+        .append_normalized_session_batches(&[activity_batch(&turn_id, 0, started.clone())])
+        .unwrap();
+    ledger
+        .save_pending_permission(&pending_permission(&turn_id, None))
+        .unwrap();
+    let terminal = ConversationActivityFact::Terminal {
+        scope: scope(&turn_id),
+        phase: TurnPhase::Interrupted,
+        cause: None,
+    };
+    let late = [
+        activity_batch(&turn_id, 1, terminal),
+        activity_batch(&turn_id, 2, started),
+        activity_batch(&turn_id, 3, exec(&turn_id, "fileChange", ToolPhase::Failed)),
+    ];
+    let recorded = ledger.append_normalized_session_batches(&late).unwrap();
+    assert_eq!(recorded[1].activity_cursor, recorded[0].activity_cursor);
+    assert_eq!(recorded[2].activity_cursor, recorded[0].activity_cursor);
+    let facts = ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 50)
+        .unwrap()
+        .facts
+        .into_iter()
+        .map(|fact| match fact {
+            ConversationActivityFact::ToolActivity { activity, .. } => {
+                format!("{}:{:?}", activity.tool_name, activity.phase)
+            }
+            other => serde_json::to_value(&other).unwrap()["type"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        })
+        .filter(|kind| kind.contains(':') || kind.starts_with("decision") || kind == "terminal")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        facts,
+        [
+            "commandExecution:Started",
+            "decisionPending",
+            "decisionSettled",
+            "commandExecution:Failed",
+            "terminal",
+        ]
+    );
+}
+
+#[test]
+fn a_background_command_outlives_its_interrupted_turn_until_its_own_end() {
+    use gent_ports::NormalizedSessionBatchLedger;
+    use gent_types::{ToolPhase, TurnPhase};
+    let (ledger, turn_id) = prepared();
+    let launch = [
+        activity_batch(
+            &turn_id,
+            0,
+            exec(&turn_id, "commandExecution", ToolPhase::Started),
+        ),
+        activity_batch(
+            &turn_id,
+            1,
+            exec(&turn_id, "commandExecution", ToolPhase::Background),
+        ),
+        activity_batch(&turn_id, 2, terminal(&turn_id, TurnPhase::Interrupted)),
+    ];
+    let launched = ledger.append_normalized_session_batches(&launch).unwrap();
+    let later = ledger
+        .start_provider_turn("conversation-a", "run-a", HostEpoch(1))
+        .unwrap();
+    let ends = [
+        activity_batch(
+            &later,
+            3,
+            exec(&later, "commandExecution", ToolPhase::Interrupted),
+        ),
+        activity_batch(
+            &turn_id,
+            4,
+            exec(&turn_id, "commandExecution", ToolPhase::Started),
+        ),
+    ];
+    let recorded = ledger.append_normalized_session_batches(&ends).unwrap();
+    assert_ne!(recorded[0].activity_cursor, launched[2].activity_cursor);
+    assert_eq!(recorded[1].activity_cursor, launched[2].activity_cursor);
+    let facts = ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 50)
+        .unwrap()
+        .facts;
+    let tools = facts
+        .iter()
+        .filter_map(|fact| match fact {
+            ConversationActivityFact::ToolActivity { scope, activity } => {
+                Some((scope.turn_id.as_str(), activity.phase.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tools,
+        [
+            (turn_id.as_str(), ToolPhase::Started),
+            (turn_id.as_str(), ToolPhase::Background),
+            (turn_id.as_str(), ToolPhase::Interrupted),
+        ]
+    );
+}
+
+fn child_started(turn_id: &str) -> ConversationActivityFact {
+    ConversationActivityFact::SubagentStarted {
+        scope: scope(turn_id),
+        child_id: "child-1".into(),
+        parent_tool_use_id: "spawn-1".into(),
+    }
+}
+
+fn child_phase(turn_id: &str, phase: gent_types::WorkPhase) -> ConversationActivityFact {
+    ConversationActivityFact::WorkPhase {
+        scope: scope(turn_id),
+        work_id: "child-1".into(),
+        kind: gent_types::ActivityWorkKind::Subagent,
+        phase,
+    }
+}
+
+fn terminal(turn_id: &str, phase: gent_types::TurnPhase) -> ConversationActivityFact {
+    ConversationActivityFact::Terminal {
+        scope: scope(turn_id),
+        phase,
+        cause: None,
+    }
+}
+
+fn kinds(ledger: &SqliteLedger) -> Vec<String> {
+    ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 50)
+        .unwrap()
+        .facts
+        .into_iter()
+        .map(|fact| {
+            let value = serde_json::to_value(&fact).unwrap();
+            match value["phase"].as_str() {
+                Some(phase) => format!("{}:{phase}", value["type"].as_str().unwrap()),
+                None => value["type"].as_str().unwrap().to_owned(),
+            }
+        })
+        .filter(|kind| {
+            ["subagentStarted", "decision", "workPhase", "terminal"]
+                .iter()
+                .any(|prefix| kind.starts_with(prefix))
+        })
+        .collect()
+}
+
+#[test]
+fn a_ready_root_terminal_leaves_a_running_childs_pending_decision_pending() {
+    use gent_ports::PendingPermissionLedger;
+    let (ledger, turn_id) = prepared();
+    ledger
+        .append_normalized_session_batches(&[activity_batch(&turn_id, 0, child_started(&turn_id))])
+        .unwrap();
+    let request = pending_permission(&turn_id, Some("child-1"));
+    ledger.save_pending_permission(&request).unwrap();
+    ledger
+        .append_normalized_session_batches(&[activity_batch(
+            &turn_id,
+            1,
+            terminal(&turn_id, gent_types::TurnPhase::Ready),
+        )])
+        .unwrap();
+    assert_eq!(
+        kinds(&ledger),
+        ["subagentStarted", "decisionPending", "terminal:ready"]
+    );
+    assert_eq!(
+        ledger
+            .pending_permission(&request.binding.conversation_id, &request.binding.run_id)
+            .unwrap(),
+        Some(request)
+    );
+}
+
+#[test]
+fn an_interrupted_root_terminal_ends_its_running_child_and_nothing_reopens_it() {
+    use gent_ports::PendingPermissionLedger;
+    use gent_types::WorkPhase;
+    let (ledger, turn_id) = prepared();
+    ledger
+        .append_normalized_session_batches(&[activity_batch(&turn_id, 0, child_started(&turn_id))])
+        .unwrap();
+    ledger
+        .save_pending_permission(&pending_permission(&turn_id, Some("child-1")))
+        .unwrap();
+    let recorded = ledger
+        .append_normalized_session_batches(&[
+            activity_batch(
+                &turn_id,
+                1,
+                terminal(&turn_id, gent_types::TurnPhase::Interrupted),
+            ),
+            activity_batch(&turn_id, 2, child_phase(&turn_id, WorkPhase::Running)),
+        ])
+        .unwrap();
+    assert_eq!(
+        kinds(&ledger),
+        [
+            "subagentStarted",
+            "decisionPending",
+            "decisionSettled",
+            "workPhase:interrupted",
+            "terminal:interrupted",
+        ]
+    );
+    assert!(recorded[1].activity_cursor < recorded[0].activity_cursor);
 }

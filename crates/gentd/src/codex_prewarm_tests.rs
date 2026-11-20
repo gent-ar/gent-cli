@@ -318,6 +318,7 @@ fn a_permission_policy_change_never_reuses_the_warm_process() {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec!["Read".into()],
             allowed_categories: Vec::new(),
+            allowed_commands: Vec::new(),
         })
         .unwrap();
 

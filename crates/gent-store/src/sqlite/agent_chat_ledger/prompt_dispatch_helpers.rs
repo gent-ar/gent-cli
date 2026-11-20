@@ -41,12 +41,9 @@ pub(super) fn fail_prelaunch(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(storage_error)?;
-    // An OS process may have started but exited before announcing its provider
-    // session. It still needs an owned, durable explanation. Never admit an
-    // announced session, unknown launch state, foreign coordinator or epoch here.
     let changed = transaction
         .execute(
-            "UPDATE agent_chat_prompt_dispatches SET state = 'settled' WHERE message_id = ?1 AND coordinator_id = ?2 AND host_epoch = ?3 AND (state = 'claimed' OR (state = 'started' AND NOT EXISTS (SELECT 1 FROM run_session_bindings WHERE run_id = ?4)))",
+            "UPDATE agent_chat_prompt_dispatches SET state = 'settled' WHERE message_id = ?1 AND coordinator_id = ?2 AND host_epoch = ?3 AND (state IN ('claimed', 'launching') OR (state = 'started' AND NOT EXISTS (SELECT 1 FROM run_session_bindings WHERE run_id = ?4)))",
             params![message_id, coordinator_id, host_epoch.0, run_id],
         )
         .map_err(storage_error)?;
@@ -80,7 +77,7 @@ pub(super) fn fail_prelaunch(
     transaction.commit().map_err(storage_error)
 }
 
-pub(super) fn saved(
+pub(crate) fn saved(
     transaction: &Transaction<'_>,
     message_id: &str,
 ) -> Result<AgentChatPromptSaved, LedgerError> {
@@ -141,15 +138,48 @@ pub(super) const fn provider_name(provider: AgentChatProvider) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) struct DispatchTransition {
+    expected: &'static str,
+    state: &'static str,
+    retain_owner: bool,
+    rejected: bool,
+}
+
+impl DispatchTransition {
+    pub(super) const LAUNCH: Self = Self::new("claimed", "launching", true);
+    pub(super) const START: Self = Self::new("launching", "started", true);
+    pub(super) const RELEASE_CLAIM: Self = Self::new("claimed", "pending", false);
+    pub(super) const RELEASE_UNSTARTED: Self = Self::new("launching", "pending", false);
+    pub(super) const REJECT_UNSTARTED: Self = Self {
+        rejected: true,
+        ..Self::RELEASE_UNSTARTED
+    };
+    pub(super) const SETTLE: Self = Self::new("started", "settled", true);
+
+    const fn new(expected: &'static str, state: &'static str, retain_owner: bool) -> Self {
+        Self {
+            expected,
+            state,
+            retain_owner,
+            rejected: false,
+        }
+    }
+}
+
 pub(super) fn transition(
     ledger: &SqliteLedger,
     message_id: &str,
     coordinator_id: &str,
     host_epoch: HostEpoch,
-    expected: &str,
-    state: &str,
-    retain_owner: bool,
+    step: DispatchTransition,
 ) -> Result<(), LedgerError> {
+    let DispatchTransition {
+        expected,
+        state,
+        retain_owner,
+        rejected,
+    } = step;
     valid_owner(coordinator_id)?;
     if message_id.trim().is_empty() {
         return Err(LedgerError::Invariant(
@@ -177,16 +207,18 @@ pub(super) fn transition(
             "agent chat dispatch is not owned by this coordinator".into(),
         ));
     }
-    if expected == "launching" && state == "pending" {
-        super::super::super::agent_chat_steer_target::expire(
+    if rejected {
+        super::super::super::agent_chat_steer_target::reject(&transaction, message_id, host_epoch)?;
+    } else if state == "pending" {
+        super::super::super::agent_chat_steer_target::release(&transaction, message_id)?;
+    }
+    if state == "pending" {
+        super::super::super::agent_chat_stop::withdraw_if_marked(
             &transaction,
             message_id,
             host_epoch,
-            "deliveryRejected",
         )?;
-    }
-    if state == "pending" {
-        super::super::switch_queue::carry_undispatched_prompts(&transaction, host_epoch)?;
+        super::super::switch_queue::carry_undispatched_prompts(&transaction)?;
     }
     transaction.commit().map_err(storage_error)
 }

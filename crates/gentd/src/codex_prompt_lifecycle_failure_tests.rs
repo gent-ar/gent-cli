@@ -151,7 +151,36 @@ fn an_unauthorized_codex_turn_fails_with_one_typed_sign_in_notice() {
     );
     assert_eq!(
         failed_codex_turn(serde_json::json!({"message":"401 Unauthorized"})),
-        vec![("Codex ended the turn with an error.".into(), None)]
+        vec![(
+            "Codex ended the turn with an error.".into(),
+            Some(AgentChatFailureCode::ProviderFailed)
+        )]
+    );
+}
+
+#[test]
+fn every_classified_codex_failure_is_a_typed_code_on_the_turn_notice() {
+    let code = |info: &str| {
+        failed_codex_turn(serde_json::json!({"codexErrorInfo": info, "message": info}))
+            .into_iter()
+            .map(|(_, code)| code)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        code("usageLimitExceeded"),
+        [Some(AgentChatFailureCode::ProviderRateLimited)]
+    );
+    assert_eq!(
+        code("contextWindowExceeded"),
+        [Some(AgentChatFailureCode::ProviderContextLimit)]
+    );
+    assert_eq!(
+        code("serverOverloaded"),
+        [Some(AgentChatFailureCode::ProviderOverloaded)]
+    );
+    assert_eq!(
+        code("internalServerError"),
+        [Some(AgentChatFailureCode::ProviderFailed)]
     );
 }
 

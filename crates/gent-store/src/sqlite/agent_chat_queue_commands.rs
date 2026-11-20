@@ -82,6 +82,30 @@ pub(super) fn receipted(
     Ok(receipt)
 }
 
+const QUEUED: &str = "p.disposition = 'queue' AND d.state IN ('awaiting_readiness', 'pending')";
+const PROMPTS: &str = "agent_chat_prompt_dispatches d JOIN agent_chat_prompt_receipts p ON p.message_id = d.message_id JOIN conversation_messages m ON m.message_id = d.message_id";
+
+pub(super) fn turn_not_begun() -> String {
+    format!(
+        "EXISTS(SELECT 1 FROM {PROMPTS} LEFT JOIN agent_chat_steer_targets s ON s.message_id = m.message_id WHERE m.turn_id = t.turn_id AND (({QUEUED}) OR s.state IN ('requested', 'claimed')))"
+    )
+}
+
+pub(super) fn steerable_prompt(
+    connection: &Connection,
+    conversation_id: &AgentChatConversationId,
+    message_id: &str,
+) -> Result<Option<(String, String)>, LedgerError> {
+    connection
+        .query_row(
+            &format!("SELECT m.run_id, m.turn_id FROM {PROMPTS} WHERE d.message_id = ?1 AND m.conversation_id = ?2 AND (({QUEUED}) OR EXISTS(SELECT 1 FROM agent_chat_steer_targets s WHERE s.message_id = d.message_id AND s.state = 'claimed'))"),
+            params![message_id, conversation_id.0],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(storage_error)
+}
+
 pub(super) fn queued_prompt(
     connection: &Connection,
     conversation_id: &AgentChatConversationId,
@@ -89,7 +113,7 @@ pub(super) fn queued_prompt(
 ) -> Result<Option<(String, String)>, LedgerError> {
     connection
         .query_row(
-            "SELECT m.run_id, m.turn_id FROM agent_chat_prompt_dispatches d JOIN agent_chat_prompt_receipts p ON p.message_id = d.message_id JOIN conversation_messages m ON m.message_id = d.message_id WHERE d.message_id = ?1 AND m.conversation_id = ?2 AND p.disposition = 'queue' AND d.state IN ('awaiting_readiness', 'pending')",
+            &format!("SELECT m.run_id, m.turn_id FROM {PROMPTS} WHERE d.message_id = ?1 AND m.conversation_id = ?2 AND {QUEUED}"),
             params![message_id, conversation_id.0],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )

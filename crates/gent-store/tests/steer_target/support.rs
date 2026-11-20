@@ -14,6 +14,13 @@ pub fn ledger() -> (SqliteLedger, AgentChatConversationId) {
 }
 
 pub fn populate(ledger: SqliteLedger) -> (SqliteLedger, AgentChatConversationId) {
+    populate_for(ledger, AgentChatProvider::Codex)
+}
+
+pub fn populate_for(
+    ledger: SqliteLedger,
+    provider: AgentChatProvider,
+) -> (SqliteLedger, AgentChatConversationId) {
     let conversation_id = AgentChatConversationId("conversation-1".into());
     ledger
         .create_agent_chat_conversation_in_workspace(
@@ -24,8 +31,8 @@ pub fn populate(ledger: SqliteLedger) -> (SqliteLedger, AgentChatConversationId)
                 conversation_id: conversation_id.clone(),
                 run_id: AgentChatRunId("run-1".into()),
                 selection: AgentChatSelection {
-                    provider: AgentChatProvider::Codex,
-                    model: "gpt-5.6".into(),
+                    provider,
+                    model: "model".into(),
                     effort: AgentChatEffort::Medium,
                     mode: AgentChatMode::Agent,
                 },
@@ -71,6 +78,14 @@ pub fn active(
     ledger: &SqliteLedger,
     conversation_id: &AgentChatConversationId,
 ) -> AgentChatPromptSaved {
+    active_for(ledger, conversation_id, AgentChatProvider::Codex)
+}
+
+pub fn active_for(
+    ledger: &SqliteLedger,
+    conversation_id: &AgentChatConversationId,
+    provider: AgentChatProvider,
+) -> AgentChatPromptSaved {
     let send = prompt(
         ledger,
         conversation_id,
@@ -78,7 +93,7 @@ pub fn active(
         AgentChatPromptDisposition::Send,
     );
     ledger
-        .claim_agent_chat_prompt_dispatch(DAEMON, HostEpoch(1), AgentChatProvider::Codex)
+        .claim_agent_chat_prompt_dispatch(DAEMON, HostEpoch(1), provider)
         .unwrap()
         .unwrap();
     let id = &send.message.message_id;

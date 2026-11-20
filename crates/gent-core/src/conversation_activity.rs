@@ -34,6 +34,7 @@ pub fn with_activity_cursor(
     match &mut fact {
         ConversationActivityFact::TurnStarted { scope }
         | ConversationActivityFact::ContextUsage { scope, .. }
+        | ConversationActivityFact::ContextCompacted { scope }
         | ConversationActivityFact::TokenUsage { scope, .. }
         | ConversationActivityFact::RootActivity { scope, .. }
         | ConversationActivityFact::RootPhase { scope, .. }
@@ -45,12 +46,17 @@ pub fn with_activity_cursor(
         | ConversationActivityFact::DecisionSettled { scope, .. }
         | ConversationActivityFact::PromptQueued { scope, .. }
         | ConversationActivityFact::PromptHeld { scope, .. }
+        | ConversationActivityFact::ModelDownloadProgress { scope, .. }
         | ConversationActivityFact::PromptReleased { scope, .. }
         | ConversationActivityFact::PromptCanceled { scope, .. }
+        | ConversationActivityFact::PromptCancelRequested { scope, .. }
         | ConversationActivityFact::PromptSteerRequested { scope, .. }
         | ConversationActivityFact::PromptSteerRejected { scope, .. }
         | ConversationActivityFact::PromptSteered { scope, .. }
+        | ConversationActivityFact::PromptWithdrawn { scope, .. }
         | ConversationActivityFact::InterruptRequested { scope }
+        | ConversationActivityFact::ContextCleared { scope, .. }
+        | ConversationActivityFact::WorkspaceChanges { scope, .. }
         | ConversationActivityFact::Recovered { scope }
         | ConversationActivityFact::Terminal { scope, .. }
         | ConversationActivityFact::GoalUpdated { scope, .. }
@@ -58,7 +64,8 @@ pub fn with_activity_cursor(
         | ConversationActivityFact::ConversationCreated { scope, .. }
         | ConversationActivityFact::CreatedByConversation { scope, .. }
         | ConversationActivityFact::ConversationMessageSent { scope, .. }
-        | ConversationActivityFact::ConversationWaitSettled { scope, .. } => scope.cursor = cursor,
+        | ConversationActivityFact::ConversationWaitSettled { scope, .. }
+        | ConversationActivityFact::SideQuestionSettled { scope, .. } => scope.cursor = cursor,
     }
     fact
 }

@@ -1,5 +1,3 @@
-//! Thin `gent` composition root: parse then execute one typed local-protocol command.
-
 mod auto_update_handoff;
 mod automation_cli;
 mod chat_cli;
@@ -32,6 +30,7 @@ mod prompt_queue;
 mod prompt_templates_cli;
 mod provider_auth_cli;
 mod provider_lifecycle_cli;
+mod receipt_cli;
 mod reviewed_plan_cli;
 mod runtime_activation;
 mod runtime_maintenance;

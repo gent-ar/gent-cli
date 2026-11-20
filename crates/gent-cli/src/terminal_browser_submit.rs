@@ -93,7 +93,6 @@ async fn resolve(
             workspace_id,
             mode,
             bypass_consent,
-            expected_provider,
         } => {
             requests::set_permission_mode(
                 data_dir,
@@ -102,14 +101,17 @@ async fn resolve(
                 workspace_id,
                 mode,
                 bypass_consent,
-                expected_provider,
             )
             .await
         }
         UiRequest::SteerQueued {
             conversation_id,
             message_ids,
-        } => requests::steer_queued(data_dir, no_autostart, conversation_id, message_ids).await,
+            target,
+        } => {
+            requests::steer_queued(data_dir, no_autostart, conversation_id, message_ids, target)
+                .await
+        }
         UiRequest::CancelQueued {
             conversation_id,
             message_id,

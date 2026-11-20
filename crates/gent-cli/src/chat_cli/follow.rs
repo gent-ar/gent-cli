@@ -9,7 +9,7 @@ use std::{
 use clap::Args;
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY, AgentChatIntentFrame,
-    AgentChatSubscriptionEnd, read_json_frame, write_json_frame,
+    AgentChatSubscriptionEnd, write_json_frame,
 };
 use gent_types::{AgentChatConversationId, AgentChatRequestId, NormalizedTranscriptEvent};
 use serde_json::Value;
@@ -98,7 +98,7 @@ async fn subscribe_once(
     )
     .await?;
     loop {
-        let raw: Value = read_json_frame(&mut stream).await?;
+        let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
         let frame = decode(raw)?;
         match frame {
             AgentChatIntentFrame::SubscriptionEvent {
@@ -135,9 +135,6 @@ fn supports_subscription(capabilities: &[String]) -> bool {
 }
 
 fn decode(raw: Value) -> Result<AgentChatIntentFrame, Box<dyn std::error::Error>> {
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
     serde_json::from_value(raw)
         .map_err(|_| "daemon returned an invalid chat subscription frame".into())
 }
@@ -199,6 +196,7 @@ mod tests {
             text: "normalized only".into(),
             is_partial: false,
             failure_code: None,
+            resets_at: None,
             origin: None,
             attachments: Vec::new(),
         }

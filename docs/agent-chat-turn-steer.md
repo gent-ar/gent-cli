@@ -1,111 +1,98 @@
-# Turn-bound queued steering
+# Queued prompts, Send now and Stop
 
-New clients negotiate `agent-chat-steer-turn-v1` and the selected provider's
-`agent-chat-steer-turn-{provider}-v1`. The daemon advertises scoped support for
-`claude`, `codex`, and `claurst`.
+Gentd owns all three behaviours for Claude, Codex and Claurst. Clients only send intents and
+render the facts below.
 
-Claurst has no native in-turn input, so its delivery is the interrupt. The
-acceptance transaction validates the same live target, then records the steer
-interrupt for that turn instead of a held target. The owner interrupts exactly
-that turn, which ends with terminal cause `steered` and never pauses a goal.
-The prompt stays an ordinary queued prompt and is claimed ahead of the rest of
-the queue, so it runs as the next turn even if the target turn ended on its own
-before the interrupt landed. Claurst steers therefore never expire with
-`targetExpired`; a target that already ended before acceptance is rejected with
-`queuedPromptNotSteerable` like every provider.
+## A queued prompt
 
-Primary composer Steer uses `steerPromptForTurn`, gated separately by
-`agent-chat-steer-enqueue-v1` plus the native turn capabilities. It carries the
-same request/receipt/conversation/expected target fields, text, and optional
-attachment/tool-source ID arrays. One transaction validates the live target and
-creates the queued prompt, requested target, and request activity under one
-receipt. It returns normal `Accepted` with the queued message's stable identity.
-There is no ordinary-queue interval or second primary Steer RPC. If the target
-already ended, no prompt is created. A committed uncertain retry preserves the
-original request and target; it replays the receipt without resetting delivery.
+A queued prompt is delivered as soon as possible, in queue order:
 
-The request is `steerQueuedPromptForTurn` with `requestId`, `receiptId`,
-`conversationId`, `messageId`, `expectedRunId`, and `expectedTurnId`. Both expected
-identities are mandatory. Clients capture them at the user's click and never
-fall back to the older targetless request. Receipt and command identity include
-the original target. Retrying the same command returns its original receipt;
-changing its target under the same receipt is rejected. A new explicit click
-after refreshing the target uses a new receipt.
-An explicit same-target retry after a known rejection also needs a new receipt;
-reusing the original receipt only replays the old accepted command.
+- Claude and Codex take mid-turn input. While a turn runs, the provider lifecycle claims the
+  oldest queued prompt of the conversation into that turn (`claim_for_turn` in
+  `prompt_steer.rs`) and writes it: Claude as a stream-json user message with its own uuid,
+  Codex as `turn/steer` with `expectedTurnId` and `clientUserMessageId`. It runs under the
+  running turn's run, selection and permission policy. Gentd records `promptSteered`, scoped to
+  that turn, only when the provider confirms consumption (Claude `command_lifecycle started` or
+  the replayed uuid; Codex the `userMessage` item carrying the `clientId`).
+- A prompt the provider returns unconsumed (Claude `command_lifecycle cancelled`, Codex a
+  rejected or unconfirmed steer, or a turn that ends first) goes back to the head of the queue
+  and runs next. Claude may instead run a written prompt as its own next turn; Gentd then
+  records `promptReleased` and opens that turn without resending.
+- Claurst has no mid-turn input; its queued prompts run as the next turn.
+- A write that fails is rejected once (`promptSteerRejected`, `deliveryRejected`) and never
+  claimed into a turn again; it runs as the next turn.
 
-Acceptance checks the conversation's durable current selection, queued message
-run, exact active dispatched turn, host epoch, and ingress in one immediate
-SQLite transaction. It persists the target alongside the immutable receipt and
-`promptSteerRequested`. Schema v26 adds one table without rewriting existing
-receipts, activities, messages, or decisions.
+The conversation summary carries `queueDelivery` while a turn is running: `joinTurn` when the
+running turn's provider takes queued prompts into that turn (Claude, Codex), `nextTurn` when
+they wait for the next turn (Claurst). It comes from `AgentChatProvider::queue_delivery` of the
+running run and is omitted when no turn runs.
 
-The provider lifecycle supplies its bound turn when claiming the prompt. An old
-request cannot be claimed by a newer lifecycle binding while its target turn is
-still live; that expiry rejects the steer with `targetExpired` and leaves the
-message held. A steer that loses the race with its turn's end is not a failure:
-the target is dropped without a `promptSteerRejected` fact and the prompt runs as
-the next turn. A Claude or Codex steer never runs ahead of an older unsteered
-queued prompt: it waits, that prompt runs first, and later steers join its turn
-in queue order. Only Claurst, which steers by interrupt, claims a steered prompt
-ahead of the rest of the queue. When Claude reads a steer written
-before the result only after the turn ended, the prompt is delivered as that next
-turn. Delivery must name the persisted run and turn.
+Each `promptQueued` carries its own `queueDelivery`, decided in the transaction that queues it:
+`joinTurn` when the conversation has a running turn (a dispatched prompt turn of this host epoch,
+or a provider-started turn) whose provider takes queued prompts into it and that turn has no
+Send now interrupt marker, the same marker that stops `claim_for_turn`; `nextTurn` otherwise.
 
-Codex's native `turn/steer` includes `expectedTurnId` from its active native
-session. Claude's stream transport has no native expected-turn field; the owner
-fences its canonical binding and rejects late take-up after terminal instead of
-promoting it into another canonical turn. Native provider acknowledgement is
-separate from receipt acceptance. Receipt acceptance alone does not prove native
-consumption or successful work.
+## Remove
 
-`promptSteerRejected` has scope, `messageId`, `receiptId`, and `reason`. Viewers
-clear only the matching request receipt, and treat `promptReleased` of the
-message as the end of its steer request. `targetExpired` and `deliveryRejected`
-retain the queued message, excluded from ordinary automatic queue dispatch.
-An explicit new-target Steer, Edit, or Remove can recover known queued input.
-After bytes were written without confirmed consumption before terminal, or
-after an ambiguous process/host recovery,
-`deliveryUnprovable` accompanies the existing unprovable dispatch/terminal
-failure; the daemon does not automatically replay potentially delivered input.
-Its notice must not claim that delivery succeeded or that the failed dispatch
-remains pending. The original prompt remains durable for deliberate recovery.
+`cancelQueuedPrompt` cancels a prompt Gentd still holds in its own transaction
+(`promptCanceled`). A prompt already written into a running Claude turn is marked in the
+removal's transaction; the Claude lifecycle then writes
+`control_request {subtype: cancel_async_message, message_uuid}` for its uuid, and when Claude
+answers `command_lifecycle cancelled` the prompt ends `promptCanceled` instead of returning to
+the queue. If Claude already took it in, it keeps its `promptSteered` or `promptReleased`.
+Codex has no request to withdraw a steered input, so a prompt written into a Codex turn is
+rejected with `queuedPromptNotCancelable`, and its `promptQueued` says `cancelable: false`.
 
-The older `steerQueuedPrompt` wire intent remains compatible for old clients;
-it cannot claim a request from the new targeted table. New clients use the
-targeted intent exclusively. Ordinary queue dispatch excludes targeted rows;
-it cannot turn a rejected steer into an automatic new turn or a resend.
+## Send now
 
-Shared activity reads can contain the additive `promptSteerRejected` kind after
-a targeted command. Readers must preserve/ignore unknown additive kinds rather
-than reject an entire page. Older strict enum readers need an update; write
-capability negotiation does not remove new facts from shared immutable history.
+`steerQueuedPrompt`, `steerQueuedPromptForTurn` and `steerPromptForTurn` all mean Send now, on
+every provider. The acceptance transaction records `promptSteerRequested` and a steer-interrupt
+receipt for the live turn (`agent_chat_steer_target::bind`); the owner then interrupts exactly
+that turn, which ends with terminal `cause: steered`. No further prompt joins that turn. The
+pressed prompt is claimed first for the next turn, ahead of older queued prompts; prompts that
+were written into the interrupted turn and come back unconsumed join it in queue order. With no
+live turn the prompt is simply released. A Send now never pauses a goal.
 
-## Steering and selection changes
+Claude's interrupt is `control_request {subtype: interrupt, cancel_queued: true}`, so Claude
+cancels every written, unconsumed message (`command_lifecycle cancelled`) instead of running it
+itself; Gentd re-queues or withdraws each one.
 
-A selection or permission change made while a turn runs applies from the next
-turn; it never rejects or alters the running turn. A run's selection and its
-bound permission policy are immutable, and a permission request that is already
-pending keeps the policy it was raised under.
+The targeted requests keep their contract: `steerQueuedPromptForTurn` carries `requestId`,
+`receiptId`, `conversationId`, `messageId`, `expectedRunId` and `expectedTurnId`; receipt and
+command identity include the target, and a target that already ended is rejected with
+`queuedPromptNotSteerable`. A prompt already written into the running turn can still be sent
+now.
 
-A steered prompt follows the delivery of its provider:
+## Stop
 
-- Claude and Codex deliver it into the running turn. It runs under that turn's
-  run, selection, and permission policy, even when the user switched mode,
-  model, or permission posture after the turn started. Its `promptSteered` fact
-  is scoped to that run, so a client can compare the run's selection with the
-  conversation's current selection.
-- Claurst interrupts the running turn (terminal cause `steered`) and runs the
-  prompt as the next turn under the conversation's current selection and policy.
+`interrupt` records its receipt and, in the same store transaction
+(`agent_chat_stop::stop`), withdraws every queued prompt of the conversation the provider has
+not been handed: its dispatch settles, its queued turn ends `cancelled`, and
+`promptWithdrawn` is appended in queue order with the prompt's `text` and attachment
+references. Prompts already written into the turn are marked; when the provider returns one
+unconsumed it is withdrawn the same way instead of returning to the queue. A prompt the
+provider already consumed stays delivered. Queued goal continuations end with
+`promptCanceled`. Withdrawn prompts are settled, so nothing delivers them again, including
+after a daemon restart. The same transaction appends `interruptRequested` for every turn of
+the conversation that is still open (running, launching or waiting), except a prompt's turn that
+was written into the running turn. A Stop retried with the same receipt appends nothing more.
+The turn then ends `interrupted` without a cause. A Claurst turn whose runtime is still
+launching ends at once: the lifecycle drops the launch, which finishes in the background and
+stays warm for the next prompt, and the turn settles through the unstarted-prompt path.
 
-An unstarted prompt, whether queued or still waiting for the previous turn to
-settle, is not part of the running turn: it runs under the selection that is
-current when it starts.
+## Facts
 
-The conversation summary carries `steerDelivery` while a turn is running:
-`joinTurn` when the running turn's provider delivers a steer into that turn,
-`interruptThenNext` when it interrupts and runs the prompt next. It is derived
-from the running run's provider through `AgentChatProvider::steer_delivery`
-(Claurst steers by interrupt) and is omitted when no turn is running. With
-`selectionAppliesNextTurn`, a client can say before Send now whether the steer
-runs under the running turn's settings or under the new ones.
+```json
+{"type":"promptWithdrawn","conversationId":"…","runId":"…","turnId":"<queued turn>",
+ "hostEpoch":1,"cursor":42,"messageId":"…","receiptId":"<the prompt's receipt>",
+ "text":"…","attachments":[{"attachmentId":"…","displayName":"…","mediaType":"…","byteLen":5}]}
+```
+
+```json
+{"type":"interruptRequested","conversationId":"…","runId":"…","turnId":"<turn Stop ends>",
+ "hostEpoch":1,"cursor":43}
+```
+
+`promptSteerRejected` has scope, `messageId`, `receiptId` and `reason`
+(`deliveryRejected`, or `deliveryUnprovable` after a daemon restart left a written prompt
+unconfirmed). Older ledgers may also hold `targetExpired` and `selectionSwitched`.

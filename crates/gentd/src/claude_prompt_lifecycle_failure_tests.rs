@@ -16,8 +16,7 @@ use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatProvider, AgentChatRequestId,
     AgentChatRunId, AgentChatSelection, CapabilitySet, ConversationActivityFact, DurableTurnPhase,
-    HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, ProviderFailureClassification,
-    ReceiptId, TurnPhase, WorkspaceRecord,
+    HostEpoch, NormalizedLifecycleSignal, ReceiptId, TurnPhase, WorkspaceRecord,
 };
 
 use crate::approved_claude_host::ApprovedClaudeHost;
@@ -182,24 +181,26 @@ fn accepted_user_interrupt_settles_claude_as_interrupted_instead_of_failed() {
             .unwrap()
             .is_some()
     );
+    assert_eq!(runner.0.lock().unwrap().protocol_interrupts, 0);
     host.interrupt_turn("run-a", &saved.message.turn_id)
         .unwrap();
-    runner.0.lock().unwrap().effects.push_back(vec![
-        ClaudeRunnerEffect::Fact(PublicWireFact::Event(
-            NormalizedProviderEvent::ProviderFailure {
-                classification: ProviderFailureClassification::Provider,
-                message: "Claude ended the turn with an error.".into(),
-            },
-        )),
-        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+    runner
+        .0
+        .lock()
+        .unwrap()
+        .effects
+        .push_back(vec![ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
             NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Failed,
+                phase: TurnPhase::Interrupted,
             },
-        )),
-        ClaudeRunnerEffect::Exited { code: Some(130) },
-    ]);
+        ))]);
 
     host.tick().unwrap();
+    {
+        let state = runner.0.lock().unwrap();
+        assert_eq!(state.protocol_interrupts, 1);
+        assert!(state.signals.is_empty());
+    }
 
     assert_eq!(
         ledger
@@ -241,7 +242,7 @@ fn accepted_user_interrupt_settles_claude_as_interrupted_instead_of_failed() {
 }
 
 #[test]
-fn interrupted_claude_process_exits_before_a_queued_prompt_is_released() {
+fn a_protocol_interrupt_keeps_the_process_and_releases_the_queued_prompt_into_it() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation_id = AgentChatConversationId("conversation-a".into());
     ledger
@@ -311,46 +312,26 @@ fn interrupted_claude_process_exits_before_a_queued_prompt_is_released() {
         .effects
         .push_back(vec![ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
             NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Failed,
+                phase: TurnPhase::Interrupted,
             },
         ))]);
-
-    let terminal = host.tick().unwrap();
-    assert!(terminal.dispatch.is_none());
+    let started = |tick: crate::claude_prompt_lifecycle::ClaudeLifecycleTick| {
+        matches!(
+            tick.dispatch,
+            Some(crate::claude_prompt_lifecycle::ClaudePromptDispatchOutcome::Started { .. })
+        )
+    };
+    let released = started(host.tick().unwrap()) || started(host.tick().unwrap());
+    assert!(released);
+    let turns = ledger.list_run_turns("run-a").unwrap();
     assert_eq!(
-        ledger.list_run_turns("run-a").unwrap()[1].phase,
-        DurableTurnPhase::Active
+        (turns[0].phase, turns[1].phase),
+        (DurableTurnPhase::Interrupted, DurableTurnPhase::Active)
     );
-
-    runner.0.lock().unwrap().active = false;
-    runner
-        .0
-        .lock()
-        .unwrap()
-        .effects
-        .push_back(vec![ClaudeRunnerEffect::Exited { code: Some(130) }]);
-    let released = host.tick().unwrap();
-    assert!(matches!(
-        released.dispatch,
-        Some(crate::claude_prompt_lifecycle::ClaudePromptDispatchOutcome::Started { .. })
-    ));
-    assert_eq!(
-        ledger.list_run_turns("run-a").unwrap()[1].phase,
-        DurableTurnPhase::Active
-    );
-    runner
-        .0
-        .lock()
-        .unwrap()
-        .effects
-        .push_back(vec![ClaudeRunnerEffect::Fact(
-            PublicWireFact::SessionStarted {
-                provider_session_id: "session-a".into(),
-            },
-        )]);
-    host.tick().unwrap();
     let state = runner.0.lock().unwrap();
-    assert_eq!((state.starts, state.resumes), (1, 1));
+    assert_eq!((state.starts, state.resumes), (1, 0));
+    assert_eq!(state.protocol_interrupts, 1);
+    assert!(state.signals.is_empty());
 }
 
 #[test]
@@ -398,14 +379,15 @@ fn send_now_interrupts_only_the_active_turn_and_releases_the_queued_prompt_once(
 
     host.interrupt("run-a").unwrap();
     push(vec![
+        ClaudeRunnerEffect::MessageCancelled {
+            message_id: queued.message.message_id.clone(),
+        },
         ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
             NormalizedLifecycleSignal::RootPhase {
-                phase: TurnPhase::Failed,
+                phase: TurnPhase::Interrupted,
             },
         )),
-        ClaudeRunnerEffect::Exited { code: Some(130) },
     ]);
-    runner.0.lock().unwrap().active = false;
     let started = |tick: crate::claude_prompt_lifecycle::ClaudeLifecycleTick| {
         matches!(
             tick.dispatch,
@@ -430,15 +412,17 @@ fn send_now_interrupts_only_the_active_turn_and_releases_the_queued_prompt_once(
         DurableTurnPhase::Interrupted
     );
     assert_eq!(phase(&queued.message.turn_id), DurableTurnPhase::Active);
-    let (signals, starts, resumes) = {
+    let (signals, interrupts, starts, resumes) = {
         let state = runner.0.lock().unwrap();
-        (state.signals.clone(), state.starts, state.resumes)
+        (
+            state.signals.clone(),
+            state.protocol_interrupts,
+            state.starts,
+            state.resumes,
+        )
     };
-    assert_eq!(
-        signals,
-        [gent_drivers::interrupt::ProcessTreeSignal::Interrupt]
-    );
-    assert_eq!((starts, resumes), (1, 1));
+    assert!(signals.is_empty());
+    assert_eq!((interrupts, starts, resumes), (1, 1, 0));
     let activity = ledger
         .read_conversation_activity_page(&conversation_id.0, "run-a", 0, 64)
         .unwrap()

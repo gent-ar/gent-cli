@@ -1,3 +1,4 @@
+use crate::provider_run_state::TurnSettlement;
 use crate::public_driver_runtime::PublicDriversRuntime;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
@@ -18,6 +19,7 @@ mod permission_queue;
 mod phase;
 mod poll;
 mod prewarm;
+mod provider_turn;
 mod record;
 mod recovery;
 mod scheduler;
@@ -44,8 +46,7 @@ pub(crate) struct CodexPromptPoll {
 pub(super) struct Binding {
     prompt: AgentChatPromptSaved,
     sequence: u64,
-    settled: bool,
-    releasing: bool,
+    turns: crate::provider_run_state::RunTurns,
     steers: Vec<AgentChatPromptSaved>,
     upgraded: bool,
     last_dispatch: u64,
@@ -56,8 +57,14 @@ pub(super) struct Binding {
         std::collections::VecDeque<gent_drivers::codex_control::CodexControlRequest>,
 }
 impl Binding {
-    fn idle(&self) -> bool {
-        self.settled && !self.releasing && self.steers.is_empty()
+    fn liveness(&self) -> crate::provider_run_state::RunLiveness {
+        self.turns.liveness(!self.steers.is_empty())
+    }
+
+    fn turn_id(&self) -> &str {
+        self.turns
+            .provider_turn()
+            .unwrap_or(&self.prompt.message.turn_id)
     }
 }
 #[derive(Debug)]
@@ -130,7 +137,7 @@ where
             .filter(|run_id| {
                 self.active
                     .get(*run_id)
-                    .is_some_and(|binding| !binding.idle())
+                    .is_some_and(|binding| !binding.liveness().accepts_prompt())
             })
             .cloned()
             .map(gent_types::AgentChatRunId)
@@ -159,7 +166,8 @@ where
                     return self.fail_dispatch(&prompt, host_epoch, error);
                 }
                 let active_run = self.active.get(&prompt.run_id.0);
-                let reuses_settled_session = active_run.is_some_and(|binding| binding.settled)
+                let reuses_settled_session = active_run
+                    .is_some_and(|binding| binding.liveness().accepts_prompt())
                     && self.runner.has_codex_session(&prompt.run_id.0);
                 if active_run.is_some() && !reuses_settled_session {
                     self.runtime.release_prompt_claim(
@@ -189,10 +197,9 @@ where
     }
     pub(crate) fn has_settled_session(&self) -> bool {
         !self.warm.is_empty()
-            || self
-                .active
-                .iter()
-                .any(|(run_id, binding)| binding.idle() && self.runner.has_codex_session(run_id))
+            || self.active.iter().any(|(run_id, binding)| {
+                binding.liveness().idle() && self.runner.has_codex_session(run_id)
+            })
     }
 
     fn settle_if_open(
@@ -202,30 +209,26 @@ where
         phase: DurableTurnPhase,
     ) -> Result<(), RuntimeError> {
         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
-        if !binding.settled {
-            self.runtime.settle_prompt_terminal(
-                &binding.prompt.message.message_id,
-                &self.coordinator_id,
-                host_epoch,
-                phase,
-            )?;
-            binding.settled = true;
-            let queued = std::mem::take(&mut binding.queued_permissions);
-            self.deny_queued_permissions(run_id, queued);
-        }
+        binding.turns.settle_open(&TurnSettlement {
+            runtime: &self.runtime,
+            coordinator_id: &self.coordinator_id,
+            message_id: &binding.prompt.message.message_id,
+            host_epoch,
+            phase,
+        })?;
         Ok(())
     }
 
     fn release_failed_session(&mut self, run_id: &str) -> Result<(), RuntimeError> {
         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
-        if binding.releasing {
+        if binding.turns.releasing() {
             return Ok(());
         }
         self.runner.signal_codex_process(
             run_id,
             gent_drivers::interrupt::ProcessTreeSignal::Terminate,
         )?;
-        binding.releasing = true;
+        binding.turns.begin_release();
         Ok(())
     }
 }

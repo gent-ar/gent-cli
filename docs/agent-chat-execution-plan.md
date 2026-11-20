@@ -88,11 +88,12 @@ the clear-context path.
   its parent, prompts not yet dispatched move to the child, and no child prompt
   dispatches until every turn of an earlier run is terminal, so its context
   includes that turn's reply. `AgentChatConversationSummary.selectionAppliesNextTurn`
-  is true while that earlier turn runs. Send now on a queued prompt still
-  targets the running turn: it is steered natively into it (Claude, Codex) or
-  interrupts it (Claurst) under that turn's selection, oldest prompt first. Any
-  undispatched prompt left on an earlier run, by a released claim, a rejected
-  steer or restart recovery, moves to the current run. The bounded context projector joins
+  is true while that earlier turn runs. A queued prompt joins the running turn
+  under that turn's selection (Claude, Codex) or waits for the next turn
+  (Claurst); Send now interrupts the running turn and runs the prompt next under
+  the current selection. Any undispatched prompt left on an earlier run, by a
+  released claim, a returned in-turn prompt or restart recovery, moves to the
+  current run. The bounded context projector joins
   frozen prompt turns with final normalized assistant/tool/notice facts, but
   it remains uncomposed until a lifecycle authority consumes that artifact.
 - A normalized `tooFewGroups` recovery reducer can reserve one fresh,

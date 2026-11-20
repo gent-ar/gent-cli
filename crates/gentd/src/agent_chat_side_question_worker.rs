@@ -1,14 +1,3 @@
-//! Off-request-path execution of one already-accepted side question's provider call.
-//!
-//! Every provider's side-question call blocks its own thread for up to tens of seconds (see
-//! `claude_summary_runner`/`codex_summary_runner`/`claurst_summary_runner`), so this mirrors the
-//! codebase's existing pattern for that shape of work (see
-//! `ordinary_lifecycle_cadence_wake::OrdinaryPromptWake::schedule`): a dedicated
-//! `std::thread::spawn`, not an async task, so it never occupies a shared tokio worker thread.
-//! The durable settlement write is the source of truth; the appended event is a best-effort
-//! nudge for a client already subscribed to `event-stream-v1` and is never required for
-//! correctness — a client can always also read `ListSideQuestions`.
-
 use gent_ports::Ledger;
 use gent_runtime::AgentChatSideQuestionService;
 use gent_store::SqliteLedger;
@@ -40,7 +29,7 @@ pub(crate) fn dispatch(
                             "side questions are unavailable for this runtime".into(),
                         ))
                     },
-                    |runners| runners.resolve(provider, workspace_path),
+                    |runners| runners.resolve(provider, workspace_path, &asked.conversation_id.0),
                 )
             },
         );

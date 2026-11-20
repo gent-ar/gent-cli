@@ -46,6 +46,7 @@ pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
     fn submit_claude_prompt(
         &self,
         run_id: &str,
+        message_id: &str,
         prompt: &str,
         goal: Option<&gent_types::GoalProjection>,
         content: &[serde_json::Value],
@@ -61,6 +62,12 @@ pub(crate) trait ClaudePromptExecution: PublicProviderRunner {
         &self,
         run_id: &str,
         signal: ProcessTreeSignal,
+    ) -> Result<(), PublicProviderRunError>;
+    fn interrupt_claude_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError>;
+    fn withdraw_claude_prompt(
+        &self,
+        run_id: &str,
+        message_id: &str,
     ) -> Result<(), PublicProviderRunError>;
     fn respond_claude_permission(
         &self,
@@ -166,11 +173,12 @@ where
     fn submit_claude_prompt(
         &self,
         run_id: &str,
+        message_id: &str,
         prompt: &str,
         goal: Option<&gent_types::GoalProjection>,
         content: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
-        self.submit(run_id, prompt, goal, content)
+        self.submit(run_id, message_id, prompt, goal, content)
     }
     fn steer_claude_prompt(
         &self,
@@ -181,6 +189,20 @@ where
     ) -> Result<(), PublicProviderRunError> {
         super::lock(&self.runner)
             .steer(run_id, message_id, prompt, content)
+            .map_err(super::map_error)
+    }
+    fn interrupt_claude_turn(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
+        super::lock(&self.runner)
+            .interrupt(run_id)
+            .map_err(super::map_error)
+    }
+    fn withdraw_claude_prompt(
+        &self,
+        run_id: &str,
+        message_id: &str,
+    ) -> Result<(), PublicProviderRunError> {
+        super::lock(&self.runner)
+            .withdraw(run_id, message_id)
             .map_err(super::map_error)
     }
     fn signal_claude_process(
@@ -251,8 +273,6 @@ where
     }
 
     fn interrupt(&self, run_id: &str) -> Result<(), PublicProviderRunError> {
-        super::lock(&self.runner)
-            .signal(run_id, ProcessTreeSignal::Interrupt)
-            .map_err(super::map_error)
+        self.interrupt_claude_turn(run_id)
     }
 }

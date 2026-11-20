@@ -80,6 +80,9 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
             ),
             Color::DarkGray,
         ),
+        ConversationActivityFact::ContextCompacted { .. } => {
+            ("Context · unknown since compaction".into(), Color::DarkGray)
+        }
         ConversationActivityFact::TokenUsage { usage, .. } => {
             (format!("Tokens · {} used", usage.total()), Color::DarkGray)
         }
@@ -128,9 +131,16 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
         ConversationActivityFact::PromptCanceled { .. } => {
             ("Prompt canceled".into(), Color::DarkGray)
         }
-        ConversationActivityFact::PromptSteerRequested { .. } => {
-            ("Steer requested · awaiting provider".into(), Color::Yellow)
+        ConversationActivityFact::PromptWithdrawn { .. } => {
+            ("Prompt withdrawn by Stop".into(), Color::DarkGray)
         }
+        ConversationActivityFact::PromptCancelRequested { .. } => {
+            ("Removing queued prompt".into(), Color::Yellow)
+        }
+        ConversationActivityFact::PromptSteerRequested { .. } => (
+            "Send now requested · stopping the turn".into(),
+            Color::Yellow,
+        ),
         ConversationActivityFact::PromptSteerRejected { reason, .. }
             if reason == "deliveryUnprovable" =>
         {
@@ -144,12 +154,17 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
             Color::Yellow,
         ),
         ConversationActivityFact::PromptSteered { .. } => {
-            ("Prompt steered into the running turn".into(), Color::Cyan)
+            ("Prompt joined the running turn".into(), Color::Cyan)
         }
         ConversationActivityFact::InterruptRequested { .. } => {
             ("Interrupt requested".into(), Color::Yellow)
         }
         ConversationActivityFact::Recovered { .. } => ("Recovered".into(), Color::Cyan),
+        ConversationActivityFact::ContextCleared { .. } => ("Context cleared".into(), Color::Cyan),
+        ConversationActivityFact::WorkspaceChanges { files, .. } => (
+            format!("Workspace · {} files changed", files.len()),
+            Color::DarkGray,
+        ),
         ConversationActivityFact::Terminal {
             cause: Some(gent_types::TurnTerminalCause::Steered),
             ..
@@ -175,7 +190,9 @@ fn fact_line(fact: &ConversationActivityFact) -> Line<'static> {
         ConversationActivityFact::ConversationCreated { .. }
         | ConversationActivityFact::CreatedByConversation { .. }
         | ConversationActivityFact::ConversationMessageSent { .. }
-        | ConversationActivityFact::ConversationWaitSettled { .. } => links::text(fact),
+        | ConversationActivityFact::ConversationWaitSettled { .. }
+        | ConversationActivityFact::ModelDownloadProgress { .. }
+        | ConversationActivityFact::SideQuestionSettled { .. } => links::text(fact),
     };
     Line::styled(format!("#{cursor}  {text}"), Style::default().fg(color))
 }
@@ -187,19 +204,21 @@ fn work_name(kind: ActivityWorkKind) -> &'static str {
     }
 }
 
-fn tool_phase_name(phase: &ToolPhase) -> &'static str {
+pub(super) fn tool_phase_name(phase: &ToolPhase) -> &'static str {
     match phase {
         ToolPhase::Started => "running",
         ToolPhase::WaitingPermission => "needs permission",
+        ToolPhase::Background => "running in background",
         ToolPhase::Completed => "completed",
         ToolPhase::Failed => "failed",
+        ToolPhase::Interrupted => "interrupted",
     }
 }
 
-fn tool_color(phase: &ToolPhase) -> Color {
+pub(super) fn tool_color(phase: &ToolPhase) -> Color {
     match phase {
-        ToolPhase::Started => Color::Cyan,
-        ToolPhase::WaitingPermission => Color::Yellow,
+        ToolPhase::Started | ToolPhase::Background => Color::Cyan,
+        ToolPhase::WaitingPermission | ToolPhase::Interrupted => Color::Yellow,
         ToolPhase::Completed => Color::Green,
         ToolPhase::Failed => Color::Red,
     }

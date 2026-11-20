@@ -47,6 +47,7 @@ pub struct AgentChatSideQuestionRecord {
     pub question: String,
     pub status: AgentChatSideQuestionStatus,
     pub answer: Option<String>,
+    pub failure_code: Option<AgentChatSideQuestionFailureCode>,
     pub failure_reason: Option<String>,
     pub created_at_unix_ms: u64,
 }
@@ -68,6 +69,19 @@ pub struct AgentChatSideQuestionCancelled {
 /// The outcome a background worker persists once a dispatched side question finishes running.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentChatSideQuestionOutcome {
-    Answered { text: String },
-    Failed { reason: String },
+    Answered {
+        text: String,
+    },
+    Failed {
+        code: AgentChatSideQuestionFailureCode,
+        reason: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentChatSideQuestionFailureCode {
+    ProviderBusy,
+    ProviderUnavailable,
+    ProviderFailed,
 }

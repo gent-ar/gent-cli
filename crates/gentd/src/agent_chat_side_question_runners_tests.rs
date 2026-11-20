@@ -22,9 +22,13 @@ fn resolves_claude_from_an_explicit_executable() {
             Some(executable(directory.path(), "claude")),
             None,
         ),
-        claurst_bridge: None,
+        claurst_models: None,
     };
-    assert!(sources.resolve(AgentChatProvider::Claude, None).is_ok());
+    assert!(
+        sources
+            .resolve(AgentChatProvider::Claude, None, "conversation")
+            .is_ok()
+    );
 }
 
 #[test]
@@ -36,9 +40,13 @@ fn resolves_codex_from_an_explicit_executable_with_no_workspace_path() {
             None,
             Some(executable(directory.path(), "codex")),
         ),
-        claurst_bridge: None,
+        claurst_models: None,
     };
-    assert!(sources.resolve(AgentChatProvider::Codex, None).is_ok());
+    assert!(
+        sources
+            .resolve(AgentChatProvider::Codex, None, "conversation")
+            .is_ok()
+    );
 }
 
 #[test]
@@ -47,9 +55,13 @@ fn fails_gracefully_when_claude_is_not_installed() {
     let sources = AgentChatSideQuestionRunnerSources {
         data_dir: directory.path().to_path_buf(),
         executables: ProviderExecutables::explicit(None, None),
-        claurst_bridge: None,
+        claurst_models: None,
     };
-    assert!(sources.resolve(AgentChatProvider::Claude, None).is_err());
+    assert!(
+        sources
+            .resolve(AgentChatProvider::Claude, None, "conversation")
+            .is_err()
+    );
 }
 
 #[test]
@@ -58,7 +70,11 @@ fn fails_gracefully_when_claurst_is_not_attached() {
     let sources = AgentChatSideQuestionRunnerSources {
         data_dir: directory.path().to_path_buf(),
         executables: ProviderExecutables::explicit(None, None),
-        claurst_bridge: None,
+        claurst_models: None,
     };
-    assert!(sources.resolve(AgentChatProvider::Claurst, None).is_err());
+    assert!(
+        sources
+            .resolve(AgentChatProvider::Claurst, None, "conversation")
+            .is_err()
+    );
 }

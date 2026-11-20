@@ -35,7 +35,10 @@ pub(crate) struct State {
     pub(crate) effects: VecDeque<Vec<ClaudeRunnerEffect>>,
     pub(crate) poll_failure: bool,
     pub(crate) signals: Vec<gent_drivers::interrupt::ProcessTreeSignal>,
+    pub(crate) protocol_interrupts: usize,
+    pub(crate) withdrawals: Vec<String>,
     pub(crate) steers: Vec<(String, String)>,
+    pub(crate) steer_writes_fail: bool,
     pub(crate) permission_responses: Vec<(
         String,
         String,
@@ -104,6 +107,7 @@ impl ClaudePromptExecution for Runner {
         &self,
         _: &str,
         _: &str,
+        _: &str,
         _: Option<&gent_types::GoalProjection>,
         _: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
@@ -117,11 +121,11 @@ impl ClaudePromptExecution for Runner {
         prompt: &str,
         _: &[serde_json::Value],
     ) -> Result<(), PublicProviderRunError> {
-        self.0
-            .lock()
-            .unwrap()
-            .steers
-            .push((message_id.into(), prompt.into()));
+        let mut state = self.0.lock().unwrap();
+        if state.steer_writes_fail {
+            return Err(PublicProviderRunError::Failed("stdin closed".into()));
+        }
+        state.steers.push((message_id.into(), prompt.into()));
         Ok(())
     }
     fn signal_claude_process(
@@ -130,6 +134,18 @@ impl ClaudePromptExecution for Runner {
         signal: gent_drivers::interrupt::ProcessTreeSignal,
     ) -> Result<(), PublicProviderRunError> {
         self.0.lock().unwrap().signals.push(signal);
+        Ok(())
+    }
+    fn interrupt_claude_turn(&self, _: &str) -> Result<(), PublicProviderRunError> {
+        self.0.lock().unwrap().protocol_interrupts += 1;
+        Ok(())
+    }
+    fn withdraw_claude_prompt(
+        &self,
+        _: &str,
+        message_id: &str,
+    ) -> Result<(), PublicProviderRunError> {
+        self.0.lock().unwrap().withdrawals.push(message_id.into());
         Ok(())
     }
     fn respond_claude_permission(
@@ -158,6 +174,8 @@ impl PublicProviderResolver for Resolver {
     }
 }
 
+#[path = "claude_prompt_identity_tests.rs"]
+mod identity;
 #[path = "claude_permission_queue_tests.rs"]
 mod permission_queue;
 #[path = "claude_policy_binding_tests.rs"]

@@ -27,6 +27,7 @@ fn claude_actual_preflight_requires_a_live_exact_injected_launch_and_accepts_ear
             "run".into(),
             ClaudePromptStart {
                 conversation_id: "conversation".into(),
+                message_id: "message".into(),
                 workspace_root: root.path().into(),
                 workspace_access: SandboxWorkspaceAccess::ReadWrite,
                 prompt: "test".into(),
@@ -43,7 +44,6 @@ fn claude_actual_preflight_requires_a_live_exact_injected_launch_and_accepts_ear
             },
         )
         .unwrap();
-    // A requested/pending config carries no exemption.
     assert_eq!(
         runner.permission_preflight(
             &preflight(Some(&injection(root.path()))),
@@ -72,6 +72,8 @@ fn claude_actual_preflight_requires_a_live_exact_injected_launch_and_accepts_ear
         name,
         "mcp__gent-goal__gent_goal_update",
         "mcp__gent-chat__gent_chat_list",
+        "mcp__gent-chat__gent_chat_create",
+        "mcp__gent_chat__gent_chat_create",
     ] {
         assert_eq!(
             runner.permission_preflight(
@@ -129,6 +131,7 @@ fn claude_actual_preflight_requires_a_live_exact_injected_launch_and_accepts_ear
             PermissionPreflight::Ask
         );
     }
+    assert_subagent_starts_never_ask(&runner, root.path(), &policy);
     state.alive.store(false, Ordering::SeqCst);
     assert_eq!(
         runner.permission_preflight(
@@ -159,4 +162,40 @@ fn preflight(
         injection,
         host_epoch: HostEpoch(1),
     }
+}
+
+fn assert_subagent_starts_never_ask(
+    runner: &impl ClaudePromptExecution,
+    root: &std::path::Path,
+    policy: &PolicyRecord,
+) {
+    let mut autonomous = policy.clone();
+    autonomous.mode = PermissionMode::Autonomous;
+    autonomous.containment = Containment::Unsandboxed;
+    let injected = injection(root);
+    let context = preflight(Some(&injected));
+    for tool in ["Agent", "Task", "mcp__gent-chat__gent_chat_create"] {
+        assert_eq!(
+            runner.permission_preflight(&context, &autonomous, &request(tool)),
+            PermissionPreflight::Allow,
+            "{tool} needs to run without a user decision in Autonomous"
+        );
+    }
+    assert_eq!(
+        runner.permission_preflight(&context, policy, &request("Agent")),
+        PermissionPreflight::Allow,
+        "starting a subagent never asks, whatever the permission mode"
+    );
+    assert_eq!(
+        runner.permission_preflight(&context, &autonomous, &request("mcp__third-party__Agent")),
+        PermissionPreflight::Ask
+    );
+    assert_eq!(
+        runner.permission_preflight(
+            &context,
+            &autonomous.for_conversation(Containment::Sandboxed),
+            &request("Agent")
+        ),
+        PermissionPreflight::Allow
+    );
 }

@@ -27,6 +27,7 @@ fn fact_round_trips_with_shared_scope() {
             cursor: 12,
         },
         decision_id: "decision-1".into(),
+        request: None,
     };
 
     let value = serde_json::to_value(&fact).expect("fact serializes");

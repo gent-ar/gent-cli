@@ -1,22 +1,17 @@
-//! Immutable, provider-neutral permission-control values.
-
 use serde::{Deserialize, Serialize};
 
 use crate::{
     AgentChatConversationId, AgentChatDecisionId, AgentChatRunId, HostEpoch, PermissionRequest,
 };
 
-/// Opaque SHA-256 identity of the exact normalized request presented to a user.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
 pub struct PermissionRequestDigest(pub String);
 
-/// Immutable scope shared by a permission request and the response to it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PermissionDecisionBinding {
     pub decision_id: AgentChatDecisionId,
-    /// Client retry identity; a future ledger binds one response to this exact request.
     pub request_idempotency_key: String,
     pub conversation_id: AgentChatConversationId,
     pub run_id: AgentChatRunId,
@@ -27,7 +22,6 @@ pub struct PermissionDecisionBinding {
     pub request_digest_sha256: PermissionRequestDigest,
 }
 
-/// One immutable permission request that a client may render, but never execute.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PermissionDecisionRequest {
@@ -35,7 +29,6 @@ pub struct PermissionDecisionRequest {
     pub request: PermissionRequest,
 }
 
-/// The closed user response to one exact permission request.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum PermissionDecisionResponseKind {
@@ -43,9 +36,9 @@ pub enum PermissionDecisionResponseKind {
     ApproveOnce,
     ApproveExactTool,
     ApproveCategory,
+    ApproveCommandPattern,
 }
 
-/// An immutable response that must echo the request's complete durable binding.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PermissionDecisionResponse {
@@ -53,6 +46,28 @@ pub struct PermissionDecisionResponse {
     pub response: PermissionDecisionResponseKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_pattern: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DecisionOutcome {
+    Allowed,
+    Denied,
+    Skipped,
+    Cancelled,
+}
+
+impl DecisionOutcome {
+    #[must_use]
+    pub fn answered(response: PermissionDecisionResponseKind, question: bool) -> Self {
+        match (response, question) {
+            (PermissionDecisionResponseKind::Deny, true) => Self::Skipped,
+            (PermissionDecisionResponseKind::Deny, false) => Self::Denied,
+            _ => Self::Allowed,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -67,6 +82,30 @@ mod tests {
     fn response_kind_is_closed() {
         assert!(serde_json::from_str::<PermissionDecisionResponseKind>("\"approveOnce\"").is_ok());
         assert!(serde_json::from_str::<PermissionDecisionResponseKind>("\"always\"").is_err());
+    }
+
+    #[test]
+    fn a_denied_question_is_skipped_and_any_approval_is_allowed() {
+        use super::DecisionOutcome;
+        use PermissionDecisionResponseKind::{ApproveCategory, ApproveOnce, Deny};
+        assert_eq!(
+            [
+                DecisionOutcome::answered(Deny, true),
+                DecisionOutcome::answered(Deny, false),
+                DecisionOutcome::answered(ApproveOnce, true),
+                DecisionOutcome::answered(ApproveCategory, false),
+            ],
+            [
+                DecisionOutcome::Skipped,
+                DecisionOutcome::Denied,
+                DecisionOutcome::Allowed,
+                DecisionOutcome::Allowed,
+            ]
+        );
+        assert_eq!(
+            serde_json::to_value(DecisionOutcome::Cancelled).unwrap(),
+            "cancelled"
+        );
     }
 
     #[test]

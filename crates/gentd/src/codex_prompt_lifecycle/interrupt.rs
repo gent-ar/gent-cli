@@ -38,10 +38,8 @@ where
     }
 
     pub(crate) fn interrupt_turn(&self, run_id: &str, turn_id: &str) -> Result<(), RuntimeError> {
-        // The lifecycle owner is locked through validation and provider signal;
-        // a completed/replaced turn cannot consume a delayed Stop.
         let binding = self.active.get(run_id).ok_or_else(missing_binding)?;
-        if binding.settled || binding.prompt.message.turn_id != turn_id {
+        if !binding.turns.turn_open() || binding.turn_id() != turn_id {
             return Err(missing_binding());
         }
         self.interrupt(run_id)

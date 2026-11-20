@@ -24,6 +24,40 @@ fn start_implementation_cannot_accept_unknown_fields() {
 }
 
 #[test]
+fn start_implementation_carries_optional_user_instructions() {
+    let frame = json!({
+        "type": "startImplementation", "body": { "request": {
+            "requestId": "request-1", "receiptId": "receipt-1", "idempotencyKey": "plan-start-1",
+            "hostEpoch": 3, "policyWorkspaceId": "workspace-1", "policyRevision": 2,
+            "conversationId": "conversation-1", "planId": "plan-1", "planRevision": 1,
+            "planContentDigestSha256": "a".repeat(64), "parentRunId": "run-1",
+            "selection": { "provider": "claude", "model": "haiku", "effort": "medium", "mode": "agent" },
+            "contextPolicy": "preserve", "instructions": "Keep the public API unchanged."
+        }}
+    });
+    let ReviewedPlanFrame::StartImplementation { request } =
+        serde_json::from_value::<ReviewedPlanFrame>(frame.clone()).unwrap()
+    else {
+        panic!("startImplementation must decode as an approval");
+    };
+    assert_eq!(
+        request.instructions.as_deref(),
+        Some("Keep the public API unchanged.")
+    );
+    assert_eq!(
+        ReviewedPlanFrame::StartImplementation {
+            request: request.clone()
+        }
+        .validate(),
+        Ok(())
+    );
+    assert_eq!(
+        serde_json::to_value(ReviewedPlanFrame::StartImplementation { request }).unwrap(),
+        frame
+    );
+}
+
+#[test]
 fn rejection_binds_an_exact_plan_revision_and_digest() {
     let frame = ReviewedPlanFrame::Reject {
         request_id: "request-1".into(),

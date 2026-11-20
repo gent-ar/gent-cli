@@ -4,7 +4,7 @@ use gent_protocol::{
     agent_chat_commands::{
         AGENT_CHAT_COMMANDS_CAPABILITY, AgentChatCommandFrame, CommandCatalog, CommandOutcome,
     },
-    read_json_frame, write_json_frame,
+    write_json_frame,
 };
 use gent_types::{AgentChatCommandDescriptor, AgentChatConversationId, AgentChatRequestId};
 use serde_json::Value;
@@ -97,10 +97,7 @@ async fn exchange(
     let frame = request(request_id.clone());
     frame.validate()?;
     write_json_frame(&mut stream, &frame).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     let reply: AgentChatCommandFrame = serde_json::from_value(raw)
         .map_err(|_| "daemon did not return an agent-chat command reply")?;
     let correlated = match &reply {

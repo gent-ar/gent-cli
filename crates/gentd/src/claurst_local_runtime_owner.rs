@@ -7,12 +7,14 @@ use std::{
     fs,
     io::Write,
     path::Path,
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::{
         Arc, Mutex,
         mpsc::{self, Receiver, TryRecvError},
     },
 };
+
+use gent_drivers::provider_input::ProviderInput;
 
 use crate::{
     claurst_acp_transport::ClaurstAcpStdio, claurst_local_runtime::LocalProcessLaunch,
@@ -116,7 +118,7 @@ pub(crate) struct SystemLocalRuntimeProcess {
 
 pub(crate) struct SystemClaurstAcpStdio {
     child: Child,
-    stdin: ChildStdin,
+    stdin: ProviderInput,
     frames: Receiver<Result<Vec<u8>, String>>,
     stderr: Arc<Mutex<Vec<u8>>>,
 }
@@ -202,7 +204,10 @@ impl ClaurstStandaloneLauncher for SystemClaurstStandaloneLauncher {
         let stderr_capture = Arc::new(Mutex::new(Vec::new()));
         std::thread::Builder::new()
             .name("gent-claurst-acp-reader".into())
-            .spawn(move || relay_acp_frames(stdout, sender))
+            .spawn(move || {
+                relay_acp_frames(stdout, sender);
+                gent_drivers::provider_activity::signal();
+            })
             .map_err(|error| error.to_string())?;
         let stderr_for_reader = Arc::clone(&stderr_capture);
         std::thread::Builder::new()
@@ -214,7 +219,7 @@ impl ClaurstStandaloneLauncher for SystemClaurstStandaloneLauncher {
             .map_err(|error| error.to_string())?;
         Ok(SystemClaurstAcpStdio {
             child,
-            stdin,
+            stdin: ProviderInput::spawn(stdin).map_err(|error| error.to_string())?,
             frames,
             stderr: stderr_capture,
         })
@@ -223,10 +228,7 @@ impl ClaurstStandaloneLauncher for SystemClaurstStandaloneLauncher {
 
 impl ClaurstAcpStdio for SystemClaurstAcpStdio {
     fn write_frame(&mut self, frame: &[u8]) -> Result<(), String> {
-        self.stdin
-            .write_all(frame)
-            .map_err(|error| error.to_string())?;
-        self.stdin.flush().map_err(|error| error.to_string())
+        self.stdin.send(frame).map_err(|error| error.to_string())
     }
 
     fn try_read_frame(&mut self, maximum_bytes: usize) -> Result<Option<Vec<u8>>, String> {
@@ -256,7 +258,6 @@ use diagnostics::{acp_exit_error, capture_acp_stderr};
 
 impl Drop for SystemClaurstAcpStdio {
     fn drop(&mut self) {
-        let _ = self.stdin.flush();
         let _ = shutdown_process_tree(&mut self.child);
     }
 }

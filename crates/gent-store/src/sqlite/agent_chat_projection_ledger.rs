@@ -10,7 +10,7 @@ use rusqlite::{Connection, Row, params};
 use super::{SqliteLedger, queries::storage_error};
 
 const MAX_PAGE_LIMIT: u16 = 100;
-const COLUMNS: &str =
+pub(super) const COLUMNS: &str =
     "SELECT cursor, source_event_id, kind, payload FROM agent_chat_projection_events";
 
 pub(super) fn append_summary(
@@ -175,7 +175,7 @@ fn validate_limit(limit: u16) -> Result<(), LedgerError> {
     Ok(())
 }
 
-fn event(row: &Row<'_>) -> rusqlite::Result<AgentChatProjectionEvent> {
+pub(super) fn event(row: &Row<'_>) -> rusqlite::Result<AgentChatProjectionEvent> {
     Ok(AgentChatProjectionEvent {
         cursor: row.get(0)?,
         source_event_id: row.get(1)?,

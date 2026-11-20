@@ -5,11 +5,12 @@ use gent_types::AgentChatProvider;
 use crate::agent_chat_api::{PromptCommitWake, PromptWake};
 pub(crate) use crate::ordinary_lifecycle_host::{OrdinaryLifecycleHost, OrdinaryProviderHost};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum OrdinaryLifecycleRouterError {
     DurableSelectionUnavailable,
     HostUnavailable(AgentChatProvider),
     DuplicateHost(AgentChatProvider),
+    DriveFailed(AgentChatProvider, String),
 }
 
 pub(crate) struct OrdinaryPublicLifecycleRouter<L> {
@@ -64,8 +65,19 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
             if !host.needs_drive() {
                 continue;
             }
-            host.drive()
-                .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(host.provider()))?;
+            match host.drive() {
+                Ok(()) => {}
+                Err(crate::ordinary_lifecycle_host::DriveFailure::LedgerBusy(_)) => {
+                    needs_drive = true;
+                    continue;
+                }
+                Err(crate::ordinary_lifecycle_host::DriveFailure::Failed(cause)) => {
+                    return Err(OrdinaryLifecycleRouterError::DriveFailed(
+                        host.provider(),
+                        cause,
+                    ));
+                }
+            }
             let still_working = host.needs_drive();
             *finished |= !std::mem::take(peer_woken) && !still_working;
             needs_drive |= still_working;
@@ -130,7 +142,7 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
         request_id: &str,
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
-    ) -> Result<(), OrdinaryLifecycleRouterError> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.respond_claude_permission_with_input(
             run_id,
             request_id,
@@ -147,13 +159,11 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
         updated_input: Option<serde_json::Value>,
-    ) -> Result<(), OrdinaryLifecycleRouterError> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.hosts
             .iter()
             .find(|host| host.provider() == AgentChatProvider::Claude)
-            .ok_or(OrdinaryLifecycleRouterError::HostUnavailable(
-                AgentChatProvider::Claude,
-            ))?
+            .ok_or(crate::ordinary_lifecycle_host::Undelivered::NotPending)?
             .respond_claude_permission_with_input(
                 run_id,
                 request_id,
@@ -161,7 +171,6 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
                 persist_suggestions,
                 updated_input,
             )
-            .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(AgentChatProvider::Claude))
     }
 
     pub(crate) fn respond_codex_permission(
@@ -170,15 +179,12 @@ impl<L> OrdinaryPublicLifecycleRouter<L> {
         request_id: &str,
         decision: gent_drivers::codex_control::CodexControlDecision,
         answers: Option<serde_json::Value>,
-    ) -> Result<(), OrdinaryLifecycleRouterError> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.hosts
             .iter()
             .find(|host| host.provider() == AgentChatProvider::Codex)
-            .ok_or(OrdinaryLifecycleRouterError::HostUnavailable(
-                AgentChatProvider::Codex,
-            ))?
+            .ok_or(crate::ordinary_lifecycle_host::Undelivered::NotPending)?
             .respond_codex_permission(run_id, request_id, decision, answers)
-            .map_err(|()| OrdinaryLifecycleRouterError::HostUnavailable(AgentChatProvider::Codex))
     }
 
     pub(crate) fn interrupt_run(

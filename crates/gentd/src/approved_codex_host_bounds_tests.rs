@@ -137,6 +137,7 @@ fn interrupt_with_a_pending_approval_settles_and_a_restarted_process_can_ask_aga
             tool_use_id: "call-1".into(),
             tool_name: "Bash".into(),
             input: None,
+            child_id: None,
         })
     };
     let root_phase = |phase| {
@@ -272,6 +273,7 @@ fn parallel_codex_approvals_surface_one_at_a_time_and_the_turn_completes() {
             tool_use_id: format!("call-{key}"),
             tool_name: "Bash".into(),
             input: None,
+            child_id: None,
         })
     };
     host.tick().unwrap();

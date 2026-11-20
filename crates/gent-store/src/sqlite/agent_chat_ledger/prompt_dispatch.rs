@@ -91,15 +91,7 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError> {
-        helpers::transition(
-            self,
-            message_id,
-            coordinator_id,
-            host_epoch,
-            "claimed",
-            "launching",
-            true,
-        )
+        helpers::transition(self, message_id, coordinator_id, host_epoch, Step::LAUNCH)
     }
     fn confirm_agent_chat_prompt_started(
         &self,
@@ -107,15 +99,7 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError> {
-        helpers::transition(
-            self,
-            message_id,
-            coordinator_id,
-            host_epoch,
-            "launching",
-            "started",
-            true,
-        )
+        helpers::transition(self, message_id, coordinator_id, host_epoch, Step::START)
     }
     fn release_agent_chat_prompt_claim(
         &self,
@@ -128,9 +112,7 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             message_id,
             coordinator_id,
             host_epoch,
-            "claimed",
-            "pending",
-            false,
+            Step::RELEASE_CLAIM,
         )
     }
     fn fail_agent_chat_prompt_prelaunch(
@@ -161,9 +143,7 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             message_id,
             coordinator_id,
             host_epoch,
-            "launching",
-            "pending",
-            false,
+            Step::RELEASE_UNSTARTED,
         )
     }
     fn record_agent_chat_prompt_failure_notice(
@@ -183,25 +163,20 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
             failure_code,
         )
     }
-    fn agent_chat_prompt_has_steer_target(&self, message_id: &str) -> Result<bool, LedgerError> {
-        Ok(super::super::agent_chat_steer_target::target(&*self.lock()?, message_id)?.is_some())
-    }
     fn claim_steered_agent_chat_prompt_for_turn(
         &self,
         coordinator_id: &str,
         host_epoch: HostEpoch,
         run_id: &AgentChatRunId,
         turn_id: &str,
-    ) -> Result<Option<(AgentChatPromptSaved, gent_types::ReceiptId)>, LedgerError> {
-        steer::claim_for_turn(self, coordinator_id, host_epoch, run_id, Some(turn_id))
+    ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
+        steer::claim_for_turn(self, coordinator_id, host_epoch, run_id, turn_id)
     }
-    fn claim_steered_agent_chat_prompt(
+    fn canceled_steered_agent_chat_prompts(
         &self,
-        coordinator_id: &str,
-        host_epoch: HostEpoch,
         run_id: &AgentChatRunId,
-    ) -> Result<Option<(AgentChatPromptSaved, gent_types::ReceiptId)>, LedgerError> {
-        steer::claim(self, coordinator_id, host_epoch, run_id)
+    ) -> Result<Vec<String>, LedgerError> {
+        super::super::agent_chat_stop::canceled_written(&*self.lock()?, &run_id.0)
     }
     fn deliver_steered_agent_chat_prompt(
         &self,
@@ -220,6 +195,20 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
     ) -> Result<(), LedgerError> {
         steer::start_turn(self, message_id, coordinator_id, host_epoch)
     }
+    fn reject_steered_agent_chat_prompt_delivery(
+        &self,
+        message_id: &str,
+        coordinator_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), LedgerError> {
+        helpers::transition(
+            self,
+            message_id,
+            coordinator_id,
+            host_epoch,
+            Step::REJECT_UNSTARTED,
+        )
+    }
     fn mark_agent_chat_prompt_unprovable(
         &self,
         message_id: &str,
@@ -234,15 +223,7 @@ impl AgentChatPromptDispatchLedger for SqliteLedger {
         coordinator_id: &str,
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError> {
-        helpers::transition(
-            self,
-            message_id,
-            coordinator_id,
-            host_epoch,
-            "started",
-            "settled",
-            true,
-        )
+        helpers::transition(self, message_id, coordinator_id, host_epoch, Step::SETTLE)
     }
     fn settle_agent_chat_prompt_terminal(
         &self,
@@ -274,6 +255,8 @@ mod claim;
 #[path = "prompt_dispatch_helpers.rs"]
 mod helpers;
 use claim::claim_excluding_runs;
+use helpers::DispatchTransition as Step;
+pub(crate) use helpers::saved as saved_prompt;
 #[path = "prompt_dispatch_awaiting.rs"]
 mod awaiting;
 #[path = "prompt_dispatch_failure_notice.rs"]
@@ -284,7 +267,7 @@ mod prompt_dispatch_recovery;
 mod steer;
 #[path = "prompt_dispatch_terminal.rs"]
 mod terminal;
-pub(super) fn require_open(
+pub(crate) fn require_open(
     transaction: &Transaction<'_>,
     host_epoch: HostEpoch,
 ) -> Result<(), LedgerError> {

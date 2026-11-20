@@ -105,7 +105,10 @@ fn denial_cancel_and_settlement_never_echo_or_reuse_retained_input() {
     assert!(denied.get("updatedInput").is_none());
     assert!(denied.get("updatedPermissions").is_none());
     assert!(!format!("{relay:?}").contains("private-only-test-canary"));
-    assert!(relay.cancel(&json!({"request_id":"a"})));
+    assert_eq!(
+        relay.cancel(&json!({"request_id":"a"})).as_deref(),
+        Some("a")
+    );
     assert_eq!(relay.retained_bytes, 0);
     assert!(
         relay
@@ -185,6 +188,5 @@ fn combined_reply_over_frame_budget_uses_legacy_reply_without_losing_capture() {
     let response = body(bytes);
     assert!(response.get("updatedInput").is_none());
     assert_eq!(response["updatedPermissions"], suggestions);
-    // The same operation can still echo its original when suggestions are not relayed.
     assert_eq!(allow(&relay, "a")["updatedInput"], input);
 }

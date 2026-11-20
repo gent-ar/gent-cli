@@ -24,10 +24,7 @@ pub(super) fn started(frame: &Value) -> Vec<PublicWireFact> {
 
 pub(super) fn completed(frame: &Value) -> Vec<PublicWireFact> {
     let turn = frame.pointer("/params/turn");
-    let phase = match turn
-        .and_then(|value| string(value, "status"))
-        .or_else(|| frame.pointer("/params/status").and_then(Value::as_str))
-    {
+    let phase = match turn.and_then(|value| string(value, "status")) {
         Some("completed") => TurnPhase::Ready,
         Some("interrupted") => TurnPhase::Interrupted,
         Some("failed") => TurnPhase::Failed,
@@ -50,6 +47,7 @@ fn terminal(
             NormalizedProviderEvent::ProviderFailure {
                 classification,
                 message: message.into(),
+                resets_at: None,
             },
         ));
     }
@@ -81,7 +79,6 @@ fn failure(
 fn turn_id(frame: &Value) -> Option<&str> {
     frame
         .pointer("/params/turn/id")
-        .or_else(|| frame.pointer("/params/turnId"))
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
 }

@@ -17,8 +17,8 @@ pub(crate) enum HoldExit {
 }
 
 #[derive(Clone, Debug)]
-struct HeldPrompt {
-    message: String,
+pub(super) struct HeldPrompt {
+    pub(super) message: String,
     conversation: String,
     run: String,
     turn: String,
@@ -48,8 +48,11 @@ pub(super) fn hold(
     }
     agent_chat_queue_activity::append(
         &transaction,
-        format!("agent-chat-hold:{}", prompt.message),
-        ReceiptId(format!("agentChatPromptHeld:{}", prompt.message)),
+        format!("agent-chat-hold:{}:{}", prompt.run, prompt.message),
+        ReceiptId(format!(
+            "agentChatPromptHeld:{}:{}",
+            prompt.run, prompt.message
+        )),
         ConversationActivityFact::PromptHeld {
             scope: scope(&prompt, host_epoch),
             message_id: prompt.message.clone(),
@@ -100,7 +103,15 @@ pub(crate) fn clear(
         return Ok(());
     };
     if !recorded(transaction, &prompt, &["promptHeld"])?
-        || recorded(transaction, &prompt, &["promptReleased", "promptCanceled"])?
+        || ["released", "canceled"]
+            .into_iter()
+            .try_fold(false, |found, suffix| {
+                super::super::queries::find_event(
+                    transaction,
+                    &format!("agent-chat-hold:{}:{}:{suffix}", prompt.run, prompt.message),
+                )
+                .map(|event| found || event.is_some())
+            })?
     {
         return Ok(());
     }
@@ -123,13 +134,16 @@ pub(crate) fn clear(
     };
     agent_chat_queue_activity::append(
         transaction,
-        format!("agent-chat-hold:{}:{suffix}", prompt.message),
-        ReceiptId(format!("agentChatPromptHoldExit:{}", prompt.message)),
+        format!("agent-chat-hold:{}:{}:{suffix}", prompt.run, prompt.message),
+        ReceiptId(format!(
+            "agentChatPromptHoldExit:{}:{}",
+            prompt.run, prompt.message
+        )),
         fact,
     )
 }
 
-fn scope(prompt: &HeldPrompt, host_epoch: HostEpoch) -> ConversationActivityScope {
+pub(super) fn scope(prompt: &HeldPrompt, host_epoch: HostEpoch) -> ConversationActivityScope {
     ConversationActivityScope {
         conversation_id: prompt.conversation.clone(),
         run_id: prompt.run.clone(),
@@ -139,7 +153,7 @@ fn scope(prompt: &HeldPrompt, host_epoch: HostEpoch) -> ConversationActivityScop
     }
 }
 
-fn held_send_prompt(
+pub(super) fn held_send_prompt(
     transaction: &Transaction<'_>,
     prompt_receipt_id: &ReceiptId,
 ) -> Result<Option<HeldPrompt>, LedgerError> {

@@ -1,10 +1,24 @@
-//! `SQLite` connection construction and synchronized access.
-
 use std::{path::Path, sync::Arc, sync::Mutex, time::Duration};
 
 use rusqlite::Connection;
 
-use super::{LedgerError, SqliteLedger, fresh_schema, queries::storage_error};
+use super::{
+    LedgerError, SqliteLedger,
+    commit_notifier::{CommitNotifier, LedgerGuard},
+    fresh_schema,
+};
+
+pub(super) fn storage_error(error: impl std::fmt::Display + 'static) -> LedgerError {
+    let code = (&error as &dyn std::any::Any)
+        .downcast_ref::<rusqlite::Error>()
+        .and_then(rusqlite::Error::sqlite_error_code);
+    match code {
+        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) => {
+            LedgerError::Busy(error.to_string())
+        }
+        _ => LedgerError::Storage(error.to_string()),
+    }
+}
 
 impl SqliteLedger {
     pub fn read_host_state(
@@ -22,18 +36,10 @@ impl SqliteLedger {
         super::queries::host_ingress(&connection).map(Some)
     }
 
-    /// Opens a fresh-schema durable `SQLite` ledger.
-    ///
-    /// # Errors
-    /// Returns an error when the connection or schema validation fails.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, LedgerError> {
         Self::from_connection(Connection::open(path).map_err(storage_error)?)
     }
 
-    /// Opens an isolated fresh-schema `SQLite` ledger for deterministic tests.
-    ///
-    /// # Errors
-    /// Returns an error when the connection or schema validation fails.
     pub fn in_memory() -> Result<Self, LedgerError> {
         Self::from_connection(Connection::open_in_memory().map_err(storage_error)?)
     }
@@ -48,12 +54,27 @@ impl SqliteLedger {
         fresh_schema::apply(&mut connection)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
+            commits: CommitNotifier::new(),
         })
     }
 
-    pub(super) fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, LedgerError> {
+    pub fn commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.commits.subscribe()
+    }
+
+    #[must_use]
+    pub fn commit_count(&self) -> u64 {
+        self.commits.count()
+    }
+
+    pub fn wait_for_commit(&self, seen: &mut u64, deadline: std::time::Instant) -> bool {
+        self.commits.wait_past(seen, deadline)
+    }
+
+    pub(super) fn lock(&self) -> Result<LedgerGuard<'_>, LedgerError> {
         self.connection
             .lock()
+            .map(|connection| self.commits.guard(connection))
             .map_err(|error| LedgerError::Storage(error.to_string()))
     }
 }
@@ -85,6 +106,19 @@ mod runtime_owner_reads {
             )
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn a_write_blocked_by_another_connection_is_busy_not_storage_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("gent.db");
+        let ledger = SqliteLedger::open(&path).unwrap();
+        let holder = Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let error = ledger.close_ingress(gent_types::HostEpoch(1)).unwrap_err();
+        assert!(matches!(error, LedgerError::Busy(_)), "{error:?}");
+        holder.execute_batch("ROLLBACK").unwrap();
+        ledger.close_ingress(gent_types::HostEpoch(1)).unwrap();
     }
 
     #[test]

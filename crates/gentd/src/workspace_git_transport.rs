@@ -43,7 +43,7 @@ where
     }
     match off_runtime(runtime, move |runtime| runtime.workspace_git(frame)).await? {
         Ok(reply) => write_json_frame(stream, &reply).await?,
-        Err(rejection) => write_error(stream, rejection.code, &rejection.message).await?,
+        Err(rejection) => rejection.write(stream).await?,
     }
     Ok(true)
 }

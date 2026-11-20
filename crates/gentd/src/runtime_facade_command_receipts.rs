@@ -145,6 +145,7 @@ fn goal_rejection(code: GoalRejectionCode) -> AgentChatIntentError {
             .ok()
             .and_then(|code| code.as_str().map(str::to_owned))
             .unwrap_or_else(|| "the goal command was rejected".into()),
+        details: None,
     }
 }
 

@@ -1,10 +1,7 @@
-//! Pure evaluation of durable user permission policy.
-
 use gent_types::{
     PermissionCategory, PermissionMode, PermissionRequest, PolicyRecord, SandboxEnforcement,
 };
 
-/// The only outcomes a future provider ingress may act upon.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PermissionDecision {
     Allow,
@@ -13,7 +10,6 @@ pub enum PermissionDecision {
     SandboxRequired,
 }
 
-/// Evaluates one typed request without I/O, provider knowledge, or mutable state.
 #[must_use]
 pub fn evaluate_permission(
     policy: &PolicyRecord,
@@ -22,11 +18,6 @@ pub fn evaluate_permission(
     evaluate_permission_with_sandbox(policy, request, SandboxEnforcement::Unavailable)
 }
 
-/// Evaluates one request with a daemon-verified OS-sandbox result.
-///
-/// A broad unattended policy fails closed before any exact or category approval when containment
-/// is unavailable. This prevents a future provider launch from treating a client setting as proof
-/// that it may run unsandboxed.
 #[must_use]
 pub fn evaluate_permission_with_sandbox(
     policy: &PolicyRecord,
@@ -39,6 +30,10 @@ pub fn evaluate_permission_with_sandbox(
     if mode_allows(policy.mode, request.category)
         || policy.allowed_tools.contains(&request.tool_name)
         || policy.allowed_categories.contains(&request.category)
+        || policy
+            .allowed_commands
+            .iter()
+            .any(|grant| gent_types::command_grant_permits(grant, request))
     {
         PermissionDecision::Allow
     } else {
@@ -48,10 +43,15 @@ pub fn evaluate_permission_with_sandbox(
 
 fn mode_allows(mode: PermissionMode, category: PermissionCategory) -> bool {
     match mode {
-        PermissionMode::AskEveryTime => false,
+        PermissionMode::AskEveryTime => {
+            matches!(
+                category,
+                PermissionCategory::Read | PermissionCategory::Network
+            )
+        }
         PermissionMode::AutoAcceptEdits => matches!(
             category,
-            PermissionCategory::Read | PermissionCategory::Edit
+            PermissionCategory::Read | PermissionCategory::Edit | PermissionCategory::Network
         ),
         PermissionMode::Autonomous => matches!(
             category,
@@ -82,6 +82,7 @@ mod tests {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec!["git:status".into()],
             allowed_categories: vec![PermissionCategory::Network],
+            allowed_commands: Vec::new(),
         }
     }
 
@@ -202,5 +203,86 @@ mod tests {
 
     fn policy_with(mode: PermissionMode, containment: gent_types::Containment) -> PolicyRecord {
         policy(mode).for_conversation(containment)
+    }
+
+    #[test]
+    fn ask_every_time_only_asks_for_commands_and_edits() {
+        let mut ask_every_time = policy(PermissionMode::AskEveryTime);
+        ask_every_time.allowed_tools.clear();
+        ask_every_time.allowed_categories.clear();
+        for (category, expected) in [
+            (PermissionCategory::Read, PermissionDecision::Allow),
+            (PermissionCategory::Network, PermissionDecision::Allow),
+            (PermissionCategory::Edit, PermissionDecision::Prompt),
+            (PermissionCategory::Command, PermissionDecision::Prompt),
+        ] {
+            assert_eq!(
+                evaluate_permission(&ask_every_time, &request("tool", category)),
+                expected,
+                "{category:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_tools_follow_the_mode_table_whatever_their_name() {
+        for mode in [
+            PermissionMode::AskEveryTime,
+            PermissionMode::AutoAcceptEdits,
+            PermissionMode::Autonomous,
+            PermissionMode::Bypass,
+        ] {
+            let mut current = policy(mode);
+            current.allowed_tools.clear();
+            current.allowed_categories.clear();
+            for sandbox in [
+                SandboxEnforcement::Unavailable,
+                SandboxEnforcement::Enforced,
+            ] {
+                let expected = match (mode, sandbox) {
+                    (
+                        PermissionMode::Autonomous | PermissionMode::Bypass,
+                        SandboxEnforcement::Unavailable,
+                    ) => PermissionDecision::SandboxRequired,
+                    (PermissionMode::Bypass, _) => PermissionDecision::Allow,
+                    _ => PermissionDecision::Prompt,
+                };
+                for tool in [
+                    "Agent",
+                    "ScheduleWakeup",
+                    "UnknownTool",
+                    "mcp__server__tool",
+                ] {
+                    assert_eq!(
+                        evaluate_permission_with_sandbox(
+                            &current,
+                            &request(tool, PermissionCategory::Provider),
+                            sandbox
+                        ),
+                        expected,
+                        "{tool} {mode:?} {sandbox:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn auto_accept_edits_only_asks_for_commands() {
+        let mut auto_accept_edits = policy(PermissionMode::AutoAcceptEdits);
+        auto_accept_edits.allowed_tools.clear();
+        auto_accept_edits.allowed_categories.clear();
+        for (category, expected) in [
+            (PermissionCategory::Read, PermissionDecision::Allow),
+            (PermissionCategory::Edit, PermissionDecision::Allow),
+            (PermissionCategory::Network, PermissionDecision::Allow),
+            (PermissionCategory::Command, PermissionDecision::Prompt),
+        ] {
+            assert_eq!(
+                evaluate_permission(&auto_accept_edits, &request("tool", category)),
+                expected,
+                "{category:?}"
+            );
+        }
     }
 }

@@ -1,8 +1,9 @@
-use gent_ports::{AgentChatReadLedger, ConversationLedger};
-use gent_protocol::AgentChatIntentFrame;
+use gent_ports::{AgentChatReadLedger, ConversationLedger, RunLifecycleFactLedger};
+use gent_protocol::{AgentChatIntentFrame, agent_chat_interrupt::InterruptTurnEnded};
 use gent_types::{AgentChatConversationId, AgentChatRunId, HostEpoch};
 
 use super::RuntimeFacade;
+use crate::agent_chat_intent_error::AgentChatIntentError;
 
 impl RuntimeFacade {
     pub(crate) fn running_turn_run(
@@ -28,7 +29,7 @@ impl RuntimeFacade {
         &self,
         host_epoch: HostEpoch,
         frame: AgentChatIntentFrame,
-    ) -> Result<Option<AgentChatIntentFrame>, String> {
+    ) -> Result<Option<AgentChatIntentFrame>, AgentChatIntentError> {
         let AgentChatIntentFrame::Interrupt {
             request_id,
             receipt_id,
@@ -39,13 +40,18 @@ impl RuntimeFacade {
         else {
             return Ok(None);
         };
+        let target = self
+            .running_turn_run(&conversation_id.0)?
+            .unwrap_or_else(|| run_id.clone());
+        if let Some(turn_id) = expected_turn_id.as_deref()
+            && let Some(ended) = self.ended_turn(&conversation_id, &[&run_id, &target], turn_id)?
+        {
+            return Err(ended.into());
+        }
         let ingress = self
             .ordinary_prompt_ingress
             .as_ref()
             .ok_or_else(|| "agent-chat provider lifecycle is not configured".to_owned())?;
-        let target = self
-            .running_turn_run(&conversation_id.0)?
-            .unwrap_or_else(|| run_id.clone());
         let selection = self
             .agent_chat_reads
             .as_ref()
@@ -58,17 +64,20 @@ impl RuntimeFacade {
             interrupt_payload["expectedTurnId"] = turn_id.into();
         }
         let receipt = self
-            .coordinator
-            .submit(&gent_types::Command {
-                receipt_id: receipt_id.clone(),
-                idempotency_key: format!("agent-chat-interrupt:{}", request_id.0),
-                host_epoch,
-                kind: "agentChatInterrupt".into(),
-                payload: interrupt_payload,
-            })
-            .map_err(|error| error.to_string())?;
+            .agent_chat_prompts
+            .stop(
+                &gent_types::Command {
+                    receipt_id: receipt_id.clone(),
+                    idempotency_key: format!("agent-chat-interrupt:{}", request_id.0),
+                    host_epoch,
+                    kind: "agentChatInterrupt".into(),
+                    payload: interrupt_payload,
+                },
+                &conversation_id,
+            )?
+            .ok_or("agent-chat authority is disabled")?;
         if let Some(turn_id) = expected_turn_id.as_deref() {
-            ingress.interrupt_turn(
+            let interrupted = ingress.interrupt_turn(
                 selection.provider,
                 &target.0,
                 turn_id,
@@ -77,7 +86,12 @@ impl RuntimeFacade {
                     conversation_id: conversation_id.clone(),
                     host_epoch,
                 }),
-            )?;
+            );
+            if let Err(error) = interrupted {
+                return Err(self
+                    .ended_turn(&conversation_id, &[&run_id, &target], turn_id)?
+                    .map_or_else(|| error.into(), Into::into));
+            }
         } else {
             self.stop_goal(&conversation_id, host_epoch);
             ingress.interrupt_run(selection.provider, &target.0)?;
@@ -88,6 +102,42 @@ impl RuntimeFacade {
             conversation_id,
             run_id,
         }))
+    }
+
+    fn ended_turn(
+        &self,
+        conversation_id: &AgentChatConversationId,
+        runs: &[&AgentChatRunId],
+        turn_id: &str,
+    ) -> Result<Option<InterruptTurnEnded>, String> {
+        let ledger = &self.transcript_import_ledger;
+        for run in runs {
+            let Some(turn) = ledger
+                .list_run_turns(&run.0)
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .find(|turn| turn.turn_id == turn_id)
+            else {
+                continue;
+            };
+            if !turn.phase.is_terminal() {
+                return Ok(None);
+            }
+            let background_work_running = ledger
+                .run_live_status(&run.0)
+                .map_err(|error| error.to_string())?
+                .is_some_and(|live| {
+                    live.status.has_live_subagent_work() || live.status.has_live_command_work()
+                });
+            return Ok(Some(InterruptTurnEnded {
+                conversation_id: conversation_id.0.clone(),
+                run_id: run.0.clone(),
+                turn_id: turn.turn_id,
+                turn_phase: turn.phase,
+                background_work_running,
+            }));
+        }
+        Ok(None)
     }
 
     fn stop_goal(&self, conversation_id: &AgentChatConversationId, host_epoch: HostEpoch) {

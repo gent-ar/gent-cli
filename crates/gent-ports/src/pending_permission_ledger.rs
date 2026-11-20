@@ -1,6 +1,7 @@
 use crate::LedgerError;
 use gent_types::{
-    AgentChatConversationId, AgentChatRunId, PermissionDecisionBinding, PermissionDecisionRequest,
+    AgentChatConversationId, AgentChatRunId, DecisionOutcome, PermissionDecisionBinding,
+    PermissionDecisionRequest, PolicyRecord, Receipt,
 };
 
 pub trait PendingPermissionLedger: Send + Sync {
@@ -21,4 +22,14 @@ pub trait PendingPermissionLedger: Send + Sync {
         &self,
         binding: &PermissionDecisionBinding,
     ) -> Result<(), LedgerError>;
+    fn settle_delivered_permission(
+        &self,
+        binding: &PermissionDecisionBinding,
+        grant: Option<&PolicyRecord>,
+        outcome: DecisionOutcome,
+    ) -> Result<(), LedgerError>;
+    fn decision_receipt(
+        &self,
+        binding: &PermissionDecisionBinding,
+    ) -> Result<Option<Receipt>, LedgerError>;
 }

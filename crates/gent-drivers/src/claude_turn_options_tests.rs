@@ -64,8 +64,13 @@ fn every_selected_effort_reaches_claude() {
 }
 
 #[test]
-fn plan_mode_uses_claude_native_plan_permission_mode_for_every_posture() {
-    for permission in [PermissionMode::AutoAcceptEdits, PermissionMode::Bypass] {
+fn plan_mode_uses_native_plan_with_every_shell_command_on_the_host_callback() {
+    for permission in [
+        PermissionMode::AskEveryTime,
+        PermissionMode::AutoAcceptEdits,
+        PermissionMode::Autonomous,
+        PermissionMode::Bypass,
+    ] {
         let mut arguments = Vec::new();
         ClaudeTurnOptions::from_selection_with_permissions(
             &selection(AgentChatMode::Plan),
@@ -78,8 +83,18 @@ fn plan_mode_uses_claude_native_plan_permission_mode_for_every_posture() {
                 .windows(2)
                 .any(|entry| entry[0] == "--permission-mode" && entry[1] == "plan")
         );
-        assert!(!arguments.contains(&"--append-system-prompt".to_string()));
+        assert_eq!(arguments[0], "--settings");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&arguments[1]).unwrap(),
+            serde_json::json!({"permissions": {"ask": ["Bash", "PowerShell"]}, "sandbox": {"autoAllowBashIfSandboxed": false}})
+        );
+        assert!(arguments.windows(2).any(|entry| {
+            entry[0] == "--append-system-prompt" && entry[1] == super::PLAN_INSTRUCTION
+        }));
     }
+    assert!(super::PLAN_INSTRUCTION.contains("run shell commands"));
+    assert!(super::PLAN_INSTRUCTION.contains("spawn sub-agents"));
+    assert!(super::PLAN_INSTRUCTION.contains("Do not edit project files"));
 }
 
 #[test]

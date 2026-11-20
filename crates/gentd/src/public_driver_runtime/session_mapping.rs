@@ -2,7 +2,7 @@ use gent_drivers::public_protocol::PublicWireFact;
 use gent_types::{
     ActivityWorkKind, AgentChatFailureCode, ConversationActivityFact, ConversationActivityScope,
     HostEpoch, NormalizedLifecycleSignal, NormalizedProviderEvent, NormalizedSessionLifecycle,
-    NormalizedTranscriptKind, ProviderFailureClassification, TurnPhase,
+    NormalizedTranscriptKind, TurnPhase,
 };
 
 use super::NormalizedSessionFact;
@@ -44,15 +44,15 @@ pub(crate) fn transcript_content(
     }
 }
 
-pub(super) fn transcript_event_id(fact: &PublicWireFact, event_id: &str) -> String {
+pub(crate) fn transcript_event_id(fact: &PublicWireFact, event_id: &str) -> String {
     match fact {
         PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure {
-            classification: ProviderFailureClassification::Authentication,
+            classification,
+            resets_at,
             ..
-        }) => format!(
-            "{}{event_id}",
-            AgentChatFailureCode::ProviderAuthRequired.event_prefix()
-        ),
+        }) => {
+            AgentChatFailureCode::provider_failure_event_id(*classification, *resets_at, event_id)
+        }
         _ => event_id.into(),
     }
 }
@@ -70,9 +70,6 @@ fn diagnostic_notice(classification: &str) -> Option<&'static str> {
         }
         gent_types::PROVIDER_CONTEXT_COMPACTION_FAILED_DIAGNOSTIC => {
             Some(gent_types::PROVIDER_CONTEXT_COMPACTION_FAILED_NOTICE)
-        }
-        gent_types::PROVIDER_TRANSIENT_RETRY_DIAGNOSTIC => {
-            Some(gent_types::PROVIDER_TRANSIENT_RETRY_NOTICE)
         }
         _ => None,
     }
@@ -128,6 +125,11 @@ fn activity_for_fact(
         cursor: 0,
     };
     match fact {
+        PublicWireFact::Event(NormalizedProviderEvent::TransportDiagnostic { classification })
+            if classification == gent_types::PROVIDER_CONTEXT_COMPACTED_DIAGNOSTIC =>
+        {
+            Some(ConversationActivityFact::ContextCompacted { scope: scope() })
+        }
         PublicWireFact::Event(NormalizedProviderEvent::ToolOutputDelta {
             tool_use_id,
             text,
@@ -218,6 +220,7 @@ fn activity_for_fact(
             Some(ConversationActivityFact::DecisionSettled {
                 scope: scope(),
                 decision_id: decision_id.clone(),
+                outcome: None,
             })
         }
         _ => None,

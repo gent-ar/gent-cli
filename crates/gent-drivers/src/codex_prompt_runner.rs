@@ -1,5 +1,3 @@
-//! `PublicProviderRunner` adapter that binds a durable prompt before a locked Codex launch.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -16,16 +14,13 @@ mod launch;
 pub use launch::fresh_prompt;
 mod mcp;
 mod sandbox;
-/// Prompt fields held only between daemon dispatch claim and locked process launch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexPromptStart {
     pub working_directory: Option<String>,
     pub workspace_root: PathBuf,
     pub workspace_access: SandboxWorkspaceAccess,
     pub prompt: String,
-    /// Optional active goal copied from the Gent ledger before durable run dispatch.
     pub goal: Option<GoalProjection>,
-    /// Ledger-frozen history for a fresh session, never provider-native session state.
     pub fresh_context: Option<FrozenConversationContext>,
     pub turn_options: CodexTurnOptions,
     pub attachments: Vec<serde_json::Value>,
@@ -33,7 +28,6 @@ pub struct CodexPromptStart {
     pub interrupted_reply: Option<String>,
 }
 
-/// Bridges durable run reservation to the bounded Codex app-server runner.
 #[derive(Debug)]
 pub struct CodexPromptRunner<L, P> {
     runner: Arc<Mutex<CodexAppServerRunner<L, P>>>,
@@ -64,7 +58,6 @@ where
     L: ProcessLauncher<Process = P>,
     P: ProviderProcess,
 {
-    /// Creates a no-process runner with no pending prompt state.
     #[must_use]
     pub fn new(
         launcher: L,
@@ -83,10 +76,6 @@ where
             mcp_digests: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
-    /// Preloads the one exact durable prompt that a subsequent public-run reservation may start.
-    ///
-    /// # Errors
-    /// Rejects an attempt to overwrite an already pending prompt for the same run.
     pub fn prepare(
         &self,
         run_id: String,
@@ -106,16 +95,11 @@ where
         pending.insert(run_id, prompt);
         Ok(())
     }
-    /// Drops a prompt that failed before process ownership began so a daemon may release its outbox claim.
     pub fn cancel(&self, run_id: &str) {
         lock(&self.pending).remove(run_id);
         lock(&self.prewarmed).remove(run_id);
         lock(&self.pending_mcp_conversations).remove(run_id);
     }
-    /// Polls one owned Codex process without exposing provider-native protocol data.
-    ///
-    /// # Errors
-    /// Returns a controlled error when the process, frame boundary, or session contract fails.
     pub fn poll(
         &self,
         run_id: &str,
@@ -216,7 +200,12 @@ where
     ) -> Result<(), PublicProviderRunError> {
         lock(&self.runner)
             .respond_control(run_id, request_id, decision, answers)
-            .map_err(map_error)
+            .map_err(|error| match error {
+                CodexRunnerError::NotActive | CodexRunnerError::ControlNotPending => {
+                    PublicProviderRunError::NotActive
+                }
+                other => map_error(other),
+            })
     }
 }
 

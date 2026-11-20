@@ -1,6 +1,10 @@
 use std::{error::Error, fmt, io, process::ExitCode};
 
-use gent_protocol::WireFrame;
+use gent_protocol::{
+    WireFrame,
+    agent_chat_interrupt::{InterruptRejectionFrame, InterruptTurnEnded},
+};
+use serde::Deserialize;
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,7 +56,15 @@ impl CliError {
     }
 
     pub(crate) fn from_reply(raw: &Value) -> Option<Self> {
-        match serde_json::from_value(raw.clone()) {
+        if let Ok(InterruptRejectionFrame::Error {
+            code,
+            message,
+            interrupt,
+        }) = InterruptRejectionFrame::deserialize(raw)
+        {
+            return Some(Self::daemon(code, ended_turn_message(message, &interrupt)));
+        }
+        match WireFrame::deserialize(raw) {
             Ok(WireFrame::Error { code, message }) => Some(Self::daemon(code, message)),
             _ => None,
         }
@@ -77,6 +89,14 @@ impl fmt::Display for CliError {
 }
 
 impl Error for CliError {}
+
+fn ended_turn_message(message: String, interrupt: &InterruptTurnEnded) -> String {
+    if interrupt.background_work_running {
+        format!("{message}; its background work is still running")
+    } else {
+        message
+    }
+}
 
 fn daemon_failure(code: &str) -> Failure {
     match code {

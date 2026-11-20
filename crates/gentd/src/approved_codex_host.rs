@@ -1,5 +1,3 @@
-//! Bounded approved-only Codex host composition, intentionally absent from daemon bootstrap.
-
 use gent_drivers::interrupt::ProcessTreeSignal;
 use gent_ports::{
     AgentChatPromptDispatchLedger, ConversationActivityLedger, Ledger,
@@ -15,7 +13,6 @@ use crate::codex_prompt_lifecycle::{
 };
 use crate::public_driver_runtime::PublicDriversRuntime;
 
-/// Summary of one bounded approved-host scheduler pass.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ApprovedCodexTick {
     pub dispatch: Option<CodexPromptDispatchOutcome>,
@@ -24,7 +21,6 @@ pub(crate) struct ApprovedCodexTick {
     pub exited_runs: u16,
 }
 
-/// Bounded process drain result without a new prompt claim.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ApprovedCodexDrain {
     pub polled_runs: u16,
@@ -32,7 +28,6 @@ pub(crate) struct ApprovedCodexDrain {
     pub exited_runs: u16,
 }
 
-/// Process scheduler constructible only from an already authority-gated public-driver runtime.
 #[derive(Debug)]
 pub(crate) struct ApprovedCodexHost<L, D, R> {
     lifecycle: CodexPromptLifecycle<L, D, R>,
@@ -81,27 +76,20 @@ where
         self
     }
 
-    /// Reconciles only old pre-launch durable dispatch claims before the first scheduler tick.
     pub(crate) fn recover(&self) -> Result<(), RuntimeError> {
         self.lifecycle.recover(self.host_epoch)
     }
 
-    /// Returns the number of owned processes that would require an explicit drain on shutdown.
     #[must_use]
     pub(crate) fn active_len(&self) -> usize {
         self.lifecycle.active_len()
     }
 
-    /// Returns whether an owned Codex turn needs another bounded polling pass.
     #[must_use]
     pub(crate) fn needs_drive(&self) -> bool {
         self.lifecycle.needs_poll()
     }
 
-    /// Signals all currently owned provider process trees without claiming work.
-    ///
-    /// # Errors
-    /// Returns an error when an owned process rejects the daemon-selected signal.
     pub(crate) fn signal_active(&self, signal: ProcessTreeSignal) -> Result<u16, RuntimeError> {
         self.lifecycle.signal_active(signal)
     }
@@ -132,10 +120,6 @@ where
             .respond_permission(run_id, request_id, decision, answers)
     }
 
-    /// Drains at most the host active bound without accepting another prompt.
-    ///
-    /// # Errors
-    /// Returns an error only when existing durable lifecycle polling fails.
     pub(crate) fn drain(&mut self) -> Result<ApprovedCodexDrain, RuntimeError> {
         let batch = self
             .lifecycle
@@ -147,7 +131,6 @@ where
         })
     }
 
-    /// Polls a bounded active snapshot before claiming at most one additional prompt.
     pub(crate) fn tick(&mut self) -> Result<ApprovedCodexTick, RuntimeError> {
         let batch = self
             .lifecycle

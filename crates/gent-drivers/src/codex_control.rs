@@ -5,8 +5,8 @@ mod redaction;
 
 use answers::{elicitation_content, question_answers};
 use redaction::{
-    dynamic_tool_name, redacted_approval, redacted_dynamic_tool, redacted_elicitation,
-    redacted_questions,
+    dynamic_tool_name, mcp_tool_approval_name, redacted_approval, redacted_dynamic_tool,
+    redacted_elicitation, redacted_questions,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -17,6 +17,7 @@ pub struct CodexControlRequest {
     pub tool_use_id: String,
     pub tool_name: String,
     pub input: Option<Value>,
+    pub child_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,17 +58,13 @@ pub fn parse(frame: &Value) -> Result<Option<CodexControlRequest>, &'static str>
         .or_else(|| params.get("callId").and_then(Value::as_str))
         .unwrap_or(method)
         .to_owned();
-    let mcp_approval_server = (method == "mcpServer/elicitation/request"
-        && params
-            .get("_meta")
-            .and_then(|meta| meta.get("codex_approval_kind"))
-            == Some(&Value::String("mcp_tool_call".into())))
-    .then(|| params.get("serverName").and_then(Value::as_str))
-    .flatten();
+    let mcp_approval = (method == "mcpServer/elicitation/request")
+        .then(|| mcp_tool_approval_name(params))
+        .flatten();
     let tool_name = if method == "item/tool/call" {
         dynamic_tool_name(params)
-    } else if let Some(server) = mcp_approval_server {
-        format!("mcp__{server}")
+    } else if let Some(name) = mcp_approval {
+        name
     } else {
         match method {
             "item/commandExecution/requestApproval" => "Command",
@@ -104,6 +101,7 @@ pub fn parse(frame: &Value) -> Result<Option<CodexControlRequest>, &'static str>
         tool_use_id,
         tool_name,
         input,
+        child_id: None,
     }))
 }
 

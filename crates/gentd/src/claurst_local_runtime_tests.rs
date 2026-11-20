@@ -162,22 +162,17 @@ fn materializes_plan_mode_as_a_local_model_instruction() {
     request.mode = gent_types::AgentChatMode::Plan;
     let plan =
         ClaurstLocalRuntimePlan::build(request, catalog.models().first().unwrap(), 18_080).unwrap();
-    assert!(
-        kwargs(&plan)["gent_instructions"]
-            .as_str()
-            .unwrap()
-            .contains("concrete plan")
-    );
-    assert!(
-        !kwargs(&plan)["gent_instructions"]
-            .as_str()
-            .unwrap()
-            .contains("Glob")
-    );
+    let instructions = kwargs(&plan)["gent_instructions"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(instructions.contains("concrete plan"));
+    assert!(instructions.contains("shell commands and sub-agents"));
+    assert!(instructions.contains("Do not edit project files"));
 }
 
 #[test]
-fn compact_catalog_profile_exposes_only_core_tools_with_local_model_guidance() {
+fn compact_catalog_profile_exposes_core_tools_and_delegation_in_agent_mode() {
     let catalog = LocalModelCatalog::shipped().unwrap();
     let plan = ClaurstLocalRuntimePlan::build(
         request(),
@@ -196,10 +191,14 @@ fn compact_catalog_profile_exposes_only_core_tools_with_local_model_guidance() {
                 "Edit",
                 "Write",
                 "Bash",
-                "PowerShell"
+                "PowerShell",
+                "Agent",
+                "monitor"
             ])
         } else {
-            serde_json::json!(["Glob", "Grep", "Read", "Edit", "Write", "Bash"])
+            serde_json::json!([
+                "Glob", "Grep", "Read", "Edit", "Write", "Bash", "Agent", "monitor"
+            ])
         }
     );
     assert!(
@@ -224,11 +223,31 @@ fn compact_catalog_profile_exposes_only_core_tools_with_local_model_guidance() {
 }
 
 #[test]
-fn compact_catalog_profile_offers_change_tools_in_ask_and_only_read_tools_in_plan() {
+fn compact_catalog_profile_offers_change_tools_in_ask_and_commands_without_edits_in_plan() {
     let catalog = LocalModelCatalog::shipped().unwrap();
-    for (mode, tools) in [
-        (gent_types::AgentChatMode::Ask, true),
-        (gent_types::AgentChatMode::Plan, false),
+    let shells: &[&str] = if cfg!(windows) {
+        &["Bash", "PowerShell"]
+    } else {
+        &["Bash"]
+    };
+    for (mode, expected) in [
+        (
+            gent_types::AgentChatMode::Ask,
+            ["Glob", "Grep", "Read", "Edit", "Write"]
+                .iter()
+                .chain(shells)
+                .copied()
+                .collect::<Vec<_>>(),
+        ),
+        (
+            gent_types::AgentChatMode::Plan,
+            ["Glob", "Grep", "Read"]
+                .iter()
+                .chain(shells)
+                .chain(&["Agent", "monitor"])
+                .copied()
+                .collect(),
+        ),
     ] {
         let mut request = request();
         request.mode = mode;
@@ -238,22 +257,18 @@ fn compact_catalog_profile_offers_change_tools_in_ask_and_only_read_tools_in_pla
             18_080,
         )
         .unwrap();
-        let offered = kwargs(&plan)["gent_tools"].clone();
+        let kwargs = kwargs(&plan);
         assert_eq!(
-            offered
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|tool| tool == "Write" || tool == "Bash"),
-            tools,
+            kwargs["gent_tools"],
+            serde_json::json!(expected),
             "{mode:?}"
         );
         assert!(
-            offered
-                .as_array()
+            kwargs["gent_instructions"]
+                .as_str()
                 .unwrap()
-                .iter()
-                .any(|tool| tool == "Read")
+                .contains(&format!("Tools: {}.", expected.join(", "))),
+            "{mode:?}"
         );
     }
 }

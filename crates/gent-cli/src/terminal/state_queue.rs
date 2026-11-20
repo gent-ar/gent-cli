@@ -18,17 +18,30 @@ impl UiState {
     }
 
     pub(super) fn steer_queued(&mut self) -> UiEffect {
-        let queue = self.selected_queue();
+        let message_ids = self
+            .selected_queue()
+            .into_iter()
+            .filter(QueuedPrompt::can_steer)
+            .map(|prompt| prompt.message_id)
+            .collect::<Vec<_>>();
         match self.selected().map(|item| item.conversation_id.clone()) {
-            Some(conversation_id) if !queue.is_empty() => {
+            Some(conversation_id) if !message_ids.is_empty() => {
+                let Some(target) = self
+                    .selected_status()
+                    .and_then(crate::chat_cli::queue::steer_target)
+                else {
+                    self.notice = Some("No active turn is available to steer.".into());
+                    return UiEffect::Continue;
+                };
                 UiEffect::Request(UiRequest::SteerQueued {
                     conversation_id,
-                    message_ids: queue.into_iter().map(|prompt| prompt.message_id).collect(),
+                    message_ids,
+                    target,
                 })
             }
             _ => {
                 self.notice = Some(
-                    "No prompts are queued. Press Enter while Gent is working to queue one.".into(),
+                    "No prompts are available to steer. Press Enter while Gent is working to queue one.".into(),
                 );
                 UiEffect::Continue
             }

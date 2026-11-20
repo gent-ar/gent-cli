@@ -25,6 +25,8 @@ fn queued(cursor: u64, message_id: &str) -> ConversationActivityFact {
             cursor,
         },
         message_id: message_id.into(),
+        queue_delivery: None,
+        cancelable: None,
     }
 }
 
@@ -78,10 +80,33 @@ fn scrolling_back_pins_the_view_until_the_user_returns_to_the_end() {
 }
 
 #[test]
-fn steer_sends_every_queued_prompt_oldest_first_and_cancel_removes_the_newest() {
+fn steer_skips_outstanding_b_between_a_and_c_and_cancel_removes_the_newest() {
+    let target = gent_types::ConversationRunStatus {
+        run_id: "running-run".into(),
+        parent_run_id: None,
+        provider: "codex".into(),
+        active_turn_id: Some("observed-turn".into()),
+        live_status: None,
+    };
     let mut state = state().with_view(Some(
-        ConversationView::new("one", None, None)
-            .with_activity(Some(vec![queued(9, "second"), queued(4, "first")])),
+        ConversationView::new(
+            "one",
+            Some(gent_types::ConversationStatus {
+                conversation_id: "one".into(),
+                runs: vec![target.clone()],
+            }),
+            None,
+        )
+        .with_activity(Some(vec![
+            queued(9, "C"),
+            queued(4, "A"),
+            queued(6, "B"),
+            ConversationActivityFact::PromptSteerRequested {
+                scope: queued(10, "B").scope().clone(),
+                message_id: "B".into(),
+                receipt_id: "outstanding".into(),
+            },
+        ])),
     ));
     assert_eq!(
         command(
@@ -94,7 +119,8 @@ fn steer_sends_every_queued_prompt_oldest_first_and_cancel_removes_the_newest() 
         state.apply(UiCommand::SteerQueued),
         UiEffect::Request(UiRequest::SteerQueued {
             conversation_id: "one".into(),
-            message_ids: vec!["first".into(), "second".into()],
+            message_ids: vec!["A".into(), "C".into()],
+            target: target.clone(),
         })
     );
     assert_eq!(
@@ -108,19 +134,22 @@ fn steer_sends_every_queued_prompt_oldest_first_and_cancel_removes_the_newest() 
         state.apply(UiCommand::CancelQueued),
         UiEffect::Request(UiRequest::CancelQueued {
             conversation_id: "one".into(),
-            message_id: "second".into(),
+            message_id: "C".into(),
         })
     );
-    for text in ["/steer", "/cancel-queued"] {
-        text.chars().for_each(|value| {
-            state.apply(UiCommand::Insert(value));
-        });
-        assert!(matches!(
-            state.apply(UiCommand::SubmitPrompt),
-            UiEffect::Request(_)
-        ));
-        assert_eq!(state.input(), "");
-    }
+    assert_eq!(
+        submit(&mut state, "/steer"),
+        UiEffect::Request(UiRequest::SteerQueued {
+            conversation_id: "one".into(),
+            message_ids: vec!["A".into(), "C".into()],
+            target,
+        })
+    );
+    assert!(matches!(
+        submit(&mut state, "/cancel-queued"),
+        UiEffect::Request(UiRequest::CancelQueued { .. })
+    ));
+    assert_eq!(state.input(), "");
 }
 
 #[test]
@@ -130,9 +159,26 @@ fn queue_keys_explain_when_nothing_is_queued() {
     assert!(
         state
             .notice()
-            .is_some_and(|notice| notice.contains("No prompts are queued"))
+            .is_some_and(|notice| notice.contains("No prompts are available to steer"))
     );
     assert_eq!(state.apply(UiCommand::CancelQueued), UiEffect::Continue);
+}
+
+#[test]
+fn steer_without_an_observed_active_turn_keeps_the_queue_available_to_cancel() {
+    let mut state = state().with_view(Some(
+        ConversationView::new("one", None, None).with_activity(Some(vec![queued(4, "first")])),
+    ));
+    assert_eq!(submit(&mut state, "/steer"), UiEffect::Continue);
+    assert_eq!(
+        state.notice(),
+        Some("No active turn is available to steer.")
+    );
+    assert_eq!(state.selected_queue().len(), 1);
+    assert!(matches!(
+        state.apply(UiCommand::CancelQueued),
+        UiEffect::Request(UiRequest::CancelQueued { .. })
+    ));
 }
 
 #[test]
@@ -170,6 +216,7 @@ fn failed_turn(cause: Option<gent_types::TurnTerminalCause>) -> ConversationView
         text: "Which code did I give you?".into(),
         is_partial: false,
         failure_code: None,
+        resets_at: None,
         origin: None,
         attachments: Vec::new(),
     };

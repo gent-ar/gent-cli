@@ -1,5 +1,5 @@
 use super::{ClaurstAcpStdio, ClaurstAcpTerminal, ClaurstAcpTransport, ClaurstAcpTransportError};
-use std::{collections::VecDeque, time::Instant};
+use std::collections::VecDeque;
 
 struct Fake {
     reads: VecDeque<Vec<u8>>,
@@ -70,23 +70,18 @@ fn an_exited_provider_with_no_prompt_is_not_a_turn_failure() {
 }
 
 #[test]
-fn a_cancel_the_provider_never_answers_settles_interrupted_after_its_grace() {
+fn a_cancel_waits_for_the_providers_cancelled_answer_instead_of_inventing_one() {
     let mut transport = prompting();
     transport.cancel("session").unwrap();
     assert_eq!(transport.drain(8).unwrap().terminal, None);
-    transport.cancel_deadline = Some(Instant::now());
+    assert!(!transport.is_idle());
+    transport
+        .stdio
+        .reads
+        .push_back(br#"{"jsonrpc":"2.0","id":1,"result":{"stopReason":"cancelled"}}"#.to_vec());
     assert_eq!(
         transport.drain(8).unwrap().terminal,
         Some(ClaurstAcpTerminal::Interrupted)
     );
     assert!(transport.is_idle());
-}
-
-#[test]
-fn a_new_prompt_does_not_inherit_an_earlier_cancel_deadline() {
-    let mut transport = prompting();
-    transport.cancel("session").unwrap();
-    transport.pending_prompt_id = None;
-    transport.prompt("session", "again").unwrap();
-    assert_eq!(transport.cancel_deadline, None);
 }

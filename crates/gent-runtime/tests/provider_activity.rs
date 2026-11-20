@@ -149,7 +149,7 @@ fn fact_needs_owned_session_and_a_source_allocated_cursor() {
     assert!(service.record("different-daemon", fact("unowned")).is_err());
 
     let mut caller_cursor = fact("caller-cursor");
-    if let ConversationActivityFact::TurnStarted { scope } = &mut caller_cursor.activity {
+    if let ConversationActivityFact::TurnStarted { scope, .. } = &mut caller_cursor.activity {
         scope.cursor = 9;
     }
     assert!(service.record("daemon-a", caller_cursor).is_err());

@@ -54,6 +54,12 @@ impl ClaurstPeer {
         if self.cancelled.contains(&session_id) {
             return self.send(json!({"jsonrpc":"2.0","id":id,"result":{"stopReason":"cancelled"}}));
         }
+        if text.trim_end().ends_with("Start a background agent") {
+            self.update(&session_id, json!({"sessionUpdate":"tool_call","toolCallId":"background-1","title":"EnterWorktree","kind":"other","status":"in_progress","rawInput":{}}));
+            self.send(json!({"jsonrpc":"2.0","id":9,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":{"toolCallId":"background-1","title":"EnterWorktree","kind":"other","rawInput":{}},"options":[{"kind":"allow_once","name":"Allow once","optionId":"allow_once"}]}}));
+            self.update(&session_id, json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"started in background"}}));
+            return self.send(json!({"jsonrpc":"2.0","id":id,"result":{"stopReason":"end_turn"}}));
+        }
         if text.trim_end().ends_with("Please use EnterWorktree") {
             self.update(&session_id, json!({"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"EnterWorktree","kind":"other","status":"in_progress","rawInput":{}}));
             self.send(json!({"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"sessionId":session_id,"toolCall":{"toolCallId":"tool-1","title":"EnterWorktree","kind":"other","rawInput":{}},"options":[{"kind":"allow_once","name":"Allow once","optionId":"allow_once"}]}}));
@@ -177,7 +183,7 @@ async fn drive_until_terminal<H: AsyncOrdinaryLifecycleHost>(
 }
 
 #[tokio::test]
-async fn uncertain_claurst_permission_write_returns_receipt_without_replay() {
+async fn claurst_permission_write_failure_cancels_the_run_and_rejects_the_decision() {
     let ledger = SqliteLedger::in_memory().unwrap();
     let conversation = AgentChatConversationId("conversation-a".into());
     let run = AgentChatRunId("run-a".into());
@@ -244,6 +250,7 @@ async fn uncertain_claurst_permission_write_returns_receipt_without_replay() {
         binding: pending.binding,
         response: PermissionDecisionResponseKind::ApproveOnce,
         input: None,
+        command_pattern: None,
     };
     fail_permission_write.store(true, Ordering::SeqCst);
     for _ in 0..2 {
@@ -251,13 +258,144 @@ async fn uncertain_claurst_permission_write_returns_receipt_without_replay() {
             .respond_permission_with_receipt(response.clone(), ReceiptId("approve".into()))
             .await
             .unwrap();
-        assert_eq!(receipt.status, gent_types::ReceiptStatus::Unprovable);
+        assert_eq!(receipt.status, gent_types::ReceiptStatus::Rejected);
     }
     let writes = written.lock().unwrap();
     assert_eq!(
         writes
             .iter()
             .filter(|frame| frame.pointer("/result/outcome").is_some())
+            .count(),
+        1
+    );
+    assert!(
+        writes
+            .iter()
+            .any(|frame| frame["method"] == "session/cancel")
+    );
+    assert!(
+        ledger
+            .pending_permission(&conversation, &run)
+            .unwrap()
+            .is_none()
+    );
+    let projection = ledger
+        .agent_chat_projection_page(&conversation, 0, 100)
+        .unwrap();
+    assert_eq!(
+        projection
+            .events
+            .iter()
+            .filter(|event| {
+                event.payload["activity"]["type"] == "decisionSettled"
+                    && event.payload["activity"]["decisionId"] == "claurst:n:7"
+            })
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn claurst_decision_for_a_finished_turn_expires_and_retries_stay_rejected() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation = AgentChatConversationId("conversation-a".into());
+    let run = AgentChatRunId("run-a".into());
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation.clone(),
+                run_id: run.clone(),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claurst,
+                    model: "qwen3-1-7b-q4-k-m".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: gent_testkit::host_absolute_path("/workspace-a")
+                    .display()
+                    .to_string(),
+            },
+        )
+        .unwrap();
+    let peer = ClaurstPeer::default();
+    let written = Arc::clone(&peer.written);
+    let bridge = ClaurstBridgeHandle::new(Arc::new(ClaurstAcpBridge::new(
+        gent_testkit::host_absolute_path("/workspace-a"),
+        peer,
+        vec![],
+    )));
+    bridge
+        .bind_turn_policy(
+            crate::permission_workspace::policy_for_conversation(
+                &ledger,
+                &conversation.0,
+                "workspace-a",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut lifecycle =
+        ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
+    lifecycle.activate_recovery().await.unwrap();
+    let waiting = prompt(&ledger, "waiting", "Please use EnterWorktree");
+    for _ in 0..4 {
+        lifecycle.drive_once().await.unwrap();
+    }
+    let pending = ledger
+        .pending_permission(&conversation, &run)
+        .unwrap()
+        .unwrap();
+    lifecycle.interrupt_run(&run.0).await.unwrap();
+    assert_eq!(
+        drive_until_terminal(&mut lifecycle, &ledger, &waiting).await,
+        DurableTurnPhase::Interrupted
+    );
+    let answers = |written: &Arc<Mutex<Vec<Value>>>| {
+        written
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|frame| frame.pointer("/result/outcome").is_some())
+            .count()
+    };
+    let before = answers(&written);
+    let response = PermissionDecisionResponse {
+        binding: pending.binding,
+        response: PermissionDecisionResponseKind::ApproveOnce,
+        input: None,
+        command_pattern: None,
+    };
+    for _ in 0..2 {
+        let receipt = lifecycle
+            .respond_permission_with_receipt(response.clone(), ReceiptId("late".into()))
+            .await
+            .unwrap();
+        assert_eq!(receipt.status, gent_types::ReceiptStatus::Rejected);
+    }
+    assert_eq!(answers(&written), before);
+    assert!(
+        ledger
+            .pending_permission(&conversation, &run)
+            .unwrap()
+            .is_none()
+    );
+    let projection = ledger
+        .agent_chat_projection_page(&conversation, 0, 100)
+        .unwrap();
+    assert_eq!(
+        projection
+            .events
+            .iter()
+            .filter(|event| {
+                event.payload["activity"]["type"] == "decisionSettled"
+                    && event.payload["activity"]["decisionId"] == "claurst:n:7"
+            })
             .count(),
         1
     );
@@ -347,10 +485,17 @@ async fn interrupt_with_a_pending_permission_cancels_it_and_settles_the_turn() {
     let projection = ledger
         .agent_chat_projection_page(&conversation, 0, 100)
         .unwrap();
-    assert!(projection.events.iter().any(|event| {
-        event.payload["activity"]["type"] == "decisionSettled"
-            && event.payload["activity"]["decisionId"] == "claurst:n:7"
-    }));
+    assert_eq!(
+        projection
+            .events
+            .iter()
+            .filter(|event| {
+                event.payload["activity"]["type"] == "decisionSettled"
+                    && event.payload["activity"]["decisionId"] == "claurst:n:7"
+            })
+            .count(),
+        1
+    );
 
     let next = prompt(&ledger, "next", "Please use EnterWorktree");
     for _ in 0..4 {
@@ -368,11 +513,196 @@ async fn interrupt_with_a_pending_permission_cancels_it_and_settles_the_turn() {
                 binding: reused.binding,
                 response: PermissionDecisionResponseKind::ApproveOnce,
                 input: None,
+                command_pattern: None,
             },
             ReceiptId("approve-next".into()),
         )
         .await
         .unwrap();
+    assert_eq!(
+        drive_until_terminal(&mut lifecycle, &ledger, &next).await,
+        DurableTurnPhase::Completed
+    );
+}
+
+#[tokio::test]
+async fn claurst_retried_accepted_decision_is_written_once_and_then_settles() {
+    use gent_ports::Ledger;
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation = AgentChatConversationId("conversation-a".into());
+    let run = AgentChatRunId("run-a".into());
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation.clone(),
+                run_id: run.clone(),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claurst,
+                    model: "qwen3-1-7b-q4-k-m".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: gent_testkit::host_absolute_path("/workspace-a")
+                    .display()
+                    .to_string(),
+            },
+        )
+        .unwrap();
+    let peer = ClaurstPeer::default();
+    let written = Arc::clone(&peer.written);
+    let bridge = ClaurstBridgeHandle::new(Arc::new(ClaurstAcpBridge::new(
+        gent_testkit::host_absolute_path("/workspace-a"),
+        peer,
+        vec![],
+    )));
+    bridge
+        .bind_turn_policy(
+            crate::permission_workspace::policy_for_conversation(
+                &ledger,
+                &conversation.0,
+                "workspace-a",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut lifecycle =
+        ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
+    lifecycle.activate_recovery().await.unwrap();
+    let waiting = prompt(&ledger, "waiting", "Please use EnterWorktree");
+    for _ in 0..4 {
+        lifecycle.drive_once().await.unwrap();
+    }
+    let pending = ledger
+        .pending_permission(&conversation, &run)
+        .unwrap()
+        .unwrap();
+    let response = PermissionDecisionResponse {
+        binding: pending.binding,
+        response: PermissionDecisionResponseKind::ApproveOnce,
+        input: None,
+        command_pattern: None,
+    };
+    let (command, event) = crate::agent_chat_permission_api::receipt::permission_decision_command(
+        &response,
+        &ReceiptId("approve".into()),
+    )
+    .unwrap();
+    ledger.claim_command(&command, &event).unwrap();
+    for _ in 0..2 {
+        let receipt = lifecycle
+            .respond_permission_with_receipt(response.clone(), ReceiptId("approve".into()))
+            .await
+            .unwrap();
+        assert_eq!(receipt.status, gent_types::ReceiptStatus::Settled);
+    }
+    assert_eq!(
+        written
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|frame| frame.pointer("/result/outcome").is_some())
+            .count(),
+        1
+    );
+    assert!(
+        ledger
+            .pending_permission(&conversation, &run)
+            .unwrap()
+            .is_none()
+    );
+    let projection = ledger
+        .agent_chat_projection_page(&conversation, 0, 100)
+        .unwrap();
+    assert_eq!(
+        projection
+            .events
+            .iter()
+            .filter(|event| {
+                event.payload["activity"]["type"] == "decisionSettled"
+                    && event.payload["activity"]["decisionId"] == "claurst:n:7"
+            })
+            .count(),
+        1
+    );
+    assert_eq!(
+        drive_until_terminal(&mut lifecycle, &ledger, &waiting).await,
+        DurableTurnPhase::Completed
+    );
+}
+
+#[tokio::test]
+async fn a_turn_that_completes_with_a_background_permission_open_does_not_block_the_next_prompt() {
+    let ledger = SqliteLedger::in_memory().unwrap();
+    let conversation = AgentChatConversationId("conversation-a".into());
+    let run = AgentChatRunId("run-a".into());
+    ledger
+        .create_agent_chat_conversation_in_workspace(
+            &AgentChatConversationCreate {
+                receipt_id: ReceiptId("conversation-receipt".into()),
+                idempotency_key: "conversation-key".into(),
+                host_epoch: HostEpoch(1),
+                conversation_id: conversation.clone(),
+                run_id: run.clone(),
+                selection: AgentChatSelection {
+                    provider: AgentChatProvider::Claurst,
+                    model: "qwen3-1-7b-q4-k-m".into(),
+                    effort: AgentChatEffort::Medium,
+                    mode: AgentChatMode::Agent,
+                },
+            },
+            &WorkspaceRecord {
+                workspace_id: "workspace-a".into(),
+                canonical_path: gent_testkit::host_absolute_path("/workspace-a")
+                    .display()
+                    .to_string(),
+            },
+        )
+        .unwrap();
+    let peer = ClaurstPeer::default();
+    let written = Arc::clone(&peer.written);
+    let bridge = ClaurstBridgeHandle::new(Arc::new(ClaurstAcpBridge::new(
+        gent_testkit::host_absolute_path("/workspace-a"),
+        peer,
+        vec![],
+    )));
+    bridge
+        .bind_turn_policy(
+            crate::permission_workspace::policy_for_conversation(
+                &ledger,
+                &conversation.0,
+                "workspace-a",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let mut lifecycle =
+        ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
+    lifecycle.activate_recovery().await.unwrap();
+
+    let background = prompt(&ledger, "background", "Start a background agent");
+    assert_eq!(
+        drive_until_terminal(&mut lifecycle, &ledger, &background).await,
+        DurableTurnPhase::Completed
+    );
+    assert!(
+        ledger
+            .pending_permission(&conversation, &run)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        written.lock().unwrap().iter().any(|frame| {
+            frame["id"] == 9 && frame["result"]["outcome"]["outcome"] == "cancelled"
+        })
+    );
+
+    let next = prompt(&ledger, "next", "hello");
     assert_eq!(
         drive_until_terminal(&mut lifecycle, &ledger, &next).await,
         DurableTurnPhase::Completed

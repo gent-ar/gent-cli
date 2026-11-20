@@ -16,6 +16,8 @@ use crate::{
     workspace_git_transport,
 };
 
+#[path = "agent_chat_receipt_transport.rs"]
+mod agent_chat_receipt_transport;
 #[path = "speech_catalog_transport.rs"]
 mod speech_catalog_transport;
 
@@ -40,6 +42,7 @@ where
         || agent_chat_transport::dispatch(stream, runtime, capabilities, raw).await?
         || agent_chat_command_transport::dispatch(stream, runtime, capabilities, raw).await?
         || agent_chat_permission_transport::dispatch(stream, runtime, capabilities, raw).await?
+        || agent_chat_receipt_transport::dispatch(stream, runtime, capabilities, raw).await?
         || permission_policy_transport::dispatch(stream, runtime, capabilities, raw).await?
         || agent_chat_conversation_config_transport::dispatch(stream, runtime, capabilities, raw)
             .await?

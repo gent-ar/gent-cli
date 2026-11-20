@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use gent_protocol::{
-    FORGE_CONNECTORS_CAPABILITY, ForgeConnectorFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{FORGE_CONNECTORS_CAPABILITY, ForgeConnectorFrame, write_json_frame};
 use gent_types::ForgeConnectorRecord;
 use serde_json::Value;
 
@@ -104,10 +102,7 @@ async fn exchange(
     }
     let expected_id = request_id(&frame);
     write_json_frame(&mut stream, &frame).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     let reply: ForgeConnectorFrame = serde_json::from_value(raw)?;
     if request_id(&reply) != expected_id {
         return Err("daemon returned an uncorrelated Forge response".into());

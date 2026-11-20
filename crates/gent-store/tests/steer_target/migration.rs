@@ -30,6 +30,6 @@ fn v25_upgrade_is_additive_and_preserves_immutable_history() {
         events
     );
     drop(db);
+    assert_eq!(claim(&ledger, &current).unwrap().message, queued.message);
     request(&ledger, &conversation, &queued, &current, "after-upgrade").unwrap();
-    assert!(claim(&ledger, &current).is_some());
 }

@@ -25,8 +25,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// # Errors
-    /// Returns when the proof, current-run/provider fence, epoch, or terminal event differs.
     fn release_verified_agent_chat_prompt_after_readiness(
         &self,
         _: &Command,
@@ -72,8 +70,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// # Errors
-    /// Returns when the implementation cannot atomically retain the current run fence.
     fn release_agent_chat_prompt_after_readiness(
         &self,
         _: &str,
@@ -85,8 +81,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// # Errors
-    /// Returns an error when ingress is closed, the epoch is stale, or persistence fails.
     fn claim_agent_chat_prompt_dispatch(
         &self,
         coordinator_id: &str,
@@ -118,8 +112,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// # Errors
-    /// Returns an error when current durable ownership does not hold.
     fn begin_agent_chat_prompt_launch(
         &self,
         message_id: &str,
@@ -127,8 +119,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
-    /// # Errors
-    /// Returns an error when the launch marker or owner fence no longer matches.
     fn confirm_agent_chat_prompt_started(
         &self,
         message_id: &str,
@@ -136,8 +126,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
-    /// # Errors
-    /// Returns an error when the host fence, owner binding, or durable transition rejects it.
     fn release_agent_chat_prompt_claim(
         &self,
         message_id: &str,
@@ -171,8 +159,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// # Errors
-    /// Returns an error when the launch marker or owner fence no longer matches.
     fn release_agent_chat_prompt_unstarted_launch(
         &self,
         message_id: &str,
@@ -180,9 +166,14 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
-    fn agent_chat_prompt_has_steer_target(&self, _: &str) -> Result<bool, LedgerError> {
+    fn reject_steered_agent_chat_prompt_delivery(
+        &self,
+        _: &str,
+        _: &str,
+        _: HostEpoch,
+    ) -> Result<(), LedgerError> {
         Err(LedgerError::Invariant(
-            "steer target lookup is unavailable".into(),
+            "in-turn delivery rejection is unavailable".into(),
         ))
     }
 
@@ -192,20 +183,18 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         _: HostEpoch,
         _: &AgentChatRunId,
         _: &str,
-    ) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
+    ) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
         Err(LedgerError::Invariant(
-            "targeted steer claim is unavailable".into(),
+            "in-turn prompt claim is unavailable".into(),
         ))
     }
 
-    fn claim_steered_agent_chat_prompt(
+    fn canceled_steered_agent_chat_prompts(
         &self,
-        _: &str,
-        _: HostEpoch,
         _: &AgentChatRunId,
-    ) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
+    ) -> Result<Vec<String>, LedgerError> {
         Err(LedgerError::Invariant(
-            "agent chat steered prompt claim is unavailable".into(),
+            "in-turn prompt cancellation is unavailable".into(),
         ))
     }
 
@@ -232,8 +221,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// # Errors
-    /// Returns an error when the launch marker or owner fence no longer matches.
     fn mark_agent_chat_prompt_unprovable(
         &self,
         message_id: &str,
@@ -241,8 +228,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         host_epoch: HostEpoch,
     ) -> Result<(), LedgerError>;
 
-    /// # Errors
-    /// Returns an error when the host fence, owner binding, or durable transition rejects it.
     fn settle_agent_chat_prompt_dispatch(
         &self,
         message_id: &str,
@@ -273,8 +258,6 @@ pub trait AgentChatPromptDispatchLedger: Send + Sync {
         ))
     }
 
-    /// # Errors
-    /// Returns an error when the supplied epoch is not the open successor epoch.
     fn recover_agent_chat_prompt_dispatches(
         &self,
         host_epoch: HostEpoch,

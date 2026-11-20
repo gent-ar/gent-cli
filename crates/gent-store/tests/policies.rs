@@ -19,6 +19,7 @@ fn policy(revision: u64, tools: &[&str]) -> PolicyRecord {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: tools.iter().map(ToString::to_string).collect(),
         allowed_categories: Vec::new(),
+        allowed_commands: Vec::new(),
     }
 }
 

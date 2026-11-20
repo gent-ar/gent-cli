@@ -14,19 +14,39 @@ use super::{Resolver, Runner, compatibility, profile, prompt, ready_reply};
 use crate::approved_claude_host::ApprovedClaudeHost;
 use crate::public_driver_runtime::PublicDriversRuntime;
 
-fn read(id: &str) -> ClaudeRunnerEffect {
+fn tool(id: &str, tool_name: &str, preview: serde_json::Value) -> ClaudeRunnerEffect {
     ClaudeRunnerEffect::PermissionRequest(ClaudePermissionRequest {
         request_id: id.into(),
         tool_use_id: format!("tool-{id}"),
-        tool_name: "write_file".into(),
-        operation_preview: Some(serde_json::json!({"file_path": format!("/workspace-q/{id}.rs")})),
+        tool_name: tool_name.into(),
+        operation_preview: Some(preview),
         child_id: None,
     })
+}
+
+fn read(id: &str) -> ClaudeRunnerEffect {
+    tool(
+        id,
+        "write_file",
+        serde_json::json!({"file_path": format!("/workspace-q/{id}.rs")}),
+    )
 }
 
 fn host_with_two_requests_in(
     mode: AgentChatMode,
     permission: gent_types::PermissionMode,
+) -> (
+    SqliteLedger,
+    Runner,
+    ApprovedClaudeHost<SqliteLedger, Runner, Resolver>,
+) {
+    host_with_requests_in(mode, permission, vec![read("first"), read("second")])
+}
+
+fn host_with_requests_in(
+    mode: AgentChatMode,
+    permission: gent_types::PermissionMode,
+    requests: Vec<ClaudeRunnerEffect>,
 ) -> (
     SqliteLedger,
     Runner,
@@ -65,17 +85,18 @@ fn host_with_two_requests_in(
             containment: gent_types::Containment::Unsandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         })
         .unwrap();
     prompt(&ledger, &conversation_id, "q1");
     let runner = Runner::default();
-    runner.0.lock().unwrap().effects.push_back(vec![
-        ClaudeRunnerEffect::Fact(PublicWireFact::SessionStarted {
+    runner.0.lock().unwrap().effects.push_back(
+        std::iter::once(ClaudeRunnerEffect::Fact(PublicWireFact::SessionStarted {
             provider_session_id: "private-session".into(),
-        }),
-        read("first"),
-        read("second"),
-    ]);
+        }))
+        .chain(requests)
+        .collect(),
+    );
     let compatibility = compatibility();
     let runtime = PublicDriversRuntime::new(
         profile(&compatibility),
@@ -149,7 +170,7 @@ fn parallel_permission_requests_surface_one_at_a_time_and_the_turn_completes() {
 }
 
 #[test]
-fn a_turn_that_ends_with_a_queued_request_denies_it_and_leaves_nothing_pending() {
+fn a_request_still_queued_when_the_turn_ends_is_asked_not_denied() {
     let (ledger, runner, mut host) = host_with_two_requests();
     assert_eq!(pending_id(&ledger).as_deref(), Some("first"));
     runner
@@ -159,15 +180,9 @@ fn a_turn_that_ends_with_a_queued_request_denies_it_and_leaves_nothing_pending()
         .effects
         .push_back(ready_reply("done"));
     host.tick().unwrap();
-    assert_eq!(pending_id(&ledger), None);
-    let responses = runner.0.lock().unwrap().permission_responses.clone();
-    assert_eq!(
-        responses
-            .iter()
-            .map(|response| (response.1.as_str(), response.2))
-            .collect::<Vec<_>>(),
-        [("second", ClaudePermissionBehavior::Deny)]
-    );
+    host.tick().unwrap();
+    assert_eq!(pending_id(&ledger).as_deref(), Some("second"));
+    assert!(runner.0.lock().unwrap().permission_responses.is_empty());
 }
 
 fn host_with_two_requests() -> (
@@ -181,11 +196,11 @@ fn host_with_two_requests() -> (
     )
 }
 
-const READ_ONLY: gent_types::PermissionDenialReason =
-    gent_types::PermissionDenialReason::ReadOnlyMode;
+const PLAN_EDIT: gent_types::PermissionDenialReason =
+    gent_types::PermissionDenialReason::PlanModeEdit;
 
 #[test]
-fn plan_mode_refuses_file_changes_with_the_read_only_reason() {
+fn plan_mode_refuses_file_changes_with_the_plan_edit_reason() {
     let (ledger, runner, _host) =
         host_with_two_requests_in(AgentChatMode::Plan, gent_types::PermissionMode::Bypass);
     assert_eq!(pending_id(&ledger), None);
@@ -196,8 +211,8 @@ fn plan_mode_refuses_file_changes_with_the_read_only_reason() {
             .map(|response| (response.1.as_str(), response.2))
             .collect::<Vec<_>>(),
         [
-            ("first", ClaudePermissionBehavior::Refuse(READ_ONLY)),
-            ("second", ClaudePermissionBehavior::Refuse(READ_ONLY)),
+            ("first", ClaudePermissionBehavior::Refuse(PLAN_EDIT)),
+            ("second", ClaudePermissionBehavior::Refuse(PLAN_EDIT)),
         ]
     );
 }
@@ -233,5 +248,68 @@ fn ask_mode_asks_for_every_file_change_and_allow_or_deny_reach_claude() {
             ("first", ClaudePermissionBehavior::Allow),
             ("second", ClaudePermissionBehavior::Deny),
         ]
+    );
+}
+
+#[test]
+fn plan_mode_asks_for_commands_refuses_edits_and_never_prompts_for_subagents() {
+    let (ledger, runner, mut host) = host_with_requests_in(
+        AgentChatMode::Plan,
+        gent_types::PermissionMode::AskEveryTime,
+        vec![
+            read("edit"),
+            tool(
+                "agent",
+                "Agent",
+                serde_json::json!({"prompt": "run py -3 --version"}),
+            ),
+            tool(
+                "command",
+                "Bash",
+                serde_json::json!({"command": "git --version"}),
+            ),
+        ],
+    );
+    assert_eq!(pending_id(&ledger).as_deref(), Some("command"));
+    answer(&ledger, &mut host, "command");
+    assert_eq!(
+        runner
+            .0
+            .lock()
+            .unwrap()
+            .permission_responses
+            .iter()
+            .map(|response| (response.1.as_str(), response.2))
+            .collect::<Vec<_>>(),
+        [
+            ("edit", ClaudePermissionBehavior::Refuse(PLAN_EDIT)),
+            ("agent", ClaudePermissionBehavior::Allow),
+            ("command", ClaudePermissionBehavior::Allow),
+        ]
+    );
+}
+
+#[test]
+fn plan_mode_commands_follow_an_unsandboxed_bypass_without_asking() {
+    let (ledger, runner, _host) = host_with_requests_in(
+        AgentChatMode::Plan,
+        gent_types::PermissionMode::Bypass,
+        vec![tool(
+            "command",
+            "PowerShell",
+            serde_json::json!({"command": "py -3 --version"}),
+        )],
+    );
+    assert_eq!(pending_id(&ledger), None);
+    assert_eq!(
+        runner
+            .0
+            .lock()
+            .unwrap()
+            .permission_responses
+            .iter()
+            .map(|response| (response.1.as_str(), response.2))
+            .collect::<Vec<_>>(),
+        [("command", ClaudePermissionBehavior::Allow)]
     );
 }

@@ -1,20 +1,37 @@
-//! Atomic persistence port for one daemon-normalized provider session fact.
-
-use gent_types::{NormalizedSessionBatch, NormalizedSessionBatchResult};
+use gent_types::{
+    DurableTurnPhase, HostEpoch, NormalizedSessionBatch, NormalizedSessionBatchResult,
+};
 
 use crate::LedgerError;
 
-/// Commits lifecycle, transcript, and immutable activity facts as one idempotent durable batch.
-///
-/// The implementation must enforce host/run/turn ownership and return only after every requested
-/// projection plus its source cursor is durable. It must not accept raw provider output.
 pub trait NormalizedSessionBatchLedger: Send + Sync {
-    /// Persists one exact normalized batch or returns its prior matching result on retry.
-    ///
-    /// # Errors
-    /// Returns an error when identities, ownership, cursors, or retry payloads conflict.
+    fn append_normalized_session_batches(
+        &self,
+        batches: &[NormalizedSessionBatch],
+    ) -> Result<Vec<NormalizedSessionBatchResult>, LedgerError>;
+
     fn append_normalized_session_batch(
         &self,
         batch: &NormalizedSessionBatch,
-    ) -> Result<NormalizedSessionBatchResult, LedgerError>;
+    ) -> Result<NormalizedSessionBatchResult, LedgerError> {
+        self.append_normalized_session_batches(std::slice::from_ref(batch))?
+            .pop()
+            .ok_or_else(|| {
+                LedgerError::Invariant("normalized session batch was not recorded".into())
+            })
+    }
+
+    fn start_provider_turn(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<String, LedgerError>;
+
+    fn settle_provider_turn(
+        &self,
+        turn_id: &str,
+        host_epoch: HostEpoch,
+        phase: DurableTurnPhase,
+    ) -> Result<(), LedgerError>;
 }

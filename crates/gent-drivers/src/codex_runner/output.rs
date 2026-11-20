@@ -9,8 +9,10 @@ pub(super) fn drain<P: ProviderProcess>(
     while run.output.queued_frames() > 0 {
         let (frame, _) = run.output.take_frame();
         let Some(frame) = frame else { break };
-        if let Some(request_key) = super::control::cancelled_control_request_key(&frame) {
-            run.controls.remove(&request_key);
+        if let Some(request_key) = super::control::cancelled_control_request_key(&frame)
+            && run.controls.remove(&request_key).is_some()
+        {
+            effects.push(CodexRunnerEffect::RequestResolved { request_key });
         }
         let received = match run.turn.receive(&frame) {
             Err(crate::codex_turn::CodexTurnError::Session(
@@ -26,6 +28,12 @@ pub(super) fn drain<P: ProviderProcess>(
                 CodexTurnEffect::Write(frame) => run.process.write_frame(&frame)?,
                 CodexTurnEffect::Fact(fact) => effects.push(CodexRunnerEffect::Fact(fact)),
                 CodexTurnEffect::Steer(outcome) => effects.push(CodexRunnerEffect::Steer(outcome)),
+                CodexTurnEffect::ProviderTurnStarted => {
+                    effects.push(CodexRunnerEffect::ProviderTurnStarted);
+                }
+                CodexTurnEffect::SessionState { idle } => {
+                    effects.push(CodexRunnerEffect::SessionState { idle });
+                }
                 CodexTurnEffect::ControlRequest(request) => {
                     run.controls
                         .insert(request.request_key.clone(), request.clone());
@@ -49,7 +57,9 @@ pub(super) fn write<P: ProviderProcess>(
         CodexTurnEffect::Write(frame) => process.write_frame(&frame)?,
         CodexTurnEffect::Fact(_)
         | CodexTurnEffect::ControlRequest(_)
-        | CodexTurnEffect::Steer(_) => {}
+        | CodexTurnEffect::Steer(_)
+        | CodexTurnEffect::ProviderTurnStarted
+        | CodexTurnEffect::SessionState { .. } => {}
     }
     Ok(())
 }

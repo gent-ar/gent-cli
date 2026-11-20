@@ -318,6 +318,7 @@ fn transcript(
         text: format!("event-{cursor}"),
         is_partial,
         failure_code: None,
+        resets_at: None,
         origin: None,
         attachments: Vec::new(),
     }

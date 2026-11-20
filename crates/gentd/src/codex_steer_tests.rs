@@ -1,4 +1,5 @@
 use gent_ports::{AgentChatPromptLedger, AgentChatQueuedPromptLedger};
+use gent_types::Command;
 use gent_types::{
     AgentChatConversationId, AgentChatPromptCreate, AgentChatPromptDisposition,
     AgentChatPromptSaved, AgentChatProvider, AgentChatRejection, AgentChatRequestId,
@@ -31,25 +32,31 @@ fn queue(
     saved
 }
 
-fn steer(daemon: &mut FakeCodexDaemon, prompt: &AgentChatPromptSaved) {
-    let conversation = AgentChatConversationId(prompt.message.conversation_id.clone());
-    let (receipt, run_id) = daemon
-        .ledger
-        .steer_queued_agent_chat_prompt(
-            &ReceiptId(format!("steer-{}", prompt.message.message_id)),
-            daemon.epoch,
-            &conversation,
-            &prompt.message.message_id,
-        )
-        .unwrap();
+fn wake(daemon: &mut FakeCodexDaemon, prompt: &AgentChatPromptSaved) {
     daemon
         .router
         .wake_after_prompt_commit(PromptWake {
-            conversation_id: conversation,
-            run_id,
-            receipt_id: receipt.receipt_id,
+            conversation_id: AgentChatConversationId(prompt.message.conversation_id.clone()),
+            run_id: prompt.run_id.clone(),
+            receipt_id: prompt.receipt.receipt_id.clone(),
             disposition: AgentChatPromptDisposition::Queue,
         })
+        .unwrap();
+}
+
+fn stop(daemon: &mut FakeCodexDaemon, conversation: &AgentChatConversationId) {
+    daemon
+        .ledger
+        .stop_agent_chat_conversation(
+            &Command {
+                receipt_id: ReceiptId("stop".into()),
+                idempotency_key: "agent-chat-interrupt:stop".into(),
+                host_epoch: daemon.epoch,
+                kind: "agentChatInterrupt".into(),
+                payload: serde_json::json!({"conversationId": conversation.0}),
+            },
+            conversation,
+        )
         .unwrap();
 }
 
@@ -93,14 +100,11 @@ fn waiting_turn(
 }
 
 #[test]
-fn a_steer_lands_inside_the_active_codex_turn_and_is_recalled_after_restart() {
+fn a_queued_prompt_lands_inside_the_active_codex_turn_and_is_recalled_after_restart() {
     let mut daemon = FakeCodexDaemon::start();
     let (conversation, active) = waiting_turn(&mut daemon, "steer", "Remember CODE-OWL and WAIT");
     let queued = queue(&mut daemon, &conversation, "Also remember CODE-FALCON");
-    daemon.drive_until("queued behind the active turn", |_| true);
-    assert!(daemon.requests("turn/steer").is_empty());
-
-    steer(&mut daemon, &queued);
+    wake(&mut daemon, &queued);
 
     assert_eq!(daemon.settle(&active), DurableTurnPhase::Completed);
     let steers = daemon.requests("turn/steer");
@@ -123,7 +127,7 @@ fn a_steer_lands_inside_the_active_codex_turn_and_is_recalled_after_restart() {
     );
     assert_eq!(
         steered[0]["activity"]["receiptId"],
-        format!("steer-{}", queued.message.message_id)
+        queued.receipt.receipt_id.0.as_str()
     );
     assert!(activities(&daemon, &conversation, "promptReleased").is_empty());
     let projection = daemon.projection(&conversation);
@@ -165,12 +169,12 @@ fn a_steer_lands_inside_the_active_codex_turn_and_is_recalled_after_restart() {
 }
 
 #[test]
-fn a_steer_that_loses_the_turn_end_race_runs_once_as_the_next_turn() {
+fn a_queued_prompt_that_loses_the_turn_end_race_runs_once_as_the_next_turn() {
     let mut daemon = FakeCodexDaemon::start();
     let (conversation, active) = waiting_turn(&mut daemon, "race", "Remember CODE-OWL and LATE");
     let queued = queue(&mut daemon, &conversation, "Remember CODE-FALCON");
 
-    steer(&mut daemon, &queued);
+    wake(&mut daemon, &queued);
 
     assert_eq!(daemon.settle(&active), DurableTurnPhase::Completed);
     assert_eq!(daemon.settle(&queued), DurableTurnPhase::Completed);
@@ -191,12 +195,12 @@ fn a_steer_that_loses_the_turn_end_race_runs_once_as_the_next_turn() {
 }
 
 #[test]
-fn interrupting_a_turn_that_accepted_a_steer_requeues_the_prompt_exactly_once() {
+fn interrupting_a_turn_that_accepted_a_joined_prompt_requeues_it_exactly_once() {
     let mut daemon = FakeCodexDaemon::start();
     let (conversation, active) =
         waiting_turn(&mut daemon, "interrupt", "Remember CODE-OWL and HOLD");
     let queued = queue(&mut daemon, &conversation, "Remember CODE-FALCON");
-    steer(&mut daemon, &queued);
+    wake(&mut daemon, &queued);
     daemon.drive_until("an accepted steer", |daemon| {
         !daemon.requests("turn/steer").is_empty()
     });
@@ -224,38 +228,24 @@ fn interrupting_a_turn_that_accepted_a_steer_requeues_the_prompt_exactly_once() 
 }
 
 #[test]
-fn steers_keep_queue_order_and_never_jump_an_unsteered_prompt() {
+fn queued_prompts_join_the_active_codex_turn_in_queue_order() {
     let mut daemon = FakeCodexDaemon::start();
-    let (conversation, active) = waiting_turn(&mut daemon, "order", "WAIT for the first");
-    let first = queue(
-        &mut daemon,
-        &conversation,
-        "Remember CODE-OWL and WAIT TWICE",
-    );
+    let (conversation, active) = waiting_turn(&mut daemon, "order", "WAIT TWICE for two");
+    let first = queue(&mut daemon, &conversation, "Remember CODE-OWL");
     let second = queue(&mut daemon, &conversation, "Remember CODE-FALCON");
-    let third = queue(&mut daemon, &conversation, "Remember CODE-HERON");
-    steer(&mut daemon, &second);
-    steer(&mut daemon, &third);
-    daemon.drive_until("steers held behind an unsteered prompt", |_| true);
-    assert!(daemon.requests("turn/steer").is_empty());
+    wake(&mut daemon, &second);
+    assert_eq!(daemon.settle(&active), DurableTurnPhase::Completed);
 
-    daemon
-        .router
-        .interrupt_run(AgentChatProvider::Codex, &active.run_id.0)
-        .unwrap();
-    assert_eq!(daemon.settle(&active), DurableTurnPhase::Interrupted);
-    assert_eq!(daemon.settle(&first), DurableTurnPhase::Completed);
-
-    let steers = daemon.requests("turn/steer");
-    let steered_ids = steers
+    let steered_ids = daemon
+        .requests("turn/steer")
         .iter()
         .map(|request| request["params"]["clientUserMessageId"].clone())
         .collect::<Vec<_>>();
     assert_eq!(
         steered_ids,
         [
-            second.message.message_id.clone(),
-            third.message.message_id.clone()
+            first.message.message_id.clone(),
+            second.message.message_id.clone()
         ]
     );
     let facts = activities(&daemon, &conversation, "promptSteered");
@@ -269,12 +259,39 @@ fn steers_keep_queue_order_and_never_jump_an_unsteered_prompt() {
     assert!(
         facts
             .iter()
-            .all(|fact| fact["turnId"] == first.message.turn_id)
+            .all(|fact| fact["turnId"] == active.message.turn_id)
     );
     let recall = daemon.prompt(&conversation, "Which code did I give you?");
     assert_eq!(daemon.settle(&recall), DurableTurnPhase::Completed);
+    assert_eq!(daemon.reply(&recall), "recall: CODE-FALCON,CODE-OWL");
+}
+
+#[test]
+fn stop_withdraws_a_prompt_codex_accepted_but_never_consumed() {
+    let mut daemon = FakeCodexDaemon::start();
+    let (conversation, active) = waiting_turn(&mut daemon, "stop", "Remember CODE-OWL and HOLD");
+    let queued = queue(&mut daemon, &conversation, "Remember CODE-FALCON");
+    wake(&mut daemon, &queued);
+    daemon.drive_until("an accepted joined prompt", |daemon| {
+        !daemon.requests("turn/steer").is_empty()
+    });
+    stop(&mut daemon, &conversation);
+    daemon
+        .router
+        .interrupt_run(AgentChatProvider::Codex, &queued.run_id.0)
+        .unwrap();
+
+    assert_eq!(daemon.settle(&active), DurableTurnPhase::Interrupted);
+    daemon.drive_until("the withdrawn prompt", |daemon| {
+        daemon.phase(&queued).is_terminal()
+    });
+    assert_eq!(daemon.phase(&queued), DurableTurnPhase::Cancelled);
+    let withdrawn = activities(&daemon, &conversation, "promptWithdrawn");
+    assert_eq!(withdrawn.len(), 1);
+    assert_eq!(withdrawn[0]["activity"]["text"], "Remember CODE-FALCON");
     assert_eq!(
-        daemon.reply(&recall),
-        "recall: CODE-FALCON,CODE-HERON,CODE-OWL"
+        inputs(&daemon, "turn/start"),
+        ["Remember CODE-OWL and HOLD"]
     );
+    assert!(activities(&daemon, &conversation, "promptReleased").is_empty());
 }

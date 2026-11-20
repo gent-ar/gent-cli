@@ -98,13 +98,24 @@ fn steer(
     conversation_id: &AgentChatConversationId,
     receipt: &str,
     prompt: &AgentChatPromptSaved,
-) -> Result<(gent_types::Receipt, AgentChatRunId), LedgerError> {
+) -> Result<(gent_types::Receipt, AgentChatRunId, Option<String>), LedgerError> {
     ledger.steer_queued_agent_chat_prompt(
         &ReceiptId(receipt.into()),
         HostEpoch(1),
         conversation_id,
         &prompt.message.message_id,
     )
+}
+
+fn join(ledger: &SqliteLedger, send: &AgentChatPromptSaved) -> Option<AgentChatPromptSaved> {
+    ledger
+        .claim_steered_agent_chat_prompt_for_turn(
+            DAEMON,
+            HostEpoch(1),
+            &send.run_id,
+            &send.message.turn_id,
+        )
+        .unwrap()
 }
 
 fn not_steerable(result: Result<impl std::fmt::Debug, LedgerError>) -> bool {
@@ -148,8 +159,9 @@ fn a_steer_request_is_receipt_bound_to_one_waiting_queued_prompt() {
         "steer-send",
         &send
     )));
-    let (receipt, run_id) = steer(&ledger, &conversation_id, "steer-1", &queued).unwrap();
-    assert_eq!(run_id, queued.run_id);
+    let (receipt, run_id, turn_id) = steer(&ledger, &conversation_id, "steer-1", &queued).unwrap();
+    assert_eq!(run_id, send.run_id);
+    assert_eq!(turn_id.as_deref(), Some(send.message.turn_id.as_str()));
     assert_eq!(
         receipt.idempotency_key,
         format!(
@@ -173,7 +185,6 @@ fn a_steer_request_is_receipt_bound_to_one_waiting_queued_prompt() {
         activity_types(&ledger, &queued),
         ["promptQueued", "promptSteerRequested"]
     );
-    // A viewer attaching after the RPC can restore the same pending state before delivery.
     let events = ledger
         .agent_chat_projection_page(&conversation_id, 0, 100)
         .unwrap()
@@ -190,7 +201,7 @@ fn a_steer_request_is_receipt_bound_to_one_waiting_queued_prompt() {
     let activity = &requested[0].payload["activity"];
     assert_eq!(activity["messageId"], queued.message.message_id);
     assert_eq!(activity["receiptId"], "steer-1");
-    assert_eq!(requested[0].payload["turnId"], queued.message.turn_id);
+    assert_eq!(requested[0].payload["turnId"], send.message.turn_id);
     assert!(
         !events
             .iter()
@@ -199,7 +210,7 @@ fn a_steer_request_is_receipt_bound_to_one_waiting_queued_prompt() {
 }
 
 #[test]
-fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_turn() {
+fn a_joined_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_turn() {
     let (ledger, conversation_id) = ledger();
     let send = active(&ledger, &conversation_id);
     let queued = prompt(
@@ -208,7 +219,6 @@ fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_tur
         "queued",
         AgentChatPromptDisposition::Queue,
     );
-    steer(&ledger, &conversation_id, "steer-1", &queued).unwrap();
     let assistant = ledger
         .append_normalized_transcript(
             &conversation_id,
@@ -223,18 +233,9 @@ fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_tur
         )
         .unwrap();
 
-    let (claimed, steer_receipt) = ledger
-        .claim_steered_agent_chat_prompt(DAEMON, HostEpoch(1), &send.run_id)
-        .unwrap()
-        .unwrap();
+    let claimed = join(&ledger, &send).unwrap();
     assert_eq!(claimed.message, queued.message);
-    assert_eq!(steer_receipt, ReceiptId("steer-1".into()));
-    assert!(
-        ledger
-            .claim_steered_agent_chat_prompt(DAEMON, HostEpoch(1), &send.run_id)
-            .unwrap()
-            .is_none()
-    );
+    assert!(join(&ledger, &send).is_none());
     assert!(
         ledger
             .claim_agent_chat_prompt_dispatch(DAEMON, HostEpoch(1), AgentChatProvider::Codex)
@@ -254,6 +255,9 @@ fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_tur
     ));
 
     let id = &queued.message.message_id;
+    ledger
+        .begin_agent_chat_prompt_launch(id, DAEMON, HostEpoch(1))
+        .unwrap();
     ledger
         .deliver_steered_agent_chat_prompt(id, DAEMON, HostEpoch(1), &send.message.turn_id)
         .unwrap();
@@ -286,7 +290,7 @@ fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_tur
     );
     assert_eq!(
         activity_types(&ledger, &queued),
-        ["promptQueued", "promptSteerRequested", "promptSteered"]
+        ["promptQueued", "promptSteered"]
     );
     let steered = ledger
         .read_conversation_activity_page(&conversation_id.0, &send.run_id.0, 0, 50)
@@ -308,7 +312,7 @@ fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_tur
         (
             send.message.turn_id.clone(),
             queued.message.message_id.clone(),
-            "steer-1".into(),
+            "receipt-queued".into(),
             assistant.cursor
         )
     );
@@ -340,7 +344,7 @@ fn a_steered_prompt_leaves_the_queue_once_and_is_recorded_inside_the_running_tur
 }
 
 #[test]
-fn a_later_steer_waits_behind_an_unsteered_prompt_and_releases_in_queue_order() {
+fn queued_prompts_join_in_queue_order_and_released_claims_keep_that_order() {
     let (ledger, conversation_id) = ledger();
     let send = active(&ledger, &conversation_id);
     let first = prompt(
@@ -355,24 +359,7 @@ fn a_later_steer_waits_behind_an_unsteered_prompt_and_releases_in_queue_order() 
         "second",
         AgentChatPromptDisposition::Queue,
     );
-    steer(&ledger, &conversation_id, "steer-second", &second).unwrap();
-    assert!(
-        ledger
-            .claim_steered_agent_chat_prompt(DAEMON, HostEpoch(1), &send.run_id)
-            .unwrap()
-            .is_none()
-    );
-
-    steer(&ledger, &conversation_id, "steer-first", &first).unwrap();
-    let claimed = [0, 1].map(|_| {
-        ledger
-            .claim_steered_agent_chat_prompt(DAEMON, HostEpoch(1), &send.run_id)
-            .unwrap()
-            .unwrap()
-            .0
-            .message
-            .message_id
-    });
+    let claimed = [0, 1].map(|_| join(&ledger, &send).unwrap().message.message_id);
     assert_eq!(
         claimed,
         [
@@ -382,11 +369,7 @@ fn a_later_steer_waits_behind_an_unsteered_prompt_and_releases_in_queue_order() 
     );
     for prompt in [&second, &first] {
         ledger
-            .release_agent_chat_prompt_unstarted_launch(
-                &prompt.message.message_id,
-                DAEMON,
-                HostEpoch(1),
-            )
+            .release_agent_chat_prompt_claim(&prompt.message.message_id, DAEMON, HostEpoch(1))
             .unwrap();
     }
     ledger
@@ -414,7 +397,7 @@ fn a_later_steer_waits_behind_an_unsteered_prompt_and_releases_in_queue_order() 
 }
 
 #[test]
-fn a_steer_the_provider_runs_as_its_own_turn_is_released_and_settles_normally() {
+fn a_joined_prompt_the_provider_runs_as_its_own_turn_is_released_and_settles_normally() {
     let (ledger, conversation_id) = ledger();
     let send = active(&ledger, &conversation_id);
     let queued = prompt(
@@ -423,11 +406,7 @@ fn a_steer_the_provider_runs_as_its_own_turn_is_released_and_settles_normally() 
         "queued",
         AgentChatPromptDisposition::Queue,
     );
-    steer(&ledger, &conversation_id, "steer-1", &queued).unwrap();
-    ledger
-        .claim_steered_agent_chat_prompt(DAEMON, HostEpoch(1), &send.run_id)
-        .unwrap()
-        .unwrap();
+    join(&ledger, &send).unwrap();
     ledger
         .settle_agent_chat_prompt_terminal(
             &send.message.message_id,
@@ -439,6 +418,9 @@ fn a_steer_the_provider_runs_as_its_own_turn_is_released_and_settles_normally() 
 
     let id = &queued.message.message_id;
     ledger
+        .begin_agent_chat_prompt_launch(id, DAEMON, HostEpoch(1))
+        .unwrap();
+    ledger
         .start_steered_agent_chat_prompt_turn(id, DAEMON, HostEpoch(1))
         .unwrap();
     ledger
@@ -447,13 +429,7 @@ fn a_steer_the_provider_runs_as_its_own_turn_is_released_and_settles_normally() 
 
     assert_eq!(
         activity_types(&ledger, &queued),
-        [
-            "promptQueued",
-            "promptSteerRequested",
-            "terminal",
-            "promptReleased",
-            "terminal"
-        ]
+        ["promptQueued", "terminal", "promptReleased", "terminal"]
     );
     assert_eq!(
         ledger
@@ -466,7 +442,7 @@ fn a_steer_the_provider_runs_as_its_own_turn_is_released_and_settles_normally() 
 }
 
 #[test]
-fn a_steer_written_before_a_crash_is_never_replayed_by_the_successor() {
+fn a_joined_prompt_written_before_a_crash_is_never_replayed_by_the_successor() {
     let (ledger, conversation_id) = ledger();
     let send = active(&ledger, &conversation_id);
     let queued = prompt(
@@ -475,10 +451,9 @@ fn a_steer_written_before_a_crash_is_never_replayed_by_the_successor() {
         "queued",
         AgentChatPromptDisposition::Queue,
     );
-    steer(&ledger, &conversation_id, "steer-1", &queued).unwrap();
+    join(&ledger, &send).unwrap();
     ledger
-        .claim_steered_agent_chat_prompt(DAEMON, HostEpoch(1), &send.run_id)
-        .unwrap()
+        .begin_agent_chat_prompt_launch(&queued.message.message_id, DAEMON, HostEpoch(1))
         .unwrap();
 
     ledger.close_ingress(HostEpoch(1)).unwrap();
@@ -504,26 +479,17 @@ fn a_steer_written_before_a_crash_is_never_replayed_by_the_successor() {
 }
 
 #[test]
-fn an_interrupt_caused_by_a_steer_is_typed_apart_from_a_user_stop() {
+fn an_interrupt_caused_by_send_now_is_typed_apart_from_a_user_stop() {
     let (ledger, conversation_id) = ledger();
-    let run_id = AgentChatRunId("run-1".into());
-    assert!(
-        !ledger
-            .interrupt_active_turn_for_steer(HostEpoch(1), &conversation_id, &run_id)
-            .unwrap()
-    );
-
     let steered = active(&ledger, &conversation_id);
-    assert!(
-        ledger
-            .interrupt_active_turn_for_steer(HostEpoch(1), &conversation_id, &run_id)
-            .unwrap()
+    let pressed = prompt(
+        &ledger,
+        &conversation_id,
+        "pressed",
+        AgentChatPromptDisposition::Queue,
     );
-    assert!(
-        ledger
-            .interrupt_active_turn_for_steer(HostEpoch(1), &conversation_id, &run_id)
-            .unwrap()
-    );
+    let (_, _, turn) = steer(&ledger, &conversation_id, "send-now", &pressed).unwrap();
+    assert_eq!(turn.as_deref(), Some(steered.message.turn_id.as_str()));
     ledger
         .settle_agent_chat_prompt_terminal(
             &steered.message.message_id,
@@ -546,6 +512,16 @@ fn an_interrupt_caused_by_a_steer_is_typed_apart_from_a_user_stop() {
     assert_eq!(projected.payload["activity"]["phase"], "interrupted");
     assert_eq!(projected.payload["activity"]["cause"], "steered");
 
+    assert_eq!(
+        ledger
+            .claim_agent_chat_prompt_dispatch(DAEMON, HostEpoch(1), AgentChatProvider::Codex)
+            .unwrap()
+            .unwrap()
+            .message,
+        pressed.message
+    );
+
+    let (ledger, conversation_id) = crate::ledger();
     let stopped = prompt(
         &ledger,
         &conversation_id,
@@ -555,6 +531,18 @@ fn an_interrupt_caused_by_a_steer_is_typed_apart_from_a_user_stop() {
     ledger
         .claim_agent_chat_prompt_dispatch(DAEMON, HostEpoch(1), AgentChatProvider::Codex)
         .unwrap()
+        .unwrap();
+    ledger
+        .stop_agent_chat_conversation(
+            &gent_types::Command {
+                receipt_id: ReceiptId("stop".into()),
+                idempotency_key: "agent-chat-interrupt:stop".into(),
+                host_epoch: HostEpoch(1),
+                kind: "agentChatInterrupt".into(),
+                payload: serde_json::json!({"conversationId": conversation_id.0}),
+            },
+            &conversation_id,
+        )
         .unwrap();
     let id = &stopped.message.message_id;
     ledger

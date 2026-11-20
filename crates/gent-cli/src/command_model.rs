@@ -97,6 +97,13 @@ pub(crate) enum CommandLine {
         #[command(subcommand)]
         action: permissions_cli::PermissionCommand,
     },
+    #[command(
+        about = "Read what happened to a prompt, steer or permission answer by its receipt id"
+    )]
+    Receipt {
+        #[arg(long, help = "Receipt id the lost intent was sent with")]
+        receipt_id: String,
+    },
     #[command(about = "Check or start Claude or Codex sign-in")]
     Auth {
         #[command(subcommand)]

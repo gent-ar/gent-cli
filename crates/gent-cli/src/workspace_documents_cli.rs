@@ -33,10 +33,7 @@ pub(crate) async fn execute(
         return Err("workspace documents capability is unavailable".into());
     }
     gent_protocol::write_json_frame(&mut stream, &frame).await?;
-    let raw: Value = gent_protocol::read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     let reply: WorkspaceDocumentsFrame = serde_json::from_value(raw)?;
     Ok(serde_json::to_value(reply)?)
 }

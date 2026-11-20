@@ -83,6 +83,28 @@ fn a_steer_targets_the_live_turn_and_reports_consumption_by_its_gent_message() {
 }
 
 #[test]
+fn completed_user_item_confirms_delivery_even_if_the_request_ack_is_late() {
+    let mut driver = live_turn();
+    driver.steer("message-1", "also this", &[]).unwrap();
+    let mut completed = consumed("message-1");
+    completed["method"] = "item/completed".into();
+    assert_eq!(
+        steers(&mut driver, completed),
+        [CodexSteerOutcome::Consumed {
+            message_id: "message-1".into()
+        }]
+    );
+    assert!(steers(&mut driver, json!({"method":"turn/completed","params":{"threadId":"thread-private","turn":{"id":"turn-1"}}})).is_empty());
+    assert!(
+        steers(
+            &mut driver,
+            json!({"id": 4, "result": {"turnId": "turn-1"}})
+        )
+        .is_empty()
+    );
+}
+
+#[test]
 fn a_turn_is_steerable_exactly_while_turn_steer_would_be_written() {
     let config = CodexSessionConfig {
         working_directory: Some("/work".into()),
@@ -199,4 +221,27 @@ fn a_turn_end_without_consumption_or_a_late_acceptance_is_unconfirmed() {
         }]
     );
     assert!(driver.steer("idle", "no turn", &[]).is_err());
+}
+
+#[test]
+fn unconsumed_steers_return_in_the_order_they_were_written() {
+    let mut driver = live_turn();
+    for message_id in ["message-z", "message-m", "message-a"] {
+        driver.steer(message_id, "held", &[]).unwrap();
+    }
+    for id in 4..7 {
+        steers(
+            &mut driver,
+            json!({"id": id, "result": {"turnId": "turn-1"}}),
+        );
+    }
+    let ended = json!({"method": "turn/completed", "params": {"threadId": "thread-private", "turn": {"id": "turn-1", "status": "interrupted"}}});
+    assert_eq!(
+        steers(&mut driver, ended),
+        ["message-z", "message-m", "message-a"].map(|message_id| {
+            CodexSteerOutcome::Unconfirmed {
+                message_id: message_id.into(),
+            }
+        })
+    );
 }

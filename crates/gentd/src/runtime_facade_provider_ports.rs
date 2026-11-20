@@ -37,7 +37,10 @@ impl RuntimeFacade {
     pub(super) fn exchange_permission_policy(
         &self,
         frame: gent_protocol::PermissionPolicyFrame,
-    ) -> Result<gent_protocol::PermissionPolicyFrame, String> {
+    ) -> Result<
+        gent_protocol::PermissionPolicyFrame,
+        crate::agent_chat_intent_error::AgentChatIntentError,
+    > {
         crate::permission_policy_api::exchange(&self.coordinator, frame)
     }
 

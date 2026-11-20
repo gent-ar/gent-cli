@@ -25,8 +25,6 @@ impl ClaurstAcpStdio for Fake {
 }
 
 fn frame(mut value: serde_json::Value) -> Vec<u8> {
-    // These fixtures exercise post-handshake behavior using the current
-    // permission-binding protocol, not a legacy unbound provider.
     if value.get("id") == Some(&serde_json::json!(1))
         && value
             .get("result")
@@ -37,8 +35,10 @@ fn frame(mut value: serde_json::Value) -> Vec<u8> {
     if value.get("method").and_then(serde_json::Value::as_str) == Some("session/request_permission")
         && value.pointer("/params/options").is_none()
     {
-        value["params"]["options"] =
-            serde_json::json!([{ "kind": "allow_once", "optionId": "allow_once" }]);
+        value["params"]["options"] = serde_json::json!([
+            { "kind": "allow_once", "optionId": "allow_once" },
+            { "kind": "reject_once", "optionId": "reject_once" }
+        ]);
     }
     serde_json::to_vec(&value).unwrap()
 }
@@ -96,6 +96,110 @@ fn frames_upstream_handshake_prompt_stream_and_terminal_without_blocking() {
 }
 
 #[test]
+fn settles_each_streamed_block_before_starting_the_next_timeline_item() {
+    let update = |kind, text| {
+        frame(serde_json::json!({
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": kind, "content": {"type":"text", "text":text}}}
+        }))
+    };
+    let fake = Fake {
+        writes: vec![],
+        reads: VecDeque::from([
+            frame(serde_json::json!({"id":1,"result":{}})),
+            frame(serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}})),
+            update("agent_message_chunk", "I will check."),
+            frame(serde_json::json!({
+                "method": "session/update",
+                "params": {"update": {"sessionUpdate":"tool_call", "toolCallId":"read-1", "title":"Read", "kind":"read", "status":"in_progress"}}
+            })),
+            update("agent_thought_chunk", "Check passed."),
+            update("agent_message_chunk", "Done."),
+            frame(serde_json::json!({"id":3,"result":{"stopReason":"end_turn"}})),
+        ]),
+    };
+    let mut transport = ClaurstAcpTransport::new(fake);
+    transport
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
+        .unwrap();
+    transport.prompt("acp-1", "hi").unwrap();
+    let drain = transport.drain(64).unwrap();
+    assert_eq!(drain.terminal, Some(ClaurstAcpTerminal::Completed));
+    let timeline: Vec<_> = drain
+        .facts
+        .iter()
+        .map(|fact| match fact {
+            ClaurstAcpFact::Event(NormalizedProviderEvent::Output { text, is_partial })
+            | ClaurstAcpFact::Event(NormalizedProviderEvent::Thinking { text, is_partial }) => {
+                (text.as_str(), *is_partial)
+            }
+            ClaurstAcpFact::Lifecycle(gent_types::NormalizedLifecycleSignal::ToolActivity {
+                activity,
+            }) => (activity.tool_use_id.as_str(), false),
+            other => panic!("unexpected timeline fact: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        timeline,
+        [
+            ("I will check.", true),
+            ("I will check.", false),
+            ("read-1", false),
+            ("Check passed.", true),
+            ("Check passed.", false),
+            ("Done.", true),
+            ("Done.", false),
+            ("read-1", false),
+        ]
+    );
+}
+
+#[test]
+fn a_reasoning_close_tag_from_the_local_model_never_becomes_assistant_text() {
+    let update = |text| {
+        frame(serde_json::json!({
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type":"text", "text":text}}}
+        }))
+    };
+    let fake = Fake {
+        writes: vec![],
+        reads: VecDeque::from([
+            frame(serde_json::json!({"id":1,"result":{}})),
+            frame(serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}})),
+            update("</think>"),
+            update("\n\nThe file "),
+            update("is fine."),
+            frame(serde_json::json!({"id":3,"result":{"stopReason":"end_turn"}})),
+        ]),
+    };
+    let mut transport = ClaurstAcpTransport::new(fake);
+    transport
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
+        .unwrap();
+    transport.prompt("acp-1", "hi").unwrap();
+    let drain = transport.drain(64).unwrap();
+    let output: Vec<_> = drain
+        .facts
+        .iter()
+        .filter_map(|fact| match fact {
+            ClaurstAcpFact::Event(NormalizedProviderEvent::Output { text, is_partial }) => {
+                Some((text.as_str(), *is_partial))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        output,
+        [
+            ("The file ", true),
+            ("is fine.", true),
+            ("The file is fine.", false)
+        ]
+    );
+}
+
+#[test]
 fn retains_the_exact_prompt_error_before_terminal_failure() {
     let fake = Fake {
         writes: vec![],
@@ -145,6 +249,36 @@ fn output_limit_is_an_explicit_failure_instead_of_a_false_completion() {
             NormalizedProviderEvent::ProviderFailure {
                 classification: gent_types::ProviderFailureClassification::OutputLimit,
                 message: "Claurst exhausted its output limit before completing the turn.".into(),
+                resets_at: None,
+            }
+        )]
+    );
+}
+
+#[test]
+fn a_refusal_is_a_provider_failure_not_a_context_limit() {
+    let fake = Fake {
+        writes: vec![],
+        reads: VecDeque::from([
+            frame(serde_json::json!({"id":1,"result":{}})),
+            frame(serde_json::json!({"id":2,"result":{"sessionId":"acp-1"}})),
+            frame(serde_json::json!({"id":3,"result":{"stopReason":"refusal"}})),
+        ]),
+    };
+    let mut transport = ClaurstAcpTransport::new(fake);
+    transport
+        .initialize_session(&gent_testkit::host_absolute_path("/workspace"))
+        .unwrap();
+    transport.prompt("acp-1", "hi").unwrap();
+    let drain = transport.drain(64).unwrap();
+    assert_eq!(drain.terminal, Some(ClaurstAcpTerminal::Failed));
+    assert_eq!(
+        drain.facts,
+        [ClaurstAcpFact::Event(
+            NormalizedProviderEvent::ProviderFailure {
+                classification: gent_types::ProviderFailureClassification::Provider,
+                message: "Claurst refused the request without completing the turn.".into(),
+                resets_at: None,
             }
         )]
     );
@@ -176,6 +310,7 @@ fn claurst_no_response_placeholder_settles_as_a_typed_output_limit_failure() {
             NormalizedProviderEvent::ProviderFailure {
                 classification: gent_types::ProviderFailureClassification::OutputLimit,
                 message: "Claurst exhausted its output limit before completing the turn.".into(),
+                resets_at: None,
             }
         )]
     );
@@ -207,6 +342,7 @@ fn thinking_only_end_turn_is_an_explicit_failure() {
             NormalizedProviderEvent::ProviderFailure {
                 classification: gent_types::ProviderFailureClassification::Provider,
                 message: "Claurst ended the turn without an assistant response.".into(),
+                resets_at: None,
             }
         ))
     );
@@ -399,7 +535,10 @@ fn permission_denial_uses_the_nested_acp_outcome_shape() {
     let response: serde_json::Value =
         serde_json::from_slice(transport.stdio.writes.last().unwrap()).unwrap();
     assert_eq!(response["id"], 99);
-    assert_eq!(response["result"]["outcome"]["outcome"], "cancelled");
+    assert_eq!(
+        response["result"]["outcome"],
+        serde_json::json!({"outcome":"selected","optionId":"reject_once"})
+    );
 }
 
 #[test]
@@ -433,7 +572,7 @@ fn overlapping_permission_requests_are_held_and_presented_in_order() {
     assert_eq!(transport.stdio.writes.len(), writes_before);
     assert_eq!(
         transport.respond_permission("claurst:n:100", ClaurstPermissionReply::AllowOnce),
-        Err(super::ClaurstAcpTransportError::InvalidPermission)
+        Err(super::ClaurstAcpTransportError::PermissionNotPending)
     );
 
     let mut answered = Vec::new();
@@ -454,15 +593,15 @@ fn overlapping_permission_requests_are_held_and_presented_in_order() {
             serde_json::from_slice(transport.stdio.writes.last().unwrap()).unwrap();
         answered.push((
             response["id"].clone(),
-            response["result"]["outcome"]["outcome"].clone(),
+            response["result"]["outcome"]["optionId"].clone(),
         ));
     }
     assert_eq!(
         answered,
         [
-            (serde_json::json!(99), serde_json::json!("selected")),
-            (serde_json::json!(100), serde_json::json!("cancelled")),
-            (serde_json::json!(101), serde_json::json!("selected")),
+            (serde_json::json!(99), serde_json::json!("allow_once")),
+            (serde_json::json!(100), serde_json::json!("reject_once")),
+            (serde_json::json!(101), serde_json::json!("allow_once")),
         ]
     );
     assert!(transport.drain(8).unwrap().permissions.is_empty());

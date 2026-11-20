@@ -53,6 +53,7 @@ impl Fixture {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         };
         ledger.save_policy(&policy).unwrap();
         let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());

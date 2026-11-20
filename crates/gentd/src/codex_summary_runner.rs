@@ -18,7 +18,7 @@ use gent_ports::{ConversationSummaryRunner, PortError, PublicProviderResolver};
 use gent_runtime::conversation_summary_scheduler::ConversationSummaryScheduler;
 use gent_types::{NormalizedProviderEvent, SandboxWorkspaceAccess};
 
-const MAX_OUTPUT_BYTES: usize = 16 * 1024;
+const BUFFERED_FRAMES: usize = 16;
 const MAX_POLL_TIME: Duration =
     crate::provider_launch_budget::launch_budget(Duration::from_secs(60));
 const POLL_DELAY: Duration = Duration::from_millis(5);
@@ -84,8 +84,13 @@ where
         let run_id = format!("summary-{}", uuid::Uuid::new_v4());
         let mut runner = CodexAppServerRunner::new(
             self.launcher.clone(),
-            BufferPolicy::new(16, MAX_OUTPUT_BYTES, 0, 0)
-                .map_err(|error| PortError::Provider(error.to_string()))?,
+            BufferPolicy::new(
+                BUFFERED_FRAMES,
+                gent_drivers::MAX_PROVIDER_FRAME_BYTES,
+                0,
+                0,
+            )
+            .map_err(|error| PortError::Provider(error.to_string()))?,
         );
         runner
             .start(CodexRunStart {
@@ -143,7 +148,9 @@ where
     let mut output = String::new();
     loop {
         if Instant::now() >= deadline {
-            return Err(PortError::Unavailable("Codex summary timed out".into()));
+            return Err(PortError::Provider(
+                "Codex did not finish its answer in time".into(),
+            ));
         }
         if let Some(effects) = runner
             .poll(run_id)
@@ -153,14 +160,7 @@ where
                 match effect {
                     CodexRunnerEffect::Fact(PublicWireFact::Event(
                         NormalizedProviderEvent::Output { text, .. },
-                    )) => {
-                        if output.len() + text.len() > MAX_OUTPUT_BYTES {
-                            return Err(PortError::Provider(
-                                "Codex summary output exceeded its bound".into(),
-                            ));
-                        }
-                        output.push_str(&text);
-                    }
+                    )) => output.push_str(&text),
                     CodexRunnerEffect::Fact(PublicWireFact::Event(
                         NormalizedProviderEvent::TurnEnded { .. },
                     )) => {
@@ -178,6 +178,9 @@ where
                     }
                     CodexRunnerEffect::Fact(_)
                     | CodexRunnerEffect::ControlRequest(_)
+                    | CodexRunnerEffect::RequestResolved { .. }
+                    | CodexRunnerEffect::ProviderTurnStarted
+                    | CodexRunnerEffect::SessionState { .. }
                     | CodexRunnerEffect::Steer(_) => {}
                 }
             }

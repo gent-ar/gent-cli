@@ -43,6 +43,16 @@ fn atomic(
         ))
 }
 
+fn status_turn(h: &Harness) -> String {
+    let status = h.runtime.conversation_status(&h.conversation_id.0).unwrap();
+    let [run] = status.runs.as_slice() else {
+        panic!("one run is expected: {status:?}")
+    };
+    run.active_turn_id
+        .clone()
+        .expect("the status read shows the running turn")
+}
+
 fn settle(h: &Harness, active: &AgentChatPromptSaved, phase: DurableTurnPhase) {
     h.ledger
         .settle_agent_chat_prompt_terminal(
@@ -110,7 +120,10 @@ async fn a_claurst_steer_interrupts_without_pausing_the_goal_while_a_user_stop_p
         steered.as_slice(),
         [AgentChatIntentFrame::QueuedPromptSteered { .. }]
     ));
-    assert_eq!(h.interrupted().await, vec![h.run_id.0.clone()]);
+    assert_eq!(
+        h.interrupted().await,
+        vec![format!("{}/{}", h.run_id.0, active.message.turn_id)]
+    );
     assert_eq!(goal_status(&h).0, GoalStatus::Active);
     settle(&h, &active, DurableTurnPhase::Interrupted);
     assert_eq!(
@@ -137,7 +150,6 @@ async fn targeted_claurst_steer_interrupts_the_turn_as_steered_and_runs_next_ahe
     let h = harness().await;
     set_goal(&h.ledger, &h.conversation_id);
     let active = running(&h.ledger, &h.conversation_id);
-    let turn = active.message.turn_id.clone();
     let queue = |key| {
         prompt(
             &h.ledger,
@@ -147,6 +159,8 @@ async fn targeted_claurst_steer_interrupts_the_turn_as_steered_and_runs_next_ahe
         )
     };
     let (earlier, steered, later) = (queue("earlier"), queue("steered"), queue("later"));
+    let turn = status_turn(&h);
+    assert_eq!(turn, active.message.turn_id);
 
     let reply = targeted(&h, "steer", &steered, &h.run_id.0, &turn).unwrap();
     assert!(matches!(
@@ -321,9 +335,9 @@ async fn stopping_either_run_after_a_mid_turn_switch_stops_the_running_turn_over
 }
 
 #[tokio::test]
-async fn send_now_after_a_mid_turn_switch_steers_the_running_turn() {
+async fn send_now_after_a_mid_turn_switch_interrupts_the_running_turn() {
     let h = harness().await;
-    running(&h.ledger, &h.conversation_id);
+    let active = running(&h.ledger, &h.conversation_id);
     switch_mid_turn(&h);
     let queued = prompt(
         &h.ledger,
@@ -344,5 +358,8 @@ async fn send_now_after_a_mid_turn_switch_steers_the_running_turn() {
         steered.as_slice(),
         [AgentChatIntentFrame::QueuedPromptSteered { .. }]
     ));
-    assert_eq!(h.interrupted().await, vec![h.run_id.0.clone()]);
+    assert_eq!(
+        h.interrupted().await,
+        vec![format!("{}/{}", h.run_id.0, active.message.turn_id)]
+    );
 }

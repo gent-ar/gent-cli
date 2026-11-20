@@ -16,7 +16,7 @@ use super::PublicDriversRuntime;
 #[path = "session_mapping.rs"]
 mod mapping;
 
-pub(crate) use mapping::{activity_for_lifecycle, transcript_content};
+pub(crate) use mapping::{activity_for_lifecycle, transcript_content, transcript_event_id};
 
 pub(crate) fn recorded_wire_fact(
     noticed: &mut std::collections::BTreeSet<String>,
@@ -138,7 +138,7 @@ fn batch(
     };
     let transcript = transcript_content(&input.fact).map(|(kind, text, is_partial)| {
         NormalizedTranscriptAppend {
-            event_id: mapping::transcript_event_id(&input.fact, &input.transcript_event_id),
+            event_id: transcript_event_id(&input.fact, &input.transcript_event_id),
             run_id: input.run_id.clone(),
             turn_id: input.turn_id.clone(),
             kind,

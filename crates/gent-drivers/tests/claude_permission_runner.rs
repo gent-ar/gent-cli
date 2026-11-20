@@ -51,6 +51,7 @@ fn start(root: &Path) -> ClaudeRunStart {
     std::fs::write(&executable, "test executable").unwrap();
     ClaudeRunStart {
         run_id: "run-1".into(),
+        message_id: "message-1".into(),
         lock: capture("claude", &executable, "2.1.0", "entry").unwrap(),
         prompt: "hello".into(),
         content: Vec::new(),
@@ -264,31 +265,106 @@ fn runner_keeps_background_child_lifecycle_correlated_to_its_parent_tool() {
     let mut runner = runner(directory.path(), &state);
     state.output.lock().unwrap().push_back(
         br#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"parent-tool-1","name":"Task"}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"parent-tool-1","content":"Async agent launched successfully.\nagentId: child-1\noutput_file: /tmp/child-1.output"}]}}
+{"type":"system","subtype":"task_started","task_id":"child-1","tool_use_id":"parent-tool-1","description":"d","subagent_type":"general-purpose","is_backgrounded":true,"spawn_depth":1,"task_type":"local_agent"}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"parent-tool-1","content":"Async agent launched successfully.\nagentId: other-1\noutput_file: /tmp/other-1.output"}]}}
+{"type":"system","subtype":"task_started","task_id":"bash-1","tool_use_id":"tool-bash","description":"b","is_backgrounded":false,"task_type":"local_bash"}
+{"type":"system","subtype":"task_progress","task_id":"child-1","tool_use_id":"parent-tool-1","description":"Running","last_tool_name":"Bash"}
+{"type":"system","subtype":"task_updated","task_id":"child-1","patch":{"status":"completed","end_time":1}}
 {"type":"system","subtype":"task_notification","task_id":"child-1","tool_use_id":"parent-tool-1","status":"completed","output_file":"/tmp/child-1.output","summary":"done"}
 "#.to_vec(),
     );
 
     let effects = runner.poll("run-1").unwrap().unwrap();
+    let started = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            ClaudeRunnerEffect::Fact(PublicWireFact::Event(
+                NormalizedProviderEvent::ChildStarted {
+                    child_id,
+                    parent_tool_use_id,
+                },
+            )) => Some((child_id.as_str(), parent_tool_use_id.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(started, [("child-1", "parent-tool-1")]);
     assert!(effects.iter().any(|effect| matches!(
         effect,
-        ClaudeRunnerEffect::Fact(PublicWireFact::Event(
-            NormalizedProviderEvent::ChildStarted {
-                child_id,
-                parent_tool_use_id
-            }
-        )) if child_id == "child-1" && parent_tool_use_id == "parent-tool-1"
+        ClaudeRunnerEffect::Fact(PublicWireFact::Lifecycle(
+            gent_types::NormalizedLifecycleSignal::ChildPhase { child_id, .. }
+        )) if child_id == "child-1"
     )));
-    assert!(effects.iter().any(|effect| matches!(
-        effect,
-        ClaudeRunnerEffect::Fact(PublicWireFact::Event(
-            NormalizedProviderEvent::ChildTerminal { child_id, phase }
-        )) if child_id == "child-1" && *phase == gent_types::WorkPhase::Done
-    )));
+    let terminals = effects
+        .iter()
+        .filter(|effect| {
+            matches!(
+                effect,
+                ClaudeRunnerEffect::Fact(PublicWireFact::Event(
+                    NormalizedProviderEvent::ChildTerminal { child_id, phase }
+                )) if child_id == "child-1" && *phase == gent_types::WorkPhase::Done
+            )
+        })
+        .count();
+    assert_eq!(terminals, 1);
     assert!(effects.iter().any(|effect| matches!(
         effect,
         ClaudeRunnerEffect::Fact(PublicWireFact::Event(
             NormalizedProviderEvent::ToolOutputDelta { tool_use_id, .. }
         )) if tool_use_id == "parent-tool-1"
     )));
+}
+
+#[test]
+fn runner_reads_steer_lifecycle_session_state_and_interrupts_through_the_protocol() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    let mut runner = runner(directory.path(), &state);
+    runner.steer("run-1", "message-1", "also", &[]).unwrap();
+    runner.steer("run-1", "message-2", "and", &[]).unwrap();
+    let uuid = |frame: &[u8]| {
+        serde_json::from_slice::<serde_json::Value>(frame).unwrap()["uuid"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let writes = state.writes.lock().unwrap().clone();
+    let (first, second) = (
+        uuid(&writes[writes.len() - 2]),
+        uuid(&writes[writes.len() - 1]),
+    );
+    state.output.lock().unwrap().push_back(
+        format!(
+            "{{\"type\":\"command_lifecycle\",\"command_uuid\":\"{first}\",\"state\":\"queued\"}}\n\
+             {{\"type\":\"command_lifecycle\",\"command_uuid\":\"{first}\",\"state\":\"started\"}}\n\
+             {{\"type\":\"user\",\"isReplay\":true,\"uuid\":\"{first}\",\"message\":{{\"role\":\"user\",\"content\":\"also\"}}}}\n\
+             {{\"type\":\"command_lifecycle\",\"command_uuid\":\"{second}\",\"state\":\"cancelled\"}}\n\
+             {{\"type\":\"system\",\"subtype\":\"session_state_changed\",\"state\":\"running\"}}\n\
+             {{\"type\":\"system\",\"subtype\":\"session_state_changed\",\"state\":\"idle\"}}\n"
+        )
+        .into_bytes(),
+    );
+    let effects = runner.poll("run-1").unwrap().unwrap();
+    let observed = effects
+        .iter()
+        .map(|effect| match effect {
+            ClaudeRunnerEffect::MessageStarted { message_id } => format!("consumed:{message_id}"),
+            ClaudeRunnerEffect::MessageCancelled { message_id } => format!("returned:{message_id}"),
+            ClaudeRunnerEffect::SessionState { idle } => format!("idle:{idle}"),
+            other => format!("{other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        observed,
+        [
+            "consumed:message-1",
+            "returned:message-2",
+            "idle:false",
+            "idle:true"
+        ]
+    );
+    runner.interrupt("run-1").unwrap();
+    let interrupt: serde_json::Value =
+        serde_json::from_slice(state.writes.lock().unwrap().last().unwrap()).unwrap();
+    assert_eq!(interrupt["type"], "control_request");
+    assert_eq!(interrupt["request"]["subtype"], "interrupt");
 }

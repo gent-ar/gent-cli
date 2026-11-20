@@ -101,6 +101,7 @@ fn provider_failure_is_a_durable_redacted_notice() {
         NormalizedProviderEvent::ProviderFailure {
             classification: ProviderFailureClassification::Authentication,
             message: "Codex sign-in expired. Sign in again to continue.".into(),
+            resets_at: None,
         },
     ));
     assert_eq!(
@@ -284,6 +285,34 @@ fn compaction_observations_record_one_notice_per_turn_and_outcome() {
     assert_eq!(
         recorded_wire_fact(&mut noticed, "turn-1", &output),
         Some(output)
+    );
+}
+
+#[test]
+fn a_completed_compaction_is_a_durable_activity_that_marks_context_usage_unknown() {
+    let diagnostic = |classification: &str| {
+        input(PublicWireFact::Event(
+            NormalizedProviderEvent::TransportDiagnostic {
+                classification: classification.into(),
+            },
+        ))
+    };
+    let compacted = batch(
+        "daemon-1",
+        &diagnostic(gent_types::PROVIDER_CONTEXT_COMPACTED_DIAGNOSTIC),
+    )
+    .unwrap();
+    assert!(matches!(
+        compacted.activity,
+        Some(gent_types::ConversationActivityFact::ContextCompacted { ref scope })
+            if scope.turn_id == "turn-1" && scope.run_id == "run-1"
+    ));
+    assert!(compacted.transcript.is_some());
+    assert!(
+        activity(&diagnostic(
+            gent_types::PROVIDER_CONTEXT_COMPACTION_FAILED_DIAGNOSTIC
+        ))
+        .is_none()
     );
 }
 

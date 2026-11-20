@@ -1,9 +1,3 @@
-//! Capability-gated agent-chat intent transport.
-//!
-//! This adapter owns JSON framing and response correlation only. It does not create a
-//! conversation, persist a prompt, or launch a provider; those authority decisions stay behind
-//! [`RuntimeApi`].
-
 use gent_protocol::{
     AGENT_CHAT_INTENTS_CAPABILITY, AGENT_CHAT_PROVIDER_WARM_CAPABILITY,
     AGENT_CHAT_TRANSCRIPT_IMPORT_CAPABILITY, AgentChatIntentFrame,
@@ -43,7 +37,6 @@ impl<R: RuntimeApi> IntentPort for R {
     }
 }
 
-/// Dispatches one finite, receipt-backed agent-chat exchange after capability negotiation.
 pub(crate) async fn dispatch<S, R>(
     stream: &mut S,
     runtime: &R,
@@ -99,7 +92,7 @@ where
             }
             Err(message) => write_error(stream, "invalidAgentChatResponse", message).await?,
         },
-        Err(error) => write_error(stream, error.code, &error.message).await?,
+        Err(error) => error.write(stream).await?,
     }
     Ok(true)
 }
@@ -213,7 +206,7 @@ where
             }
             Err(message) => write_error(stream, "invalidAgentChatResponse", message).await?,
         },
-        Err(error) => write_error(stream, error.code, &error.message).await?,
+        Err(error) => error.write(stream).await?,
     }
     Ok(true)
 }

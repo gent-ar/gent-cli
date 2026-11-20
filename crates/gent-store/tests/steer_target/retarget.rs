@@ -76,7 +76,7 @@ fn published_terminal_rejects_acceptance_and_claim_before_dispatch_phase_catches
             .unwrap()
             .unwrap()
             .phase,
-        DurableTurnPhase::Active
+        DurableTurnPhase::Completed
     );
     assert!(
         request(
@@ -95,8 +95,7 @@ fn published_terminal_rejects_acceptance_and_claim_before_dispatch_phase_catches
 fn host_epoch_recovery_rejects_an_ambiguous_target_without_replay() {
     let (ledger, conversation) = ledger();
     let original = active(&ledger, &conversation);
-    let queued = prompt(&ledger, &conversation, "queued", Disposition::Queue);
-    request(&ledger, &conversation, &queued, &original, "accepted").unwrap();
+    prompt(&ledger, &conversation, "queued", Disposition::Queue);
     claim(&ledger, &original).unwrap();
     ledger.close_ingress(HostEpoch(1)).unwrap();
     ledger.fence_and_open(HostEpoch(1)).unwrap();
@@ -118,14 +117,14 @@ fn host_epoch_recovery_rejects_an_ambiguous_target_without_replay() {
         .read_conversation_activity_page(&conversation.0, &original.run_id.0, 0, 50)
         .unwrap()
         .facts;
-    assert!(facts.iter().any(|f| matches!(f,ConversationActivityFact::PromptSteerRejected{receipt_id,reason,..} if receipt_id=="accepted" && reason=="deliveryUnprovable")));
+    assert!(facts.iter().any(|f| matches!(f,ConversationActivityFact::PromptSteerRejected{receipt_id,reason,..} if receipt_id=="receipt-queued" && reason=="deliveryUnprovable")));
 }
 
 #[test]
-fn a_steer_whose_turn_ended_waits_behind_an_older_unsteered_prompt() {
+fn a_send_now_prompt_whose_turn_ended_runs_ahead_of_an_older_queued_prompt() {
     let (ledger, conversation) = ledger();
     let original = active(&ledger, &conversation);
-    let next = prompt(&ledger, &conversation, "next", Disposition::Queue);
+    prompt(&ledger, &conversation, "older", Disposition::Queue);
     let queued = prompt(&ledger, &conversation, "queued", Disposition::Queue);
     request(&ledger, &conversation, &queued, &original, "original-click").unwrap();
     finish(&ledger, &original);
@@ -137,5 +136,5 @@ fn a_steer_whose_turn_ended_waits_behind_an_older_unsteered_prompt() {
         )
         .unwrap()
         .unwrap();
-    assert_eq!(claimed.message, next.message);
+    assert_eq!(claimed.message, queued.message);
 }

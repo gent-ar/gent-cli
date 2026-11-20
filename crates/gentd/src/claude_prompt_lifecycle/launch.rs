@@ -43,6 +43,7 @@ where
     let (prompt_text, content) = provider_input(runtime, &prompt.message)?;
     Ok((
         ClaudePromptStart {
+            message_id: prompt.message.message_id.clone(),
             prompt: prompt_text,
             goal,
             fresh_context,
@@ -149,6 +150,7 @@ where
     Ok((
         ClaudePromptStart {
             conversation_id: conversation_id.to_owned(),
+            message_id: String::new(),
             workspace_root: workspace.canonical_path.into(),
             workspace_access: gent_types::SandboxWorkspaceAccess::from_mode(selection.mode),
             prompt: String::new(),

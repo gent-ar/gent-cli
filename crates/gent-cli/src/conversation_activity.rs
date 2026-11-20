@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame, Hello, WireFrame, read_frame,
-    read_json_frame, write_frame, write_json_frame,
+    CONVERSATION_ACTIVITY_CAPABILITY, ConversationActivityFrame, Hello, WireFrame, write_frame,
+    write_json_frame,
 };
 use gent_types::{ConversationActivityPage, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ pub(crate) async fn request(
         }),
     )
     .await?;
-    let WireFrame::Negotiated(negotiated) = read_frame(&mut stream).await? else {
+    let WireFrame::Negotiated(negotiated) = crate::local_ipc::read_reply(&mut stream).await? else {
         return Err("daemon did not negotiate protocol".into());
     };
     if !negotiated
@@ -58,12 +58,9 @@ pub(crate) async fn request(
         },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(frame) = serde_json::from_value(raw.clone()) {
         return decode(frame, &conversation_id, &run_id, after_cursor).map_err(Into::into);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return conversation activity facts".into())
 }

@@ -38,8 +38,7 @@ where
     ) -> Result<bool, RuntimeError> {
         let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
         let recoverable = binding.session_recovery == super::SessionRecovery::Unavailable
-            && !binding.interrupt_requested
-            && !binding.settled;
+            && binding.turns.prompt_open();
         if !recoverable {
             return Ok(false);
         }

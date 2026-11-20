@@ -33,7 +33,7 @@ where
         run_id: &str,
         host_epoch: HostEpoch,
         fact: &PublicWireFact,
-    ) -> Result<bool, RuntimeError> {
+    ) -> Result<(), RuntimeError> {
         if matches!(fact, PublicWireFact::SessionStarted { .. }) {
             let event_id = self.next_event_id(run_id, host_epoch, "session")?;
             self.runtime.record(
@@ -45,7 +45,7 @@ where
                     fact: fact.clone(),
                 },
             )?;
-            return Ok(false);
+            return Ok(());
         }
         let binding = self
             .active
@@ -54,18 +54,18 @@ where
             .ok_or_else(missing_binding)?;
         let Some(fact) = crate::public_driver_runtime::session::recorded_wire_fact(
             &mut self.compaction_notices,
-            &binding.prompt.message.turn_id,
+            binding.turn_id(),
             fact,
         ) else {
-            return Ok(false);
+            return Ok(());
         };
         let lifecycle_event_id = self.next_event_id(run_id, host_epoch, "wire")?;
         let transcript_event_id = self.next_event_id(run_id, host_epoch, "transcript")?;
         let activity_event_id = self.next_event_id(run_id, host_epoch, "activity")?;
         let input = NormalizedSessionFact {
             run_id: run_id.into(),
+            turn_id: binding.turn_id().into(),
             conversation_id: binding.prompt.message.conversation_id,
-            turn_id: binding.prompt.message.turn_id,
             host_epoch,
             lifecycle_event_id,
             transcript_event_id,
@@ -74,6 +74,6 @@ where
         };
         self.runtime
             .record_normalized_session(&self.coordinator_id, &input)?;
-        Ok(false)
+        Ok(())
     }
 }

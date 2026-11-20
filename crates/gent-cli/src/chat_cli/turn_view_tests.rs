@@ -24,6 +24,7 @@ fn event(
         text: text.into(),
         is_partial: partial,
         failure_code: None,
+        resets_at: None,
         origin: None,
         attachments: Vec::new(),
     }

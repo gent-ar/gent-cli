@@ -39,6 +39,7 @@ fn seeded() -> (SqliteLedger, PlanArtifact, StartImplementationRequest) {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         })
         .unwrap();
     ledger
@@ -101,6 +102,7 @@ fn seeded() -> (SqliteLedger, PlanArtifact, StartImplementationRequest) {
         parent_run_id: plan.source_run_id.clone(),
         selection: selection(),
         context_policy: ContextPolicy::Clear,
+        instructions: None,
     };
     (ledger, plan, request)
 }
@@ -109,8 +111,8 @@ fn seeded() -> (SqliteLedger, PlanArtifact, StartImplementationRequest) {
 fn trusted_plan_approval_is_atomic_retry_safe_and_clear_has_no_session_boundary() {
     let (ledger, plan, request) = seeded();
     ledger.save_trusted_plan(&plan).unwrap();
-    let first = ledger.approve_reviewed_plan(&request).unwrap();
-    let retry = ledger.approve_reviewed_plan(&request).unwrap();
+    let first = ledger.approve_reviewed_plan(&request).unwrap().result;
+    let retry = ledger.approve_reviewed_plan(&request).unwrap().result;
     assert_eq!(first, retry);
     assert_eq!(first.context_through_ordinal, 0);
     let context = ledger
@@ -155,7 +157,7 @@ fn preserve_context_freezes_the_existing_history_ordinal() {
         )
         .unwrap();
 
-    let result = ledger.approve_reviewed_plan(&request).unwrap();
+    let result = ledger.approve_reviewed_plan(&request).unwrap().result;
 
     assert!(expected > 0);
     assert_eq!(result.context_policy, ContextPolicy::Preserve);
@@ -169,16 +171,59 @@ fn preserve_context_freezes_the_existing_history_ordinal() {
 
 #[test]
 fn exact_revision_and_current_policy_are_rechecked_before_any_child_exists() {
+    use gent_ports::LedgerError::Rejected;
+    use gent_types::AgentChatRejection::{
+        PlanApprovalParentNotCurrent, PlanApprovalPolicyChanged, PlanNotReviewable,
+    };
     let (ledger, plan, mut request) = seeded();
     ledger.save_trusted_plan(&plan).unwrap();
     request.plan_content_digest_sha256 = "b".repeat(64);
-    assert!(ledger.approve_reviewed_plan(&request).is_err());
+    assert!(matches!(
+        ledger.approve_reviewed_plan(&request),
+        Err(Rejected(PlanNotReviewable))
+    ));
     request.plan_content_digest_sha256 = plan.content_digest_sha256.clone();
     request.policy_revision = 2;
-    assert!(ledger.approve_reviewed_plan(&request).is_err());
+    assert!(matches!(
+        ledger.approve_reviewed_plan(&request),
+        Err(Rejected(PlanApprovalPolicyChanged))
+    ));
+    let stale_parent = StartImplementationRequest {
+        parent_run_id: AgentChatRunId("run-older".into()),
+        ..request.clone()
+    };
+    assert!(matches!(
+        ledger.approve_reviewed_plan(&stale_parent),
+        Err(Rejected(PlanApprovalParentNotCurrent))
+    ));
     ledger
         .reject_reviewed_plan(&plan.plan_id, plan.revision, &plan.content_digest_sha256)
         .unwrap();
+    request.policy_revision = 1;
+    assert!(matches!(
+        ledger.approve_reviewed_plan(&request),
+        Err(Rejected(PlanNotReviewable))
+    ));
+    assert!(matches!(
+        ledger.reject_reviewed_plan(&plan.plan_id, plan.revision, &plan.content_digest_sha256),
+        Err(Rejected(PlanNotReviewable))
+    ));
+}
+
+#[test]
+fn approval_instructions_reach_the_implementation_prompt_and_its_retry() {
+    let (ledger, plan, mut request) = seeded();
+    ledger.save_trusted_plan(&plan).unwrap();
+    request.instructions = Some("Keep the public API unchanged.".into());
+    let started = ledger.approve_reviewed_plan(&request).unwrap();
+    let text = &started.prompt.message.text;
+    assert!(text.contains(&plan.content));
+    assert!(
+        text.ends_with("<user-instructions>\nKeep the public API unchanged.\n</user-instructions>")
+    );
+    let retried = ledger.approve_reviewed_plan(&request).unwrap();
+    assert_eq!(retried.prompt.message, started.prompt.message);
+    request.instructions = Some("Something else.".into());
     assert!(ledger.approve_reviewed_plan(&request).is_err());
 }
 
@@ -221,31 +266,35 @@ fn a_completed_plan_turn_awaits_review_until_its_published_artifact_exists() {
 }
 
 #[test]
-fn an_approved_plan_awaits_exactly_one_implementation_prompt_in_its_child_run() {
+fn approving_a_plan_admits_its_implementation_turn_in_the_same_transaction() {
     let (ledger, plan, request) = seeded();
     ledger.save_trusted_plan(&plan).unwrap();
     let started = ledger.approve_reviewed_plan(&request).unwrap();
-    let awaiting = ledger.implementations_awaiting_prompt().unwrap();
-    assert_eq!(awaiting.len(), 1);
-    assert_eq!(
-        awaiting[0].implementation_run_id,
-        started.implementation_run_id
-    );
-    assert_eq!(awaiting[0].plan.status, PlanStatus::Approved);
-    let prompt = ledger
-        .save_agent_chat_prompt(&AgentChatPromptCreate {
-            request_id: AgentChatRequestId("implement".into()),
-            receipt_id: ReceiptId("implement".into()),
-            host_epoch: HostEpoch(1),
-            conversation_id: AgentChatConversationId("conversation-1".into()),
-            disposition: AgentChatPromptDisposition::Send,
-            text: "Implement".into(),
-            attachment_ids: vec![],
-            tool_source_ids: vec![],
-        })
-        .unwrap();
-    assert_eq!(prompt.run_id, started.implementation_run_id);
-    assert!(ledger.implementations_awaiting_prompt().unwrap().is_empty());
+    assert_eq!(started.prompt.run_id, started.result.implementation_run_id);
+    assert!(started.prompt.message.text.contains(&plan.content));
+    let released = |ledger: &SqliteLedger| {
+        ledger
+            .read_conversation_activity_page(
+                "conversation-1",
+                &started.result.implementation_run_id.0,
+                0,
+                64,
+            )
+            .unwrap()
+            .facts
+            .into_iter()
+            .filter(|fact| {
+                matches!(fact, gent_types::ConversationActivityFact::PromptReleased { message_id, scope }
+                    if *message_id == started.prompt.message.message_id
+                        && scope.turn_id == started.prompt.message.turn_id)
+            })
+            .count()
+    };
+    assert_eq!(released(&ledger), 1);
+    let retried = ledger.approve_reviewed_plan(&request).unwrap();
+    assert_eq!(retried.result, started.result);
+    assert_eq!(retried.prompt.message, started.prompt.message);
+    assert_eq!(released(&ledger), 1);
 }
 
 #[test]

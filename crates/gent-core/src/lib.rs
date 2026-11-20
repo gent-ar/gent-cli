@@ -30,7 +30,9 @@ mod runtime_update;
 mod runtime_update_schedule;
 mod tool_classification;
 mod turn_lifecycle;
-pub use agent_chat_commands::{command_catalog, reserved_names, resolve_command};
+pub use agent_chat_commands::{
+    command_catalog, reserved_names, resolve_command, side_question_waits_for_turn,
+};
 pub use agent_chat_compaction::{
     AgentChatCompactionEffect, AgentChatCompactionRejection, AgentChatCompactionState,
     reduce_agent_chat_compaction,

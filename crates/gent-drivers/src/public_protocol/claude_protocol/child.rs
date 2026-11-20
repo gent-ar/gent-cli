@@ -55,11 +55,33 @@ fn child_content(block: &Value, parent_tool_use_id: &str) -> Vec<PublicWireFact>
 }
 
 pub(crate) fn task_terminal(frame: &Value) -> Option<WorkPhase> {
-    match string(frame, "status")? {
+    let status = string(frame, "status")
+        .or_else(|| frame.pointer("/patch/status").and_then(Value::as_str))?;
+    match status {
         "completed" => Some(WorkPhase::Done),
         "failed" => Some(WorkPhase::Failed),
-        "stopped" => Some(WorkPhase::Interrupted),
+        "stopped" | "killed" => Some(WorkPhase::Interrupted),
         _ => None,
+    }
+}
+
+pub(crate) fn backgrounded_agent(frame: &Value) -> bool {
+    string(frame, "task_type") == Some("local_agent") && backgrounded(frame)
+}
+
+pub(crate) fn backgrounded_command(frame: &Value) -> bool {
+    string(frame, "task_type") != Some("local_agent") && backgrounded(frame)
+}
+
+fn backgrounded(frame: &Value) -> bool {
+    frame.get("is_backgrounded").and_then(Value::as_bool) == Some(true)
+}
+
+pub(crate) fn command_terminal(phase: &WorkPhase) -> ToolPhase {
+    match phase {
+        WorkPhase::Done => ToolPhase::Completed,
+        WorkPhase::Interrupted => ToolPhase::Interrupted,
+        _ => ToolPhase::Failed,
     }
 }
 

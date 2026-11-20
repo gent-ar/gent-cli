@@ -125,13 +125,23 @@ fn joined<T>(
 }
 
 pub(crate) fn git_output(root: &Path, args: &[&str]) -> Result<Vec<u8>, GitExecutorError> {
-    bounded_output(
-        gent_types::hidden_command("git")
-            .arg("--no-optional-locks")
-            .args(args)
-            .current_dir(root),
-        GIT_DEADLINE,
-    )
+    git_output_with_index(root, args, None)
+}
+
+pub(crate) fn git_output_with_index(
+    root: &Path,
+    args: &[&str],
+    index: Option<&Path>,
+) -> Result<Vec<u8>, GitExecutorError> {
+    let mut command = gent_types::hidden_command("git");
+    command
+        .arg("--no-optional-locks")
+        .args(args)
+        .current_dir(root);
+    if let Some(index) = index {
+        command.env("GIT_INDEX_FILE", index);
+    }
+    bounded_output(&mut command, GIT_DEADLINE)
 }
 
 fn bounded_output(command: &mut Command, deadline: Duration) -> Result<Vec<u8>, GitExecutorError> {

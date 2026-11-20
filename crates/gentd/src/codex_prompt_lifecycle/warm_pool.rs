@@ -7,7 +7,7 @@ use gent_runtime::RuntimeError;
 use gent_types::AgentChatPromptSaved;
 
 use super::{CodexPromptExecution, CodexPromptLifecycle};
-use crate::provider_warm_pool::{IdleRun, WarmRun, evictions, expired};
+use crate::provider_warm_pool::{IdleCandidate, WarmRun, evictions, reaped, release_each};
 
 impl<L, D, R> CodexPromptLifecycle<L, D, R>
 where
@@ -40,10 +40,7 @@ where
             &prompt.message.conversation_id,
             self.warm_capacity,
         );
-        for run_id in evicted {
-            self.release_owned(&run_id)?;
-        }
-        Ok(())
+        release_each(evicted, |run_id| self.release_owned(run_id))
     }
 
     pub(super) fn pool_runs(&self) -> Vec<WarmRun<'_>> {
@@ -52,7 +49,7 @@ where
             .map(|(run_id, binding)| WarmRun {
                 run_id,
                 conversation_id: &binding.prompt.message.conversation_id,
-                idle: binding.idle(),
+                idle: binding.liveness().idle(),
                 last_dispatch: binding.last_dispatch,
             })
             .chain(self.warm.iter().map(|(run_id, warm)| WarmRun {
@@ -65,11 +62,11 @@ where
     }
 
     pub(super) fn release_owned(&mut self, run_id: &str) -> Result<(), RuntimeError> {
+        self.active.remove(run_id);
+        self.warm.remove(run_id);
         if self.runner.has_codex_session(run_id) {
             self.runner.release_codex_session(run_id)?;
         }
-        self.active.remove(run_id);
-        self.warm.remove(run_id);
         Ok(())
     }
 
@@ -83,34 +80,21 @@ where
     pub(super) fn reap(&mut self, now: std::time::Instant) -> Result<(), RuntimeError> {
         let mut idle = Vec::new();
         for (run_id, binding) in &mut self.active {
-            if binding.idle() {
-                let since = *binding.idle_since.get_or_insert(now);
-                let conversation_id = binding.prompt.message.conversation_id.clone();
-                idle.push((run_id.clone(), conversation_id, since, true));
-            } else {
-                binding.idle_since = None;
-            }
+            let liveness = binding.liveness();
+            idle.extend(IdleCandidate::served(
+                run_id,
+                &binding.prompt.message.conversation_id,
+                &mut binding.idle_since,
+                liveness,
+                now,
+            ));
         }
         idle.extend(self.warm.iter().map(|(run_id, warm)| {
-            (
-                run_id.clone(),
-                warm.conversation_id.clone(),
-                warm.since,
-                false,
-            )
+            IdleCandidate::unprompted(run_id, &warm.conversation_id, warm.since)
         }));
-        let reaped = expired(
-            idle.iter()
-                .map(|(run_id, conversation_id, since, served)| IdleRun {
-                    run_id,
-                    idle_for: now.saturating_duration_since(*since),
-                    served: *served,
-                    current: self.is_current(conversation_id, run_id),
-                }),
-        );
-        for run_id in reaped {
-            self.release_owned(&run_id)?;
-        }
-        Ok(())
+        let reaped = reaped(now, &idle, |conversation_id, run_id| {
+            self.is_current(conversation_id, run_id)
+        });
+        release_each(reaped, |run_id| self.release_owned(run_id))
     }
 }

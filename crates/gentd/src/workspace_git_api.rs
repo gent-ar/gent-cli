@@ -11,31 +11,16 @@ use gent_types::WorkspaceGitReport;
 use single_flight::SingleFlight;
 use std::{path::Path, sync::LazyLock};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct WorkspaceGitRejection {
-    pub(crate) code: &'static str,
-    pub(crate) message: String,
-}
+use crate::{agent_chat_intent_error::AgentChatIntentError, workspace_identity::require_directory};
 
-impl From<String> for WorkspaceGitRejection {
-    fn from(message: String) -> Self {
-        Self {
-            code: "workspaceGitRejected",
-            message,
-        }
-    }
-}
-
-impl From<&str> for WorkspaceGitRejection {
-    fn from(message: &str) -> Self {
-        message.to_owned().into()
-    }
+pub(crate) fn rejected(error: impl std::fmt::Display) -> AgentChatIntentError {
+    AgentChatIntentError::coded("workspaceGitRejected", &error.to_string())
 }
 
 pub(crate) fn exchange<L>(
     coordinator: &Coordinator<L>,
     frame: WorkspaceGitFrame,
-) -> Result<WorkspaceGitFrame, WorkspaceGitRejection>
+) -> Result<WorkspaceGitFrame, AgentChatIntentError>
 where
     L: Ledger + WorkspaceLedger,
 {
@@ -45,7 +30,7 @@ where
             workspace_id,
         } => {
             let workspace = resolve(coordinator, &workspace_id)?;
-            let report = status(&workspace)?;
+            let report = status(&workspace).map_err(rejected)?;
             Ok(WorkspaceGitFrame::Status {
                 request_id,
                 workspace_id,
@@ -57,8 +42,8 @@ where
             workspace_id,
         } => {
             let workspace = resolve(coordinator, &workspace_id)?;
-            let canonical_paths = gent_git::workspace_repositories(Path::new(&workspace))
-                .map_err(|error| error.to_string())?;
+            let canonical_paths =
+                gent_git::workspace_repositories(Path::new(&workspace)).map_err(rejected)?;
             Ok(WorkspaceGitFrame::SubRepos {
                 request_id,
                 workspace_id,
@@ -69,19 +54,18 @@ where
             request_id,
             workspace_path,
         } => {
+            require_directory(&workspace_path)?;
             let workspace = crate::workspace_identity::CanonicalWorkspace::from_path(Path::new(
                 &workspace_path,
             ))
-            .map_err(|error| format!("workspace path is unavailable: {error:?}"))?;
+            .map_err(|error| rejected(format!("workspace path is unavailable: {error:?}")))?;
             let record = workspace.record().clone();
             if coordinator
                 .workspace(&record.workspace_id)
-                .map_err(|error| error.to_string())?
+                .map_err(rejected)?
                 .is_none()
             {
-                coordinator
-                    .create_workspace(&record)
-                    .map_err(|error| error.to_string())?;
+                coordinator.create_workspace(&record).map_err(rejected)?;
             }
             Ok(WorkspaceGitFrame::Resolved {
                 request_id,
@@ -92,7 +76,7 @@ where
         WorkspaceGitFrame::Status { .. }
         | WorkspaceGitFrame::SubRepos { .. }
         | WorkspaceGitFrame::Resolved { .. } => {
-            Err("workspace git response frames are server-only".into())
+            Err(rejected("workspace git response frames are server-only"))
         }
     }
 }
@@ -100,15 +84,19 @@ where
 fn resolve<L: Ledger + WorkspaceLedger>(
     coordinator: &Coordinator<L>,
     workspace_id: &str,
-) -> Result<String, WorkspaceGitRejection> {
-    coordinator
+) -> Result<String, AgentChatIntentError> {
+    let path = coordinator
         .workspace(workspace_id)
-        .map_err(|error| error.to_string())?
+        .map_err(rejected)?
         .map(|workspace| workspace.canonical_path)
-        .ok_or_else(|| WorkspaceGitRejection {
-            code: "workspaceNotFound",
-            message: format!("workspace {workspace_id} was not found"),
-        })
+        .ok_or_else(|| {
+            AgentChatIntentError::coded(
+                "workspaceNotFound",
+                &format!("workspace {workspace_id} was not found"),
+            )
+        })?;
+    require_directory(&path)?;
+    Ok(path)
 }
 
 fn status(workspace_canonical_path: &str) -> Result<Option<WorkspaceGitReport>, String> {

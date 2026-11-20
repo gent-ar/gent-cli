@@ -1,76 +1,45 @@
 use gent_ports::LedgerError;
 use gent_types::{
     AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatRunId, ConversationActivityFact,
-    ConversationActivityScope, HostEpoch, ReceiptId,
+    ConversationActivityScope, HostEpoch,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use super::super::super::SqliteLedger;
-use super::super::super::agent_chat_queue_activity::{STEER_KEY_PREFIX, append};
-use super::super::super::agent_chat_steer_target as target;
+use super::super::super::agent_chat_queue_activity::append;
 use super::super::super::queries::storage_error;
+use super::super::super::turn_terminal::steered;
 use super::helpers::{saved, valid_owner};
 use super::require_open;
-
-pub(super) fn claim(
-    ledger: &SqliteLedger,
-    coordinator_id: &str,
-    host_epoch: HostEpoch,
-    run_id: &AgentChatRunId,
-) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
-    claim_for_turn(ledger, coordinator_id, host_epoch, run_id, None)
-}
 
 pub(super) fn claim_for_turn(
     ledger: &SqliteLedger,
     coordinator_id: &str,
     host_epoch: HostEpoch,
     run_id: &AgentChatRunId,
-    expected_turn: Option<&str>,
-) -> Result<Option<(AgentChatPromptSaved, ReceiptId)>, LedgerError> {
+    turn_id: &str,
+) -> Result<Option<AgentChatPromptSaved>, LedgerError> {
     valid_owner(coordinator_id)?;
     let mut connection = ledger.lock()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
     require_open(&transaction, host_epoch)?;
+    if steered(&transaction, turn_id)? {
+        return Ok(None);
+    }
     let oldest = transaction
         .query_row(
-            "SELECT d.message_id, d.state, COALESCE((SELECT receipt_id FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id AND s.state='requested'),(SELECT r.receipt_id FROM receipts r WHERE r.idempotency_key = ?2 || d.message_id AND NOT EXISTS(SELECT 1 FROM agent_chat_steer_targets s WHERE s.message_id=d.message_id))) FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.conversation_id = (SELECT conversation_id FROM runs WHERE run_id = ?1) AND d.state IN ('awaiting_readiness', 'provisioning', 'pending') ORDER BY d.created_rowid LIMIT 1",
-            params![run_id.0, STEER_KEY_PREFIX],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
+            "SELECT d.message_id, d.state FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id WHERE m.conversation_id = (SELECT conversation_id FROM runs WHERE run_id = ?1) AND d.state IN ('awaiting_readiness', 'provisioning', 'pending') AND NOT EXISTS (SELECT 1 FROM agent_chat_steer_targets s WHERE s.message_id = d.message_id AND s.state = 'rejected') ORDER BY d.created_rowid LIMIT 1",
+            [&run_id.0],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()
         .map_err(storage_error)?;
-    let Some((message_id, state, Some(steer_receipt_id))) = oldest else {
+    let Some((message_id, state)) = oldest else {
         return Ok(None);
     };
     let mut prompt = saved(&transaction, &message_id)?;
-    if let Some((_, run, turn, _)) = target::target(&transaction, &message_id)? {
-        let live = target::live(
-            &transaction,
-            &prompt.message.conversation_id,
-            &run,
-            &turn,
-            host_epoch,
-        )?;
-        if !live {
-            target::release(&transaction, &message_id)?;
-            transaction.commit().map_err(storage_error)?;
-            return Ok(None);
-        }
-        if expected_turn != Some(turn.as_str()) || run != run_id.0 {
-            target::expire(&transaction, &message_id, host_epoch, "targetExpired")?;
-            transaction.commit().map_err(storage_error)?;
-            return Ok(None);
-        }
-        transaction
-            .execute(
-                "UPDATE agent_chat_steer_targets SET state='claimed' WHERE message_id=?1",
-                [&message_id],
-            )
-            .map_err(storage_error)?;
-    }
     if state != "pending" || prompt.disposition != AgentChatPromptDisposition::Queue {
         return Ok(None);
     }
@@ -85,12 +54,18 @@ pub(super) fn claim_for_turn(
     }
     transaction
         .execute(
-            "UPDATE agent_chat_prompt_dispatches SET state = 'launching', coordinator_id = ?1, host_epoch = ?2 WHERE message_id = ?3 AND state = 'pending'",
+            "UPDATE agent_chat_prompt_dispatches SET state = 'claimed', coordinator_id = ?1, host_epoch = ?2 WHERE message_id = ?3 AND state = 'pending'",
             params![coordinator_id, host_epoch.0, message_id],
         )
         .map_err(storage_error)?;
+    transaction
+        .execute(
+            "INSERT INTO agent_chat_steer_targets(message_id, receipt_id, run_id, turn_id, state) VALUES (?1, ?2, ?3, ?4, 'claimed') ON CONFLICT(message_id) DO UPDATE SET receipt_id = excluded.receipt_id, run_id = excluded.run_id, turn_id = excluded.turn_id, state = 'claimed'",
+            params![message_id, prompt.receipt.receipt_id.0, run_id.0, turn_id],
+        )
+        .map_err(storage_error)?;
     transaction.commit().map_err(storage_error)?;
-    Ok(Some((prompt, ReceiptId(steer_receipt_id))))
+    Ok(Some(prompt))
 }
 
 pub(super) fn deliver(
@@ -132,28 +107,12 @@ fn settle(
         .map_err(storage_error)?;
     require_open(&transaction, host_epoch)?;
     let prompt = saved(&transaction, message_id)?;
-    if let Some((_, run, turn, state)) = target::target(&transaction, message_id)? {
-        if state != "claimed" || run != prompt.message.run_id {
-            return Err(target_mismatch());
-        }
-        if into_turn_id != Some(turn.as_str())
-            && target::live(
-                &transaction,
-                &prompt.message.conversation_id,
-                &run,
-                &turn,
-                host_epoch,
-            )?
-        {
-            return Err(target_mismatch());
-        }
-        transaction
-            .execute(
-                "UPDATE agent_chat_steer_targets SET state='delivered' WHERE message_id=?1",
-                [message_id],
-            )
-            .map_err(storage_error)?;
-    }
+    transaction
+        .execute(
+            "UPDATE agent_chat_steer_targets SET state = 'delivered' WHERE message_id = ?1",
+            [message_id],
+        )
+        .map_err(storage_error)?;
     let changed = transaction
         .execute(
             "UPDATE agent_chat_prompt_dispatches SET state = ?1 WHERE message_id = ?2 AND state = 'launching' AND coordinator_id = ?3 AND host_epoch = ?4",
@@ -185,7 +144,7 @@ fn settle(
         return transaction.commit().map_err(storage_error);
     };
     retire_queued_turn(&transaction, &prompt, turn_id)?;
-    let receipt_id = steer_receipt(&transaction, message_id)?;
+    let receipt_id = prompt.receipt.receipt_id.clone();
     let transcript_cursor = transaction
         .query_row(
             "SELECT COALESCE(MAX(cursor), 0) FROM agent_chat_transcript_events WHERE conversation_id = ?1",
@@ -205,10 +164,6 @@ fn settle(
         },
     )?;
     transaction.commit().map_err(storage_error)
-}
-
-fn target_mismatch() -> LedgerError {
-    LedgerError::Invariant("steer delivery does not match its durable target".into())
 }
 
 fn retire_queued_turn(
@@ -236,19 +191,6 @@ fn retire_queued_turn(
         })
 }
 
-fn steer_receipt(
-    transaction: &Transaction<'_>,
-    message_id: &str,
-) -> Result<ReceiptId, LedgerError> {
-    if let Some((receipt, _, _, _)) = target::target(transaction, message_id)? {
-        return Ok(ReceiptId(receipt));
-    }
-    transaction
-        .query_row(
-            "SELECT receipt_id FROM receipts WHERE idempotency_key = ?1",
-            [format!("{STEER_KEY_PREFIX}{message_id}")],
-            |row| row.get::<_, String>(0),
-        )
-        .map(ReceiptId)
-        .map_err(storage_error)
-}
+#[cfg(test)]
+#[path = "prompt_steer_tests.rs"]
+mod tests;

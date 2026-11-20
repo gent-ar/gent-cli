@@ -134,18 +134,18 @@ impl<L: AgentChatQueuedPromptLedger> AgentChatPromptService<L> {
         )?))
     }
 
-    pub fn interrupt_active_turn_for_steer(
+    pub fn stop(
         &self,
-        host_epoch: HostEpoch,
+        command: &gent_types::Command,
         conversation_id: &AgentChatConversationId,
-        run_id: &gent_types::AgentChatRunId,
-    ) -> Result<bool, RuntimeError> {
+    ) -> Result<Option<Receipt>, RuntimeError> {
         if self.authority != AgentChatPromptAuthority::Approved {
-            return Ok(false);
+            return Ok(None);
         }
-        Ok(self
-            .ledger
-            .interrupt_active_turn_for_steer(host_epoch, conversation_id, run_id)?)
+        Ok(Some(
+            self.ledger
+                .stop_agent_chat_conversation(command, conversation_id)?,
+        ))
     }
 
     pub fn steer_queued_for_turn(
@@ -176,7 +176,7 @@ impl<L: AgentChatQueuedPromptLedger> AgentChatPromptService<L> {
         host_epoch: HostEpoch,
         conversation_id: &AgentChatConversationId,
         message_id: &str,
-    ) -> Result<Option<(Receipt, gent_types::AgentChatRunId)>, RuntimeError> {
+    ) -> Result<Option<(Receipt, AgentChatRunId, Option<String>)>, RuntimeError> {
         if self.authority != AgentChatPromptAuthority::Approved {
             return Ok(None);
         }

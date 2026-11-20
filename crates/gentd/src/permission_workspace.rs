@@ -76,6 +76,7 @@ mod tests {
                 containment: gent_types::Containment::Sandboxed,
                 allowed_tools: Vec::new(),
                 allowed_categories: Vec::new(),
+                allowed_commands: Vec::new(),
             })
             .unwrap();
         let current = policy_for(&ledger, "workspace-1").unwrap();
@@ -97,6 +98,7 @@ mod tests {
                 containment: gent_types::Containment::Sandboxed,
                 allowed_tools: vec!["Bash".into()],
                 allowed_categories: Vec::new(),
+                allowed_commands: Vec::new(),
             };
             assert!(
                 super::require_supported_launch(&policy, gent_types::AgentChatProvider::Claude)
@@ -142,6 +144,7 @@ mod tests {
                 containment: gent_types::Containment::Sandboxed,
                 allowed_tools: Vec::new(),
                 allowed_categories: Vec::new(),
+                allowed_commands: Vec::new(),
             })
             .unwrap();
         gent_ports::AgentChatConversationConfigLedger::save_conversation_config(

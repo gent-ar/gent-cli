@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gent_protocol::{AUTOMATIONS_CAPABILITY, AutomationFrame, read_json_frame, write_json_frame};
+use gent_protocol::{AUTOMATIONS_CAPABILITY, AutomationFrame, write_json_frame};
 use gent_types::{AutomationDefinition, AutomationId, AutomationRun};
 use serde_json::Value;
 
@@ -55,10 +55,7 @@ pub(crate) async fn list(
         },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     match serde_json::from_value(raw)? {
         AutomationFrame::List {
             request_id: reply_id,
@@ -92,10 +89,7 @@ pub(crate) async fn create(
         },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     match serde_json::from_value(raw)? {
         AutomationFrame::Created {
             request_id: reply_id,
@@ -161,10 +155,7 @@ async fn exchange(
     let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
     require_capability(&capabilities)?;
     write_json_frame(&mut stream, &frame).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     let response: AutomationFrame = serde_json::from_value(raw)?;
     let (AutomationFrame::RunAccepted {
         request_id: response_id,

@@ -1,5 +1,3 @@
-//! `SQLite` persistence for immutable workspace permission-policy revisions.
-
 use gent_ports::LedgerError;
 use gent_types::{PermissionMode, PolicyRecord, PolicyScope};
 use rusqlite::{OptionalExtension, params};
@@ -9,9 +7,15 @@ use super::SqliteLedger;
 use super::queries::storage_error;
 
 pub(super) fn save(ledger: &SqliteLedger, policy: &PolicyRecord) -> Result<(), LedgerError> {
+    save_in(&*ledger.lock()?, policy)
+}
+
+pub(super) fn save_in(
+    connection: &rusqlite::Connection,
+    policy: &PolicyRecord,
+) -> Result<(), LedgerError> {
     validate(policy)?;
-    let connection = ledger.lock()?;
-    save_record(&connection, policy)
+    save_record(connection, policy)
 }
 
 pub(super) fn save_guarded(
@@ -64,10 +68,12 @@ fn save_record(
         .map_err(|error| LedgerError::Storage(error.to_string()))?;
     let allowed_categories = serde_json::to_string(&policy.allowed_categories)
         .map_err(|error| LedgerError::Storage(error.to_string()))?;
+    let allowed_commands = serde_json::to_string(&policy.allowed_commands)
+        .map_err(|error| LedgerError::Storage(error.to_string()))?;
     connection
         .execute(
-            "INSERT INTO policies (policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![policy.policy_id, policy.workspace_id, encode_scope(policy.scope), policy.revision, allowed_tools, encode_mode(policy.mode), allowed_categories],
+            "INSERT INTO policies (policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories, allowed_commands) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![policy.policy_id, policy.workspace_id, encode_scope(policy.scope), policy.revision, allowed_tools, encode_mode(policy.mode), allowed_categories, allowed_commands],
         )
         .map(|_| ())
         .map_err(storage_error)
@@ -106,6 +112,7 @@ pub(super) fn ensure_default_provider_permission_policy(
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: Vec::new(),
         allowed_categories: Vec::new(),
+        allowed_commands: Vec::new(),
     };
     transaction.execute(
         "INSERT INTO policies (policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -127,7 +134,7 @@ fn current(
 ) -> Result<Option<PolicyRecord>, LedgerError> {
     connection
         .query_row(
-            "SELECT policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories FROM policies WHERE workspace_id = ?1 AND scope = ?2 ORDER BY revision DESC LIMIT 1",
+            "SELECT policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories, allowed_commands FROM policies WHERE workspace_id = ?1 AND scope = ?2 ORDER BY revision DESC LIMIT 1",
             params![workspace_id, encode_scope(scope)],
             decode_policy,
         )
@@ -141,7 +148,7 @@ fn by_id(
 ) -> Result<Option<PolicyRecord>, LedgerError> {
     connection
         .query_row(
-            "SELECT policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories FROM policies WHERE policy_id = ?1",
+            "SELECT policy_id, workspace_id, scope, revision, allowed_tools, mode, allowed_categories, allowed_commands FROM policies WHERE policy_id = ?1",
             [policy_id],
             decode_policy,
         )
@@ -177,6 +184,19 @@ fn validate(policy: &PolicyRecord) -> Result<(), LedgerError> {
             "policy categories must be canonical, sorted, and unique".into(),
         ));
     }
+    if policy
+        .allowed_commands
+        .iter()
+        .any(|grant| gent_types::validate_command_grant(grant).is_err())
+        || policy
+            .allowed_commands
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err(LedgerError::Invariant(
+            "policy command grants must be valid, sorted, and unique".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -205,6 +225,7 @@ const fn encode_mode(mode: PermissionMode) -> &'static str {
 fn decode_policy(row: &rusqlite::Row<'_>) -> rusqlite::Result<PolicyRecord> {
     let tools = row.get::<_, String>(4)?;
     let categories = row.get::<_, String>(6)?;
+    let commands = row.get::<_, String>(7)?;
     Ok(PolicyRecord {
         policy_id: row.get(0)?,
         workspace_id: row.get(1)?,
@@ -214,6 +235,8 @@ fn decode_policy(row: &rusqlite::Row<'_>) -> rusqlite::Result<PolicyRecord> {
         mode: decode_mode(&row.get::<_, String>(5)?)?,
         containment: gent_types::Containment::Sandboxed,
         allowed_categories: serde_json::from_str(&categories)
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        allowed_commands: serde_json::from_str(&commands)
             .map_err(|_| rusqlite::Error::InvalidQuery)?,
     })
 }

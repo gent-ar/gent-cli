@@ -3,6 +3,32 @@ use serde_json::json;
 use std::path::Path;
 
 #[test]
+fn local_chat_tools_require_the_injected_conversation_settings() {
+    let injected =
+        crate::standalone_mcp_config::InjectedInternalMcp::fixture(Path::new("/data"), "/bin/gent");
+    let mut settings = injected.servers()["gent-chat"].clone();
+    settings["name"] = json!("gent-chat");
+    let scoped =
+        crate::conversation_scoped_mcp::scope_named_entries(vec![settings], "conversation");
+    let name = "mcp__gent-chat__gent_chat_create".to_owned();
+    assert!(owned_chat_tools(&scoped, Some(&injected), "conversation", &[]).contains(&name));
+    assert!(
+        !owned_chat_tools(
+            &scoped,
+            Some(&injected),
+            "conversation",
+            std::slice::from_ref(&name)
+        )
+        .contains(&name)
+    );
+    assert!(owned_chat_tools(&scoped, None, "conversation", &[]).is_empty());
+    assert!(owned_chat_tools(&scoped, Some(&injected), "other", &[]).is_empty());
+    let mut replaced = scoped;
+    replaced[0]["command"] = json!("/bin/external");
+    assert!(owned_chat_tools(&replaced, Some(&injected), "conversation", &[]).is_empty());
+}
+
+#[test]
 fn exact_injected_selected_catalog_tools_allow_both_sdk_spellings_only() {
     let expected =
         crate::standalone_mcp_config::InjectedInternalMcp::fixture(Path::new("/data"), "/bin/gent")

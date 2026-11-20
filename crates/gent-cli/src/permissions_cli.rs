@@ -1,20 +1,18 @@
 use clap::{Args, Subcommand, ValueEnum};
-use gent_protocol::{
-    PERMISSION_POLICY_CAPABILITY, PermissionPolicyFrame, read_json_frame, write_json_frame,
-};
-use gent_types::{PermissionCategory, PermissionMode, PolicyRecord, PolicyScope};
-use serde_json::Value;
+use gent_protocol::PermissionPolicyFrame;
+use gent_types::{PermissionCategory, PermissionMode, PolicyRecord};
 use std::path::PathBuf;
 
 use crate::cli_error::{CliError, Failure};
-use crate::local_ipc::connect_and_negotiate;
 
 pub(crate) mod agent_chat;
 mod conversions;
 mod mode;
+mod policy_exchange;
 mod workspace;
-use conversions::valid_reply;
+use conversions::command_grants;
 pub(crate) use mode::set_mode;
+use policy_exchange::{exchange, policy};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PermissionCommand {
@@ -54,12 +52,6 @@ pub(crate) struct PermissionPendingArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct PermissionSetArgs {
-    #[arg(
-        long,
-        value_enum,
-        help = "Provider whose native backend must support an unattended posture"
-    )]
-    pub(crate) provider: Option<crate::chat_cli::Provider>,
     #[command(flatten)]
     pub(crate) workspace: PermissionWorkspaceArgs,
     #[arg(
@@ -79,6 +71,11 @@ pub(crate) struct PermissionSetArgs {
         help = "Approve a complete typed category, such as read or network"
     )]
     pub(crate) allowed_categories: Vec<PermissionCategoryArgument>,
+    #[arg(
+        long = "allow-command",
+        help = "Approve a tool's simple command by pattern, as TOOL=PATTERN (e.g. 'Bash=npm run *')"
+    )]
+    pub(crate) allowed_commands: Vec<String>,
     #[arg(long, help = "Confirm the one-time change into the broad bypass mode")]
     pub(crate) consent_bypass: bool,
 }
@@ -99,6 +96,24 @@ pub(crate) struct PermissionRespondArgs {
     pub(crate) decision: PermissionDecisionArgument,
     #[arg(long, help = "Receipt id to reuse when retrying the same answer")]
     pub(crate) receipt_id: Option<String>,
+    #[arg(
+        long,
+        help = "Command pattern persisted by approve-command-pattern, e.g. 'git status'"
+    )]
+    pub(crate) command_pattern: Option<String>,
+    #[arg(
+        long,
+        value_parser = json_object,
+        help = "JSON object answering a question request, the input `/answer` sends"
+    )]
+    pub(crate) answer: Option<serde_json::Value>,
+}
+
+fn json_object(raw: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .filter(serde_json::Value::is_object)
+        .ok_or_else(|| "--answer requires a JSON object".into())
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -115,6 +130,7 @@ pub(crate) enum PermissionDecisionArgument {
     ApproveOnce,
     ApproveExactTool,
     ApproveCategory,
+    ApproveCommandPattern,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -147,15 +163,7 @@ pub(crate) async fn execute(
             agent_chat::pending(data_dir, no_autostart, args.conversation_id).await?,
         )?),
         PermissionCommand::Respond(args) => {
-            agent_chat::respond_decision(
-                data_dir,
-                no_autostart,
-                args.conversation_id,
-                args.decision_id,
-                args.decision.into(),
-                args.receipt_id,
-            )
-            .await
+            agent_chat::respond_decision(data_dir, no_autostart, args).await
         }
     }
 }
@@ -166,24 +174,12 @@ async fn save(
     args: PermissionSetArgs,
 ) -> Result<PolicyRecord, Box<dyn std::error::Error>> {
     let mode: PermissionMode = args.mode.into();
-    let expected_provider = args.provider.map(|provider| match provider {
-        crate::chat_cli::Provider::Claude => gent_types::AgentChatProvider::Claude,
-        crate::chat_cli::Provider::Codex => gent_types::AgentChatProvider::Codex,
-        crate::chat_cli::Provider::Gent => gent_types::AgentChatProvider::Claurst,
-    });
-
     if mode == PermissionMode::Bypass && !args.consent_bypass {
         return Err(CliError::new(
             Failure::ConsentRequired,
             "changing to bypass mode requires --consent-bypass",
         )
         .into());
-    }
-    if mode.is_unattended() && expected_provider.is_none() {
-        return Err(
-            "Autonomous and Bypass require --provider so Gent can verify its native backend."
-                .into(),
-        );
     }
     let workspace_id =
         workspace::resolve(data_dir.clone(), no_autostart, args.workspace.workspace).await?;
@@ -199,12 +195,14 @@ async fn save(
         .collect();
     allowed_categories.sort();
     allowed_categories.dedup();
+    let allowed_commands = command_grants(&args.allowed_commands)?;
     let policy = policy(
         &workspace_id,
         revision,
         mode,
         allowed_tools,
         allowed_categories,
+        allowed_commands,
     );
     exchange(
         data_dir,
@@ -213,7 +211,6 @@ async fn save(
             request_id: uuid::Uuid::new_v4().to_string(),
             policy,
             bypass_consent: args.consent_bypass,
-            expected_provider: mode.is_unattended().then_some(expected_provider).flatten(),
         },
     )
     .await
@@ -241,53 +238,6 @@ pub(crate) async fn current_for(
         PermissionPolicyFrame::CurrentPolicy { policy, .. } => Ok(policy),
         _ => Err("daemon did not return a permission policy".into()),
     })
-}
-
-pub(super) fn policy(
-    workspace_id: &str,
-    revision: u64,
-    mode: PermissionMode,
-    allowed_tools: Vec<String>,
-    allowed_categories: Vec<PermissionCategory>,
-) -> PolicyRecord {
-    PolicyRecord {
-        policy_id: format!("permission-policy-{}", uuid::Uuid::new_v4()),
-        workspace_id: workspace_id.into(),
-        scope: PolicyScope::ProviderPermissions,
-        revision,
-        mode,
-        containment: gent_types::Containment::Sandboxed,
-        allowed_tools,
-        allowed_categories,
-    }
-}
-
-pub(super) async fn exchange(
-    data_dir: Option<PathBuf>,
-    no_autostart: bool,
-    request: PermissionPolicyFrame,
-) -> Result<PermissionPolicyFrame, Box<dyn std::error::Error>> {
-    let (mut stream, capabilities) = connect_and_negotiate(data_dir, no_autostart).await?;
-    if !capabilities
-        .0
-        .iter()
-        .any(|capability| capability == PERMISSION_POLICY_CAPABILITY)
-    {
-        return Err("gentd does not support permission policy; upgrade gentd".into());
-    }
-    mode::require_provider_binding(&request, &capabilities)?;
-    write_json_frame(&mut stream, &request).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
-    let response = serde_json::from_value(raw)
-        .map_err(|_| "daemon did not return a permission policy frame")?;
-    valid_reply(&request, &response)
-        .then_some(response)
-        .ok_or_else(|| {
-            "daemon returned a permission policy response with a different request".into()
-        })
 }
 
 #[cfg(test)]

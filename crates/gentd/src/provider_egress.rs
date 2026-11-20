@@ -72,6 +72,8 @@ mod mcp_stdio;
 mod mcp_stdio_scope_tests;
 #[path = "provider_mcp_subset.rs"]
 mod mcp_subset;
+#[path = "provider_egress_probe_phase.rs"]
+mod probe_phase;
 #[path = "provider_egress_probe_process.rs"]
 mod probe_process;
 #[path = "provider_egress_run_fence.rs"]
@@ -81,6 +83,7 @@ mod server;
 #[path = "provider_egress_wire.rs"]
 mod wire;
 pub use composition::ProviderGatewayLease;
+pub use probe_phase::CredentialProbePhase;
 pub use server::ProviderEgressBroker;
 #[cfg(all(test, windows))]
 #[path = "provider_egress_integration_tests.rs"]
@@ -120,36 +123,6 @@ impl std::fmt::Debug for ReviewedProviderEgress {
             .field("api", &self.api)
             .field("policy_digest", &self.policy_digest)
             .finish_non_exhaustive()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CredentialProbePhase {
-    Preparation,
-    Busy,
-    ScopeUnknown,
-    StatusExecution,
-    StatusProtocol,
-    LoginUnavailable,
-    CaptureTransport,
-    CaptureProtocol,
-    Transcript,
-    Cleanup,
-}
-impl std::fmt::Display for CredentialProbePhase {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Preparation => "owned workspace preparation failed",
-            Self::Busy => "another credential check is in progress",
-            Self::ScopeUnknown => "process settlement is unproven; restart Gent before retrying",
-            Self::StatusExecution => "SDK status check could not complete",
-            Self::StatusProtocol => "SDK status response is invalid",
-            Self::LoginUnavailable => "no supported Claude.ai login is active",
-            Self::CaptureTransport => "local credential transport could not complete",
-            Self::CaptureProtocol => "SDK credential response is invalid",
-            Self::Transcript => "SDK created an unexpected transcript",
-            Self::Cleanup => "owned probe artifacts could not be removed",
-        })
     }
 }
 

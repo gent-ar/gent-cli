@@ -1,5 +1,3 @@
-//! Local transport selection; command composition remains in `main`.
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -43,14 +41,21 @@ pub(crate) async fn request(
 ) -> Result<WireFrame, Box<dyn std::error::Error>> {
     let (mut stream, _) = connect_and_negotiate(data_dir, no_autostart).await?;
     write_frame(&mut stream, &frame).await?;
-    let response = read_frame(&mut stream).await?;
-    if let WireFrame::Error { code, message } = &response {
-        return Err(CliError::daemon(code.clone(), message.clone()).into());
-    }
-    Ok(response)
+    read_reply(&mut stream).await
 }
 
-/// Opens local IPC and requires the mandatory protocol handshake before any extension frame.
+pub(crate) async fn read_reply<S, T>(stream: &mut S) -> Result<T, Box<dyn std::error::Error>>
+where
+    S: tokio::io::AsyncRead + Unpin,
+    T: serde::de::DeserializeOwned,
+{
+    let raw: serde_json::Value = gent_protocol::read_json_frame(stream).await?;
+    if let Some(error) = CliError::from_reply(&raw) {
+        return Err(error.into());
+    }
+    serde_json::from_value(raw).map_err(|_| "gentd returned a reply gent does not recognize".into())
+}
+
 pub(crate) async fn connect_and_negotiate(
     data_dir: Option<PathBuf>,
     no_autostart: bool,
@@ -81,6 +86,10 @@ pub(crate) async fn connect_and_negotiate(
 pub(crate) fn client_capabilities() -> CapabilitySet {
     let mut capabilities = vec![
         AGENT_CHAT_INTENTS_CAPABILITY.into(),
+        gent_protocol::AGENT_CHAT_STEER_TURN_CAPABILITY.into(),
+        "agent-chat-steer-turn-claude-v1".into(),
+        "agent-chat-steer-turn-codex-v1".into(),
+        "agent-chat-steer-turn-claurst-v1".into(),
         AGENT_CHAT_PERMISSIONS_CAPABILITY.into(),
         AGENT_CHAT_CONVERSATIONS_CAPABILITY.into(),
         AGENT_CHAT_TRANSCRIPT_CAPABILITY.into(),
@@ -94,7 +103,6 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         RUNTIME_MAINTENANCE_CAPABILITY.into(),
         RUNTIME_UPDATE_CHECK_CAPABILITY.into(),
         PERMISSION_POLICY_CAPABILITY.into(),
-        gent_protocol::PERMISSION_POLICY_PROVIDER_BINDING_CAPABILITY.into(),
         PROVIDER_AUTH_CAPABILITY.into(),
         PROVIDER_READINESS_CAPABILITY.into(),
         PROMPT_PROVIDER_PROVISION_CAPABILITY.into(),
@@ -122,6 +130,8 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         gent_protocol::AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY.into(),
         gent_protocol::AGENT_CHAT_ARCHIVE_CAPABILITY.into(),
         gent_protocol::speech_catalog::SPEECH_CATALOG_CAPABILITY.into(),
+        gent_protocol::agent_chat_receipt_lookup::AGENT_CHAT_RECEIPT_LOOKUP_CAPABILITY.into(),
+        gent_protocol::AGENT_CHAT_PERMISSION_COMMAND_GRANTS_CAPABILITY.into(),
     ]);
     CapabilitySet(capabilities)
 }
@@ -212,7 +222,6 @@ fn connect(data_dir: &Path) -> std::future::Ready<Result<LocalStream, std::io::E
 
 #[cfg(windows)]
 fn pipe_is_busy(error: &std::io::Error) -> bool {
-    // ERROR_PIPE_BUSY from the Win32 API. Tokio's client docs prescribe retrying it.
     error.raw_os_error() == Some(231)
 }
 

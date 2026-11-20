@@ -13,12 +13,32 @@ pub(crate) mod grant;
 #[path = "agent_chat_permission_api_receipt.rs"]
 pub(crate) mod receipt;
 
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum PermissionExchangeError {
+    InputInvalid(String),
+    CommandPattern(gent_types::CommandPatternError),
+    Failed(String),
+}
+
+impl From<String> for PermissionExchangeError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
 #[async_trait]
 pub(crate) trait AgentChatPermissionPort: Send + Sync {
     async fn exchange(
         &self,
         frame: AgentChatPermissionFrame,
-    ) -> Result<AgentChatPermissionFrame, String>;
+    ) -> Result<AgentChatPermissionFrame, PermissionExchangeError>;
+
+    fn lookup_receipt(
+        &self,
+        _receipt_id: &gent_types::ReceiptId,
+    ) -> Result<gent_types::ReceiptLookup, String> {
+        Err("receipt lookup is unavailable".into())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -36,10 +56,19 @@ impl StandaloneAgentChatPermissionPort {
 
 #[async_trait]
 impl AgentChatPermissionPort for StandaloneAgentChatPermissionPort {
+    fn lookup_receipt(
+        &self,
+        receipt_id: &gent_types::ReceiptId,
+    ) -> Result<gent_types::ReceiptLookup, String> {
+        self.ledger
+            .lookup_receipt(receipt_id)
+            .map_err(|error| error.to_string())
+    }
+
     async fn exchange(
         &self,
         frame: AgentChatPermissionFrame,
-    ) -> Result<AgentChatPermissionFrame, String> {
+    ) -> Result<AgentChatPermissionFrame, PermissionExchangeError> {
         match frame {
             AgentChatPermissionFrame::PendingRead {
                 request_id,
@@ -63,11 +92,12 @@ impl AgentChatPermissionPort for StandaloneAgentChatPermissionPort {
                 if response.binding.conversation_id.0.is_empty()
                     || response.binding.run_id.0.is_empty()
                 {
-                    return Err("permission response binding is invalid".into());
+                    return Err(String::from("permission response binding is invalid").into());
                 }
+                self.validate_command_pattern(&response)?;
                 let provider = self.provider_for(&response)?;
                 if provider == gent_types::AgentChatProvider::Claurst && response.input.is_some() {
-                    return Err("Claurst cannot receive an edited permission response or question answer through its current ACP permission channel".into());
+                    return Err(String::from("Claurst cannot receive an edited permission response or question answer through its current ACP permission channel").into());
                 }
                 let receipt = match provider {
                     gent_types::AgentChatProvider::Claurst => {
@@ -90,7 +120,7 @@ impl AgentChatPermissionPort for StandaloneAgentChatPermissionPort {
             }
             AgentChatPermissionFrame::Pending { .. }
             | AgentChatPermissionFrame::Accepted { .. } => {
-                Err("permission response frames are server-only".into())
+                Err(String::from("permission response frames are server-only").into())
             }
         }
     }
@@ -111,6 +141,39 @@ fn validate_response_input(input: Option<&serde_json::Value>) -> Result<(), Stri
 }
 
 impl StandaloneAgentChatPermissionPort {
+    fn validate_command_pattern(
+        &self,
+        response: &PermissionDecisionResponse,
+    ) -> Result<(), PermissionExchangeError> {
+        let pattern_answer =
+            response.response == gent_types::PermissionDecisionResponseKind::ApproveCommandPattern;
+        match (pattern_answer, response.command_pattern.is_some()) {
+            (true, false) => {
+                return Err(PermissionExchangeError::CommandPattern(
+                    gent_types::CommandPatternError::Missing,
+                ));
+            }
+            (false, true) => {
+                return Err(PermissionExchangeError::CommandPattern(
+                    gent_types::CommandPatternError::Unexpected,
+                ));
+            }
+            (false, false) => return Ok(()),
+            (true, true) => {}
+        }
+        let pending = self
+            .ledger
+            .pending_permission(&response.binding.conversation_id, &response.binding.run_id)
+            .map_err(|error| error.to_string())?
+            .filter(|pending| pending.binding == response.binding);
+        match pending {
+            Some(pending) => gent_types::answered_command_grant(&pending.request, response)
+                .map(|_| ())
+                .map_err(PermissionExchangeError::CommandPattern),
+            None => Ok(()),
+        }
+    }
+
     fn provider_for(
         &self,
         response: &PermissionDecisionResponse,

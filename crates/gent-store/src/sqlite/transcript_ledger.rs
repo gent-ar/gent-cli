@@ -213,12 +213,13 @@ fn event(
         text: append.text.clone(),
         is_partial: append.is_partial,
         failure_code: gent_types::AgentChatFailureCode::from_event_id(&append.event_id),
+        resets_at: gent_types::AgentChatFailureCode::resets_at_from_event_id(&append.event_id),
         origin: None,
         attachments: Vec::new(),
     })
 }
 
-fn decode_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<NormalizedTranscriptEvent> {
+pub(super) fn decode_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<NormalizedTranscriptEvent> {
     decode_event_at(row, 0)
 }
 
@@ -230,6 +231,7 @@ fn decode_event_at(
     Ok(NormalizedTranscriptEvent {
         cursor: row.get(start)?,
         failure_code: gent_types::AgentChatFailureCode::from_event_id(&event_id),
+        resets_at: gent_types::AgentChatFailureCode::resets_at_from_event_id(&event_id),
         event_id,
         turn_id: row.get(start + 2)?,
         run_id: row.get(start + 3)?,
@@ -241,7 +243,7 @@ fn decode_event_at(
     })
 }
 
-const fn kind(value: NormalizedTranscriptKind) -> &'static str {
+pub(super) const fn kind(value: NormalizedTranscriptKind) -> &'static str {
     match value {
         NormalizedTranscriptKind::UserMessage => "userMessage",
         NormalizedTranscriptKind::AssistantMessage => "assistantMessage",

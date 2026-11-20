@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame, Hello, WireFrame, read_frame,
-    read_json_frame, write_frame, write_json_frame,
+    CONVERSATION_TIMELINE_CAPABILITY, ConversationTimelineFrame, Hello, WireFrame, write_frame,
+    write_json_frame,
 };
 use gent_types::{ConversationTimeline, PROTOCOL_MAX, PROTOCOL_MIN};
 use serde_json::Value;
@@ -32,7 +32,7 @@ pub(crate) async fn request(
         }),
     )
     .await?;
-    let WireFrame::Negotiated(negotiated) = read_frame(&mut stream).await? else {
+    let WireFrame::Negotiated(negotiated) = crate::local_ipc::read_reply(&mut stream).await? else {
         return Err("daemon did not negotiate protocol".into());
     };
     if !negotiated
@@ -48,14 +48,11 @@ pub(crate) async fn request(
         &ConversationTimelineFrame::TimelineRequest { conversation_id },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(ConversationTimelineFrame::Timeline(timeline)) = serde_json::from_value(raw.clone())
         && timeline.conversation_id == expected_conversation_id
     {
         return Ok(timeline);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return conversation timeline".into())
 }

@@ -2,9 +2,7 @@
 
 use std::{collections::HashSet, path::PathBuf};
 
-use gent_protocol::{
-    CONVERSATION_INDEX_CAPABILITY, ConversationIndexFrame, read_json_frame, write_json_frame,
-};
+use gent_protocol::{CONVERSATION_INDEX_CAPABILITY, ConversationIndexFrame, write_json_frame};
 use gent_types::ConversationListItem;
 use serde_json::Value;
 
@@ -27,7 +25,7 @@ pub(crate) async fn request(
         return Err("daemon does not support conversation discovery; upgrade gentd".into());
     }
     write_json_frame(&mut stream, &ConversationIndexFrame::Request).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(ConversationIndexFrame::Index(index)) = serde_json::from_value(raw.clone()) {
         if index
             .iter()
@@ -43,9 +41,6 @@ pub(crate) async fn request(
             return Err("daemon returned duplicate conversation identities".into());
         }
         return Err("daemon returned a conversation index with an empty identity".into());
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return a conversation index".into())
 }

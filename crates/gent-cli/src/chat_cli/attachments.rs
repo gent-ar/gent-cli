@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use base64::Engine;
-use gent_protocol::{ATTACHMENTS_CAPABILITY, AttachmentFrame, read_json_frame, write_json_frame};
+use gent_protocol::{ATTACHMENTS_CAPABILITY, AttachmentFrame, write_json_frame};
 use gent_types::{
     AttachmentMetadata, AttachmentOperation, AttachmentState, AttachmentTransfer, HostEpoch,
     ReceiptId,
 };
 use sha2::{Digest, Sha256};
 
-use crate::local_ipc::{LocalStream, connect_and_negotiate};
+use crate::local_ipc::{LocalStream, connect_and_negotiate, read_reply};
 
 const MAX_ATTACHMENT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_CHUNK_BYTES: usize = 256 * 1024;
@@ -111,11 +111,8 @@ async fn round_trip(
     frame: AttachmentFrame,
 ) -> Result<AttachmentTransfer, Box<dyn std::error::Error>> {
     write_json_frame(stream, &frame).await?;
-    match read_json_frame::<_, AttachmentFrame>(stream).await? {
+    match read_reply::<_, AttachmentFrame>(stream).await? {
         AttachmentFrame::Transfer { transfer } => Ok(transfer),
-        AttachmentFrame::Error { code, message } => {
-            Err(crate::cli_error::CliError::daemon(code, message).into())
-        }
         _ => Err("daemon returned an invalid attachment response".into()),
     }
 }

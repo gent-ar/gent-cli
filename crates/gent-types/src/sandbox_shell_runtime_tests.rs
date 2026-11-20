@@ -172,6 +172,7 @@ fn command_boundary_rejects_every_broad_or_gateway_launch_without_brokered_egres
                     containment: crate::Containment::Sandboxed,
                     allowed_tools: vec![],
                     allowed_categories: vec![],
+                    allowed_commands: Vec::new(),
                 },
                 crate::HostEpoch(1),
             )
@@ -211,6 +212,7 @@ fn only_an_unregistered_worker_with_no_network_or_shell_skips_the_command_broker
             containment: crate::Containment::Sandboxed,
             allowed_tools: vec![],
             allowed_categories: vec![],
+            allowed_commands: Vec::new(),
         },
         crate::HostEpoch(1),
     )

@@ -1,4 +1,3 @@
-//! Stable value types shared by every public Gent crate.
 mod agent_chat;
 mod agent_chat_checkpoint;
 mod agent_chat_command;
@@ -10,6 +9,7 @@ mod agent_chat_intent;
 mod agent_chat_ledger;
 mod agent_chat_prompt;
 mod agent_chat_prompt_origin;
+mod agent_chat_rejection;
 mod agent_chat_run_context;
 mod agent_chat_sessions;
 mod agent_chat_side_question;
@@ -21,6 +21,8 @@ mod bounded_text;
 mod command_fingerprint;
 #[cfg(test)]
 mod command_fingerprint_tests;
+mod command_grant;
+mod command_pattern;
 #[cfg(test)]
 mod contract_edge_tests;
 mod conversation_activity;
@@ -50,6 +52,7 @@ mod orchestration_tests;
 mod paths;
 mod permission_control;
 mod policies;
+mod projection_window;
 mod prompt_templates;
 mod provider_auth;
 mod provider_auth_handoff;
@@ -57,6 +60,7 @@ mod provider_install_progress;
 mod provider_lifecycle_values;
 mod provider_prompt_provision;
 mod provider_prompt_readiness;
+mod receipt_lookup;
 mod reviewed_plan;
 mod run_checkpoints;
 mod run_lifecycle_fact;
@@ -78,9 +82,9 @@ mod workspaces;
 pub use agent_chat::{
     AgentChatConversationDetail, AgentChatConversationSummary, AgentChatEffort, AgentChatMode,
     AgentChatProjectionEvent, AgentChatProjectionPage, AgentChatProjectionTail, AgentChatProvider,
-    AgentChatRejection, AgentChatRun, AgentChatRunState, AgentChatSelection,
-    AgentChatSelectionError, AgentChatSteerDelivery, NormalizedTranscriptAppend,
-    NormalizedTranscriptEvent, NormalizedTranscriptKind, NormalizedTranscriptPage,
+    AgentChatQueueDelivery, AgentChatRun, AgentChatRunState, AgentChatSelection,
+    AgentChatSelectionError, NormalizedTranscriptAppend, NormalizedTranscriptEvent,
+    NormalizedTranscriptKind, NormalizedTranscriptPage,
 };
 pub use agent_chat_checkpoint::{
     AgentChatCheckpointCapture, AgentChatCheckpointRestore, AgentChatCheckpointRestored,
@@ -89,8 +93,8 @@ pub use agent_chat_checkpoint::{
 pub use agent_chat_command::{
     AgentChatClientAction, AgentChatCommandAvailability, AgentChatCommandDescriptor,
     AgentChatCommandDispatch, AgentChatCommandIntent, AgentChatCommandOrigin,
-    AgentChatCommandRejection, MAX_COMMAND_ARGUMENTS_BYTES, MAX_COMMAND_NAME_BYTES,
-    MAX_COMMAND_TEXT_BYTES, slash_command, valid_command_name,
+    AgentChatCommandRejection, AgentChatCommandRejectionDetails, MAX_COMMAND_ARGUMENTS_BYTES,
+    MAX_COMMAND_NAME_BYTES, MAX_COMMAND_TEXT_BYTES, slash_command, valid_command_name,
 };
 pub use agent_chat_compaction::{AgentChatCompactionFact, AgentChatCompactionFailure};
 pub use agent_chat_conversation_config::{
@@ -108,12 +112,13 @@ pub use agent_chat_prompt::{
     AgentChatPromptError, AgentChatPromptSaved, PromptHoldReason, validate_tool_source_ids,
 };
 pub use agent_chat_prompt_origin::AgentChatPromptOrigin;
+pub use agent_chat_rejection::AgentChatRejection;
 pub use agent_chat_run_context::{AgentChatRunContext, AgentChatRunContextOrigin};
 pub use agent_chat_sessions::{AgentChatSession, AgentChatSessionId};
 pub use agent_chat_side_question::{
     AgentChatSideQuestion, AgentChatSideQuestionAsked, AgentChatSideQuestionCancel,
-    AgentChatSideQuestionCancelled, AgentChatSideQuestionOutcome, AgentChatSideQuestionRecord,
-    AgentChatSideQuestionStatus,
+    AgentChatSideQuestionCancelled, AgentChatSideQuestionFailureCode, AgentChatSideQuestionOutcome,
+    AgentChatSideQuestionRecord, AgentChatSideQuestionStatus,
 };
 pub use agent_chat_switch::{AgentChatSelectionSwitch, AgentChatSelectionSwitched};
 pub use agent_chat_terminal_settlement::AgentChatTerminalSettlement;
@@ -130,12 +135,17 @@ pub use bounded_text::{
     OVERSIZED_PROVIDER_FRAME_NOTICE, PROVIDER_CONTEXT_COMPACTED_DIAGNOSTIC,
     PROVIDER_CONTEXT_COMPACTED_NOTICE, PROVIDER_CONTEXT_COMPACTION_FAILED_DIAGNOSTIC,
     PROVIDER_CONTEXT_COMPACTION_FAILED_NOTICE, PROVIDER_SESSION_RECOVERED_DIAGNOSTIC,
-    PROVIDER_SESSION_RECOVERED_NOTICE, PROVIDER_SESSION_UNAVAILABLE_NOTICE,
-    PROVIDER_TRANSIENT_RETRY_DIAGNOSTIC, PROVIDER_TRANSIENT_RETRY_NOTICE, bounded_text,
+    PROVIDER_SESSION_RECOVERED_NOTICE, PROVIDER_SESSION_UNAVAILABLE_NOTICE, bounded_text,
+};
+pub use command_grant::{CommandGrant, CommandPatternError};
+pub use command_pattern::{
+    answered_command_grant, command_grant_for, command_grant_permits, parse_command_pattern,
+    validate_command_grant,
 };
 pub use conversation_activity::{
-    ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ConversationActivityFact,
-    ConversationActivityPage, ConversationActivityScope, TurnTerminalCause,
+    ActivityWorkKind, CONVERSATION_ACTIVITY_SCHEMA_VERSION, ContextClearCommand,
+    ConversationActivityFact, ConversationActivityPage, ConversationActivityScope,
+    ModelDownloadPhase, TurnTerminalCause, WorkspaceFileChange,
 };
 pub use conversation_artifact::{
     ConversationArtifact, ConversationArtifactKind, ConversationArtifactStatus,
@@ -201,6 +211,10 @@ pub use policies::{
     Containment, PermissionCategory, PermissionDenialReason, PermissionMode, PermissionRequest,
     PolicyRecord, PolicyScope, SandboxEnforcement,
 };
+pub use projection_window::{
+    ConversationTurnCursor, ConversationTurnCursorPage, MAX_PROJECTION_WINDOW_CARRY,
+    MAX_TURN_CURSOR_PAGE, ProjectionWindowCarry,
+};
 pub use prompt_templates::{
     PROMPT_TEMPLATE_SCHEMA_VERSION, PromptTemplateError, PromptTemplateRecord,
     PromptTemplateRender, PromptTemplateVariable,
@@ -226,9 +240,11 @@ pub use provider_prompt_provision::{
 pub use provider_prompt_readiness::{
     PromptAdmissionExit, ProviderPromptReadinessBinding, ProviderPromptReadinessFailureBinding,
 };
+pub use receipt_lookup::{ReceiptIntentKind, ReceiptLookup, ReceiptPromptOutcome};
 pub use reviewed_plan::{
-    ContextPolicy, MAX_PLAN_CONTENT_BYTES, PlanArtifact, PlanImplementation, PlanRevision,
-    PlanStatus, PlanTurn, ReviewedPlanContractError, ReviewedPlanId, StartImplementationRequest,
+    ContextPolicy, ImplementationStarted, MAX_IMPLEMENTATION_INSTRUCTIONS_BYTES,
+    MAX_PLAN_CONTENT_BYTES, PlanArtifact, PlanRevision, PlanStatus, PlanTurn,
+    ReviewedPlanContractError, ReviewedPlanId, StartImplementationRequest,
     StartImplementationResult,
 };
 pub use run_checkpoints::RunCheckpointRecord;

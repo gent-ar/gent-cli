@@ -1,6 +1,4 @@
-use std::collections::VecDeque;
-
-use gent_drivers::codex_control::{CodexControlDecision, CodexControlRequest};
+use gent_drivers::codex_control::CodexControlRequest;
 use gent_ports::{
     AgentChatPromptDispatchLedger, AgentChatRunContextReader, ConversationActivityLedger,
     ConversationContentReader, Ledger, NormalizedSessionBatchLedger, PendingPermissionLedger,
@@ -53,6 +51,28 @@ where
         self.record_permission_request(run_id, host_epoch, request)
     }
 
+    pub(super) fn retire_resolved_request(
+        &mut self,
+        run_id: &str,
+        request_key: &str,
+    ) -> Result<(), RuntimeError> {
+        let ledger = self.runtime.ledger();
+        let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
+        binding
+            .queued_permissions
+            .retain(|request| request.request_key != request_key);
+        let pending = ledger.pending_permission(
+            &gent_types::AgentChatConversationId(binding.prompt.message.conversation_id.clone()),
+            &gent_types::AgentChatRunId(run_id.into()),
+        )?;
+        if let Some(pending) =
+            pending.filter(|pending| pending.binding.decision_id.0 == request_key)
+        {
+            ledger.settle_pending_permission(&pending.binding)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn promote_queued_permission(
         &mut self,
         run_id: &str,
@@ -73,21 +93,6 @@ where
                 .record_permission_request(run_id, host_epoch, request)
                 .map(Some),
             None => Ok(None),
-        }
-    }
-
-    pub(super) fn deny_queued_permissions(
-        &self,
-        run_id: &str,
-        queued: VecDeque<CodexControlRequest>,
-    ) {
-        for request in queued {
-            let _ = self.runner.respond_codex_control(
-                run_id,
-                &request.request_key,
-                CodexControlDecision::Deny,
-                None,
-            );
         }
     }
 }

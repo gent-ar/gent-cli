@@ -1,11 +1,11 @@
+use std::collections::BTreeSet;
+
 use super::{
     ClaurstAcpDrain, ClaurstAcpStdio, ClaurstAcpTerminal, ClaurstAcpTransport,
     ClaurstAcpTransportError,
 };
+use gent_types::ToolPhase;
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
-
-const CANCEL_SETTLE: Duration = Duration::from_secs(5);
 
 impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
     pub(crate) fn prompt(
@@ -13,20 +13,10 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         session_id: &str,
         prompt: &str,
     ) -> Result<(), ClaurstAcpTransportError> {
-        if !self.initialized {
-            return Err(ClaurstAcpTransportError::Uninitialized);
-        }
-        if session_id.is_empty() || prompt.trim().is_empty() || self.pending_prompt_id.is_some() {
+        if prompt.trim().is_empty() {
             return Err(ClaurstAcpTransportError::InvalidSession);
         }
         self.prompt_content(session_id, vec![json!({"type": "text", "text": prompt})])
-    }
-
-    fn cancel_expired(&self) -> bool {
-        self.pending_prompt_id.is_some()
-            && self
-                .cancel_deadline
-                .is_some_and(|deadline| Instant::now() >= deadline)
     }
 
     pub(crate) fn cancel(&mut self, session_id: &str) -> Result<(), ClaurstAcpTransportError> {
@@ -38,19 +28,26 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             "method": "session/cancel",
             "params": {"sessionId": session_id},
         }))?;
-        self.cancel_deadline = Some(Instant::now() + CANCEL_SETTLE);
+        self.settle_permissions().map(drop)
+    }
+
+    pub(super) fn settle_permissions(
+        &mut self,
+    ) -> Result<BTreeSet<String>, ClaurstAcpTransportError> {
         self.queued_permissions.clear();
         let held = std::mem::take(&mut self.held_permissions)
             .into_iter()
             .map(|(pending, _)| pending);
+        let mut settled = BTreeSet::new();
         for pending in self.pending_permission.take().into_iter().chain(held) {
             self.write(json!({
                 "jsonrpc": "2.0",
                 "id": pending.json_rpc_id,
                 "result": {"outcome": {"outcome": "cancelled"}},
             }))?;
+            settled.insert(pending.tool_use_id);
         }
-        Ok(())
+        Ok(settled)
     }
 
     pub(crate) fn drain(
@@ -59,6 +56,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
     ) -> Result<ClaurstAcpDrain, ClaurstAcpTransportError> {
         let limit = usize::from(limit.clamp(1, 64));
         let mut drain = ClaurstAcpDrain::default();
+        let mut reader_closed = false;
         while drain.facts.len() < limit && drain.permissions.is_empty() {
             if let Some(fact) = self.queued.pop_front() {
                 drain.facts.push(fact);
@@ -72,28 +70,49 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 drain.terminal = Some(terminal);
                 break;
             }
-            let frame = match self.read_frame()? {
-                Some(frame) => frame,
-                None if self.cancel_expired() => {
-                    self.pending_prompt_id = None;
-                    self.pending_terminal = Some(ClaurstAcpTerminal::Interrupted);
-                    continue;
+            let frame = if self.pending_prompt_id.is_none() && self.has_background_commands() {
+                match self.background_frame() {
+                    Some(frame) => frame,
+                    None if self.has_background_commands() => break,
+                    None => {
+                        reader_closed = true;
+                        continue;
+                    }
                 }
-                None if self.pending_prompt_id.is_none() => break,
-                None => match self.stdio.exited() {
-                    Ok(None) => break,
-                    Ok(Some(reason)) | Err(reason) => self.read_frame()?.ok_or_else(|| {
-                        ClaurstAcpTransportError::Io(format!(
-                            "Claurst ended before its turn finished: {reason}"
-                        ))
-                    })?,
-                },
+            } else if reader_closed {
+                break;
+            } else {
+                match self.read_frame()? {
+                    Some(frame) => frame,
+                    None if self.pending_prompt_id.is_none() => break,
+                    None => match self.stdio.exited() {
+                        Ok(None) => break,
+                        Ok(Some(reason)) | Err(reason) => self.read_frame()?.ok_or_else(|| {
+                            ClaurstAcpTransportError::Io(format!(
+                                "Claurst ended before its turn finished: {reason}"
+                            ))
+                        })?,
+                    },
+                }
             };
             if let Some(terminal) = self.handle_frame(frame)? {
                 self.pending_terminal = Some(terminal);
             }
         }
         Ok(drain)
+    }
+
+    fn background_frame(&mut self) -> Option<Vec<u8>> {
+        let frame = match self.read_frame() {
+            Ok(None) if matches!(self.stdio.exited(), Ok(None)) => return None,
+            Ok(None) => self.read_frame().ok().flatten(),
+            Ok(Some(frame)) => Some(frame),
+            Err(_) => None,
+        };
+        if frame.is_none() {
+            self.end_background(ToolPhase::Failed);
+        }
+        frame
     }
 }
 
@@ -114,7 +133,7 @@ pub(super) fn prompt_failure(
     value: &Value,
     assistant_output: &str,
 ) -> (gent_types::ProviderFailureClassification, &'static str) {
-    use gent_types::ProviderFailureClassification::{ContextLimit, OutputLimit, Provider};
+    use gent_types::ProviderFailureClassification::{OutputLimit, Provider};
     let stop_reason = super::io::unanswered_stop_reason(assistant_output)
         .or_else(|| value.pointer("/result/stopReason").and_then(Value::as_str));
     match stop_reason {
@@ -131,7 +150,7 @@ pub(super) fn prompt_failure(
             "Claurst exhausted its turn-request limit before completing the turn.",
         ),
         Some("refusal") => (
-            ContextLimit,
+            Provider,
             "Claurst refused the request without completing the turn.",
         ),
         _ => (

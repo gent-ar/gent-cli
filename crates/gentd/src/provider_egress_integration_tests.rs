@@ -111,9 +111,16 @@ fn revocation_closes_an_incomplete_gateway_request_without_upstream() {
         .unwrap();
     thread::sleep(Duration::from_millis(100));
     broker.revoke();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    assert!(response.is_empty(), "{response}");
+    let mut response = Vec::new();
+    let closed = stream.read_to_end(&mut response);
+    assert!(response.is_empty(), "{response:?}");
+    assert!(
+        closed.as_ref().map_or_else(
+            |error| error.kind() == std::io::ErrorKind::ConnectionReset,
+            |_| true
+        ),
+        "{closed:?}"
+    );
     assert!(upstream.accept().is_err());
 }
 

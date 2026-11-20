@@ -18,11 +18,6 @@ pub(crate) const fn is_daemon_fatal(error: &RuntimeError) -> bool {
     )
 }
 
-/// Produces the durable, user-visible explanation for a provider failure.
-///
-/// A provider can fail before it announces a session ID. The normalized event
-/// is then fenced off correctly, so the prompt-dispatch transcript is the
-/// only durable place the client can show the actual reason.
 pub(crate) fn failure_notice(error: &RuntimeError) -> String {
     format!("{RUN_FAILURE_NOTICE}\n\nReason: {error}")
 }
@@ -31,6 +26,7 @@ pub(crate) fn failure_fact(error: &RuntimeError) -> PublicWireFact {
     PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure {
         classification: ProviderFailureClassification::Lifecycle,
         message: failure_notice(error),
+        resets_at: None,
     })
 }
 

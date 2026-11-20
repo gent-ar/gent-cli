@@ -24,6 +24,33 @@ impl StandaloneReadiness {
         )
     }
 
+    pub(super) fn report_download(
+        &self,
+        prompt: &PromptWake,
+        model_id: &str,
+        reporter: &mut super::model_download_report::DownloadReporter,
+        progress: crate::local_model_jobs::DownloadProgress,
+    ) {
+        let Some(update) = reporter.observe(progress) else {
+            return;
+        };
+        if let Err(error) = self.dispatches.record_model_download_progress(
+            &prompt.receipt_id,
+            self.host_epoch,
+            gent_store::ModelDownloadReport {
+                model_id,
+                phase: update.phase,
+                downloaded_bytes: update.downloaded_bytes,
+                total_bytes: update.total_bytes,
+            },
+        ) {
+            eprintln!(
+                "model download progress for prompt {} was not recorded: {error}",
+                prompt.receipt_id.0
+            );
+        }
+    }
+
     pub(super) fn hold(&self, prompt: &PromptWake, reason: PromptHoldReason) -> Result<(), String> {
         self.dispatches
             .hold_agent_chat_prompt_for_admission(&prompt.receipt_id, self.host_epoch, reason)

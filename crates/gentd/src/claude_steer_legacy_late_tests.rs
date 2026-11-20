@@ -2,12 +2,12 @@ use super::*;
 
 #[test]
 fn a_take_up_after_the_result_in_the_same_batch_becomes_the_next_turn_without_a_resend() {
-    let mut scenario = steered_scenario();
+    let mut scenario = joined_scenario();
     let queued_id = scenario.queued.message.message_id.clone();
     scenario.runner.0.lock().unwrap().effects.push_back(vec![
         output("first"),
         phase(TurnPhase::Ready),
-        ClaudeRunnerEffect::SteerConsumed {
+        ClaudeRunnerEffect::MessageStarted {
             message_id: queued_id,
         },
         output("second"),
@@ -38,7 +38,6 @@ fn a_take_up_after_the_result_in_the_same_batch_becomes_the_next_turn_without_a_
         kinds(&scenario),
         [
             ("promptQueued".into(), queued_turn.clone()),
-            ("promptSteerRequested".into(), queued_turn.clone()),
             ("promptReleased".into(), queued_turn.clone())
         ]
     );

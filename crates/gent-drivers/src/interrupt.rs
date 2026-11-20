@@ -21,6 +21,10 @@ pub trait ProcessTreeControl: Send + Sync {
 pub enum ProcessTreeError {
     #[error("process-tree signal failed: {0}")]
     Failed(String),
+    #[error("provider input is closed")]
+    InputClosed,
+    #[error("provider is not reading its input")]
+    InputBacklogged,
 }
 
 /// Timeouts used by the I/O owner to schedule the next escalation event.

@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 
 use gent_protocol::{
-    AgentChatIntentFrame, conversation_links::CONVERSATION_LINKS_CAPABILITY, read_json_frame,
-    write_json_frame,
+    AgentChatIntentFrame, conversation_links::CONVERSATION_LINKS_CAPABILITY, write_json_frame,
 };
 use gent_types::{AgentChatConversationId, AgentChatRequestId, ReceiptId};
 use serde_json::Value;
@@ -119,10 +118,7 @@ async fn reply(
     request: AgentChatIntentFrame,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     write_json_frame(stream, &request).await?;
-    let raw: Value = read_json_frame(stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(stream).await?;
     let response: AgentChatIntentFrame = serde_json::from_value(raw.clone())
         .map_err(|_| "gentd did not return a conversation link response")?;
     match response {

@@ -1,14 +1,18 @@
-//! Daemon mapping for secret-free permission-policy revisions.
-
 use gent_ports::{Ledger, PolicyLedger, WorkspaceLedger};
 use gent_protocol::PermissionPolicyFrame;
 use gent_runtime::Coordinator;
 use gent_types::{PermissionMode, PolicyScope};
 
+use crate::agent_chat_intent_error::AgentChatIntentError;
+
+pub(crate) fn rejected(error: impl std::fmt::Display) -> AgentChatIntentError {
+    AgentChatIntentError::coded("permissionPolicyRejected", &error.to_string())
+}
+
 pub(crate) fn exchange<L>(
     coordinator: &Coordinator<L>,
     frame: PermissionPolicyFrame,
-) -> Result<PermissionPolicyFrame, String>
+) -> Result<PermissionPolicyFrame, AgentChatIntentError>
 where
     L: Ledger + PolicyLedger + WorkspaceLedger,
 {
@@ -16,19 +20,37 @@ where
         PermissionPolicyFrame::Current {
             request_id,
             workspace_id,
-        } => current(coordinator, &workspace_id)
-            .map(|policy| PermissionPolicyFrame::CurrentPolicy { request_id, policy })
-            .map_err(|error| error.to_string()),
+        } => {
+            require_workspace(coordinator, &workspace_id)?;
+            current(coordinator, &workspace_id)
+                .map(|policy| PermissionPolicyFrame::CurrentPolicy { request_id, policy })
+                .map_err(rejected)
+        }
         PermissionPolicyFrame::Save {
             request_id,
             policy,
             bypass_consent,
-            ..
-        } => save(coordinator, request_id, policy, bypass_consent),
-        PermissionPolicyFrame::CurrentPolicy { .. } | PermissionPolicyFrame::Saved { .. } => {
-            Err("permission policy response frames are server-only".into())
+        } => {
+            require_workspace(coordinator, &policy.workspace_id)?;
+            save(coordinator, request_id, policy, bypass_consent).map_err(rejected)
         }
+        PermissionPolicyFrame::CurrentPolicy { .. } | PermissionPolicyFrame::Saved { .. } => Err(
+            rejected("permission policy response frames are server-only"),
+        ),
     }
+}
+
+fn require_workspace<L>(
+    coordinator: &Coordinator<L>,
+    workspace_id: &str,
+) -> Result<(), AgentChatIntentError>
+where
+    L: Ledger + WorkspaceLedger,
+{
+    if let Some(workspace) = coordinator.workspace(workspace_id).map_err(rejected)? {
+        crate::workspace_identity::require_directory(&workspace.canonical_path)?;
+    }
+    Ok(())
 }
 
 fn current<L>(
@@ -90,19 +112,26 @@ mod tests {
             containment: gent_types::Containment::Sandboxed,
             allowed_tools: Vec::new(),
             allowed_categories: Vec::new(),
+            allowed_commands: Vec::new(),
         }
+    }
+
+    fn register_workspace(coordinator: &Coordinator<SqliteLedger>) -> tempfile::TempDir {
+        let directory = tempfile::tempdir().unwrap();
+        coordinator
+            .create_workspace(&WorkspaceRecord {
+                workspace_id: "workspace-1".into(),
+                canonical_path: directory.path().display().to_string(),
+            })
+            .unwrap();
+        directory
     }
 
     #[test]
     fn broad_modes_save_without_probing_a_sandbox_because_containment_is_per_conversation() {
         let coordinator =
             Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
-        coordinator
-            .create_workspace(&WorkspaceRecord {
-                workspace_id: "workspace-1".into(),
-                canonical_path: "/workspace".into(),
-            })
-            .unwrap();
+        let _workspace = register_workspace(&coordinator);
         coordinator
             .save_policy(&policy(PermissionMode::AutoAcceptEdits))
             .unwrap();
@@ -115,17 +144,15 @@ mod tests {
                 request_id: "request".into(),
                 policy: next.clone(),
                 bypass_consent: false,
-                expected_provider: None,
             },
         );
-        assert!(unconsented.unwrap_err().contains("bypass consent"));
+        assert!(unconsented.unwrap_err().message.contains("bypass consent"));
         exchange(
             &coordinator,
             PermissionPolicyFrame::Save {
                 request_id: "request".into(),
                 policy: next,
                 bypass_consent: true,
-                expected_provider: None,
             },
         )
         .unwrap();
@@ -149,30 +176,23 @@ mod tests {
                 request_id: "request".into(),
                 policy: policy(PermissionMode::Bypass),
                 bypass_consent: false,
-                expected_provider: None,
             },
         )
         .unwrap_err();
-        assert!(error.contains("requires explicit"));
+        assert!(error.message.contains("requires explicit"));
     }
 
     #[test]
     fn supported_mode_is_saved_and_returned() {
         let coordinator =
             Coordinator::new(SqliteLedger::in_memory().unwrap(), CapabilitySet::default());
-        coordinator
-            .create_workspace(&WorkspaceRecord {
-                workspace_id: "workspace-1".into(),
-                canonical_path: "/workspace".into(),
-            })
-            .unwrap();
+        let _workspace = register_workspace(&coordinator);
         let reply = exchange(
             &coordinator,
             PermissionPolicyFrame::Save {
                 request_id: "request".into(),
                 policy: policy(PermissionMode::AutoAcceptEdits),
                 bypass_consent: false,
-                expected_provider: None,
             },
         )
         .unwrap();
@@ -219,12 +239,7 @@ mod tests {
     fn a_known_workspace_reports_the_policy_that_gates_its_chats() {
         let ledger = SqliteLedger::in_memory().unwrap();
         let coordinator = Coordinator::new(ledger.clone(), CapabilitySet::default());
-        coordinator
-            .create_workspace(&WorkspaceRecord {
-                workspace_id: "workspace-1".into(),
-                canonical_path: "/workspace".into(),
-            })
-            .unwrap();
+        let _workspace = register_workspace(&coordinator);
         let current = |workspace_id: &str| match exchange(
             &coordinator,
             PermissionPolicyFrame::Current {

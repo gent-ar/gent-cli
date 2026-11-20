@@ -68,7 +68,7 @@ where
         host_epoch: HostEpoch,
     ) -> Result<ProviderWarmOutcome, RuntimeError> {
         let (conversation_id, run_id) = (&target.conversation_id, &target.run_id);
-        if !self.is_current(conversation_id, run_id) {
+        if !self.is_current(conversation_id, run_id)? {
             return Ok(ProviderWarmOutcome::Superseded);
         }
         if let Some(warm) = self.warm.get_mut(run_id) {
@@ -161,17 +161,16 @@ where
             Binding {
                 prompt: prompt.clone(),
                 sequence: 0,
-                settled: true,
-                interrupt_requested: false,
+                turns: crate::provider_run_state::RunTurns::settled(),
                 steers: Vec::new(),
                 session_recovery: SessionRecovery::NotNeeded,
                 failure_reported_turn: None,
-                open_children: std::collections::BTreeMap::new(),
                 last_dispatch: warm.last_dispatch,
                 idle_since: None,
                 awaits_first_input: true,
                 permission: warm.key.1,
                 queued_permissions: std::collections::VecDeque::new(),
+                background_children: std::collections::BTreeSet::new(),
             },
         );
         Ok(warm.held)
@@ -215,8 +214,10 @@ where
             return false;
         };
         for effect in effects {
-            let ClaudeRunnerEffect::Fact(fact) = effect else {
-                return false;
+            let fact = match effect {
+                ClaudeRunnerEffect::Fact(fact) => fact,
+                ClaudeRunnerEffect::SessionState { .. } => continue,
+                _ => return false,
             };
             if matches!(fact, PublicWireFact::SessionStarted { .. })
                 || warm.held.len() < MAX_HELD_FACTS
@@ -227,11 +228,17 @@ where
         true
     }
 
-    pub(super) fn is_current(&self, conversation_id: &str, run_id: &str) -> bool {
-        self.runtime
+    pub(super) fn is_current(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+    ) -> Result<bool, RuntimeError> {
+        Ok(self
+            .runtime
             .ledger()
-            .read_agent_chat_detail(conversation_id)
-            .is_ok_and(|detail| detail.current_run_id == run_id)
+            .read_agent_chat_detail(conversation_id)?
+            .current_run_id
+            == run_id)
     }
 }
 

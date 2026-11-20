@@ -47,6 +47,22 @@ pub enum AgentChatCommandFrame {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "type",
+    content = "body",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum AgentChatCommandRejectionFrame {
+    Error {
+        code: String,
+        message: String,
+        command: gent_types::AgentChatCommandRejectionDetails,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CommandCatalog {
     pub scope: CommandCatalogScope,

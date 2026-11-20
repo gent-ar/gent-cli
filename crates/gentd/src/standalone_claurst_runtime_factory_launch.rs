@@ -17,6 +17,7 @@ struct Session<'a> {
     conversation_id: String,
     run_id: &'a str,
     identity: RuntimeIdentity,
+    owned_chat_tools: Vec<String>,
 }
 
 impl StandaloneClaurstRuntimeFactory {
@@ -27,6 +28,7 @@ impl StandaloneClaurstRuntimeFactory {
         tool_source_ids: &[String],
         busy: &[String],
     ) -> Result<gent_types::PolicyRecord, String> {
+        let _launching = self.launching.lock().await;
         let selection = AgentChatReadService::new(self.ledger.clone())
             .run_selection(conversation_id, run_id)
             .map_err(|error| error.to_string())?;
@@ -121,6 +123,16 @@ impl StandaloneClaurstRuntimeFactory {
             StandaloneMcpConfig::selected_claurst_settings_servers,
             disallowed_tools,
         )?;
+        let injection = config
+            .mcp_config
+            .as_ref()
+            .and_then(StandaloneMcpConfig::injection);
+        let owned_chat_tools = crate::internal_mcp_trust::owned_chat_tools(
+            &request.mcp_servers,
+            injection.as_ref(),
+            &conversation_id,
+            disallowed_tools,
+        );
         let launch_mcp_servers = conversation_servers(
             config.mcp_config.as_ref(),
             &selected_sources,
@@ -134,6 +146,7 @@ impl StandaloneClaurstRuntimeFactory {
                 conversation_id,
                 run_id,
                 identity,
+                owned_chat_tools,
             },
             request,
             workspace,

@@ -194,9 +194,21 @@ async fn deltas(client: &mut DuplexStream, count: usize, after: u64) -> Vec<(u64
 type FollowScript = Vec<Result<Vec<AgentChatProjectionDelta>, String>>;
 
 #[derive(Clone)]
-struct ScriptedFollow(std::sync::Arc<std::sync::Mutex<FollowScript>>);
+struct ScriptedFollow(
+    std::sync::Arc<std::sync::Mutex<FollowScript>>,
+    std::sync::Arc<tokio::sync::watch::Sender<u64>>,
+    std::sync::Arc<tokio::sync::watch::Sender<u64>>,
+);
 
 impl super::ProjectionFollowPort for ScriptedFollow {
+    fn commits(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.1.subscribe()
+    }
+
+    fn command_catalogs(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.2.subscribe()
+    }
+
     fn projection_deltas(
         &self,
         _: &str,
@@ -212,15 +224,56 @@ impl super::ProjectionFollowPort for ScriptedFollow {
 }
 
 fn scripted(after: u64, script: FollowScript) -> DuplexStream {
+    scripted_with_catalogs(after, script, tokio::sync::watch::channel(0).0)
+}
+
+fn scripted_with_catalogs(
+    after: u64,
+    script: FollowScript,
+    catalogs: tokio::sync::watch::Sender<u64>,
+) -> DuplexStream {
     let (client, server) = duplex(64 * 1024);
     tokio::spawn(super::serve(
         server,
-        ScriptedFollow(std::sync::Arc::new(std::sync::Mutex::new(script))),
+        ScriptedFollow(
+            std::sync::Arc::new(std::sync::Mutex::new(script)),
+            std::sync::Arc::new(tokio::sync::watch::channel(0).0),
+            std::sync::Arc::new(catalogs),
+        ),
         "follow".into(),
         "conversation".into(),
         ProjectionCursor { value: after },
     ));
     client
+}
+
+#[tokio::test]
+async fn a_settled_command_listing_reaches_every_follower_as_a_commands_catalog_delta() {
+    let catalogs = tokio::sync::watch::channel(0).0;
+    let mut client = scripted_with_catalogs(7, vec![], catalogs.clone());
+    tokio::task::yield_now().await;
+    catalogs.send_modify(|revision| *revision += 1);
+    let frame = tokio::time::timeout(
+        Duration::from_secs(5),
+        read_json_frame::<_, AgentChatProjectionFrame>(&mut client),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        frame,
+        AgentChatProjectionFrame::Delta {
+            request_id: "follow".into(),
+            delta: AgentChatProjectionDelta::Catalog {
+                cursor: ProjectionCursor { value: 7 },
+                catalog: gent_protocol::ProjectionCatalog {
+                    catalog_id: gent_protocol::COMMAND_CATALOG_ID.into(),
+                    selected_id: None,
+                    records: vec![],
+                },
+            },
+        }
+    );
 }
 
 #[tokio::test]
@@ -234,17 +287,27 @@ async fn a_failed_follow_read_ends_with_a_typed_error_frame_instead_of_a_dropped
 }
 
 #[tokio::test]
-async fn a_cursor_that_does_not_advance_asks_the_client_to_resync() {
-    let resync = AgentChatProjectionDelta::ResyncRequired {
-        cursor: ProjectionCursor { value: 7 },
+async fn an_unreadable_record_is_delivered_and_the_follow_keeps_streaming() {
+    let unreadable = AgentChatProjectionDelta::UnreadableRecord {
+        cursor: ProjectionCursor { value: 8 },
+        record_kind: gent_protocol::ProjectionRecordKind::Lifecycle,
     };
-    let mut client = scripted(7, vec![Ok(vec![resync.clone()])]);
-    let AgentChatProjectionFrame::Delta { delta, .. } = read_json_frame(&mut client).await.unwrap()
-    else {
-        panic!("a stalled cursor must be answered with a projection delta");
+    let later = AgentChatProjectionDelta::UnreadableRecord {
+        cursor: ProjectionCursor { value: 9 },
+        record_kind: gent_protocol::ProjectionRecordKind::Activity,
     };
-    assert!(matches!(
-        delta,
-        AgentChatProjectionDelta::ResyncRequired { cursor } if cursor.value == 7
-    ));
+    let mut client = scripted(
+        7,
+        vec![Ok(vec![unreadable.clone()]), Ok(vec![later.clone()])],
+    );
+    let mut received = Vec::new();
+    for _ in 0..2 {
+        let AgentChatProjectionFrame::Delta { delta, .. } =
+            read_json_frame(&mut client).await.unwrap()
+        else {
+            panic!("an unreadable record must arrive as a projection delta");
+        };
+        received.push(delta);
+    }
+    assert_eq!(received, [unreadable, later]);
 }

@@ -3,6 +3,26 @@ use gent_types::{PermissionCategory, PermissionMode, PolicyScope};
 
 use super::{PermissionCategoryArgument, PermissionDecisionArgument, PermissionModeArgument};
 
+pub(super) fn command_grants(
+    values: &[String],
+) -> Result<Vec<gent_types::CommandGrant>, crate::cli_error::CliError> {
+    let mut grants = values
+        .iter()
+        .map(|value| {
+            let (tool, pattern) = value.split_once('=').unwrap_or(("", value));
+            gent_types::parse_command_pattern(tool, pattern).map_err(|error| {
+                crate::cli_error::CliError::new(
+                    crate::cli_error::Failure::Rejected,
+                    format!("--allow-command {value}: {error} ({})", error.code()),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    grants.sort();
+    grants.dedup();
+    Ok(grants)
+}
+
 pub(super) fn valid_reply(
     request: &PermissionPolicyFrame,
     response: &PermissionPolicyFrame,
@@ -55,6 +75,7 @@ impl From<PermissionDecisionArgument> for gent_types::PermissionDecisionResponse
             PermissionDecisionArgument::ApproveOnce => Self::ApproveOnce,
             PermissionDecisionArgument::ApproveExactTool => Self::ApproveExactTool,
             PermissionDecisionArgument::ApproveCategory => Self::ApproveCategory,
+            PermissionDecisionArgument::ApproveCommandPattern => Self::ApproveCommandPattern,
         }
     }
 }

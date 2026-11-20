@@ -39,7 +39,7 @@ where
     }
     match runtime.reviewed_plan(frame) {
         Ok(reply) => write_json_frame(stream, &reply).await?,
-        Err(message) => write_error(stream, "reviewedPlanRejected", &message).await?,
+        Err(error) => error.write(stream).await?,
     }
     Ok(true)
 }

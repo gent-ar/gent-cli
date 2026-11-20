@@ -11,7 +11,8 @@ use super::super::super::queries::{
     find_receipt, insert_receipt, receipt_matches_command, storage_error,
 };
 use super::super::prompt_dispatch::require_open;
-use super::records::find;
+use super::records::{failure_code_name, find};
+use super::settled::publish_settled;
 use super::{conflict, idempotency_key};
 
 pub(super) fn persist_completion(
@@ -28,18 +29,26 @@ pub(super) fn persist_completion(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
-    let (status, answer, failure_reason) = match outcome {
-        AgentChatSideQuestionOutcome::Answered { text } => ("answered", Some(text.clone()), None),
-        AgentChatSideQuestionOutcome::Failed { reason } => ("failed", None, Some(reason.clone())),
+    let (status, answer, failure_reason, failure_code) = match outcome {
+        AgentChatSideQuestionOutcome::Answered { text } => {
+            ("answered", Some(text.clone()), None, None)
+        }
+        AgentChatSideQuestionOutcome::Failed { code, reason } => (
+            "failed",
+            None,
+            Some(reason.clone()),
+            Some(failure_code_name(*code)),
+        ),
     };
     transaction
         .execute(
-            "UPDATE agent_chat_side_questions SET status = ?2, answer = ?3, failure_reason = ?4 WHERE side_question_id = ?1 AND status = 'pending'",
-            params![side_question_id, status, answer, failure_reason],
+            "UPDATE agent_chat_side_questions SET status = ?2, answer = ?3, failure_reason = ?4, failure_code = ?5 WHERE side_question_id = ?1 AND status = 'pending'",
+            params![side_question_id, status, answer, failure_reason, failure_code],
         )
         .map_err(storage_error)?;
     let record = find(&transaction, side_question_id)?
         .ok_or_else(|| LedgerError::Invariant("agent chat side question is unknown".into()))?;
+    publish_settled(&transaction, &record)?;
     transaction.commit().map_err(storage_error)?;
     Ok(record)
 }
@@ -92,6 +101,7 @@ pub(super) fn persist_cancel(
         host_epoch: cancel.host_epoch,
     };
     insert_receipt(&transaction, &receipt, &command)?;
+    publish_settled(&transaction, &record)?;
     transaction
         .execute(
             "INSERT INTO agent_chat_side_question_cancel_receipts (idempotency_key, side_question_id) VALUES (?1, ?2)",

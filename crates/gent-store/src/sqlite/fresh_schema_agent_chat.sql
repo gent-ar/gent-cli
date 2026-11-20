@@ -97,7 +97,8 @@ CREATE TABLE agent_chat_side_questions (
     status TEXT NOT NULL CHECK (status IN ('pending', 'answered', 'failed', 'cancelled')),
     answer TEXT,
     failure_reason TEXT,
-    created_at_unix_ms INTEGER NOT NULL
+    created_at_unix_ms INTEGER NOT NULL,
+    failure_code TEXT CHECK (failure_code IN ('providerBusy', 'providerUnavailable', 'providerFailed'))
 );
 CREATE INDEX agent_chat_side_questions_by_conversation ON agent_chat_side_questions(conversation_id, created_at_unix_ms DESC);
 CREATE INDEX agent_chat_side_questions_by_status ON agent_chat_side_questions(status);

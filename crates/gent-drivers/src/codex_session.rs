@@ -1,8 +1,3 @@
-//! Bounded state and encoding for one Codex app-server connection.
-//!
-//! Provider-native identifiers stay private to this driver; its caller receives only
-//! encoded frames and lifecycle facts. Process ownership, persistence, and provider launch live
-//! outside this module.
 use serde_json::{Value, json};
 
 mod compaction;
@@ -27,18 +22,14 @@ use wire::{encode, validate_config};
 const MAX_NATIVE_ID_BYTES: usize = 512;
 const MAX_WORKING_DIRECTORY_BYTES: usize = 4_096;
 const MAX_PROMPT_BYTES: usize = 65_536;
-/// Pure single-threaded Codex app-server connection state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexAppServerSession {
     phase: CodexSessionPhase,
     next_request_id: u64,
     steers: steer::CodexSteers,
+    terminal_cleans: std::collections::BTreeSet<u64>,
 }
 impl CodexAppServerSession {
-    /// Creates the state and its first required `initialize` request.
-    ///
-    /// # Errors
-    /// Rejects unbounded or empty caller-provided connection fields.
     pub fn start(config: CodexSessionConfig) -> Result<(Self, Vec<u8>), CodexSessionError> {
         validate_config(&config)?;
         let request_id = 1;
@@ -47,6 +38,7 @@ impl CodexAppServerSession {
                 phase: CodexSessionPhase::AwaitInitialize { request_id, config },
                 next_request_id: 2,
                 steers: steer::CodexSteers::default(),
+                terminal_cleans: std::collections::BTreeSet::new(),
             },
             encode(&codex_initialize_request(request_id))?,
         ))
@@ -60,10 +52,6 @@ impl CodexAppServerSession {
         Ok(())
     }
 
-    /// Encodes a user turn only after an exact thread response established the native thread.
-    ///
-    /// # Errors
-    /// Rejects an out-of-order turn, a concurrent turn, an empty prompt, or request-ID exhaustion.
     pub fn start_turn(&mut self, prompt: &str) -> Result<Vec<u8>, CodexSessionError> {
         self.start_turn_with_attachments(prompt, &[])
     }
@@ -153,10 +141,6 @@ impl CodexAppServerSession {
         Ok(frame)
     }
 
-    /// Reduces one parsed app-server frame, accepting responses only for the outstanding request.
-    ///
-    /// # Errors
-    /// Rejects malformed, failed, or uncorrelated responses without retaining server payloads.
     pub fn receive(&mut self, frame: &Value) -> Result<CodexSessionIngress, CodexSessionError> {
         if let Some(method) = frame.get("method").and_then(Value::as_str) {
             if let Some(outcome) = self.steers.consumed(frame) {
@@ -169,13 +153,15 @@ impl CodexAppServerSession {
             .and_then(Value::as_u64)
             .filter(|id| *id > 0)
             .ok_or(CodexSessionError::MalformedResponse)?;
+        if self.terminal_cleans.remove(&response_id) {
+            return Ok(CodexSessionIngress::Ignored);
+        }
         match self.steers.response(&self.phase, response_id, frame) {
             steer::CodexSteerResponse::Unrelated => self.response(response_id, frame),
             steer::CodexSteerResponse::Accepted => Ok(CodexSessionIngress::Ignored),
             steer::CodexSteerResponse::Outcome(outcome) => Ok(CodexSessionIngress::Steer(outcome)),
         }
     }
-    /// Whether an exact thread response has made the connection available for a user turn.
     #[must_use]
     pub fn is_ready(&self) -> bool {
         matches!(
@@ -198,6 +184,16 @@ impl CodexAppServerSession {
         )
     }
 
+    pub(crate) fn thread_id(&self) -> Option<&str> {
+        match &self.phase {
+            CodexSessionPhase::Ready { thread_id, .. }
+            | CodexSessionPhase::AwaitTurn { thread_id, .. }
+            | CodexSessionPhase::AwaitCompaction { thread_id, .. }
+            | CodexSessionPhase::AwaitInjection { thread_id, .. } => Some(thread_id),
+            _ => None,
+        }
+    }
+
     pub(crate) fn active_turn_id(&self) -> Option<&str> {
         match &self.phase {
             CodexSessionPhase::Ready {
@@ -215,10 +211,6 @@ impl CodexAppServerSession {
             _ => None,
         }
     }
-    /// Validates a prompt before a daemon-owned process is launched.
-    ///
-    /// # Errors
-    /// Rejects an empty or unbounded prompt without retaining its content.
     pub fn validate_prompt(prompt: &str) -> Result<(), CodexSessionError> {
         (!prompt.is_empty() && prompt.len() <= MAX_PROMPT_BYTES)
             .then_some(())
@@ -245,12 +237,12 @@ impl CodexAppServerSession {
         self.steers.turn_ended()
     }
 
-    /// Requests documented cooperative interruption for exactly the live native turn.
-    ///
-    /// # Errors
-    /// Rejects interruption before a turn is live or while an earlier request is unsettled.
     pub fn interrupt(&mut self) -> Result<Vec<u8>, CodexSessionError> {
-        interrupt::request(&mut self.phase, &mut self.next_request_id)
+        interrupt::request(
+            &mut self.phase,
+            &mut self.next_request_id,
+            &mut self.terminal_cleans,
+        )
     }
 
     fn notification(

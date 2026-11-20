@@ -10,6 +10,7 @@ fn event(kind: NormalizedTranscriptKind, text: &str) -> NormalizedTranscriptEven
         text: text.into(),
         is_partial: false,
         failure_code: None,
+        resets_at: None,
         origin: None,
         attachments: Vec::new(),
     }
@@ -36,6 +37,7 @@ fn scheduler_retries_missing_titles_and_creates_recaps_at_native_cadence() {
             text: "done".into(),
             is_partial: false,
             failure_code: None,
+            resets_at: None,
             origin: None,
             attachments: Vec::new(),
         })

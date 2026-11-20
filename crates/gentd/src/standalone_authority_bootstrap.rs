@@ -117,7 +117,7 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         crate::agent_chat_side_question_runners::AgentChatSideQuestionRunnerSources {
             data_dir: data_dir.clone(),
             executables: executables.clone(),
-            claurst_bridge: authority.claurst_side_question_bridge(),
+            claurst_models: authority.claurst_side_question_models(),
         };
     let provider_auth: std::sync::Arc<dyn crate::provider_auth_api::ProviderAuthPort> =
         std::sync::Arc::new(

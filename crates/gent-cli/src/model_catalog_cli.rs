@@ -4,7 +4,7 @@ use gent_protocol::{
     model_catalog::{
         MODEL_CATALOG_CAPABILITY, ModelCatalog, ModelCatalogFrame, ModelCatalogSelection,
     },
-    read_json_frame, write_json_frame,
+    write_json_frame,
 };
 use gent_types::AgentChatSelection;
 use serde_json::Value;
@@ -101,7 +101,7 @@ where
     let frame = request(request_id.clone());
     frame.validate()?;
     write_json_frame(&mut stream, &frame).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     if let Ok(ModelCatalogFrame::ModelCatalog {
         request_id: reply_id,
         catalog,
@@ -109,9 +109,6 @@ where
         && reply_id == request_id
     {
         return Ok(catalog);
-    }
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
     }
     Err("daemon did not return a correlated model catalog".into())
 }

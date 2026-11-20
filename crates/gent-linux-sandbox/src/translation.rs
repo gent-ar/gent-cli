@@ -14,8 +14,6 @@ pub fn translate(
     {
         return Err(reject);
     }
-    // Managed provider generations may be user-owned. No mutable bytes execute:
-    // the trusted gate must bind and seal the exact authorized ELF before GO.
     nix::unistd::access(
         std::path::Path::new(&request.lock.canonical_path),
         nix::unistd::AccessFlags::X_OK,
@@ -107,11 +105,9 @@ pub fn translate(
             claude_environment::MCP_TOKEN_ENV.into(),
             gateway.scoped_token().into(),
         ));
-        profile.environment.extend(
-            claude_environment::FLAGS
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string())),
-        );
+        profile
+            .environment
+            .extend(claude_environment::flags().map(|(k, v)| (k.to_string(), v.to_string())));
         profile.environment.push((
             "CLAUDE_CONFIG_DIR".into(),
             text(&state.root().join("home/.claude"))?,

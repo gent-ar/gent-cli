@@ -19,8 +19,8 @@ pub(super) fn interrupt_unstarted(
     require_open(&transaction, host_epoch)?;
     let waiting = transaction
         .query_row(
-            "SELECT d.message_id, m.turn_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_prompt_receipts p ON p.message_id = d.message_id WHERE m.run_id = ?1 AND (?2 IS NULL OR m.turn_id = ?2) AND d.state = 'pending' AND p.disposition = 'send' ORDER BY d.created_rowid LIMIT 1",
-            params![run_id, turn_id],
+            "SELECT d.message_id, m.turn_id FROM agent_chat_prompt_dispatches d JOIN conversation_messages m ON m.message_id = d.message_id JOIN agent_chat_prompt_receipts p ON p.message_id = d.message_id WHERE m.run_id = ?1 AND (?2 IS NULL OR m.turn_id = ?2) AND ((d.state = 'pending' AND p.disposition = 'send') OR (d.state = 'claimed' AND d.host_epoch = ?3)) ORDER BY d.state = 'claimed' DESC, d.created_rowid LIMIT 1",
+            params![run_id, turn_id, host_epoch.0],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()

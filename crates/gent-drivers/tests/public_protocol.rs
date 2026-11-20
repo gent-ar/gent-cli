@@ -264,7 +264,7 @@ fn claude_permission_denial_without_an_identity_is_a_diagnostic() {
 }
 
 #[test]
-fn claude_background_launch_receipt_binds_provider_child_to_parent() {
+fn claude_background_launch_receipt_text_is_output_not_child_identity() {
     let facts = normalize_public_frame(
         PublicProvider::Claude,
         &json!({
@@ -277,12 +277,9 @@ fn claude_background_launch_receipt_binds_provider_child_to_parent() {
             }]}
         }),
     );
-    assert!(facts.iter().any(|fact| matches!(
+    assert!(!facts.iter().any(|fact| matches!(
         fact,
-        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
-            child_id,
-            parent_tool_use_id
-        }) if child_id == "child-1" && parent_tool_use_id == "parent-tool-1"
+        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted { .. })
     )));
     assert!(facts.iter().any(|fact| matches!(
         fact,
@@ -414,6 +411,7 @@ fn claude_errors_are_redacted_and_classified_without_poisoning_following_frames(
             NormalizedProviderEvent::ProviderFailure {
                 classification: ProviderFailureClassification::Authentication,
                 message: "Claude sign-in expired. Sign in again to continue.".into(),
+                resets_at: None,
             }
         )]
     );
@@ -427,6 +425,7 @@ fn claude_errors_are_redacted_and_classified_without_poisoning_following_frames(
             NormalizedProviderEvent::ProviderFailure {
                 classification: ProviderFailureClassification::Provider,
                 message: "Claude ended the turn with an error.".into(),
+                resets_at: None,
             }
         )]
     );
@@ -439,26 +438,67 @@ fn claude_errors_are_redacted_and_classified_without_poisoning_following_frames(
         nested,
         vec![PublicWireFact::Event(
             NormalizedProviderEvent::ProviderFailure {
-                classification: ProviderFailureClassification::ContextLimit,
-                message: "Claude context limit reached.".into(),
+                classification: ProviderFailureClassification::Provider,
+                message: "Claude ended the turn with an error.".into(),
+                resets_at: None,
             }
         )]
     );
 
     let result = normalize_public_frame(
         PublicProvider::Claude,
-        &json!({"type":"result","is_error":true,"result":"rate limit reached"}),
+        &json!({"type":"result","subtype":"error_during_execution","is_error":true,"api_error_status":429,"result":"x"}),
     );
     assert!(result.contains(&PublicWireFact::Event(
         NormalizedProviderEvent::ProviderFailure {
             classification: ProviderFailureClassification::RateLimited,
             message: "Claude rate limit reached.".into(),
+            resets_at: None,
         }
     )));
     assert!(result.contains(&PublicWireFact::Lifecycle(
         NormalizedLifecycleSignal::RootPhase {
             phase: TurnPhase::Failed
         }
+    )));
+    let context = normalize_public_frame(
+        PublicProvider::Claude,
+        &json!({"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"prompt_too_long"}),
+    );
+    assert!(context.contains(&PublicWireFact::Event(
+        NormalizedProviderEvent::ProviderFailure {
+            classification: ProviderFailureClassification::ContextLimit,
+            message: "Claude context limit reached.".into(),
+            resets_at: None,
+        }
+    )));
+    let worded = normalize_public_frame(
+        PublicProvider::Claude,
+        &json!({"type":"result","is_error":true,"result":"rate limit reached in context"}),
+    );
+    assert!(worded.contains(&PublicWireFact::Event(
+        NormalizedProviderEvent::ProviderFailure {
+            classification: ProviderFailureClassification::Provider,
+            message: "Claude ended the turn with an error.".into(),
+            resets_at: None,
+        }
+    )));
+}
+
+#[test]
+fn claude_protocol_interrupt_result_is_interrupted_not_failed() {
+    let facts = normalize_public_frame(
+        PublicProvider::Claude,
+        &json!({"type":"result","subtype":"error_during_execution","is_error":true,"terminal_reason":"aborted_tools","stop_reason":"tool_use"}),
+    );
+    assert!(facts.contains(&PublicWireFact::Lifecycle(
+        NormalizedLifecycleSignal::RootPhase {
+            phase: TurnPhase::Interrupted
+        }
+    )));
+    assert!(!facts.iter().any(|fact| matches!(
+        fact,
+        PublicWireFact::Event(NormalizedProviderEvent::ProviderFailure { .. })
     )));
 }
 
@@ -504,27 +544,6 @@ fn codex_app_server_turns_messages_tools_and_approvals_are_normalized() {
             turn_id: "turn-1".into()
         }))
     );
-}
-
-#[test]
-fn codex_flat_turn_completion_status_is_normalized_with_the_active_turn_id() {
-    let facts = replay_public_frames(
-        PublicProvider::Codex,
-        &[
-            json!({"method":"turn/started","params":{"turn":{"id":"turn-flat"}}}),
-            json!({"method":"turn/completed","params":{"status":"completed","turnId":"turn-flat"}}),
-        ],
-    );
-    assert!(
-        facts.contains(&PublicWireFact::Event(NormalizedProviderEvent::TurnEnded {
-            turn_id: "turn-flat".into()
-        }))
-    );
-    assert!(facts.contains(&PublicWireFact::Lifecycle(
-        NormalizedLifecycleSignal::RootPhase {
-            phase: TurnPhase::Ready
-        }
-    )));
 }
 
 #[test]
@@ -604,68 +623,103 @@ fn codex_tool_output_deltas_preserve_streaming_output_without_raw_provider_frame
 }
 
 #[test]
-fn codex_error_notifications_are_redacted_and_classified() {
-    for (frame, classification, message) in [
+fn codex_error_notifications_are_never_turn_failures() {
+    for will_retry in [true, false] {
+        let frame = json!({"method":"error","params":{"error":{"message":"Rate limit exceeded","codexErrorInfo":"rateLimitExceeded"},"threadId":"t","turnId":"u","willRetry":will_retry}});
+        assert_eq!(
+            normalize_public_frame(PublicProvider::Codex, &frame),
+            vec![]
+        );
+    }
+}
+
+#[test]
+fn codex_turn_failures_are_classified_only_by_codex_error_info() {
+    let sign_in = "Codex sign-in expired. Sign in again to continue.";
+    for (error, classification, message) in [
         (
-            json!({"method":"error","params":{"error":{"message":"Rate limit exceeded"}}}),
-            ProviderFailureClassification::RateLimited,
-            "Codex rate limit reached.",
-        ),
-        (
-            json!({"method":"error","params":{"error":{"message":"request failed","codexErrorInfo":"unauthorized"},"threadId":"t","turnId":"u","willRetry":false}}),
-            ProviderFailureClassification::Authentication,
-            "Codex sign-in expired. Sign in again to continue.",
-        ),
-        (
-            json!({"method":"error","params":{"error":{"message":"401 Unauthorized: missing bearer"}}}),
+            json!({"message":"Rate limit exceeded"}),
             ProviderFailureClassification::Provider,
-            "Codex reported a provider error.",
+            "Codex ended the turn with an error.",
         ),
         (
-            json!({"method":"error","params":{"error":{"message":"stream failed","codexErrorInfo":{"responseStreamConnectionFailed":{"httpStatusCode":401}}}}}),
-            ProviderFailureClassification::Authentication,
-            "Codex sign-in expired. Sign in again to continue.",
-        ),
-        (
-            json!({"method":"error","params":{"error":{"message":"retries exhausted","codexErrorInfo":{"responseTooManyFailedAttempts":{"httpStatusCode":401}}}}}),
-            ProviderFailureClassification::Authentication,
-            "Codex sign-in expired. Sign in again to continue.",
-        ),
-        (
-            json!({"method":"error","params":{"error":{"message":"connect failed","codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":503}}}}}),
+            json!({"message":"The 'gpt-5.6' model is not supported for this account."}),
             ProviderFailureClassification::Provider,
-            "Codex reported a provider error.",
+            "Codex ended the turn with an error.",
         ),
         (
-            json!({"method":"error","params":{"error":{"message":"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 3:12 PM.","codexErrorInfo":"usageLimitExceeded","additionalDetails":null,"misalignment":null},"willRetry":false,"threadId":"t","turnId":"u"}}),
+            json!({"message":"request failed","codexErrorInfo":"unauthorized"}),
+            ProviderFailureClassification::Authentication,
+            sign_in,
+        ),
+        (
+            json!({"message":"stream failed","codexErrorInfo":{"responseStreamConnectionFailed":{"httpStatusCode":401}}}),
+            ProviderFailureClassification::Authentication,
+            sign_in,
+        ),
+        (
+            json!({"message":"connect failed","codexErrorInfo":{"httpConnectionFailed":{"httpStatusCode":503}}}),
+            ProviderFailureClassification::Provider,
+            "Codex lost its connection to the model service.",
+        ),
+        (
+            json!({"message":"limit","codexErrorInfo":"usageLimitExceeded"}),
             ProviderFailureClassification::RateLimited,
             "Codex usage limit reached.",
         ),
         (
-            json!({"method":"error","params":{"error":{"message":"rate limited, please try again","codexErrorInfo":"rateLimitExceeded"}}}),
+            json!({"message":"limit","codexErrorInfo":"rateLimitExceeded"}),
             ProviderFailureClassification::RateLimited,
             "Codex rate limit reached.",
         ),
         (
-            json!({"method":"error","params":{"error":{"message":"context window exceeded"}}}),
+            json!({"message":"busy","codexErrorInfo":"serverOverloaded"}),
+            ProviderFailureClassification::Overloaded,
+            "Codex servers are overloaded.",
+        ),
+        (
+            json!({"message":"context window exceeded","codexErrorInfo":"contextWindowExceeded"}),
             ProviderFailureClassification::ContextLimit,
             "Codex context limit reached.",
         ),
         (
-            json!({"method":"error","params":{"error":{"message":"The 'gpt-5.6' model is not supported for this account."}}}),
+            json!({"message":"policy","codexErrorInfo":"cyberPolicy"}),
             ProviderFailureClassification::Provider,
-            "The selected Codex model is unavailable.",
+            "Codex declined this request under its usage policy.",
         ),
     ] {
+        let frame = json!({"method":"turn/completed","params":{"threadId":"t","turn":{"id":"u","status":"failed","error":error}}});
         assert_eq!(
-            normalize_public_frame(PublicProvider::Codex, &frame),
-            vec![PublicWireFact::Event(
+            normalize_public_frame(PublicProvider::Codex, &frame).first(),
+            Some(&PublicWireFact::Event(
                 NormalizedProviderEvent::ProviderFailure {
                     classification,
                     message: message.into(),
+                    resets_at: None,
                 }
-            )]
+            )),
+            "{error}"
         );
+    }
+}
+
+#[test]
+fn codex_declined_and_interrupted_items_never_complete() {
+    for status in ["declined", "interrupted"] {
+        let facts = normalize_public_frame(
+            PublicProvider::Codex,
+            &json!({"method":"item/completed","params":{"item":{"type":"commandExecution","id":"tool-1","command":"ls","status":status}}}),
+        );
+        let phases = facts
+            .iter()
+            .filter_map(|fact| match fact {
+                PublicWireFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity { activity }) => {
+                    Some(activity.phase.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(phases, [gent_types::ToolPhase::Failed], "{status}");
     }
 }
 
@@ -746,10 +800,10 @@ fn codex_collab_state_maps_are_also_explicit_child_identity() {
             "receiverThreadIds":["child-map-1"]
         }}}),
     );
-    assert!(!completed.iter().any(|fact| matches!(
-        fact,
-        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted { .. })
-    )));
+    assert!(completed.iter().any(|fact| matches!(fact,
+        PublicWireFact::Event(NormalizedProviderEvent::ChildStarted {
+            child_id, parent_tool_use_id
+        }) if child_id == "child-map-1" && parent_tool_use_id == "parent-tool-1")));
 }
 
 #[test]

@@ -4,7 +4,7 @@ use std::{collections::HashSet, path::PathBuf};
 
 use gent_protocol::{
     AGENT_CHAT_CONVERSATIONS_CAPABILITY, AGENT_CHAT_TRANSCRIPT_CAPABILITY,
-    AgentChatConversationFrame, AgentChatTranscriptFrame, read_json_frame, write_json_frame,
+    AgentChatConversationFrame, AgentChatTranscriptFrame, write_json_frame,
 };
 use gent_types::{
     AgentChatConversationDetail, AgentChatConversationSummary, NormalizedTranscriptPage,
@@ -78,7 +78,7 @@ pub(crate) async fn transcript(
         },
     )
     .await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     let reply = decode::<AgentChatTranscriptFrame>(raw, "agent-chat transcript")?;
     match reply {
         AgentChatTranscriptFrame::Page(page)
@@ -133,7 +133,7 @@ async fn conversation(
     require(&capabilities.0, AGENT_CHAT_CONVERSATIONS_CAPABILITY)?;
     write_json_frame(&mut stream, &request).await?;
     decode(
-        read_json_frame(&mut stream).await?,
+        crate::local_ipc::read_reply(&mut stream).await?,
         "agent-chat conversation",
     )
 }
@@ -150,9 +150,6 @@ fn decode<T: serde::de::DeserializeOwned>(
     raw: Value,
     label: &str,
 ) -> Result<T, Box<dyn std::error::Error>> {
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
     serde_json::from_value(raw).map_err(|_| format!("daemon did not return {label}").into())
 }
 

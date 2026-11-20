@@ -4,15 +4,18 @@ use gent_drivers::conversation_context_input::{
     HistoryWindow, MAX_FRESH_CONTEXT_INPUT_BYTES, render_fresh_conversation_input,
 };
 use gent_drivers::conversation_context_summary::{
-    MAX_SUMMARY_REQUESTS, SUMMARY_ITEM_OVERHEAD_BYTES, summary_chunk_bytes, summary_chunks,
-    summary_request,
+    MAX_SUMMARY_REQUESTS, SUMMARY_ITEM_OVERHEAD_BYTES, summary_chunk_bytes,
 };
 use gent_ports::{ClaurstSourceId, ClaurstStartRequest, PrivateClaurstBridge};
 use gent_runtime::{ContextCompactionBudget, ContextCompactionDecision};
 use gent_types::{
-    AgentChatPromptSaved, AgentChatRunContext, ContextCompactionFact, ContextCompactionFailure,
-    ContextCompactionPlan, ContextCompactionTrigger, DurableTurnPhase,
+    AgentChatPromptSaved, AgentChatRunContext, ContextCompactionFact, ContextCompactionPlan,
+    ContextCompactionTrigger, DurableTurnPhase,
 };
+use tokio::sync::oneshot::{self, error::TryRecvError};
+
+#[path = "compaction_summary.rs"]
+mod summary;
 use tokio::task::JoinHandle;
 
 use super::{ActivePrompt, ClaurstLifecycleLedger, ClaurstPromptLifecycle, display};
@@ -26,13 +29,15 @@ const SOURCE_ITEM_BYTES: usize = 4 * 1024;
 
 #[derive(Debug)]
 pub(super) enum Work {
+    Launching(super::launch::Launching),
     Provider,
     Compacting(Compaction),
 }
 
 #[derive(Debug)]
 pub(super) struct Compaction {
-    task: JoinHandle<ContextCompactionFact>,
+    task: JoinHandle<()>,
+    summary: oneshot::Receiver<ContextCompactionFact>,
     request: Option<Box<ClaurstStartRequest>>,
     interrupted: bool,
 }
@@ -145,13 +150,14 @@ where
             return Err(self.stop_failed_runtime(&saved, display(error)).await);
         }
         self.record_turn_started(&saved, &source_id)?;
-        let task = tokio::spawn(summarize(summarizer, plan));
+        let (task, summary) = super::launch::signalled(summary::summarize(summarizer, plan));
         self.active.insert(
             source_id,
             ActivePrompt {
                 saved,
                 work: Work::Compacting(Compaction {
                     task,
+                    summary,
                     request,
                     interrupted: false,
                 }),
@@ -177,15 +183,16 @@ where
         &mut self,
         source_id: &ClaurstSourceId,
     ) -> Result<bool, String> {
-        let finished = self
+        let received = match self
             .active
-            .get(source_id)
-            .is_some_and(|active| match &active.work {
-                Work::Compacting(compaction) => compaction.task.is_finished(),
-                Work::Provider => false,
-            });
-        if !finished {
-            return Ok(true);
+            .get_mut(source_id)
+            .map(|active| &mut active.work)
+        {
+            Some(Work::Compacting(compaction)) => compaction.summary.try_recv(),
+            _ => return Ok(false),
+        };
+        if matches!(received, Err(TryRecvError::Empty)) {
+            return Ok(false);
         }
         let Some(ActivePrompt {
             saved,
@@ -194,11 +201,11 @@ where
         else {
             return Err("finished Claurst compaction is no longer active".into());
         };
-        let fact = match compaction.task.await {
+        let fact = match received {
             Ok(fact) if !compaction.interrupted => fact,
             _ => {
                 self.settle(&saved, DurableTurnPhase::Interrupted)?;
-                return Ok(false);
+                return Ok(true);
             }
         };
         self.ledger
@@ -211,11 +218,11 @@ where
                     self.runtime
                         .after_prompt_settled(&saved.message.conversation_id)
                         .await
-                        .map(|()| false)
+                        .map(|()| true)
                 }
-                ContextCompactionFact::Failed { .. } => self
-                    .settle(&saved, DurableTurnPhase::Failed)
-                    .map(|()| false),
+                ContextCompactionFact::Failed { .. } => {
+                    self.settle(&saved, DurableTurnPhase::Failed).map(|()| true)
+                }
             };
         };
         request.context = self.prompt_context(&saved)?.0;
@@ -224,12 +231,15 @@ where
             let failure = self.stop_failed_runtime(&saved, error.clone()).await;
             self.record_notice(
                 &saved,
-                "claurst-start-failed",
+                &format!(
+                    "{}claurst-start-failed",
+                    gent_types::AgentChatFailureCode::ProviderFailed.event_prefix()
+                ),
                 format!("Claurst could not start: {error}"),
             )?;
             self.settle(&saved, DurableTurnPhase::Failed)?;
             eprintln!("Claurst prompt could not start after compaction: {failure}");
-            return Ok(false);
+            return Ok(true);
         }
         self.active.insert(
             source_id.clone(),
@@ -262,36 +272,5 @@ fn budget(window: LocalContextWindow) -> ContextCompactionBudget {
         source_bytes: MAX_SUMMARY_REQUESTS
             * chunk.saturating_sub(SOURCE_ITEM_BYTES + SUMMARY_ITEM_OVERHEAD_BYTES),
         item_bytes: SOURCE_ITEM_BYTES,
-    }
-}
-
-async fn summarize(
-    summarizer: Option<Arc<dyn ContextSummarizer>>,
-    plan: ContextCompactionPlan,
-) -> ContextCompactionFact {
-    let Some(summarizer) = summarizer else {
-        return plan.failed(ContextCompactionFailure::RuntimeUnavailable);
-    };
-    let chunks = summary_chunks(
-        &plan.items,
-        summary_chunk_bytes(summarizer.window().summary_input_bytes),
-    );
-    let mut summary = plan.previous_summary.clone();
-    let mut tokens = 0;
-    for chunk in &chunks {
-        match summarizer
-            .summarize(summary_request(summary.as_deref(), chunk))
-            .await
-        {
-            Ok(output) => {
-                tokens = output.tokens;
-                summary = Some(output.text);
-            }
-            Err(failure) => return plan.failed(failure),
-        }
-    }
-    match summary {
-        Some(summary) => plan.compacted(summary, tokens),
-        None => plan.failed(ContextCompactionFailure::EmptySummary),
     }
 }

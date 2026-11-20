@@ -1,5 +1,3 @@
-//! Trusted host credential probe ownership. This is not provider containment evidence.
-//! The immutable helper waits on private stdin until it belongs to the new cgroup.
 use gent_linux_cgroup_owner::{CgroupScope, DelegatedParent};
 use gent_types::{RunVersionLock, SandboxResourceLimits};
 use serde::{Deserialize, Serialize};
@@ -66,7 +64,6 @@ impl std::fmt::Debug for ProbeOutput {
     }
 }
 
-/// Cleanup result for THIS operation only; never provider permission evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeScope {
     KnownNoChild,
@@ -115,7 +112,6 @@ fn finish_owned<T, O>(
     })
 }
 fn finish_owner<T>(mut owner: Owner, outcome: Result<T, &'static str>) -> Result<T, ProbeFailure> {
-    // All callers created this exact owner before entering the fallible operation.
     let Some(inner) = owner.inner.take() else {
         return Err(ProbeFailure {
             scope: ProbeScope::UnknownRetained,
@@ -178,8 +174,6 @@ fn settle_owned(
             removed = settle_scope();
         }
         if removed && !may_execute {
-            // A partial attach can leave a provably blocked helper outside
-            // the scope. Kill it only after the scope is proven removed.
             let _ = child.kill();
         }
         if removed && matches!(child.try_wait(), Ok(Some(_))) {
@@ -202,8 +196,6 @@ pub(crate) fn settle(inner: &mut Inner, deadline: Instant) -> bool {
             .is_ok_and(|v| v.empty && v.removed)
     })
 }
-// Unknown owners remain strongly retained; cleanup failure never turns into a blocking wait
-// or silently releases scope authority. If thread creation fails, the queue still retains them.
 fn quarantine(inner: Inner) {
     use std::sync::{
         Mutex,
@@ -259,7 +251,7 @@ impl Drop for Owner {
 fn valid_env(env: &BTreeMap<String, String>) -> bool {
     env.len() <= 32
         && env.iter().all(|(key, value)| {
-            matches!(
+            (matches!(
                 key.as_str(),
                 "HOME"
                     | "PATH"
@@ -269,18 +261,11 @@ fn valid_env(env: &BTreeMap<String, String>) -> bool {
                     | "TMP"
                     | "CLAUDE_CONFIG_DIR"
                     | "CLAUDE_CODE_PROJECT_DIR_NAME"
-                    | "DISABLE_AUTOUPDATER"
-                    | "DISABLE_TELEMETRY"
-                    | "DISABLE_ERROR_REPORTING"
-                    | "CLAUDE_CODE_SKIP_PROMPT_HISTORY"
-                    | "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
-                    | "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL"
-                    | "CLAUDE_CODE_DISABLE_POLICY_SKILLS"
-                    | "ENABLE_CLAUDEAI_MCP_SERVERS"
                     | "CLAUDE_CODE_PLUGIN_CACHE_DIR"
                     | "CLAUDE_CODE_DEBUG_LOGS_DIR"
                     | "ANTHROPIC_BASE_URL"
-            ) && value.len() <= 8192
+            ) || crate::claude_environment::flags().any(|(flag, _)| flag == key))
+                && value.len() <= 8192
                 && !value.contains('\0')
         })
         && env.get("PATH").is_some_and(|v| v == "/usr/bin:/bin")
@@ -434,7 +419,6 @@ fn start_classified(
         }
         payload.extend_from_slice(initial_input);
         let mut input = owner.child.stdin.take().ok_or("host probe stdin")?;
-        // Arm BEFORE the first write: a complete frame can immediately exec.
         owner.may_execute = true;
         bounded_startup(&mut input, &payload, deadline, || {
             owner.scope.sample_cpu_budget().is_ok_and(|v| !v.exceeded)
@@ -580,7 +564,6 @@ fn drain(reader: &mut impl Read, bytes: &mut Vec<u8>) -> Result<(), &'static str
     }
 }
 
-/// The private helper entry point; no SDK runs until cgroup/owner checks succeed.
 fn retained_scope(scope: &str) -> Result<(std::fs::File, std::fs::File), &'static str> {
     use rustix::fs::{CWD, Mode, OFlags, ResolveFlags, openat2};
     let scope = std::fs::File::from(
@@ -674,8 +657,6 @@ struct HostMonitor {
 impl Drop for HostMonitor {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Release);
-        // A failed kill intentionally retains this monitor inside the helper.
-        // The API caller's bounded owner then quarantines the whole cgroup.
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -692,8 +673,6 @@ pub fn guest_mcp() -> Result<i32, &'static str> {
 }
 fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
     let begun = Instant::now();
-    // Stdin's internal BufReader could consume the first pipelined MCP frame.
-    // The private Start is read through a raw duplicated descriptor only.
     let mut private_input =
         std::fs::File::from(rustix::io::dup(std::io::stdin()).map_err(|_| "host private input")?);
     let start: Start =
@@ -782,8 +761,6 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
         .envs(&start.env)
         .spawn();
     if inheritance.is_some_and(|guard| guard.restore().is_err()) {
-        // A child may already exist. Retain independent kill authority rather
-        // than returning an ambiguous spawn error and dropping the watchdog.
         kill_retaining(&mut kill);
     }
     let mut child = spawned.map_err(|_| "host SDK spawn")?;
@@ -807,8 +784,6 @@ fn guest_for(purpose: Purpose) -> Result<i32, &'static str> {
         kill_retaining(&mut kill);
     }
     loop {
-        // Retained helper survives the original owner and owns the exact whole-tree kill FD.
-        // It remains in this same cgroup; cgroup.kill deliberately terminates the helper too.
         if !owner_current() || begun.elapsed() >= Duration::from_millis(start.wall_ms) {
             kill_retaining(&mut kill);
         }
@@ -885,8 +860,6 @@ mod tests {
         );
         drop(input);
         drop(authority);
-        // Only the scope operation is injected to fail. This is not evidence
-        // of a kernel cgroup failure; the partial write and owned child are real.
         let unknown = !settle_held(
             &mut held,
             Instant::now() + Duration::from_millis(20),
@@ -895,8 +868,6 @@ mod tests {
         let alive = matches!(held.child.try_wait(), Ok(None));
         let retained =
             weak.upgrade().is_some() && dropped.load(Ordering::Acquire) == 0 && path.exists();
-        // Exact owner transfer (the same HeldProcess used inside production
-        // Inner/quarantine), not inference from any global queue's emptiness.
         let mut quarantine = vec![held];
         let _ = quarantine[0].child.kill();
         let _ = quarantine[0].child.wait();
@@ -946,8 +917,6 @@ mod tests {
     #[test]
     fn kill_failure_child() {
         if std::env::var("GENT_QA_KILL_FAILURE_CHILD").as_deref() == Ok("1") {
-            // Real ENOSPC on an owned FD exercises the production failure loop;
-            // it is deliberately not evidence of a failing cgroup kernel.
             let mut fail = std::fs::OpenOptions::new()
                 .write(true)
                 .open("/dev/full")
@@ -978,8 +947,6 @@ mod tests {
     }
     #[test]
     fn failed_scope_settlement_preserves_independent_released_helper() {
-        // Inject only the scope-operation failure. The child is a real owned
-        // process; this is not evidence of a failing cgroup kernel.
         let mut helper = Command::new("/usr/bin/sleep")
             .arg("20")
             .stdin(Stdio::null())
@@ -1071,7 +1038,6 @@ mod typed_failure_tests {
     }
     #[test]
     fn known_settled_nonzero_failure_does_not_latch_unknown() {
-        // Exact real child exit, injected scope-success primitive; no kernel witness claim.
         let child = Command::new("/usr/bin/false")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1119,7 +1085,6 @@ mod typed_failure_tests {
             _authority: Some(authority),
         };
         let parked = std::cell::RefCell::new(None);
-        // Inject only settlement failure; the same real process+authority transfer is exercised.
         let result: Result<(), ProbeFailure> = finish_owned(
             process,
             Err("host startup write"),

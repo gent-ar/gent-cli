@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 use gent_protocol::{
-    read_json_frame,
     speech_catalog::{SPEECH_CATALOG_CAPABILITY, SpeechCatalogFrame},
     write_json_frame,
 };
@@ -46,10 +45,7 @@ where
         request_id: request_id.clone(),
     };
     write_json_frame(&mut stream, &request).await?;
-    let raw: Value = read_json_frame(&mut stream).await?;
-    if let Some(error) = crate::cli_error::CliError::from_reply(&raw) {
-        return Err(error.into());
-    }
+    let raw: Value = crate::local_ipc::read_reply(&mut stream).await?;
     let reply: SpeechCatalogFrame = serde_json::from_value(raw)?;
     reply.validate()?;
     match reply {

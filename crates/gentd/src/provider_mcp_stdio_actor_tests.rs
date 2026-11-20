@@ -1,4 +1,5 @@
 use super::*;
+use std::io::Write;
 struct DropNotice(Arc<std::sync::atomic::AtomicUsize>);
 impl Drop for DropNotice {
     fn drop(&mut self) {

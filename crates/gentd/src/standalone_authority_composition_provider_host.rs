@@ -65,16 +65,6 @@ impl LazyStandaloneProviderHost {
             return Ok(());
         }
         if !self.readiness.is_ready(self.provider).map_err(|_| ())? {
-            return Err(());
-        }
-        self.start_with()
-    }
-
-    fn start_existing(&mut self) -> Result<(), ()> {
-        if self.host.is_some() {
-            return Ok(());
-        }
-        if !self.readiness.is_ready(self.provider).map_err(|_| ())? {
             return Ok(());
         }
         if self.executables.executable(self.provider).is_none() {
@@ -158,7 +148,7 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
     }
 
     fn arm_authority_recovery(&mut self) -> Result<(), ()> {
-        self.start_existing()?;
+        self.start()?;
         self.host
             .as_mut()
             .map_or(Ok(()), |host| host.arm_authority_recovery())
@@ -166,10 +156,10 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
 
     fn wake(&mut self) -> Result<(), ()> {
         self.start()?;
-        self.host.as_mut().ok_or(())?.wake()
+        self.host.as_mut().map_or(Ok(()), |host| host.wake())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         self.host.as_mut().map_or(Ok(()), |host| host.drive())
     }
 
@@ -183,7 +173,7 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
         request_id: &str,
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.respond_claude_permission_with_input(
             run_id,
             request_id,
@@ -200,10 +190,10 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
         behavior: gent_drivers::claude_control::ClaudePermissionBehavior,
         persist_suggestions: bool,
         updated_input: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.host
             .as_ref()
-            .ok_or(())?
+            .ok_or(crate::ordinary_lifecycle_host::Undelivered::NotPending)?
             .respond_claude_permission_with_input(
                 run_id,
                 request_id,
@@ -219,10 +209,10 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
         request_id: &str,
         decision: gent_drivers::codex_control::CodexControlDecision,
         answers: Option<serde_json::Value>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), crate::ordinary_lifecycle_host::Undelivered> {
         self.host
             .as_ref()
-            .ok_or(())?
+            .ok_or(crate::ordinary_lifecycle_host::Undelivered::NotPending)?
             .respond_codex_permission(run_id, request_id, decision, answers)
     }
 
@@ -230,7 +220,7 @@ impl OrdinaryLifecycleHost for LazyStandaloneProviderHost {
         &mut self,
         request: &crate::provider_warm_pool::WarmPoolRequest,
     ) -> Result<Option<gent_protocol::ProviderWarmOutcome>, ()> {
-        self.start_existing()?;
+        self.start()?;
         match self.host.as_mut() {
             Some(host) => host.tend_warm_pool(request),
             None => Ok(request.unavailable()),

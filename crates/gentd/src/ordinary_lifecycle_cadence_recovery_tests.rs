@@ -43,9 +43,9 @@ impl crate::ordinary_lifecycle_cadence::AsyncOrdinaryLifecycleHost for TurnBound
 }
 
 #[tokio::test]
-async fn queued_interrupt_turn_checks_binding_when_the_async_owner_consumes_it() {
-    let (_, cadence, wake, _, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
-    let current = Arc::new(Mutex::new("old-turn".to_owned()));
+async fn an_interrupt_turn_checks_its_binding_when_the_async_owner_applies_it() {
+    let (_, _, wake, _, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let current = Arc::new(Mutex::new("new-turn".to_owned()));
     let attempts = Arc::new(Mutex::new(Vec::new()));
     let signals = Arc::new(Mutex::new(Vec::new()));
     wake.attach_async_claurst(Box::new(TurnBoundHost {
@@ -55,27 +55,18 @@ async fn queued_interrupt_turn_checks_binding_when_the_async_owner_consumes_it()
     }))
     .await
     .unwrap();
-    {
-        let mut queued = wake.async_claurst_interrupts.lock().unwrap();
-        for turn in ["old-turn", "new-turn"] {
-            queued.push_back(crate::ordinary_lifecycle_cadence::PendingClaurstInterrupt {
-                run_id: "same-run".into(),
-                expected_turn_id: Some(turn.into()),
-                goal_stop: None,
-            });
-        }
+    for turn in ["old-turn", "new-turn"] {
+        wake.interrupt_turn(AgentChatProvider::Claurst, "same-run", turn, None)
+            .unwrap();
     }
-    *current.lock().unwrap() = "new-turn".into();
-    let task = tokio::spawn(cadence.run());
     tokio::time::timeout(Duration::from_secs(1), async {
         while attempts.lock().unwrap().len() != 2 {
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            tokio::task::yield_now().await;
         }
     })
     .await
     .unwrap();
     assert_eq!(&*signals.lock().unwrap(), &["new-turn"]);
-    task.abort();
 }
 
 #[tokio::test]
@@ -150,8 +141,32 @@ async fn async_claurst_owner_is_recovered_and_driven_by_the_same_ordinary_cadenc
     .await
     .unwrap();
     let task = tokio::spawn(cadence.run());
+    wait_for(&events, 3).await;
+    assert_eq!(
+        &events.lock().unwrap()[..3],
+        &["recovery", "drive", "drive"]
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn claurst_is_driven_again_only_when_provider_activity_is_signalled() {
+    let (_, cadence, wake, _, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    wake.attach_async_claurst(Box::new(AsyncHost {
+        events: Arc::clone(&events),
+        interrupts: Arc::new(Mutex::new(Vec::new())),
+        active: false,
+        stopping: false,
+    }))
+    .await
+    .unwrap();
+    let task = tokio::spawn(cadence.run());
     wait_for(&events, 2).await;
-    assert_eq!(&*events.lock().unwrap(), &["recovery", "drive"]);
+    let before = events.lock().unwrap().len();
+    gent_drivers::provider_activity::signal();
+    wait_for(&events, before + 1).await;
+    assert_eq!(events.lock().unwrap().last(), Some(&"drive"));
     task.abort();
 }
 
@@ -182,7 +197,7 @@ async fn accepted_claurst_interrupt_is_delivered_to_its_async_owner_without_a_te
     task.abort();
 }
 #[tokio::test]
-async fn steering_wakes_a_native_steer_owner_but_interrupts_claurst() {
+async fn send_now_without_a_turn_wakes_and_with_a_turn_interrupts_exactly_that_turn() {
     let (_, cadence, wake, events, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
     let interrupts = Arc::new(Mutex::new(Vec::new()));
     wake.attach_async_claurst(Box::new(AsyncHost {
@@ -204,7 +219,7 @@ async fn steering_wakes_a_native_steer_owner_but_interrupts_claurst() {
 
     let mut claurst = prompt();
     claurst.run_id = AgentChatRunId("run-claurst".into());
-    wake.steer_run(AgentChatProvider::Claurst, claurst, None)
+    wake.steer_run(AgentChatProvider::Claurst, claurst, Some("turn-claurst"))
         .unwrap();
     tokio::time::timeout(Duration::from_secs(1), async {
         while interrupts.lock().unwrap().is_empty() {
@@ -213,7 +228,7 @@ async fn steering_wakes_a_native_steer_owner_but_interrupts_claurst() {
     })
     .await
     .unwrap();
-    assert_eq!(&*interrupts.lock().unwrap(), &["run-claurst"]);
+    assert_eq!(&*interrupts.lock().unwrap(), &["run-claurst/turn-claurst"]);
     task.abort();
 }
 
@@ -263,10 +278,12 @@ async fn a_claurst_warm_up_reaches_its_async_owner_once_it_is_idle() {
 }
 
 #[derive(Debug)]
-struct StalledWarmHost;
+struct EndlessClaurst {
+    reaps: Arc<Mutex<usize>>,
+}
 
 #[async_trait::async_trait]
-impl crate::ordinary_lifecycle_cadence::AsyncOrdinaryLifecycleHost for StalledWarmHost {
+impl crate::ordinary_lifecycle_cadence::AsyncOrdinaryLifecycleHost for EndlessClaurst {
     async fn activate_recovery(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -276,39 +293,32 @@ impl crate::ordinary_lifecycle_cadence::AsyncOrdinaryLifecycleHost for StalledWa
     async fn begin_shutdown_after_recovery(&mut self) -> Result<(), String> {
         Ok(())
     }
-    async fn warm_claurst(&mut self, _: &str, _: &str) -> Result<(), String> {
-        std::future::pending().await
+    async fn reap_idle(&mut self, _: std::time::Instant) -> Result<(), String> {
+        *self.reaps.lock().unwrap() += 1;
+        Ok(())
     }
     fn shutdown_complete(&self) -> bool {
         true
     }
 }
 
-#[tokio::test]
-async fn a_slow_claurst_warm_up_never_blocks_other_provider_prompts() {
-    let (control, cadence, mut wake, events, _, _, _) =
-        cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
+#[tokio::test(start_paused = true)]
+async fn a_turn_that_never_settles_does_not_starve_the_idle_reaper() {
+    let (control, cadence, wake, _, _, _, _) = cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
     let task = tokio::spawn(cadence.run());
     wait_for_ready(&control).await;
-    wake.attach_async_claurst(Box::new(StalledWarmHost))
-        .await
-        .unwrap();
-    let request = crate::provider_warm_pool::WarmPoolRequest {
-        now: std::time::Instant::now(),
-        target: Some(crate::provider_warm_pool::WarmTarget {
-            conversation_id: "conversation-claurst".into(),
-            run_id: "run-claurst".into(),
-        }),
-    };
-    assert_eq!(
-        wake.tend_warm_pool(Some(AgentChatProvider::Claurst), &request)
-            .unwrap(),
-        Some(gent_protocol::ProviderWarmOutcome::Warming)
-    );
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    events.lock().unwrap().clear();
-    wake.wake_after_prompt_commit(prompt()).unwrap();
-    wait_for(&events, 2).await;
-    assert!(events.lock().unwrap().contains(&"drive"));
+    let reaps = Arc::new(Mutex::new(0));
+    wake.attach_async_claurst(Box::new(EndlessClaurst {
+        reaps: Arc::clone(&reaps),
+    }))
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(120), async {
+        while *reaps.lock().unwrap() < 3 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the idle reaper must keep running while another turn is driven");
     task.abort();
 }

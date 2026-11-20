@@ -100,16 +100,27 @@ impl AsyncOrdinaryLifecycleHost for AsyncHost {
         Ok(())
     }
 
-    async fn warm_claurst(&mut self, conversation_id: &str, run_id: &str) -> Result<(), String> {
+    async fn interrupt_claurst_turn(&mut self, run_id: &str, turn_id: &str) -> Result<(), String> {
+        self.interrupts
+            .lock()
+            .unwrap()
+            .push(format!("{run_id}/{turn_id}"));
+        Ok(())
+    }
+
+    fn warm_claurst(&mut self, conversation_id: &str, run_id: &str) {
         self.interrupts
             .lock()
             .unwrap()
             .push(format!("warm:{conversation_id}:{run_id}"));
-        Ok(())
     }
 
     fn shutdown_complete(&self) -> bool {
         self.stopping && !self.active
+    }
+
+    fn is_idle(&self) -> bool {
+        !self.active
     }
 }
 
@@ -130,7 +141,7 @@ impl OrdinaryLifecycleHost for Host {
         Ok(())
     }
 
-    fn drive(&mut self) -> Result<(), ()> {
+    fn drive(&mut self) -> Result<(), crate::ordinary_lifecycle_host::DriveFailure> {
         let current = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_in_flight.fetch_max(current, Ordering::SeqCst);
         std::thread::sleep(self.delay);
@@ -284,7 +295,7 @@ fn summary(provider: AgentChatProvider) -> AgentChatConversationSummary {
         updated_at_unix_ms: 0,
         selection: selection(provider),
         selection_applies_next_turn: false,
-        steer_delivery: None,
+        queue_delivery: None,
         containment: gent_types::Containment::Unsandboxed,
     }
 }
@@ -341,8 +352,6 @@ async fn a_completed_provider_install_wakes_its_released_prompt_without_a_restar
         cadence(AgentChatProvider::Codex, 0, Duration::ZERO);
     let task = tokio::spawn(cadence.run());
     wait_for_ready(&control).await;
-    // Admission opens before the initial recovery drive. Wait for that drive so
-    // it cannot be mistaken for a wake caused by the failed install below.
     wait_for(&events, 2).await;
     events.lock().unwrap().clear();
 

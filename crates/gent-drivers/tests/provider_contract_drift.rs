@@ -10,10 +10,16 @@ use gent_types::{
 };
 use serde_json::{Value, json};
 
-const CODEX_METHODS_OUTSIDE_SCHEMA: &[(&str, &str)] = &[(
-    "currentTime/read",
-    "present in the pinned native codex binary but omitted from its generated app-server schema",
-)];
+const CODEX_METHODS_OUTSIDE_SCHEMA: &[(&str, &str)] = &[
+    (
+        "currentTime/read",
+        "present in the pinned native codex binary but omitted from its generated app-server schema",
+    ),
+    (
+        "thread/backgroundTerminals/clean",
+        "experimental: generated only by `app-server generate-json-schema --experimental`",
+    ),
+];
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

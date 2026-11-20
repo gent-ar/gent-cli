@@ -44,6 +44,7 @@ fn actual_catalog_caller_model_readiness_summary_and_gateway() {
         containment: gent_types::Containment::Sandboxed,
         allowed_tools: vec![],
         allowed_categories: vec![],
+        allowed_commands: Vec::new(),
     };
     ledger.save_policy(&policy).unwrap();
     let record = crate::contained_model::native_tests::record();

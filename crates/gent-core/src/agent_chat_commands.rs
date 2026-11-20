@@ -88,6 +88,11 @@ pub fn reserved_names(provider: Option<AgentChatProvider>) -> Vec<&'static str> 
         .collect()
 }
 
+#[must_use]
+pub const fn side_question_waits_for_turn(provider: AgentChatProvider) -> bool {
+    matches!(provider, AgentChatProvider::Claurst)
+}
+
 pub fn resolve_command<'a>(
     catalog: &'a [AgentChatCommandDescriptor],
     name: &str,
@@ -107,7 +112,7 @@ fn descriptor(
         ),
         (Kind::Client(action), _) => (
             AgentChatCommandDispatch::ClientAction { action: *action },
-            false,
+            *action == Action::SideQuestion && provider.is_some_and(side_question_waits_for_turn),
         ),
         (Kind::Compact, Some(AgentChatProvider::Claude)) => return None,
         (Kind::Compact, _) => (

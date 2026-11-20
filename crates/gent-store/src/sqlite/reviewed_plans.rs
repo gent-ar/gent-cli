@@ -2,8 +2,8 @@
 
 use gent_ports::{IngressMode, LedgerError, ReviewedPlanLedger};
 use gent_types::{
-    AgentChatRunId, Command, ContextPolicy, PlanArtifact, PlanRevision, Receipt, ReceiptStatus,
-    ReviewedPlanId, StartImplementationRequest, StartImplementationResult,
+    AgentChatRunId, Command, ContextPolicy, ImplementationStarted, PlanArtifact, PlanRevision,
+    Receipt, ReceiptStatus, ReviewedPlanId, StartImplementationRequest, StartImplementationResult,
 };
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
@@ -30,7 +30,7 @@ impl ReviewedPlanLedger for SqliteLedger {
     fn approve_reviewed_plan(
         &self,
         request: &StartImplementationRequest,
-    ) -> Result<StartImplementationResult, LedgerError> {
+    ) -> Result<ImplementationStarted, LedgerError> {
         approve(self, request)
     }
 
@@ -52,12 +52,6 @@ impl ReviewedPlanLedger for SqliteLedger {
 
     fn plan_turns_awaiting_review(&self) -> Result<Vec<gent_types::PlanTurn>, LedgerError> {
         pursuit::turns_awaiting_review(&*self.lock()?)
-    }
-
-    fn implementations_awaiting_prompt(
-        &self,
-    ) -> Result<Vec<gent_types::PlanImplementation>, LedgerError> {
-        pursuit::implementations_awaiting_prompt(&*self.lock()?)
     }
 }
 
@@ -125,7 +119,7 @@ fn current(
 fn approve(
     ledger: &SqliteLedger,
     request: &StartImplementationRequest,
-) -> Result<StartImplementationResult, LedgerError> {
+) -> Result<ImplementationStarted, LedgerError> {
     request
         .validate()
         .map_err(|_| invalid("approval request"))?;
@@ -142,7 +136,10 @@ fn approve(
         });
     }
     if let Some(result) = existing(&tx, request, &command)? {
-        return Ok(result);
+        let plan = pursuit::stored(&tx, &request.plan_id.0, request.plan_revision.0)?;
+        let prompt = implementation_prompt(&tx, request, &plan, &result.implementation_run_id)?;
+        tx.commit().map_err(storage_error)?;
+        return Ok(ImplementationStarted { result, prompt });
     }
     if find_receipt(&tx, &request.idempotency_key)?.is_some() {
         return Err(invalid("approval idempotency ownership"));
@@ -158,10 +155,10 @@ fn approve(
     let run_id = AgentChatRunId(child_id(request));
     insert_child(&tx, request, &run_id)?;
     tx.execute("UPDATE reviewed_plan_artifacts SET status = 'approved' WHERE plan_id = ?1 AND revision = ?2", params![request.plan_id.0, request.plan_revision.0]).map_err(storage_error)?;
-    pursuit::publish(
-        &tx,
-        &pursuit::stored(&tx, &request.plan_id.0, request.plan_revision.0)?,
-    )?;
+    let plan = pursuit::stored(&tx, &request.plan_id.0, request.plan_revision.0)?;
+    pursuit::publish(&tx, &plan)?;
+    let prompt = implementation_prompt(&tx, request, &plan, &run_id)?;
+    release(&tx, &prompt)?;
     let receipt = Receipt {
         receipt_id: request.receipt_id.clone(),
         idempotency_key: request.idempotency_key.clone(),
@@ -171,7 +168,10 @@ fn approve(
     insert_receipt(&tx, &receipt, &command)?;
     tx.execute("INSERT INTO reviewed_plan_approval_receipts (idempotency_key, plan_id, plan_revision, parent_run_id, implementation_run_id, context_policy, context_through_ordinal, policy_workspace_id, policy_revision) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", params![request.idempotency_key, request.plan_id.0, request.plan_revision.0, request.parent_run_id.0, run_id.0, context_name(request.context_policy), ordinal, request.policy_workspace_id, request.policy_revision]).map_err(storage_error)?;
     tx.commit().map_err(storage_error)?;
-    Ok(result(receipt, request, run_id, ordinal))
+    Ok(ImplementationStarted {
+        result: result(receipt, request, run_id, ordinal),
+        prompt,
+    })
 }
 
 fn reject(
@@ -185,9 +185,7 @@ fn reject(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(storage_error)?;
     let changed = tx.execute("UPDATE reviewed_plan_artifacts SET status = 'rejected' WHERE plan_id = ?1 AND revision = ?2 AND content_digest_sha256 = ?3 AND status = 'readyForReview'", params![id.0, revision.0, digest]).map_err(storage_error)?;
-    (changed == 1)
-        .then_some(())
-        .ok_or_else(|| invalid("reviewable plan revision"))?;
+    (changed == 1).then_some(()).ok_or(not_reviewable())?;
     pursuit::publish(&tx, &pursuit::stored(&tx, &id.0, revision.0)?)?;
     tx.commit().map_err(storage_error)
 }
@@ -230,7 +228,7 @@ fn exact_plan(
     request: &StartImplementationRequest,
 ) -> Result<(), LedgerError> {
     let plan = tx.query_row("SELECT conversation_id, source_run_id, content_digest_sha256, status FROM reviewed_plan_artifacts WHERE plan_id = ?1 AND revision = ?2", params![request.plan_id.0, request.plan_revision.0], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?))).optional().map_err(storage_error)?;
-    matches!(plan, Some((conversation, parent, digest, status)) if conversation == request.conversation_id.0 && parent == request.parent_run_id.0 && digest == request.plan_content_digest_sha256 && status == "readyForReview").then_some(()).ok_or_else(|| invalid("exact reviewable plan"))
+    matches!(plan, Some((conversation, parent, digest, status)) if conversation == request.conversation_id.0 && parent == request.parent_run_id.0 && digest == request.plan_content_digest_sha256 && status == "readyForReview").then_some(()).ok_or(not_reviewable())
 }
 
 fn current_parent(
@@ -240,7 +238,9 @@ fn current_parent(
     let current = tx.query_row("SELECT q.run_id FROM agent_chat_conversations c JOIN agent_chat_run_selections q JOIN runs r ON r.run_id = q.run_id WHERE c.conversation_id = ?1 AND r.conversation_id = c.conversation_id ORDER BY r.rowid DESC LIMIT 1", [&request.conversation_id.0], |row| row.get::<_, String>(0)).optional().map_err(storage_error)?;
     (current.as_deref() == Some(&request.parent_run_id.0))
         .then_some(())
-        .ok_or_else(|| invalid("current parent run"))?;
+        .ok_or(LedgerError::Rejected(
+            gent_types::AgentChatRejection::PlanApprovalParentNotCurrent,
+        ))?;
     let active = tx
         .query_row(
             "SELECT 1 FROM turns WHERE run_id = ?1 AND phase IN ('active', 'waitingPermission', 'waitingQuestion') LIMIT 1",
@@ -261,7 +261,13 @@ fn current_policy(
     let revision = tx.query_row("SELECT revision FROM policies WHERE workspace_id = ?1 AND scope = 'providerPermissions' ORDER BY revision DESC LIMIT 1", [&request.policy_workspace_id], |row| row.get::<_, u64>(0)).optional().map_err(storage_error)?;
     (revision == Some(request.policy_revision))
         .then_some(())
-        .ok_or_else(|| invalid("current permission policy revision"))
+        .ok_or(LedgerError::Rejected(
+            gent_types::AgentChatRejection::PlanApprovalPolicyChanged,
+        ))
+}
+
+const fn not_reviewable() -> LedgerError {
+    LedgerError::Rejected(gent_types::AgentChatRejection::PlanNotReviewable)
 }
 
 fn receipt_available(
@@ -282,7 +288,7 @@ fn receipt_available(
 
 #[path = "reviewed_plan_approval.rs"]
 mod approval;
-use approval::{command, history_ordinal, insert_child, result};
+use approval::{command, history_ordinal, implementation_prompt, insert_child, release, result};
 
 #[path = "reviewed_plan_pursuit.rs"]
 mod pursuit;
