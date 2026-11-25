@@ -1,4 +1,6 @@
-use gent_protocol::{Negotiated, WireFrame, read_frame, write_frame};
+use gent_protocol::{
+    Negotiated, WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
+};
 use gent_types::{CapabilitySet, PROTOCOL_MAX};
 use tokio::net::UnixListener;
 
