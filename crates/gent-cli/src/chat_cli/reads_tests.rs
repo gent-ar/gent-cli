@@ -1,4 +1,6 @@
-use gent_protocol::{Hello, Negotiated, WireFrame, read_frame, write_frame};
+use gent_protocol::{
+    Hello, Negotiated, WireFrame, read_frame, read_json_frame, write_frame, write_json_frame,
+};
 use gent_types::{
     AgentChatEffort, AgentChatMode, AgentChatProvider, AgentChatSelection, CapabilitySet,
     NormalizedTranscriptEvent, NormalizedTranscriptKind, PROTOCOL_MAX,
