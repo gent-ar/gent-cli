@@ -102,3 +102,29 @@ fn a_v33_ledger_gives_every_failed_side_question_a_typed_code() {
         ]
     );
 }
+
+#[test]
+fn v34_recovers_known_settlement_outcomes_without_guessing_unknown_ones() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    apply(&mut connection).unwrap();
+    connection.execute_batch(r#"
+        INSERT INTO conversations VALUES ('conversation');
+        INSERT INTO runs (run_id, provider, conversation_id) VALUES ('run', 'codex', 'conversation');
+        INSERT INTO agent_chat_conversations (conversation_id, root_run_id, provider, model, effort, mode)
+        VALUES ('conversation', 'run', 'codex', 'fixture', 'default', 'ask');
+        INSERT INTO agent_chat_projection_events (cursor, conversation_id, source_event_id, kind, payload)
+        VALUES (91, 'conversation', 'activity:known', 'activity', '{"runId":"run","activity":{"type":"decisionSettled","cursor":7,"decisionId":"known"}}'),
+               (92, 'conversation', 'activity:unknown', 'activity', '{"runId":"run","activity":{"type":"decisionSettled","cursor":8,"decisionId":"unknown"}}');
+        INSERT INTO conversation_activity_facts (conversation_id, run_id, host_epoch, cursor, payload)
+        VALUES ('conversation', 'run', 1, 7, '{"type":"decisionSettled","decisionId":"known","outcome":"cancelled"}'),
+               ('conversation', 'run', 1, 8, '{"type":"decisionSettled","decisionId":"unknown"}');
+        UPDATE gent_schema SET identity = 'gent-fresh-schema-v34';
+    "#).unwrap();
+    apply(&mut connection).unwrap();
+    apply(&mut connection).unwrap();
+    let rows = connection.prepare(
+        "SELECT cursor, json_extract(payload, '$.activity.outcome') FROM agent_chat_projection_events ORDER BY cursor"
+    ).unwrap().query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)))
+        .unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(rows, [(91, Some("cancelled".into())), (92, None)]);
+}

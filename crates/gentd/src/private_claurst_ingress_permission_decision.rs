@@ -65,7 +65,6 @@ where
                 state.binding.run_id == response.binding.run_id.0
                     && state.conversation_id.as_ref() == Some(&response.binding.conversation_id)
                     && state.turn_id.as_deref() == Some(response.binding.turn_id.as_str())
-                    && !state.terminal
             })
             .cloned()
         else {

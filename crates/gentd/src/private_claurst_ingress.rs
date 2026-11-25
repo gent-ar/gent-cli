@@ -31,6 +31,7 @@ struct BoundSource {
     after_cursor: u64,
     terminal: bool,
     cancellation_requested: bool,
+    reconsidered_revision: Option<u64>,
     queued_permissions: std::collections::VecDeque<gent_ports::ClaurstPermissionRequest>,
 }
 
@@ -155,6 +156,7 @@ where
                 after_cursor,
                 terminal,
                 cancellation_requested: false,
+                reconsidered_revision: None,
                 queued_permissions: std::collections::VecDeque::new(),
             },
         );
@@ -229,9 +231,9 @@ where
         };
         let batch = self.bridge.drain(request.clone()).await?;
         let checkpoint = validate_batch(&request, &state.binding, &batch)?;
+        self.record_facts(&state, &batch.facts, host_epoch)?;
         self.admit_permissions(&state, &batch.permissions, host_epoch)
             .await?;
-        self.record_facts(&state, &batch.facts, host_epoch)?;
         let effective_terminal = batch.terminal.map(|terminal| {
             if state.cancellation_requested {
                 gent_ports::ClaurstTerminal::Interrupted

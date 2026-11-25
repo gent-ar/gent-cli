@@ -205,7 +205,7 @@ fn a_current_model_never_signals_the_provider() {
 }
 
 #[test]
-fn permission_evidence_must_match_live_run_policy_and_host_epoch() {
+fn permission_evidence_must_cover_the_live_policy_run_and_host_epoch() {
     let (_directory, policy, stdio, alive) = fixture(PermissionMode::Autonomous);
     let mut transport = ClaurstAcpTransport::new(stdio);
     assert_eq!(
@@ -220,10 +220,18 @@ fn permission_evidence_must_match_live_run_policy_and_host_epoch() {
         transport.permission_enforcement("run", &policy, HostEpoch(8)),
         SandboxEnforcement::Unavailable
     );
-    let mut changed = policy.clone();
-    changed.revision += 1;
+    let mut revised = policy.clone();
+    revised.revision += 1;
+    revised.mode = PermissionMode::Bypass;
+    revised.allowed_tools.push("Read".into());
     assert_eq!(
-        transport.permission_enforcement("run", &changed, HostEpoch(7)),
+        transport.permission_enforcement("run", &revised, HostEpoch(7)),
+        SandboxEnforcement::Enforced
+    );
+    let mut moved = policy.clone();
+    moved.workspace_id.push_str("-moved");
+    assert_eq!(
+        transport.permission_enforcement("run", &moved, HostEpoch(7)),
         SandboxEnforcement::Unavailable
     );
     alive.store(false, Ordering::Release);

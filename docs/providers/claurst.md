@@ -45,14 +45,26 @@ Abbreviations: `G:` = `crates/gentd/src/`.
 - Start errors are typed: anything that fails before `session/prompt` is written is
   `PortError::NotDelivered`, and the prompt fails with a notice (never unprovable); a failed
   prompt write or a later failure stays unprovable.
-- Claurst forwards permission requests only while a `session/prompt` is open, so a request
-  belongs to the open turn; an active prompt is the run's whole liveness. A background agent
-  can still be waiting on its request when the turn's prompt answers (observed with
-  qwen3-1-7b starting an `Agent` in the background): the transport settles every prompt's
-  permissions when that answer arrives, whatever its `stopReason`, by answering each open or
-  held request `cancelled`, exactly as `session/cancel` does, and the ledger settles the turn's
-  pending decision with the terminal. A prompt while another is unanswered is refused as
+- Claurst forwards permission requests for the whole ACP session, not only while a
+  `session/prompt` is open. A background `Agent` child (observed with qwen3-1-7b) streams its
+  own `tool_call`/`tool_call_update` updates on the parent session; each child `tool_call` and
+  `session/request_permission` `toolCall` carries `_meta.gentParentToolCallId` (the launching
+  `Agent` tool call), and Claurst always sends a tool's `tool_call` before its permission
+  request. Gentd records the child as `ChildStarted` (child id = that tool call id), its tools
+  with `parentToolUseId` and its permission with `childId`, so the ledger keeps it past the
+  parent's terminal. The conversation policy decides it like any other request; in Ask it is a
+  pending decision with no root `waitingPermission`. When the prompt answers, the transport
+  answers `cancelled` only the turn's own open requests; a child's stays answerable, also after
+  a later prompt starts. `session/cancel` (Stop) answers every open request `cancelled`.
+  Claurst reports a child's end only after its loop has returned (a permission wait returns at
+  once on cancellation), after the child's own tool ends. When the `Agent` tool ends, Gentd ends
+  every child tool still open with the child's phase and records `ChildTerminal`, which settles
+  the child's pending decision. A prompt while another is unanswered is refused as
   `PromptInFlight`. No retry or resend exists.
+- Permissions follow the saved policy exactly as for Claude (`docs/providers/claude.md`):
+  `G:private_claurst_ingress_permission_queue.rs::reconsider_pending_permission` answers a
+  pending request the saved policy now decides; sandbox evidence comes from
+  `PrivateClaurstBridge::permission_enforcement` for the policy being evaluated.
 
 ## If X changes in a new Claurst version…
 

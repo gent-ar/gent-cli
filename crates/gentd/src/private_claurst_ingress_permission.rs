@@ -46,34 +46,17 @@ where
             .turn_id
             .as_ref()
             .ok_or_else(|| invariant("private Claurst permission has no turn"))?;
-        let workspace = self
-            .ledger
-            .agent_chat_workspace_for_run(&conversation_id.0, &state.binding.run_id)?;
-        let (policy, enforcement) = self
-            .bridge
-            .permission_authority(state.binding.clone(), host_epoch)
-            .await?;
-        let owned_chat_tool = self
-            .bridge
-            .owns_chat_tool(&state.binding, &request.tool_name)
-            .await;
-        let mode = gent_runtime::AgentChatReadService::new(self.ledger.clone())
-            .run_selection(&conversation_id.0, &state.binding.run_id)?
-            .mode;
+        let policy = self.live_policy(&conversation_id.0, &state.binding.run_id)?;
         let normalized = PermissionRequest::new(
             request.tool_name.clone(),
             request.category,
             request.input.clone(),
-            None,
+            request.child_id.clone(),
         );
-        match crate::claurst_permission_policy::decide_with_enforcement(
-            mode,
-            &policy,
-            &normalized,
-            std::path::Path::new(&workspace.canonical_path),
-            enforcement,
-            owned_chat_tool,
-        ) {
+        match self
+            .decide_permission(state, &policy, &normalized, host_epoch)
+            .await?
+        {
             ClaurstPermissionDecision::Allow => {
                 self.bridge
                     .respond_permission(
@@ -177,15 +160,16 @@ where
         request: &gent_ports::ClaurstPermissionRequest,
         host_epoch: gent_types::HostEpoch,
     ) -> Result<(), gent_runtime::RuntimeError> {
-        for (suffix, signal) in [
-            (
-                "root",
-                NormalizedLifecycleSignal::RootPhase {
-                    phase: TurnPhase::WaitingPermission,
-                },
-            ),
-            ("tool", tool_signal(request, ToolPhase::WaitingPermission)),
-        ] {
+        let root = request.child_id.is_none().then_some((
+            "root",
+            NormalizedLifecycleSignal::RootPhase {
+                phase: TurnPhase::WaitingPermission,
+            },
+        ));
+        for (suffix, signal) in root
+            .into_iter()
+            .chain([("tool", tool_signal(request, ToolPhase::WaitingPermission))])
+        {
             self.record_permission_lifecycle(
                 state,
                 &format!("permission-{}-{suffix}", request.request_id),
@@ -255,7 +239,7 @@ fn tool_signal(
                 .input
                 .as_ref()
                 .and_then(gent_types::operation_preview),
-            parent_tool_use_id: None,
+            parent_tool_use_id: request.child_id.clone(),
         },
     }
 }

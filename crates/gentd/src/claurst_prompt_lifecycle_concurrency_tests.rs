@@ -154,7 +154,6 @@ async fn a_conversation_waiting_on_a_permission_never_blocks_another_conversatio
     conversation(&ledger, "a");
     conversation(&ledger, "b");
     ledger.save_policy(&policy).unwrap();
-    bridge.bind_turn_policy(policy);
     let (waiting, a) = prompt(&ledger, &bridge, "a");
     let mut lifecycle = recovered(&ledger, &bridge).await;
     drive(&mut lifecycle, &bridge, &[]).await;
@@ -165,6 +164,7 @@ async fn a_conversation_waiting_on_a_permission_never_blocks_another_conversatio
             tool_name: "Write".into(),
             category: PermissionCategory::Edit,
             input: Some(serde_json::json!({"file_path":"/workspace-a/a.txt","content":"a"})),
+            child_id: None,
         }],
         ..batch(&a)
     });

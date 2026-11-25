@@ -26,7 +26,7 @@ BEGIN
                     'cursor', NEW.cursor,
                     'decisionId', json_extract(NEW.payload, '$.decisionId')
                 ),
-                json_object('request', json_extract(NEW.payload, '$.request'))
+                json_object('request', json_extract(NEW.payload, '$.request'), 'outcome', json_extract(NEW.payload, '$.outcome'))
             )
         )
     );

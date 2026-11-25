@@ -61,37 +61,22 @@ pub(super) fn unavailable(what: &str) -> PortError {
     PortError::Unavailable(what.into())
 }
 
-pub(super) fn bind_turn_policy<S>(
-    state: &std::sync::Mutex<super::BridgeState<S>>,
-    policy: gent_types::PolicyRecord,
-) -> Result<(), PortError> {
-    state
-        .lock()
-        .map_err(|_| unavailable("ACP permission authority"))?
-        .turn_policy = Some(policy);
-    Ok(())
-}
-
-pub(super) fn permission_authority<S: ClaurstAcpStdio>(
+pub(super) fn permission_enforcement<S: ClaurstAcpStdio>(
     state: &std::sync::Mutex<super::BridgeState<S>>,
     binding: &ClaurstSessionBinding,
+    policy: &gent_types::PolicyRecord,
     epoch: gent_types::HostEpoch,
-) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
-    let mut state = state
-        .lock()
-        .map_err(|_| unavailable("ACP permission authority"))?;
-    let policy = state
-        .turn_policy
-        .clone()
-        .ok_or_else(|| unavailable("Claurst turn launch policy"))?;
-    let enforcement = if source_is_active(&state, binding) {
+) -> gent_types::SandboxEnforcement {
+    let Ok(mut state) = state.lock() else {
+        return gent_types::SandboxEnforcement::Unavailable;
+    };
+    if source_is_active(&state, binding) {
         state
             .transport
-            .permission_enforcement(&binding.run_id, &policy, epoch)
+            .permission_enforcement(&binding.run_id, policy, epoch)
     } else {
         gent_types::SandboxEnforcement::Unavailable
-    };
-    Ok((policy, enforcement))
+    }
 }
 
 pub(super) fn owns_chat_tool<S: ClaurstAcpStdio>(

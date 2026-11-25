@@ -1,8 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 use super::{
     ClaurstAcpDrain, ClaurstAcpStdio, ClaurstAcpTerminal, ClaurstAcpTransport,
-    ClaurstAcpTransportError,
+    ClaurstAcpTransportError, PendingPermission,
 };
 use gent_types::ToolPhase;
 use serde_json::{Value, json};
@@ -28,18 +28,31 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             "method": "session/cancel",
             "params": {"sessionId": session_id},
         }))?;
-        self.settle_permissions().map(drop)
+        self.settle_permissions(|_| false).map(drop)
     }
 
     pub(super) fn settle_permissions(
         &mut self,
+        stays: impl Fn(&PendingPermission) -> bool,
     ) -> Result<BTreeSet<String>, ClaurstAcpTransportError> {
-        self.queued_permissions.clear();
-        let held = std::mem::take(&mut self.held_permissions)
+        let open: Vec<_> = self
+            .pending_permission
+            .take()
+            .map(|pending| (pending, None))
             .into_iter()
-            .map(|(pending, _)| pending);
+            .chain(
+                std::mem::take(&mut self.held_permissions)
+                    .into_iter()
+                    .map(|(pending, request)| (pending, Some(request))),
+            )
+            .collect();
+        let mut kept = VecDeque::new();
         let mut settled = BTreeSet::new();
-        for pending in self.pending_permission.take().into_iter().chain(held) {
+        for (pending, request) in open {
+            if stays(&pending) {
+                kept.push_back((pending, request));
+                continue;
+            }
             self.write(json!({
                 "jsonrpc": "2.0",
                 "id": pending.json_rpc_id,
@@ -47,6 +60,18 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             }))?;
             settled.insert(pending.tool_use_id);
         }
+        self.queued_permissions.retain(|request| {
+            kept.iter()
+                .any(|(pending, _)| pending.request_id == request.request_id)
+        });
+        if let Some((pending, request)) = kept.pop_front() {
+            self.queued_permissions.extend(request);
+            self.pending_permission = Some(pending);
+        }
+        self.held_permissions = kept
+            .into_iter()
+            .filter_map(|(pending, request)| request.map(|request| (pending, request)))
+            .collect();
         Ok(settled)
     }
 

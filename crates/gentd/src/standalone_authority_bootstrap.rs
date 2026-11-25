@@ -170,6 +170,7 @@ fn standalone_capability_profile(provider_provision: bool) -> RuntimeCapabilityP
         RuntimeCapabilityFeature::AgentChatPermissions,
         RuntimeCapabilityFeature::TurnFollow,
         RuntimeCapabilityFeature::ReviewedPlans,
+        RuntimeCapabilityFeature::ReviewedPlanInstructions,
         RuntimeCapabilityFeature::ProviderReadiness,
         RuntimeCapabilityFeature::ProviderAuth,
         RuntimeCapabilityFeature::ProviderAuthHandoff,

@@ -92,7 +92,6 @@ where
         if ingress.epoch != host_epoch || ingress.mode != gent_ports::IngressMode::Open {
             return Err(missing_binding());
         }
-        let policy = binding.permission.clone();
         let category = crate::permission_category::for_tool(&request.tool_name);
         let normalized = PermissionRequest::new(
             request.tool_name.clone(),
@@ -100,40 +99,12 @@ where
             request.operation_preview.clone(),
             request.child_id.clone(),
         );
-        let config = ledger.current_conversation_config(&binding.prompt.message.conversation_id)?;
-        let disallowed = config
-            .as_ref()
-            .map_or(&[][..], |config| config.disallowed_tools.as_slice());
-        let mode = gent_runtime::AgentChatReadService::new(ledger.clone())
-            .run_selection(&binding.prompt.message.conversation_id, run_id)?
-            .mode;
-        let automatic = match crate::permission_preflight::mode_gate(mode, &normalized) {
-            crate::permission_preflight::ModeGate::Refuse(reason) => {
-                Some(ClaudePermissionBehavior::Refuse(reason))
-            }
-            crate::permission_preflight::ModeGate::AskUser => None,
-            crate::permission_preflight::ModeGate::Policy => {
-                match self.runner.permission_preflight(
-                    &crate::permission_preflight::PreflightContext {
-                        run_id,
-                        conversation_id: &binding.prompt.message.conversation_id,
-                        disallowed,
-                        injection: self.runtime.internal_mcp(),
-                        host_epoch,
-                    },
-                    &policy,
-                    &normalized,
-                ) {
-                    crate::permission_preflight::PermissionPreflight::Allow => {
-                        Some(ClaudePermissionBehavior::Allow)
-                    }
-                    crate::permission_preflight::PermissionPreflight::Deny => {
-                        Some(ClaudePermissionBehavior::Deny)
-                    }
-                    crate::permission_preflight::PermissionPreflight::Ask => None,
-                }
-            }
-        };
+        let policy = self
+            .runtime
+            .run_policy(&binding.prompt.message.conversation_id, run_id)?;
+        let automatic = self
+            .automatic_permission(run_id, host_epoch, &policy, &normalized)?
+            .map(behavior_for);
         if let Some(behavior) = automatic {
             self.runner
                 .respond_claude_permission_with_input(
@@ -213,5 +184,54 @@ where
             self.record_wire(run_id, host_epoch, &fact)?;
         }
         Ok(ClaudePermissionRecord { facts: 2 })
+    }
+
+    pub(super) fn automatic_permission(
+        &self,
+        run_id: &str,
+        host_epoch: gent_types::HostEpoch,
+        policy: &gent_types::PolicyRecord,
+        request: &PermissionRequest,
+    ) -> Result<Option<crate::permission_preflight::Automatic>, RuntimeError> {
+        let binding = self.active.get(run_id).ok_or_else(missing_binding)?;
+        let conversation_id = binding.prompt.message.conversation_id.as_str();
+        let config = self
+            .runtime
+            .ledger()
+            .current_conversation_config(conversation_id)?;
+        let mode = self
+            .runtime
+            .selection_for_run(conversation_id, run_id)?
+            .mode;
+        let context = crate::permission_preflight::PreflightContext {
+            run_id,
+            conversation_id,
+            disallowed: config
+                .as_ref()
+                .map_or(&[][..], |config| config.disallowed_tools.as_slice()),
+            injection: self.runtime.internal_mcp(),
+            host_epoch,
+        };
+        Ok(crate::permission_preflight::automatic(
+            mode,
+            policy,
+            request,
+            |effective| {
+                self.runner
+                    .permission_preflight(&context, effective, request)
+            },
+        ))
+    }
+}
+
+pub(super) const fn behavior_for(
+    automatic: crate::permission_preflight::Automatic,
+) -> ClaudePermissionBehavior {
+    match automatic {
+        crate::permission_preflight::Automatic::Allow => ClaudePermissionBehavior::Allow,
+        crate::permission_preflight::Automatic::Deny(Some(reason)) => {
+            ClaudePermissionBehavior::Refuse(reason)
+        }
+        crate::permission_preflight::Automatic::Deny(None) => ClaudePermissionBehavior::Deny,
     }
 }

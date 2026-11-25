@@ -218,16 +218,6 @@ async fn claurst_permission_write_failure_cancels_the_run_and_rejects_the_decisi
         peer,
         vec![],
     )));
-    bridge
-        .bind_turn_policy(
-            crate::permission_workspace::policy_for_conversation(
-                &ledger,
-                &conversation.0,
-                "workspace-a",
-            )
-            .unwrap(),
-        )
-        .unwrap();
     let mut lifecycle =
         ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
     lifecycle.activate_recovery().await.unwrap();
@@ -330,16 +320,6 @@ async fn claurst_decision_for_a_finished_turn_expires_and_retries_stay_rejected(
         peer,
         vec![],
     )));
-    bridge
-        .bind_turn_policy(
-            crate::permission_workspace::policy_for_conversation(
-                &ledger,
-                &conversation.0,
-                "workspace-a",
-            )
-            .unwrap(),
-        )
-        .unwrap();
     let mut lifecycle =
         ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
     lifecycle.activate_recovery().await.unwrap();
@@ -436,16 +416,6 @@ async fn interrupt_with_a_pending_permission_cancels_it_and_settles_the_turn() {
         peer,
         vec![],
     )));
-    bridge
-        .bind_turn_policy(
-            crate::permission_workspace::policy_for_conversation(
-                &ledger,
-                &conversation.0,
-                "workspace-a",
-            )
-            .unwrap(),
-        )
-        .unwrap();
     let mut lifecycle =
         ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
     lifecycle.activate_recovery().await.unwrap();
@@ -561,16 +531,6 @@ async fn claurst_retried_accepted_decision_is_written_once_and_then_settles() {
         peer,
         vec![],
     )));
-    bridge
-        .bind_turn_policy(
-            crate::permission_workspace::policy_for_conversation(
-                &ledger,
-                &conversation.0,
-                "workspace-a",
-            )
-            .unwrap(),
-        )
-        .unwrap();
     let mut lifecycle =
         ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
     lifecycle.activate_recovery().await.unwrap();
@@ -671,16 +631,6 @@ async fn a_turn_that_completes_with_a_background_permission_open_does_not_block_
         peer,
         vec![],
     )));
-    bridge
-        .bind_turn_policy(
-            crate::permission_workspace::policy_for_conversation(
-                &ledger,
-                &conversation.0,
-                "workspace-a",
-            )
-            .unwrap(),
-        )
-        .unwrap();
     let mut lifecycle =
         ClaurstPromptLifecycle::new(ledger.clone(), bridge, "gentd-1".into(), HostEpoch(1));
     lifecycle.activate_recovery().await.unwrap();

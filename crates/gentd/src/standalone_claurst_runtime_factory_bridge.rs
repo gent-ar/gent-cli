@@ -51,16 +51,16 @@ impl PrivateClaurstBridge for StandaloneClaurstBridge {
             .await
     }
 
-    async fn permission_authority(
+    async fn permission_enforcement(
         &self,
         binding: ClaurstSessionBinding,
+        policy: &gent_types::PolicyRecord,
         epoch: gent_types::HostEpoch,
-    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
-        self.0
-            .run_bridge(&binding.run_id)
-            .await?
-            .permission_authority(binding, epoch)
-            .await
+    ) -> gent_types::SandboxEnforcement {
+        let Ok(bridge) = self.0.run_bridge(&binding.run_id).await else {
+            return gent_types::SandboxEnforcement::Unavailable;
+        };
+        bridge.permission_enforcement(binding, policy, epoch).await
     }
 
     async fn owns_chat_tool(&self, binding: &ClaurstSessionBinding, tool_name: &str) -> bool {

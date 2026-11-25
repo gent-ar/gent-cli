@@ -96,7 +96,7 @@ def check_dependencies() -> list[str]:
 
 def check_file_lengths() -> list[str]:
     errors = []
-    for source in source_files():
+    for source in (path for path in source_files() if path.relative_to(ROOT).parts[:2] != ("third_party", "claurst")):
         if not source.is_file():
             continue
         lines = source.read_text(encoding="utf-8").splitlines()

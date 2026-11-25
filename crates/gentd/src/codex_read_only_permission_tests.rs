@@ -195,3 +195,37 @@ fn a_request_codex_resolves_itself_retires_its_pending_row_and_the_queued_one_is
         gent_types::ConversationActivityFact::DecisionSettled { decision_id, .. } if decision_id == "0"
     )));
 }
+
+#[test]
+fn switching_to_bypass_mid_turn_answers_the_waiting_approval_and_the_queued_one() {
+    let (ledger, runner, mut host) =
+        with_two_approvals_in(AgentChatMode::Agent, PermissionMode::AskEveryTime);
+    assert_eq!(pending_key(&ledger).as_deref(), Some("0"));
+    let mut bypass = ledger
+        .current_policy("workspace-a", gent_types::PolicyScope::ProviderPermissions)
+        .unwrap()
+        .unwrap();
+    bypass.policy_id = "policy-b".into();
+    bypass.revision = 2;
+    bypass.mode = PermissionMode::Bypass;
+    ledger.save_provider_permission_policy(&bypass).unwrap();
+    host.tick().unwrap();
+    host.tick().unwrap();
+    assert_eq!(pending_key(&ledger), None);
+    assert_eq!(
+        runner.state.lock().unwrap().controls,
+        [
+            ("0".to_owned(), CodexControlDecision::Allow),
+            ("1".to_owned(), CodexControlDecision::Allow),
+        ]
+    );
+    let activity = ledger
+        .read_conversation_activity_page("conversation-a", "run-a", 0, 64)
+        .unwrap()
+        .facts;
+    assert!(activity.iter().any(|fact| matches!(
+        fact,
+        gent_types::ConversationActivityFact::DecisionSettled { decision_id, outcome, .. }
+            if decision_id == "0" && *outcome == Some(gent_types::DecisionOutcome::Allowed)
+    )));
+}

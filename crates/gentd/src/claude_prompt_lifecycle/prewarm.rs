@@ -169,6 +169,7 @@ where
                 idle_since: None,
                 awaits_first_input: true,
                 permission: warm.key.1,
+                reconsidered_revision: None,
                 queued_permissions: std::collections::VecDeque::new(),
                 background_children: std::collections::BTreeSet::new(),
             },

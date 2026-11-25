@@ -193,14 +193,6 @@ async fn started_source_projects_pending_permission_into_shared_activity() {
         })
         .unwrap();
     let bridge = FakePrivateClaurstBridge::default();
-    bridge.bind_turn_policy(
-        crate::permission_workspace::policy_for_conversation(
-            &ledger,
-            "conversation-a",
-            "workspace-a",
-        )
-        .unwrap(),
-    );
     let binding = binding();
     bridge.push_start_binding(binding.clone());
     bridge.push_batch(ClaurstDrainBatch {
@@ -211,6 +203,7 @@ async fn started_source_projects_pending_permission_into_shared_activity() {
             tool_name: "write_file".into(),
             category: PermissionCategory::Edit,
             input: Some(serde_json::json!({"file_path": "/workspace/notes.md"})),
+            child_id: None,
         }],
         checkpoint: Some(checkpoint(0)),
         session_binding: Some(binding.clone()),

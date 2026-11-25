@@ -14,7 +14,6 @@ const MAX_HANDSHAKE_FRAMES: usize = 32;
 const HANDSHAKE_TIMEOUT: Duration =
     crate::provider_launch_budget::launch_budget(Duration::from_secs(20));
 const HANDSHAKE_RETRY_DELAY: Duration = Duration::from_millis(5);
-
 #[path = "claurst_acp_stdio_contract.rs"]
 mod stdio_contract;
 pub(crate) use stdio_contract::ClaurstAcpStdio;
@@ -40,6 +39,7 @@ pub(crate) struct ClaurstAcpPermissionRequest {
     pub(crate) tool_name: String,
     pub(crate) category: PermissionCategory,
     pub(crate) input: Option<Value>,
+    pub(crate) child_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,6 +87,7 @@ pub(crate) struct ClaurstAcpTransport<S> {
     queued: VecDeque<ClaurstAcpFact>,
     queued_permissions: VecDeque<ClaurstAcpPermissionRequest>,
     open_tools: Vec<updates::OpenTool>,
+    children: std::collections::BTreeSet<String>,
     permission_claimed_ids: std::collections::BTreeSet<String>,
     permission_rpc_ids: std::collections::BTreeSet<String>,
     pending_prompt_id: Option<u64>,
@@ -103,6 +104,7 @@ pub(crate) struct ClaurstAcpTransport<S> {
 struct PendingPermission {
     request_id: String,
     tool_use_id: String,
+    child: bool,
     json_rpc_id: Value,
     allow_once_option: Option<String>,
     reject_once_option: Option<String>,
@@ -127,6 +129,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             queued: VecDeque::new(),
             queued_permissions: VecDeque::new(),
             open_tools: Vec::new(),
+            children: std::collections::BTreeSet::new(),
             permission_claimed_ids: std::collections::BTreeSet::default(),
             permission_rpc_ids: std::collections::BTreeSet::default(),
             pending_prompt_id: None,

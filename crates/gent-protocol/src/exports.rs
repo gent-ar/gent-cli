@@ -88,7 +88,8 @@ pub use crate::provider_readiness::{
     ProviderReadinessUnavailable,
 };
 pub use crate::reviewed_plan::{
-    REVIEWED_PLAN_CAPABILITY, ReviewedPlanFrame, ReviewedPlanFrameError,
+    REVIEWED_PLAN_CAPABILITY, REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY, ReviewedPlanFrame,
+    ReviewedPlanFrameError,
 };
 pub use crate::runs::{
     PublicRunInterruptRequest, PublicRunOutcome, PublicRunResponse, PublicRunResumeRequest,

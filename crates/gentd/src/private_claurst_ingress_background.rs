@@ -18,7 +18,12 @@ where
         + RunCheckpointLedger
         + RunLifecycleFactLedger
         + NormalizedSessionBatchLedger
-        + TranscriptLedger,
+        + TranscriptLedger
+        + gent_ports::PendingPermissionLedger
+        + gent_ports::PolicyLedger
+        + gent_ports::AgentChatWorkspaceLedger
+        + gent_ports::AgentChatConversationConfigLedger
+        + gent_ports::AgentChatReadLedger,
     B: PrivateClaurstBridge,
 {
     pub(crate) async fn runs_background_commands(&self, source_id: &ClaurstSourceId) -> bool {
@@ -59,16 +64,18 @@ where
         };
         let batch = self.bridge.drain(request.clone()).await?;
         let checkpoint = validate_batch(&request, &state.binding, &batch)?;
-        if batch.terminal.is_some() || !batch.permissions.is_empty() {
+        if batch.terminal.is_some() {
             return Err(invariant(
                 "private Claurst background commands reopened an ended turn",
             ));
         }
         self.record_facts(&state, &batch.facts, host_epoch)?;
+        self.admit_permissions(&state, &batch.permissions, host_epoch)
+            .await?;
         self.sources
             .get_mut(source_id)
             .expect("bound source remains present")
             .after_cursor = checkpoint.cursor;
-        Ok(!batch.facts.is_empty())
+        Ok(!batch.facts.is_empty() || !batch.permissions.is_empty())
     }
 }

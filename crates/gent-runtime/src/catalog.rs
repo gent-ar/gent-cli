@@ -170,6 +170,10 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
         ),
         (profile.reviewed_plans_enabled(), REVIEWED_PLAN_CAPABILITY),
         (
+            profile.reviewed_plan_instructions_enabled(),
+            gent_protocol::REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY,
+        ),
+        (
             profile.provider_readiness_enabled(),
             PROVIDER_READINESS_CAPABILITY,
         ),

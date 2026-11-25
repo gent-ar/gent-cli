@@ -1,7 +1,7 @@
 use gent_core::{PermissionDecision, evaluate_permission_with_sandbox};
 use gent_types::{
-    AgentChatMode, PermissionCategory, PermissionDenialReason, PermissionRequest, PolicyRecord,
-    SandboxEnforcement,
+    AgentChatMode, PermissionCategory, PermissionDenialReason, PermissionMode, PermissionRequest,
+    PolicyRecord, SandboxEnforcement,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,21 +21,52 @@ pub(crate) struct PreflightContext<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ModeGate {
-    Policy,
-    AskUser,
-    Refuse(PermissionDenialReason),
+pub(crate) enum Automatic {
+    Allow,
+    Deny(Option<PermissionDenialReason>),
 }
 
-pub(crate) const fn mode_gate(mode: AgentChatMode, request: &PermissionRequest) -> ModeGate {
+impl Automatic {
+    pub(crate) const fn outcome(self) -> gent_types::DecisionOutcome {
+        match self {
+            Self::Allow => gent_types::DecisionOutcome::Allowed,
+            Self::Deny(_) => gent_types::DecisionOutcome::Denied,
+        }
+    }
+}
+
+pub(crate) fn mode_policy(
+    mode: AgentChatMode,
+    policy: &PolicyRecord,
+    request: &PermissionRequest,
+) -> Result<PolicyRecord, PermissionDenialReason> {
     match (mode, request.category) {
         (AgentChatMode::Plan, PermissionCategory::Edit) => {
-            ModeGate::Refuse(PermissionDenialReason::PlanModeEdit)
+            Err(PermissionDenialReason::PlanModeEdit)
         }
         (AgentChatMode::Ask, PermissionCategory::Edit | PermissionCategory::Command) => {
-            ModeGate::AskUser
+            Ok(PolicyRecord {
+                mode: PermissionMode::AskEveryTime,
+                ..policy.clone()
+            })
         }
-        _ => ModeGate::Policy,
+        _ => Ok(policy.clone()),
+    }
+}
+
+pub(crate) fn automatic(
+    mode: AgentChatMode,
+    policy: &PolicyRecord,
+    request: &PermissionRequest,
+    evaluate: impl FnOnce(&PolicyRecord) -> PermissionPreflight,
+) -> Option<Automatic> {
+    match mode_policy(mode, policy, request) {
+        Err(reason) => Some(Automatic::Deny(Some(reason))),
+        Ok(effective) => match evaluate(&effective) {
+            PermissionPreflight::Allow => Some(Automatic::Allow),
+            PermissionPreflight::Deny => Some(Automatic::Deny(None)),
+            PermissionPreflight::Ask => None,
+        },
     }
 }
 
@@ -52,7 +83,7 @@ pub(crate) fn evaluate_with_evidence(
     let enforcement = evidence
         .filter(|proof| proof.run_id() == run_id)
         .and_then(|proof| proof.permission_binding())
-        .filter(|binding| binding.run_id() == run_id && binding.policy() == policy)
+        .filter(|binding| binding.run_id() == run_id && binding.covers(policy))
         .map_or(SandboxEnforcement::Unavailable, |_| {
             SandboxEnforcement::Enforced
         });
@@ -100,7 +131,7 @@ pub(crate) fn evaluate_callback(
             proof.permission_binding().is_some_and(|binding| {
                 binding.run_id() == run
                     && binding.conversation_id() == conversation
-                    && binding.policy() == policy
+                    && binding.covers(policy)
                     && binding.host_epoch() == epoch
             })
         });
@@ -222,68 +253,102 @@ mod tests {
         }
     }
 
+    fn decide(
+        chat: gent_types::AgentChatMode,
+        current: &PolicyRecord,
+        asked: &PermissionRequest,
+    ) -> Option<super::Automatic> {
+        super::automatic(chat, current, asked, |effective| evaluate(effective, asked))
+    }
+
     #[test]
-    fn plan_mode_refuses_only_edits_and_leaves_commands_to_the_policy() {
-        use super::{ModeGate, mode_gate};
+    fn plan_mode_refuses_edits_whatever_the_policy_grants() {
         use gent_types::{AgentChatMode, PermissionDenialReason};
-        for (mode, category, gate) in [
-            (
-                AgentChatMode::Plan,
-                PermissionCategory::Edit,
-                ModeGate::Refuse(PermissionDenialReason::PlanModeEdit),
-            ),
-            (
-                AgentChatMode::Plan,
-                PermissionCategory::Command,
-                ModeGate::Policy,
-            ),
-            (
-                AgentChatMode::Plan,
-                PermissionCategory::Read,
-                ModeGate::Policy,
-            ),
-            (
-                AgentChatMode::Plan,
-                PermissionCategory::Network,
-                ModeGate::Policy,
-            ),
-            (
-                AgentChatMode::Plan,
-                PermissionCategory::Provider,
-                ModeGate::Policy,
-            ),
-            (
-                AgentChatMode::Ask,
-                PermissionCategory::Edit,
-                ModeGate::AskUser,
-            ),
-            (
-                AgentChatMode::Ask,
-                PermissionCategory::Command,
-                ModeGate::AskUser,
-            ),
-            (
-                AgentChatMode::Ask,
-                PermissionCategory::Read,
-                ModeGate::Policy,
-            ),
-            (
-                AgentChatMode::Agent,
-                PermissionCategory::Edit,
-                ModeGate::Policy,
-            ),
-            (
-                AgentChatMode::Agent,
-                PermissionCategory::Command,
-                ModeGate::Policy,
-            ),
-        ] {
+        for mode in [PermissionMode::AskEveryTime, PermissionMode::Bypass] {
+            let mut current = policy(mode);
+            current.allowed_categories = vec![PermissionCategory::Edit];
             assert_eq!(
-                mode_gate(mode, &request("tool", category)),
-                gate,
-                "{mode:?} {category:?}"
+                decide(
+                    AgentChatMode::Plan,
+                    &current,
+                    &request("workspace:edit", PermissionCategory::Edit)
+                ),
+                Some(super::Automatic::Deny(Some(
+                    PermissionDenialReason::PlanModeEdit
+                )))
             );
         }
+        let mut commands = policy(PermissionMode::AskEveryTime);
+        commands.allowed_categories = vec![PermissionCategory::Command];
+        assert_eq!(
+            decide(
+                AgentChatMode::Plan,
+                &commands,
+                &request("shell", PermissionCategory::Command)
+            ),
+            Some(super::Automatic::Allow)
+        );
+    }
+
+    #[test]
+    fn ask_mode_asks_for_edits_and_commands_unless_the_user_granted_them() {
+        use gent_types::AgentChatMode;
+        let command = request("shell", PermissionCategory::Command);
+        for mode in [
+            PermissionMode::AskEveryTime,
+            PermissionMode::AutoAcceptEdits,
+            PermissionMode::Autonomous,
+            PermissionMode::Bypass,
+        ] {
+            let ungranted = policy(mode).for_conversation(gent_types::Containment::Unsandboxed);
+            assert_eq!(
+                decide(AgentChatMode::Ask, &ungranted, &command),
+                None,
+                "{mode:?}"
+            );
+            assert_eq!(
+                decide(
+                    AgentChatMode::Ask,
+                    &ungranted,
+                    &request("write_file", PermissionCategory::Edit)
+                ),
+                None,
+                "{mode:?}"
+            );
+            let mut category = ungranted.clone();
+            category.allowed_categories = vec![PermissionCategory::Command];
+            assert_eq!(
+                decide(AgentChatMode::Ask, &category, &command),
+                Some(super::Automatic::Allow),
+                "{mode:?}"
+            );
+            let mut tool = ungranted.clone();
+            tool.allowed_tools = vec!["shell".into()];
+            assert_eq!(
+                decide(AgentChatMode::Ask, &tool, &command),
+                Some(super::Automatic::Allow),
+                "{mode:?}"
+            );
+        }
+        let mut pattern = policy(PermissionMode::AskEveryTime);
+        let git = PermissionRequest {
+            input: Some(serde_json::json!({"command": "git status"})),
+            ..request("Bash", PermissionCategory::Command)
+        };
+        pattern.allowed_commands = vec![gent_types::command_grant_for(&git, "git status").unwrap()];
+        assert_eq!(
+            decide(AgentChatMode::Ask, &pattern, &git),
+            Some(super::Automatic::Allow)
+        );
+        assert_eq!(
+            decide(
+                AgentChatMode::Agent,
+                &policy(PermissionMode::Bypass)
+                    .for_conversation(gent_types::Containment::Unsandboxed),
+                &command
+            ),
+            Some(super::Automatic::Allow)
+        );
     }
 
     #[test]

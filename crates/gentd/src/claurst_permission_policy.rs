@@ -45,13 +45,10 @@ pub(crate) fn decide_with_enforcement(
     if crate::permission_category::requires_user_response(&request.tool_name) {
         return ClaurstPermissionDecision::Ask;
     }
-    match crate::permission_preflight::mode_gate(mode, request) {
-        crate::permission_preflight::ModeGate::Refuse(reason) => {
-            return ClaurstPermissionDecision::Deny(Some(reason));
-        }
-        crate::permission_preflight::ModeGate::AskUser => return ClaurstPermissionDecision::Ask,
-        crate::permission_preflight::ModeGate::Policy => {}
-    }
+    let policy = &match crate::permission_preflight::mode_policy(mode, policy, request) {
+        Ok(policy) => policy,
+        Err(reason) => return ClaurstPermissionDecision::Deny(Some(reason)),
+    };
     if policy.unattended_requires_sandbox() || owned_chat_tool {
         return match crate::permission_preflight::evaluate_policy(
             policy,

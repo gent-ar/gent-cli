@@ -79,10 +79,12 @@ where
         host_epoch: HostEpoch,
     ) -> Result<Option<u16>, RuntimeError> {
         let ledger = self.runtime.ledger();
-        let Some(binding) = self.active.get_mut(run_id) else {
+        let Some(binding) = self.active.get(run_id) else {
             return Ok(None);
         };
         let conversation_id = binding.prompt.message.conversation_id.clone();
+        self.reconsider_pending_permission(run_id, &conversation_id, host_epoch)?;
+        let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
         match crate::permission_queue::next_ready(
             &ledger,
             &conversation_id,
@@ -94,5 +96,40 @@ where
                 .map(Some),
             None => Ok(None),
         }
+    }
+
+    fn reconsider_pending_permission(
+        &mut self,
+        run_id: &str,
+        conversation_id: &str,
+        host_epoch: HostEpoch,
+    ) -> Result<(), RuntimeError> {
+        let ledger = self.runtime.ledger();
+        let Some(pending) = crate::permission_queue::pending(&ledger, conversation_id, run_id)?
+        else {
+            return Ok(());
+        };
+        let policy = self.runtime.run_policy(conversation_id, run_id)?;
+        let binding = self.active.get_mut(run_id).ok_or_else(missing_binding)?;
+        if !crate::permission_queue::reconsiders(
+            &pending,
+            &policy,
+            &mut binding.reconsidered_revision,
+        ) {
+            return Ok(());
+        }
+        let Some(automatic) =
+            self.automatic_permission(run_id, host_epoch, &policy, &pending.request)?
+        else {
+            return Ok(());
+        };
+        self.runner.respond_codex_control(
+            run_id,
+            &pending.binding.decision_id.0,
+            super::permission::decision_for(automatic),
+            None,
+        )?;
+        ledger.settle_delivered_permission(&pending.binding, None, automatic.outcome())?;
+        Ok(())
     }
 }

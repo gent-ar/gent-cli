@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 /// Required before a client may read or settle a reviewed implementation plan.
 pub const REVIEWED_PLAN_CAPABILITY: &str = "reviewed-plan-v1";
+pub const REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY: &str = "reviewed-plan-instructions-v1";
 
 /// One finite, correlated reviewed-plan exchange.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

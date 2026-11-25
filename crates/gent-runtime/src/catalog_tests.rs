@@ -166,3 +166,30 @@ fn the_sandbox_capability_is_advertised_only_with_an_available_sandbox() {
     assert!(observed.0.contains(&sandbox));
     assert_eq!(validate_observed_capabilities(&observed), Ok(observed));
 }
+
+#[test]
+fn reviewed_plan_instructions_require_their_own_observed_profile_feature() {
+    let legacy = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ReviewedPlans,
+    ]);
+    let legacy_capabilities = declared_capabilities_with_profiles(&legacy);
+    assert!(
+        !legacy_capabilities
+            .0
+            .contains(&gent_protocol::REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY.into())
+    );
+    assert!(validate_observed_capabilities(&legacy_capabilities).is_ok());
+    let modern = RuntimeCapabilityProfile::new([
+        RuntimeCapabilityFeature::AgentChat,
+        RuntimeCapabilityFeature::ReviewedPlans,
+        RuntimeCapabilityFeature::ReviewedPlanInstructions,
+    ]);
+    let modern_capabilities = declared_capabilities_with_profiles(&modern);
+    assert!(
+        modern_capabilities
+            .0
+            .contains(&gent_protocol::REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY.into())
+    );
+    assert!(validate_observed_capabilities(&modern_capabilities).is_ok());
+}

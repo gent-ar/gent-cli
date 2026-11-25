@@ -57,6 +57,8 @@ Abbreviations: `D:` = `crates/gent-drivers/src/`, `G:` = `crates/gentd/src/`, `A
 - One liveness value shared with Claude and Claurst: `G:provider_run_state.rs`. Outstanding
   approvals are retired by `serverRequest/resolved`; nothing is auto-denied when a turn ends.
 - Interrupt is the protocol `turn/interrupt`; no retry or resend exists.
+- Permissions follow the saved policy exactly as for Claude (`docs/providers/claude.md`); the
+  native sandbox and approval policy change only when the next prompt relaunches.
 - Plan mode is `collaborationMode: plan` in the `readOnly` sandbox with the permission mode's
   ordinary approval policy (ask every time is `untrusted`). Observed on 0.153.4: commands run
   in the sandbox, unknown ones arrive as `commandExecution` approvals that Gent asks or allows

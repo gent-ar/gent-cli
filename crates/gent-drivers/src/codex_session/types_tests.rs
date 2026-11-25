@@ -37,12 +37,13 @@ fn plan_mode_is_codex_native_collaboration_mode_without_a_prompt_prefix() {
         parameters["input"][0]["text"],
         "Prefer terse replies.\n\nUser request:\ndo the thing"
     );
-    let agent = CodexTurnOptions::from_selection(&selection(AgentChatMode::Agent), None).unwrap();
-    assert!(
-        turn_parameters(&agent, "thread", "do the thing", &[])
-            .get("collaborationMode")
-            .is_none()
-    );
+    for mode in [AgentChatMode::Ask, AgentChatMode::Agent] {
+        let options = CodexTurnOptions::from_selection(&selection(mode), None).unwrap();
+        assert_eq!(
+            turn_parameters(&options, "thread", "do the thing", &[])["collaborationMode"],
+            serde_json::json!({"mode": "default", "settings": {"model": "gpt-5.6", "reasoning_effort": "high", "developer_instructions": null}})
+        );
+    }
 }
 
 #[test]
@@ -191,8 +192,12 @@ fn permission_matrix_preserves_interaction_mode_through_new_and_resumed_threads(
                     );
                 }
                 assert_eq!(
-                    parameters.get("collaborationMode").is_some(),
-                    mode == AgentChatMode::Plan
+                    parameters["collaborationMode"]["mode"],
+                    if mode == AgentChatMode::Plan {
+                        "plan"
+                    } else {
+                        "default"
+                    }
                 );
             }
         }

@@ -48,6 +48,14 @@ impl SandboxPermissionBinding {
         self.host_epoch
     }
 
+    #[must_use]
+    pub fn covers(&self, policy: &PolicyRecord) -> bool {
+        self.policy.workspace_id == policy.workspace_id
+            && self.policy.scope == policy.scope
+            && self.policy.containment == policy.containment
+            && (self.policy.unattended_requires_sandbox() || !policy.unattended_requires_sandbox())
+    }
+
     pub(super) fn digest_material(&self) -> String {
         serde_json::to_string(&(
             &self.conversation_id,

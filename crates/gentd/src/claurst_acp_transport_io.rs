@@ -87,7 +87,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             && (value.get("result").is_some() || value.get("error").is_some())
         {
             self.pending_prompt_id = None;
-            let settled = self.settle_permissions()?;
+            let settled = self.settle_permissions(|pending| pending.child)?;
             let terminal = if let Some(error) = value.get("error") {
                 self.finish_streamed_text();
                 self.queued.push_back(ClaurstAcpFact::Event(
@@ -149,6 +149,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
         let tool_call = value
             .pointer("/params/toolCall")
             .ok_or(ClaurstAcpTransportError::InvalidFrame)?;
+        let child_id = super::updates::parent_tool_call(tool_call);
         let tool_use_id = tool_call
             .get("toolCallId")
             .and_then(Value::as_str)
@@ -221,6 +222,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 tool_name,
                 category: PermissionCategory::Provider,
                 input: Some(input),
+                child_id: child_id.clone(),
             }
         } else {
             ClaurstAcpPermissionRequest {
@@ -229,15 +231,20 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
                 tool_name: tool.tool_name,
                 category,
                 input: tool.input,
+                child_id: child_id.clone(),
             }
         };
         let pending = PendingPermission {
             request_id: request.request_id.clone(),
             tool_use_id: request.tool_use_id.clone(),
             json_rpc_id: id,
+            child: child_id.is_some(),
             allow_once_option: allow_once_id,
             reject_once_option: reject_once_id,
         };
+        if let Some(child) = &child_id {
+            self.open_child(child);
+        }
         self.permission_rpc_ids.insert(rpc_identity);
         if self.pending_permission.is_some() {
             self.held_permissions.push_back((pending, request));

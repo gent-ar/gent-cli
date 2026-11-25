@@ -29,9 +29,7 @@ impl<S: ClaurstAcpStdio> ClaurstAcpTransport<S> {
             .filter(|proof| proof.run_id() == run)
             .and_then(|proof| proof.permission_binding())
             .is_some_and(|binding| {
-                binding.run_id() == run
-                    && binding.policy() == policy
-                    && binding.host_epoch() == epoch
+                binding.run_id() == run && binding.covers(policy) && binding.host_epoch() == epoch
             });
         if valid {
             SandboxEnforcement::Enforced

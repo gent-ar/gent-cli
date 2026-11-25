@@ -24,6 +24,7 @@ pub fn validate_observed_capabilities(
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
             CONVERSATION_ACTIVITY_CAPABILITY,
             REVIEWED_PLAN_CAPABILITY,
+            gent_protocol::REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY,
             PROVIDER_READINESS_CAPABILITY,
             PROVIDER_AUTH_CAPABILITY,
             gent_protocol::PROVIDER_AUTH_HANDOFF_CAPABILITY,
@@ -65,6 +66,9 @@ fn feature_from_observed(
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY => RuntimeCapabilityFeature::TurnFollow,
             CONVERSATION_ACTIVITY_CAPABILITY => RuntimeCapabilityFeature::ConversationActivity,
             REVIEWED_PLAN_CAPABILITY => RuntimeCapabilityFeature::ReviewedPlans,
+            gent_protocol::REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY => {
+                RuntimeCapabilityFeature::ReviewedPlanInstructions
+            }
             PROVIDER_READINESS_CAPABILITY => RuntimeCapabilityFeature::ProviderReadiness,
             PROVIDER_AUTH_CAPABILITY => RuntimeCapabilityFeature::ProviderAuth,
             gent_protocol::PROVIDER_AUTH_HANDOFF_CAPABILITY => {

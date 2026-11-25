@@ -17,7 +17,11 @@ carry the same artifact whenever it changes.
 ## Start it, with or without instructions
 
 "Start" and "Clarify & Start" are the same intent. The clarification is `instructions`, optional,
-1 to 16384 bytes of text that is not blank:
+1 to 16384 bytes of text that is not blank. A client sends `instructions` only when the same
+connection negotiated both `reviewed-plan-v1` and `reviewed-plan-instructions-v1`. An older
+authority may advertise the first without supporting the second; the client must report that
+the instruction-bearing decision is unavailable without starting the plan or queueing a prompt.
+A start without instructions requires only `reviewed-plan-v1`:
 
 ```json
 {"type":"startImplementation","body":{"request":{

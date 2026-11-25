@@ -45,6 +45,7 @@ pub(super) struct Binding {
     idle_since: Option<std::time::Instant>,
     awaits_first_input: bool,
     permission: gent_types::PolicyRecord,
+    reconsidered_revision: Option<u64>,
     queued_permissions:
         std::collections::VecDeque<gent_drivers::claude_control::ClaudePermissionRequest>,
     background_children: std::collections::BTreeSet<String>,

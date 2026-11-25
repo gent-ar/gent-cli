@@ -128,12 +128,12 @@ a separate per-chat restriction, not an OS-sandbox attestation. Windows
 component/transport passes do not deliver broad-mode availability on any
 other platform, nor do they open the Windows production gate.
 
-Conversation modes gate changes through one rule, `permission_preflight::mode_gate`.
+Conversation modes gate changes through one rule, `permission_preflight::mode_policy`.
 In Plan, Gent refuses every file change with the typed `PlanModeEdit` reason;
 commands, reads, web and sub-agents follow the permission mode as in Agent
-(Claude keeps writing its own plan file without a callback). In Ask, every file change and command becomes a
-permission request the user answers, whatever the permission mode or durable
-approvals say; reads follow the permission mode. Codex runs Ask in its
+(Claude keeps writing its own plan file without a callback). In Ask, a file change or command is evaluated as
+if the permission mode were Ask every time: the user's explicit approvals (exact tool, category, command
+pattern) allow it, otherwise the user answers a permission request; reads follow the permission mode. Codex runs Ask in its
 read-only sandbox with on-request approval, so a change reaches Gent as an
 escalation request. Claurst offers its change tools in Ask for the same reason.
 

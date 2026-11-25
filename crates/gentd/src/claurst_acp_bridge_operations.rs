@@ -252,6 +252,7 @@ pub(super) fn drain_blocking<S: ClaurstAcpStdio>(
                 tool_name: permission.tool_name,
                 category: permission.category,
                 input: permission.input,
+                child_id: permission.child_id,
             })
             .collect(),
         checkpoint: Some(checkpoint(&source.binding, source.cursor)),
@@ -274,7 +275,7 @@ pub(super) fn respond_permission_blocking<S: ClaurstAcpStdio>(
     state
         .sources
         .get(&binding.source_id)
-        .is_some_and(|source| source.binding == binding && !source.terminal)
+        .is_some_and(|source| source.binding == binding)
         .then_some(())
         .ok_or_else(|| PortError::NotPending("inactive Claurst permission source".into()))?;
     state

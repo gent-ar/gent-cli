@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 
 use gent_ports::{LedgerError, PendingPermissionLedger};
-use gent_types::{AgentChatConversationId, AgentChatRunId, PermissionDecisionRequest};
+use gent_types::{
+    AgentChatConversationId, AgentChatRunId, PermissionDecisionRequest, PolicyRecord,
+};
 
-fn pending<L: PendingPermissionLedger>(
+pub(crate) fn pending<L: PendingPermissionLedger>(
     ledger: &L,
     conversation_id: &str,
     run_id: &str,
@@ -38,4 +40,17 @@ pub(crate) fn next_ready<L: PendingPermissionLedger, T>(
         return Ok(None);
     }
     Ok(queue.pop_front())
+}
+
+pub(crate) fn reconsiders(
+    pending: &PermissionDecisionRequest,
+    policy: &PolicyRecord,
+    reconsidered: &mut Option<u64>,
+) -> bool {
+    let changed = pending.binding.policy_revision != policy.revision
+        && *reconsidered != Some(policy.revision);
+    if changed {
+        *reconsidered = Some(policy.revision);
+    }
+    changed
 }

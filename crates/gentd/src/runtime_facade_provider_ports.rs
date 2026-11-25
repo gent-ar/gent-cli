@@ -41,7 +41,13 @@ impl RuntimeFacade {
         gent_protocol::PermissionPolicyFrame,
         crate::agent_chat_intent_error::AgentChatIntentError,
     > {
-        crate::permission_policy_api::exchange(&self.coordinator, frame)
+        let reply = crate::permission_policy_api::exchange(&self.coordinator, frame)?;
+        if let (gent_protocol::PermissionPolicyFrame::Saved { .. }, Some(ingress)) =
+            (&reply, &self.ordinary_prompt_ingress)
+        {
+            ingress.permission_policy_saved();
+        }
+        Ok(reply)
     }
 
     pub(super) fn exchange_provider_auth(

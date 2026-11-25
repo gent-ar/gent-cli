@@ -11,6 +11,13 @@ impl<L> OrdinaryPromptIngress<L> {
         self.control.acquire_prompt()
     }
 
+    pub(crate) fn permission_policy_saved(&self) {
+        self.wake.notify.notify_one();
+        if let Some(notify) = &self.async_claurst_notify {
+            notify.notify_one();
+        }
+    }
+
     pub(crate) fn respond_codex_permission(
         &self,
         run_id: &str,

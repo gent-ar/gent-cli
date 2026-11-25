@@ -256,13 +256,13 @@ fn agent(
 }
 
 #[test]
-fn plan_refuses_edits_and_ask_always_asks_for_changes_whatever_the_policy_grants() {
+fn plan_refuses_edits_and_ask_allows_only_the_changes_the_user_granted() {
     let (_root, project) = workspace();
     let mut granted = policy(PermissionMode::Bypass);
     granted.allowed_categories = vec![PermissionCategory::Command, PermissionCategory::Edit];
     granted.allowed_tools = vec!["Bash".into(), "Edit".into()];
     for (mode, change, command) in [
-        (AgentChatMode::Ask, ASK, ASK),
+        (AgentChatMode::Ask, ALLOW, ALLOW),
         (
             AgentChatMode::Plan,
             PLAN_EDIT,
@@ -282,6 +282,26 @@ fn plan_refuses_edits_and_ask_always_asks_for_changes_whatever_the_policy_grants
                 &project
             ),
             ALLOW
+        );
+    }
+    for ungranted in [PermissionMode::AskEveryTime, PermissionMode::Bypass] {
+        assert_eq!(
+            decide(
+                AgentChatMode::Ask,
+                &policy(ungranted),
+                &edit("src/app.py"),
+                &project
+            ),
+            ASK
+        );
+        assert_eq!(
+            decide(
+                AgentChatMode::Ask,
+                &policy(ungranted),
+                &bash("ls"),
+                &project
+            ),
+            ASK
         );
     }
 }

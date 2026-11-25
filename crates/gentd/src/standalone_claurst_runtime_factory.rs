@@ -145,18 +145,13 @@ impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
         saved: &AgentChatPromptSaved,
         busy: &[String],
     ) -> Result<(), String> {
-        let policy = self
-            .start_selected(
-                &saved.message.conversation_id,
-                &saved.run_id.0,
-                &saved.tool_source_ids,
-                busy,
-            )
-            .await?;
-        self.run_bridge(&saved.run_id.0)
-            .await
-            .and_then(|bridge| bridge.bind_turn_policy(policy))
-            .map_err(|error| error.to_string())
+        self.start_selected(
+            &saved.message.conversation_id,
+            &saved.run_id.0,
+            &saved.tool_source_ids,
+            busy,
+        )
+        .await
     }
 
     async fn warm(
@@ -167,7 +162,6 @@ impl ClaurstRuntimeFactory for Arc<StandaloneClaurstRuntimeFactory> {
     ) -> Result<(), String> {
         self.start_selected(conversation_id, run_id, &[], busy)
             .await
-            .map(|_| ())
     }
 
     async fn after_prompt_settled(&self, conversation_id: &str) -> Result<(), String> {

@@ -29,7 +29,6 @@ struct BridgeState<S> {
     sources: BTreeMap<ClaurstSourceId, SourceState>,
     run_sessions: BTreeMap<String, RunSession>,
     history_input_bytes: usize,
-    turn_policy: Option<gent_types::PolicyRecord>,
     owned_chat_tools: Vec<String>,
 }
 
@@ -49,7 +48,6 @@ impl<S: ClaurstAcpStdio> ClaurstAcpBridge<S> {
                 run_sessions: BTreeMap::new(),
                 history_input_bytes:
                     gent_drivers::conversation_context_input::MAX_FRESH_CONTEXT_INPUT_BYTES,
-                turn_policy: None,
                 owned_chat_tools: Vec::new(),
             })),
         }
@@ -184,13 +182,6 @@ impl<S> ClaurstBridgeHandle<S> {
             .map_err(|_| unavailable("ACP initialize worker"))?
     }
 
-    pub(crate) fn bind_turn_policy(
-        &self,
-        policy: gent_types::PolicyRecord,
-    ) -> Result<(), PortError> {
-        support::bind_turn_policy(&self.0.state, policy)
-    }
-
     pub(crate) fn bind_owned_chat_tools(&self, tools: Vec<String>) -> Result<(), PortError> {
         self.0
             .state
@@ -242,12 +233,13 @@ where
         self.0.respond_permission(binding, request_id, reply).await
     }
 
-    async fn permission_authority(
+    async fn permission_enforcement(
         &self,
         binding: ClaurstSessionBinding,
+        policy: &PolicyRecord,
         epoch: gent_types::HostEpoch,
-    ) -> Result<(PolicyRecord, SandboxEnforcement), PortError> {
-        support::permission_authority(&self.0.state, &binding, epoch)
+    ) -> SandboxEnforcement {
+        support::permission_enforcement(&self.0.state, &binding, policy, epoch)
     }
 
     async fn owns_chat_tool(&self, binding: &ClaurstSessionBinding, tool_name: &str) -> bool {

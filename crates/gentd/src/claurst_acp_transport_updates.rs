@@ -10,6 +10,7 @@ mod permission_tool;
 
 #[path = "claurst_acp_transport_background.rs"]
 mod background;
+pub(super) use background::parent_tool_call;
 
 impl<S> ClaurstAcpTransport<S> {
     pub(super) fn session_update_fact(&mut self, params: Option<&Value>) -> Option<ClaurstAcpFact> {
@@ -104,6 +105,10 @@ impl<S> ClaurstAcpTransport<S> {
     fn tool_call(&mut self, update: &Value, session: Option<&Value>) -> Option<ClaurstAcpFact> {
         let id = tool_id(update)?;
         let name = safe_tool_name(update.get("title").and_then(Value::as_str));
+        let parent = parent_tool_call(update);
+        if let Some(parent) = &parent {
+            self.open_child(parent);
+        }
         let phase = phase(update.get("status").and_then(Value::as_str)?, None)?;
         self.open_tools.retain(|tool| tool.id != id);
         self.open_tools.push(OpenTool {
@@ -124,8 +129,16 @@ impl<S> ClaurstAcpTransport<S> {
             input: update.get("rawInput").cloned(),
             permission_claimed: false,
             session: session.and_then(Value::as_str).map(str::to_owned),
+            parent: parent.clone(),
         });
-        Some(tool_fact(id, name, phase, None, update.get("rawInput")))
+        Some(tool_fact(
+            id,
+            name,
+            phase,
+            None,
+            update.get("rawInput"),
+            parent,
+        ))
     }
 
     fn tool_call_update(&mut self, update: &Value) -> Option<ClaurstAcpFact> {
@@ -154,21 +167,32 @@ impl<S> ClaurstAcpTransport<S> {
             tool.input.clone_from(&input);
             tool.phase = phase.clone();
         }
-        let name = self
+        let (name, parent) = self
             .open_tools
             .iter()
             .find(|tool| tool.id == id)
-            .map_or_else(|| "Tool".into(), |tool| tool.name.clone());
+            .map_or_else(
+                || ("Tool".into(), None),
+                |tool| (tool.name.clone(), tool.parent.clone()),
+            );
         if matches!(
             phase,
             ToolPhase::Completed | ToolPhase::Failed | ToolPhase::Interrupted
         ) {
             self.open_tools.retain(|tool| tool.id != id);
+            self.close_child(&id, &phase);
         }
         let output_digest = field("rawOutput")
             .map(|value| format!("sha256:{:x}", Sha256::digest(value.to_string().as_bytes())));
         let text = tool_output_text(field("content"), field("rawOutput"));
-        let activity = tool_fact(id.clone(), name, phase, output_digest, input.as_ref());
+        let activity = tool_fact(
+            id.clone(),
+            name,
+            phase,
+            output_digest,
+            input.as_ref(),
+            parent,
+        );
         if text.is_empty() && field("content").is_none() && field("rawOutput").is_none() {
             return Some(activity);
         }
@@ -192,6 +216,7 @@ pub(super) struct OpenTool {
     permission_claimed: bool,
     authority_name: Option<String>,
     session: Option<String>,
+    parent: Option<String>,
 }
 
 fn usage(update: &Value) -> Option<ClaurstAcpFact> {
@@ -218,6 +243,7 @@ fn tool_fact(
     phase: ToolPhase,
     output_digest: Option<String>,
     input: Option<&Value>,
+    parent_tool_use_id: Option<String>,
 ) -> ClaurstAcpFact {
     ClaurstAcpFact::Lifecycle(NormalizedLifecycleSignal::ToolActivity {
         activity: ToolActivity {
@@ -226,7 +252,7 @@ fn tool_fact(
             phase,
             output_digest,
             input: input.and_then(gent_types::operation_preview),
-            parent_tool_use_id: None,
+            parent_tool_use_id,
         },
     })
 }

@@ -311,3 +311,27 @@ fn the_sandbox_capability_is_advertised_exactly_when_every_provider_can_launch_c
         assert!(!advertised);
     }
 }
+
+#[test]
+fn standalone_authority_negotiates_reviewed_plan_instructions() {
+    let capabilities = declared_capabilities_with_profiles(&standalone_capability_profile(false));
+    let negotiated = gent_protocol::negotiate(
+        &gent_protocol::Hello {
+            protocol_min: 1,
+            protocol_max: 1,
+            capabilities: gent_types::CapabilitySet(vec![
+                gent_protocol::REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY.into(),
+            ]),
+        },
+        1,
+        1,
+        &capabilities,
+    );
+    let negotiated = negotiated.unwrap();
+    assert!(
+        negotiated
+            .capabilities
+            .0
+            .contains(&gent_protocol::REVIEWED_PLAN_INSTRUCTIONS_CAPABILITY.into())
+    );
+}

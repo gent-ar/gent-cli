@@ -38,12 +38,10 @@ pub(crate) fn turn_parameters(
     });
     if let Some(model) = options.model() {
         parameters["model"] = Value::String(model.into());
-        if options.plan {
-            parameters["collaborationMode"] = json!({
-                "mode": "plan",
-                "settings": {"model": model, "reasoning_effort": options.effort(), "developer_instructions": null},
-            });
-        }
+        parameters["collaborationMode"] = json!({
+            "mode": if options.plan { "plan" } else { "default" },
+            "settings": {"model": model, "reasoning_effort": options.effort(), "developer_instructions": null},
+        });
     }
     if !attachments.is_empty() {
         let input = parameters["input"]

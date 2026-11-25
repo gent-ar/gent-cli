@@ -19,7 +19,6 @@ struct BridgeState {
     batches: VecDeque<Result<ClaurstDrainBatch, String>>,
     settled: BTreeSet<ClaurstSourceId>,
     permission_replies: Vec<(String, ClaurstPermissionReply)>,
-    turn_policy: Option<gent_types::PolicyRecord>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -77,10 +76,6 @@ impl FakePrivateClaurstBridge {
 
     pub fn permission_replies(&self) -> Vec<(String, ClaurstPermissionReply)> {
         self.state().permission_replies.clone()
-    }
-
-    pub fn bind_turn_policy(&self, policy: gent_types::PolicyRecord) {
-        self.state().turn_policy = Some(policy);
     }
 }
 
@@ -158,17 +153,6 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
         Ok(())
     }
 
-    async fn permission_authority(
-        &self,
-        _binding: ClaurstSessionBinding,
-        _epoch: gent_types::HostEpoch,
-    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), PortError> {
-        let policy = self.state().turn_policy.clone();
-        policy
-            .map(|policy| (policy, gent_types::SandboxEnforcement::Unavailable))
-            .ok_or_else(|| PortError::Unavailable("fake turn has no launch policy".into()))
-    }
-
     async fn drain(&self, request: ClaurstDrainRequest) -> Result<ClaurstDrainBatch, PortError> {
         if !request.is_bounded() {
             return Err(contract_error("drain exceeds bounded contract"));
@@ -179,7 +163,13 @@ impl PrivateClaurstBridge for FakePrivateClaurstBridge {
             .get(&request.source_id)
             .cloned()
             .ok_or_else(|| contract_error("source has no daemon session binding"))?;
-        if binding.run_id != request.run_id || state.settled.contains(&request.source_id) {
+        let follows_background = state
+            .batches
+            .iter()
+            .any(|batch| for_source(batch, &request.source_id));
+        if binding.run_id != request.run_id
+            || (state.settled.contains(&request.source_id) && !follows_background)
+        {
             return Err(contract_error("source cannot be drained for this run"));
         }
         state.requests.push(request.clone());

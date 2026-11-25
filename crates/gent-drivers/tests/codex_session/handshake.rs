@@ -34,7 +34,7 @@ fn initialize_then_start_then_turn_uses_only_correlated_responses() {
     let turn = session.start_turn("hello").unwrap();
     assert_eq!(
         decode(&turn),
-        json!({"id":3,"method":"turn/start","params":{"threadId":"thread-1","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","effort":"medium","summary":"auto","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
+        json!({"id":3,"method":"turn/start","params":{"threadId":"thread-1","input":[{"type":"text","text":"hello"}],"model":"gpt-5.6","collaborationMode":{"mode":"default","settings":{"model":"gpt-5.6","reasoning_effort":"medium","developer_instructions":null}},"effort":"medium","summary":"auto","approvalPolicy":"untrusted","sandboxPolicy":{"type":"workspaceWrite","writableRoots":["/work"],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false}}})
     );
 }
 

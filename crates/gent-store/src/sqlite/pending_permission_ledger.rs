@@ -132,6 +132,10 @@ fn append_activity(
         payload["request"] =
             serde_json::to_value(request).map_err(|e| LedgerError::Storage(e.to_string()))?;
     }
+    if let Some(outcome) = outcome {
+        payload["outcome"] =
+            serde_json::to_value(outcome).map_err(|e| LedgerError::Storage(e.to_string()))?;
+    }
     let event = queries::append_event(
         transaction,
         &Event {

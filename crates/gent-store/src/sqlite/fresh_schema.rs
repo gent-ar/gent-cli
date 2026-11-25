@@ -1,8 +1,8 @@
 use super::queries::storage_error;
 use gent_ports::LedgerError;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
-const SCHEMA_ID: &str = "gent-fresh-schema-v34";
-const V33_SCHEMA_ID: &str = "gent-fresh-schema-v33";
+const SCHEMA_ID: &str = "gent-fresh-schema-v35";
+const V34_SCHEMA_ID: &str = "gent-fresh-schema-v34";
 #[path = "fresh_schema_containment.rs"]
 mod containment;
 const V26_SCHEMA_ID: &str = "gent-fresh-schema-v26";
@@ -123,7 +123,7 @@ fn upgrade_through_v18(
 }
 
 fn upgrade(transaction: &rusqlite::Transaction<'_>, identity: &str) -> Result<(), LedgerError> {
-    if (V26_SCHEMA_ID..=V33_SCHEMA_ID).contains(&identity) {
+    if (V26_SCHEMA_ID..=V34_SCHEMA_ID).contains(&identity) {
         return transaction
             .execute_batch(include_str!("fresh_schema_host_mcp.sql"))
             .map_err(storage_error);

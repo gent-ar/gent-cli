@@ -63,5 +63,15 @@ strip = true
 lto = true
 codegen-units = 1
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.dev.package.sha2]
 opt-level = 3
+
+[profile.debugging]
+inherits = "dev"
+debug = true

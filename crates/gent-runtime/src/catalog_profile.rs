@@ -7,6 +7,7 @@ pub enum RuntimeCapabilityFeature {
     AgentChatProjection,
     TurnFollow,
     ReviewedPlans,
+    ReviewedPlanInstructions,
     ProviderReadiness,
     ProviderAuth,
     ProviderAuthHandoff,
@@ -82,6 +83,12 @@ impl RuntimeCapabilityProfile {
     #[must_use]
     pub fn reviewed_plans_enabled(&self) -> bool {
         self.agent_chat_enabled() && self.has(RuntimeCapabilityFeature::ReviewedPlans)
+    }
+
+    #[must_use]
+    pub fn reviewed_plan_instructions_enabled(&self) -> bool {
+        self.reviewed_plans_enabled()
+            && self.has(RuntimeCapabilityFeature::ReviewedPlanInstructions)
     }
 
     #[must_use]

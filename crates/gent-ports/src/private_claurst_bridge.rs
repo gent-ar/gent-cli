@@ -139,6 +139,7 @@ pub struct ClaurstPermissionRequest {
     pub tool_name: String,
     pub category: PermissionCategory,
     pub input: Option<serde_json::Value>,
+    pub child_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -221,14 +222,13 @@ pub trait PrivateClaurstBridge: Send + Sync {
         ))
     }
 
-    async fn permission_authority(
+    async fn permission_enforcement(
         &self,
         _binding: ClaurstSessionBinding,
+        _policy: &PolicyRecord,
         _epoch: gent_types::HostEpoch,
-    ) -> Result<(PolicyRecord, SandboxEnforcement), PortError> {
-        Err(PortError::Unavailable(
-            "private Claurst permission authority".into(),
-        ))
+    ) -> SandboxEnforcement {
+        SandboxEnforcement::Unavailable
     }
 
     async fn owns_chat_tool(&self, _: &ClaurstSessionBinding, _: &str) -> bool {

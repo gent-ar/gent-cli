@@ -83,5 +83,11 @@ pub(super) fn reapply_idempotent_schema(
             include_str!("fresh_schema_permission_projection.sql"),
             include_str!("fresh_schema_turn_boundaries.sql")
         ))
-        .map_err(storage_error)
+        .map_err(storage_error)?;
+    if has_table(transaction, "conversation_activity_facts")? {
+        transaction
+            .execute_batch(include_str!("fresh_schema_permission_outcome_backfill.sql"))
+            .map_err(storage_error)?;
+    }
+    Ok(())
 }

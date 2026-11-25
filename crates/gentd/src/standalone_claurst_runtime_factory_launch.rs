@@ -27,7 +27,7 @@ impl StandaloneClaurstRuntimeFactory {
         run_id: &str,
         tool_source_ids: &[String],
         busy: &[String],
-    ) -> Result<gent_types::PolicyRecord, String> {
+    ) -> Result<(), String> {
         let _launching = self.launching.lock().await;
         let selection = AgentChatReadService::new(self.ledger.clone())
             .run_selection(conversation_id, run_id)
@@ -109,7 +109,7 @@ impl StandaloneClaurstRuntimeFactory {
             identity = identity.with_permission_binding(binding.clone());
         }
         if self.reuse_ready(&conversation_id, run_id, &identity).await {
-            return Ok(permission);
+            return Ok(());
         }
         let mut request = config.request.clone();
         request.effort = selection.effort;
@@ -154,7 +154,6 @@ impl StandaloneClaurstRuntimeFactory {
             busy,
         )
         .await
-        .map(|()| permission)
     }
 
     fn selected_tool_sources(

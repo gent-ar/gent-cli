@@ -1,0 +1,128 @@
+name: Gent Claurst release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify selected Claurst tag
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_TYPE" == tag ]]
+          [[ "$GITHUB_REF_NAME" =~ ^claurst-v[0-9]+\.[0-9]+\.[0-9]+-gent\.[A-Za-z0-9._-]+$ ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: claurst-windows-x86_64
+            ext: .exe
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: claurst-linux-x86_64
+            ext: ""
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: claurst-linux-aarch64
+            ext: ""
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: claurst-macos-x86_64
+            ext: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: claurst-macos-aarch64
+            ext: ""
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.artifact }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Test the Gent ACP surface
+        if: ${{ !matrix.cross && matrix.target == 'x86_64-unknown-linux-gnu' }}
+        working-directory: third_party/claurst/src-rust
+        run: cargo test --locked -p claurst-acp -p claurst-query --lib
+      - name: Build
+        if: ${{ !matrix.cross }}
+        working-directory: third_party/claurst/src-rust
+        run: cargo build --release --locked --package claurst --target ${{ matrix.target }}
+      - name: Build (cross)
+        if: matrix.cross
+        working-directory: third_party/claurst/src-rust
+        run: |
+          cat > Cross.toml << 'TOML'
+          [target.aarch64-unknown-linux-gnu]
+          pre-build = [
+            "dpkg --add-architecture $CROSS_DEB_ARCH",
+            "apt-get update",
+            "apt-get install -y pkg-config libasound2-dev:$CROSS_DEB_ARCH"
+          ]
+          TOML
+          cross build --release --locked --package claurst --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          dir="$PWD/third_party/claurst/src-rust/target/${{ matrix.target }}/release"
+          cp third_party/claurst/LICENSE.md "$dir/LICENSE.md"
+          cp third_party/claurst/GENT_VENDOR_NOTICE.md "$dir/GENT_VENDOR_NOTICE.md"
+          printf 'Corresponding source: %s/%s/tree/%s/third_party/claurst\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" > "$dir/SOURCE.txt"
+          dist="$PWD/dist"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            (cd "$dir" && 7z a "$dist/${{ matrix.artifact }}.zip" claurst.exe LICENSE.md GENT_VENDOR_NOTICE.md SOURCE.txt >/dev/null)
+          else
+            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C "$dir" claurst LICENSE.md GENT_VENDOR_NOTICE.md SOURCE.txt
+          fi
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify release tag still identifies the built commit
+        shell: bash
+        run: |
+          [[ "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{}")" == "$GITHUB_SHA" ]]
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: cd artifacts && sha256sum * | tee SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/* --repo "$GITHUB_REPOSITORY" --verify-tag --latest=false --title "$GITHUB_REF_NAME" --notes "Gent build of Claurst with the Gent ACP extensions; source is in third_party/claurst at this tag."

@@ -29,6 +29,7 @@ fn permission(
         tool_name: tool.into(),
         category,
         input: Some(input),
+        child_id: None,
     }
 }
 
@@ -81,7 +82,6 @@ async fn prepare_permissions(
         })
         .unwrap();
     let bridge = FakePrivateClaurstBridge::default();
-    bridge.bind_turn_policy(launched);
     let binding = binding();
     bridge.push_start_binding(binding.clone());
     for permission in permissions {
@@ -312,18 +312,9 @@ async fn claurst_commits_canonical_grant_and_answers_after_a_newer_revision() {
 }
 
 #[tokio::test]
-async fn a_mode_saved_mid_turn_leaves_the_turn_on_its_launch_policy_until_the_next_launch() {
-    use gent_types::{PermissionDecisionResponse, PermissionDecisionResponseKind};
+async fn a_mode_saved_mid_turn_answers_the_waiting_request_and_the_rest_of_the_turn() {
     let (ledger, bridge, mut ingress) =
         prepare_permissions(AgentChatMode::Agent, PermissionMode::AskEveryTime, vec![]).await;
-    let mut saved = ledger
-        .current_policy("workspace-a", PolicyScope::ProviderPermissions)
-        .unwrap()
-        .unwrap();
-    saved.policy_id = "auto-accept-saved-mid-turn".into();
-    saved.revision = 2;
-    saved.mode = PermissionMode::AutoAcceptEdits;
-    ledger.save_provider_permission_policy(&saved).unwrap();
     let edit = |id: &str| ClaurstDrainBatch {
         facts: vec![],
         permissions: vec![permission(
@@ -341,25 +332,16 @@ async fn a_mode_saved_mid_turn_leaves_the_turn_on_its_launch_policy_until_the_ne
         .drain(&binding().source_id, HostEpoch(1))
         .await
         .unwrap();
-    assert!(bridge.permission_replies().is_empty());
-    let request = ledger
-        .pending_permission(
-            &AgentChatConversationId("conversation-a".into()),
-            &AgentChatRunId("run-a".into()),
-        )
+    assert_eq!(bridge.permission_replies(), Vec::new());
+    assert!(pending(&ledger));
+    let mut saved = ledger
+        .current_policy("workspace-a", PolicyScope::ProviderPermissions)
         .unwrap()
-        .expect("the launch-bound Ask policy still asks during the running turn");
-    assert_eq!(request.binding.policy_revision, 1);
-    ingress
-        .respond_permission(PermissionDecisionResponse {
-            binding: request.binding,
-            response: PermissionDecisionResponseKind::ApproveOnce,
-            input: None,
-            command_pattern: None,
-        })
-        .await
         .unwrap();
-    bridge.bind_turn_policy(saved.for_conversation(gent_types::Containment::Sandboxed));
+    saved.policy_id = "auto-accept-saved-mid-turn".into();
+    saved.revision = 2;
+    saved.mode = PermissionMode::AutoAcceptEdits;
+    ledger.save_provider_permission_policy(&saved).unwrap();
     bridge.push_batch(edit("edit-2"));
     ingress
         .drain(&binding().source_id, HostEpoch(1))
@@ -374,3 +356,7 @@ async fn a_mode_saved_mid_turn_leaves_the_turn_on_its_launch_policy_until_the_ne
     );
     assert!(!pending(&ledger));
 }
+
+#[cfg(test)]
+#[path = "private_claurst_ingress_child_permission_tests.rs"]
+mod child_permission_tests;

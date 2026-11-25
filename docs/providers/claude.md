@@ -51,6 +51,14 @@ Abbreviations: `D:` = `crates/gent-drivers/src/`, `G:` = `crates/gentd/src/`, `A
 - A permission request that arrives while no turn is open (a background sub-agent) is asked
   like any other, without marking the root turn waiting (`RunTurns::place_request`). Nothing
   is auto-denied after a `result`.
+- Permissions follow the saved policy, never a turn snapshot: every request is evaluated against
+  the conversation's current policy (`G:claude_prompt_lifecycle/permission.rs::automatic_permission`),
+  and a pending request decided under an older revision is evaluated again on the next poll and
+  answered (`providerPermissionsettled`) when the saved policy now decides it
+  (`G:permission_queue.rs::reconsiders`). Sandbox evidence covers any policy with the launch
+  workspace and containment (`SandboxPermissionBinding::covers`), so only entering
+  Autonomous/Bypass in a Sandboxed run launched without them waits for the next prompt, which
+  relaunches whenever the saved policy differs from the launch one (`release_outdated_session`).
 - Typed sub-agent events: `task_started` (`is_backgrounded`), `task_progress`,
   `task_updated`/`task_notification` become `ChildStarted`/`ChildPhase`/`ChildTerminal`
   (`D:claude_runner_frames.rs::task_facts`). Children are not run liveness.

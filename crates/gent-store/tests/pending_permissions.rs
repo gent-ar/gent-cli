@@ -136,7 +136,7 @@ fn v17_pending_requests_survive_the_composite_identity_migration() {
                 |row| row.get::<_, String>(0),
             )
             .unwrap(),
-        "gent-fresh-schema-v34"
+        "gent-fresh-schema-v35"
     );
     assert_eq!(
         connection
@@ -241,4 +241,36 @@ fn a_delivered_answer_settles_its_row_and_grant_once_and_is_idempotent() {
     )
     .unwrap();
     assert_eq!(value["outcome"], "skipped");
+}
+
+#[test]
+fn permission_settlement_projects_the_typed_outcome() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("gent.db");
+    let ledger = SqliteLedger::open(&path).unwrap();
+    ledger
+        .create_conversation_run(
+            &ConversationRecord {
+                conversation_id: "conversation-1".into(),
+            },
+            &RunRecord {
+                run_id: "run-1".into(),
+                parent_run_id: None,
+                provider: "codex".into(),
+            },
+        )
+        .unwrap();
+    let connection = Connection::open(&path).unwrap();
+    connection.execute_batch(
+        "INSERT INTO agent_chat_conversations (conversation_id, root_run_id, provider, model, effort, mode) VALUES ('conversation-1', 'run-1', 'codex', 'm', 'e', 'x');"
+    ).unwrap();
+    let pending = request("conversation-1", "run-1");
+    ledger.save_pending_permission(&pending).unwrap();
+    ledger.settle_pending_permission(&pending.binding).unwrap();
+    let outcome: String = connection.query_row(
+        "SELECT json_extract(payload, '$.activity.outcome') FROM agent_chat_projection_events WHERE json_extract(payload, '$.activity.type') = 'decisionSettled'",
+        [],
+        |row| row.get(0),
+    ).unwrap();
+    assert_eq!(outcome, "cancelled");
 }

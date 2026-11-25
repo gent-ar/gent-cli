@@ -170,16 +170,6 @@ async fn harness() -> Harness {
         claurst.clone(),
         vec![],
     )));
-    bridge
-        .bind_turn_policy(
-            crate::permission_workspace::policy_for_conversation(
-                &ledger,
-                &conversation.0,
-                "workspace-a",
-            )
-            .unwrap(),
-        )
-        .unwrap();
     let mut lifecycle = ClaurstPromptLifecycle::new_with_runtime(
         ledger.clone(),
         bridge,
@@ -531,15 +521,16 @@ impl gent_ports::PrivateClaurstBridge for PerConversation {
     ) -> Result<gent_ports::ClaurstDrainBatch, gent_ports::PortError> {
         self.route(&request.run_id)?.drain(request).await
     }
-    async fn permission_authority(
+    async fn permission_enforcement(
         &self,
         binding: gent_ports::ClaurstSessionBinding,
+        policy: &gent_types::PolicyRecord,
         epoch: HostEpoch,
-    ) -> Result<(gent_types::PolicyRecord, gent_types::SandboxEnforcement), gent_ports::PortError>
-    {
-        self.route(&binding.run_id)?
-            .permission_authority(binding, epoch)
-            .await
+    ) -> gent_types::SandboxEnforcement {
+        match self.route(&binding.run_id) {
+            Ok(bridge) => bridge.permission_enforcement(binding, policy, epoch).await,
+            Err(_) => gent_types::SandboxEnforcement::Unavailable,
+        }
     }
     async fn runs_background_commands(&self, binding: &gent_ports::ClaurstSessionBinding) -> bool {
         match self.route(&binding.run_id) {
@@ -591,16 +582,6 @@ async fn stopping_one_conversation_leaves_another_conversations_background_comma
             peer.clone(),
             vec![],
         )));
-        bridge
-            .bind_turn_policy(
-                crate::permission_workspace::policy_for_conversation(
-                    &ledger,
-                    &conversation.0,
-                    "workspace-a",
-                )
-                .unwrap(),
-            )
-            .unwrap();
         bridges.insert(format!("run-{name}"), bridge);
         peers.push(peer);
     }

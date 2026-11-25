@@ -160,6 +160,8 @@ impl StandaloneAgentChatPermissionPort {
                         "Permission {} was delivered; its pending row settles with the turn: {error}",
                         response.binding.decision_id.0
                     );
+                } else if grant.is_some() {
+                    self.ingress.permission_policy_saved();
                 }
                 Ok(self.outcome(command, ReceiptStatus::Settled))
             }
