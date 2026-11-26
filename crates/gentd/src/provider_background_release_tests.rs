@@ -1,7 +1,10 @@
 use gent_drivers::claude_runner::ClaudeRunnerEffect;
 use gent_drivers::codex_runner::CodexRunnerEffect;
 use gent_drivers::public_protocol::PublicWireFact;
-use gent_ports::{ConversationActivityLedger, PolicyLedger, RunLifecycleFactLedger};
+use gent_ports::{
+    ConversationActivityLedger, MAX_CONVERSATION_ACTIVITY_PAGE_FACTS, PolicyLedger,
+    RunLifecycleFactLedger,
+};
 use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationId, Containment, ConversationActivityFact, ConversationWorkStatus,
@@ -46,7 +49,7 @@ fn command_phases(
     run_id: &str,
 ) -> Vec<ToolPhase> {
     ledger
-        .read_conversation_activity_page(&conversation.0, run_id, 0, 100)
+        .read_conversation_activity_page(&conversation.0, run_id, 0, MAX_CONVERSATION_ACTIVITY_PAGE_FACTS)
         .unwrap()
         .facts
         .into_iter()
