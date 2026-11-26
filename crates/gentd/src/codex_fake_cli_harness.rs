@@ -12,8 +12,8 @@ use gent_store::SqliteLedger;
 use gent_types::{
     AgentChatConversationCreate, AgentChatConversationId, AgentChatEffort, AgentChatMode,
     AgentChatPromptCreate, AgentChatPromptDisposition, AgentChatPromptSaved, AgentChatProvider,
-    AgentChatRequestId, AgentChatRunId, AgentChatSelection, DurableTurnPhase, HostEpoch,
-    ReceiptId, WorkspaceRecord,
+    AgentChatRequestId, AgentChatRunId, AgentChatSelection, DurableTurnPhase, HostEpoch, ReceiptId,
+    WorkspaceRecord,
 };
 use serde_json::Value;
 
