@@ -275,7 +275,7 @@ fn a_panicking_daemon_stops_its_recorded_groups_while_unwinding() {
 }
 
 #[test]
-fn released_provider_processes_are_reaped_instead_of_left_as_zombies() {
+fn exited_provider_processes_are_reaped_while_still_held_instead_of_left_as_zombies() {
     let processes = (0..8)
         .map(|_| {
             SystemLauncher::new(64)
@@ -288,16 +288,18 @@ fn released_provider_processes_are_reaped_instead_of_left_as_zombies() {
         .map(|process| first_line(process).parse::<u32>().unwrap())
         .collect::<Vec<_>>();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !leaders.iter().all(|pid| state(*pid).starts_with('Z')) {
+    while !processes
+        .iter()
+        .all(|process| process.try_exit_code().unwrap().is_some())
+    {
         assert!(Instant::now() < deadline, "providers did not exit");
         std::thread::sleep(Duration::from_millis(10));
     }
-
-    drop(processes);
 
     let zombies = leaders
         .iter()
         .filter(|pid| state(**pid).starts_with('Z'))
         .count();
     assert_eq!(zombies, 0);
+    drop(processes);
 }
