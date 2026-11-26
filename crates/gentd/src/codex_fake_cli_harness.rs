@@ -229,11 +229,27 @@ impl FakeCodexDaemon {
     }
 
     pub(crate) fn requests(&self, method: &str) -> Vec<Value> {
-        fs::read_to_string(self.root.path().join("cli/requests.jsonl"))
+        let requests = fs::read_to_string(self.root.path().join("cli/requests.jsonl"))
             .unwrap_or_default()
             .lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .filter(|request| request["method"] == method)
+            .collect::<Vec<_>>();
+        let workspace = self.workspace.display().to_string();
+        let conversation_launches = requests
+            .iter()
+            .filter(|request| {
+                matches!(
+                    request["method"].as_str(),
+                    Some("thread/start" | "thread/resume")
+                ) && request["params"]["cwd"] == workspace.as_str()
+            })
+            .map(|request| request["launch"].clone())
+            .collect::<Vec<_>>();
+        requests
+            .into_iter()
+            .filter(|request| {
+                request["method"] == method && conversation_launches.contains(&request["launch"])
+            })
             .collect()
     }
 

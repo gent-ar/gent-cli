@@ -13,6 +13,7 @@ ARGV = sys.argv[1:]
 PERSISTENT = "--no-session-persistence" not in ARGV
 REPLAY = "--replay-user-messages" in ARGV
 PENDING = []
+QUEUED = []
 BACKGROUND_SUBAGENT = os.path.join(ROOT, "background-subagent.jsonl")
 BUFFER = bytearray()
 
@@ -20,6 +21,12 @@ BUFFER = bytearray()
 def emit(frame):
     sys.stdout.write(json.dumps(frame) + "\n")
     sys.stdout.flush()
+
+
+class Interrupted(Exception):
+    def __init__(self, request_id):
+        super().__init__(request_id)
+        self.request_id = request_id
 
 
 def read_frame(timeout):
@@ -113,14 +120,38 @@ def delta(session_id, text):
     emit({"type": "stream_event", "event": event, "session_id": session_id})
 
 
+def interrupt_request(frame):
+    return frame.get("type") == "control_request" and frame["request"].get("subtype") == "interrupt"
+
+
+def listen(seconds, join):
+    deadline = None if seconds is None else time.time() + seconds
+    while deadline is None or time.time() < deadline:
+        frame = read_frame(None if deadline is None else max(0.0, deadline - time.time()))
+        if frame is None:
+            return
+        if interrupt_request(frame):
+            raise Interrupted(frame["request_id"])
+        if frame.get("type") == "user":
+            join(frame)
+
+
+def interrupt(session_id, request_id):
+    for pending in PENDING:
+        emit({"type": "control_cancel_request", "request_id": pending})
+    for queued in QUEUED:
+        emit({"type": "command_lifecycle", "command_uuid": queued.get("uuid"), "state": "cancelled"})
+    reason = "aborted_tools" if PENDING else "aborted_streaming"
+    PENDING.clear()
+    QUEUED.clear()
+    emit({"type": "result", "subtype": "error_during_execution", "is_error": True, "terminal_reason": reason, "session_id": session_id})
+    emit({"type": "control_response", "response": {"subtype": "success", "request_id": request_id}})
+
+
 def slow_steps(session_id):
     for step in range(4):
         delta(session_id, "step %d " % step)
-        deadline = time.time() + 0.4
-        while time.time() < deadline:
-            frame = read_frame(max(0.0, deadline - time.time()))
-            if frame is not None and frame.get("type") == "user":
-                accept(session_id, frame)
+        listen(0.4, lambda frame: accept(session_id, frame))
 
 
 def turn(session_id, text, message_uuid=None):
@@ -137,8 +168,7 @@ def turn(session_id, text, message_uuid=None):
         return propose_plan(session_id)
     if "HOLD" in text:
         delta(session_id, "holding ")
-        while True:
-            time.sleep(1)
+        listen(None, QUEUED.append)
     if "SLOW" in text:
         slow_steps(session_id)
     if "RACE" in text:
@@ -147,13 +177,16 @@ def turn(session_id, text, message_uuid=None):
     reply = chunks(session_id, text)
     for chunk in reply:
         delta(session_id, chunk)
-        time.sleep(0.02)
+        listen(0.02, QUEUED.append)
     content = [{"type": "text", "text": "".join(reply)}]
     emit({"type": "assistant", "message": {"content": content}, "session_id": session_id})
     result(session_id, False)
     if late is not None:
-        accept(session_id, late)
-        turn(session_id, user_text(late), late.get("uuid"))
+        QUEUED.insert(0, late)
+    while QUEUED and not PENDING:
+        taken = QUEUED.pop(0)
+        accept(session_id, taken)
+        turn(session_id, user_text(taken), taken.get("uuid"))
 
 
 def main():
@@ -188,11 +221,18 @@ def main():
     signal.signal(signal.SIGINT, interrupted)
     while True:
         frame = read_frame(None)
-        if frame.get("type") == "user" and PENDING:
+        if interrupt_request(frame) and PENDING:
+            interrupt(session_id, frame["request_id"])
+        elif interrupt_request(frame):
+            emit({"type": "control_response", "response": {"subtype": "success", "request_id": frame["request_id"]}})
+        elif frame.get("type") == "user" and PENDING:
             accept(session_id, frame)
         elif frame.get("type") == "user":
             accept(session_id, frame)
-            turn(session_id, user_text(frame), frame.get("uuid"))
+            try:
+                turn(session_id, user_text(frame), frame.get("uuid"))
+            except Interrupted as interruption:
+                interrupt(session_id, interruption.request_id)
         elif frame.get("type") == "control_response" and PENDING:
             PENDING.clear()
             result(session_id, False)
