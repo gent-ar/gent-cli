@@ -12,7 +12,7 @@ fn scope(cursor: u64) -> ConversationActivityScope {
     }
 }
 
-fn queued(cursor: u64, message_id: &str) -> ConversationActivityFact {
+pub(super) fn queued(cursor: u64, message_id: &str) -> ConversationActivityFact {
     ConversationActivityFact::PromptQueued {
         scope: scope(cursor),
         message_id: message_id.into(),
@@ -29,7 +29,7 @@ fn requested(cursor: u64, message_id: &str) -> ConversationActivityFact {
     }
 }
 
-async fn reply_status(listener: &UnixListener) {
+pub(super) async fn reply_status(listener: &UnixListener) {
     let (mut stream, _) = listener.accept().await.unwrap();
     let _ = read_frame(&mut stream).await.unwrap();
     write_frame(
@@ -56,7 +56,7 @@ async fn reply_status(listener: &UnixListener) {
     .unwrap();
 }
 
-async fn reply_activity(listener: &UnixListener, facts: Vec<ConversationActivityFact>) {
+pub(super) async fn reply_activity(listener: &UnixListener, facts: Vec<ConversationActivityFact>) {
     let (mut stream, _) = listener.accept().await.unwrap();
     let _ = read_frame(&mut stream).await.unwrap();
     write_frame(
@@ -152,13 +152,15 @@ async fn steer_explicit(
 }
 
 #[tokio::test]
-async fn cli_steer_captures_status_once_and_does_not_retry_a_stale_target() {
+async fn cli_steer_does_not_retry_a_stale_target() {
     let directory = tempfile::tempdir().unwrap();
     let listener = UnixListener::bind(directory.path().join("gentd.sock")).unwrap();
     let server = tokio::spawn(async move {
         reply_status(&listener).await;
         reply_activity(&listener, vec![]).await;
         steer(&listener, "queued-message", true).await;
+        reply_status(&listener).await;
+        reply_activity(&listener, vec![queued(1, "queued-message")]).await;
         listener
     });
     let error = steer_explicit(&directory, "queued-message")

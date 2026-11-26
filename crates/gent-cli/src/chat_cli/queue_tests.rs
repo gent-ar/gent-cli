@@ -209,6 +209,8 @@ async fn stale_target_rejection_stops_the_batch_without_retargeting() {
         )
         .await
         .unwrap();
+        cli::reply_status(&listener).await;
+        cli::reply_activity(&listener, vec![cli::queued(1, "first")]).await;
         listener
     });
     let error = deliver(
