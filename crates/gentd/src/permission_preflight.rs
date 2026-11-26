@@ -302,7 +302,11 @@ mod tests {
                     }
                     let third_party = expected(&[PermissionMode::Bypass]);
                     for tool in ["mcp__github__create_issue", "mcp__external"] {
-                        assert_eq!(outcome(tool), third_party, "{tool} {mode:?} {containment:?}");
+                        assert_eq!(
+                            outcome(tool),
+                            third_party,
+                            "{tool} {mode:?} {containment:?}"
+                        );
                     }
                 }
             }

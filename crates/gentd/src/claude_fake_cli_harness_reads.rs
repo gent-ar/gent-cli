@@ -21,18 +21,24 @@ impl FakeClaudeDaemon {
         &self,
         prompt: &AgentChatPromptSaved,
     ) -> Vec<NormalizedTranscriptEvent> {
+        self.conversation_transcript(&prompt.message.conversation_id)
+            .into_iter()
+            .filter(|event| event.turn_id == prompt.message.turn_id)
+            .collect()
+    }
+
+    pub(crate) fn conversation_transcript(
+        &self,
+        conversation_id: &str,
+    ) -> Vec<NormalizedTranscriptEvent> {
         let mut events = Vec::new();
         let mut after = None;
         loop {
             let page = self
                 .ledger
-                .read_agent_chat_transcript(&prompt.message.conversation_id, after, 100)
+                .read_agent_chat_transcript(conversation_id, after, 100)
                 .unwrap();
-            events.extend(
-                page.events
-                    .into_iter()
-                    .filter(|event| event.turn_id == prompt.message.turn_id),
-            );
+            events.extend(page.events);
             match page.next_after_cursor {
                 Some(next) => after = Some(next),
                 None => return events,

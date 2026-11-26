@@ -49,7 +49,12 @@ fn command_phases(
     run_id: &str,
 ) -> Vec<ToolPhase> {
     ledger
-        .read_conversation_activity_page(&conversation.0, run_id, 0, MAX_CONVERSATION_ACTIVITY_PAGE_FACTS)
+        .read_conversation_activity_page(
+            &conversation.0,
+            run_id,
+            0,
+            MAX_CONVERSATION_ACTIVITY_PAGE_FACTS,
+        )
         .unwrap()
         .facts
         .into_iter()
@@ -190,11 +195,7 @@ fn a_claude_process_that_exits_settles_the_background_command_it_was_running() {
 
     assert_eq!(
         command_phases(&pool.ledger, &conversation, &run_id),
-        [
-            ToolPhase::Started,
-            ToolPhase::Background,
-            ToolPhase::Failed,
-        ]
+        [ToolPhase::Started, ToolPhase::Background, ToolPhase::Failed,]
     );
     assert_eq!(
         command_work(&pool.ledger, &run_id),
@@ -225,11 +226,7 @@ fn a_codex_process_that_exits_settles_the_background_command_it_was_running() {
 
     assert_eq!(
         command_phases(&pool.ledger, &conversation, &run_id),
-        [
-            ToolPhase::Started,
-            ToolPhase::Background,
-            ToolPhase::Failed,
-        ]
+        [ToolPhase::Started, ToolPhase::Background, ToolPhase::Failed,]
     );
     assert_eq!(
         command_work(&pool.ledger, &run_id),

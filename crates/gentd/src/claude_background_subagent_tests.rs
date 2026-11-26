@@ -3,7 +3,7 @@ use gent_runtime::{Coordinator, RunLifecycleStatusService};
 use gent_types::{
     AgentChatConversationId, AgentChatProjectionEvent, AgentChatPromptDisposition::Send,
     AgentChatRunId, CapabilitySet, ConversationActivityFact, ConversationLiveStatus,
-    DurableTurnPhase, NormalizedTranscriptKind,
+    DurableTurnPhase, NormalizedTranscriptEvent, NormalizedTranscriptKind,
 };
 use serde_json::json;
 
@@ -49,6 +49,16 @@ fn live(daemon: &FakeClaudeDaemon, run: &AgentChatRunId) -> ConversationLiveStat
     .status
 }
 
+fn continuation(
+    daemon: &FakeClaudeDaemon,
+    conversation: &AgentChatConversationId,
+) -> Option<NormalizedTranscriptEvent> {
+    daemon
+        .conversation_transcript(&conversation.0)
+        .into_iter()
+        .find(|event| !event.is_partial && event.text == CONTINUATION)
+}
+
 fn child_settled(projection: &[AgentChatProjectionEvent]) -> bool {
     projection.iter().any(|event| {
         event.payload["activity"]["type"] == "workPhase"
@@ -69,12 +79,13 @@ fn background_subagent_completion_settles_the_child_after_the_root_turn() {
     assert!(live(&daemon, &run).is_waiting_for_subagents());
 
     daemon.drive_until("continuation after the notification", |daemon| {
-        daemon
-            .transcript(&prompt)
-            .iter()
-            .any(|event| !event.is_partial && event.text == CONTINUATION)
+        continuation(daemon, &conversation).is_some()
     });
 
+    assert_ne!(
+        continuation(&daemon, &conversation).unwrap().turn_id,
+        prompt.message.turn_id
+    );
     assert!(!live(&daemon, &run).is_waiting_for_subagents());
     let facts = activity(&daemon, &conversation, &run);
     let settled: Vec<_> = facts
@@ -124,12 +135,9 @@ fn background_subagent_completion_settles_the_child_after_the_root_turn() {
 fn background_subagent_tools_and_report_are_attributed_to_the_child() {
     let mut daemon = FakeClaudeDaemon::start();
     let (conversation, run) = daemon.conversation("child-attribution");
-    let prompt = daemon.prompt(&conversation, "SUBAGENT count the txt files", Send);
+    daemon.prompt(&conversation, "SUBAGENT count the txt files", Send);
     daemon.drive_until("continuation after the notification", |daemon| {
-        daemon
-            .transcript(&prompt)
-            .iter()
-            .any(|event| !event.is_partial && event.text == CONTINUATION)
+        continuation(daemon, &conversation).is_some()
     });
 
     let child_tools: Vec<_> = activity(&daemon, &conversation, &run)
@@ -147,7 +155,7 @@ fn background_subagent_tools_and_report_are_attributed_to_the_child() {
     assert!(child_tools.iter().all(|(name, parent)| {
         ["ToolSearch", "Bash"].contains(&name.as_str()) && parent.as_deref() == Some(PARENT_TOOL)
     }));
-    let transcript = daemon.transcript(&prompt);
+    let transcript = daemon.conversation_transcript(&conversation.0);
     let answers: Vec<_> = transcript
         .iter()
         .filter(|event| {

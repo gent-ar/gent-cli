@@ -58,7 +58,7 @@ fn interrupt_turn_rejects_a_previous_turn_while_current_permission_waits() {
 }
 
 #[test]
-fn send_now_resumes_the_switched_runs_claude_session_with_its_own_context() {
+fn send_now_continues_the_switched_runs_claude_session_with_its_own_context() {
     let mut daemon = FakeClaudeDaemon::start();
     let (conversation, run) = daemon.switched_conversation("switched");
     let active = daemon.prompt(
@@ -87,18 +87,13 @@ fn send_now_resumes_the_switched_runs_claude_session_with_its_own_context() {
     let session = daemon.bound_session(&run);
     assert_eq!(daemon.sessions(), std::slice::from_ref(&session));
     let launches = daemon.launches();
-    assert_eq!(launches.len(), 2);
+    assert_eq!(launches.len(), 1);
     assert!(
-        launches
-            .iter()
-            .all(|argv| argv.windows(2).any(|pair| pair == ["--effort", "medium"]))
+        launches[0]
+            .windows(2)
+            .any(|pair| pair == ["--effort", "medium"])
     );
     assert!(!launches[0].contains(&"--resume".to_owned()));
-    assert!(
-        launches[1]
-            .windows(2)
-            .any(|pair| pair[0] == "--resume" && pair[1] == session)
-    );
 }
 
 #[test]

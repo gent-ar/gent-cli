@@ -161,7 +161,7 @@ fn interrupting_a_turn_before_claude_takes_up_the_steer_runs_it_once_next() {
     assert_eq!(settle(&mut daemon, &active), DurableTurnPhase::Interrupted);
     assert_eq!(settle(&mut daemon, &queued), DurableTurnPhase::Completed);
     assert_eq!(reply(&daemon, &queued), "recall: CODE-FALCON,CODE-OWL");
-    assert_eq!(daemon.launches().len(), 2);
+    assert_eq!(daemon.launches().len(), 1);
     assert!(activities(&daemon, &conversation, "promptSteered").is_empty());
     assert_eq!(
         activities(&daemon, &conversation, "promptReleased").len(),
