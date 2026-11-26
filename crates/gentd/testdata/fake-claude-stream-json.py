@@ -106,13 +106,19 @@ def propose_plan(session_id):
     emit({"type": "control_request", "request_id": PENDING[0], "request": request, "session_id": session_id})
 
 
+def session_state(session_id, state):
+    emit({"type": "system", "subtype": "session_state_changed", "state": state, "session_id": session_id})
+
+
 def background_subagent(session_id):
+    session_state(session_id, "running")
     with open(BACKGROUND_SUBAGENT) as handle:
         for line in handle:
             frame = json.loads(line.replace("session-bg", session_id))
             emit(frame)
             if frame["type"] == "result":
                 time.sleep(0.5)
+    session_state(session_id, "idle")
 
 
 def delta(session_id, text):
