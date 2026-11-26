@@ -102,7 +102,10 @@ pub(crate) fn evaluate_policy(
     if crate::permission_category::stays_in_session(&request.tool_name) {
         return PermissionPreflight::Allow;
     }
-    if trusted_internal
+    let trusted = trusted_internal
+        || (policy.mode == PermissionMode::Autonomous
+            && crate::permission_category::runs_unattended(&request.tool_name));
+    if trusted
         && (!policy.unattended_requires_sandbox() || enforcement == SandboxEnforcement::Enforced)
     {
         return PermissionPreflight::Allow;
@@ -247,6 +250,59 @@ mod tests {
                     };
                     for tool in ["UnknownTool", "mcp__server__Agent"] {
                         assert_eq!(outcome(tool), ordinary, "{tool} {mode:?} {containment:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn autonomous_runs_bundled_mcp_tools_and_monitor_only_inside_its_sandbox_contract() {
+        use gent_types::{Containment, SandboxEnforcement};
+        for mode in [
+            PermissionMode::AskEveryTime,
+            PermissionMode::AutoAcceptEdits,
+            PermissionMode::Autonomous,
+            PermissionMode::Bypass,
+        ] {
+            for containment in [Containment::Sandboxed, Containment::Unsandboxed] {
+                let current = policy(mode).for_conversation(containment);
+                for enforcement in [
+                    SandboxEnforcement::Unavailable,
+                    SandboxEnforcement::Enforced,
+                ] {
+                    let outcome = |tool: &str| {
+                        super::evaluate_policy(
+                            &current,
+                            &request(tool, PermissionCategory::Provider),
+                            enforcement,
+                            false,
+                        )
+                    };
+                    let contained = containment == Containment::Unsandboxed
+                        || enforcement == SandboxEnforcement::Enforced;
+                    let expected = |modes: &[PermissionMode]| {
+                        if contained && modes.contains(&mode) {
+                            PermissionPreflight::Allow
+                        } else {
+                            PermissionPreflight::Ask
+                        }
+                    };
+                    let unattended =
+                        expected(&[PermissionMode::Autonomous, PermissionMode::Bypass]);
+                    for tool in [
+                        "mcp__gent-browser__browser",
+                        "mcp__gent_canvas__create",
+                        "mcp__gent-forge",
+                        "mcp__gent_automations__list",
+                        "monitor",
+                        "Monitor",
+                    ] {
+                        assert_eq!(outcome(tool), unattended, "{tool} {mode:?} {containment:?}");
+                    }
+                    let third_party = expected(&[PermissionMode::Bypass]);
+                    for tool in ["mcp__github__create_issue", "mcp__external"] {
+                        assert_eq!(outcome(tool), third_party, "{tool} {mode:?} {containment:?}");
                     }
                 }
             }

@@ -15,7 +15,7 @@ A failed sandbox admission fails the turn with a notice whose `failureCode` is `
 | Default | Prompts unless an exact tool/category approval is durable | Host | Contained |
 | Plan | Read-only; non-read is denied | Host | Contained |
 | Auto-Accept Edits | Reads and edits are automatic | Host | Contained |
-| Autonomous | Reads, edits, commands, and network tools are automatic | Host | Contained, evidence required |
+| Autonomous | Reads, edits, commands, network tools, Gent's bundled MCP servers (`gent-automations`, `gent-browser`, `gent-canvas`, `gent-forge`) and Claurst `monitor` are automatic; other MCP tools ask | Host | Contained, evidence required |
 | Bypass | No category-level permission prompts | Host | Contained, evidence required |
 
 The pure `gent-core` evaluator receives a non-serializable `SandboxEnforcement` value from the daemon process edge. For a Sandboxed conversation that is not `Enforced`, Autonomous and Bypass return `SandboxRequired` before exact or category approvals are considered.

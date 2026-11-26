@@ -22,5 +22,11 @@ pub trait RunLifecycleFactLedger: Send + Sync {
         phase: gent_types::ToolPhase,
     ) -> Result<(), LedgerError>;
 
+    fn end_run_background_tools(
+        &self,
+        run_id: &str,
+        phase: gent_types::ToolPhase,
+    ) -> Result<(), LedgerError>;
+
     fn run_active_turn(&self, run_id: &str) -> Result<Option<String>, LedgerError>;
 }

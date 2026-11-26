@@ -44,7 +44,10 @@ Every background command gets an end, whatever stops it. The store owns one rule
 open. Startup recovery ends every open one recorded by an earlier host epoch as `failed`, with a
 `gentdRestarted` notice on its turn, for every provider. A Gent local runtime that is stopped or
 replaced (a failed or interrupted turn, a drain failure, a relaunch for a new selection) ends its
-conversation's open ones at release: `interrupted` when a Stop caused it, otherwise `failed`.
+conversation's open ones at release: `interrupted` when a Stop caused it, otherwise `failed`. A
+Claude or Codex process ends its run's open ones the same way: `interrupted` when Gentd releases it
+(a permission or executable change, warm-pool eviction, a session upgrade), `failed` when it exits
+or its run fails.
 
 Gent local (Claurst) reports a background command over ACP as a tool call still `in_progress` when
 `session/prompt` answers, then one later `tool_call_update` for the same `toolCallId`: `completed`,

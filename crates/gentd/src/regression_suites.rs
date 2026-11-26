@@ -27,6 +27,8 @@ mod codex_warm_pool_tests;
 mod internal_mcp_regressions;
 #[path = "orchestration_transport_tests.rs"]
 mod orchestration_transport_tests;
+#[path = "provider_background_release_tests.rs"]
+mod provider_background_release_tests;
 #[path = "provider_liveness_parity_tests.rs"]
 mod provider_liveness_parity_tests;
 #[path = "provider_warm_transport_tests.rs"]

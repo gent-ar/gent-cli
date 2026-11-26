@@ -50,7 +50,7 @@ where
                 classification: gent_types::PROVIDER_SESSION_RECOVERED_DIAGNOSTIC.into(),
             }),
         )?;
-        self.runner.release_codex_session(run_id)?;
+        self.release_session(run_id)?;
         self.runtime
             .runs()
             .retire_provider_session(run_id, host_epoch)?;

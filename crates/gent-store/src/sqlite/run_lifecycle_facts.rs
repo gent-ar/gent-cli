@@ -41,17 +41,19 @@ impl RunLifecycleFactLedger for SqliteLedger {
         conversation_id: &str,
         phase: gent_types::ToolPhase,
     ) -> Result<(), LedgerError> {
-        let mut connection = self.lock()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
-        super::background_tools::end(
-            &transaction,
+        end_background(
+            self,
             &super::background_tools::Scope::Conversation(conversation_id),
             &phase,
-            None,
-        )?;
-        transaction.commit().map_err(storage_error)
+        )
+    }
+
+    fn end_run_background_tools(
+        &self,
+        run_id: &str,
+        phase: gent_types::ToolPhase,
+    ) -> Result<(), LedgerError> {
+        end_background(self, &super::background_tools::Scope::Run(run_id), &phase)
     }
 
     fn run_active_turn(&self, run_id: &str) -> Result<Option<String>, LedgerError> {
@@ -61,6 +63,19 @@ impl RunLifecycleFactLedger for SqliteLedger {
                 .map(|(turn_id, _)| turn_id)
         })
     }
+}
+
+fn end_background(
+    ledger: &SqliteLedger,
+    scope: &super::background_tools::Scope<'_>,
+    phase: &gent_types::ToolPhase,
+) -> Result<(), LedgerError> {
+    let mut connection = ledger.lock()?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(storage_error)?;
+    super::background_tools::end(&transaction, scope, phase, None)?;
+    transaction.commit().map_err(storage_error)
 }
 
 pub(super) fn append(connection: &Connection, fact: &RunLifecycleFact) -> Result<(), LedgerError> {

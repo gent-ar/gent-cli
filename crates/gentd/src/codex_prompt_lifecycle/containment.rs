@@ -4,7 +4,7 @@ use gent_ports::{
     PolicyLedger, PublicProviderResolver, TranscriptLedger,
 };
 use gent_runtime::RuntimeError;
-use gent_types::{AgentChatPromptSaved, DurableTurnPhase, HostEpoch};
+use gent_types::{AgentChatPromptSaved, DurableTurnPhase, HostEpoch, ToolPhase};
 
 use super::{CodexPromptDispatchOutcome, CodexPromptExecution, CodexPromptLifecycle};
 use crate::public_driver_runtime::run_failure::{
@@ -53,9 +53,16 @@ where
             && (policy_changed || !self.runtime.runs().launched_executable_is_current(run_id)?)
         {
             self.active.remove(run_id);
-            self.runner.release_codex_session(run_id)?;
+            self.release_session(run_id)?;
         }
         Ok(())
+    }
+
+    pub(super) fn release_session(&self, run_id: &str) -> Result<(), RuntimeError> {
+        let released = self.runner.release_codex_session(run_id);
+        self.runtime
+            .end_background_commands(run_id, ToolPhase::Interrupted)?;
+        released.map_err(RuntimeError::from)
     }
 
     pub(super) fn fail_run(
@@ -71,6 +78,10 @@ where
         if self.runner.has_codex_session(run_id) {
             let _ = self.runner.release_codex_session(run_id);
         }
+        tolerate_run_scoped(
+            self.runtime
+                .end_background_commands(run_id, ToolPhase::Failed),
+        )?;
         if self
             .active
             .get(run_id)

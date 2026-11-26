@@ -106,6 +106,15 @@ where
         self.ledger.clone()
     }
 
+    pub(crate) fn end_background_commands(
+        &self,
+        run_id: &str,
+        phase: gent_types::ToolPhase,
+    ) -> Result<(), RuntimeError> {
+        gent_ports::RunLifecycleFactLedger::end_run_background_tools(&self.ledger, run_id, phase)
+            .map_err(RuntimeError::from)
+    }
+
     pub(crate) fn attachment_roots(&self) -> Result<(PathBuf, PathBuf), RuntimeError> {
         self.attachment_root
             .clone()

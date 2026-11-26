@@ -65,7 +65,7 @@ where
         self.active.remove(run_id);
         self.warm.remove(run_id);
         if self.runner.has_claude_session(run_id) {
-            self.runner.release_claude_session(run_id)?;
+            self.release_session(run_id)?;
         }
         Ok(())
     }

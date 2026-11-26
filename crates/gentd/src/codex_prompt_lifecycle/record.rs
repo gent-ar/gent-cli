@@ -101,7 +101,8 @@ where
                 },
             },
         )?;
-        Ok(())
+        self.runtime
+            .end_background_commands(run_id, gent_types::ToolPhase::Failed)
     }
 
     pub(super) fn next_event_id(

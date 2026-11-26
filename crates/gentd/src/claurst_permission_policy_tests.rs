@@ -624,3 +624,72 @@ fn persisted_broad_modes_cannot_bypass_missing_containment_with_exact_grants() {
         }
     }
 }
+
+#[test]
+fn autonomous_runs_bundled_mcp_tools_and_monitor_without_asking_inside_its_containment() {
+    use gent_types::{Containment, SandboxEnforcement};
+    let (_root, project) = workspace();
+    let decide_for = |tool: &str, mode, containment, enforcement| {
+        super::decide_with_enforcement(
+            AgentChatMode::Agent,
+            &policy(mode).for_conversation(containment),
+            &request(tool, PermissionCategory::Provider, json!({})),
+            &project,
+            enforcement,
+            false,
+        )
+    };
+    for tool in [
+        "mcp__gent-browser__browser",
+        "mcp__gent_canvas__create",
+        "monitor",
+    ] {
+        for (mode, containment, enforcement, expected) in [
+            (
+                PermissionMode::Autonomous,
+                Containment::Sandboxed,
+                SandboxEnforcement::Enforced,
+                ALLOW,
+            ),
+            (
+                PermissionMode::Autonomous,
+                Containment::Sandboxed,
+                SandboxEnforcement::Unavailable,
+                ASK,
+            ),
+            (
+                PermissionMode::Autonomous,
+                Containment::Unsandboxed,
+                SandboxEnforcement::Unavailable,
+                ALLOW,
+            ),
+            (
+                PermissionMode::AskEveryTime,
+                Containment::Unsandboxed,
+                SandboxEnforcement::Unavailable,
+                ASK,
+            ),
+            (
+                PermissionMode::AutoAcceptEdits,
+                Containment::Unsandboxed,
+                SandboxEnforcement::Unavailable,
+                ASK,
+            ),
+        ] {
+            assert_eq!(
+                decide_for(tool, mode, containment, enforcement),
+                expected,
+                "{tool} {mode:?} {containment:?} {enforcement:?}"
+            );
+        }
+    }
+    assert_eq!(
+        decide_for(
+            "mcp__github__create_issue",
+            PermissionMode::Autonomous,
+            Containment::Sandboxed,
+            SandboxEnforcement::Enforced,
+        ),
+        ASK
+    );
+}

@@ -213,7 +213,9 @@ where
                 "providerExited:{}",
                 code.map_or_else(|| "unknown".into(), |value| value.to_string())
             ),
-        )
+        )?;
+        self.runtime
+            .end_background_commands(run_id, gent_types::ToolPhase::Failed)
     }
 
     fn record_terminal(
