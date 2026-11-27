@@ -23,6 +23,8 @@ use crate::{
 
 #[path = "runtime_facade_interrupt_ended_tests.rs"]
 mod interrupt_ended_tests;
+#[path = "runtime_facade_interrupt_idle_tests.rs"]
+mod interrupt_idle_tests;
 #[path = "runtime_facade_projection_window_tests.rs"]
 mod projection_window_tests;
 #[path = "runtime_facade_conversation_links_refusal_tests.rs"]
@@ -231,6 +233,15 @@ pub(super) fn running(
     conversation: &AgentChatConversationId,
     key: &str,
 ) -> String {
+    running_on(runtime, conversation, key, AgentChatProvider::Claurst)
+}
+
+pub(super) fn running_on(
+    runtime: &RuntimeFacade,
+    conversation: &AgentChatConversationId,
+    key: &str,
+    provider: AgentChatProvider,
+) -> String {
     let ledger = runtime.conversation_links().unwrap().clone();
     let saved = ledger
         .save_agent_chat_prompt(&AgentChatPromptCreate {
@@ -246,7 +257,7 @@ pub(super) fn running(
         .unwrap();
     crate::readiness_test_support::release(&ledger, &saved);
     ledger
-        .claim_agent_chat_prompt_dispatch("daemon", HostEpoch(1), AgentChatProvider::Claurst)
+        .claim_agent_chat_prompt_dispatch("daemon", HostEpoch(1), provider)
         .unwrap()
         .unwrap();
     let id = &saved.message.message_id;

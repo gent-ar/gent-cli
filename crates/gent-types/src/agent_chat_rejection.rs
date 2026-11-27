@@ -28,6 +28,8 @@ pub enum AgentChatRejection {
     SelectionModelUnavailable,
     #[error("the selected model does not offer this effort")]
     SelectionEffortUnavailable,
+    #[error("nothing is running in this conversation to interrupt")]
+    NothingToInterrupt,
 }
 
 impl AgentChatRejection {
@@ -48,6 +50,7 @@ impl AgentChatRejection {
             Self::ConversationArchived => "conversationArchived",
             Self::SelectionModelUnavailable => "selectionModelUnavailable",
             Self::SelectionEffortUnavailable => "selectionEffortUnavailable",
+            Self::NothingToInterrupt => "nothingToInterrupt",
         }
     }
 }

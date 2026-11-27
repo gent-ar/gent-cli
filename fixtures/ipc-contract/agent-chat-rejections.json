@@ -144,6 +144,16 @@
     {
       "frame": {
         "body": {
+          "code": "nothingToInterrupt",
+          "message": "nothing is running in this conversation to interrupt"
+        },
+        "type": "error"
+      },
+      "wireHex": "000000767b2274797065223a226572726f72222c22626f6479223a7b22636f6465223a226e6f7468696e67546f496e74657272757074222c226d657373616765223a226e6f7468696e672069732072756e6e696e6720696e207468697320636f6e766572736174696f6e20746f20696e74657272757074227d7d"
+    },
+    {
+      "frame": {
+        "body": {
           "code": "unknownCommand",
           "message": "/nope is not a command in this conversation's catalog"
         },

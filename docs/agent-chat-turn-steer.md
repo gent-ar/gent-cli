@@ -80,6 +80,12 @@ The turn then ends `interrupted` without a cause. A Claurst turn whose runtime i
 launching ends at once: the lifecycle drops the launch, which finishes in the background and
 stays warm for the next prompt, and the turn settles through the unstarted-prompt path.
 
+A Stop on a conversation with no open turn whose provider has nothing live for the run (no
+session, no background work) ends the run's open background commands `interrupted` in one
+transaction and answers `{"type":"error","body":{"code":"nothingToInterrupt","message":…}}`.
+The conversation is settled; clients treat the code as a finished Stop, not a failure. A Stop
+the provider cannot deliver while a turn is still open keeps the generic `agentChatRejected`.
+
 ## Facts
 
 ```json

@@ -8,7 +8,7 @@ use gent_types::{
 use super::{RuntimeFacade, facade, root, running};
 use crate::api::RuntimeApi;
 
-fn status_turn(
+pub(super) fn status_turn(
     runtime: &RuntimeFacade,
     conversation: &AgentChatConversationId,
 ) -> (String, String) {

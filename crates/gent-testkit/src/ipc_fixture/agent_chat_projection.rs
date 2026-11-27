@@ -142,6 +142,7 @@ pub(super) fn validate_chat_rejections(records: &[FixtureFrame]) -> Result<(), S
         AgentChatRejection::SelectionModelUnavailable,
         AgentChatRejection::SelectionEffortUnavailable,
         AgentChatRejection::ConversationArchived,
+        AgentChatRejection::NothingToInterrupt,
     ]
     .map(AgentChatRejection::code);
     let name = || String::from("context");

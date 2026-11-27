@@ -1,6 +1,8 @@
 use gent_ports::{AgentChatReadLedger, ConversationLedger, RunLifecycleFactLedger};
 use gent_protocol::{AgentChatIntentFrame, agent_chat_interrupt::InterruptTurnEnded};
-use gent_types::{AgentChatConversationId, AgentChatRunId, HostEpoch};
+use gent_types::{
+    AgentChatConversationId, AgentChatRejection, AgentChatRunId, HostEpoch, ToolPhase,
+};
 
 use super::RuntimeFacade;
 use crate::agent_chat_intent_error::AgentChatIntentError;
@@ -40,9 +42,8 @@ impl RuntimeFacade {
         else {
             return Ok(None);
         };
-        let target = self
-            .running_turn_run(&conversation_id.0)?
-            .unwrap_or_else(|| run_id.clone());
+        let running = self.running_turn_run(&conversation_id.0)?;
+        let target = running.clone().unwrap_or_else(|| run_id.clone());
         if let Some(turn_id) = expected_turn_id.as_deref()
             && let Some(ended) = self.ended_turn(&conversation_id, &[&run_id, &target], turn_id)?
         {
@@ -76,8 +77,8 @@ impl RuntimeFacade {
                 &conversation_id,
             )?
             .ok_or("agent-chat authority is disabled")?;
-        if let Some(turn_id) = expected_turn_id.as_deref() {
-            let interrupted = ingress.interrupt_turn(
+        let interrupted = if let Some(turn_id) = expected_turn_id.as_deref() {
+            ingress.interrupt_turn(
                 selection.provider,
                 &target.0,
                 turn_id,
@@ -86,15 +87,22 @@ impl RuntimeFacade {
                     conversation_id: conversation_id.clone(),
                     host_epoch,
                 }),
-            );
-            if let Err(error) = interrupted {
-                return Err(self
-                    .ended_turn(&conversation_id, &[&run_id, &target], turn_id)?
-                    .map_or_else(|| error.into(), Into::into));
-            }
+            )
         } else {
             self.stop_goal(&conversation_id, host_epoch);
-            ingress.interrupt_run(selection.provider, &target.0)?;
+            ingress.interrupt_run(selection.provider, &target.0)
+        };
+        if let Err(error) = interrupted {
+            if let Some(turn_id) = expected_turn_id.as_deref()
+                && let Some(ended) =
+                    self.ended_turn(&conversation_id, &[&run_id, &target], turn_id)?
+            {
+                return Err(ended.into());
+            }
+            if running.is_none() {
+                return Err(self.settle_idle_run(&target)?);
+            }
+            return Err(error.into());
         }
         Ok(Some(AgentChatIntentFrame::Interrupted {
             request_id,
@@ -138,6 +146,13 @@ impl RuntimeFacade {
             }));
         }
         Ok(None)
+    }
+
+    fn settle_idle_run(&self, run_id: &AgentChatRunId) -> Result<AgentChatIntentError, String> {
+        self.transcript_import_ledger
+            .end_run_background_tools(&run_id.0, ToolPhase::Interrupted)
+            .map_err(|error| error.to_string())?;
+        Ok(AgentChatRejection::NothingToInterrupt.into())
     }
 
     fn stop_goal(&self, conversation_id: &AgentChatConversationId, host_epoch: HostEpoch) {
