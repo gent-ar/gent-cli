@@ -89,6 +89,19 @@ pub(super) async fn serve_until_stopped(
     }
 }
 
+pub(super) fn published_authority(
+    args: &Args,
+    release: Option<&crate::standalone_authority_release::StandaloneAuthorityRelease>,
+) -> Option<crate::standalone_authority_release::published::PublishedProviderAuthority> {
+    let release = release.filter(|_| args.standalone_authority_release.is_none())?;
+    Some(
+        crate::standalone_authority_release::published::PublishedProviderAuthority::new(
+            release.clone(),
+            crate::standalone_authority_release::published::PUBLISHED_AUTHORITY_URL,
+        ),
+    )
+}
+
 fn lifecycle_stopped(
     result: Result<Result<(), String>, tokio::task::JoinError>,
 ) -> Result<(), Box<dyn std::error::Error>> {

@@ -130,15 +130,7 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             local_models: authority.claurst_models().clone(),
             auth: std::sync::Arc::clone(&provider_auth),
             executables: executables.clone(),
-            published_authority: authority_release
-                .clone()
-                .filter(|_| args.standalone_authority_release.is_none())
-                .map(|release| {
-                    crate::standalone_authority_release::published::PublishedProviderAuthority::new(
-                        release,
-                        crate::standalone_authority_release::published::PUBLISHED_AUTHORITY_URL,
-                    )
-                }),
+            published_authority: stages::published_authority(&args, authority_release.as_ref()),
         },
     );
     let provisioned = state.ledger().clone();

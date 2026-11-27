@@ -54,10 +54,10 @@ impl Install {
     fn directory(&self) -> std::path::PathBuf {
         self.packaged.parent().unwrap().join("provider-authority")
     }
+}
 
-    fn active_expiry(&self, release: &StandaloneAuthorityRelease) -> u64 {
-        release.load(now()).unwrap().expires_at_unix_seconds()
-    }
+fn active_expiry(release: &StandaloneAuthorityRelease) -> u64 {
+    release.load(now()).unwrap().expires_at_unix_seconds()
 }
 
 fn now() -> u64 {
@@ -99,13 +99,13 @@ fn a_newer_signed_document_is_staged_and_adopted_at_the_next_start() {
     let outcome = PublishedProviderAuthority::new(running.clone(), serve(newer)).update();
     assert_eq!(outcome.unwrap(), PublishedAuthorityOutcome::Staged);
     assert_eq!(running.path(), install.packaged);
-    assert!(install.active_expiry(&running) < now() + 2_000);
+    assert!(active_expiry(&running) < now() + 2_000);
     let next = install.start();
     assert_eq!(
         next.path(),
         install.directory().join("ordinary-authority.json")
     );
-    assert!(install.active_expiry(&next) > now() + 1_000);
+    assert!(active_expiry(&next) > now() + 1_000);
     assert!(!install.directory().join("published.json").exists());
 }
 
