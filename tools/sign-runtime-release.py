@@ -140,8 +140,8 @@ def point_double(point: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     return (e * f % FIELD, g * h % FIELD, f * g % FIELD, e * h % FIELD)
 
 
-def scalar_multiply(scalar: int) -> tuple[int, int, int, int]:
-    result, point = (0, 1, 1, 0), BASE
+def scalar_multiply(scalar: int, point: tuple[int, int, int, int] = BASE) -> tuple[int, int, int, int]:
+    result = (0, 1, 1, 0)
     while scalar:
         if scalar & 1:
             result = point_add(result, point)
@@ -157,6 +157,32 @@ def encode_point(point: tuple[int, int, int, int]) -> bytes:
     encoded = bytearray(y.to_bytes(32, "little"))
     encoded[31] |= (x & 1) << 7
     return bytes(encoded)
+
+
+def decompress(encoded: bytes) -> tuple[int, int, int, int] | None:
+    value = int.from_bytes(encoded, "little")
+    sign, y = value >> 255, value & ((1 << 255) - 1)
+    square = (y * y - 1) * pow(CURVE_D * y * y + 1, FIELD - 2, FIELD) % FIELD
+    x = pow(square, (FIELD + 3) // 8, FIELD)
+    if x * x % FIELD != square:
+        x = x * pow(2, (FIELD - 1) // 4, FIELD) % FIELD
+    if y >= FIELD or x * x % FIELD != square:
+        return None
+    if x % 2 != sign:
+        x = FIELD - x
+    return (x, y, 1, x * y % FIELD)
+
+
+def verify(public: bytes, content: bytes, signature: bytes) -> bool:
+    if len(public) != 32 or len(signature) != 64:
+        return False
+    commitment, scalar = signature[:32], int.from_bytes(signature[32:], "little")
+    nonce_point, public_point = decompress(commitment), decompress(public)
+    if scalar >= ORDER or nonce_point is None or public_point is None:
+        return False
+    challenge = int.from_bytes(hashlib.sha512(commitment + public + content).digest(), "little") % ORDER
+    expected = point_add(nonce_point, scalar_multiply(challenge, public_point))
+    return encode_point(scalar_multiply(scalar)) == encode_point(expected)
 
 
 def public_key(seed: bytes) -> bytes:

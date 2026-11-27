@@ -9,7 +9,7 @@ from provider_pins import pinned_entries
 
 CLAUDE_DIGEST = "a" * 64
 CODEX_DIGEST = "b" * 64
-NODE_DIGESTS = {"darwin-arm64": "d" * 64, "linux-x64": "e" * 64}
+NODE_DIGESTS = {"darwin-arm64": ["d" * 64], "linux-x64": ["e" * 64]}
 PINS = {
     "schema_version": 2,
     "runtimes": {

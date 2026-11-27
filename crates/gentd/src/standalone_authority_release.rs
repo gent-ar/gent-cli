@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use ed25519_dalek::VerifyingKey;
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
@@ -9,11 +12,14 @@ use crate::{
         OrdinaryAuthorityReleaseError, SignedOrdinaryAuthorityRelease,
         VerifiedOrdinaryAuthorityRelease,
     },
+    published_provider_authority::{PublishedAuthorityError, PublishedAuthorityOutcome},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StandaloneAuthorityRelease {
     path: PathBuf,
+    packaged: PathBuf,
+    published: PathBuf,
     root_keys: BTreeMap<String, VerifyingKey>,
     runtime: Option<AppNodeRuntimeLock>,
 }
@@ -22,7 +28,7 @@ impl StandaloneAuthorityRelease {
     pub(crate) fn resolve(
         explicit: Option<PathBuf>,
         root_keys: &[String],
-        data_dir: &std::path::Path,
+        data_dir: &Path,
     ) -> Result<Option<Self>, String> {
         let Some(authority) = authority_source(
             explicit,
@@ -32,11 +38,12 @@ impl StandaloneAuthorityRelease {
         else {
             return Ok(None);
         };
-        Ok(Some(Self {
-            path: authority.release,
-            root_keys: parse_keys(&authority.root_keys)?,
-            runtime: AppNodeRuntimeLock::from_standalone_environment(data_dir).ok(),
-        }))
+        Ok(Some(Self::adopting(
+            authority.release,
+            data_dir,
+            parse_keys(&authority.root_keys)?,
+            AppNodeRuntimeLock::from_standalone_environment(data_dir).ok(),
+        )))
     }
 
     #[cfg(test)]
@@ -45,22 +52,95 @@ impl StandaloneAuthorityRelease {
         key_specs: &[String],
         runtime: AppNodeRuntimeLock,
     ) -> Result<Self, String> {
-        Ok(Self {
+        let data_dir = path.parent().unwrap_or(&path).to_path_buf();
+        Ok(Self::adopting(
             path,
-            root_keys: parse_keys(key_specs)?,
-            runtime: Some(runtime),
-        })
+            &data_dir,
+            parse_keys(key_specs)?,
+            Some(runtime),
+        ))
+    }
+
+    fn adopting(
+        packaged: PathBuf,
+        data_dir: &Path,
+        root_keys: BTreeMap<String, VerifyingKey>,
+        runtime: Option<AppNodeRuntimeLock>,
+    ) -> Self {
+        let directory = data_dir.join("provider-authority");
+        let mut release = Self {
+            path: packaged.clone(),
+            packaged,
+            published: directory.join("published.json"),
+            root_keys,
+            runtime,
+        };
+        let adopted = directory.join("ordinary-authority.json");
+        if release.expiry(&release.published) > release.expiry(&adopted)
+            && let Err(error) = std::fs::rename(&release.published, &adopted)
+        {
+            eprintln!("gentd could not adopt the published provider authority: {error}");
+        }
+        if release.expiry(&adopted) > release.expiry(&release.packaged) {
+            release.path = adopted;
+        }
+        release
+    }
+
+    fn expiry(&self, path: &Path) -> Option<u64> {
+        let runtime = self.runtime.as_ref()?;
+        let now = crate::startup::unix_seconds();
+        SignedOrdinaryAuthorityRelease::load_bound(path, &self.root_keys, runtime, now)
+            .ok()
+            .map(|release| release.expires_at_unix_seconds())
     }
 
     pub(crate) fn load(
         &self,
         now: u64,
     ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
+        self.load_from(&self.path, now)
+    }
+
+    pub(crate) fn load_packaged(
+        &self,
+        now: u64,
+    ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
+        self.load_from(&self.packaged, now)
+    }
+
+    fn load_from(
+        &self,
+        path: &Path,
+        now: u64,
+    ) -> Result<VerifiedOrdinaryAuthorityRelease, OrdinaryAuthorityReleaseError> {
         let runtime = self
             .runtime
             .as_ref()
             .ok_or(OrdinaryAuthorityReleaseError::RuntimeUnverified)?;
-        SignedOrdinaryAuthorityRelease::load_bound(&self.path, &self.root_keys, runtime, now)
+        SignedOrdinaryAuthorityRelease::load_bound(path, &self.root_keys, runtime, now)
+    }
+
+    pub(crate) fn stage_published(
+        &self,
+        document: &[u8],
+        now: u64,
+    ) -> Result<PublishedAuthorityOutcome, PublishedAuthorityError> {
+        let directory = self.published.parent().unwrap_or(&self.published);
+        std::fs::create_dir_all(directory).map_err(PublishedAuthorityError::Store)?;
+        let mut staged =
+            tempfile::NamedTempFile::new_in(directory).map_err(PublishedAuthorityError::Store)?;
+        std::io::Write::write_all(&mut staged, document).map_err(PublishedAuthorityError::Store)?;
+        let offered = self
+            .load_from(staged.path(), now)?
+            .expires_at_unix_seconds();
+        if self.expiry(&self.path).max(self.expiry(&self.published)) >= Some(offered) {
+            return Ok(PublishedAuthorityOutcome::Current);
+        }
+        staged
+            .persist(&self.published)
+            .map_err(|error| PublishedAuthorityError::Store(error.error))?;
+        Ok(PublishedAuthorityOutcome::Staged)
     }
 
     #[cfg(target_os = "linux")]
@@ -70,13 +150,13 @@ impl StandaloneAuthorityRelease {
         node: &gent_drivers::node_runtime_lock::NodeRuntimeLock,
     ) -> Result<crate::linux_provider_deployment::VerifiedLinuxDeployment, String> {
         let ordinary = self
-            .load(now)
+            .load_packaged(now)
             .map_err(|_| "Ordinary release authority is unavailable")?;
         node.recheck()
             .map_err(|_| "Verified packaged Node runtime changed")?;
         let root = crate::linux_provider_deployment::resource_root_for_node(node.node_path())
             .map_err(str::to_owned)?;
-        if self.path != root.join("authority/ordinary-authority.json") {
+        if self.packaged != root.join("authority/ordinary-authority.json") {
             return Err(
                 "Linux ordinary authority must belong to the verified packaged Node release".into(),
             );
@@ -90,7 +170,7 @@ impl StandaloneAuthorityRelease {
         )
         .map_err(str::to_owned)
     }
-    pub(crate) fn path(&self) -> &std::path::Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 

@@ -38,6 +38,8 @@ pub(crate) struct StandaloneModelCatalogConfig {
     pub(crate) local_models: StandaloneClaurstModels,
     pub(crate) auth: Arc<dyn ProviderAuthPort>,
     pub(crate) executables: crate::provider_executables::ProviderExecutables,
+    pub(crate) published_authority:
+        Option<crate::published_provider_authority::PublishedProviderAuthority>,
 }
 
 pub(crate) fn compose_standalone(
@@ -75,10 +77,14 @@ pub(crate) fn compose_standalone(
         eprintln!("gentd could not start the default local model download: {error}");
     }
     service.read(false);
+    if let Some(published) = &config.published_authority {
+        published.update_in_background();
+    }
     Arc::new(transport::StandaloneModelCatalog {
         service,
         downloads,
         initialize,
+        published_authority: config.published_authority,
     })
 }
 

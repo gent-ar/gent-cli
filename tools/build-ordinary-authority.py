@@ -28,7 +28,8 @@ KEY_ID_ENV = "RUNTIME_RELEASE_KEY_ID"
 
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build and sign the ordinary provider authority from pins, measured Node runtimes and recorded evidence")
-    parser.add_argument("--node-digests", type=Path, required=True)
+    parser.add_argument("--node-digests", type=Path)
+    parser.add_argument("--carry-node-digests", type=Path, action="append", default=[])
     parser.add_argument("--root-keys", type=Path, default=ROOT_KEYS)
     parser.add_argument("--out", type=Path, required=True)
     return parser.parse_args()
@@ -60,19 +61,44 @@ def public(key: tuple[str, bytes]) -> list[dict[str, str]]:
     return [{"key_id": key[0], "public_key_hex": SIGNER.public_key(key[1]).hex()}]
 
 
-def measured_node_digests(pins: dict[str, object], directory: Path) -> dict[str, str]:
+def measured_node_digests(pins: dict[str, object], directory: Path | None) -> dict[str, str]:
     artifacts = pins["runtimes"]["node"]["artifacts"]
     measured = {}
-    for path in sorted(directory.glob("*.json")):
+    for path in sorted(directory.glob("*.json")) if directory else []:
         record = json.loads(path.read_text(encoding="utf-8"))
         target, digest = record["target"], record["node_sha256"]
         if target not in artifacts or target in measured or SHA256.fullmatch(digest) is None:
             raise ValueError(f"{path.name} is not one measurement of a pinned Node runtime target")
         measured[target] = digest
-    missing = sorted(set(artifacts) - set(measured))
+    return {artifacts[target]["provider_target"]: digest for target, digest in measured.items()}
+
+
+def carried_node_digests(paths: list[Path], roots_path: Path) -> list[tuple[str, str]]:
+    trusted = dict(key.split(":", 1) for key in json.loads(roots_path.read_text(encoding="utf-8"))["keys"])
+    carried = []
+    for path in paths:
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        public = bytes.fromhex(trusted.get(envelope.get("key_id"), ""))
+        if not SIGNER.verify(public, canonical(envelope.get("payload")), bytes.fromhex(envelope.get("signature_hex", ""))):
+            raise ValueError(f"{path.name} is not an ordinary authority signed by a committed root")
+        for entry in envelope["payload"]["package_policy"]["payload"]["entries"]:
+            carried.append((f"{entry['package_name']}@{entry['version']}", entry["node_runtime_digest_sha256"]))
+    return carried
+
+
+def node_digests(pins: dict[str, object], measured: dict[str, str], carried: list[tuple[str, str]]) -> dict[str, list[str]]:
+    artifacts = pins["runtimes"]["node"]["artifacts"]
+    digests = {}
+    for name, artifact in artifacts.items():
+        target = artifact["provider_target"]
+        digests[name] = {measured[target]} if target in measured else set()
+        digests[name].update(digest for package, digest in carried if package.endswith(f"-{target}") or f"-{target}@" in package)
+    if any(SHA256.fullmatch(digest) is None for values in digests.values() for digest in values):
+        raise ValueError("a carried Node runtime digest is not a sha256")
+    missing = sorted(name for name, values in digests.items() if not values)
     if missing:
         raise ValueError("Node runtime measurements are missing for: " + ", ".join(missing))
-    return {artifacts[target]["provider_target"]: digest for target, digest in measured.items()}
+    return {artifacts[name]["provider_target"]: sorted(values) for name, values in digests.items()}
 
 
 def root_signing_key(roots_path: Path) -> tuple[str, bytes]:
@@ -87,7 +113,7 @@ def root_signing_key(roots_path: Path) -> tuple[str, bytes]:
     return key_id, seed
 
 
-def authority_payload(root: tuple[str, bytes], pins: dict[str, object], node_digests: dict[str, str], expires_at: int) -> dict[str, object]:
+def authority_payload(root: tuple[str, bytes], pins: dict[str, object], node_digests: dict[str, list[str]], expires_at: int) -> dict[str, object]:
     nested = nested_signing_keys(*root)
     entries = pinned_entries(pins, node_digests, TERMS_VERSION)
     compatibility = signed(nested["compatibility"], {"manifest_version": 1, "expires_at_unix_seconds": expires_at, "entries": entries["compatibility"]})
@@ -115,7 +141,8 @@ def main() -> None:
     args = arguments()
     pins = load_pins(PINS)
     root = root_signing_key(args.root_keys)
-    payload = authority_payload(root, pins, measured_node_digests(pins, args.node_digests), int(time.time()) + LIFETIME_SECONDS)
+    digests = node_digests(pins, measured_node_digests(pins, args.node_digests), carried_node_digests(args.carry_node_digests, args.root_keys))
+    payload = authority_payload(root, pins, digests, int(time.time()) + LIFETIME_SECONDS)
     require_pinned_authority(payload, PINS)
     envelope = {"key_id": root[0], "payload": payload, "signature_hex": SIGNER.sign_seed(root[1], canonical(payload))}
     SIGNER.atomic_write(args.out, json.dumps(envelope, separators=(",", ":"), ensure_ascii=True).encode("utf-8") + b"\n")

@@ -41,7 +41,7 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         authority_release
             .as_ref()
             .ok_or("standalone authority verification requires a signed release")?
-            .load(startup::unix_seconds())?;
+            .load_packaged(startup::unix_seconds())?;
         return Ok(());
     }
     #[cfg(unix)]
@@ -130,6 +130,15 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             local_models: authority.claurst_models().clone(),
             auth: std::sync::Arc::clone(&provider_auth),
             executables: executables.clone(),
+            published_authority: authority_release
+                .clone()
+                .filter(|_| args.standalone_authority_release.is_none())
+                .map(|release| {
+                    crate::published_provider_authority::PublishedProviderAuthority::new(
+                        release,
+                        crate::published_provider_authority::PUBLISHED_AUTHORITY_URL,
+                    )
+                }),
         },
     );
     let provisioned = state.ledger().clone();

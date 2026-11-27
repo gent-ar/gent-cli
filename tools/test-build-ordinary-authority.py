@@ -48,11 +48,14 @@ def complete_measurements() -> dict[str, dict[str, object]]:
     return {target: {"target": target, "node_sha256": measured_digest(target)} for target in TARGETS}
 
 
-def build(directory: Path, measurements: dict[str, dict[str, object]], **environment: str | None) -> tuple[subprocess.CompletedProcess[str], Path]:
+def build(directory: Path, measurements: dict[str, dict[str, object]], carry: tuple[Path, ...] = (), **environment: str | None) -> tuple[subprocess.CompletedProcess[str], Path]:
     digests = directory / "node-digests"
-    digests.mkdir()
+    digests.mkdir(exist_ok=True)
     for name, record in measurements.items():
         (digests / f"{name}.json").write_text(json.dumps(record), encoding="utf-8")
+    for path in digests.glob("*.json"):
+        if path.stem not in measurements:
+            path.unlink()
     roots = directory / "root-keys.json"
     roots.write_text(
         json.dumps({"version": 1, "keys": [f"{KEY_ID}:{SIGNER.public_key(SEED).hex()}"]}),
@@ -63,7 +66,7 @@ def build(directory: Path, measurements: dict[str, dict[str, object]], **environ
     process_environment = {name: value for name, value in os.environ.items() if name not in values}
     process_environment.update({name: value for name, value in values.items() if value is not None})
     result = subprocess.run(
-        [sys.executable, str(BUILDER), "--node-digests", str(digests), "--root-keys", str(roots), "--out", str(out)],
+        [sys.executable, str(BUILDER), "--node-digests", str(digests), "--root-keys", str(roots), "--out", str(out), *(argument for path in carry for argument in ("--carry-node-digests", str(path)))],
         capture_output=True,
         text=True,
         env=process_environment,
@@ -79,38 +82,8 @@ def refusal(measurements: dict[str, dict[str, object]], **environment: str | Non
         return result.stderr
 
 
-def decompress(encoded: bytes) -> tuple[int, int, int, int]:
-    field = SIGNER.FIELD
-    value = int.from_bytes(encoded, "little")
-    sign, y = value >> 255, value & ((1 << 255) - 1)
-    numerator = (y * y - 1) % field
-    denominator = (SIGNER.CURVE_D * y * y + 1) % field
-    square = numerator * pow(denominator, field - 2, field) % field
-    x = pow(square, (field + 3) // 8, field)
-    if x * x % field != square:
-        x = x * pow(2, (field - 1) // 4, field) % field
-    if x % 2 != sign:
-        x = field - x
-    return (x, y, 1, x * y % field)
-
-
-def multiply(point: tuple[int, int, int, int], scalar: int) -> tuple[int, int, int, int]:
-    result = (0, 1, 1, 0)
-    while scalar:
-        if scalar & 1:
-            result = SIGNER.point_add(result, point)
-        point = SIGNER.point_double(point)
-        scalar >>= 1
-    return result
-
-
 def signature_verifies(public_key: bytes, message: bytes, signature: bytes) -> bool:
-    commitment, scalar = signature[:32], int.from_bytes(signature[32:], "little")
-    if scalar >= SIGNER.ORDER:
-        return False
-    challenge = int.from_bytes(hashlib.sha512(commitment + public_key + message).digest(), "little") % SIGNER.ORDER
-    expected = SIGNER.point_add(decompress(commitment), multiply(decompress(public_key), challenge))
-    return SIGNER.encode_point(SIGNER.scalar_multiply(scalar)) == SIGNER.encode_point(expected)
+    return SIGNER.verify(public_key, message, signature)
 
 
 def test_signing_requires_a_named_root_key_and_its_private_half() -> None:
@@ -211,6 +184,47 @@ def test_the_evidence_covers_the_exact_signed_compatibility_envelope() -> None:
             assert evidence["provider"] == provider["provider"]
             assert "malformed_tolerance" not in evidence["scenarios"]
             assert len(evidence["scenarios"]) == 14, sorted(evidence["scenarios"])
+
+
+def package_digests(path: Path) -> dict[str, set[str]]:
+    entries = json.loads(path.read_text(encoding="utf-8"))["payload"]["package_policy"]["payload"]["entries"]
+    digests: dict[str, set[str]] = {}
+    for entry in entries:
+        digests.setdefault(f"{entry['package_name']}@{entry['version']}", set()).add(entry["node_runtime_digest_sha256"])
+    return digests
+
+
+def test_a_root_signed_previous_authority_carries_its_node_digests_to_their_own_targets() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        previous_measurements = {target: {"target": target, "node_sha256": hashlib.sha256(b"previous" + target.encode()).hexdigest()} for target in TARGETS}
+        result, out = build(root, previous_measurements)
+        assert result.returncode == 0, result.stderr
+        previous = root / "previous.json"
+        out.replace(previous)
+        result, out = build(root, complete_measurements(), carry=(previous,))
+        assert result.returncode == 0, result.stderr
+        artifacts = load_pins(PINS)["runtimes"]["node"]["artifacts"]
+        for package, digests in package_digests(out).items():
+            target = next(name for name, artifact in artifacts.items() if package.endswith("-" + artifact["provider_target"]) or f"-{artifact['provider_target']}@" in package)
+            assert digests == {measured_digest(target), previous_measurements[target]["node_sha256"]}, (package, digests)
+        result, carried_only = build(root, {}, carry=(previous,))
+        assert result.returncode == 0, result.stderr
+        assert {digest for values in package_digests(carried_only).values() for digest in values} == {record["node_sha256"] for record in previous_measurements.values()}
+
+
+def test_a_carried_authority_not_signed_by_a_committed_root_is_refused() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        result, out = build(root, complete_measurements())
+        assert result.returncode == 0, result.stderr
+        envelope = json.loads(out.read_text(encoding="utf-8"))
+        envelope["payload"]["package_policy"]["payload"]["entries"][0]["node_runtime_digest_sha256"] = "c" * 64
+        forged = root / "forged.json"
+        forged.write_text(json.dumps(envelope), encoding="utf-8")
+        result, out = build(root, complete_measurements(), carry=(forged,))
+        assert result.returncode != 0
+        assert "forged.json is not an ordinary authority signed by a committed root" in result.stderr, result.stderr
 
 
 if __name__ == "__main__":

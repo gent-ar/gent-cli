@@ -36,6 +36,7 @@ pub(crate) fn catalog_port(data_dir: &Path) -> StandaloneModelCatalog {
             crate::provider_executables::ProviderExecutables::explicit(None, None),
             std::time::Duration::from_secs(1),
         ),
+        published_authority: None,
     }
 }
 

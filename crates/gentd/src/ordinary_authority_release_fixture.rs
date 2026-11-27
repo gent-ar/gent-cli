@@ -71,6 +71,20 @@ pub(crate) fn release_for_provider(
     }
 }
 
+pub(crate) fn release_expiring(
+    root: &SigningKey,
+    node_digest: &str,
+    expires_at_unix_seconds: u64,
+) -> SignedOrdinaryAuthorityRelease {
+    let mut release = release(root, node_digest);
+    release.payload.expires_at_unix_seconds = expires_at_unix_seconds;
+    release.signature_hex = hex::encode(
+        root.sign(&canonical_payload(&release.payload).unwrap())
+            .to_bytes(),
+    );
+    release
+}
+
 pub(crate) fn revoked_release(
     root: &SigningKey,
     node_digest: &str,

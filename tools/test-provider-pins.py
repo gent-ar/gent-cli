@@ -88,13 +88,13 @@ def test_require_raises_with_every_mismatch() -> None:
 def test_each_package_policy_entry_is_bound_to_its_own_target_node_digest() -> None:
     with tempfile.TemporaryDirectory() as directory:
         pins = load_pins(write_pins(Path(directory)))
-        entries = pinned_entries(pins, {"darwin-arm64": "1" * 64, "linux-x64": "2" * 64}, "terms-2")
+        entries = pinned_entries(pins, {"darwin-arm64": ["1" * 64], "linux-x64": ["2" * 64]}, "terms-2")
         bound = {(entry["provider"], entry["version"]): entry["node_runtime_digest_sha256"] for entry in entries["package_policy"]}
         assert bound == {("claude", "9.1.0"): "1" * 64, ("codex", "9.2.0-darwin-arm64"): "1" * 64, ("codex", "9.2.0-linux-x64"): "2" * 64}, bound
         assert {entry["terms_version"] for entry in entries["package_policy"]} == {"terms-2"}
         assert [entry["id"] for entry in entries["compatibility"]] == ["claude-9.1.0-darwin-arm64", "codex-9.2.0-darwin-arm64", "codex-9.2.0-linux-x64"]
         try:
-            pinned_entries(pins, {"darwin-arm64": "1" * 64}, "terms-2")
+            pinned_entries(pins, {"darwin-arm64": ["1" * 64]}, "terms-2")
         except ValueError as error:
             assert "no measured Node runtime digest: linux-x64" in str(error), error
         else:

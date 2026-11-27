@@ -31,7 +31,7 @@ def pinned_targets(pins: dict[str, object]):
             yield provider, pin, target, detail
 
 
-def pinned_entries(pins: dict[str, object], node_runtime_digests: dict[str, str], terms_version: str) -> dict[str, list[dict[str, object]]]:
+def pinned_entries(pins: dict[str, object], node_runtime_digests: dict[str, list[str]], terms_version: str) -> dict[str, list[dict[str, object]]]:
     targets = list(pinned_targets(pins))
     unbound = sorted({target for _, _, target, _ in targets} - set(node_runtime_digests))
     if unbound:
@@ -42,8 +42,9 @@ def pinned_entries(pins: dict[str, object], node_runtime_digests: dict[str, str]
             for provider, pin, target, detail in targets
         ],
         "package_policy": [
-            {"provider": provider, "package_name": detail["package"]["name"], "version": detail["package"]["version"], "integrity": detail["package"]["integrity"], "node_runtime_digest_sha256": node_runtime_digests[target], "terms_version": terms_version, "revoked": False}
+            {"provider": provider, "package_name": detail["package"]["name"], "version": detail["package"]["version"], "integrity": detail["package"]["integrity"], "node_runtime_digest_sha256": digest, "terms_version": terms_version, "revoked": False}
             for provider, _, target, detail in targets
+            for digest in node_runtime_digests[target]
         ],
     }
 

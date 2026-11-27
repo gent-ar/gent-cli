@@ -20,7 +20,7 @@ use std::{
 };
 
 const VERSION: u16 = 1;
-const MAX_BYTES: u64 = 262_144;
+pub(crate) const MAX_BYTES: u64 = 262_144;
 const MAX_KEYS: usize = 8;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -67,6 +67,7 @@ enum ProviderAuthorityRelease {
 #[derive(Clone, Debug)]
 pub(crate) struct VerifiedOrdinaryAuthorityRelease {
     artifact_digest_sha256: String,
+    expires_at_unix_seconds: u64,
     compatibility: CompatibilityAssessment,
     package_policy: VerifiedPackagePolicy,
     providers: Vec<VerifiedProviderAuthority>,
@@ -81,6 +82,10 @@ pub(crate) enum VerifiedProviderAuthority {
 impl VerifiedOrdinaryAuthorityRelease {
     pub(crate) fn artifact_digest_sha256(&self) -> &str {
         &self.artifact_digest_sha256
+    }
+
+    pub(crate) const fn expires_at_unix_seconds(&self) -> u64 {
+        self.expires_at_unix_seconds
     }
 
     pub(crate) fn compatibility(&self) -> CompatibilityAssessment {
@@ -207,6 +212,7 @@ impl SignedOrdinaryAuthorityRelease {
         {
             return Err(OrdinaryAuthorityReleaseError::RuntimeUnverified);
         }
+        let expires_at_unix_seconds = self.payload.expires_at_unix_seconds;
         let mut providers = Vec::new();
         let mut provider_names = BTreeSet::new();
         for provider in self.payload.providers {
@@ -249,6 +255,7 @@ impl SignedOrdinaryAuthorityRelease {
         (!providers.is_empty())
             .then_some(VerifiedOrdinaryAuthorityRelease {
                 artifact_digest_sha256,
+                expires_at_unix_seconds,
                 compatibility,
                 package_policy: policy,
                 providers,

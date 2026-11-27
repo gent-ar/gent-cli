@@ -66,6 +66,8 @@ pub(crate) struct StandaloneModelCatalog {
     pub(crate) service: ModelCatalogService,
     pub(crate) downloads: LocalModelDownloads,
     pub(crate) initialize: Arc<super::claude_initialize::ClaudeInitialize>,
+    pub(crate) published_authority:
+        Option<crate::published_provider_authority::PublishedProviderAuthority>,
 }
 
 impl ModelCatalogPort for StandaloneModelCatalog {
@@ -77,7 +79,12 @@ impl ModelCatalogPort for StandaloneModelCatalog {
             ModelCatalogFrame::ReadModelCatalog {
                 request_id,
                 refresh,
-            } => (request_id, self.service.read(refresh)),
+            } => {
+                if let Some(published) = self.published_authority.as_ref().filter(|_| refresh) {
+                    published.update_in_background();
+                }
+                (request_id, self.service.read(refresh))
+            }
             ModelCatalogFrame::SetDefaultModel {
                 request_id,
                 selection,

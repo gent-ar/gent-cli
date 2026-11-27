@@ -206,6 +206,9 @@ Stop and ask the maintainer at the steps marked HUMAN. `W` is `release-work/<pro
    locally, generate a throwaway root with `tools/generate-runtime-release-key.py`, write a
    temporary `root-keys.json`, run the builder with `--root-keys`, and check the result with
    `tools/verify-staged-authority.py` against a locally built `gentd`.
+   To ship the pin without a Gent release, merge it and run the `provider authority` workflow
+   (`docs/model-catalog.md`, "Updating models without an app or Gent release"). Gentd stages the
+   published authority at its next startup or catalog refresh and adopts it on the start after.
 10. **Clean up.** Stop the daemon. Delete `W` and every `~/.claude/projects/<W path with / and .
     as ->` folder the smoke created. Delete snapshots older than `OLD`. Report the diff findings
     with dispositions, the gates run, and any file changed outside `fixtures/` with its reason.

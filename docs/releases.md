@@ -55,6 +55,11 @@ workflow's `authority` job derives the nested compatibility, package-policy and
 evidence signing keys from that one root. This does not add a second signing
 setup or let runtime-update metadata itself authorize a provider.
 
+Between releases the `provider authority` workflow signs a newer authority from
+`pins.json` with the same root and publishes it as the `provider-authority`
+release asset. An installed `gentd` adopts it only after it verifies exactly as
+the packaged one does and expires later (`docs/model-catalog.md`).
+
 Before the first runtime-update release, generate the protected key material
 locally (the output file is mode `0600` on Unix and is never added to the repository):
 

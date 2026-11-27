@@ -114,6 +114,7 @@ fn a_fresh_install_without_hosted_providers_chats_with_the_default_local_model()
             service,
             downloads: downloads.clone(),
             initialize: no_claude(),
+            published_authority: None,
         }));
         let _cadence = tokio::spawn(cadence.run());
         control.wait_until_ready().await.unwrap();
@@ -255,6 +256,7 @@ async fn the_most_recent_in_conversation_switch_becomes_the_next_new_conversatio
         service,
         downloads: LocalModelDownloads::new(models, defaults),
         initialize: no_claude(),
+        published_authority: None,
     }));
     let create = |request: &str| {
         let [
