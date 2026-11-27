@@ -41,6 +41,23 @@ vendor CLI opens the browser. Status carries only a typed lifecycle:
 request, and a login process that runs longer than ten minutes is stopped and
 reported as `timedOut`.
 
+## Signing out and switching accounts
+
+With `provider-auth-logout-v1` negotiated beside `provider-auth-v1`, a client
+sends `logoutRequest {requestId, provider}`. Gentd ends any sign-in still open
+for that provider, runs the locked provider's own sign-out command through the
+same launcher and environment as login (`claude auth logout`, `codex logout`),
+then re-reads the provider's status command and answers `status` with what it
+observed: `unauthenticated` once the provider is signed out, `notInstalled`
+when no executable exists. A sign-out that cannot start, finish within the
+probe budget, or be re-read is rejected with `providerAuthRejected`; a request
+without the capability is rejected with `unsupportedCapability`.
+
+Signing in again with another account is `logoutRequest` followed by an
+ordinary `loginRequest` (or `handoffLoginRequest`); no separate frame exists.
+The terminal exposes it as `gent auth logout <claude|codex>` and
+`gent auth login <claude|codex> --again`.
+
 ## Process and secret boundary
 
 - The daemon rechecks executable path, canonical identity, version, and digest
@@ -123,10 +140,11 @@ reaches argv, environment, persistence, events, logs, or fixtures.
 
 ## Vendor references
 
-Codex documents `codex login status`, browser login, device authentication, and
+Codex documents `codex login status`, `codex logout`, browser login, device authentication, and
 stdin-based API-key/access-token flows in its
 [developer command reference](https://learn.chatgpt.com/docs/developer-commands#codex-login).
-Claude documents `claude auth status` and `claude auth login` in its
+Claude documents `claude auth status`, `claude auth login`, and
+`claude auth logout` in its
 [CLI reference](https://code.claude.com/docs/en/cli-usage) and
 [authentication guide](https://code.claude.com/docs/en/authentication).
 Gent remains a local launcher rather than a credential broker; Anthropic's

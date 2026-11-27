@@ -4,7 +4,8 @@
 //! until a future authority composition supplies a reviewed provider-auth runtime port.
 
 use gent_protocol::{
-    PROVIDER_AUTH_CAPABILITY, PROVIDER_AUTH_HANDOFF_CAPABILITY, ProviderAuthFrame, write_json_frame,
+    PROVIDER_AUTH_CAPABILITY, PROVIDER_AUTH_HANDOFF_CAPABILITY, PROVIDER_AUTH_LOGOUT_CAPABILITY,
+    ProviderAuthFrame, write_json_frame,
 };
 use gent_types::CapabilitySet;
 use serde_json::Value;
@@ -36,21 +37,16 @@ where
     let Ok(frame) = serde_json::from_value::<ProviderAuthFrame>(raw.clone()) else {
         return Ok(false);
     };
-    if matches!(
-        &frame,
-        ProviderAuthFrame::HandoffStatusRequest { .. }
-            | ProviderAuthFrame::HandoffLoginRequest { .. }
-            | ProviderAuthFrame::HandoffSelectMethod { .. }
-            | ProviderAuthFrame::HandoffState { .. }
-    ) && !capabilities
-        .0
-        .iter()
-        .any(|capability| capability == PROVIDER_AUTH_HANDOFF_CAPABILITY)
+    if let Some(extension) = required_extension(&frame)
+        && !capabilities
+            .0
+            .iter()
+            .any(|capability| capability == extension)
     {
         write_error(
             stream,
             "unsupportedCapability",
-            "provider authentication handoff is unavailable",
+            &format!("provider authentication requires {extension}"),
         )
         .await?;
         return Ok(true);
@@ -80,6 +76,17 @@ where
     Ok(true)
 }
 
+const fn required_extension(frame: &ProviderAuthFrame) -> Option<&'static str> {
+    match frame {
+        ProviderAuthFrame::HandoffStatusRequest { .. }
+        | ProviderAuthFrame::HandoffLoginRequest { .. }
+        | ProviderAuthFrame::HandoffSelectMethod { .. }
+        | ProviderAuthFrame::HandoffState { .. } => Some(PROVIDER_AUTH_HANDOFF_CAPABILITY),
+        ProviderAuthFrame::LogoutRequest { .. } => Some(PROVIDER_AUTH_LOGOUT_CAPABILITY),
+        _ => None,
+    }
+}
+
 fn is_client_request(frame: &ProviderAuthFrame) -> bool {
     matches!(
         frame,
@@ -88,6 +95,7 @@ fn is_client_request(frame: &ProviderAuthFrame) -> bool {
             | ProviderAuthFrame::HandoffSelectMethod { .. }
             | ProviderAuthFrame::StatusRequest { .. }
             | ProviderAuthFrame::LoginRequest { .. }
+            | ProviderAuthFrame::LogoutRequest { .. }
             | ProviderAuthFrame::SelectMethod { .. }
             | ProviderAuthFrame::Cancel { .. }
     )

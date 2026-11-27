@@ -90,15 +90,9 @@ pub(crate) async fn execute(args: Args) -> Result<(), Box<dyn std::error::Error>
         CommandLine::Receipt { receipt_id } => {
             print(crate::receipt_cli::lookup(data_dir, no_autostart, receipt_id).await?)?;
         }
-        CommandLine::Auth { action } => match action {
-            provider_auth_cli::ProviderAuthCommand::Status { provider, wait } => {
-                print(provider_auth_cli::status(data_dir, no_autostart, provider, wait).await?)?;
-            }
-            provider_auth_cli::ProviderAuthCommand::Login { provider } => println!(
-                "{}",
-                provider_auth_cli::login_interactive(data_dir, no_autostart, provider).await?
-            ),
-        },
+        CommandLine::Auth { action } => {
+            provider_auth_cli::execute(data_dir, no_autostart, action).await?;
+        }
         CommandLine::Forge { action } => {
             print(crate::forge_cli::execute(data_dir, no_autostart, action).await?)?;
         }

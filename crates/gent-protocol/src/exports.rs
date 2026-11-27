@@ -78,7 +78,8 @@ pub use crate::prompt_provider_provision::{
 pub use crate::prompt_templates::{PROMPT_TEMPLATES_CAPABILITY, PromptTemplateFrame};
 pub use crate::provider_auth::{
     MAX_PROVIDER_AUTH_FRAME_BYTES, PROVIDER_AUTH_CAPABILITY, PROVIDER_AUTH_HANDOFF_CAPABILITY,
-    ProviderAuthFrame, ProviderAuthFrameError, read_provider_auth_frame, write_provider_auth_frame,
+    PROVIDER_AUTH_LOGOUT_CAPABILITY, ProviderAuthFrame, ProviderAuthFrameError,
+    read_provider_auth_frame, write_provider_auth_frame,
 };
 pub use crate::provider_install_review::{
     ProviderInstallReview, ProviderPackageReview, provider_install_review_digest,

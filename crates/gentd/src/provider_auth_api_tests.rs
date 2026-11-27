@@ -195,3 +195,6 @@ use helpers::*;
 #[cfg(unix)]
 #[path = "provider_auth_lifecycle_tests.rs"]
 mod lifecycle;
+#[cfg(unix)]
+#[path = "provider_auth_logout_tests.rs"]
+mod logout;

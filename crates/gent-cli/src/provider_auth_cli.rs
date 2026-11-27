@@ -1,7 +1,9 @@
 //! Terminal requests for the secret-free provider-auth protocol extension.
 
 use clap::{Subcommand, ValueEnum};
-use gent_protocol::{PROVIDER_AUTH_CAPABILITY, ProviderAuthFrame, write_json_frame};
+use gent_protocol::{
+    PROVIDER_AUTH_CAPABILITY, PROVIDER_AUTH_LOGOUT_CAPABILITY, ProviderAuthFrame, write_json_frame,
+};
 use gent_types::{
     ProviderAuthLifecycle, ProviderAuthMethod, ProviderAuthMethodSelection, ProviderAuthProvider,
 };
@@ -25,6 +27,13 @@ pub(crate) enum ProviderAuthCommand {
     Login {
         #[arg(help = "Provider to sign in to")]
         provider: ProviderArgument,
+        #[arg(long, help = "Sign out first, then sign in again with another account")]
+        again: bool,
+    },
+    #[command(about = "Sign out of the provider account through Gentd")]
+    Logout {
+        #[arg(help = "Provider to sign out of")]
+        provider: ProviderArgument,
     },
 }
 
@@ -33,6 +42,25 @@ pub(crate) enum ProviderAuthCommand {
 pub(crate) enum ProviderArgument {
     Claude,
     Codex,
+}
+
+pub(crate) async fn execute(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    command: ProviderAuthCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        ProviderAuthCommand::Status { provider, wait } => {
+            crate::command_execution::print(status(data_dir, no_autostart, provider, wait).await?)?;
+        }
+        ProviderAuthCommand::Login { provider, again } => {
+            println!("{}", login(data_dir, no_autostart, provider, again).await?);
+        }
+        ProviderAuthCommand::Logout { provider } => {
+            println!("{}", logout(data_dir, no_autostart, provider).await?);
+        }
+    }
+    Ok(())
 }
 
 pub(crate) async fn login_interactive(
@@ -73,6 +101,36 @@ pub(crate) async fn login_interactive(
         }
         frame => login_notice(provider, frame),
     }
+}
+
+pub(crate) async fn login(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    provider: ProviderArgument,
+    again: bool,
+) -> Result<String, String> {
+    if again {
+        logout(data_dir.clone(), no_autostart, provider).await?;
+    }
+    login_interactive(data_dir, no_autostart, provider).await
+}
+
+pub(crate) async fn logout(
+    data_dir: Option<PathBuf>,
+    no_autostart: bool,
+    provider: ProviderArgument,
+) -> Result<String, String> {
+    let provider = provider.into();
+    let frame = exchange(
+        data_dir,
+        no_autostart,
+        ProviderAuthFrame::LogoutRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            provider,
+        },
+    )
+    .await?;
+    logout_notice(provider, &frame)
 }
 
 pub(crate) async fn status(
@@ -143,12 +201,16 @@ async fn exchange(
         crate::local_ipc::connect_and_negotiate(data_dir, no_autostart)
             .await
             .map_err(|error| error.to_string())?;
-    if !capabilities
-        .0
+    let required: &[&str] = if matches!(request, ProviderAuthFrame::LogoutRequest { .. }) {
+        &[PROVIDER_AUTH_CAPABILITY, PROVIDER_AUTH_LOGOUT_CAPABILITY]
+    } else {
+        &[PROVIDER_AUTH_CAPABILITY]
+    };
+    if let Some(missing) = required
         .iter()
-        .any(|value| value == PROVIDER_AUTH_CAPABILITY)
+        .find(|required| !capabilities.0.iter().any(|value| value == *required))
     {
-        return Err("gentd does not support provider authentication; upgrade gentd".into());
+        return Err(format!("gentd does not support {missing}; upgrade gentd"));
     }
     write_json_frame(&mut stream, &request)
         .await
@@ -164,10 +226,7 @@ fn login_notice(
     provider: ProviderAuthProvider,
     frame: ProviderAuthFrame,
 ) -> Result<String, String> {
-    let label = match provider {
-        ProviderAuthProvider::Claude => "Claude",
-        ProviderAuthProvider::Codex => "Codex",
-    };
+    let label = label(provider);
     let (ProviderAuthFrame::Status { status, .. }
     | ProviderAuthFrame::SelectionAccepted { status, .. }) = frame
     else {
@@ -196,6 +255,33 @@ fn login_notice(
         )),
         ProviderAuthLifecycle::Failed => Err(format!("{label} sign-in could not be started.")),
         _ => Err(format!("{label} is not authenticated.")),
+    }
+}
+
+const fn label(provider: ProviderAuthProvider) -> &'static str {
+    match provider {
+        ProviderAuthProvider::Claude => "Claude",
+        ProviderAuthProvider::Codex => "Codex",
+    }
+}
+
+fn logout_notice(
+    provider: ProviderAuthProvider,
+    frame: &ProviderAuthFrame,
+) -> Result<String, String> {
+    let label = label(provider);
+    let ProviderAuthFrame::Status { status, .. } = frame else {
+        return Err("gentd returned an invalid provider authentication response".into());
+    };
+    match status.lifecycle {
+        ProviderAuthLifecycle::Unauthenticated => Ok(format!("Signed out of {label}.")),
+        ProviderAuthLifecycle::NotInstalled => Err(format!(
+            "{label} is not installed in the managed runtime. Start a {label} conversation first."
+        )),
+        ProviderAuthLifecycle::Authenticated => {
+            Err(format!("{label} is still signed in after sign-out."))
+        }
+        _ => Err(format!("{label} sign-out could not be confirmed.")),
     }
 }
 

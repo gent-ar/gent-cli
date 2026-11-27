@@ -112,7 +112,7 @@ pub(super) fn classify(
     }
 }
 
-fn exit_code_bounded(
+pub(super) fn exit_code_bounded(
     process: &AuthProcess,
     timeout: Duration,
 ) -> Result<Option<i32>, ProviderLaunchError> {
@@ -183,6 +183,13 @@ pub(super) fn login_arguments(provider: ProviderAuthProvider) -> &'static [&'sta
     match provider {
         ProviderAuthProvider::Claude => &["auth", "login"],
         ProviderAuthProvider::Codex => &["login"],
+    }
+}
+
+pub(super) fn logout_arguments(provider: ProviderAuthProvider) -> &'static [&'static str] {
+    match provider {
+        ProviderAuthProvider::Claude => &["auth", "logout"],
+        ProviderAuthProvider::Codex => &["logout"],
     }
 }
 

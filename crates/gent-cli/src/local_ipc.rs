@@ -104,6 +104,7 @@ pub(crate) fn client_capabilities() -> CapabilitySet {
         RUNTIME_UPDATE_CHECK_CAPABILITY.into(),
         PERMISSION_POLICY_CAPABILITY.into(),
         PROVIDER_AUTH_CAPABILITY.into(),
+        gent_protocol::PROVIDER_AUTH_LOGOUT_CAPABILITY.into(),
         PROVIDER_READINESS_CAPABILITY.into(),
         PROMPT_PROVIDER_PROVISION_CAPABILITY.into(),
         REVIEWED_PLAN_CAPABILITY.into(),

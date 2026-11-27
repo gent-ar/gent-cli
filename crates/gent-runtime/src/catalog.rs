@@ -1,3 +1,4 @@
+use gent_protocol::PROVIDER_AUTH_LOGOUT_CAPABILITY;
 use gent_protocol::conversation_links::CONVERSATION_LINKS_CAPABILITY;
 use gent_protocol::{
     AGENT_CHAT_CHECKPOINT_CAPABILITY, AGENT_CHAT_CONVERSATION_CONFIG_CAPABILITY,
@@ -89,6 +90,7 @@ pub fn declared_capabilities_with_agent_chat(agent_chat_enabled: bool) -> Capabi
 #[must_use]
 pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -> CapabilitySet {
     let agent_chat = profile.agent_chat_enabled();
+    let provider_auth = profile.provider_auth_enabled();
     let profiled = [
         (agent_chat, RuntimeCapability::AgentChatIntents.wire_name()),
         (agent_chat, gent_protocol::AGENT_CHAT_STEER_TURN_CAPABILITY),
@@ -177,7 +179,8 @@ pub fn declared_capabilities_with_profiles(profile: &RuntimeCapabilityProfile) -
             profile.provider_readiness_enabled(),
             PROVIDER_READINESS_CAPABILITY,
         ),
-        (profile.provider_auth_enabled(), PROVIDER_AUTH_CAPABILITY),
+        (provider_auth, PROVIDER_AUTH_CAPABILITY),
+        (provider_auth, PROVIDER_AUTH_LOGOUT_CAPABILITY),
         (
             profile.provider_auth_handoff_enabled(),
             gent_protocol::PROVIDER_AUTH_HANDOFF_CAPABILITY,

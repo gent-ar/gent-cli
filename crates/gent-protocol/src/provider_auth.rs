@@ -16,6 +16,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 /// Required before a client may request public Claude or Codex authentication state.
 pub const PROVIDER_AUTH_CAPABILITY: &str = "provider-auth-v1";
 pub const PROVIDER_AUTH_HANDOFF_CAPABILITY: &str = "provider-auth-handoff-v1";
+pub const PROVIDER_AUTH_LOGOUT_CAPABILITY: &str = "provider-auth-logout-v1";
 /// Maximum encoded size for a provider-auth endpoint frame.
 pub const MAX_PROVIDER_AUTH_FRAME_BYTES: usize = 8 * 1024;
 
@@ -52,6 +53,10 @@ pub enum ProviderAuthFrame {
     },
     /// Explicit user intent to request a typed authentication choice, never credentials.
     LoginRequest {
+        request_id: String,
+        provider: ProviderAuthProvider,
+    },
+    LogoutRequest {
         request_id: String,
         provider: ProviderAuthProvider,
     },
@@ -100,7 +105,9 @@ impl ProviderAuthFrame {
                 validate_id(request_id)?;
                 state.validate()?;
             }
-            Self::StatusRequest { request_id, .. } | Self::LoginRequest { request_id, .. } => {
+            Self::StatusRequest { request_id, .. }
+            | Self::LoginRequest { request_id, .. }
+            | Self::LogoutRequest { request_id, .. } => {
                 validate_id(request_id)?;
             }
             Self::Status { request_id, status }

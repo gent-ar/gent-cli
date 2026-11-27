@@ -107,6 +107,7 @@ fn standalone_authority_advertises_reviewed_plan_lifecycle() {
         REVIEWED_PLAN_CAPABILITY,
         CONVERSATION_ACTIVITY_CAPABILITY,
         PROVIDER_AUTH_CAPABILITY,
+        gent_protocol::PROVIDER_AUTH_LOGOUT_CAPABILITY,
         PROVIDER_READINESS_CAPABILITY,
     ] {
         assert!(capabilities.0.contains(&capability.into()));

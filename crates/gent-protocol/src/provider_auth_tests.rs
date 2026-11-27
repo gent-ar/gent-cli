@@ -207,3 +207,35 @@ fn assert_no_secret_keys(value: &Value) {
         _ => {}
     }
 }
+
+#[test]
+fn logout_request_names_only_a_provider_behind_its_own_capability() {
+    assert_eq!(
+        super::PROVIDER_AUTH_LOGOUT_CAPABILITY,
+        "provider-auth-logout-v1"
+    );
+    let frame: ProviderAuthFrame = serde_json::from_value(json!({
+        "type": "logoutRequest", "body": {"requestId": "logout-1", "provider": "codex"}
+    }))
+    .unwrap();
+    assert_eq!(
+        frame,
+        ProviderAuthFrame::LogoutRequest {
+            request_id: "logout-1".into(),
+            provider: ProviderAuthProvider::Codex,
+        }
+    );
+    assert_eq!(frame.validate(), Ok(()));
+    let extra = json!({
+        "type": "logoutRequest", "body": {"requestId": "logout-1", "provider": "codex", "account": "x"}
+    });
+    assert!(serde_json::from_value::<ProviderAuthFrame>(extra).is_err());
+    let unnamed = ProviderAuthFrame::LogoutRequest {
+        request_id: String::new(),
+        provider: ProviderAuthProvider::Claude,
+    };
+    assert_eq!(
+        unnamed.validate(),
+        Err(ProviderAuthFrameError::InvalidIdentifier)
+    );
+}

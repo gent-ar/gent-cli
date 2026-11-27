@@ -181,6 +181,7 @@ pub(super) fn validate_provider_auth(records: &[FixtureFrame]) -> Result<(), Str
     };
     (valid
         && frames.get(1).and_then(lifecycle) == Some(ProviderAuthLifecycle::Checking)
+        && frames.last().and_then(lifecycle) == Some(ProviderAuthLifecycle::Unauthenticated)
         && matches!(
             frames.as_slice(),
             [
@@ -193,12 +194,14 @@ pub(super) fn validate_provider_auth(records: &[FixtureFrame]) -> Result<(), Str
                 ProviderAuthFrame::SelectMethod { .. },
                 ProviderAuthFrame::SelectionAccepted { .. },
                 ProviderAuthFrame::Cancel { .. },
+                ProviderAuthFrame::Status { .. },
+                ProviderAuthFrame::LogoutRequest { .. },
                 ProviderAuthFrame::Status { .. }
             ]
         ))
     .then_some(())
     .ok_or_else(|| {
-        "must contain valid checking, status, login, selection, and cancel frames".into()
+        "must contain valid checking, status, login, selection, cancel, and logout frames".into()
     })
 }
 

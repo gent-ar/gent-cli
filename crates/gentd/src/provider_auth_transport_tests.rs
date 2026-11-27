@@ -94,3 +94,35 @@ async fn observer_rejects_provider_auth_before_any_login_handler_can_run() {
     drop(client);
     assert!(task.await.unwrap().is_ok());
 }
+
+#[tokio::test]
+async fn logout_requires_its_own_negotiated_capability() {
+    let (mut client, mut server) = duplex(2048);
+    let request = serde_json::to_value(ProviderAuthFrame::LogoutRequest {
+        request_id: "logout".into(),
+        provider: ProviderAuthProvider::Claude,
+    })
+    .unwrap();
+    let handled = crate::provider_auth_transport::dispatch(
+        &mut server,
+        &FakeRuntime,
+        &gent_types::CapabilitySet(vec![PROVIDER_AUTH_CAPABILITY.into()]),
+        &request,
+    )
+    .await
+    .unwrap();
+    assert!(handled);
+    assert!(
+        matches!(read_frame(&mut client).await.unwrap(), WireFrame::Error {code,..} if code=="unsupportedCapability")
+    );
+    let negotiated = gent_types::CapabilitySet(vec![
+        PROVIDER_AUTH_CAPABILITY.into(),
+        gent_protocol::PROVIDER_AUTH_LOGOUT_CAPABILITY.into(),
+    ]);
+    crate::provider_auth_transport::dispatch(&mut server, &FakeRuntime, &negotiated, &request)
+        .await
+        .unwrap();
+    assert!(
+        matches!(read_frame(&mut client).await.unwrap(), WireFrame::Error {code,..} if code=="providerAuthRejected")
+    );
+}

@@ -195,7 +195,7 @@ Each provider module exposes its dependencies as data that the code itself uses,
 list. Examples: a `CodexNotification` enum with `const ALL` and `fn method()`, parsed by
 iterating `ALL`, and Claude `LaunchFlag { flag, arg, hidden }` rows that build the argv.
 
-- `LAUNCH_FLAGS` / `SUBCOMMANDS` (Claude argv, Codex `app-server`, auth argv `auth status --json`, `login status`)
+- `LAUNCH_FLAGS` / `SUBCOMMANDS` (Claude argv, Codex `app-server`, auth argv `auth status --json`, `login status`, `auth logout`, `logout`)
 - `SENT_REQUESTS`, `HANDLED_NOTIFICATIONS`, `HANDLED_SERVER_REQUESTS`, `IGNORED_NOTIFICATIONS`
 - `READ_FIELDS` per method (JSON pointers the parser reads), `BUILTIN_COMMAND_DISPOSITION`
 

@@ -39,6 +39,8 @@ mod provider_auth_check;
 mod provider_auth_codex;
 #[path = "provider_auth_handoff.rs"]
 mod provider_auth_handoff;
+#[path = "provider_auth_logout.rs"]
+mod provider_auth_logout;
 
 pub(crate) trait ProviderAuthPort: Send + Sync {
     fn exchange(&self, frame: ProviderAuthFrame) -> Result<ProviderAuthFrame, String>;
@@ -242,6 +244,10 @@ impl ProviderAuthPort for StandaloneProviderAuthPort {
                 request_id,
                 provider,
             } => self.login(request_id, provider),
+            ProviderAuthFrame::LogoutRequest {
+                request_id,
+                provider,
+            } => self.logout(request_id, provider),
             ProviderAuthFrame::SelectMethod {
                 request_id,
                 selection,

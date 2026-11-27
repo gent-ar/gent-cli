@@ -35,6 +35,7 @@ fn observer_and_durable_chat_profiles_hide_every_dormant_provider_lifecycle_surf
             AGENT_CHAT_TURN_FOLLOW_CAPABILITY,
             CONVERSATION_ACTIVITY_CAPABILITY,
             PROVIDER_AUTH_CAPABILITY,
+            gent_protocol::PROVIDER_AUTH_LOGOUT_CAPABILITY,
         ] {
             assert!(
                 !capabilities

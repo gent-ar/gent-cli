@@ -8,7 +8,7 @@ use std::{
 use gent_protocol::ProviderAuthFrame;
 use gent_types::{ProviderAuthLifecycle, ProviderAuthProvider, ProviderAuthStatus};
 
-use super::{ProviderAuthCommand, settled};
+use super::{ProviderAuthCommand, logout_notice, settled};
 use crate::{Args, CommandLine};
 
 fn status(lifecycle: ProviderAuthLifecycle) -> ProviderAuthFrame {
@@ -94,4 +94,33 @@ fn parses_public_provider_status_command() {
             action: ProviderAuthCommand::Status { .. }
         })
     ));
+}
+
+#[test]
+fn parses_logout_and_login_again_commands() {
+    let logout = Args::try_parse_from(["gent", "auth", "logout", "claude"]).unwrap();
+    assert!(matches!(
+        logout.command,
+        Some(CommandLine::Auth {
+            action: ProviderAuthCommand::Logout { .. }
+        })
+    ));
+    let again = Args::try_parse_from(["gent", "auth", "login", "codex", "--again"]).unwrap();
+    assert!(matches!(
+        again.command,
+        Some(CommandLine::Auth {
+            action: ProviderAuthCommand::Login { again: true, .. }
+        })
+    ));
+}
+
+#[test]
+fn logout_reports_success_only_when_gentd_observes_the_provider_signed_out() {
+    let provider = ProviderAuthProvider::Claude;
+    assert_eq!(
+        logout_notice(provider, &status(ProviderAuthLifecycle::Unauthenticated)),
+        Ok("Signed out of Claude.".into())
+    );
+    assert!(logout_notice(provider, &status(ProviderAuthLifecycle::Authenticated)).is_err());
+    assert!(logout_notice(provider, &status(ProviderAuthLifecycle::NotInstalled)).is_err());
 }
