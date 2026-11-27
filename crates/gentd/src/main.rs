@@ -221,7 +221,6 @@ mod provider_warm_pool;
 #[allow(dead_code)]
 mod public_driver_runtime;
 mod public_runs;
-mod published_provider_authority;
 #[cfg(test)]
 mod readiness_test_support;
 mod reviewed_plan_api;

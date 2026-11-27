@@ -39,7 +39,7 @@ pub(crate) struct StandaloneModelCatalogConfig {
     pub(crate) auth: Arc<dyn ProviderAuthPort>,
     pub(crate) executables: crate::provider_executables::ProviderExecutables,
     pub(crate) published_authority:
-        Option<crate::published_provider_authority::PublishedProviderAuthority>,
+        Option<crate::standalone_authority_release::published::PublishedProviderAuthority>,
 }
 
 pub(crate) fn compose_standalone(

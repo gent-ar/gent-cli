@@ -134,9 +134,9 @@ pub(crate) async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 .clone()
                 .filter(|_| args.standalone_authority_release.is_none())
                 .map(|release| {
-                    crate::published_provider_authority::PublishedProviderAuthority::new(
+                    crate::standalone_authority_release::published::PublishedProviderAuthority::new(
                         release,
-                        crate::published_provider_authority::PUBLISHED_AUTHORITY_URL,
+                        crate::standalone_authority_release::published::PUBLISHED_AUTHORITY_URL,
                     )
                 }),
         },

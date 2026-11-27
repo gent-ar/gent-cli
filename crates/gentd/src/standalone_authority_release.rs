@@ -6,13 +6,13 @@ use std::{
 use ed25519_dalek::VerifyingKey;
 use gent_ports::{ApprovedPackageInstall, PackageInstallPolicy, PackageInstallPolicyError};
 
+use self::published::{PublishedAuthorityError, PublishedAuthorityOutcome};
 use crate::{
     node_runtime_lock::AppNodeRuntimeLock,
     ordinary_authority_release::{
         OrdinaryAuthorityReleaseError, SignedOrdinaryAuthorityRelease,
         VerifiedOrdinaryAuthorityRelease,
     },
-    published_provider_authority::{PublishedAuthorityError, PublishedAuthorityOutcome},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -264,6 +264,9 @@ fn parse_keys(values: &[String]) -> Result<BTreeMap<String, VerifyingKey>, Strin
 
 #[path = "packaged_authority.rs"]
 pub(crate) mod packaged;
+
+#[path = "published_provider_authority.rs"]
+pub(crate) mod published;
 
 #[cfg(test)]
 mod tests {

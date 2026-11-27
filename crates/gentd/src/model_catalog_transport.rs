@@ -67,7 +67,7 @@ pub(crate) struct StandaloneModelCatalog {
     pub(crate) downloads: LocalModelDownloads,
     pub(crate) initialize: Arc<super::claude_initialize::ClaudeInitialize>,
     pub(crate) published_authority:
-        Option<crate::published_provider_authority::PublishedProviderAuthority>,
+        Option<crate::standalone_authority_release::published::PublishedProviderAuthority>,
 }
 
 impl ModelCatalogPort for StandaloneModelCatalog {
