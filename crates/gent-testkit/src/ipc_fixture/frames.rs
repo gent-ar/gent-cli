@@ -69,11 +69,11 @@ pub(super) fn validate_chat_transcript(records: &[FixtureFrame]) -> Result<(), S
         frames.as_slice(),
         [
             AgentChatTranscriptFrame::PageRequest { .. },
-            AgentChatTranscriptFrame::Page(_)
-        ]
+            AgentChatTranscriptFrame::Page(page)
+        ] if page.events.iter().any(|event| event.recorded_at_unix_ms.is_some())
     )
     .then_some(())
-    .ok_or_else(|| "must contain transcript page request and response frames".into())
+    .ok_or_else(|| "must contain a transcript page request and a page with a recorded time".into())
 }
 
 pub(super) fn validate_chat_intents(records: &[FixtureFrame]) -> Result<(), String> {

@@ -198,6 +198,8 @@ pub struct NormalizedTranscriptEvent {
     pub failure_code: Option<crate::AgentChatFailureCode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resets_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at_unix_ms: Option<u64>,
 }
 
 /// Provider-normalized transcript content before the durable ledger assigns its cursor.
@@ -330,9 +332,14 @@ mod tests {
             is_partial: false,
             failure_code: None,
             resets_at: None,
+            recorded_at_unix_ms: Some(1_764_201_600_123),
             origin: None,
             attachments: Vec::new(),
         };
+        assert_eq!(
+            serde_json::to_value(&event).unwrap()["recordedAtUnixMs"],
+            json!(1_764_201_600_123_u64)
+        );
         assert_eq!(
             serde_json::from_value::<NormalizedTranscriptEvent>(
                 serde_json::to_value(&event).unwrap()

@@ -27,10 +27,11 @@ confirmation persists Bypass without a launch flag; Autonomous/Bypass fail close
 A policy revision may also carry command grants (`allowedCommands`: a tool name, literal leading
 words and whether further arguments are allowed), appended by an `approveCommandPattern` decision
 under `agent-chat-permission-command-grants-v1`; a compound or expanding shell command never
-matches a grant. The ledger schema is `gent-fresh-schema-v34`; opening an older ledger adds the
+matches a grant. The ledger schema is `gent-fresh-schema-v36`; opening an older ledger adds the
 missing pieces (`policies.allowed_commands`, `agent_chat_side_questions.failure_code` with
-`providerFailed` for earlier failures, the status indexes, the `agent_chat_projection_turns`
-turn-boundary index and its backfill) in the same upgrade transaction.
+`providerFailed` for earlier failures, `agent_chat_transcript_events.recorded_at_unix_ms`,
+the status indexes, the `agent_chat_projection_turns` turn-boundary index and its backfill) in
+the same upgrade transaction.
 
 The store's single shared connection guard bumps a commit watch whenever a write changed rows,
 and every follower wakes on it instead of polling. Conversation status is read from `turns.phase`

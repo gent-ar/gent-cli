@@ -175,7 +175,7 @@ CREATE TABLE agent_chat_transcript_events (
     cursor INTEGER NOT NULL CHECK (cursor > 0), event_id TEXT NOT NULL UNIQUE,
     turn_id TEXT NOT NULL REFERENCES turns(turn_id), run_id TEXT NOT NULL REFERENCES runs(run_id),
     kind TEXT NOT NULL, text TEXT NOT NULL, is_partial INTEGER NOT NULL CHECK (is_partial IN (0, 1)),
-    origin_json TEXT, PRIMARY KEY (conversation_id, cursor)
+    origin_json TEXT, recorded_at_unix_ms INTEGER, PRIMARY KEY (conversation_id, cursor)
 );
 CREATE TABLE agent_chat_prompt_dispatches (
     message_id TEXT PRIMARY KEY NOT NULL REFERENCES conversation_messages(message_id),

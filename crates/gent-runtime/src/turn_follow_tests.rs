@@ -104,6 +104,7 @@ fn page(phase: DurableTurnPhase, next_after_cursor: Option<u64>) -> TurnFollowPa
             is_partial: false,
             failure_code: None,
             resets_at: None,
+            recorded_at_unix_ms: None,
             origin: None,
             attachments: Vec::new(),
         }],

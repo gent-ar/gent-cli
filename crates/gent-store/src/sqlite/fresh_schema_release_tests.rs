@@ -128,3 +128,42 @@ fn v34_recovers_known_settlement_outcomes_without_guessing_unknown_ones() {
         .unwrap().collect::<Result<Vec<_>, _>>().unwrap();
     assert_eq!(rows, [(91, Some("cancelled".into())), (92, None)]);
 }
+
+#[test]
+fn a_v35_ledger_keeps_old_transcript_rows_untimed_and_projects_new_recorded_times() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    apply(&mut connection).unwrap();
+    connection.execute_batch(
+        "DROP TRIGGER agent_chat_projection_from_transcript;
+         ALTER TABLE agent_chat_transcript_events DROP COLUMN recorded_at_unix_ms;
+         INSERT INTO conversations VALUES ('conversation');
+         INSERT INTO runs (run_id, provider, conversation_id) VALUES ('run', 'codex', 'conversation');
+         INSERT INTO turns (turn_id, conversation_id, run_id, sequence, phase) VALUES ('turn', 'conversation', 'run', 1, 'completed');
+         INSERT INTO agent_chat_conversations (conversation_id, root_run_id, provider, model, effort, mode)
+         VALUES ('conversation', 'run', 'codex', 'fixture', 'default', 'ask');
+         INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial)
+         VALUES ('conversation', 1, 'old', 'turn', 'run', 'assistantMessage', 'before', 0);
+         UPDATE gent_schema SET identity = 'gent-fresh-schema-v35';",
+    ).unwrap();
+    apply(&mut connection).unwrap();
+    apply(&mut connection).unwrap();
+    connection.execute(
+        "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, recorded_at_unix_ms)
+         VALUES ('conversation', 2, 'new', 'turn', 'run', 'assistantMessage', 'after', 0, 1764201600123)",
+        [],
+    ).unwrap();
+    let recorded = connection
+        .prepare("SELECT e.event_id, e.recorded_at_unix_ms, json_extract(p.payload, '$.recordedAtUnixMs') FROM agent_chat_transcript_events e LEFT JOIN agent_chat_projection_events p ON p.source_event_id = 'transcript:' || e.event_id ORDER BY e.cursor")
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<u64>>(1)?, row.get::<_, Option<u64>>(2)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        recorded,
+        [
+            ("old".to_owned(), None, None),
+            ("new".to_owned(), Some(1_764_201_600_123), Some(1_764_201_600_123))
+        ]
+    );
+}

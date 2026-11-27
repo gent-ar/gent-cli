@@ -42,7 +42,7 @@ impl TurnFollowReader for SqliteLedger {
             .ok_or_else(|| LedgerError::Invariant("turn follow hierarchy is unknown".into()))?;
         let mut statement = connection
             .prepare(
-                "SELECT cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json FROM agent_chat_transcript_events WHERE conversation_id = ?1 AND run_id = ?2 AND turn_id = ?3 AND cursor > ?4 ORDER BY cursor ASC LIMIT ?5",
+                "SELECT cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json, recorded_at_unix_ms FROM agent_chat_transcript_events WHERE conversation_id = ?1 AND run_id = ?2 AND turn_id = ?3 AND cursor > ?4 ORDER BY cursor ASC LIMIT ?5",
             )
             .map_err(storage_error)?;
         let rows = statement

@@ -284,7 +284,7 @@ fn append_transcript(
             |row| row.get::<_, u64>(0),
         )
         .map_err(storage_error)?;
-    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![batch.conversation_id, cursor, item.event_id, item.turn_id, item.run_id, super::transcript_ledger::kind(item.kind), item.text, i64::from(item.is_partial)]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, recorded_at_unix_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CAST(unixepoch('subsec') * 1000 AS INTEGER))", params![batch.conversation_id, cursor, item.event_id, item.turn_id, item.run_id, super::transcript_ledger::kind(item.kind), item.text, i64::from(item.is_partial)]).map_err(storage_error)?;
     Ok(Some(cursor))
 }
 

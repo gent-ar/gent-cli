@@ -172,6 +172,7 @@ async fn serve(listener: UnixListener, events: Vec<(&str, bool)>, phase: Durable
                             is_partial: *is_partial,
                             failure_code: None,
                             resets_at: None,
+                            recorded_at_unix_ms: None,
                             origin: None,
                             attachments: Vec::new(),
                         },

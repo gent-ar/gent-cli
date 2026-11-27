@@ -54,11 +54,39 @@ fn add_side_question_failure_code(
         .map_err(storage_error)
 }
 
+fn add_transcript_recorded_at(transaction: &rusqlite::Transaction<'_>) -> Result<(), LedgerError> {
+    if !has_tables(
+        transaction,
+        &[
+            "agent_chat_transcript_events",
+            "agent_chat_projection_events",
+        ],
+    )? {
+        return Ok(());
+    }
+    if !has_column(
+        transaction,
+        "agent_chat_transcript_events",
+        "recorded_at_unix_ms",
+    )? {
+        transaction
+            .execute(
+                "ALTER TABLE agent_chat_transcript_events ADD COLUMN recorded_at_unix_ms INTEGER",
+                [],
+            )
+            .map_err(storage_error)?;
+    }
+    transaction
+        .execute_batch(include_str!("fresh_schema_transcript_projection.sql"))
+        .map_err(storage_error)
+}
+
 pub(super) fn reapply_idempotent_schema(
     transaction: &rusqlite::Transaction<'_>,
 ) -> Result<(), LedgerError> {
     add_policy_command_grants(transaction)?;
     add_side_question_failure_code(transaction)?;
+    add_transcript_recorded_at(transaction)?;
     transaction
         .execute_batch(include_str!("fresh_schema_archive.sql"))
         .map_err(storage_error)?;

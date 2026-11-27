@@ -256,3 +256,40 @@ fn projection_tail_is_the_latest_readable_window_at_the_latest_cursor() {
             .is_err()
     );
 }
+
+#[test]
+fn every_appended_event_carries_the_time_the_ledger_recorded_it() {
+    let now = || {
+        u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    };
+    let (ledger, conversation_id, turn_id, run_id) = ledger();
+    let before = now();
+    let reply = ledger
+        .append_normalized_transcript(
+            &conversation_id,
+            &append("event-1", &turn_id, &run_id, "hi"),
+        )
+        .unwrap();
+    let recorded = reply.recorded_at_unix_ms.unwrap();
+    assert!((before.saturating_sub(1)..=now() + 1).contains(&recorded));
+    let page = ledger
+        .normalized_transcript_page(&conversation_id, 0, 10)
+        .unwrap();
+    assert!(page.events[0].recorded_at_unix_ms.is_some());
+    assert_eq!(page.events[1], reply);
+    let projection = ledger
+        .agent_chat_projection_page(&conversation_id, 0, 100)
+        .unwrap();
+    let projected = projection
+        .events
+        .iter()
+        .find(|event| event.payload["eventId"] == "event-1")
+        .unwrap();
+    assert_eq!(projected.payload["recordedAtUnixMs"], recorded);
+}

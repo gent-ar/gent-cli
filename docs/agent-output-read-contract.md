@@ -29,6 +29,15 @@ does not guarantee the provider emits reasoning or explain earlier zero counts.
 Codex plan updates preserve explanation and step status in canonical plan text.
 Child token/context totals do not replace the root turn's totals.
 
+## Recorded times
+
+Every transcript event the ledger appends stores the time it was recorded.
+Transcript pages, projection snapshot tails and projection transcript deltas
+carry it as `recordedAtUnixMs`, integer milliseconds since the Unix epoch.
+Events recorded before `gent-fresh-schema-v36` have no time and omit the field;
+Gentd never backfills one. A reply's time is the `recordedAtUnixMs` of its
+final (`isPartial: false`) event.
+
 ## Historical tool results
 
 Older normalized batches retained `ToolOutputDelta` in their immutable lifecycle

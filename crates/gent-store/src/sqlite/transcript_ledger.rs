@@ -55,13 +55,14 @@ pub(super) fn append_in(
     }
     require_hierarchy(transaction, conversation_id, append)?;
     let cursor = next_cursor(transaction, conversation_id)?;
-    transaction
-        .execute(
-            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    let recorded_at_unix_ms = transaction
+        .query_row(
+            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, recorded_at_unix_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CAST(unixepoch('subsec') * 1000 AS INTEGER)) RETURNING recorded_at_unix_ms",
             params![conversation_id.0, cursor, append.event_id, append.turn_id, append.run_id, kind(append.kind), append.text, i64::from(append.is_partial)],
+            |row| row.get(0),
         )
         .map_err(storage_error)?;
-    event(cursor, append)
+    event(cursor, append, recorded_at_unix_ms)
 }
 
 pub(super) fn page(
@@ -84,7 +85,7 @@ pub(super) fn page(
     let after = i64::try_from(after_cursor)
         .map_err(|_| LedgerError::Invariant("transcript cursor exceeds SQLite range".into()))?;
     let mut statement = connection
-        .prepare(&format!("SELECT e.cursor, e.event_id, e.turn_id, e.run_id, e.kind, e.text, e.is_partial, e.origin_json FROM agent_chat_transcript_events e WHERE e.conversation_id = ?1 AND e.cursor > ?2 AND NOT ({}) ORDER BY e.cursor ASC LIMIT ?3", super::transcript_settlement::SUPERSEDED_PARTIAL))
+        .prepare(&format!("SELECT e.cursor, e.event_id, e.turn_id, e.run_id, e.kind, e.text, e.is_partial, e.origin_json, e.recorded_at_unix_ms FROM agent_chat_transcript_events e WHERE e.conversation_id = ?1 AND e.cursor > ?2 AND NOT ({}) ORDER BY e.cursor ASC LIMIT ?3", super::transcript_settlement::SUPERSEDED_PARTIAL))
         .map_err(storage_error)?;
     let rows = statement
         .query_map(
@@ -171,7 +172,7 @@ fn find_by_event_id(
     transaction: &Transaction<'_>,
     event_id: &str,
 ) -> Result<Option<(String, NormalizedTranscriptEvent)>, LedgerError> {
-    transaction.query_row("SELECT conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json FROM agent_chat_transcript_events WHERE event_id = ?1", [event_id], |row| Ok((row.get(0)?, decode_event_at(row, 1)?))).optional().map_err(storage_error)
+    transaction.query_row("SELECT conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json, recorded_at_unix_ms FROM agent_chat_transcript_events WHERE event_id = ?1", [event_id], |row| Ok((row.get(0)?, decode_event_at(row, 1)?))).optional().map_err(storage_error)
 }
 
 fn retry_result(
@@ -202,6 +203,7 @@ fn event_matches(event: &NormalizedTranscriptEvent, append: &NormalizedTranscrip
 fn event(
     cursor: i64,
     append: &NormalizedTranscriptAppend,
+    recorded_at_unix_ms: u64,
 ) -> Result<NormalizedTranscriptEvent, LedgerError> {
     Ok(NormalizedTranscriptEvent {
         cursor: u64::try_from(cursor)
@@ -214,6 +216,7 @@ fn event(
         is_partial: append.is_partial,
         failure_code: gent_types::AgentChatFailureCode::from_event_id(&append.event_id),
         resets_at: gent_types::AgentChatFailureCode::resets_at_from_event_id(&append.event_id),
+        recorded_at_unix_ms: Some(recorded_at_unix_ms),
         origin: None,
         attachments: Vec::new(),
     })
@@ -239,6 +242,7 @@ fn decode_event_at(
         text: row.get(start + 5)?,
         is_partial: row.get::<_, i64>(start + 6)? != 0,
         origin: crate::sqlite::goal_ledger::decode_origin(row.get(start + 7)?)?,
+        recorded_at_unix_ms: row.get(start + 8)?,
         attachments: Vec::new(),
     })
 }

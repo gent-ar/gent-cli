@@ -256,6 +256,7 @@ async fn a_start_renders_history_within_the_local_model_budget() {
             is_partial: false,
             failure_code: None,
             resets_at: None,
+            recorded_at_unix_ms: None,
             origin: None,
             attachments: Vec::new(),
         };

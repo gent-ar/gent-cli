@@ -53,5 +53,5 @@ fn a_v31_ledger_gains_the_status_indexes_once() {
     let identity: String = connection
         .query_row("SELECT identity FROM gent_schema", [], |row| row.get(0))
         .unwrap();
-    assert_eq!((indexes, identity.as_str()), (2, "gent-fresh-schema-v35"));
+    assert_eq!((indexes, identity.as_str()), (2, "gent-fresh-schema-v36"));
 }

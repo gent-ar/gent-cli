@@ -11,6 +11,8 @@ fn event(kind: NormalizedTranscriptKind, text: &str) -> NormalizedTranscriptEven
         is_partial: false,
         failure_code: None,
         resets_at: None,
+        recorded_at_unix_ms: None,
+        recorded_at_unix_ms: None,
         origin: None,
         attachments: Vec::new(),
     }
@@ -38,6 +40,7 @@ fn scheduler_retries_missing_titles_and_creates_recaps_at_native_cadence() {
             is_partial: false,
             failure_code: None,
             resets_at: None,
+            recorded_at_unix_ms: None,
             origin: None,
             attachments: Vec::new(),
         })

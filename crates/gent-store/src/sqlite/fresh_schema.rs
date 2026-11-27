@@ -1,8 +1,8 @@
 use super::queries::storage_error;
 use gent_ports::LedgerError;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
-const SCHEMA_ID: &str = "gent-fresh-schema-v35";
-const V34_SCHEMA_ID: &str = "gent-fresh-schema-v34";
+const SCHEMA_ID: &str = "gent-fresh-schema-v36";
+const V35_SCHEMA_ID: &str = "gent-fresh-schema-v35";
 #[path = "fresh_schema_containment.rs"]
 mod containment;
 const V26_SCHEMA_ID: &str = "gent-fresh-schema-v26";
@@ -23,6 +23,7 @@ const SCHEMA: &str = concat!(
     include_str!("fresh_schema.sql"),
     include_str!("fresh_schema_agent_chat.sql"),
     include_str!("fresh_schema_projection.sql"),
+    include_str!("fresh_schema_transcript_projection.sql"),
     include_str!("fresh_schema_permission_projection.sql"),
     include_str!("fresh_schema_conversation_recency.sql"),
     include_str!("fresh_schema_steer_targets.sql"),
@@ -44,7 +45,6 @@ const V22_TO_V23: &str = concat!(
     include_str!("fresh_schema_conversation_recency.sql")
 );
 const V23_TO_V24: &str = include_str!("fresh_schema_v23_to_v24.sql");
-
 pub(super) fn apply(connection: &mut Connection) -> Result<(), LedgerError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -123,7 +123,7 @@ fn upgrade_through_v18(
 }
 
 fn upgrade(transaction: &rusqlite::Transaction<'_>, identity: &str) -> Result<(), LedgerError> {
-    if (V26_SCHEMA_ID..=V34_SCHEMA_ID).contains(&identity) {
+    if (V26_SCHEMA_ID..=V35_SCHEMA_ID).contains(&identity) {
         return transaction
             .execute_batch(include_str!("fresh_schema_host_mcp.sql"))
             .map_err(storage_error);

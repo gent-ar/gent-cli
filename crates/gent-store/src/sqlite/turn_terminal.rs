@@ -282,7 +282,7 @@ pub(crate) fn append_failure_notice(
     let (conversation_id, run_id) = scope(transaction, turn_id)?;
     transaction
         .execute(
-            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'notice', ?5, 0)",
+            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, recorded_at_unix_ms) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'notice', ?5, 0, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
             params![conversation_id, event_id, turn_id, run_id, text],
         )
         .map(|_| ())

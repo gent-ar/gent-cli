@@ -33,7 +33,7 @@ pub(super) fn supersede_unfinished_reply(
         }
         transaction
             .execute(
-                "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, ?5, ?6, 0)",
+                "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, recorded_at_unix_ms) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, ?5, ?6, 0, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
                 params![
                     last.conversation_id,
                     format!("{INTERRUPTED_REPLY_EVENT_PREFIX}{}", last.event_id),

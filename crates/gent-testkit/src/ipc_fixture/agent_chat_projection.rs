@@ -59,6 +59,7 @@ pub(super) fn validate_chat_projection(records: &[FixtureFrame]) -> Result<(), S
                 ..
             }
         ] if snapshot.transcript_truncated
+            && snapshot.transcript.iter().any(|event| event.recorded_at_unix_ms.is_some())
             && !snapshot.unreadable.is_empty()
             && summary.queue_delivery.is_some()
             && matches!(
@@ -113,7 +114,7 @@ pub(super) fn validate_chat_projection(records: &[FixtureFrame]) -> Result<(), S
     )
     .then_some(())
     .ok_or_else(|| {
-        "must contain a truncated snapshot naming an unreadable record, a summary delta with queueDelivery, an unreadable record delta, a turnStarted, a promptQueued with queueDelivery and cancelable, a promptWithdrawn, an interruptRequested, a contextCleared naming its clear command, a contextCompacted, a promptCancelRequested, a workspaceChanges with files, a decisionSettled with its outcome and a commands catalog delta".into()
+        "must contain a truncated snapshot with a recorded transcript time naming an unreadable record, a summary delta with queueDelivery, an unreadable record delta, a turnStarted, a promptQueued with queueDelivery and cancelable, a promptWithdrawn, an interruptRequested, a contextCleared naming its clear command, a contextCompacted, a promptCancelRequested, a workspaceChanges with files, a decisionSettled with its outcome and a commands catalog delta".into()
     })
 }
 

@@ -229,7 +229,7 @@ pub(super) fn note_exit(
     let text = format!("{}: {}", binding.exit.notice(), binding.reason);
     transaction
         .execute(
-            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial) VALUES (?1, ?2, ?3, ?4, ?5, 'notice', ?6, 0)",
+            "INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, recorded_at_unix_ms) VALUES (?1, ?2, ?3, ?4, ?5, 'notice', ?6, 0, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
             params![binding.conversation_id.0, cursor, event_id, turn_id, binding.run_id.0, text],
         )
         .map_err(storage_error)?;

@@ -146,7 +146,7 @@ pub(in crate::sqlite) fn save_in(
     }
     let message = insert_prompt(transaction, prompt, &run_id)?;
     attach_available(transaction, &message.turn_id, &prompt.attachment_ids)?;
-    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'userMessage', ?5, 0, ?6)", params![message.conversation_id, format!("user:{}", message.message_id), message.turn_id, message.run_id, message.text, serde_json::to_string(origin).map_err(storage_error)?]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_chat_transcript_events (conversation_id, cursor, event_id, turn_id, run_id, kind, text, is_partial, origin_json, recorded_at_unix_ms) VALUES (?1, (SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_transcript_events WHERE conversation_id = ?1), ?2, ?3, ?4, 'userMessage', ?5, 0, ?6, CAST(unixepoch('subsec') * 1000 AS INTEGER))", params![message.conversation_id, format!("user:{}", message.message_id), message.turn_id, message.run_id, message.text, serde_json::to_string(origin).map_err(storage_error)?]).map_err(storage_error)?;
     let receipt = Receipt {
         receipt_id: prompt.receipt_id.clone(),
         idempotency_key: key,
