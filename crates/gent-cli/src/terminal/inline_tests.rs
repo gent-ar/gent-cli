@@ -72,7 +72,6 @@ pub(super) fn event(
         failure_code: None,
         resets_at: None,
         recorded_at_unix_ms: None,
-        recorded_at_unix_ms: None,
         origin: None,
         attachments: Vec::new(),
     }
