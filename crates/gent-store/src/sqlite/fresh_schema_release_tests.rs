@@ -163,7 +163,11 @@ fn a_v35_ledger_keeps_old_transcript_rows_untimed_and_projects_new_recorded_time
         recorded,
         [
             ("old".to_owned(), None, None),
-            ("new".to_owned(), Some(1_764_201_600_123), Some(1_764_201_600_123))
+            (
+                "new".to_owned(),
+                Some(1_764_201_600_123),
+                Some(1_764_201_600_123)
+            )
         ]
     );
 }
